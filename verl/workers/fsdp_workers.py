@@ -232,6 +232,8 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
+        from omegaconf import OmegaConf, open_dict
+
         # initialize generation related config and tokenizer
         use_shm = self.config.model.get("use_shm", False)
         local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
@@ -242,7 +244,18 @@ class ActorRolloutRefWorker(Worker):
 
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
         self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
+
+        # for backward compatibility
+        use_remove_padding = self.config.model.get("use_remove_padding", False)
+        # initialize generation related config and tokenizer
+        use_shm = self.config.model.get("use_shm", False)
+        use_fused_kernels = self.config.model.get("use_fused_kernels", False)
+
         # load from checkpoint
+        OmegaConf.set_struct(self.config.actor, True)
+        with open_dict(self.config.actor):
+            self.config.actor.use_remove_padding = use_remove_padding
+            self.config.actor.use_fused_kernels = use_fused_kernels
         self.actor = DataParallelPPOActor(config=self.config.actor, actor_module=None, actor_optimizer=None, inference_only=self._is_rollout and not self._is_actor, tokenizer=self.tokenizer, processor=self.processor)
         if self._is_offload_param:
             self.actor.to("model", "cpu")
@@ -255,6 +268,10 @@ class ActorRolloutRefWorker(Worker):
             self.rollout, self.rollout_sharding_manager = self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
 
         if self._is_ref:
+            OmegaConf.set_struct(self.config.ref, True)
+            with open_dict(self.config.ref):
+                self.config.ref.use_remove_padding = use_remove_padding
+                self.config.ref.use_fused_kernels = use_fused_kernels
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=None, actor_optimizer=None, inference_only=True, tokenizer=self.tokenizer, processor=self.processor)
 
         if self._is_actor:
