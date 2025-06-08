@@ -6,6 +6,7 @@
 
 # dataset config
 data:
+
   # Tokenizer class or path. If null, it will be inferred from the model.
   tokenizer: null
 
@@ -89,6 +90,7 @@ data:
 
 # config for actor, rollout and reference model
 actor_rollout_ref:
+
   # Whether it's a hybrid engine, currently only supports hybrid engine
   hybrid_engine: true
 

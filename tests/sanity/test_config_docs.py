@@ -52,10 +52,8 @@ def validate_yaml_format(yaml_lines):
                 next_stripped = next_line.strip()
 
                 # If next is not empty and not a deeper nested line, enforce blank line
-                if next_stripped != "" and not next_stripped.startswith("#"):
-                    next_indent = len(next_line) - len(next_line.lstrip())
-                    if next_indent <= len(indent):  # not nested
-                        errors.append(f"Missing blank line after line {i+1}: {line.strip()}")
+                if next_stripped != "":
+                    errors.append(f"Missing blank line after line {i+1}: {line.strip()}")
 
         i += 1
 
