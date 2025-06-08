@@ -285,6 +285,9 @@ actor_rollout_ref:
         # minimum number of params in a wrapped module
         min_num_params: 0
 
+      # Number of GPUs in each FSDP shard group; -1 means auto
+      fsdp_size: -1
+
     # whether to enable torch.compile
     use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
 
