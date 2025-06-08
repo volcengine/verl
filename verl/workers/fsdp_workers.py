@@ -264,6 +264,13 @@ class ActorRolloutRefWorker(Worker):
             self.actor.to("optimizer", "cpu")
             log_gpu_memory_usage("After offload actor optimizer during init", logger=logger)
 
+        # for backward compatibility
+        self.actor_module_fsdp = self.actor.actor_module_fsdp
+        self.actor_model_config = self.actor.actor_model_config
+        self.actor_lr_scheduler = self.actor.actor_lr_scheduler
+        self._lora_rank = self.actor._lora_rank
+        self._is_lora = self._lora_rank > 0
+
         if self._is_rollout:
             self.rollout, self.rollout_sharding_manager = self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
 
@@ -273,13 +280,6 @@ class ActorRolloutRefWorker(Worker):
                 self.config.ref.use_remove_padding = use_remove_padding
                 self.config.ref.use_fused_kernels = use_fused_kernels
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=None, actor_optimizer=None, inference_only=True, tokenizer=self.tokenizer, processor=self.processor)
-
-        # for backward compatibility
-        self.actor_module_fsdp = self.actor.actor_module_fsdp
-        self.actor_model_config = self.actor.actor_model_config
-        self.actor_lr_scheduler = self.actor.actor_lr_scheduler
-        self._lora_rank = self.actor._lora_rank
-        self._is_lora = self._lora_rank > 0
 
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
