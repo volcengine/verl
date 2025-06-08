@@ -134,8 +134,7 @@ jobs:
           ADV_ESTIMATOR=grpo USE_SHM=True LORA_RANK=32 LOAD_FORMAT=safetensors LAYERED_SUMMON=True TOTAL_TRAIN_STEPS=1 SAVE_FREQ=1 FSDP_SIZE=4 bash tests/e2e/ppo_trainer/run_function_reward.sh
       - name: Test GRPO LoRA checkpoints merging function
         run: |
-          EXP_NAME="Qwen2.5-0.5B-function-reward-minimal"
-          echo "for debugging"
+          export EXP_NAME="Qwen2.5-0.5B-function-reward-minimal"
           ls checkpoints/verl-test/${exp_name}/global_step_1/actor
           cat checkpoints/verl-test/${exp_name}/global_step_1/actor/config.json
           python3 scripts/model_merger.py merge --backend fsdp --local_dir checkpoints/verl-test/${EXP_NAME}/global_step_1/actor/ --target_dir checkpoints/verl-test/${EXP_NAME}/global_step_1/actor/hf
