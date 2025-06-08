@@ -120,6 +120,7 @@ def compute_grpo_outcome_advantage(
     """
     Compute advantage for GRPO, operating only on Outcome reward
     (with only one scalar reward for each response).
+
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape is (bs, response_length)
@@ -223,6 +224,7 @@ def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: 
     """
     Compute advantage for RF++-baseline (https://arxiv.org/abs/2501.03262), operating only on Outcome reward
     (with only one scalar reward for each response).
+
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape: (bs, response_length)
@@ -264,6 +266,7 @@ def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: 
 def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: np.ndarray, epsilon: float = 1e-6):
     """
     Compute advantage for RLOO based on https://arxiv.org/abs/2402.14740
+
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape: (bs, response_length)
@@ -301,10 +304,56 @@ def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor, response_m
     return scores, scores
 
 
+def compute_opo_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: np.ndarray, epsilon: float = 1e-6):
+    """
+    Compute advantage for OPO based on https://arxiv.org/pdf/2505.23585
+
+    Args:
+        token_level_rewards: `(torch.Tensor)`
+            shape: (bs, response_length)
+        response_mask: `(torch.Tensor)`
+            shape: (bs, response_length)
+
+    Returns:
+        advantages: `(torch.Tensor)`
+            shape: (bs, response_length)
+        Returns: `(torch.Tensor)`
+            shape: (bs, response_length)
+    """
+    response_length = response_mask.sum(dim=-1)
+    scores = token_level_rewards.sum(dim=-1)
+
+    id2score = defaultdict(list)
+    id2len = defaultdict(list)
+    id2bsl = {}
+
+    with torch.no_grad():
+        bsz = scores.shape[0]
+        for i in range(bsz):
+            id2score[index[i]].append(scores[i])
+            id2len[index[i]].append(response_length[i])
+
+        for idx in id2score:
+            if len(id2score[idx]) == 1:
+                id2bsl[idx] = torch.tensor(0.0)
+            elif len(id2score[idx]) > 1:
+                score_tensor = torch.tensor(id2score[idx])
+                len_tensor = torch.tensor(id2len[idx])
+                id2bsl[idx] = (len_tensor * score_tensor).sum() / len_tensor.sum()
+            else:
+                raise ValueError(f"no score in prompt index: {idx}")
+        for i in range(bsz):
+            scores[i] = scores[i] - id2bsl[index[i]]
+        scores = scores.unsqueeze(-1) * response_mask
+
+    return scores, scores
+
+
 def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, gamma: torch.Tensor):
     """
     Compute advantage for REINFORCE++.
     This implementation is based on the paper: https://arxiv.org/abs/2501.03262
+
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape: (bs, response_length)
@@ -338,8 +387,8 @@ def compute_remax_outcome_advantage(token_level_rewards: torch.Tensor, reward_ba
     """
     Compute advantage for ReMax, operating only on Outcome reward
     This implementation is based on the paper: https://arxiv.org/abs/2310.10505
-
     (with only one scalar reward for each response).
+
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape: (bs, response_length)

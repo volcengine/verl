@@ -104,7 +104,7 @@ class TensorLoRARequest(LoRARequest):
     lora_tensors:dict = field(default=None)
 
 
-class VLLMHijack():
+class VLLMHijack:
     @staticmethod
     def hijack():
         def hijack__load_adapter(self, lora_request: TensorLoRARequest) -> LoRAModel:

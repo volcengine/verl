@@ -23,9 +23,9 @@ import hydra
 import ray
 
 from verl.trainer.ppo.reward import load_reward_manager
+from verl.utils.device import is_cuda_available
 
 from .sppo_ray_trainer import RaySPPOTrainer
-from verl.utils.device import is_cuda_available
 
 
 @hydra.main(config_path="config", config_name="sppo_trainer", version_base=None)

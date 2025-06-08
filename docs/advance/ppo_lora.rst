@@ -18,9 +18,9 @@ Usage Guide
 ------------------------
 1. Lora is available in the `verl.trainer.ppo.ray_trainer.RayPPOTrainer`. Examples are provided via the `verl.trainer.main_ppo` entry point.
 
-2. Currently, LoRA is supported via huggingface peft, only with fsdp and vllm backend (sglang support coming soon).
+2. Currently, LoRA is supported via huggingface peft, only with fsdp/fsdp2 and vllm backend (sglang support coming soon).
 
-- `strategy=fsdp`
+- `strategy=fsdp` or `strategy=fsdp2`
 - `rollout.name=vllm`
 
 3. Required configurations for LoRA:

@@ -27,6 +27,7 @@ from torch import nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 from transformers import PreTrainedTokenizer
+from verl.utils.device import get_torch_device, get_device_name
 
 try:
     from flash_attn.ops.triton.cross_entropy import cross_entropy_loss
@@ -642,14 +643,14 @@ def get_wsd_schedule_with_warmup(
 
 
 @contextmanager
-def check_cuda_is_available():
+def check_device_is_available():
     """
     Some modules must be imported after CUDA is initialized. Such as sglang's sharding manager.
 
     This context manager checks if CUDA is available and raises an error if it is not.
     """
-    if not torch.cuda.is_available():
-        raise RuntimeError("CUDA must be initialized before importing this module.")
+    if not get_torch_device().is_available():
+        raise RuntimeError("Device {} must be initialized before importing this module.".format(get_device_name()))
 
     yield
 
