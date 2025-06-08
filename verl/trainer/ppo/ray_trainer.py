@@ -58,7 +58,6 @@ from verl.utils.metric import (
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
-from verl.workers.rollout.async_server import AsyncLLMServerManager
 
 WorkerType = Type[Worker]
 
@@ -817,6 +816,8 @@ class RayPPOTrainer:
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
         if self.config.actor_rollout_ref.rollout.mode == "async":
+            from verl.workers.rollout.async_server import AsyncLLMServerManager
+
             self.async_rollout_mode = True
             self.async_rollout_manager = AsyncLLMServerManager(
                 config=self.config.actor_rollout_ref,
