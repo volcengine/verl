@@ -204,6 +204,7 @@ class Worker(WorkerHelper):
             else:
                 cuda_val = val
                 os.environ["CUDA_VISIBLE_DEVICES"] = val
+                os.environ["HIP_VISIBLE_DEVICES"] = val
 
         if rocr_val:
             # You must take care if both HIP/CUDA and ROCR env vars are set as they have
