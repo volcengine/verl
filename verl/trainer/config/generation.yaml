@@ -45,6 +45,7 @@ actor:
   ulysses_sequence_parallel_size: 1 # sp size
   fsdp_config:
     fsdp_size: -1
+  model: ${model}
 
 ray_init:
   num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.

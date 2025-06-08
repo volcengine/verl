@@ -145,7 +145,7 @@ class DataParallelPPOActor(BasePPOActor):
                 fsdp_config = self.config.fsdp_config
             else:
                 optim_config = None
-                fsdp_config = OmegaConf.create()
+                fsdp_config = self.config.fsdp_config
 
             override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
 
