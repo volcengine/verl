@@ -259,6 +259,9 @@ actor_rollout_ref:
       # Number of GPUs in each FSDP shard group; -1 means auto
       fsdp_size: -1
 
+    # model config. To be self-contained
+    model: ${actor_rollout_ref.model}
+
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
   ref:
@@ -300,6 +303,9 @@ actor_rollout_ref:
 
     # sequence parallel size
     ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size}
+
+    # model config. To be self-contained
+    model: ${actor_rollout_ref.model}
 
   # Rollout model config.
   rollout:

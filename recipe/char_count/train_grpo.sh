@@ -1,6 +1,8 @@
 set -x
 
 #export VLLM_ATTENTION_BACKEND=XFORMERS
+date=$(date +%Y-%m-%d-%H-%M-%S)
+export TENSORBOARD_DIR=./tensorboard_log/$date
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \

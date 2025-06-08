@@ -135,11 +135,11 @@ class DataParallelPPOActor(BasePPOActor):
         # build device mesh for FSDP
         world_size = torch.distributed.get_world_size()
         # TODO(sgm): support FSDP hybrid shard for larger model
-        self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=self.config.actor.fsdp_config.fsdp_size)
+        self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=self.config.fsdp_config.fsdp_size)
 
         # build device mesh for Ulysses Sequence Parallel
         self.ulysses_device_mesh = None
-        self.ulysses_sequence_parallel_size = self.config.actor.get("ulysses_sequence_parallel_size", 1)
+        self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
         dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
             self.ulysses_device_mesh = init_device_mesh(self.device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=("dp", "sp"))
@@ -151,8 +151,8 @@ class DataParallelPPOActor(BasePPOActor):
 
         if self.actor_module is None:
             if not self.inference_only:
-                optim_config = self.config.actor.optim
-                fsdp_config = self.config.actor.fsdp_config
+                optim_config = self.config.optim
+                fsdp_config = self.config.fsdp_config
             else:
                 optim_config = None
                 fsdp_config = OmegaConf.create()
@@ -187,7 +187,7 @@ class DataParallelPPOActor(BasePPOActor):
                 optimizer=self.actor_optimizer,
                 lr_scheduler=self.actor_lr_scheduler,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
-                checkpoint_contents=self.config.actor.checkpoint.contents,
+                checkpoint_contents=self.config.checkpoint.contents,
             )
 
     def _build_model_optimizer(
@@ -312,7 +312,7 @@ class DataParallelPPOActor(BasePPOActor):
         # We force reference policy to use CPUOffload to save memory.
         # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
         cpu_offload = None if not self.inference_only else CPUOffload(offload_params=True)
-        fsdp_strategy = self.config.actor.strategy
+        fsdp_strategy = self.config.strategy
         if fsdp_strategy == "fsdp":
             actor_module_fsdp = FSDP(
                 actor_module,
@@ -388,6 +388,7 @@ class DataParallelPPOActor(BasePPOActor):
             actor_optimizer = None
             actor_lr_scheduler = None
 
+        self.actor_module = actor_module_fsdp  # legacy. for compatibility
         self.actor_module_fsdp = actor_module_fsdp
         self.actor_optimizer = actor_optimizer
         self.actor_lr_scheduler = actor_lr_scheduler
@@ -438,6 +439,12 @@ class DataParallelPPOActor(BasePPOActor):
 
     def load_checkpoint(self, local_path, hdfs_path, del_local_after_load):
         self.checkpoint_manager.load_checkpoint(local_path=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load)
+
+    def reshard_root_module(self):
+        # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
+        # unshard the root FSDP module
+        if dist.get_world_size() > 1 and fsdp_version(self.actor_module_fsdp) == 1:
+            self.actor_module_fsdp._handle.reshard(True)
 
     def _forward_micro_batch(self, micro_batch, temperature, calculate_entropy=False) -> Tuple[torch.Tensor, torch.Tensor]:
         """
