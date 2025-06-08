@@ -758,6 +758,11 @@ class SGLangRollout(BaseRollout):
                 else:
                     raise ValueError(f"Unexpected tool calling last message state: {_req.messages[-1]}")
             elif _req.state == AsyncRolloutRequestStateEnum.RUNNING:
+                # Only continue the conversation if the prompt length is not greater than max_model_len - 1,
+                # since SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra token accounts for the EOS token).
+                if len(_req.get_generation_prompt_ids(self.tokenizer)) + 1 >= self.config.max_model_len:
+                    finish_reason_type = FinishReasonTypeEnum.LENGTH
+                    break
                 output = await self._handle_engine_call(_req, do_sample, is_validate, **kwargs)
                 content = output["text"]
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
@@ -826,6 +831,8 @@ class SGLangRollout(BaseRollout):
 
     async def _handle_engine_call(self, _req: AsyncRolloutRequest, do_sample: bool, is_validate: bool, override_n: bool = True, **kwargs) -> dict:
         generation_prompt_ids = _req.get_generation_prompt_ids(self.tokenizer)
+        # Adjust max_new_tokens to ensure it is not greater than max_model_len - 1
+        # SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra token accounts for the EOS token).
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
         if not do_sample:
             kwargs = dict(
