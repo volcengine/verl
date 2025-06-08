@@ -55,5 +55,5 @@ jobs:
           pytest -s -x .
       - name: Running worker tests
         run: |
-          cd tests/workers
+          cd tests/workers/reward_manager
           pytest -s -x .
