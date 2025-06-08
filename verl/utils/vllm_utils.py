@@ -46,18 +46,6 @@ try:
 except ImportError:
     pass
 
-try:
-    from vllm.model_executor.models.qwen2_vl import Qwen2VLForConditionalGeneration
-    SUPPORTED_MOE_MODELS.append(Qwen2VLForConditionalGeneration)
-except ImportError:
-    pass
-
-try:
-    from vllm.model_executor.models.gemma3_mm import Gemma3ForConditionalGeneration
-    SUPPORTED_MOE_MODELS.append(Gemma3ForConditionalGeneration)
-except ImportError:
-    pass
-
 from typing import List
 
 from msgspec import field
