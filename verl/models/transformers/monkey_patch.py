@@ -137,6 +137,7 @@ def patch_vlm_for_ulysses_input_slicing(model_class: type):
     model_class.forward = wrapped_forward
     print(f"Monkey patch {model_class.__name__}.forward for Ulysses SP input slicing.")
 
+
 def patch_forward_with_backends(
     model: PreTrainedModel,
     use_fused_kernels: bool = False,
@@ -167,7 +168,7 @@ def patch_forward_with_backends(
         forward_with_triton_backend_function = forward_with_triton_backend
     else:
         from verl.models.transformers.dense_common import forward_with_torch_backend, forward_with_triton_backend
-        
+
         forward_with_torch_backend_function = forward_with_torch_backend
         forward_with_triton_backend_function = forward_with_triton_backend
 
@@ -188,6 +189,13 @@ def apply_monkey_patch(
     use_fused_kernels: bool = False,
     fused_kernels_backend: str = None,
 ):
+    """
+    Apply monkey patch to the models for ulysses sequence parallel and fused kernel.
+
+    In the end of this function forward function of the model is patched for fused kernel.
+    If the model is not supported with fused kernel, please return after patch.
+    """
+
     """Replace _flash_attention_forward to _ulysses_flash_attention_forward"""
     module = sys.modules[model.__module__]
 
@@ -195,7 +203,7 @@ def apply_monkey_patch(
         num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
     except AttributeError:
         num_attention_heads, num_key_value_heads = model.config.text_config.num_attention_heads, model.config.text_config.num_key_value_heads
-    
+
     assert num_attention_heads % ulysses_sp_size == 0, f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
     assert num_key_value_heads % ulysses_sp_size == 0 or ulysses_sp_size % num_key_value_heads == 0, (
         f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,kv heads are repeated to ensure correctness."
@@ -215,17 +223,12 @@ def apply_monkey_patch(
         if ulysses_sp_size > 1:
             if is_transformers_version_in_range(min_version="4.52.0"):
                 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLTextModel
+
                 patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLTextModel)
             else:
                 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLModel
+
                 patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLModel)
-
-        if use_fused_kernels:
-            from verl.models.transformers.qwen2_5_vl import forward_for_ppo
-
-            Qwen2_5_VLForConditionalGeneration.forward = forward_for_ppo
-
-        return
 
     elif model.config.model_type == "qwen2_vl":
         from transformers.models.qwen2_vl.modeling_qwen2_vl import (
@@ -241,17 +244,12 @@ def apply_monkey_patch(
         if ulysses_sp_size > 1:
             if is_transformers_version_in_range(min_version="4.52.0"):
                 from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLTextModel
+
                 patch_vlm_for_ulysses_input_slicing(Qwen2VLTextModel)
             else:
                 from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLModel
+
                 patch_vlm_for_ulysses_input_slicing(Qwen2VLModel)
-
-        if use_fused_kernels:
-            from verl.models.transformers.qwen2_vl import forward_for_ppo
-
-            Qwen2VLForConditionalGeneration.forward = forward_for_ppo
-
-        return
 
     elif model.config.model_type == "kimi_vl":
         if use_remove_padding or ulysses_sp_size > 1:
@@ -261,7 +259,7 @@ def apply_monkey_patch(
             module.KimiVLForConditionalGeneration._merge_with_image_features = _merge_with_image_features
             module.DeepseekV3FlashAttention2.forward = _ulysses_flash_attn_forward
             print("Monkey patch FlashAttention2.forward in KimiVL")
-            
+
         if use_fused_kernels:
             print("Not support fused kernels for KimiVL")
 

@@ -43,6 +43,8 @@ compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=
 fused_linear_for_ppo = FusedLinearForPPO()
 fused_linear_for_ppo.compile(dynamic=True)
 
+MAX_TEST_CASES = os.environ.get("MAX_TEST_CASES", 5)
+
 
 def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, temperature: float, reduction="none") -> typing.List[torch.Tensor]:
     hidden = hidden.squeeze(0).to(torch.float32)
@@ -135,6 +137,7 @@ class TestLinearCrossEntropy:
             self.vocab_size = 102400
         else:
             raise ValueError(f"Invalid test case index: {self.test_case_idx}")
+        assert MAX_TEST_CASES <= 5, "MAX_TEST_CASES should be less than or equal to 5."
 
     def generate_forward_inputs(self):
         hidden = torch.empty((self.batch_size, self.num_tokens, self.hidden_size), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5).requires_grad_()
@@ -297,8 +300,6 @@ class TestLinearCrossEntropy:
         self.check_storage("VeRL Torch Fused", run_verl_torch_fused_entropy)
         self.check_storage("Kernel", linear_cross_entropy)
 
-
-MAX_TEST_CASES = os.environ.get("MAX_TEST_CASES", 5)
 
 if __name__ == "__main__":
     # torch.cuda.memory._record_memory_history()

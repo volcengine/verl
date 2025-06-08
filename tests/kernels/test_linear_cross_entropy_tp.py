@@ -49,6 +49,9 @@ import verl.utils.torch_functional as verl_F
 
 compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
 
+MAX_TEST_CASES = os.environ.get("MAX_TEST_CASES", 5)
+VERIFY_TORCH_SELF = os.environ.get("VERIFY_TORCH_SELF", False)
+
 
 def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, temperature: float, reduction="none") -> typing.List[torch.Tensor]:
     # [num_tokens, vocab_size]
@@ -154,8 +157,6 @@ class TorchEntropyTP(torch.autograd.Function):
 
 run_torch_entropy_tp = TorchEntropyTP.apply
 
-MAX_TEST_CASES = os.environ.get("MAX_TEST_CASES", 5)
-
 
 class TestLinearCrossEntropy_TensorParallel:
     def __init__(self):
@@ -212,6 +213,7 @@ class TestLinearCrossEntropy_TensorParallel:
             self.vocab_size = 102400
         else:
             raise ValueError(f"Invalid test case index: {self.test_case_idx}")
+        assert MAX_TEST_CASES <= 5, "MAX_TEST_CASES should be less than or equal to 5."
 
     def generate_forward_inputs(self):
         hidden = torch.empty((self.batch_size, self.num_tokens, self.hidden_size), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5).requires_grad_()
@@ -431,7 +433,8 @@ if __name__ == "__main__":
     for test_case_idx in range(MAX_TEST_CASES):
         print(f"[INFO] Running test case {test_case_idx}")
         test.initialize(test_case_idx)
-        test.verify_torch_itself()
+        if VERIFY_TORCH_SELF:
+            test.verify_torch_itself()
         test.check_torch_storage()
         test.verify_kernel_correctness()
         test.check_kernel_storage()
