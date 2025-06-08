@@ -59,12 +59,14 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         full_params: bool = False,
         device_mesh: DeviceMesh = None,
         offload_param: bool = False,
+        multi_stage_wake_up: bool = False,
     ):
         self.module = module
         self.inference_engine = inference_engine
         self.model_config = model_config
         self.device_mesh = device_mesh
         self.offload_param = offload_param
+        self.multi_stage_wake_up = multi_stage_wake_up
 
         # Full params
         self.full_params = full_params
@@ -139,7 +141,17 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     async def update_weights(self, params):
         if self.device_mesh["infer_tp"].get_local_rank() == 0:
-            await self.inference_engine.resume_memory_occupation()
+            if self.multi_stage_wake_up:
+                print("resume_memory_occupation weights")
+                await self.inference_engine.resume_memory_occupation(tags=["weights"])
+                print("resume_memory_occupation weights done")
+            else:
+                await self.inference_engine.resume_memory_occupation()
+
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.multi_stage_wake_up:
+            print("resume_memory_occupation kv_cache")
+            await self.inference_engine.resume_memory_occupation(tags=["kv_cache"])
+            print("resume_memory_occupation kv_cache done")
 
         # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
         named_tensors = [(k, v) for k, v in params.items()]
@@ -172,7 +184,11 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     async def release_memory(self):
         if self.device_mesh["infer_tp"].get_local_rank() == 0:
-            await self.inference_engine.release_memory_occupation()
+            if self.multi_stage_wake_up:
+                await self.inference_engine.release_memory_occupation(tags=["weights"])
+                await self.inference_engine.release_memory_occupation(tags=["kv_cache"])
+            else:
+                await self.inference_engine.release_memory_occupation()
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
     async def wake_up(self):

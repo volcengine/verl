@@ -139,21 +139,21 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
         # default to use dummy load format, which need to reload weights in first time
         self._need_reload = True
 
-    async def release_memory_occupation(self):
+    async def release_memory_occupation(self, tags: Optional[List[str]] = None):
         """Release GPU occupation temporarily."""
-        obj = ReleaseMemoryOccupationReqInput()
+        obj = ReleaseMemoryOccupationReqInput(tags=tags)
         return await self.tokenizer_manager.release_memory_occupation(obj, None)
 
-    async def resume_memory_occupation(self):
+    async def resume_memory_occupation(self, tags: Optional[List[str]] = None):
         """Resume GPU occupation."""
 
         # because __init__ is a sync method, it can not call the async release_memory_occupation
         # have to move release_memory_occupation from __init__ to here
         if self._need_reload:
-            await self.release_memory_occupation()
+            await self.release_memory_occupation(tags=tags)
             self._need_reload = False
 
-        obj = ResumeMemoryOccupationReqInput()
+        obj = ResumeMemoryOccupationReqInput(tags=tags)
         return await self.tokenizer_manager.resume_memory_occupation(obj, None)
 
     async def update_weights_from_tensor(
