@@ -148,7 +148,7 @@ class ActorRolloutRefWorker(Worker):
             from verl.workers.rollout import HFRollout
             from verl.workers.sharding_manager.base import BaseShardingManager
 
-            rollout = HFRollout(module=self.actor.actor_module_fsdp, config=self.config.rollout)
+            rollout = HFRollout(module=self.actor_module_fsdp, config=self.config.rollout)
             rollout_sharding_manager = BaseShardingManager()
             # TODO: a sharding manager that do nothing?
 
@@ -161,7 +161,7 @@ class ActorRolloutRefWorker(Worker):
             lora_kwargs = {"lora_kwargs": {"enable_lora": True, "max_loras": 1, "max_lora_rank": self.actor._lora_rank}} if self.actor._is_lora else {}
             # lora_kwargs = {}
             if vllm_mode == "customized":
-                rollout = vLLMRollout(actor_module=self.actor.actor_module_fsdp, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor.actor_model_config, trust_remote_code=trust_remote_code, **lora_kwargs)
+                rollout = vLLMRollout(actor_module=self.actor_module_fsdp, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor.actor_model_config, trust_remote_code=trust_remote_code, **lora_kwargs)
             elif vllm_mode == "spmd":
                 from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 
@@ -173,7 +173,7 @@ class ActorRolloutRefWorker(Worker):
             log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
             full_params = torch.distributed.get_world_size() == 1
             rollout_sharding_manager = FSDPVLLMShardingManager(
-                module=self.actor.actor_module_fsdp,
+                module=self.actor_module_fsdp,
                 inference_engine=rollout.inference_engine,
                 model_config=self.actor.actor_model_config,
                 full_params=full_params,
@@ -216,7 +216,7 @@ class ActorRolloutRefWorker(Worker):
             if torch.distributed.get_world_size() == 1:
                 self.config.rollout.load_format = "dummy_hf"
             rollout_sharding_manager = FSDPSGLangShardingManager(
-                module=self.actor.actor_module_fsdp,
+                module=self.actor_module_fsdp,
                 inference_engine=rollout._engine,
                 model_config=self.actor.actor_model_config,
                 full_params="hf" in self.config.rollout.load_format,
@@ -277,6 +277,13 @@ class ActorRolloutRefWorker(Worker):
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor.actor_model_config)
 
+        # for backward compatibility
+        self.actor_module_fsdp = self.actor.actor_module_fsdp
+        self.actor_model_config = self.actor.actor_model_config
+        self.actor_lr_scheduler = self.actor.actor_lr_scheduler
+        self._lora_rank = self.actor._lora_rank
+        self._is_lora = self._lora_rank > 0
+
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
         # Support all hardwares
@@ -301,9 +308,9 @@ class ActorRolloutRefWorker(Worker):
             metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
             metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
 
-            lr = self.actor.actor_lr_scheduler.get_last_lr()[0]
+            lr = self.actor_lr_scheduler.get_last_lr()[0]
             metrics["actor/lr"] = lr
-            self.actor.actor_lr_scheduler.step()
+            self.actor_lr_scheduler.step()
 
             # TODO: here, we should return all metrics
             output = DataProto(meta_info={"metrics": metrics})
