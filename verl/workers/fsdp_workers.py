@@ -158,15 +158,15 @@ class ActorRolloutRefWorker(Worker):
 
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
             local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
-            lora_kwargs = {"lora_kwargs": {"enable_lora": True, "max_loras": 1, "max_lora_rank": self.actor._lora_rank}} if self.actor._is_lora else {}
+            lora_kwargs = {"lora_kwargs": {"enable_lora": True, "max_loras": 1, "max_lora_rank": self._lora_rank}} if self.actor._is_lora else {}
             # lora_kwargs = {}
             if vllm_mode == "customized":
-                rollout = vLLMRollout(actor_module=self.actor_module_fsdp, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor.actor_model_config, trust_remote_code=trust_remote_code, **lora_kwargs)
+                rollout = vLLMRollout(actor_module=self.actor_module_fsdp, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor_model_config, trust_remote_code=trust_remote_code, **lora_kwargs)
             elif vllm_mode == "spmd":
                 from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 
                 vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
-                rollout = vllm_rollout_cls(model_path=local_path, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor.actor_model_config, device_mesh=rollout_device_mesh, trust_remote_code=trust_remote_code, **lora_kwargs)
+                rollout = vllm_rollout_cls(model_path=local_path, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor_model_config, device_mesh=rollout_device_mesh, trust_remote_code=trust_remote_code, **lora_kwargs)
             else:
                 raise NotImplementedError("vllm_mode must be 'customized' or 'spmd'")
 
@@ -175,7 +175,7 @@ class ActorRolloutRefWorker(Worker):
             rollout_sharding_manager = FSDPVLLMShardingManager(
                 module=self.actor_module_fsdp,
                 inference_engine=rollout.inference_engine,
-                model_config=self.actor.actor_model_config,
+                model_config=self.actor_model_config,
                 full_params=full_params,
                 device_mesh=rollout_device_mesh,
                 offload_param=self._is_offload_param,
@@ -208,7 +208,7 @@ class ActorRolloutRefWorker(Worker):
                 actor_module=local_path,
                 config=self.config.rollout,
                 tokenizer=self.tokenizer,
-                model_hf_config=self.actor.actor_model_config,
+                model_hf_config=self.actor_model_config,
                 trust_remote_code=trust_remote_code,
             )
             log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
@@ -218,7 +218,7 @@ class ActorRolloutRefWorker(Worker):
             rollout_sharding_manager = FSDPSGLangShardingManager(
                 module=self.actor_module_fsdp,
                 inference_engine=rollout._engine,
-                model_config=self.actor.actor_model_config,
+                model_config=self.actor_model_config,
                 full_params="hf" in self.config.rollout.load_format,
                 device_mesh=rollout_device_mesh,
                 offload_param=self._is_offload_param,
@@ -274,15 +274,15 @@ class ActorRolloutRefWorker(Worker):
                 self.config.ref.use_fused_kernels = use_fused_kernels
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=None, actor_optimizer=None, inference_only=True, tokenizer=self.tokenizer, processor=self.processor)
 
-        if self._is_actor:
-            self.flops_counter = FlopsCounter(self.actor.actor_model_config)
-
         # for backward compatibility
         self.actor_module_fsdp = self.actor.actor_module_fsdp
         self.actor_model_config = self.actor.actor_model_config
         self.actor_lr_scheduler = self.actor.actor_lr_scheduler
         self._lora_rank = self.actor._lora_rank
         self._is_lora = self._lora_rank > 0
+
+        if self._is_actor:
+            self.flops_counter = FlopsCounter(self.actor_model_config)
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
