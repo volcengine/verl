@@ -15,15 +15,67 @@
 """
 Core functions to implement PPO algorithms.
 The function implemented in this file should be used by trainer with different distributed strategies to
-implement PPO
+implement PPO-like algorithms.
 """
 
+__all__ = ['register', "get_adv_estimator_fn", "AdvantageEstimator"]
+
 from collections import defaultdict
+from enum import Enum
 
 import numpy as np
 import torch
 
 import verl.utils.torch_functional as verl_F
+
+ADV_ESTIMATOR_REGISTRY = {}
+
+def register(name):
+    """Decorator to register a advantage estimator function with a given name.
+
+    Args:
+        name: `(str)` or AdvantageEstimator enum
+            The name of the advantage estimator.
+
+    """
+    def decorator(fn):
+        if name in ADV_ESTIMATOR_REGISTRY and ADV_ESTIMATOR_REGISTRY[name] != fn:
+            raise ValueError(f"Adv estimator {name} has already been registered: {ADV_ESTIMATOR_REGISTRY[name]} vs {fn}")
+        ADV_ESTIMATOR_REGISTRY[name] = fn
+        return fn
+    return decorator
+
+def get_adv_estimator_fn(name):
+    """Get the advantage estimator function with a given name.
+
+    Args:
+        name: `(str)`
+            The name of the advantage estimator.
+
+    Returns:
+        `(callable)`: The advantage estimator function.
+    """
+    if name not in ADV_ESTIMATOR_REGISTRY:
+        raise ValueError(f"Unknown advantage estimator simply: {name}")
+    return ADV_ESTIMATOR_REGISTRY[name]
+
+class AdvantageEstimator(str, Enum):
+    """Using an enumeration class to avoid spelling errors in adv_estimator.
+
+    Note(haibin.lin): this enum class is immutable after creation. Extending this
+    enum for new estimators may not be necessary since users can always just call
+    `verl.trainer.ppo.core_algos.register` with string name for a custom advantage
+    estimator instead.
+    """
+
+    GAE = "gae"
+    GRPO = "grpo"
+    REINFORCE_PLUS_PLUS = "reinforce_plus_plus"
+    REINFORCE_PLUS_PLUS_BASELINE = "reinforce_plus_plus_baseline"
+    REMAX = "remax"
+    RLOO = "rloo"
+    OPO = "opo"
+    GRPO_PASSK = "grpo_passk"
 
 
 class AdaptiveKLController:
@@ -63,7 +115,7 @@ def get_kl_controller(kl_ctrl):
     else:
         raise NotImplementedError
 
-
+@register(AdvantageEstimator.GAE) # or simply: @@register('gae')
 def compute_gae_advantage_return(
     token_level_rewards: torch.Tensor,
     values: torch.Tensor,
@@ -110,6 +162,7 @@ def compute_gae_advantage_return(
 
 
 # NOTE(sgm): this implementation only consider outcome supervision, where the reward is a scalar.
+@register(AdvantageEstimator.GRPO) # or simply: @register("grpo")
 def compute_grpo_outcome_advantage(
     token_level_rewards: torch.Tensor,
     response_mask: torch.Tensor,
@@ -165,13 +218,14 @@ def compute_grpo_outcome_advantage(
 
     return scores, scores
 
-
+@register(AdvantageEstimator.GRPO_PASSK) # or simply: @register("grpo_passk")
 def compute_grpo_passk_outcome_advantage(
     token_level_rewards: torch.Tensor,
     response_mask: torch.Tensor,
     index: np.ndarray,
     epsilon: float = 1e-6,
     norm_adv_by_std_in_grpo: bool = True,
+    **kwargs,
 ):
     """
     Compute advantage for Pass@k using a GRPO-style outcome reward formulation.
@@ -219,8 +273,9 @@ def compute_grpo_passk_outcome_advantage(
     advantages = advantages.unsqueeze(-1) * response_mask
     return advantages, advantages
 
-
-def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: torch.Tensor, epsilon: float = 1e-6):
+@register(AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE) # or simply: @register("reinforce_plus_plus_baseline")
+def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: torch.Tensor,
+                                                           epsilon: float = 1e-6, **kwargs):
     """
     Compute advantage for RF++-baseline (https://arxiv.org/abs/2501.03262), operating only on Outcome reward
     (with only one scalar reward for each response).
@@ -262,8 +317,9 @@ def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: 
 
     return scores, scores
 
-
-def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: np.ndarray, epsilon: float = 1e-6):
+@register(AdvantageEstimator.RLOO) # or simply: @register("rloo")
+def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: np.ndarray,
+                                   epsilon: float = 1e-6, **kwargs):
     """
     Compute advantage for RLOO based on https://arxiv.org/abs/2402.14740
 
@@ -303,8 +359,8 @@ def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor, response_m
 
     return scores, scores
 
-
-def compute_opo_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: np.ndarray, epsilon: float = 1e-6):
+@register(AdvantageEstimator.OPO) # or simply: @register("opo")
+def compute_opo_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: np.ndarray, epsilon: float = 1e-6, **kwargs):
     """
     Compute advantage for OPO based on https://arxiv.org/pdf/2505.23585
 
@@ -348,8 +404,8 @@ def compute_opo_outcome_advantage(token_level_rewards: torch.Tensor, response_ma
 
     return scores, scores
 
-
-def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, gamma: torch.Tensor):
+@register(AdvantageEstimator.REINFORCE_PLUS_PLUS) # or simply: @register("reinforce_plus_plus")
+def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, gamma: torch.Tensor, **kwargs):
     """
     Compute advantage for REINFORCE++.
     This implementation is based on the paper: https://arxiv.org/abs/2501.03262
@@ -382,8 +438,8 @@ def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Ten
 
     return advantages, returns
 
-
-def compute_remax_outcome_advantage(token_level_rewards: torch.Tensor, reward_baselines: torch.Tensor, response_mask: torch.Tensor):
+@register(AdvantageEstimator.REMAX) # or simply: @register("remax")
+def compute_remax_outcome_advantage(token_level_rewards: torch.Tensor, reward_baselines: torch.Tensor, response_mask: torch.Tensor, **kwargs):
     """
     Compute advantage for ReMax, operating only on Outcome reward
     This implementation is based on the paper: https://arxiv.org/abs/2310.10505

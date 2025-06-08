@@ -70,28 +70,18 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
     Returns:
         An instance of the specified reward manager class.
     """
-    # Get the name of the reward manager from the configuration, defaulting to "naive"
+    from verl.workers.reward_manager import get_reward_manager_cls
+
+    # The list of pre-defined reward managers are defined in `verl/workers/reward_manager/`:
+    # naive: NaiveRewardManager
+    # prime: PrimeRewardManager
+    # batch: BatchRewardManager
+    # dapo: DAPORewardManager
+    # Note(haibin.lin): For custom reward managers, please make sure they are imported and
+    # registered via `verl.workers.reward_manager.register`
+    # By default reward_manager is set to naive (NaiveRewardManager)
     reward_manager_name = config.reward_model.get("reward_manager", "naive")
-
-    # Select the appropriate reward manager class based on the name
-    if reward_manager_name == "naive":
-        from verl.workers.reward_manager import NaiveRewardManager
-
-        reward_manager_cls = NaiveRewardManager
-    elif reward_manager_name == "prime":
-        from verl.workers.reward_manager import PrimeRewardManager
-
-        reward_manager_cls = PrimeRewardManager
-    elif reward_manager_name == "batch":
-        from verl.workers.reward_manager import BatchRewardManager
-
-        reward_manager_cls = BatchRewardManager
-    elif reward_manager_name == "dapo":
-        from verl.workers.reward_manager import DAPORewardManager
-
-        reward_manager_cls = DAPORewardManager
-    else:
-        raise NotImplementedError(f"The reward manager {reward_manager_name} is not implemented.")
+    reward_manager_cls = get_reward_manager_cls(reward_manager_name)
 
     # Try to get a custom reward function based on the configuration
     compute_score = get_custom_reward_fn(config)
