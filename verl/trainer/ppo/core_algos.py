@@ -30,31 +30,33 @@ import verl.utils.torch_functional as verl_F
 
 ADV_ESTIMATOR_REGISTRY = {}
 
-def register_adv_est(name):
+def register_adv_est(name_or_enum):
     """Decorator to register a advantage estimator function with a given name.
 
     Args:
-        name: `(str)` or AdvantageEstimator enum
-            The name of the advantage estimator.
+        name_or_enum: `(str)` or `(AdvantageEstimator)`
+            The name or enum of the advantage estimator.
 
     """
     def decorator(fn):
+        name = name_or_enum.value if isinstance(name_or_enum, Enum) else name_or_enum
         if name in ADV_ESTIMATOR_REGISTRY and ADV_ESTIMATOR_REGISTRY[name] != fn:
             raise ValueError(f"Adv estimator {name} has already been registered: {ADV_ESTIMATOR_REGISTRY[name]} vs {fn}")
         ADV_ESTIMATOR_REGISTRY[name] = fn
         return fn
     return decorator
 
-def get_adv_estimator_fn(name):
+def get_adv_estimator_fn(name_or_enum):
     """Get the advantage estimator function with a given name.
 
     Args:
-        name: `(str)`
-            The name of the advantage estimator.
+        name_or_enum: `(str)` or `(AdvantageEstimator)`
+            The name or enum of the advantage estimator.
 
     Returns:
         `(callable)`: The advantage estimator function.
     """
+    name = name_or_enum.value if isinstance(name_or_enum, Enum) else name_or_enum
     if name not in ADV_ESTIMATOR_REGISTRY:
         raise ValueError(f"Unknown advantage estimator simply: {name}")
     return ADV_ESTIMATOR_REGISTRY[name]
@@ -115,7 +117,7 @@ def get_kl_controller(kl_ctrl):
     else:
         raise NotImplementedError
 
-@register_adv_est(AdvantageEstimator.GAE) # or simply: @@register_adv_est('gae')
+@register_adv_est(AdvantageEstimator.GAE) # or simply: @register_adv_est("gae")
 def compute_gae_advantage_return(
     token_level_rewards: torch.Tensor,
     values: torch.Tensor,
