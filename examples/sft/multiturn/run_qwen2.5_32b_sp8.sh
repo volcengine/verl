@@ -9,7 +9,7 @@ ulimit -n 65535
 
 EXPERIMENT_NAME=retool-multiturn-sft-qwen2.5-32b-sp8-mb
 
-torchrun --standalone --nnodes=1 --nproc_per_node=8 \
+torchrun --nnodes=1 --nproc_per_node=8 \
      -m verl.trainer.fsdp_sft_trainer \
     data.max_length=16384 \
     data.train_batch_size=128 \

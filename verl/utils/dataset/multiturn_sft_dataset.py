@@ -16,14 +16,14 @@
 Multi-turn SFT dataset that supports training on conversation data with multiple turns
 """
 
-from typing import List, Union, Dict, Any, Tuple, Optional
+import logging
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer
-import logging
 
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
@@ -91,7 +91,7 @@ class MultiTurnSFTDataset(Dataset):
 
         # Extract messages list from dataframe
         self.messages = self.dataframe[self.messages_key].apply(series_to_item).tolist()
-        
+
         # Extract tools list from dataframe
         if self.tools_key in self.dataframe.columns:
             self.tools = self.dataframe[self.tools_key].apply(convert_nested_value_to_list_recursive).tolist()
@@ -113,43 +113,70 @@ class MultiTurnSFTDataset(Dataset):
         end_idx: int,
         is_assistant: bool = False,
         enable_thinking: Optional[bool] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Tuple[List[int], List[int], List[int]]:
         """
         Process tokens for a single message or a group of messages.
-        
+
         Args:
             messages: List of message dictionaries
             start_idx: Start index in messages list
             end_idx: End index in messages list
             is_assistant: Whether this is an assistant message
             enable_thinking: Whether to enable thinking mode
-            
+
         Returns:
             Tuple of (tokens, loss_mask, attention_mask)
         """
-        prev_applied_text = self.tokenizer.apply_chat_template(
-            messages[:start_idx],
-            tokenize=False,
-            add_generation_prompt=is_assistant,
-            enable_thinking=enable_thinking,
-        )
+        if start_idx > 0:
+            prev_applied_text = self.tokenizer.apply_chat_template(
+                messages[:start_idx],
+                tokenize=False,
+                add_generation_prompt=False,
+                enable_thinking=enable_thinking,
+                tools=tools,
+            )
+            if is_assistant:
+                prev_applied_text_w_generation_prompt = self.tokenizer.apply_chat_template(
+                    messages[:start_idx],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=enable_thinking,
+                    tools=tools,
+                )
+
+        else:
+            prev_applied_text = ""
+
         cur_applied_text = self.tokenizer.apply_chat_template(
             messages[:end_idx],
             tokenize=False,
             add_generation_prompt=False,
             enable_thinking=enable_thinking,
+            tools=tools,
         )
-        
         # Get tokens for the current message only
-        message_tokens = self.tokenizer.encode(
-            cur_applied_text[len(prev_applied_text):],
-            add_special_tokens=False,
-        )
-        
-        # Create masks
-        loss_mask = [1 if is_assistant else 0] * len(message_tokens)
+        if is_assistant:
+            generation_prompt_text = prev_applied_text_w_generation_prompt[len(prev_applied_text) :]
+            generation_prompt_tokens = self.tokenizer.encode(
+                generation_prompt_text,
+                add_special_tokens=False,
+            )
+            _message_tokens = self.tokenizer.encode(
+                cur_applied_text[len(prev_applied_text_w_generation_prompt) :],
+                add_special_tokens=False,
+            )
+            message_tokens = generation_prompt_tokens + _message_tokens
+            loss_mask = [0] * (len(generation_prompt_tokens)) + [1] * (len(message_tokens) - len(generation_prompt_tokens))
+        else:
+            message_tokens = self.tokenizer.encode(
+                cur_applied_text[len(prev_applied_text) :],
+                add_special_tokens=False,
+            )
+            loss_mask = [0] * len(message_tokens)
+
         attention_mask = [1] * len(message_tokens)
-        
+
         return message_tokens, loss_mask, attention_mask
 
     def _validate_and_convert_tokens(
@@ -161,29 +188,30 @@ class MultiTurnSFTDataset(Dataset):
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Validate tokenization and convert to tensors.
-        
+
         Args:
             full_tokens: Full conversation tokens
             concat_tokens: Concatenated tokens
             concat_loss_mask: Concatenated loss mask
             concat_attention_mask: Concatenated attention mask
-            
+
         Returns:
             Tuple of (input_ids, loss_mask, attention_mask) as tensors
         """
         full_tokens_list = full_tokens.tolist()
-        
+
         if len(concat_tokens) != len(full_tokens_list) or not all(a == b for a, b in zip(concat_tokens, full_tokens_list)):
             logging.warning(
-                f"Token mismatch detected! Full tokenization length: {len(full_tokens_list)}, "
-                f"Concatenated tokens length: {len(concat_tokens)}. Using concatenated version."
+                f"Token mismatch detected! Full tokenization length: {len(full_tokens_list)}, Concatenated tokens length: {len(concat_tokens)}. Using concatenated version."
+                # f"full tokens text: {self.tokenizer.decode(full_tokens_list)}"
+                # f"concat tokens text: {self.tokenizer.decode(concat_tokens)}"
             )
             return (
                 torch.tensor(concat_tokens, dtype=torch.long),
                 torch.tensor(concat_loss_mask, dtype=torch.long),
                 torch.tensor(concat_attention_mask, dtype=torch.long),
             )
-        
+
         return full_tokens, torch.tensor(concat_loss_mask, dtype=torch.long), torch.tensor(concat_attention_mask, dtype=torch.long)
 
     def __getitem__(self, item):
@@ -194,7 +222,6 @@ class MultiTurnSFTDataset(Dataset):
 
         if self.tools is not None:
             tools = self.tools[item]
-            tools = json.loads(tools)
         else:
             tools = None
 
@@ -209,12 +236,7 @@ class MultiTurnSFTDataset(Dataset):
                 enable_thinking=enable_thinking,
             )
         except Exception as e:
-            logging.error(
-                f"Error applying chat template: {e}\n"
-                f"Messages: {messages}\n"
-                f"Tools: {tools}\n"
-                f"Enable thinking: {enable_thinking}"
-            )
+            logging.error(f"Error applying chat template: {e}\nMessages: {messages}\nTools: {tools}\nEnable thinking: {enable_thinking}")
             raise
 
         # Track concatenated tokens for validation
@@ -227,9 +249,7 @@ class MultiTurnSFTDataset(Dataset):
             cur_messages = messages[i]
             if cur_messages["role"] == "assistant":
                 # Process assistant message
-                tokens, loss_mask, attention_mask = self._process_message_tokens(
-                    messages, i, i + 1, is_assistant=True, enable_thinking=enable_thinking
-                )
+                tokens, loss_mask, attention_mask = self._process_message_tokens(messages, i, i + 1, is_assistant=True, enable_thinking=enable_thinking, tools=tools)
                 concat_tokens.extend(tokens)
                 concat_loss_mask.extend(loss_mask)
                 concat_attention_mask.extend(attention_mask)
@@ -240,9 +260,7 @@ class MultiTurnSFTDataset(Dataset):
                 ed = i + 1
                 while ed < len(messages) and messages[ed]["role"] == "tool":
                     ed += 1
-                tokens, loss_mask, attention_mask = self._process_message_tokens(
-                    messages, st, ed, enable_thinking=enable_thinking
-                )
+                tokens, loss_mask, attention_mask = self._process_message_tokens(messages, st, ed, enable_thinking=enable_thinking, tools=tools)
                 concat_tokens.extend(tokens)
                 concat_loss_mask.extend(loss_mask)
                 concat_attention_mask.extend(attention_mask)
@@ -251,9 +269,7 @@ class MultiTurnSFTDataset(Dataset):
                 # Process user or system message
                 if cur_messages["role"] == "system" and i != 0:
                     raise ValueError("System message should be the first message")
-                tokens, loss_mask, attention_mask = self._process_message_tokens(
-                    messages, i, i + 1, enable_thinking=enable_thinking
-                )
+                tokens, loss_mask, attention_mask = self._process_message_tokens(messages, i, i + 1, enable_thinking=enable_thinking, tools=tools)
                 concat_tokens.extend(tokens)
                 concat_loss_mask.extend(loss_mask)
                 concat_attention_mask.extend(attention_mask)
@@ -262,41 +278,29 @@ class MultiTurnSFTDataset(Dataset):
                 raise ValueError(f"Unknown role: {cur_messages['role']}")
 
         # Validate and convert tokens
-        input_ids, loss_mask, attention_mask = self._validate_and_convert_tokens(
-            full_tokens[0], concat_tokens, concat_loss_mask, concat_attention_mask
-        )
+        input_ids, loss_mask, attention_mask = self._validate_and_convert_tokens(full_tokens[0], concat_tokens, concat_loss_mask, concat_attention_mask)
 
         # Handle sequence length
         sequence_length = input_ids.shape[0]
         if sequence_length < self.max_length:
             # Pad sequences
             pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
-            padded_input_ids = torch.full(
-                (self.max_length - sequence_length,),
-                pad_token_id,
-                dtype=input_ids.dtype
-            )
-            padded_attention_mask = torch.zeros(
-                (self.max_length - sequence_length,),
-                dtype=attention_mask.dtype
-            )
-            padded_loss_mask = torch.zeros(
-                (self.max_length - sequence_length,),
-                dtype=loss_mask.dtype
-            )
+            padded_input_ids = torch.full((self.max_length - sequence_length,), pad_token_id, dtype=input_ids.dtype)
+            padded_attention_mask = torch.zeros((self.max_length - sequence_length,), dtype=attention_mask.dtype)
+            padded_loss_mask = torch.zeros((self.max_length - sequence_length,), dtype=loss_mask.dtype)
 
             input_ids = torch.cat((input_ids, padded_input_ids))
             attention_mask = torch.cat((attention_mask, padded_attention_mask))
             loss_mask = torch.cat((loss_mask, padded_loss_mask))
         elif sequence_length > self.max_length:
             if self.truncation == "left":
-                input_ids = input_ids[-self.max_length:]
-                attention_mask = attention_mask[-self.max_length:]
-                loss_mask = loss_mask[-self.max_length:]
+                input_ids = input_ids[-self.max_length :]
+                attention_mask = attention_mask[-self.max_length :]
+                loss_mask = loss_mask[-self.max_length :]
             elif self.truncation == "right":
-                input_ids = input_ids[:self.max_length]
-                attention_mask = attention_mask[:self.max_length]
-                loss_mask = loss_mask[:self.max_length]
+                input_ids = input_ids[: self.max_length]
+                attention_mask = attention_mask[: self.max_length]
+                loss_mask = loss_mask[: self.max_length]
             elif self.truncation == "error":
                 raise ValueError(f"{sequence_length=} is larger than {self.max_length=}")
             else:
