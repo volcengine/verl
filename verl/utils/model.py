@@ -16,6 +16,7 @@ Utilities to create common models from huggingface
 """
 
 import os
+import re
 import warnings
 from typing import Dict, Optional, Type
 
@@ -28,9 +29,11 @@ from transformers import (
     GenerationConfig,
     MistralForSequenceClassification,
     PretrainedConfig,
+    PreTrainedModel,
 )
 
 from verl.models.registry import ModelRegistry
+from verl.utils.import_utils import is_trl_available
 
 
 class LambdaLayer(nn.Module):
@@ -205,6 +208,27 @@ def compute_position_id_with_mask(mask):
     return torch.clip(torch.cumsum(mask, dim=-1) - 1, min=0, max=None)
 
 
+def convert_weight_keys(state_dict: Dict[str, torch.Tensor], model: PreTrainedModel):
+    # convert state dict keys: https://github.com/huggingface/transformers/pull/38385
+    if not hasattr(model, "_checkpoint_conversion_mapping"):
+        return state_dict
+
+    reverse_key_mapping = {v: k for k, v in model._checkpoint_conversion_mapping.items()}
+    original_weights = {}
+    for key, value in state_dict.items():
+        for pattern, replacement in reverse_key_mapping.items():
+            replacement = replacement.lstrip("^")  # strip off un-needed chars and patterns
+            replacement = re.sub(r"\(.*\)", "", replacement)
+            key, n_replace = re.subn(pattern, replacement, key)
+            # Early exit of the loop
+            if n_replace > 0:
+                break
+
+        original_weights[key] = value
+
+    return original_weights
+
+
 def normalize_model_name(name, pp_rank, vpp_rank, transformer_config, layer_name="layers"):
     """
     Transform the model name in each model_chunk in each pp stage into the name in inference engine
@@ -289,7 +313,7 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
         from verl.utils.fs import copy_to_local
 
         print(f"start download from {config.model.path}")
-        local_model_path = copy_to_local(src=config.model.path, cache_dir=local_cache_path, use_shm=config.model.get('use_shm', False))
+        local_model_path = copy_to_local(src=config.model.path, cache_dir=local_cache_path, use_shm=config.model.get("use_shm", False))
         print("finish download")
     else:
         local_model_path = config.model.path
@@ -446,3 +470,70 @@ def get_parallel_gptmodel_from_config(tfconfig, hf_config, pre_process=None, pos
 
         parallel_model.output_layer = LinearForLastLayer(input_size=tfconfig.hidden_size, output_size=1, config=tfconfig)
     return parallel_model
+
+
+def patch_valuehead_model(model) -> None:
+    from types import MethodType
+
+    from transformers import PreTrainedModel
+
+    from trl import AutoModelForCausalLMWithValueHead
+
+    def tie_weights(self: "AutoModelForCausalLMWithValueHead") -> None:
+        if isinstance(self.pretrained_model, PreTrainedModel):
+            self.pretrained_model.tie_weights()
+
+    def get_input_embeddings(self: "AutoModelForCausalLMWithValueHead") -> torch.nn.Module:
+        if isinstance(self.pretrained_model, PreTrainedModel):
+            return self.pretrained_model.get_input_embeddings()
+
+    def get_output_embeddings(self: "AutoModelForCausalLMWithValueHead") -> torch.nn.Module:
+        if isinstance(self.pretrained_model, PreTrainedModel):
+            return self.pretrained_model.get_output_embeddings()
+
+    def can_generate(self):
+        return False
+
+    ignore_modules = [name for name, _ in model.named_parameters() if "pretrained_model" in name]
+    setattr(model, "_keys_to_ignore_on_save", ignore_modules)
+    setattr(model, "tie_weights", MethodType(tie_weights, model))
+    setattr(model, "get_input_embeddings", MethodType(get_input_embeddings, model))
+    setattr(model, "get_output_embeddings", MethodType(get_output_embeddings, model))
+    setattr(model, "can_generate", MethodType(can_generate, model))
+    setattr(model, "_no_split_modules", getattr(model.pretrained_model, "_no_split_modules", []))
+
+
+def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_code):
+    from transformers import AutoModelForTokenClassification, AutoModelForCausalLM, AutoModelForVision2Seq
+
+    try:
+        model = AutoModelForTokenClassification.from_pretrained(
+            pretrained_model_name_or_path=local_path,
+            torch_dtype=torch_dtype,
+            config=model_config,
+            attn_implementation="flash_attention_2",
+            trust_remote_code=trust_remote_code,
+        )
+        return model
+    except BaseException as e:
+        if not is_trl_available():
+            raise RuntimeError(f"model({local_path}) is not a value head model, please install trl to make it valid") from e
+
+    assert is_trl_available()
+
+    from trl import AutoModelForCausalLMWithValueHead
+
+    if type(model_config) in AutoModelForVision2Seq._model_mapping.keys():
+        module_class = AutoModelForVision2Seq
+    else:
+        module_class = AutoModelForCausalLM
+    ori_model = module_class.from_pretrained(
+        pretrained_model_name_or_path=local_path,
+        torch_dtype=torch_dtype,
+        config=model_config,
+        attn_implementation="flash_attention_2",
+        trust_remote_code=trust_remote_code,
+    )
+    model = AutoModelForCausalLMWithValueHead.from_pretrained(ori_model)
+    patch_valuehead_model(model)
+    return model

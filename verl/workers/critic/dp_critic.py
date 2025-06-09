@@ -99,8 +99,13 @@ class DataParallelPPOCritic(BasePPOCritic):
                     **multi_modal_inputs,
                     use_cache=False,
                 )  # prevent model thinks we are generating
-                values_rmpad = output.logits
-                values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
+
+                if hasattr(self.critic_module, "v_head"):
+                    # For trl.AutoModelForCausalLMWithValueHead
+                    values_rmpad = output[2].squeeze(0).unsqueeze(-1)
+                else:
+                    values_rmpad = output.logits
+                    values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
 
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
@@ -117,7 +122,11 @@ class DataParallelPPOCritic(BasePPOCritic):
                     **multi_modal_inputs,
                     use_cache=False,
                 )  # prevent model thinks we are generating
-                values = output.logits
+                if hasattr(self.critic_module, "v_head"):
+                    # For trl.AutoModelForCausalLMWithValueHead
+                    values = output[2]
+                else:
+                    values = output.logits
                 values = values[:, -response_length - 1 : -1].squeeze(-1)
             return values
 
@@ -213,7 +222,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                     micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
                 else:
                     micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
-                    self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
 
                 self.critic_optimizer.zero_grad()
 
