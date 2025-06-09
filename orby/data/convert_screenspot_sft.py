@@ -59,7 +59,7 @@ def get_resized_wh(image):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="~/data/screenspot")
+    parser.add_argument("--local_dir", default="~/data/screenspot_sft")
     parser.add_argument("--hdfs_dir", default=None)
 
     args = parser.parse_args()

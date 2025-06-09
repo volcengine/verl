@@ -412,7 +412,7 @@ class FSDPSFTTrainer:
                 # Record the end position of assistant prefix for sequences where we found the first match
                 # The mask ensures we only capture the first occurrence per sequence
                 mask = matches & (prompt_end_position == 0)
-                prompt_end_position[mask] = i + assistant_len - 1
+                prompt_end_position[mask] = i + assistant_len
 
             position_indices = torch.arange(seq_len, device=attention_mask.device).unsqueeze(0).expand(batch_size, -1)
             
@@ -664,8 +664,8 @@ class FSDPSFTTrainer:
                 metric = self.training_step(data)
                 if rank == 0:
                     tracking.log(data=metric, step=global_step)
-                # Validation every 25 steps
-                if global_step % 25 == 0:
+                # Validation after every val_interval steps (default: 25)
+                if global_step % self.config.trainer.val_interval == 0:
                     val_losses = []
                     for val_data in self.val_dataloader:
                         batch_size = len(val_data['input_ids']) if 'input_ids' in val_data else len(next(iter(val_data.values())))
@@ -678,8 +678,8 @@ class FSDPSFTTrainer:
                         tracking.log(data=metric_val, step=global_step)
                     torch.distributed.barrier()
 
-                # Save checkpoint every 50 steps
-                if global_step % 50 == 0:
+                # Save checkpoint after every save_interval steps (default: 50)
+                if global_step % self.config.trainer.save_interval == 0:
                     self.save_checkpoint(step=global_step)
                 # for early exit validation
                 if global_step >= self.total_training_steps:
