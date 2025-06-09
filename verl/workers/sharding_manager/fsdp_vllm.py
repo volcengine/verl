@@ -112,8 +112,14 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         if is_version_ge(pkg='vllm', minver='0.7.3'):
             VLLMHijack.hijack()
 
+        # print(f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'Not Set')}")
+        # print(f"Logical Device ID: {torch.cuda.current_device()}")
+        # print(f"Physical Device Count: {torch.cuda.device_count()}")
+        # print(f"Device Properties: {torch.cuda.get_device_properties(torch.cuda.current_device())}")
+
     @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def __enter__(self):
+        return
         def __collect_lora_params()->OrderedDict:
             """
             collect lora params or full params if base model is not ready in vllm
@@ -288,7 +294,26 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                 updated_params = {replace_lora_wrapper(k): v for k, v in updated_params.items()}
 
         patch_vllm_moe_model_weight_loader(model)
-        device = get_torch_device().current_device()  # used when fsdp2 set cpu_offload_policy
+
+        # `device` is 0 for all processes in the same worker group.
+        # `device` represents the logical device ID. For example:
+        # - When CUDA_VISIBLE_DEVICES=0, device 0 maps to physical device 0
+        # - When CUDA_VISIBLE_DEVICES=1, device 0 maps to physical device 1
+        # device = get_torch_device().current_device()  # used when fsdp2 set cpu_offload_policy
+        # In our example, `dp_rank` is 0 - 3, and `tp_rank` is 0.
+        # dp_rank = self.device_mesh["dp"].get_local_rank()
+        # if dp_rank == 0:
+        #     # TODO: do something
+        #     pass
+
+        # print("updated_params", "device", device, "tp_rank", self.tp_rank, "dp_rank", dp_rank)
+        # for name, param in updated_params.items():
+        #     if isinstance(param, DTensor):
+        #         print(f"name: {name}, DeviceMesh: {param.device_mesh}, Placement: {param.placements}")
+
+        # DTensors in `updated_params`:
+        # - DeviceMesh('cuda', [0, 1, 2, 3], mesh_dim_names=('fsdp',)), Placement: (Shard(dim=0),)
+        # The tensor is sharded along the first dimension into 4 shards.
         loaded_params = model.load_weights(((name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param) for name, param in updated_params.items()))
 
         self.base_sync_done = True

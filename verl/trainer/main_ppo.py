@@ -79,6 +79,9 @@ def run_ppo(config) -> None:
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
 class TaskRunner:
     def run(self, config):
+        from ray.experimental.channel.torch_tensor_type import TorchTensorType
+        TorchTensorType().register_custom_serializer()
+
         # print initial config
         from pprint import pprint
 

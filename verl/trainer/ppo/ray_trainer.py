@@ -335,6 +335,18 @@ def _timer(name: str, timing_raw: Dict[str, float]):
     timing_raw[name] += timer.last
 
 
+# Register custom serializer to support GPU objects. Note that this doesn't initialize
+# the NCCL group because veRL has already initialized the NCCL group.
+def init_process_group(actors):
+    from ray.experimental.channel.torch_tensor_type import TorchTensorType
+    from ray.experimental.channel import ChannelContext
+    # Set up communicator so that the driver knows the actor-to-rank mapping.
+    ctx = ChannelContext.get_current()
+    ctx.communicators[0] = actors
+    # Register custom serializer so that the serializer can retrieve tensors from
+    # return values of actor methods.
+    # ray.get([actor.register_custom_serializer.remote() for actor in actors])
+
 class RayPPOTrainer:
     """
     Note that this trainer runs on the driver process on a single CPU/GPU node.
@@ -382,6 +394,7 @@ class RayPPOTrainer:
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied
         self.ref_in_actor = config.actor_rollout_ref.model.get('lora_rank', 0) > 0
+        self._actor_rollout_wg_initialized = False
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
@@ -990,6 +1003,18 @@ class RayPPOTrainer:
                     # generate a batch
                     with _timer("gen", timing_raw):
                         if not self.async_rollout_mode:
+                            workers = self.actor_rollout_wg.workers
+                            if not self._actor_rollout_wg_initialized:
+                                init_process_group(workers)
+                                self._actor_rollout_wg_initialized = True
+
+                            # Prepare state dict for all workers
+                            ray.get([worker.prepare_state_dict.remote() for worker in workers])
+
+                            # Get local shards from all workers except rank 0
+                            shards_refs = [worker.get_local_shards.remote() for worker in workers[1:]]
+                            param_metadata_list_ref = workers[0].gather_params.remote(*shards_refs)
+                            ray.get([worker.broadcast_params_and_sync_weights.remote(param_metadata_list_ref) for worker in workers])
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
                             self.async_rollout_manager.wake_up()
