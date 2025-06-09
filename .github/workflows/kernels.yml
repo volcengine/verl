@@ -62,4 +62,4 @@ jobs:
           python3 tests/kernels/test_linear_cross_entropy.py
       - name: Testing LinearCrossEntropyTP Correction, Computation Time and Memory Consumption
         run: |
-          torchrun --standalone --nnodes=1 --nproc-per-node=8 tests/kernels/test_linear_cross_entropy_tp.py
+          LOW_MEMORY=True torchrun --standalone --nnodes=1 --nproc-per-node=8 tests/kernels/test_linear_cross_entropy_tp.py

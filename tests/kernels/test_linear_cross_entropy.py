@@ -109,6 +109,8 @@ class TestLinearCrossEntropy:
         torch.cuda.synchronize()
 
     def generate_hyper(self):
+        global MAX_TEST_CASES
+        
         self.dtype = torch.bfloat16
         if self.test_case_idx == 0:
             self.batch_size = 1
