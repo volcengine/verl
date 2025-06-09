@@ -77,3 +77,8 @@ jobs:
           ray stop --force
           bash tests/npu/run_qwen2_5_05b_grpo.sh
           rm -rf $HOME/ckpts
+      - name: Running gsm8k e2e training tests with DAPO on ASCEND NPU
+        run: |
+          ray stop --force
+          bash tests/npu/run_qwen2_5_05b_dapo.sh
+          rm -rf $HOME/ckpts
