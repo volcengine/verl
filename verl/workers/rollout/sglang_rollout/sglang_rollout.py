@@ -808,6 +808,7 @@ class SGLangRollout(BaseRollout):
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
         kwargs = sampling_params.copy()
         kwargs["max_new_tokens"] = max_new_tokens
+        kwargs["n"] = 1  # group size is supported in preprocess
         output = await self._engine.async_generate(
             input_ids=generation_prompt_ids,
             sampling_params=kwargs,
