@@ -52,7 +52,7 @@ compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=
 MAX_TEST_CASES = os.environ.get("MAX_TEST_CASES", 5)
 VERIFY_TORCH_SELF = os.environ.get("VERIFY_TORCH_SELF", False)
 LOW_MEMORY = os.environ.get("LOW_MEMORY", False)
-LOW_MEMORY_DIV_FACTOR = int(os.environ.get("LOW_MEMORY_DIV_FACTOR", 16))
+LOW_MEMORY_DIV_FACTOR = os.environ.get("LOW_MEMORY_DIV_FACTOR", 16)
 
 
 def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, temperature: float, reduction="none") -> typing.List[torch.Tensor]:
@@ -218,7 +218,7 @@ class TestLinearCrossEntropy_TensorParallel:
         else:
             raise ValueError(f"Invalid test case index: {self.test_case_idx}")
         if LOW_MEMORY:
-            self.vocab_size /= LOW_MEMORY_DIV_FACTOR
+            self.vocab_size = int(self.vocab_size / LOW_MEMORY_DIV_FACTOR)
         assert MAX_TEST_CASES <= 5, "MAX_TEST_CASES should be less than or equal to 5."
 
     def generate_forward_inputs(self):
