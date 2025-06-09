@@ -406,8 +406,8 @@ class ActorRolloutRefWorker(MegatronWorker):
                 optimizer_scheduler=self.actor_optimizer_scheduler,
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
                 use_checkpoint_opt_param_scheduler=self.config.actor.optim.use_checkpoint_opt_param_scheduler,
-                checkpoint_load_contents=self.config.actor.checkpoint_contents.load,
-                checkpoint_save_contents=self.config.actor.checkpoint_contents.save,
+                checkpoint_load_contents=self.config.actor.checkpoint.load_contents,
+                checkpoint_save_contents=self.config.actor.checkpoint.save_contents,
             )
         torch.cuda.empty_cache()
         log_gpu_memory_usage("After init_model finish", logger=logger)
@@ -751,8 +751,8 @@ class CriticWorker(MegatronWorker):
             optimizer_scheduler=self.critic_optimizer_scheduler,
             use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
             use_checkpoint_opt_param_scheduler=self.config.optim.use_checkpoint_opt_param_scheduler,
-            checkpoint_load_contents=self.config.critic.checkpoint_contents.load,
-            checkpoint_save_contents=self.config.critic.checkpoint_contents.save,
+            checkpoint_load_contents=self.config.critic.checkpoint.load_contents,
+            checkpoint_save_contents=self.config.critic.checkpoint.save_contents,
         )
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)

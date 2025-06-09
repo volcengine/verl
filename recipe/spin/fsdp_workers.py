@@ -134,8 +134,8 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
                 optimizer=self.actor.actor_optimizer,
                 lr_scheduler=self.actor_lr_scheduler,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
-                checkpoint_load_contents=self.config.actor.checkpoint_contents.load,
-                checkpoint_save_contents=self.config.actor.checkpoint_contents.save)
+                checkpoint_load_contents=self.config.actor.checkpoint.load_contents,
+                checkpoint_save_contents=self.config.actor.checkpoint.save_contents)
 
 
         if self._is_actor:
@@ -145,8 +145,8 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
                 optimizer=self.actor.actor_optimizer,
                 lr_scheduler=self.actor_lr_scheduler,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
-                checkpoint_load_contents=self.config.actor.checkpoint_contents.load,
-                checkpoint_save_contents=self.config.actor.checkpoint_contents.save)
+                checkpoint_load_contents=self.config.actor.checkpoint.load_contents,
+                checkpoint_save_contents=self.config.actor.checkpoint.save_contents)
     
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_ref_log_prob(self, data: DataProto):
