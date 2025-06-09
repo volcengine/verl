@@ -22,31 +22,31 @@ import math
 from typing import Optional, Tuple
 
 import torch
+import torch.nn.functional as F
+from einops import rearrange
+from flash_attn.layers.rotary import apply_rotary_emb
+from megatron.core import ModelParallelConfig, tensor_parallel
 from megatron.core import parallel_state as mpu
-from megatron.core import tensor_parallel
-from megatron.core import ModelParallelConfig
 from torch import nn
 from transformers import LlamaConfig
-from verl.models.llama.megatron.layers.parallel_linear import QKVParallelLinear
+from transformers.utils import is_flash_attn_2_available
 
+from verl.models.llama.megatron.layers.parallel_linear import QKVParallelLinear
 from verl.utils.megatron import tensor_parallel as tp_utils
 
 
 class LlamaRotaryEmbedding(nn.Module):
-
     def __init__(self, dim, max_position_embeddings=2048, base=10000, device=None):
         super().__init__()
 
         self.dim = dim
         self.max_position_embeddings = max_position_embeddings
         self.base = base
-        inv_freq = 1.0 / (self.base**(torch.arange(0, self.dim, 2).float().to(device) / self.dim))
+        inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2).float().to(device) / self.dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
         # Build here to make `torch.jit.trace` work.
-        self._set_cos_sin_cache(seq_len=max_position_embeddings,
-                                device=self.inv_freq.device,
-                                dtype=torch.get_default_dtype())
+        self._set_cos_sin_cache(seq_len=max_position_embeddings, device=self.inv_freq.device, dtype=torch.get_default_dtype())
 
     def _set_cos_sin_cache(self, seq_len, device, dtype):
         self.max_seq_len_cached = seq_len
@@ -99,9 +99,8 @@ class LlamaDynamicNTKScalingRotaryEmbedding(LlamaRotaryEmbedding):
         self.max_seq_len_cached = seq_len
 
         if seq_len > self.max_position_embeddings:
-            base = self.base * ((self.scaling_factor * seq_len / self.max_position_embeddings) -
-                                (self.scaling_factor - 1))**(self.dim / (self.dim - 2))
-            inv_freq = 1.0 / (base**(torch.arange(0, self.dim, 2).float().to(device) / self.dim))
+            base = self.base * ((self.scaling_factor * seq_len / self.max_position_embeddings) - (self.scaling_factor - 1)) ** (self.dim / (self.dim - 2))
+            inv_freq = 1.0 / (base ** (torch.arange(0, self.dim, 2).float().to(device) / self.dim))
             self.register_buffer("inv_freq", inv_freq, persistent=False)
 
         t = torch.arange(self.max_seq_len_cached, device=device, dtype=self.inv_freq.dtype)
@@ -114,15 +113,13 @@ class LlamaDynamicNTKScalingRotaryEmbedding(LlamaRotaryEmbedding):
 
 
 class LlamaLlama3ScalingRotaryEmbedding(LlamaRotaryEmbedding):
-
     def __init__(self, dim, config, max_position_embeddings=2048, base=10000, device=None):
         super().__init__(dim, max_position_embeddings, base, device)
 
         self.factor = config.rope_scaling["factor"]  # `8` in the original implementation
         self.high_freq_factor = config.rope_scaling["high_freq_factor"]  # `1` in the original implementation
         self.low_freq_factor = config.rope_scaling["low_freq_factor"]  # `4` in the original implementation
-        self.old_context_len = config.rope_scaling[
-            "original_max_position_embeddings"]  # `8192` in the original implementation
+        self.old_context_len = config.rope_scaling["original_max_position_embeddings"]  # `8192` in the original implementation
 
         low_freq_wavelen = self.old_context_len / self.low_freq_factor
         high_freq_wavelen = self.old_context_len / self.high_freq_factor
@@ -131,8 +128,7 @@ class LlamaLlama3ScalingRotaryEmbedding(LlamaRotaryEmbedding):
         # wavelen < high_freq_wavelen: do nothing; wavelen > low_freq_wavelen: divide by factor
         inv_freq_llama = torch.where(wavelen > low_freq_wavelen, self.inv_freq / self.factor, self.inv_freq)
         # otherwise: interpolate between the two, using a smooth factor
-        smooth_factor = (self.old_context_len / wavelen - self.low_freq_factor) / (self.high_freq_factor -
-                                                                                   self.low_freq_factor)
+        smooth_factor = (self.old_context_len / wavelen - self.low_freq_factor) / (self.high_freq_factor - self.low_freq_factor)
         smoothed_inv_freq = (1 - smooth_factor) * inv_freq_llama / self.factor + smooth_factor * inv_freq_llama
         is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
         inv_freq = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
@@ -140,15 +136,13 @@ class LlamaLlama3ScalingRotaryEmbedding(LlamaRotaryEmbedding):
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
         # Build here to make `torch.jit.trace` work.
-        self._set_cos_sin_cache(seq_len=max_position_embeddings,
-                                device=self.inv_freq.device,
-                                dtype=torch.get_default_dtype())
+        self._set_cos_sin_cache(seq_len=max_position_embeddings, device=self.inv_freq.device, dtype=torch.get_default_dtype())
 
 
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
-    x1 = x[..., :x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2:]
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
 
 
@@ -189,47 +183,49 @@ class ParallelLlamaAttention(nn.Module):
 
         # assign values after tp
         tp_size = mpu.get_tensor_model_parallel_world_size()
-        assert self.num_heads % tp_size == 0, f'num_head must be divisible by tp_size. Got num_head={self.num_heads}, tp_size={tp_size}'
-        assert self.num_key_value_heads % tp_size == 0, \
-            f'num_key_value_heads must be divisible by tp_size. Got num_key_value_heads={self.num_key_value_heads}, tp_size={tp_size}'
+        assert self.num_heads % tp_size == 0, f"num_head must be divisible by tp_size. Got num_head={self.num_heads}, tp_size={tp_size}"
+        assert self.num_key_value_heads % tp_size == 0, f"num_key_value_heads must be divisible by tp_size. Got num_key_value_heads={self.num_key_value_heads}, tp_size={tp_size}"
 
         self.num_heads_per_tp = self.num_heads // tp_size
         self.num_key_value_heads_per_tp = self.num_key_value_heads // tp_size
         self.hidden_size_per_tp = self.hidden_size // tp_size
 
         if (self.head_dim * self.num_heads) != self.hidden_size:
-            raise ValueError(f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
-                             f" and `num_heads`: {self.num_heads}).")
+            raise ValueError(f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size} and `num_heads`: {self.num_heads}).")
 
         column_kwargs = tp_utils.get_default_kwargs_for_column_parallel_linear()
         row_kwargs = tp_utils.get_default_kwargs_for_row_parallel_linear()
 
         if megatron_config is not None:
-            assert column_kwargs.get('config', False), 'must have ModelParallelConfig'
-            assert row_kwargs.get('config', False), 'must have ModelParallelConfig'
+            assert column_kwargs.get("config", False), "must have ModelParallelConfig"
+            assert row_kwargs.get("config", False), "must have ModelParallelConfig"
             tp_utils.update_kwargs_with_config(column_kwargs, megatron_config)
             tp_utils.update_kwargs_with_config(row_kwargs, megatron_config)
 
         # [self.q_size, self.k_size, self.v_size]
-        self.qkv_proj = QKVParallelLinear(input_size=self.hidden_size,
-                                          num_heads=self.num_heads,
-                                          num_key_value_heads=self.num_key_value_heads,
-                                          head_dim=self.head_dim,
-                                          bias=config.attention_bias,
-                                          gather_output=False,
-                                          skip_bias_add=False,
-                                          **column_kwargs)
+        self.qkv_proj = QKVParallelLinear(
+            input_size=self.hidden_size,
+            num_heads=self.num_heads,
+            num_key_value_heads=self.num_key_value_heads,
+            head_dim=self.head_dim,
+            bias=config.attention_bias,
+            gather_output=False,
+            skip_bias_add=False,
+            **column_kwargs,
+        )
 
         self.q_size = self.num_heads_per_tp * self.head_dim
         self.k_size = self.num_key_value_heads_per_tp * self.head_dim
         self.v_size = self.num_key_value_heads_per_tp * self.head_dim
 
-        self.o_proj = tensor_parallel.RowParallelLinear(input_size=self.num_heads * self.head_dim,
-                                                        output_size=self.hidden_size,
-                                                        bias=config.attention_bias,
-                                                        input_is_parallel=True,
-                                                        skip_bias_add=False,
-                                                        **row_kwargs)
+        self.o_proj = tensor_parallel.RowParallelLinear(
+            input_size=self.num_heads * self.head_dim,
+            output_size=self.hidden_size,
+            bias=config.attention_bias,
+            input_is_parallel=True,
+            skip_bias_add=False,
+            **row_kwargs,
+        )
 
         self._init_rope()
 
@@ -295,14 +291,11 @@ class ParallelLlamaAttention(nn.Module):
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
 
         if attn_weights.size() != (bsz, self.num_heads_per_tp, q_len, kv_seq_len):
-            raise ValueError(
-                f"Attention weights should be of size {(bsz, self.num_heads_per_tp, q_len, kv_seq_len)}, but is"
-                f" {attn_weights.size()}")
+            raise ValueError(f"Attention weights should be of size {(bsz, self.num_heads_per_tp, q_len, kv_seq_len)}, but is {attn_weights.size()}")
 
         if attention_mask is not None:
             if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
-                raise ValueError(
-                    f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}")
+                raise ValueError(f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}")
             attn_weights = attn_weights + attention_mask
 
         # upcast attention to fp32
@@ -310,9 +303,7 @@ class ParallelLlamaAttention(nn.Module):
         attn_output = torch.matmul(attn_weights, value_states)
 
         if attn_output.size() != (bsz, self.num_heads_per_tp, q_len, self.head_dim):
-            raise ValueError(
-                f"`attn_output` should be of size {(bsz, self.num_heads_per_tp, q_len, self.head_dim)}, but is"
-                f" {attn_output.size()}")
+            raise ValueError(f"`attn_output` should be of size {(bsz, self.num_heads_per_tp, q_len, self.head_dim)}, but is {attn_output.size()}")
 
         attn_output = attn_output.transpose(1, 2).contiguous()
         attn_output = attn_output.reshape(bsz, q_len, self.hidden_size_per_tp)
@@ -326,10 +317,6 @@ Remove padding Attention
 - Compatible with sequence parallel
 """
 
-from transformers.utils import is_flash_attn_2_available
-import torch.nn.functional as F
-
-from einops import rearrange
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_varlen_func
@@ -352,46 +339,31 @@ def apply_rotary_pos_emb_rmpad(q, k, cos, sin, position_ids, indices, sequence_l
     return q_embed, k_embed
 
 
-from flash_attn.layers.rotary import apply_rotary_emb
-
-
 # use flash-attn rotary embeddings with rmpad
 # cos/sin shoudl be: (seq_length, rotary_dim / 2)
 def apply_rotary_pos_emb_rmpad_flash(q, k, cos, sin, cu_seqlens, max_seqlen):
-    q_embed = apply_rotary_emb(q,
-                               cos,
-                               sin,
-                               interleaved=False,
-                               inplace=False,
-                               cu_seqlens=cu_seqlens,
-                               max_seqlen=max_seqlen)
-    k_embed = apply_rotary_emb(k,
-                               cos,
-                               sin,
-                               interleaved=False,
-                               inplace=False,
-                               cu_seqlens=cu_seqlens,
-                               max_seqlen=max_seqlen)
+    q_embed = apply_rotary_emb(q, cos, sin, interleaved=False, inplace=False, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
+    k_embed = apply_rotary_emb(k, cos, sin, interleaved=False, inplace=False, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
     return q_embed, k_embed
 
 
 class ParallelLlamaAttentionRmPad(ParallelLlamaAttention):
-
-    def forward(self,
-                hidden_states: torch.Tensor,
-                position_ids: Optional[torch.LongTensor] = None,
-                sequence_length: int = None,
-                indices: torch.Tensor = None,
-                cu_seqlens: torch.Tensor = None,
-                max_seqlen_in_batch: int = None):
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        position_ids: Optional[torch.LongTensor] = None,
+        sequence_length: int = None,
+        indices: torch.Tensor = None,
+        cu_seqlens: torch.Tensor = None,
+        max_seqlen_in_batch: int = None,
+    ):
         total_nnz, _, _ = hidden_states.size()  # This is the total_nnz padded after sequence parallel
 
         if self.megatron_config.sequence_parallel:
             total_nnz = total_nnz * mpu.get_tensor_model_parallel_world_size()
 
         qkv = self.qkv_proj(hidden_states)[0]
-        query_states, key_states, value_states = qkv.split([self.q_size, self.k_size, self.v_size],
-                                                           dim=-1)  # (total_nnz, 1, hidden_size)
+        query_states, key_states, value_states = qkv.split([self.q_size, self.k_size, self.v_size], dim=-1)  # (total_nnz, 1, hidden_size)
 
         if self.megatron_config.sequence_parallel:
             sequence_parallel_pad = total_nnz - cu_seqlens[-1]
@@ -408,13 +380,8 @@ class ParallelLlamaAttentionRmPad(ParallelLlamaAttention):
         value_states = value_states.view(total_nnz, self.num_key_value_heads_per_tp, self.head_dim)
 
         cos, sin = self.rotary_emb(value_states, seq_len=sequence_length)
-        cos, sin = cos[:, :cos.shape[1] // 2], sin[:, :sin.shape[1] // 2]  # flash attn only needs half
-        query_states, key_states = apply_rotary_pos_emb_rmpad_flash(query_states,
-                                                                    key_states,
-                                                                    cos,
-                                                                    sin,
-                                                                    cu_seqlens=cu_seqlens,
-                                                                    max_seqlen=max_seqlen_in_batch)
+        cos, sin = cos[:, : cos.shape[1] // 2], sin[:, : sin.shape[1] // 2]  # flash attn only needs half
+        query_states, key_states = apply_rotary_pos_emb_rmpad_flash(query_states, key_states, cos, sin, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen_in_batch)
         # query_states, key_states = apply_rotary_pos_emb_rmpad(query_states, key_states, cos, sin, position_ids, indices,
 
         # TODO: llama does not have dropout in the config??

@@ -3,8 +3,8 @@
 Config Explanation
 ===================
 
-ppo_trainer.yaml for FSDP Backend
----------------------------------
+ppo_trainer.yaml for RL FSDP Backend
+-------------------------------------
 
 Data
 ~~~~
@@ -21,10 +21,13 @@ Data
      train_batch_size: 1024
      return_raw_input_ids: False  # This should be set to true when the tokenizer between policy and rm differs
      return_raw_chat: False
+     return_full_prompt: False
      shuffle: True
-     filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You should disable this and set `truncation='left'
+     filter_overlong_prompts: False
+     filter_overlong_prompts_workers: 1
      truncation: error
      image_key: images
+     trust_remote_code: True
      custom_cls:
         path: null
         name: null
@@ -42,7 +45,7 @@ Data
   left-padded to this length. An error will be reported if the length is
   too long
 - ``data.max_response_length``: Maximum response length. Rollout in RL
-  algorithms (e.g. PPO) generates up to this length
+  algorithms (e.g. PPO) generates up to this length
 - ``data.train_batch_size``: Batch size sampled for one training
   iteration of different RL algorithms.
 - ``data.return_raw_input_ids``: Whether to return the original
@@ -51,17 +54,22 @@ Data
   from the policy. It needs to be decoded first, then apply the RM's
   chat template. If using a model-based RM, and the policy and RM
   chat_templates are different, this flag needs to be set
-- ``data.return_raw_chat``:
+- ``data.return_raw_chat``: Whether to return the original chat (prompt)
+  without applying chat template.
+- ``data.return_full_prompt``: Whether to return the full prompt with chat template
 - ``data.shuffle``: Whether to shuffle the data in the dataloader.
-- ``data.filter_overlong_prompts``: Default don't filter. You can filter for small-scale dataset. 
-  For large-scale dataset, filtering overlong prompts could be timeconsuming. 
-  You should disable this and set ``truncation='left``
+- ``data.filter_overlong_prompts``: Default don't filter.
+- ``data.filter_overlong_prompts_workers``: For large-scale dataset, filtering
+  overlong prompts could be timeconsuming. You cat set the ``filter_overlong_prompts_workers``
+  to use multiprocessing for speed up. Default to 1.
 - ``data.truncation``: Truncate the input_ids or prompt length if they
   exceed max_prompt_length. Default is 'error', not allow exceed the
   max_prompt_length. The users should increase the max_prompt_length if
   throwing the error. You can also set ``left`` and ``right``.
 - ``data.image_key``: The field in the multi-modal dataset where the image is
   located. Default is 'images'.
+- ``data.trust_remote_code``: If the remote tokenizer has python file, we can use this field to allow 
+  using remote tokenizer. For example: moonshotai/Moonlight-16B-A3B-Instruct
 
 Customized Dataset
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -87,8 +95,13 @@ Actor/Rollout/Reference Policy
     model:
       path: ~/models/deepseek-llm-7b-chat
       external_lib: null
-      override_config: { }
+      override_config:
+        model_config: {}
+        moe_config:  # Megatron only, can adjust moe configuration
+          freeze_moe_router: False  # Megatron only, can freeze moe router (no grad)
       enable_gradient_checkpointing: False
+      enable_activation_offload: False
+      trust_remote_code: False
       use_remove_padding: False
     actor:
       strategy: fsdp  # This is for backward-compatibility
@@ -99,19 +112,21 @@ Actor/Rollout/Reference Policy
       ppo_max_token_len_per_gpu: 16384 # n * ${data.max_prompt_length} + ${data.max_response_length}
       grad_clip: 1.0
       clip_ratio: 0.2
-      entropy_coeff: 0.001
+      entropy_coeff: 0.0
       use_kl_loss: False # True for GRPO
       use_torch_compile: True # False to disable torch compile
       kl_loss_coef: 0.001 # for grpo
       kl_loss_type: low_var_kl # for grpo
       ppo_epochs: 1
+      data_loader_seed: null
       shuffle: False
       ulysses_sequence_parallel_size: 1 # sp size
       optim:
         lr: 1e-6
         lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
         lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
-        min_lr_ratio: null   # only useful for warmup with cosine
+        min_lr_ratio: 0.0   # only used with cosine lr scheduler, default to 0.0
+        num_cycles: 0.5     # only used with cosine lr scheduler, default to 0.5
         warmup_style: constant  # select from constant/cosine
         total_training_steps: -1  # must be override by program
       fsdp_config:
@@ -157,8 +172,20 @@ Actor/Rollout/Reference Policy
       log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
       # for hf rollout
       do_sample: True
-      # number of responses (i.e. num sample times)
-      n: 1 # > 1 for grpo, rloo
+      engine_kwargs: # inference engine parameters
+        vllm:
+          swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+        sglang:
+          attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
+
+      n: 1 # for each prompt, sample n responses (i.e. num sample times). set it to values > 1 for grpo, rloo
+      val_kwargs:
+        # sampling parameters for validation
+        top_k: -1 # 0 for hf rollout, -1 for vllm rollout
+        top_p: 1.0
+        temperature: 0
+        n: 1
+        do_sample: False # default eager for validation
 
 **Common config for actor, rollout and reference model**
 
@@ -174,6 +201,10 @@ Actor/Rollout/Reference Policy
   the model's original configurations, mainly dropout
 - ``actor_rollout_ref.model.enable_gradient_checkpointing``: Whether to
   enable gradient checkpointing for the actor
+- ``actor_rollout_ref.model.enable_activation_offload``: Whether to enable
+  activation offloading for the actor
+- ``actor_rollout_ref.model.trust_remote_code``: Whether to enable loading
+  a remote code model
 
 **Actor model**
 
@@ -201,10 +232,14 @@ Actor/Rollout/Reference Policy
 - ``actor_rollout_ref.actor.use_torch_compile``: Whether to use torch compile in actor
 
 - ``actor_rollout_ref.actor.entropy_coeff``: The weight of entropy when
-  calculating PPO loss
+  calculating PPO loss. The default value is changed to 0.0 since v0.3.x
 
 - ``actor_rollout_ref.actor.ppo_epochs``: Number of epochs for PPO
   updates on one set of sampled data
+
+- ``actor_rollout_ref.actor.data_loader_seed``: From torch 2.6.0 Megatron backend can get wrong seed generated by pytorch 
+  between cp ranks and cause misalignment between data on these ranks, so we shall manually set the seed to avoid hanging
+  issue. if ``actor_rollout_ref.actor.shuffle`` is not null, this must be set.
 
 - ``actor_rollout_ref.actor.shuffle``: Whether to shuffle data when
   there are multiple epochs
@@ -228,8 +263,7 @@ Actor/Rollout/Reference Policy
 
 - ``actor_rollout_ref.actor.kl_loss_coef``: The coefficient of kl loss. Default is 0.001. 
 
-- ``actor_rollout_ref.actor.kl_loss_type``: Support ``kl``, ``abs``, ``mse``, ``low_var_kl`` and ``full``. How to calculate the kl divergence between actor and reference policy. For
-    specific options, refer to `kl_penalty()` in `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py>`_ .
+- ``actor_rollout_ref.actor.kl_loss_type``: Support ``kl`` (``k1``), ``abs``, ``mse`` (``k2``), ``low_var_kl`` (``k3``) and ``full``. How to calculate the kl divergence between actor and reference policy. For specific options, refer to `kl_penalty()` in `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py>`_ . See this blog post for detailed analysis: http://joschu.net/blog/kl-approx.html
 
 - ``actor_rollout_ref.actor.checkpoint``: The configurations of checkpoint function in actor
 
@@ -261,25 +295,51 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
   - ``temperature``, ``top_k``, ``top_p`` and others: Sampling
     parameters in ``SamplingParams``.
 
-- ``dtype``: Rollout model parameters type. This should be align with
+- ``actor_rollout_ref.rollout.dtype``: Rollout model parameters type. This should be align with
   the actor model parameter type in FSDP/Megatron backend.
 
-- ``gpu_memory_utilization``: The proportion of the remaining GPU memory
-  allocated for kv cache after other models have initialized when using
-  vllm.
+- ``actor_rollout_ref.rollout.gpu_memory_utilization``:
 
-- ``tensor_model_parallel_size``: TP size for rollout. Only effective
+  - For vLLM v0.5.4 and v0.6.3: The proportion of the **remaining** GPU memory
+    allocated for kv cache after other models have initialized when using
+    vLLM.
+  - For vLLM v0.7.0 and later: The fraction of **total** GPU memory to be used for the vLLM instance.
+  - For SGLang: Corresponding to ``mem_fraction_static``, the fraction of the free GPU memory used for **static** memory like model weights and KV cache. 
+
+- ``actor_rollout_ref.rollout.tensor_model_parallel_size``: TP size for rollout. Only effective
   for vllm.
 
-- ``actor_rollout_ref.ref.log_prob_micro_batch_size``: [Will be deprecate, use log_prob_micro_batch_size_per_gpu]
+- ``actor_rollout_ref.rollout.log_prob_micro_batch_size``: [Will be deprecate, use log_prob_micro_batch_size_per_gpu]
   The batch size for one forward pass in the computation of ``log_prob``. The value represent the global num.
 
-- ``log_prob_micro_batch_size_per_gpu``: Micro batch size per gpu (The batch size for
+- ``actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu``: Micro batch size per gpu (The batch size for
   one forward pass) for recalculating ``log_prob``. The value represent the local num per gpu.
 
-- ``do_sample``: Whether to sample. If set to False, the rollout model
-  will perform greedy sampling. We disable ``do_sample`` during
-  validation.
+- ``actor_rollout_ref.rollout.do_sample``: Whether to sample during training rollout. If set to False, the rollout model
+  will perform greedy sampling.
+
+- ``actor_rollout_ref.rollout.val_kwargs```: Sampling parameters used specifically during validation.
+
+  - ``top_k``: Top-k sampling parameter. Default to -1 for vLLM rollout or 0 for HF rollout.
+  - ``top_p``: Top-p sampling parameter. Default is 1.0 (disabled).
+  - ``temperature``: Sampling temperature. Default is 0 (deterministic greedy).
+  - ``n``: Number of responses to generate during validation. Default is 1.
+  - ``do_sample``: Whether to use sampling during validation. Default is False for
+    deterministic outputs. When set to True, the rollout will use the ``actor_rollout_ref.rollout.val_kwargs`` parameters
+    (top_k, top_p, temperature) to control the sampling behavior.
+
+- ``actor_rollout_ref.rollout.engine_kwargs.vllm``: extra vllm engine args
+
+  - ``swap_space``: swap space in GB used by the inference engine. Positive integer, e.g., ``32`` means 32 GB. ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
+
+- ``actor_rollout_ref.rollout.engine_kwargs.sglang``: extra sglang engine args
+
+  - ``attention_backend``: The attention backend to use for the inference engine.
+
+    - ``null``: means not setting and using the engine default value (usually, e.g., ``fa3`` for SGLang)
+    - ``flashinfer``: Use flashinfer attention backend.
+    - ``triton``: Use triton attention backend.
+    - ``flashmla``: Use flashmla attention backend.
 
 - ``actor_rollout_ref.rollout.ignore_eos``: Whether to ignore the EOS
   token and continue generating tokens after the EOS token is generated.
@@ -314,6 +374,37 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
 
 .. note:: **NOTED**: In this config field, users only need to select from ``dummy_megatron``, ``dummy_dtensor``, ``dummy_hf`` for rollout initialization and our hybrid engine will select the corresponding weight loader (i.e., ``megatron``, ``dtensor``, ``hf``) during actor/rollout weight synchronization.
 
+
+Megatron Optimizer and Optimizer Parameter Scheduler
+____________________________________________________
+
+.. code:: yaml
+
+    optim:
+      optimizer: adam
+      lr: 1e-6
+      clip_grad: 1.0
+      total_training_steps: -1  # must be override by program
+      lr_warmup_init: 0.0  # initial learning rate for warmup, default to 0.0
+      lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
+      lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
+      lr_decay_steps: null
+      lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
+      min_lr: 0.0 # minimum learning rate, default to 0.0
+      weight_decay: 0.01
+      weight_decay_incr_style: constant # select from constant/linear/cosine
+      lr_wsd_decay_style: exponential # select from constant/exponential/cosine
+      lr_wsd_decay_steps: null
+      use_checkpoint_opt_param_scheduler: False # use checkpoint optimizer parameter scheduler
+
+
+Notice that there are some differences in APIs between Megatron optimizer and FSDP optimizer.
+
+- Megatron optimizer scheduler names the period after lr_warmup as lr_decay_steps, so the ``warmup_style`` actually means the style of lr decay after warmup.
+- Megatron optimizer also support weight decay decay mechanism
+- ``use_checkpoint_opt_param_scheduler`` determines whether to use the checkpoint optimizer parameter scheduler. If set to True, the optimizer parameter scheduler will be saved in the checkpoint and loaded from the checkpoint during resuming training.
+
+
 Critic Model
 ~~~~~~~~~~~~
 
@@ -330,6 +421,7 @@ Reward Model
        input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
        path: ~/models/Anomy-RM-v0.1
        external_lib: ${actor_rollout_ref.model.external_lib}
+       trust_remote_code: False
        fsdp_config:
          min_num_params: 0
          param_offload: False
@@ -351,6 +443,8 @@ Reward Model
   - ``path``: RM's HDFS path or local path. Note that RM only supports
     AutoModelForSequenceClassification. Other model types need to define
     their own RewardModelWorker and pass it from the code.
+  - ``trust_remote_code``: Whether to enable loading a remote code model,
+    default to False.
 - ``reward_model.reward_manager``:  Reward Manager. This defines the mechanism
   of computing rule-based reward and handling different reward sources. Default
   is ``naive``. If all verification functions are multiprocessing-safe, the reward
@@ -450,6 +544,13 @@ Trainer
   for the ray register center to be ready. Default is 300 seconds.
 
 
+This figure illustrates how the configurations affect the training.
+
+https://excalidraw.com/#json=pfhkRmiLm1jnnRli9VFhb,Ut4E8peALlgAUpr7E5pPCA
+
+.. image:: https://github.com/user-attachments/assets/16aebad1-0da6-4eb3-806d-54a74e712c2d
+
+
 evaluation.yaml
 ---------------
 
@@ -482,3 +583,71 @@ Customized Reward Function
 
 - ``custom_reward_function.path``: The path to the file containing your customized reward function. If not specified, pre-implemented reward functions will be used.
 - ``custom_reward_function.name`` (Optional) : The name of the reward function within the specified file. Default is 'compute_score'.
+
+sft_trainer.yaml for SFT FSDP Backend
+--------------------------------------
+
+
+Optim
+~~~~~~~
+
+.. code:: yaml
+
+   optim:
+     lr: 1e-5
+     weight_decay: 0.01
+     warmup_steps_ratio: 0.1
+     clip_grad: 1.0
+     lr_scheduler: cosine
+
+- ``optim.lr``: Learning rate for the optimizer.
+- ``optim.weight_decay``: Weight decay for the optimizer.
+- ``optim.warmup_steps_ratio``: Ratio of warmup steps to total training steps.
+- ``optim.clip_grad``: Gradient clipping value.
+- ``optim.lr_scheduler``: Learning rate scheduler type. Options:
+
+  - ``cosine``: Cosine learning rate scheduler with warmup (default).
+  - ``wsd``: Warmup-Stable-Decay scheduler that provides a stable learning rate phase between warmup and decay phases.
+
+Model
+~~~~~~~~~~~~
+
+Most parameters for Model are similar to Reward Model.
+
+.. code:: yaml
+
+   model:
+     partial_pretrain: ~/models/gemma-1.1-7b-it
+     fsdp_config:
+       model_dtype: fp32
+       wrap_policy:
+         min_num_params: 0
+       cpu_offload: False
+       offload_params: False
+     external_lib: null
+     enable_gradient_checkpointing: False
+     trust_remote_code: False
+     lora_rank: 0
+     lora_alpha: 16
+     target_modules: all-linear
+     use_liger: False
+
+- ``partial_pretrain``: HDFS path or local path for the pretrained model.
+- ``fsdp_config``
+
+  - ``model_dtype``: Model parameters type, default to ``fp32``.
+    Support: ``bf16``, ``fp16``, ``fp32``.
+  - ``cpu_offload``: Whether to enable CPU offloading for FSDP. If True,
+    the offload_params will be used as argument.
+  - ``offload_params``: Whether to offload parameters to CPU
+    when not involved in computation. If True, then this offloads gradients
+    to CPU as well, meaning that the optimizer step runs on CPU.
+
+- ``lora_rank``: The rank of the LoRA model, default to 0. If ``lora_rank``>0,
+  we will train LoRA modules instead of tuning the full model.
+- ``lora_alpha``: The alpha parameter for LoRA scaling, default to 16.
+- ``target_modules``: The names of the modules to apply the adapter to,
+  default to ``all-linear``. See `peft docs <https://huggingface.co/docs/peft/v0.15.0/en/package_reference/lora#peft.LoraConfig.target_modules>`_ for detail.
+
+- ``use_liger``: Whether to enable Liger kernel, default to False. If True,
+  we apply Liger kernel to the model (depends on `liger-kernel`).

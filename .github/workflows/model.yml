@@ -3,74 +3,107 @@ name: model_rmpad
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
+  push:
+    branches:
+      - main
+      - v0.*
   pull_request:
     branches:
       - main
-      - v0.3.x
+      - v0.*
     paths:
-      - "**/*.py"
-      - "tests/model/*"
-      - .github/workflows/model.yml
-      - "!recipe/**"
+      - "verl/**/*.py"
+      # Entrypoints
+      - ".github/workflows/model.yml"
+      - "tests/utils/gpu_tests/checkpoint/test_fsdp_ckpt.py"
+      - "tests/models/test_transformers_ulysses.py"
+      - "tests/distributed/run_all.sh"
 
 # Declare permissions just read content.
-permissions: 
+permissions:
   contents: read
 
 jobs:
   model_rmpad:
-    runs-on: [self-hosted, l20-1]
+    runs-on: [L20x8]
     timeout-minutes: 20 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
-      NO_PROXY: "localhost,127.0.0.1"
-      HF_HUB_ENABLE_HF_TRANSFER: 1
+      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
+      HF_ENDPOINT: "https://hf-mirror.com"
+      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3
+      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.0-te2.3
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-            fetch-depth: 0
+          fetch-depth: 0
       - name: Install the current repository and upgrade to latest transformers/flash_attn
         run: |
-          pip3 install -e .[test]
+          pip3 install --no-deps -e .[test]
           pip3 install --upgrade transformers
       - name: Running rmpad model tests on 8 L20 GPUs + flash_attn 2.5.8
         run: |
-          pytest -s tests/model/test_transformer.py
+          pytest -s tests/models/test_transformer.py
       - name: Running rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
           pip3 install --upgrade flash_attn --no-build-isolation
-          pytest -s tests/model/test_transformer.py
+          pytest -s tests/models/test_transformer.py
       - name: Running FSDP rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
-          pip3 install hf_transfer
-          torchrun --nproc_per_node=8 tests/checkpoint/test_fsdp_ckpt.py
+          STRATEGY=fsdp torchrun --nproc_per_node=8 tests/utils/gpu_tests/checkpoint/test_fsdp_ckpt.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + latest transformers
         run: |
-          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.49.0
         run: |
           pip3 install transformers==4.49.0
-          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.48.0
         run: |
           pip3 install transformers==4.48.0
-          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.47.0
         run: |
           pip3 install transformers==4.47.0
-          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.46.0
         run: |
           pip3 install transformers==4.46.0
-          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.45.0
         run: |
           pip3 install transformers==4.45.0
-          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Run distributed test
         run: |
           bash tests/distributed/run_all.sh
+
+  # TODO: Move this back to model_rmpad once FSDP2 is stable.
+  # NOTE: List as an independent job to make rerun easier.
+  model_rmpad_fsdp2_unstable:
+    runs-on: [L20x8]
+    timeout-minutes: 20 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
+      HF_ENDPOINT: "https://hf-mirror.com"
+      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
+    container:
+      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.0-te2.3
+      options: --gpus all --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Install the current repository and upgrade to latest transformers/flash_attn
+        run: |
+          pip3 install --no-deps -e .[test]
+          pip3 install --upgrade transformers
+      - name: Running FSDP2 rmpad model tests on 8 L20 GPUs + latest flash_attn
+        run: |
+          pip3 install --upgrade flash_attn --no-build-isolation
+          STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/utils/gpu_tests/checkpoint/test_fsdp_ckpt.py

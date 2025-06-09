@@ -36,19 +36,19 @@ RUN pip config set global.index-url "${PIP_INDEX}" && \
     pip config set global.extra-index-url "${PIP_INDEX}" && \
     python -m pip install --upgrade pip
 
-# Install sglang-0.4.4.post4 and torch-memory-saver
-RUN pip install "sglang[all]==0.4.4.post4" --no-cache-dir --find-links https://flashinfer.ai/whl/cu124/torch2.5/flashinfer-python && pip install torch-memory-saver --no-cache-dir
+# Install sglang-0.4.6.post5 and torch-memory-saver
+RUN pip uninstall -y cuda-python && pip install "sglang[all]==0.4.6.post5" --no-cache-dir --find-links https://flashinfer.ai/whl/cu124/torch2.6/flashinfer-python && pip install torch-memory-saver --no-cache-dir
 
-# Install torch-2.5.1
-RUN pip install --no-cache-dir torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 tensordict torchdata \
+# Install torch-2.6.0
+RUN pip install --no-cache-dir torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 tensordict torchdata \
     transformers>=4.49.0 accelerate datasets peft hf_transfer \
-    ray codetiming hydra-core pandas pyarrow>=15.0.0 pylatexenc qwen-vl-utils wandb liger-kernel \
-    pytest yapf py-spy pyext
+    ray[default] codetiming hydra-core pandas pyarrow>=15.0.0 pylatexenc qwen-vl-utils wandb liger-kernel \
+    pytest pre-commit py-spy pyext
 
 # Install flash_attn-2.7.4.post1
 RUN pip uninstall -y transformer-engine flash-attn && \
-    wget -v https://ghfast.top/https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.5cxx11abiFALSE-cp310-cp310-linux_x86_64.whl && \
-    pip install --no-cache-dir flash_attn-2.7.4.post1+cu12torch2.5cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+    wget -v https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl && \
+    pip install --no-cache-dir flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
 
 # Fix cv2
 RUN pip uninstall -y pynvml nvidia-ml-py && \

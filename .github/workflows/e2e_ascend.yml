@@ -3,29 +3,51 @@ name: e2e_ascend
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
+  push:
+    branches:
+      - main
+      - v0.*
   pull_request:
     branches:
       - main
     paths:
       - "**/*.py"
-      - .github/workflows/e2e_ascend.yml
+      # Other entrypoints
+      - "!examples/**"
+      - "!tests/**"
+      - "!verl/trainer/main_*.py"
+      - "!verl/trainer/fsdp_sft_trainer.py"
+      # Recipes
+      - "!recipe/**"
+      # Entrypoints
+      - ".github/workflows/e2e_ascend.yml"
+      - "examples/data_preprocess/gsm8k.py"
+      - "examples/data_preprocess/geo3k.py"
+      - "tests/e2e/ppo_trainer"
+      - "verl/trainer/main_ppo.py"
+      - "verl/trainer/config/ppo_trainer.yaml"
+
+# Cancel jobs on the same ref if a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
-  
+
 jobs:
   test:
     name: verl Ascend test (self-host)
     runs-on: [self-hosted, npu-0]
-    timeout-minutes: 5 # Increase this timeout value as needed
-    env:
-      HF_HUB_ENABLE_HF_TRANSFER: 1
+    timeout-minutes: 30 # Increase this timeout value as needed
     container:
-      image: quay.io/ascend/cann:8.0.0-910b-ubuntu22.04-py3.10
+      image: crispig/verl_npu:cann8.1rc1-py3.10-torch2.5.1-vllm0.7.3-250603
       volumes:
         - /usr/local/dcmi:/usr/local/dcmi
         - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
         - /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/
+        - /usr/local/Ascend/driver/version.info:/usr/local/Ascend/driver/version.info
+        - /etc/ascend_install.info:/etc/ascend_install.info
         # Use self-host cache speed up pip and model download
         # - /home/action/actions-runner/_work/cache:/github/home/.cache/
       options: >-
@@ -33,8 +55,15 @@ jobs:
         --device /dev/davinci_manager
         --device /dev/devmm_svm
         --device /dev/hisi_hdc
+        --network host
         --privileged
-        --network "host"
+        --shm-size 2g
+    env: 
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
+      HF_ENDPOINT: "https://hf-mirror.com"
+      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     steps:
       - name: Check npu and CANN info
         run: |
@@ -42,6 +71,27 @@ jobs:
           npu-smi info
       - name: Checkout volcengine/verl repo
         uses: actions/checkout@v4
-      - name: Run test
+      - name: Install the current repository
         run: |
-          lscpu
+          pip3 install hf_transfer peft
+          pip3 install -r requirements-npu.txt
+          pip install -e .
+      - name: Prepare gsm8k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running gsm8k e2e training tests with LoRA on ASCEND NPU
+        run: |
+          ray stop --force
+          bash tests/e2e/sft/run_sft.sh
+          rm -rf $HOME/ckpts
+      - name: Running gsm8k e2e training tests with GRPO on ASCEND NPU
+        run: |
+          ray stop --force
+          bash tests/npu/run_qwen2_5_05b_grpo.sh
+          rm -rf $HOME/ckpts
+      - name: Running gsm8k e2e training tests with DAPO on ASCEND NPU
+        run: |
+          ray stop --force
+          bash tests/npu/run_qwen2_5_05b_dapo.sh
+          rm -rf $HOME/ckpts

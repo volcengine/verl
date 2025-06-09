@@ -13,23 +13,14 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-from typing import Iterable, Union
 
 from verl import DataProto
 
-__all__ = ['BaseRollout']
+__all__ = ["BaseRollout"]
 
 
 class BaseRollout(ABC):
-
-    def __init__(self):
-        """
-
-        Args:
-            dataloader: an Iterable of TensorDict that consistently generates prompts. Note that the dataloader
-            should handle when the training stops.
-        """
-        super().__init__()
+    """Base class for rollout."""
 
     @abstractmethod
     def generate_sequences(self, prompts: DataProto) -> DataProto:

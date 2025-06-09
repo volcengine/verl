@@ -15,18 +15,25 @@
 
 import enum
 import json
+from dataclasses import dataclass, field
 from typing import List, Optional, Union
-from dataclasses import dataclass, field, fields
 
 import torch
 from transformers import PretrainedConfig
 
+# Add for verl
+from vllm.config import (
+    ModelConfig,
+    MultiModalConfig,
+    _get_and_verify_dtype,
+    _get_and_verify_max_len,
+    get_served_model_name,
+)
 from vllm.logger import init_logger
 from vllm.model_executor.layers.quantization import get_quantization_config
+from vllm.model_executor.model_loader import BaseModelLoader
 from vllm.transformers_utils.config import get_hf_text_config
 from vllm.utils import is_hip, print_warning_once
-# Add for verl
-from vllm.config import ModelConfig, _get_and_verify_dtype, _get_and_verify_max_len, get_served_model_name
 
 GPTQMarlinConfig = get_quantization_config("gptq_marlin")
 
@@ -91,8 +98,8 @@ class ModelConfig(ModelConfig):
         skip_tokenizer_init: If true, skip initialization of tokenizer and
             detokenizer.
         served_model_name: The model name used in metrics tag `model_name`,
-            matches the model name exposed via the APIs. If multiple model 
-            names provided, the first name will be used. If not specified, 
+            matches the model name exposed via the APIs. If multiple model
+            names provided, the first name will be used. If not specified,
             the model name will be the same as `model`.
     """
 
@@ -118,7 +125,7 @@ class ModelConfig(ModelConfig):
         disable_sliding_window: bool = False,
         skip_tokenizer_init: bool = False,
         served_model_name: Optional[Union[str, List[str]]] = None,
-        multimodal_config: Optional["MultiModalConfig"] = None,
+        multimodal_config: Optional[MultiModalConfig] = None,
     ) -> None:
         self.model = hf_config._name_or_path
         self.tokenizer = hf_config._name_or_path
@@ -139,8 +146,7 @@ class ModelConfig(ModelConfig):
         self.quantization_param_path = quantization_param_path
         self.enforce_eager = enforce_eager
         if max_context_len_to_capture is not None:
-            raise ValueError("`max_context_len_to_capture` is deprecated. "
-                             "Use `max_seq_len_to_capture` instead.")
+            raise ValueError("`max_context_len_to_capture` is deprecated. Use `max_seq_len_to_capture` instead.")
         self.max_seq_len_to_capture = max_seq_len_to_capture
         self.max_logprobs = max_logprobs
         self.disable_sliding_window = disable_sliding_window
@@ -154,21 +160,20 @@ class ModelConfig(ModelConfig):
         #                                                served_model_name)
         # self._verify_load_format()
         # self._verify_tokenizer_mode()
-        if (not self.disable_sliding_window and self.hf_text_config.model_type == "gemma2" and
-                self.hf_text_config.sliding_window is not None):
-            print_warning_once("Gemma 2 uses sliding window attention for every odd layer, "
-                               "which is currently not supported by vLLM. Disabling sliding "
-                               "window and capping the max length to the sliding window size "
-                               f"({self.hf_text_config.sliding_window}).")
+        if not self.disable_sliding_window and self.hf_text_config.model_type == "gemma2" and self.hf_text_config.sliding_window is not None:
+            print_warning_once(f"Gemma 2 uses sliding window attention for every odd layer, which is currently not supported by vLLM. Disabling sliding window and capping the max length to the sliding window size ({self.hf_text_config.sliding_window}).")
             self.disable_sliding_window = True
 
-        self.max_model_len = _get_and_verify_max_len(hf_config=self.hf_text_config,
-                                                     max_model_len=max_model_len,
-                                                     disable_sliding_window=self.disable_sliding_window,
-                                                     sliding_window_len=self.get_hf_config_sliding_window())
+        self.max_model_len = _get_and_verify_max_len(
+            hf_config=self.hf_text_config,
+            max_model_len=max_model_len,
+            disable_sliding_window=self.disable_sliding_window,
+            sliding_window_len=self.get_hf_config_sliding_window(),
+        )
         self.served_model_name = get_served_model_name(
             self.model,  # str
-            served_model_name)
+            served_model_name,
+        )
         self.multimodal_config = multimodal_config
 
         if not self.skip_tokenizer_init:
@@ -179,41 +184,41 @@ class ModelConfig(ModelConfig):
 
 
 class LoadFormat(str, enum.Enum):
-    AUTO = 'auto'
+    AUTO = "auto"
     MEGATRON = "megatron"
     HF = "hf"
-    DTENSOR = 'dtensor'
-    DUMMY_HF = 'dummy_hf'
-    DUMMY_MEGATRON = 'dummy_megatron'
-    DUMMY_DTENSOR = 'dummy_dtensor'
+    DTENSOR = "dtensor"
+    DUMMY_HF = "dummy_hf"
+    DUMMY_MEGATRON = "dummy_megatron"
+    DUMMY_DTENSOR = "dummy_dtensor"
 
 
 # TODO: check whether this is necessary
 @dataclass
 class LoadConfig:
     """
-        download_dir: Directory to download and load the weights, default to the
-            default cache directory of huggingface.
-        load_format: The format of the model weights to load:
-            "auto" will try to load the weights in the safetensors format and
-                fall back to the pytorch bin format if safetensors format is
-                not available.
-            "pt" will load the weights in the pytorch bin format.
-            "safetensors" will load the weights in the safetensors format.
-            "npcache" will load the weights in pytorch format and store
-                a numpy cache to speed up the loading.
-            "dummy" will initialize the weights with random values, which is
-                mainly for profiling.
-            "tensorizer" will use CoreWeave's tensorizer library for
-                fast weight loading.
-            "bitsandbytes" will load nf4 type weights.
-        ignore_patterns: The list of patterns to ignore when loading the model.
-            Default to "original/**/*" to avoid repeated loading of llama's 
-            checkpoints.
-            
+    download_dir: Directory to download and load the weights, default to the
+        default cache directory of huggingface.
+    load_format: The format of the model weights to load:
+        "auto" will try to load the weights in the safetensors format and
+            fall back to the pytorch bin format if safetensors format is
+            not available.
+        "pt" will load the weights in the pytorch bin format.
+        "safetensors" will load the weights in the safetensors format.
+        "npcache" will load the weights in pytorch format and store
+            a numpy cache to speed up the loading.
+        "dummy" will initialize the weights with random values, which is
+            mainly for profiling.
+        "tensorizer" will use CoreWeave's tensorizer library for
+            fast weight loading.
+        "bitsandbytes" will load nf4 type weights.
+    ignore_patterns: The list of patterns to ignore when loading the model.
+        Default to "original/**/*" to avoid repeated loading of llama's
+        checkpoints.
+
     """
 
-    load_format: Union[str, LoadFormat, "BaseModelLoader"] = LoadFormat.AUTO
+    load_format: Union[str, LoadFormat, BaseModelLoader] = LoadFormat.AUTO
     download_dir: Optional[str] = None
     model_loader_extra_config: Optional[Union[str, dict]] = field(default_factory=dict)
     ignore_patterns: Optional[Union[List[str], str]] = None
@@ -238,9 +243,5 @@ class LoadConfig:
 
         rocm_not_supported_load_format: List[str] = []
         if is_hip() and load_format in rocm_not_supported_load_format:
-            rocm_supported_load_format = [
-                f for f in LoadFormat.__members__ if (f not in rocm_not_supported_load_format)
-            ]
-            raise ValueError(f"load format '{load_format}' is not supported in ROCm. "
-                             f"Supported load formats are "
-                             f"{rocm_supported_load_format}")
+            rocm_supported_load_format = [f for f in LoadFormat.__members__ if (f not in rocm_not_supported_load_format)]
+            raise ValueError(f"load format '{load_format}' is not supported in ROCm. Supported load formats are {rocm_supported_load_format}")

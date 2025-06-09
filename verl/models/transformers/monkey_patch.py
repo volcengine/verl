@@ -14,18 +14,24 @@
 """
 Apply monkey-patch function to models
 """
+
+import importlib.metadata
 import sys
+from functools import lru_cache
 from typing import Optional
 
 import torch
-from transformers.modeling_utils import PreTrainedModel
+from packaging import version
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
+from transformers.modeling_utils import PreTrainedModel
 
+from verl.utils.import_utils import is_trl_available
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
-    get_ulysses_sequence_parallel_world_size,
     get_ulysses_sequence_parallel_group,
+    get_ulysses_sequence_parallel_world_size,
+    slice_input_tensor,
 )
 
 
@@ -92,12 +98,7 @@ def _ulysses_flash_attention_forward(
         position_ids = torch.concat(position_ids_list, dim=-1)
 
     # (bsz, seq_len, n_head/n, head_dim)
-    attn_output = _flash_attention_forward(query_states,
-                                           key_states,
-                                           value_states,
-                                           *args,
-                                           position_ids=position_ids,
-                                           **kwargs)
+    attn_output = _flash_attention_forward(query_states, key_states, value_states, *args, position_ids=position_ids, **kwargs)
 
     ########## AlltoAll for Ulysses ##########
     if ulysses_sp_size > 1:
@@ -107,51 +108,168 @@ def _ulysses_flash_attention_forward(
     return attn_output
 
 
-def apply_monkey_patch(model: PreTrainedModel, ulysses_sp_size: int):
+def patch_vlm_for_ulysses_input_slicing(model_class: type):
+    """
+    Applies a monkey patch to the forward method of a given model class
+    to enable Ulysses sequence parallelism input slicing.
+    """
+
+    def _create_ulysses_wrapped_decoder_forward(original_forward):
+        def ulysses_wrapped_decoder_forward(self, *args, **kwargs):
+            inputs_embeds = kwargs.get("inputs_embeds")
+            call_kwargs = kwargs.copy()
+
+            current_ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
+
+            slice_now = inputs_embeds is not None and current_ulysses_sp_size > 1 and getattr(self, "_needs_initial_slice", True)
+            if slice_now:
+                call_kwargs["inputs_embeds"] = slice_input_tensor(inputs_embeds, dim=1, padding=False)
+                self._needs_initial_slice = False
+            try:
+                return original_forward(self, *args, **call_kwargs)
+            finally:
+                if slice_now:
+                    self._needs_initial_slice = True
+
+        return ulysses_wrapped_decoder_forward
+
+    original_forward = model_class.forward
+    wrapped_forward = _create_ulysses_wrapped_decoder_forward(original_forward)
+    model_class.forward = wrapped_forward
+    print(f"Monkey patch {model_class.__name__}.forward for Ulysses SP input slicing.")
+
+
+def apply_monkey_patch(
+    model: PreTrainedModel,
+    ulysses_sp_size: int = 1,
+    use_remove_padding: bool = True,
+    use_fused_kernels: bool = False,
+):
     """Replace _flash_attention_forward to _ulysses_flash_attention_forward"""
     module = sys.modules[model.__module__]
 
-    num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
-    assert num_attention_heads % ulysses_sp_size == 0, \
-        f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
+    try:
+        num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
+    except AttributeError:
+        num_attention_heads, num_key_value_heads = model.config.text_config.num_attention_heads, model.config.text_config.num_key_value_heads
+    
+    assert num_attention_heads % ulysses_sp_size == 0, f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
     assert num_key_value_heads % ulysses_sp_size == 0 or ulysses_sp_size % num_key_value_heads == 0, (
-        f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
-        f"or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,"
-        f"kv heads are repeated to ensure correctness.")
-    # TODO: VLM models only, unify monkey patch to LLM models.
-    if model.config.model_type in ("qwen2_vl", "qwen2_5_vl"):  # patch remove padding for qwen2vl mrope
-        from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward
-        from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLFlashAttention2
-        from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLFlashAttention2
+        f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,kv heads are repeated to ensure correctness."
+    )
 
-        Qwen2VLFlashAttention2.forward = ulysses_flash_attn_forward
-        Qwen2_5_VLFlashAttention2.forward = ulysses_flash_attn_forward
-        print("Monkey patch FlashAttention2.forward in Qwen2VL")
+    if is_trl_available():
+        from trl import AutoModelForCausalLMWithValueHead
+
+        def state_dict(self, *args, **kwargs):
+            return torch.nn.Module.state_dict(self, *args, **kwargs)
+
+        AutoModelForCausalLMWithValueHead.state_dict = state_dict
+        print("Monkey patch state_dict in AutoModelForCausalLMWithValueHead. ")
+
+    # TODO: VLM models only, unify monkey patch to LLM models.
+    if model.config.model_type == "qwen2_5_vl":
+        from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
+            Qwen2_5_VLFlashAttention2,
+            Qwen2_5_VLForConditionalGeneration,
+        )
+
+        if use_remove_padding or ulysses_sp_size > 1:
+            from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward
+
+            Qwen2_5_VLFlashAttention2.forward = ulysses_flash_attn_forward
+            print("Monkey patch FlashAttention2.forward in Qwen2.5VL")
+
+        if ulysses_sp_size > 1:
+            if is_transformers_version_in_range(min_version="4.52.0"):
+                from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLTextModel
+                patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLTextModel)
+            else:
+                from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLModel
+                patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLModel)
+
+        if use_fused_kernels:
+            from verl.models.transformers.qwen2_5_vl import forward_for_ppo
+
+            Qwen2_5_VLForConditionalGeneration.forward = forward_for_ppo
+
+        return
+
+    elif model.config.model_type == "qwen2_vl":
+        from transformers.models.qwen2_vl.modeling_qwen2_vl import (
+            Qwen2VLFlashAttention2,
+            Qwen2VLForConditionalGeneration,
+        )
+
+        if use_remove_padding or ulysses_sp_size > 1:
+            from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward
+
+            Qwen2VLFlashAttention2.forward = ulysses_flash_attn_forward
+            print("Monkey patch FlashAttention2.forward in Qwen2VL")
+
+        if ulysses_sp_size > 1:
+            if is_transformers_version_in_range(min_version="4.52.0"):
+                from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLTextModel
+                patch_vlm_for_ulysses_input_slicing(Qwen2VLTextModel)
+            else:
+                from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLModel
+                patch_vlm_for_ulysses_input_slicing(Qwen2VLModel)
+
+        if use_fused_kernels:
+            from verl.models.transformers.qwen2_vl import forward_for_ppo
+
+            Qwen2VLForConditionalGeneration.forward = forward_for_ppo
+
+        return
+
+    elif model.config.model_type == "kimi_vl":
+        if use_remove_padding or ulysses_sp_size > 1:
+            # TODO: Changes need to be made when transformers are adapted.
+            from verl.models.transformers.kimi_vl import _merge_with_image_features, _ulysses_flash_attn_forward
+
+            module.KimiVLForConditionalGeneration._merge_with_image_features = _merge_with_image_features
+            module.DeepseekV3FlashAttention2.forward = _ulysses_flash_attn_forward
+            print("Monkey patch FlashAttention2.forward in KimiVL")
+            
+        if use_fused_kernels:
+            print("Not support fused kernels for KimiVL")
+
         return
 
     # transformers<=4.47.1
-    if hasattr(module, "_flash_attention_forward"):
-        module._flash_attention_forward = _ulysses_flash_attention_forward
-        print(f"Monkey patch _flash_attention_forward in {model.__module__}")
-    else:
-        # transformers>=4.48.0
-        from transformers.integrations import flash_attention
-        flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
-        print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
+    if use_remove_padding or ulysses_sp_size > 1:
+        if hasattr(module, "_flash_attention_forward"):
+            module._flash_attention_forward = _ulysses_flash_attention_forward
+            print(f"Monkey patch _flash_attention_forward in {model.__module__}")
+        else:
+            # transformers>=4.48.0
+            from transformers.integrations import flash_attention
+
+            flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
+            print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
+
+    if use_fused_kernels:
+        from verl.models.transformers.llama import forward_for_ppo
+
+        model.__class__.forward = forward_for_ppo
 
 
-from functools import lru_cache
-from packaging import version
-import importlib.metadata
-
-
-@lru_cache()
-def is_transformers_version_in_range(min_version: str, max_version: str) -> bool:
+@lru_cache
+def is_transformers_version_in_range(min_version: Optional[str] = None, max_version: Optional[str] = None) -> bool:
     try:
         # Get the installed version of the transformers library
-        transformers_version = importlib.metadata.version("transformers")
-    except importlib.metadata.PackageNotFoundError:
-        raise ModuleNotFoundError("The `transformers` package is not installed.")
+        transformers_version_str = importlib.metadata.version("transformers")
+    except importlib.metadata.PackageNotFoundError as e:
+        raise ModuleNotFoundError("The `transformers` package is not installed.") from e
 
-    # Check if the version is within the specified range
-    return version.parse(min_version) <= version.parse(transformers_version) <= version.parse(max_version)
+    transformers_version = version.parse(transformers_version_str)
+
+    lower_bound_check = True
+    if min_version is not None:
+        lower_bound_check = version.parse(min_version) <= transformers_version
+
+    upper_bound_check = True
+    if max_version is not None:
+        upper_bound_check = transformers_version <= version.parse(max_version)
+
+    return lower_bound_check and upper_bound_check
