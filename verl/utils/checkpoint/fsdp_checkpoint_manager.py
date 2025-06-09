@@ -90,6 +90,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         if local_path is None:
             return
         
+        # check if the checkpoint_load_contents is valid
         if self.should_load_model:
             assert self.model is not None, "model must be provided when checkpoint_contents.load includes ['model']"
         if self.should_load_optimizer:
@@ -171,6 +172,12 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
         local_path = self.local_mkdir(local_path)
         torch.distributed.barrier()
+
+        # check if the checkpoint_save_contents is valid
+        if self.should_save_model:
+            assert self.model is not None, "model must be provided when checkpoint_contents.save includes ['model']"
+        if self.should_save_optimizer:
+            assert self.optimizer is not None, "optimizer must be provided when checkpoint_contents.save includes ['optimizer']"
 
         # every rank will save its own model and optim shard
         state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
