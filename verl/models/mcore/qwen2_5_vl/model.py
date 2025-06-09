@@ -281,11 +281,11 @@ class Qwen2_5VLModel(MegatronModule):
                     input_ids=input_ids,
                     position_ids=None,  # NOTE: disable
                 )  # [text_seq_len, b, h_language]
+            if self.config.sequence_parallel:
+                combined_embeddings = tensor_parallel.scatter_to_sequence_parallel_region(combined_embeddings)
+                combined_embeddings = combined_embeddings.contiguous()
         else:
             combined_embeddings = None
-        if self.config.sequence_parallel:
-            combined_embeddings = tensor_parallel.scatter_to_sequence_parallel_region(combined_embeddings)
-            combined_embeddings = combined_embeddings.contiguous()
         from .rope_utils import get_rope_index
 
         position_ids, _ = get_rope_index(input_ids, image_grid_thw=image_grid_thw, video_grid_thw=video_grid_thw, attention_mask=attention_mask)
