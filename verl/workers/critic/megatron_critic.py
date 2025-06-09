@@ -34,7 +34,8 @@ from verl.trainer.ppo import core_algos
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
+from verl.utils.seqlen_balancing import (get_reverse_idx,
+                                         rearrange_micro_batches)
 from verl.utils.torch_functional import broadcast_dict_tensor, masked_mean
 from verl.workers.critic import BasePPOCritic
 
@@ -90,7 +91,7 @@ class MegatronPPOCritic(BasePPOCritic):
 
     @GPUMemoryLogger("megatron critic", logger=logger)
     def compute_values(self, data: DataProto) -> DataProto:
-        # data.batch = data.batch.to(self.critic_module.module.device)
+        data.to(torch.cuda.current_device())
         responses = data.batch["responses"]
         attention_mask = data.batch["attention_mask"]
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
@@ -117,8 +118,9 @@ class MegatronPPOCritic(BasePPOCritic):
                 values = torch.empty_like(attention_mask, dtype=torch.float32)
 
             # each tp ranks should contain the same value
-            values = values * attention_mask
-            values = values[:, -response_length - 1 : -1]
+            values = values[:, -response_length - 1 : -1] # Values are predicted at the ends of prefixes, e.g., the last prompt token
+            response_mask = attention_mask[:, -response_length:]
+            values = values * response_mask # Only action tokens have values
             values = values.contiguous()
 
             # sync among pp ranks
@@ -146,6 +148,7 @@ class MegatronPPOCritic(BasePPOCritic):
     def forward_backward_batch(self, data: DataProto, forward_only=False, use_dynamic_bsz=False, micro_batch_size=None, max_token_len=None, mini_batch_size=None):
         # broadcast from last pp rank to all other pp ranks
         mini_batch = data
+        mini_batch.to(torch.cuda.current_device())
         mini_batch.batch = mini_batch.batch.contiguous()
         broadcast_dict_tensor(mini_batch.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
         # split into micro-batches

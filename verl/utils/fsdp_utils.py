@@ -17,9 +17,9 @@ import itertools
 import json
 import math
 import os
+from collections import OrderedDict
 from contextlib import contextmanager, nullcontext
 from typing import Dict
-from collections import OrderedDict
 
 import torch
 import torch.distributed as dist
@@ -30,7 +30,8 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp._runtime_utils import _lazy_init
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
 from transformers.trainer_pt_utils import get_module_class_from_name
-from verl.utils.device import get_torch_device, get_device_name
+
+from verl.utils.device import get_device_name, get_torch_device
 
 if version.parse(torch.__version__) >= version.parse("2.6"):
     from torch.distributed.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard
@@ -459,30 +460,36 @@ def fsdp2_clip_grad_norm_(parameters, max_norm, norm_type=2.0, error_if_nonfinit
     _clip_grads_with_norm_(parameters, max_norm, total_norm, foreach)
     return total_norm
 
-def layered_summon_lora_params(fsdp_module)->OrderedDict:
+
+def layered_summon_lora_params(fsdp_module) -> OrderedDict:
     from peft.utils.save_and_load import get_peft_model_state_dict
 
     def __prefix_submodules(module, prefix):
         for name, submodule in module.named_modules():
-            if name.startswith(prefix) and "." not in name[len(prefix):]:
+            if name.startswith(prefix) and "." not in name[len(prefix) :]:
                 yield name, submodule
 
     lora_params = OrderedDict()
     prefix_list = [
-        '_fsdp_wrapped_module.base_model.model.',
-        '_fsdp_wrapped_module.base_model.model.model.',
-        '_fsdp_wrapped_module.base_model.model.model.layers.'
+        # fsdp
+        "_fsdp_wrapped_module.base_model.model.",
+        "_fsdp_wrapped_module.base_model.model.model.",
+        "_fsdp_wrapped_module.base_model.model.model.layers.",
+        # fsdp2
+        "base_model.model.",
+        "base_model.model.model.",
+        "base_model.model.model.layers.",
     ]
+    peft_model = getattr(fsdp_module, "_fsdp_wrapped_module", fsdp_module)
     for prefix in prefix_list:
         for name, submodule in __prefix_submodules(fsdp_module, prefix):
-            prefix = name.replace("_fsdp_wrapped_module.base_model.model.","base_model.model.")
-            if name.endswith('.model') or name.endswith('.layers'):
+            prefix = name.replace("_fsdp_wrapped_module.base_model.model.", "base_model.model.")
+            if name.endswith(".model") or name.endswith(".layers"):
                 continue
             if fsdp_version(submodule) > 0:
                 with FSDP.summon_full_params(submodule, writeback=False):
-                    sub_lora_params = get_peft_model_state_dict(fsdp_module._fsdp_wrapped_module, state_dict=submodule.state_dict())
-                    sub_lora_params = {f"{prefix}.{name}": param.full_tensor().detach().cpu() if hasattr(param, 'full_tensor') else param.detach().cpu()
-                        for name, param in sub_lora_params.items()}
+                    sub_lora_params = get_peft_model_state_dict(peft_model, state_dict=submodule.state_dict())
+                    sub_lora_params = {f"{prefix}.{name}": param.full_tensor().detach().cpu() if hasattr(param, "full_tensor") else param.detach().cpu() for name, param in sub_lora_params.items()}
                     lora_params.update(sub_lora_params)
                     submodule._is_root = False
                 torch.cuda.empty_cache()

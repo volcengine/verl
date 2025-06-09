@@ -38,6 +38,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.multiturn.messages_key=messages \
     optim.lr=1e-4 \
     data.micro_batch_size_per_gpu=${micro_bsz} \
+    model.strategy=fsdp \
     model.partial_pretrain="${MODEL_PATH}" \
     model.lora_rank="${LORA_RANK}" \
     model.lora_alpha=16 \

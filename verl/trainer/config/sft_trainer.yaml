@@ -7,12 +7,13 @@ data:
   # Single-turn settings
   prompt_key: question
   response_key: answer
-  prompt_dict_keys: ['question']
-  response_dict_keys: ['answer']
+  prompt_dict_keys: null
+  response_dict_keys: null
   # Multi-turn settings
   multiturn:
     enable: false  # Set to true to use multi-turn dataset
     messages_key: messages  # Key for messages list in multi-turn mode
+    tools_key: tools # Key for tool list in multi-turn mode
   max_length: 1024
   truncation: error
   balance_dp_token: False
@@ -25,6 +26,7 @@ model:
   partial_pretrain: ~/models/gemma-1.1-7b-it
   use_shm: False
   fsdp_config:
+    model_dtype: fp32
     wrap_policy:
       min_num_params: 0
     cpu_offload: False
@@ -47,13 +49,18 @@ optim:
 ulysses_sequence_parallel_size: 1
 use_remove_padding: False
 trainer:
-  default_local_dir: /tmp/sft_model
-  default_hdfs_dir: hdfs://tmp/experiments/gsm8k/gemma-1.1-7b-it/ # change the hdfs path here
+  default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
+  default_hdfs_dir: null
   resume_path: null
   project_name: gsm8k-sft
   experiment_name: test
   total_epochs: 4
   total_training_steps: null
-  logger: ['console']
+  logger: [ 'console', 'wandb' ]
   seed: 1
 
+  save_freq: -1
+  test_freq: -1
+  nnodes: 1
+  n_gpus_per_node: 8
+  max_ckpt_to_keep: null # TODO

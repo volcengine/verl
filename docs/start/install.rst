@@ -38,11 +38,11 @@ Install from docker image
 
 We provide pre-built Docker images for quick setup.
 
-For vLLM with Megatron or FSDP, please use the stable version of image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.3``.
+For vLLM with Megatron or FSDP, please use the stable version of image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.1-te2.3-deepseek``, which supports DeepSeek-V3 671B post-training.
 
 For latest vLLM with FSDP, please refer to ``hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.4-flashinfer0.2.2-cxx11abi0``.
 
-For SGLang with FSDP, please use ``ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.6.post4`` which is provided by SGLang RL Group.
+For SGLang with FSDP, please use ``ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.6.post5`` which is provided by SGLang RL Group.
 
 See files under ``docker/`` for NGC-based image or if you want to build your own.
 
@@ -70,17 +70,17 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
 
 .. note::
 
-    The Docker image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.3`` is built with the following configurations:
+    The Docker image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.1-te2.3-deepseekv3`` is built with the following configurations:
 
     - **PyTorch**: 2.6.0+cu124
     - **CUDA**: 12.4
     - **cuDNN**: 9.8.0
     - **nvidia-cudnn-cu12**: 9.8.0.87, **important for the usage of Megatron FusedAttention with MLA Support**
     - **Flash Attenttion**: 2.7.4.post1
-    - **Flash Infer**: 0.2.2.post1
+    - **Flash Infer**: 0.2.5
     - **vLLM**: 0.8.5
-    - **SGLang**: 0.4.6.post4
-    - **Megatron-LM**: core_v0.12.0
+    - **SGLang**: 0.4.6.post5
+    - **Megatron-LM**: core_v0.12.1
     - **TransformerEngine**: 2.3
     - **Ray**: 2.44.1
 
@@ -92,14 +92,14 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
 Install from custom environment
 ---------------------------------------------
 
-We recommend to use docker images for convinience. However, if your environment is not compatible with the docker image, you can also install verl in a python environment.
+We recommend to use docker images for convenience. However, if your environment is not compatible with the docker image, you can also install verl in a python environment.
 
 
 Pre-requisites
 ::::::::::::::
 
 For training and inference engines to utilize better and faster hardware support, CUDA/cuDNN and other dependencies are required,
-and some of the dependencies are easy to be overrided when installing other packages,
+and some of the dependencies are easy to be overridden when installing other packages,
 so we put them in the :ref:`Post-installation` step.
 
 We need to install the following pre-requisites:
@@ -113,7 +113,7 @@ please refer to `NVIDIA's official website <https://developer.nvidia.com/cuda-to
 
 .. code:: bash
 
-    # change directory to anywher you like, in verl source code directory is not recommanded
+    # change directory to anywher you like, in verl source code directory is not recommended
     wget https://developer.download.nvidia.com/compute/cuda/12.4.1/local_installers/cuda-repo-ubuntu2204-12-4-local_12.4.1-550.54.15-1_amd64.deb
     dpkg -i cuda-repo-ubuntu2204-12-4-local_12.4.1-550.54.15-1_amd64.deb
     cp /var/cuda-repo-ubuntu2204-12-4-local/cuda-*-keyring.gpg /usr/share/keyrings/
@@ -127,7 +127,7 @@ please refer to `NVIDIA's official website <https://developer.nvidia.com/rdp/cud
 
 .. code:: bash
 
-    # change directory to anywher you like, in verl source code directory is not recommanded
+    # change directory to anywher you like, in verl source code directory is not recommended
     wget https://developer.download.nvidia.com/compute/cudnn/9.8.0/local_installers/cudnn-local-repo-ubuntu2204-9.8.0_1.0-1_amd64.deb
     dpkg -i cudnn-local-repo-ubuntu2204-9.8.0_1.0-1_amd64.deb
     cp /var/cudnn-local-repo-ubuntu2204-9.8.0/cudnn-*-keyring.gpg /usr/share/keyrings/
@@ -136,12 +136,12 @@ please refer to `NVIDIA's official website <https://developer.nvidia.com/rdp/cud
 
 NVIDIA Apex is required for Megatron-LM and FSDP training.
 You can install it via the following command, but notice that this steps can take a very long time.
-It is recommanded to set the ``MAX_JOBS`` environment variable to accelerate the installation process,
+It is recommended to set the ``MAX_JOBS`` environment variable to accelerate the installation process,
 but do not set it too large, otherwise the memory will be overloaded and your machines may hang.
 
 .. code:: bash
 
-    # change directory to anywher you like, in verl source code directory is not recommanded
+    # change directory to anywher you like, in verl source code directory is not recommended
     git clone https://github.com/NVIDIA/apex.git && \
     cd apex && \
     MAX_JOB=32 pip install -v --disable-pip-version-check --no-cache-dir --no-build-isolation --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" ./
@@ -297,7 +297,7 @@ Launch the container
       verl-rocm \
       /bin/bash
 
-(Optional): If you do not want to root mode and require assign yuorself as the user
+If you do not want to root mode and require assign yourself as the user,
 Please add ``-e HOST_UID=$(id -u)`` and ``-e HOST_GID=$(id -g)`` into the above docker launch script. 
 
-(Currently Support): Training Engine: FSDP; Inference Engine: vLLM and SGLang - We will support Megatron in the future.
+verl with AMD GPUs currently supports FSDP as the training engine, vLLM and SGLang as the inference engine. We will support Megatron in the future.

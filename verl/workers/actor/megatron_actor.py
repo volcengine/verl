@@ -166,6 +166,7 @@ class MegatronPPOActor(BasePPOActor):
         Returns:
             DataProto: torch.Tensor: the log_prob tensor
         """
+        data.to(torch.cuda.current_device())
         data.batch = data.batch.contiguous()
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
         micro_batch_size = data.meta_info.get("micro_batch_size", None)
@@ -486,7 +487,7 @@ class MegatronPPOActor(BasePPOActor):
         metrics = {}
         self.prof.start()
         for data in dataloader:
-            # data = data.batch.to(self.actor_module.device)
+            data.to(torch.cuda.current_device())
             self.actor_optimizer.zero_grad()
             # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
             for chunk in self.actor_module:
@@ -508,8 +509,7 @@ class MegatronPPOActor(BasePPOActor):
                 append_to_dict(metrics, metric[0])  # append the metric from this micro-batch to global metrics.
 
             update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step()
-            learning_rate = self.actor_optimizer.param_groups[-1]["lr"]
-            data = {"actor/grad_norm": grad_norm, "actor/lr": learning_rate}
+            data = {"actor/grad_norm": grad_norm}
             append_to_dict(metrics, data)
 
             if update_successful:
