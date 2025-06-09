@@ -67,10 +67,15 @@ class DataParallelPPOActor(BasePPOActor):
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
+        if self.config.entropy_from_logits_with_chunking:
+            entropy_from_logits = verl_F.entropy_from_logits_with_chunking
+        else:
+            entropy_from_logits = verl_F.entropy_from_logits
+
         self.compute_entropy_from_logits = (
-            torch.compile(verl_F.entropy_from_logits, dynamic=True)
+            torch.compile(entropy_from_logits, dynamic=True)
             if self.config.get("use_torch_compile", True)  #  use torch compile by default
-            else verl_F.entropy_from_logits
+            else entropy_from_logits
         )
         self.device_name = get_device_name()
 
@@ -166,7 +171,10 @@ class DataParallelPPOActor(BasePPOActor):
 
                     # compute entropy
                     if calculate_entropy:
-                        entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+                        if not self.config.entropy_checkpointing:
+                            entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+                        else:
+                            entropy_rmpad = torch.utils.checkpoint.checkpoint(self.compute_entropy_from_logits, logits_rmpad)
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:

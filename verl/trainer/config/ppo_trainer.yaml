@@ -201,6 +201,12 @@ actor_rollout_ref:
     # Sequence parallelism size for Ulysses-style model parallelism
     ulysses_sequence_parallel_size: 1
 
+    # calculate entropy with chunking to reduce memory peak
+    entropy_from_logits_with_chunking: False
+
+    # recompute entropy
+    entropy_checkpointing: False
+
     # checkpoint configs
     checkpoint:
     
@@ -259,6 +265,10 @@ actor_rollout_ref:
       # Number of GPUs in each FSDP shard group; -1 means auto
       fsdp_size: -1
 
+      # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
+      # before the current forward computation.
+      forward_prefetch: False
+
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
   ref:
@@ -275,6 +285,10 @@ actor_rollout_ref:
       # whether to perform reshard after model forward to save memory.
       # only for fsdp2, [True, False, int between 1 and fsdp_size]
       reshard_after_forward: True
+
+      # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
+      # before the current forward computation.
+      forward_prefetch: False
 
       # the wrap policy for FSDP model
       wrap_policy:
@@ -300,6 +314,12 @@ actor_rollout_ref:
 
     # sequence parallel size
     ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size}
+
+    # calculate entropy with chunking to reduce memory peak
+    entropy_from_logits_with_chunking: False
+
+    # recompute entropy
+    entropy_checkpointing: False
 
   # Rollout model config.
   rollout:
@@ -524,6 +544,10 @@ critic:
       # Number of GPUs in each FSDP shard group; -1 means auto
       fsdp_size: -1
 
+      # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
+      # before the current forward computation.
+      forward_prefetch: False
+
     # Set to positive value to enable LoRA (e.g., 32)
     lora_rank: 0
 
@@ -638,6 +662,10 @@ reward_model:
 
       # Number of GPUs in each FSDP shard group; -1 means auto
       fsdp_size: -1
+
+      # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
+      # before the current forward computation.
+      forward_prefetch: False
 
   # [Deprecated] Global micro batch size
   micro_batch_size: null
