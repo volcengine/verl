@@ -45,8 +45,9 @@ if os.getenv("VERL_USE_MODELSCOPE", "False").lower() == "true":
     patch_hub()
 
 if is_npu_available:
+    from .models.transformers import npu_patch
     package_name = 'transformers'
-    required_version_spec = '4.51.0'
+    required_version_spec = '4.52.4'
     try:
         installed_version = pkg_resources.get_distribution(package_name).version
         installed = parse_version(installed_version)
