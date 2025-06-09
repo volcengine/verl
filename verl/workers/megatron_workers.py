@@ -751,8 +751,8 @@ class CriticWorker(MegatronWorker):
             optimizer_scheduler=self.critic_optimizer_scheduler,
             use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
             use_checkpoint_opt_param_scheduler=self.config.optim.use_checkpoint_opt_param_scheduler,
-            checkpoint_load_contents=self.config.critic.checkpoint.load_contents,
-            checkpoint_save_contents=self.config.critic.checkpoint.save_contents,
+            checkpoint_load_contents=self.config.checkpoint.load_contents,
+            checkpoint_save_contents=self.config.checkpoint.save_contents,
         )
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
