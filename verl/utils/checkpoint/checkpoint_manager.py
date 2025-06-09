@@ -47,10 +47,13 @@ class BaseCheckpointManager:
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler = None,
         processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
-        checkpoint_contents: Optional[list] = None,
+        checkpoint_load_contents: Optional[list] = None,
+        checkpoint_save_contents: Optional[list] = None,
     ):
-        if checkpoint_contents is None:
-            checkpoint_contents = ["model", "optimizer", "extra"]
+        if checkpoint_load_contents is None:
+            checkpoint_load_contents = ["model", "optimizer", "extra"]
+        if checkpoint_save_contents is None:
+            checkpoint_save_contents = ["model", "optimizer", "extra"]
         self.previous_global_step = None
         self.previous_saved_paths = []
 
@@ -58,38 +61,60 @@ class BaseCheckpointManager:
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
         self.processing_class = processing_class
-        self.checkpoint_contents = checkpoint_contents
+        self.checkpoint_load_contents = checkpoint_load_contents
+        self.checkpoint_save_contents = checkpoint_save_contents
 
         self.rank = torch.distributed.get_rank()
         self.world_size = torch.distributed.get_world_size()
 
     @property
-    def save_model(self) -> bool:
+    def should_save_model(self) -> bool:
         """
-        Returns True if 'model' is in checkpoint_contents, indicating the model state should be loaded and saved.
+        Returns True if 'model' is in checkpoint_save_contents, indicating the model state should be saved.
         """
-        return "model" in self.checkpoint_contents
+        return "model" in self.checkpoint_save_contents
 
     @property
-    def save_optimizer(self) -> bool:
+    def should_save_optimizer(self) -> bool:
         """
-        Returns True if 'optimizer' is in checkpoint_contents, indicating the optimizer state should be loaded and saved.
+        Returns True if 'optimizer' is in checkpoint_save_contents, indicating the optimizer state should be saved.
         """
-        return "optimizer" in self.checkpoint_contents
+        return "optimizer" in self.checkpoint_save_contents
 
     @property
-    def save_extra(self) -> bool:
+    def should_save_extra(self) -> bool:
         """
-        Returns True if 'extra' is in checkpoint_contents, indicating the extra state should be loaded and saved.
+        Returns True if 'extra' is in checkpoint_save_contents, indicating the extra state should be saved.
         """
-        return "extra" in self.checkpoint_contents
+        return "extra" in self.checkpoint_save_contents
 
     @property
-    def save_hf_model(self) -> bool:
+    def should_save_hf_model(self) -> bool:
         """
-        Returns True if 'hf_model' is in checkpoint_contents, indicating the model should be converted to hf model and saved.
+        Returns True if 'hf_model' is in checkpoint_save_contents, indicating the model should be converted to hf model and saved.
         """
-        return "hf_model" in self.checkpoint_contents
+        return "hf_model" in self.checkpoint_save_contents
+    
+    @property
+    def should_load_model(self) -> bool:
+        """
+        Returns True if 'model' is in checkpoint_load_contents, indicating the model state should be loaded.
+        """
+        return "model" in self.checkpoint_load_contents
+    
+    @property
+    def should_load_optimizer(self) -> bool:
+        """
+        Returns True if 'optimizer' is in checkpoint_load_contents, indicating the optimizer state should be loaded.
+        """
+        return "optimizer" in self.checkpoint_load_contents
+    
+    @property
+    def should_load_extra(self) -> bool:
+        """
+        Returns True if 'extra' is in checkpoint_load_contents, indicating the extra state should be loaded.
+        """
+        return "extra" in self.checkpoint_load_contents
 
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load: bool = False):
         raise NotImplementedError

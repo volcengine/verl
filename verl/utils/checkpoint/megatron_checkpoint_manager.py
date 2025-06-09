@@ -64,17 +64,17 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         tokenizer,
         optimizer,
         use_distributed_optimizer: bool,
-        checkpoint_contents: Optional[list] = None,
+        checkpoint_load_contents: Optional[list] = None,
+        checkpoint_save_contents: Optional[list] = None,
         **kwargs,
     ):
-        if checkpoint_contents is None:
-            checkpoint_contents = ["model", "optimizer", "extra"]
         super().__init__(
             model,
             optimizer=optimizer,
             lr_scheduler=None,
             processing_class=tokenizer,
-            checkpoint_contents=checkpoint_contents,
+            checkpoint_load_contents=checkpoint_load_contents,
+            checkpoint_save_contents=checkpoint_save_contents,
         )
         self.arch = arch
         self.config = config
@@ -199,7 +199,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if local_path is None:
             return
 
-        if self.save_model:
+        if self.should_load_model:
             model_path = get_model_checkpoint_path(local_path)
             ckpt_name = self.get_checkpoint_name(model_path, return_base_dir=False)
             state_dicts = torch.load(os.path.join(ckpt_name), weights_only=False)
@@ -208,10 +208,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 model.load_state_dict(state_dict)
             print(f"Loaded sharded model checkpoint from {model_path}")
 
-        if self.save_optimizer:
+        if self.should_load_optimizer:
             self.load_optimizer(local_path)
 
-        if self.save_extra:
+        if self.should_load_extra:
             self.load_rng_states(local_path)
 
         if del_local_after_load:
@@ -233,7 +233,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         local_path = self.local_mkdir(local_path)
 
         # Save Model
-        if self.save_model and mpu.get_data_parallel_rank() == 0:
+        if self.should_save_model and mpu.get_data_parallel_rank() == 0:
             state_dicts = []
 
             for vpp_rank, model in enumerate(self.model):
@@ -265,7 +265,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
                     hdfs_io.copy(src=hf_config_and_tokenizer_path, dst=hdfs_path, dirs_exist_ok=True)
 
-        if self.save_hf_model:
+        if self.should_save_hf_model:
             # wait for everyone to dump to local
             state_dict = self.weight_saver(
                 self.model,
@@ -307,7 +307,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     hdfs_io.copy(src=hf_model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
 
         # Save Optimizer
-        if self.save_optimizer:
+        if self.should_save_optimizer:
             torch.distributed.barrier()
 
             optimizer_path = get_optimizer_checkpoint_path(local_path)
@@ -316,7 +316,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 print(f"saving optimizer state to {optimizer_path}")
 
         # Save RNG States
-        if self.save_extra:
+        if self.should_save_extra:
             torch.distributed.barrier()
 
             rng_state_path = get_rng_states_checkpoint_path(local_path, only_rank0_save=False)

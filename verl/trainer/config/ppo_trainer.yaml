@@ -61,8 +61,9 @@ actor_rollout_ref:
     ppo_epochs: 1
     shuffle: False
     ulysses_sequence_parallel_size: 1 # sp size
-    checkpoint:
-      contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+    checkpoint_contents:
+      save: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+      load: ${actor_rollout_ref.actor.checkpoint_contents.save}
     optim:
       lr: 1e-6
       lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
@@ -191,8 +192,9 @@ critic:
   grad_clip: 1.0
   cliprange_value: 0.5
   loss_agg_mode: ${actor_rollout_ref.actor.loss_agg_mode}
-  checkpoint:
-    contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+  checkpoint_contents:
+      save: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+      load: ${critic.checkpoint_contents.save}
 
 reward_model:
   enable: False

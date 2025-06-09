@@ -94,7 +94,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=${ACTOR_FSDP_OPTIMIZER_OFFLOAD} \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=${FSDP_SIZE} \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size="${SP_SIZE}" \
-    actor_rollout_ref.actor.checkpoint.contents=${CHECKPOINT_CONTENTS} \
+    actor_rollout_ref.actor.checkpoint_contents.save=${CHECKPOINT_CONTENTS} \
     actor_rollout_ref.actor.use_kl_loss="${USE_KL}" \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
