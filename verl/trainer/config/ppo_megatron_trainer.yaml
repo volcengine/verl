@@ -42,9 +42,9 @@ actor_rollout_ref:
     trust_remote_code: False
   actor:
     strategy: megatron  # This is for backward-compatibility
-    profile_ranks: null # [0,1]
-    profile_ranks_all: False
     profile_discrete: False
+    profile_ranks_all: False
+    profile_ranks: null # [0,1]
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
     ppo_micro_batch_size_per_gpu: null
@@ -112,9 +112,9 @@ actor_rollout_ref:
       load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
   ref:
     strategy: megatron
-    profile_ranks: null # [0,1]
-    profile_ranks_all: False
     profile_discrete: False
+    profile_ranks_all: False
+    profile_ranks: null # [0,1]
     use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
     megatron:
       param_offload: False
@@ -144,9 +144,9 @@ actor_rollout_ref:
   rollout:
     name: vllm
     mode: sync # sync: LLM, async: AsyncLLM
-    profile_ranks: null # [0,1]
-    profile_ranks_all: False
     profile_discrete: False
+    profile_ranks_all: False
+    profile_ranks: null # [0,1]
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1
@@ -335,7 +335,6 @@ trainer:
   total_epochs: 30
   total_training_steps: null
   profile_steps: null # [1,2,5] or [] or null
-  dump_nsight: False
   project_name: verl_examples
   experiment_name: gsm8k
   logger: ['console', 'wandb']

@@ -34,7 +34,6 @@ from verl.trainer.ppo.metric_utils import (
     reduce_metrics,
 )
 from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, _timer, apply_kl_penalty, compute_advantage, compute_response_mask
-from verl.utils.debug import mark_start_range, mark_end_range, mark_annotate
 
 
 class RayDAPOTrainer(RayPPOTrainer):
@@ -42,7 +41,6 @@ class RayDAPOTrainer(RayPPOTrainer):
     Note that this trainer runs on the driver process on a single CPU/GPU node.
     """
 
-    @mark_annotate()
     def fit(self):
         """
         The training loop of PPO.
@@ -317,9 +315,6 @@ class RayDAPOTrainer(RayPPOTrainer):
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)
 
-                progress_bar.update(1)
-                self.global_steps += 1
-
                 if do_profile:
                     self.actor_rollout_wg.stop_profile()
                     if self.use_reference_policy:
@@ -333,3 +328,6 @@ class RayDAPOTrainer(RayPPOTrainer):
                     pprint(f"Final validation metrics: {last_val_metrics}")
                     progress_bar.close()
                     return
+
+                progress_bar.update(1)
+                self.global_steps += 1
