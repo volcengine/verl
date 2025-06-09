@@ -7,7 +7,7 @@ export HYDRA_FULL_ERROR=1
 
 ulimit -n 65535
 
-EXPERIMENT_NAME=retool-multiturn-sft-qwen2.5-7b-sp4-mb
+EXPERIMENT_NAME=retool-multiturn-sft-qwen2.5-7b-sp4
 
 torchrun --nnodes=1 --nproc_per_node=8 \
      -m verl.trainer.fsdp_sft_trainer \
