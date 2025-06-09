@@ -12,6 +12,7 @@ datasets
 peft
 pyarrow>=15.0.0
 pybind11
+pyext
 pylatexenc
 pre-commit
 ray[default]

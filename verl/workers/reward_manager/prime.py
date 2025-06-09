@@ -163,7 +163,7 @@ class PrimeRewardManager:
 
             if already_print_data_sources[data_source] < self.num_examine:
                 already_print_data_sources[data_source] += 1
-                print(sequences_str)
+                # print(sequences_str)
 
         if return_dict:
             return {"reward_tensor": reward_tensor}

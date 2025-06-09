@@ -280,7 +280,7 @@ def check_reflection_pattern(response: str) -> dict[str, int]:
 
 
 def process_validation_metrics(
-    data_sources: list[str], sample_inputs: list[str], infos_dict: dict[str, list[Any]], seed: int = 42
+    data_sources: list[str], sample_inputs: list[str], test_batch:DataProto, infos_dict: dict[str, list[Any]], seed: int = 42
 ) -> dict[str, dict[str, dict[str, float]]]:
     """Process validation metrics into a structured format.
 
@@ -292,6 +292,9 @@ def process_validation_metrics(
     Returns:
         dict[str, dict[str, dict[str, float]]]: data source -> variable name -> metric value
     """
+    response_info = _compute_response_info(test_batch)
+    response_length = response_info["response_length"]
+
     # Group metrics by data source, prompt and variable
     data_src2prompt2var2vals = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     for sample_idx, data_source in enumerate(data_sources):
@@ -352,5 +355,12 @@ def process_validation_metrics(
         for var_name, metric2prompt_vals in var2metric2prompt_vals.items():
             for metric_name, prompt_vals in metric2prompt_vals.items():
                 data_src2var2metric2val[data_source][var_name][metric_name] = np.mean(prompt_vals)
+
+
+    # currently only support one data source
+    for _, data_source in enumerate(data_sources):
+        data_src2var2metric2val[data_source]["response_length"]["mean"] = torch.mean(response_length).detach().item()
+        data_src2var2metric2val[data_source]["response_length"]["max"] = torch.max(response_length).detach().item()
+        data_src2var2metric2val[data_source]["response_length"]["min"] = torch.min(response_length).detach().item()
 
     return data_src2var2metric2val

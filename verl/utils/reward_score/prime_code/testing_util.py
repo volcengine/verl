@@ -194,7 +194,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
 
             sol += tmp_test
             if debug:
-                print(f"sol = {sol}")
+                print(f"sol = {sol}", file=open("/home/lichen/verl/output_1.log", "a"))
             method_name = "code"
             signal.alarm(timeout)
             try:
@@ -267,7 +267,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
             if debug:
                 print(
                     f"time: {datetime.now().time()} testing index = {index}  inputs = {inputs}, {type(inputs)}. type = {which_type}"
-                )
+                , file=open("/home/lichen/verl/output_1.log", "a"))
             if which_type == CODE_TYPE.call_based:  # Call-based
                 signal.alarm(timeout)
                 faulthandler.enable()
@@ -384,15 +384,15 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                         if not isinstance(inputs, list):
                             print(
                                 f"not passed output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs.replace(nl, ' new-line ')}, {type(inputs)}, {output == [in_outs['outputs'][index]]}"
-                            )
+                            , file=open("/home/lichen/verl/output_1.log", "a"))
                         else:
                             print(
                                 f"not passed output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs}, {type(inputs)}, {output == [in_outs['outputs'][index]]}"
-                            )
+                            , file=open("/home/lichen/verl/output_1.log", "a"))
                     continue
 
                 if passed and debug:
-                    print(f"==> output = {output}, test outputs = {in_outs['outputs'][index]}")
+                    print(f"==> output = {output}, test outputs = {in_outs['outputs'][index]}", file=open("/home/lichen/verl/output_1.log", "a"))
 
                 if custom_compare_(output, in_outs["outputs"][index]):
                     tmp_result = True
@@ -716,3 +716,9 @@ def reliability_guard(maximum_memory_bytes=None):
     sys.modules["resource"] = None
     sys.modules["psutil"] = None
     sys.modules["tkinter"] = None
+
+
+if __name__ == "__main__":
+    in_outs = {"inputs": ["680"], "outputs": ["68"]}
+    test = "def remove_trailing_zeros(num):\n    for i in range(len(num)-1, -1, -1):\n        if num[i] != '0':\n            return num[:i+1]\n    return num  # This line is technically unreachable due to problem constraints\n\nnum = input()\nprint(remove_trailing_zeros(num))"
+    print(run_test(in_outs, test, debug=True, timeout=5))
