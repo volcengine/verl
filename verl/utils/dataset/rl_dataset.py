@@ -117,13 +117,9 @@ class RLHFDataset(Dataset):
         self.serialize_dataset = False
         self.processor_type = self.processor.image_processor.__class__.__name__ if self.processor is not None else None
         if self.processor_type == "MiniCPMVImageProcessor":
-            from verl.utils.dataset.vision_utils import build_transform
-            self.transform = build_transform()
-            self.patch_size = config.get("patch_size", 14)
-            self.query_nums = config.get("query_nums", 64)
-            self.slice_config = config.get("slice_config", {"max_slice_nums": 9, "patch_size": self.patch_size, "scale_resolution": 448})
-            self.llm_type = config.get("llm_type", "qwen")
-            self.batch_vision = config.get("batch_vision", True)
+            from verl.utils.dataset.vision_utils import init_minicpmo_config
+
+            self.minicpmo_config = init_minicpmo_config(self.processor, config)
 
         self._download()
         self._read_files_and_tokenize()
@@ -223,31 +219,11 @@ class RLHFDataset(Dataset):
 
         if self.processor is not None:
             from verl.utils.dataset.vision_utils import process_image, process_video
+
             if self.processor_type == "MiniCPMVImageProcessor":
-                from verl.utils.dataset.vision_utils import preprocess
-                if len(row_dict[self.image_key]) == 1:
-                    multi_modal_data = {}
-                    image = process_image(row_dict.pop(self.image_key)[0])
-                    multi_modal_data["image"] = [image]
-                    images_dict = { "<image>" : image}
-                else:
-                    raise NotImplementedError
-                model_inputs = preprocess(
-                    images_dict,
-                    messages,
-                    self.tokenizer,
-                    self.transform,
-                    query_nums=self.query_nums,
-                    slice_config=self.slice_config,
-                    llm_type=self.llm_type,
-                    patch_size=self.patch_size,
-                    batch_vision=self.batch_vision,
-                    max_length=self.max_prompt_length,
-                    truncation=self.truncation,
-                    logger=logger
-                )               
-                raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-                raw_prompt = raw_prompt.replace('<image>', '(<image>./</image>)') 
+                from verl.utils.dataset.vision_utils import process_minicpmo_data
+
+                model_inputs, multi_modal_data, raw_prompt = process_minicpmo_data(row_dict, messages, self.tokenizer, self.minicpmo_config, self.image_key, self.max_prompt_length, self.truncation, logger)
             else:
                 raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
                 multi_modal_data = {}
@@ -317,7 +293,7 @@ class RLHFDataset(Dataset):
             row_dict["input_ids"] = input_ids
             row_dict["attention_mask"] = attention_mask
             row_dict["position_ids"] = position_ids
-            
+
         raw_prompt_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
         if len(raw_prompt_ids) > self.max_prompt_length:
             if self.truncation == "left":

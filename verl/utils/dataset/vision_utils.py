@@ -12,18 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
+import math
+import re
 from io import BytesIO
-from typing import Optional, Union, Dict
+from typing import Dict, Optional, Union
 
 import torch
 from PIL import Image
 from qwen_vl_utils import fetch_image, fetch_video
 from torchvision import transforms
-import math
-import re
-import copy
+
 import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
+
 
 def process_image(image: Union[dict, Image.Image]) -> Image.Image:
     if isinstance(image, Image.Image):
@@ -35,25 +37,25 @@ def process_image(image: Union[dict, Image.Image]) -> Image.Image:
 
     return fetch_image(image)
 
+
 def build_transform():
-    IMAGENET_INCEPTION_MEAN = (0.5, 0.5, 0.5) # timm.data.IMAGENET_INCEPTION_MEAN
+    IMAGENET_INCEPTION_MEAN = (0.5, 0.5, 0.5)  # timm.data.IMAGENET_INCEPTION_MEAN
     IMAGENET_INCEPTION_STD = (0.5, 0.5, 0.5)  # timm.data.IMAGENET_INCEPTION_STD
     return transforms.Compose(
-            [
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=IMAGENET_INCEPTION_MEAN, std=IMAGENET_INCEPTION_STD
-                ),
-            ]
-        )
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(mean=IMAGENET_INCEPTION_MEAN, std=IMAGENET_INCEPTION_STD),
+        ]
+    )
+
 
 def build_image_bound(input_ids, tokenizer, new_schema=True, logger=None):
     if new_schema:
         start_cond = (input_ids == tokenizer.im_start_id) | (input_ids == tokenizer.slice_start_id)
         end_cond = (input_ids == tokenizer.im_end_id) | (input_ids == tokenizer.slice_end_id)
     else:
-        start_cond = (input_ids == tokenizer.im_start_id)
-        end_cond = (input_ids == tokenizer.im_end_id)
+        start_cond = input_ids == tokenizer.im_start_id
+        end_cond = input_ids == tokenizer.im_end_id
     image_start_tokens = torch.where(start_cond)[0]
     image_start_tokens += 1
     image_end_tokens = torch.where(end_cond)[0]
@@ -61,27 +63,13 @@ def build_image_bound(input_ids, tokenizer, new_schema=True, logger=None):
         logger.error("image start token != image end tokens")
         raise Exception("image start token != image end tokens")
     if len(image_start_tokens) > 0:
-        image_bound = torch.hstack(
-            [image_start_tokens.unsqueeze(-1), image_end_tokens.unsqueeze(-1)]
-        )
+        image_bound = torch.hstack([image_start_tokens.unsqueeze(-1), image_end_tokens.unsqueeze(-1)])
     else:
         image_bound = []
     return image_bound
 
-def preprocess(
-    images_dict,
-    conversations,
-    tokenizer,
-    transform,
-    query_nums=64,
-    slice_config=None,
-    llm_type=None,
-    patch_size=14,
-    batch_vision=False,
-    max_length=2048,
-    truncation='error',
-    logger=None
-):
+
+def preprocess(images_dict, conversations, tokenizer, transform, query_nums=64, slice_config=None, llm_type=None, patch_size=14, batch_vision=False, max_length=2048, truncation="error", logger=None):
     """
     single(multi) image(s) preprocess, the image(s) will be placed at the top of the conversation
     """
@@ -93,17 +81,15 @@ def preprocess(
         assert "patch_size" in slice_config
         assert "max_slice_nums" in slice_config
         assert "scale_resolution" in slice_config
-    default_image_placeholder = (
-        tokenizer.im_start + tokenizer.unk_token * query_nums + tokenizer.im_end
-    )
+    default_image_placeholder = tokenizer.im_start + tokenizer.unk_token * query_nums + tokenizer.im_end
     new_schema = False
     use_image_id = False
-    if llm_type=='qwen':
+    if llm_type == "qwen":
         new_schema = True
         use_image_id = True
     image_placeholder_dict = {}
     images = []
-    image_id_cnt = 0 
+    image_id_cnt = 0
     for img_name, image in images_dict.items():
         if slice_config:
             source_image, patches, best_grid = slice_image(
@@ -119,58 +105,48 @@ def preprocess(
                     for j in range(len(patches[0])):
                         images.append(patches[i][j])
                 if use_image_id:
-                    image_placeholder = f'{tokenizer.im_id_start}{image_id_cnt}{tokenizer.im_id_end}' + image_placeholder
+                    image_placeholder = f"{tokenizer.im_id_start}{image_id_cnt}{tokenizer.im_id_end}" + image_placeholder
                     image_id_cnt += 1
-                image_placeholder += get_grid_placeholder(
-                    tokenizer, best_grid, query_nums, new_schema = new_schema)
+                image_placeholder += get_grid_placeholder(tokenizer, best_grid, query_nums, new_schema=new_schema)
             image_placeholder_dict[img_name] = image_placeholder
         else:
             images.append(image)
             if use_image_id:
-                image_placeholder = f'{tokenizer.im_id_start}{image_id_cnt}{tokenizer.im_id_end}' + image_placeholder
+                image_placeholder = f"{tokenizer.im_id_start}{image_id_cnt}{tokenizer.im_id_end}" + image_placeholder
                 image_id_cnt += 1
             else:
                 image_placeholder = default_image_placeholder
             image_placeholder_dict[img_name] = image_placeholder
-    
+
     images = [transform(i) for i in images]
-    
-    if len(images_dict) == 1 and "<image>" in images_dict:       
+
+    if len(images_dict) == 1 and "<image>" in images_dict:
         if "<image>" in conversations[0]["content"]:
-            conversations[0]["content"] = conversations[0]["content"].replace(
-                "<image>", image_placeholder
-            )
+            conversations[0]["content"] = conversations[0]["content"].replace("<image>", image_placeholder)
         else:
-            conversations[0]["content"] = (
-                image_placeholder + "\n" + conversations[0]["content"]
-            )
+            conversations[0]["content"] = image_placeholder + "\n" + conversations[0]["content"]
     else:
-        pattern = r'<image_\d+>'
+        pattern = r"<image_\d+>"
         new_conversations = []
         for conversation in conversations:
-            content = conversation['content']
-            parts = re.split(f'({pattern})', content)
+            content = conversation["content"]
+            parts = re.split(f"({pattern})", content)
             for i, part in enumerate(parts):
                 if not part.strip():
                     continue
-                if re.match(pattern, part):  
+                if re.match(pattern, part):
                     if part in image_placeholder_dict:
-                        parts[i] = image_placeholder_dict[part] 
+                        parts[i] = image_placeholder_dict[part]
                     else:
                         raise Exception(f"not found {part} in image dict")
-            conversation['content'] = '\n'.join(parts)
+            conversation["content"] = "\n".join(parts)
             new_conversations.append(conversation)
         conversations = new_conversations
 
-    #TODO change role in conversation for different llm
+    # TODO change role in conversation for different llm
     prompt_with_chat_template = tokenizer.apply_chat_template(conversations, add_generation_prompt=True, tokenize=False)
 
-    input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
-                                                                        tokenizer=tokenizer,
-                                                                        max_length=max_length,
-                                                                        pad_token_id=tokenizer.pad_token_id,
-                                                                        left_pad=True,
-                                                                        truncation=truncation)
+    input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template, tokenizer=tokenizer, max_length=max_length, pad_token_id=tokenizer.pad_token_id, left_pad=True, truncation=truncation)
     position_ids = compute_position_id_with_mask(attention_mask)
     image_bound = build_image_bound(input_ids[0], tokenizer, new_schema, logger)
 
@@ -201,14 +177,12 @@ def preprocess(
 
     return input_dict
 
-def slice_image(
-    image, max_slice_nums=9, scale_resolution=448, patch_size=14, never_split=False
-):
+
+def slice_image(image, max_slice_nums=9, scale_resolution=448, patch_size=14, never_split=False):
     original_size = image.size
     original_width, original_height = original_size
     log_ratio = math.log(original_width / original_height)
-    ratio = original_width * original_height / \
-        (scale_resolution * scale_resolution)
+    ratio = original_width * original_height / (scale_resolution * scale_resolution)
     multiple = min(math.ceil(ratio), max_slice_nums)
 
     source_image = None
@@ -217,9 +191,7 @@ def slice_image(
 
     if multiple <= 1 or never_split:
         # dont need to slice, upsample
-        best_size = find_best_resize(
-            original_size, scale_resolution, patch_size, allow_upscale=True
-        )
+        best_size = find_best_resize(original_size, scale_resolution, patch_size, allow_upscale=True)
         source_image = image.resize(best_size, Image.Resampling.BICUBIC)
     else:
         candidate_split_grids_nums = []
@@ -229,8 +201,7 @@ def slice_image(
             candidate_split_grids_nums.append(i)
 
         # source image, down-sampling and ensure divided by patch_size
-        best_resize = find_best_resize(
-            original_size, scale_resolution, patch_size)
+        best_resize = find_best_resize(original_size, scale_resolution, patch_size)
         source_image = image.copy().resize(best_resize, Image.Resampling.BICUBIC)
         candidate_grids = []
 
@@ -250,17 +221,17 @@ def slice_image(
                 best_grid = grid
                 min_error = error
 
-        refine_size = get_refine_size(
-            original_size, best_grid, scale_resolution, patch_size, allow_upscale=True
-        )
+        refine_size = get_refine_size(original_size, best_grid, scale_resolution, patch_size, allow_upscale=True)
 
         refine_image = image.resize(refine_size, Image.Resampling.BICUBIC)
         patches = split_to_patches(refine_image, best_grid)
 
     return source_image, patches, best_grid
 
+
 def ensure_divide(length, patch_size):
     return max(round(length / patch_size) * patch_size, patch_size)
+
 
 def find_best_resize(original_size, scale_resolution, patch_size, allow_upscale=False):
     width, height = original_size
@@ -272,9 +243,8 @@ def find_best_resize(original_size, scale_resolution, patch_size, allow_upscale=
     best_height = ensure_divide(height, patch_size)
     return (best_width, best_height)
 
-def get_refine_size(
-    original_size, grid, scale_resolution, patch_size, allow_upscale=False
-):
+
+def get_refine_size(original_size, grid, scale_resolution, patch_size, allow_upscale=False):
     width, height = original_size
     grid_x, grid_y = grid
 
@@ -295,6 +265,7 @@ def get_refine_size(
 
     return refine_size
 
+
 def split_to_patches(image, grid):
     patches = []
     width, height = image.size
@@ -311,15 +282,12 @@ def split_to_patches(image, grid):
 
     return patches
 
+
 def get_grid_placeholder(tokenizer, grid, query_num, new_schema=False):
     if new_schema:
-        image_placeholder = (
-            tokenizer.slice_start + tokenizer.unk_token * query_num + tokenizer.slice_end
-        )
+        image_placeholder = tokenizer.slice_start + tokenizer.unk_token * query_num + tokenizer.slice_end
     else:
-        image_placeholder = (
-            tokenizer.im_start + tokenizer.unk_token * query_num + tokenizer.im_end
-        )
+        image_placeholder = tokenizer.im_start + tokenizer.unk_token * query_num + tokenizer.im_end
 
     cols = grid[0]
     rows = grid[1]
@@ -330,11 +298,11 @@ def get_grid_placeholder(tokenizer, grid, query_num, new_schema=False):
             lines.append(image_placeholder)
         slices.append("".join(lines))
     if new_schema:
-        slice_placeholder = '\n'.join(slices)
+        slice_placeholder = "\n".join(slices)
     else:
-        slice_placeholder = tokenizer.slice_start + \
-        "\n".join(slices) + tokenizer.slice_end
+        slice_placeholder = tokenizer.slice_start + "\n".join(slices) + tokenizer.slice_end
     return slice_placeholder
+
 
 def reshape_by_patch(image_tensor, patch_size):
     """
@@ -342,13 +310,10 @@ def reshape_by_patch(image_tensor, patch_size):
     :param patch_size:
     :return: [3, patch_size, HW/patch_size]
     """
-    patches = torch.nn.functional.unfold(
-        image_tensor, (patch_size, patch_size), stride=(patch_size, patch_size)
-    )
+    patches = torch.nn.functional.unfold(image_tensor, (patch_size, patch_size), stride=(patch_size, patch_size))
 
     patches = patches.reshape(image_tensor.size(0), patch_size, patch_size, -1)
-    patches = patches.permute(0, 1, 3, 2).reshape(
-        image_tensor.size(0), patch_size, -1)
+    patches = patches.permute(0, 1, 3, 2).reshape(image_tensor.size(0), patch_size, -1)
     return patches
 
 
@@ -411,3 +376,47 @@ def process_video(
                 video["max_frames"] = fps_max_frames
 
     return fetch_video(video)
+
+
+def init_minicpmo_config(processor, config):
+    """Initialize MiniCPM-o specific configuration"""
+    minicpmo_config = {
+        "transform": build_transform(),
+        "patch_size": config.get("patch_size", 14),
+        "query_nums": config.get("query_nums", 64),
+        "slice_config": config.get("slice_config", {"max_slice_nums": 9, "patch_size": config.get("patch_size", 14), "scale_resolution": 448}),
+        "llm_type": config.get("llm_type", "qwen"),
+        "batch_vision": config.get("batch_vision", True),
+    }
+    return minicpmo_config
+
+
+def process_minicpmo_data(row_dict, messages, tokenizer, minicpmo_config, image_key, max_prompt_length, truncation, logger):
+    """Process data for MiniCPM-o model"""
+    if len(row_dict[image_key]) == 1:
+        multi_modal_data = {}
+        image = process_image(row_dict.pop(image_key)[0])
+        multi_modal_data["image"] = [image]
+        images_dict = {"<image>": image}
+    else:
+        raise NotImplementedError
+
+    model_inputs = preprocess(
+        images_dict,
+        messages,
+        tokenizer,
+        minicpmo_config["transform"],
+        query_nums=minicpmo_config["query_nums"],
+        slice_config=minicpmo_config["slice_config"],
+        llm_type=minicpmo_config["llm_type"],
+        patch_size=minicpmo_config["patch_size"],
+        batch_vision=minicpmo_config["batch_vision"],
+        max_length=max_prompt_length,
+        truncation=truncation,
+        logger=logger,
+    )
+
+    raw_prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+    raw_prompt = raw_prompt.replace("<image>", "(<image>./</image>)")
+
+    return model_inputs, multi_modal_data, raw_prompt
