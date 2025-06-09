@@ -1,0 +1,19 @@
+# Start from the verl base image
+# Dockerfile.base
+FROM verlai/verl:base-v1-cu124-cudnn9.8-torch2.6-fa2.7.4-te2.3
+
+# Define environments
+ENV MAX_JOBS=32
+ENV VLLM_WORKER_MULTIPROC_METHOD=spawn
+ENV DEBIAN_FRONTEND=noninteractive
+ENV NODE_OPTIONS=""
+ENV PIP_ROOT_USER_ACTION=ignore
+ENV HF_HUB_ENABLE_HF_TRANSFER="1"
+
+# Install sglang-0.4.6.post5 and torch-memory-saver
+RUN pip install --resume-retries 999 "sglang[all]==0.4.6.post5" --no-cache-dir --find-links https://flashinfer.ai/whl/cu124/torch2.6/flashinfer-python && pip install torch-memory-saver --no-cache-dir
+
+RUN pip install --resume-retries 999 --no-cache-dir nvidia-cudnn-cu12==9.8.0.87
+
+# Install Megatron-LM
+RUN pip3 install --no-deps --no-cache-dir git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.1

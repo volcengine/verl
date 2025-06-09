@@ -120,7 +120,7 @@ if [ "$USE_DIST_CKPT" = "True" ]; then
         --output_path "${DIST_CKPT_PATH}"
 fi
 
-ENGINES=("vllm" "sglang_async")
+ENGINE=${ENGINE:-"vllm"}
 
 exp_name="$(basename "${MODEL_ID,,}")-megatron-gsm8k-minimal"
 

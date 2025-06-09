@@ -1,0 +1,28 @@
+# Start from the verl base image
+# Dockerfile.base
+FROM verlai/verl:base-v1-cu124-cudnn9.8-torch2.6-fa2.7.4-te2.3
+
+# Define environments
+ENV MAX_JOBS=32
+ENV VLLM_WORKER_MULTIPROC_METHOD=spawn
+ENV DEBIAN_FRONTEND=noninteractive
+ENV NODE_OPTIONS=""
+ENV PIP_ROOT_USER_ACTION=ignore
+ENV HF_HUB_ENABLE_HF_TRANSFER="1"
+
+# Install torch-2.6.0+cu124 + vllm-0.8.3
+# torch-2.6.0+cu124: cxx11abi=False
+# torch-2.6.0+cu126: cxx11abi=True
+# see https://github.com/flashinfer-ai/flashinfer/issues/911
+RUN pip install --resume-retries 999 --no-cache-dir "vllm==0.8.5"
+
+# Install flashinfer-0.2.2.post1+cu124 (cxx11abi=False)
+# vllm-0.8.3 does not support flashinfer>=0.2.3
+# see https://github.com/vllm-project/vllm/pull/15777
+RUN wget -nv https://github.com/flashinfer-ai/flashinfer/releases/download/v0.2.2.post1/flashinfer_python-0.2.2.post1+cu124torch2.6-cp38-abi3-linux_x86_64.whl && \
+    pip install --no-cache-dir flashinfer_python-0.2.2.post1+cu124torch2.6-cp38-abi3-linux_x86_64.whl
+
+RUN pip install --resume-retries 999 --no-cache-dir nvidia-cudnn-cu12==9.8.0.87
+
+# Install Megatron-LM
+RUN pip3 install --no-deps --no-cache-dir git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.1
