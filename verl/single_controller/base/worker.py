@@ -22,12 +22,8 @@ from typing import Dict, List
 
 import ray
 
-<<<<<<< HEAD
 from verl.utils.device import get_torch_device
 
-=======
-import torch
->>>>>>> 6375792 (add Nvidia Nsight support to verl, manual is)
 from .decorator import Dispatch, Execute, register
 from verl.utils.debug import mark_start_range, mark_end_range
 import functools
@@ -194,10 +190,7 @@ class Worker(WorkerHelper):
         return self.fused_worker_dict.get(worker_name, None)
 
     def _setup_env_cuda_visible_devices(self):
-<<<<<<< HEAD
-=======
-        import torch
->>>>>>> 6375792 (add Nvidia Nsight support to verl, manual is)
+
         from verl.utils.ray_utils import ray_noset_visible_devices
 
         is_ray_noset_visible_devices = ray_noset_visible_devices()
