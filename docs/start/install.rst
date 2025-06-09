@@ -297,7 +297,7 @@ Launch the container
       verl-rocm \
       /bin/bash
 
-(Optional): If you do not want to root mode and require assign yuorself as the user
+If you do not want to root mode and require assign yourself as the user,
 Please add ``-e HOST_UID=$(id -u)`` and ``-e HOST_GID=$(id -g)`` into the above docker launch script. 
 
-(Currently Support): Training Engine: FSDP; Inference Engine: vLLM and SGLang - We will support Megatron in the future.
+verl with AMD GPUs currently supports FSDP as the training engine, vLLM and SGLang as the inference engine. We will support Megatron in the future.

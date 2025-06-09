@@ -62,14 +62,21 @@ actor_rollout_ref:
     data_loader_seed: null
     shuffle: False
     optim:
+      optimizer: adam
       lr: 1e-6
       clip_grad: 1.0
-      lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
-      lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
-      min_lr_ratio: null   # only useful for warmup with cosine
-      warmup_style: constant  # select from constant/cosine
       total_training_steps: -1  # must be override by program
+      lr_warmup_init: 0.0  # initial learning rate for warmup, default to 0.0
+      lr_warmup_steps: null # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
+      lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
+      lr_decay_steps: null
+      lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
+      min_lr: 0.0 # minimum learning rate, default to 0.0
       weight_decay: 0.01
+      weight_decay_incr_style: constant # select from constant/linear/cosine
+      lr_wsd_decay_style: exponential # select from constant/exponential/cosine
+      lr_wsd_decay_steps: null
+      use_checkpoint_opt_param_scheduler: False # use checkpoint optimizer parameter scheduler
     megatron:
       param_offload: False
       grad_offload: False
@@ -177,13 +184,21 @@ critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
   strategy: megatron
   optim:
-    lr: 1e-5
+    optimizer: adam
+    lr: 1e-6
     clip_grad: 1.0
-    lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
-    min_lr_ratio: null   # only useful for warmup with cosine
-    warmup_style: constant  # select from constant/cosine
     total_training_steps: -1  # must be override by program
+    lr_warmup_init: 0.0  # initial learning rate for warmup, default to 0.0
+    lr_warmup_steps: null # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
+    lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
+    lr_decay_steps: null
+    lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
+    min_lr: 0.0 # minimum learning rate, default to 0.0
     weight_decay: 0.01
+    weight_decay_incr_style: constant # select from constant/linear/cosine
+    lr_wsd_decay_style: exponential # select from constant/exponential/cosine
+    lr_wsd_decay_steps: null
+    use_checkpoint_opt_param_scheduler: False # use checkpoint optimizer parameter scheduler
   model:
     path: ~/models/deepseek-llm-7b-chat
     tokenizer_path: ${actor_rollout_ref.model.path}

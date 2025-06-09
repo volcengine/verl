@@ -50,12 +50,12 @@ def reduce_metrics(metrics: Dict[str, List[Any]]) -> Dict[str, Any]:
 def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
     """
     Computes information about prompts and responses from a batch.
-    
+
     This is an internal helper function that extracts masks and lengths for prompts and responses.
-    
+
     Args:
         batch: A DataProto object containing batch data with responses and attention masks.
-        
+
     Returns:
         A dictionary containing:
             - response_mask: Attention mask for the response tokens
@@ -172,9 +172,9 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
 def compute_timing_metrics(batch: DataProto, timing_raw: Dict[str, float]) -> Dict[str, Any]:
     """
     Computes timing metrics for different processing stages in PPO training.
-    
-    This function calculates both raw timing metrics (in seconds) and per-token timing metrics 
-    (in milliseconds) for various processing stages like generation, reference computation, 
+
+    This function calculates both raw timing metrics (in seconds) and per-token timing metrics
+    (in milliseconds) for various processing stages like generation, reference computation,
     value computation, advantage computation, and model updates.
 
     Args:
@@ -211,23 +211,23 @@ def compute_timing_metrics(batch: DataProto, timing_raw: Dict[str, float]) -> Di
 def compute_throughout_metrics(batch: DataProto, timing_raw: Dict[str, float], n_gpus: int) -> Dict[str, Any]:
     """
     Computes throughput metrics for PPO training.
-    
+
     This function calculates performance metrics related to token processing speed,
     including the total number of tokens processed, time per step, and throughput
     (tokens per second per GPU).
-    
+
     Args:
         batch: A DataProto object containing batch data with meta information about token counts.
         timing_raw: A dictionary mapping stage names to their execution times in seconds.
                    Must contain a "step" key with the total step time.
         n_gpus: Number of GPUs used for training.
-        
+
     Returns:
         A dictionary containing:
             - perf/total_num_tokens: Total number of tokens processed in the batch
             - perf/time_per_step: Time taken for the step in seconds
             - perf/throughput: Tokens processed per second per GPU
-            
+
     Note:
         The throughput is calculated as total_tokens / (time * n_gpus) to normalize
         across different GPU counts.
@@ -324,12 +324,12 @@ def calc_maj_val(data: list[dict[str, Any]], vote_key: str, val_key: str) -> flo
 def process_validation_metrics(data_sources: list[str], sample_inputs: list[str], infos_dict: dict[str, list[Any]], seed: int = 42) -> dict[str, dict[str, dict[str, float]]]:
     """
     Process validation metrics into a structured format with statistical analysis.
-    
+
     This function organizes validation metrics by data source and prompt, then computes
     various statistical measures including means, standard deviations, best/worst values,
     and majority voting results. It also performs bootstrap sampling to estimate statistics
     for different sample sizes.
-    
+
     Args:
         data_sources: List of data source identifiers for each sample.
         sample_inputs: List of input prompts corresponding to each sample.
@@ -345,7 +345,7 @@ def process_validation_metrics(data_sources: list[str], sample_inputs: list[str]
                 }
             }
         }
-        
+
         Where metric_name includes:
         - "mean@N": Mean value across N samples
         - "std@N": Standard deviation across N samples
@@ -355,7 +355,7 @@ def process_validation_metrics(data_sources: list[str], sample_inputs: list[str]
         - "worst@N/std": Standard deviation of the worst values in bootstrap samples
         - "maj@N/mean": Mean of majority voting results in bootstrap samples (if "pred" exists)
         - "maj@N/std": Standard deviation of majority voting results (if "pred" exists)
-        
+
     Example:
         >>> data_sources = ["source1", "source1", "source2"]
         >>> sample_inputs = ["prompt1", "prompt1", "prompt2"]
