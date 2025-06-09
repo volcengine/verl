@@ -217,7 +217,7 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [LUFFY](https://arxiv.org/pdf/2504.14945): Learning to Reason under Off-Policy Guidance![GitHub Repo stars](https://img.shields.io/github/stars/ElliottYan/LUFFY)
 - [verl-tool](https://github.com/TIGER-AI-Lab/verl-tool): An unified and easy-to-extend tool-agent training framework based on verl![GitHub Repo stars](https://img.shields.io/github/stars/TIGER-AI-Lab/verl-tool)
 - [DeepMath](https://github.com/zwhe99/DeepMath): DeepMath-103K data and series models for math reasoning![GitHub Repo stars](https://img.shields.io/github/stars/zwhe99/DeepMath)
-- [LLaSA-TTS-GRPO](ch-tts-llasa-rl-grpo): TTS fine-tuning with GRPO optimization based on LLASA models [GitHub Repo stars]([https://img.shields.io/github/stars/zwhe99/DeepMath](https://github.com/channel-io/ch-tts-llasa-rl-grpo))
+- [LLaSA-TTS-GRPO](ch-tts-llasa-rl-grpo): TTS fine-tuning with GRPO optimization based on LLASA models ![GitHub Repo stars]([https://img.shields.io/github/stars/zwhe99/DeepMath](https://github.com/channel-io/ch-tts-llasa-rl-grpo))
 
 and many more awesome work listed in [recipe](recipe/README.md).
 ## Contribution Guide
