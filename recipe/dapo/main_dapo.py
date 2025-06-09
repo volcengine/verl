@@ -15,10 +15,12 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
+
 import os
 import socket
 import hydra
 import ray
+from omegaconf import OmegaConf
 
 from verl.trainer.ppo.reward import get_custom_reward_fn
 
@@ -38,7 +40,7 @@ def run_ppo(config) -> None:
             num_cpus=config.ray_init.num_cpus,
         )
 
-    if config.trainer.profile_steps:
+    if OmegaConf.select(config.trainer, "profile_steps") is not None and len(OmegaConf.select(config.trainer, "profile_steps")) > 0:
         runner = TaskRunner.options(runtime_env={"nsight": {
             "t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,opengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx",
             "cuda-memory-usage": "true",
