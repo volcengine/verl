@@ -578,7 +578,7 @@ critic:
 
   # checkpoint configs
   checkpoint:
-  
+
     # What to include in saved checkpoints
     # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
     save_contents: ['model', 'optimizer', 'extra']

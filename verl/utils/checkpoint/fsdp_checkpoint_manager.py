@@ -45,9 +45,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         processing_class (PreTrainedTokenizer or ProcessorMixin, optional):
             Pre-/post-processing artifact handler.
         checkpoint_load_contents (list[str], optional):
-            Components to load; must contain 'model', 'optimizer', 'extra'.
+            Components to load; must contain 'model'. Defaults to ['model', 'optimizer', 'extra'].
         checkpoint_save_contents (list[str], optional):
-            Components to save; must contain 'model', 'optimizer', 'extra'.
+            Components to save; must contain 'model'. Defaults to ['model', 'optimizer', 'extra'].
     """
 
     def __init__(
@@ -89,7 +89,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         """
         if local_path is None:
             return
-        
+
         # check if the checkpoint_load_contents is valid
         if self.should_load_model:
             assert self.model is not None, "model must be provided when checkpoint_contents.load includes ['model']"
