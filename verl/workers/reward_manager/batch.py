@@ -17,8 +17,10 @@ from collections import defaultdict
 import torch
 
 from verl import DataProto
+from verl.workers.reward_manager import register
 
 
+@register("batch")
 class BatchRewardManager:
     def __init__(self, tokenizer, num_examine, compute_score, reward_fn_key="data_source", **reward_kwargs):
         self.tokenizer = tokenizer
