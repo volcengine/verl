@@ -1,4 +1,3 @@
-
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
 #
@@ -15,16 +14,19 @@
 # limitations under the License.
 
 import nvtx
-from typing import Optional
+
 
 def mark_start_range(message=None, color=None, domain=None, category=None):
     return nvtx.start_range(message=message, color=color, domain=domain, category=category)
 
+
 def mark_end_range(range_id):
     return nvtx.end_range(range_id)
+
 
 def mark_annotate(message=None, color=None, domain=None, category=None):
     def decorator(func):
         profile_message = message or func.__name__
         return nvtx.annotate(profile_message, color=color, domain=domain, category=category)(func)
+
     return decorator

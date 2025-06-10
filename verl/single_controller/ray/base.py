@@ -355,21 +355,25 @@ class RayWorkerGroup(WorkerGroup):
                 name = f"{self.name_prefix}{cia_name}_{pg_idx}:{local_rank}"  # e.g. Worker_2:5
 
                 if self.profile_steps:
-                    ray_cls_with_init.update_options({
-                        'runtime_env': {'env_vars': env_vars,
-                                    "nsight":
-                                       {
-                                        #"t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,pengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx",
-                                        "t": "cuda,nvtx,cublas",
-                                        "cuda-memory-usage": "true",
-                                        "cuda-graph-trace": "graph",
-                                        "capture-range": "cudaProfilerApi",
-                                        "capture-range-end": f"repeat-shutdown:{6*len(self.profile_steps)}",
-                                        "kill": "none"}
-                                    },
-                        'name': name})
+                    ray_cls_with_init.update_options(
+                        {
+                            "runtime_env": {
+                                "env_vars": env_vars,
+                                "nsight": {
+                                    # "t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,pengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx",
+                                    "t": "cuda,nvtx,cublas",
+                                    "cuda-memory-usage": "true",
+                                    "cuda-graph-trace": "graph",
+                                    "capture-range": "cudaProfilerApi",
+                                    "capture-range-end": f"repeat-shutdown:{6 * len(self.profile_steps)}",
+                                    "kill": "none",
+                                },
+                            },
+                            "name": name,
+                        }
+                    )
                 else:
-                    ray_cls_with_init.update_options({'runtime_env': {'env_vars': env_vars}, "name": name})
+                    ray_cls_with_init.update_options({"runtime_env": {"env_vars": env_vars}, "name": name})
 
                 if detached:
                     ray_cls_with_init.update_options({"lifetime": "detached"})

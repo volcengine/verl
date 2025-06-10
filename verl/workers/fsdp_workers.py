@@ -22,7 +22,6 @@ import warnings
 from dataclasses import asdict
 from typing import Union
 
-from pprint import pprint
 import psutil
 import torch
 import torch.distributed
@@ -43,7 +42,7 @@ from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.debug import log_gpu_memory_usage
-from verl.utils.debug.performance import simple_timer, reduce_timing
+from verl.utils.debug.performance import reduce_timing, simple_timer
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device, is_cuda_available, is_npu_available
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local

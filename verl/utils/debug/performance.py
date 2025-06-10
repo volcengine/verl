@@ -24,12 +24,13 @@ from codetiming import Timer
 
 from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.logger import DecoratorLoggerBase
-
 from verl.utils.import_utils import is_nvtx_available
+
 if is_nvtx_available():
-    from .nvtx_annotations import mark_start_range, mark_end_range
+    from .nvtx_annotations import mark_end_range, mark_start_range
 else:
-    from .empty_annotations import mark_start_range, mark_end_range
+    from .empty_annotations import mark_end_range, mark_start_range
+
 
 def _get_current_mem_info(unit: str = "GB", precision: int = 2) -> Tuple[str]:
     """Get current memory usage."""
@@ -122,6 +123,7 @@ def _timer(name: str, timing_raw: Dict[str, float]):
         timing_raw[name] = 0
     timing_raw[name] += timer.last
 
+
 @contextmanager
 def simple_timer(name: str, timing_raw: Dict[str, float]):
     """Context manager for basic timing without NVTX markers.
@@ -137,6 +139,7 @@ def simple_timer(name: str, timing_raw: Dict[str, float]):
         None: This is a context manager that yields control back to the code block.
     """
     yield from _timer(name, timing_raw)
+
 
 @contextmanager
 def marked_timer(name: str, timing_raw: Dict[str, float], color: str = None):
@@ -156,6 +159,7 @@ def marked_timer(name: str, timing_raw: Dict[str, float], color: str = None):
     mark_range = mark_start_range(message=name, color=color)
     yield from _timer(name, timing_raw)
     mark_end_range(mark_range)
+
 
 def reduce_timing(timing_raw: Dict[str, float]) -> Dict[str, float]:
     """Reduce timing information across all processes.
