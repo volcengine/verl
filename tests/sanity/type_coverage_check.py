@@ -17,18 +17,6 @@ import sys
 import re
 from typing import List, Tuple, Optional
 
-# Detect function or variable declaration lines
-CANDIDATE_LINE_REGEX = re.compile(
-    r"""
-    ^\s*(
-        def\s+\w+\s*\(.*\)                    # def foo(...)
-        |class\s+\w+\s*(\(|:)                 # class Foo:
-        |[\w\[\], ]+\s*=\s*[^=]               # x = ..., avoids matching '=='
-    )
-    """,
-    re.VERBOSE,
-)
-
 # Detect inline type annotations (func args, return types, var annotations)
 TYPE_HINT_REGEX = re.compile(r"(->|:\s*[\w\[\]., ]+)")
 
@@ -63,8 +51,31 @@ def get_changed_python_lines() -> List[Tuple[str, str]]:
     return changed_lines
 
 def is_type_check_relevant(line: str) -> bool:
-    """True if line is a function, class, or variable assignment."""
-    return bool(CANDIDATE_LINE_REGEX.match(line))
+    """
+    Only count lines that:
+    - start a function or class definition
+    - or assign a new variable
+    - and are the start of the construct (not continuations)
+    """
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return False
+
+    # Start of function or class
+    if stripped.startswith("def ") or stripped.startswith("class "):
+        return True
+
+    # New variable assignment (top-level, not continuation)
+    if "=" in line and not line.lstrip().startswith(("=", ")", "]", "}")):
+        # Ignore lines that are purely part of argument passing
+        if stripped.endswith(("(", "[", "{")):
+            return True
+        if not line.startswith(" "):  # avoid indented continuation lines
+            return True
+        if line.count("=") == 1 and not any(c in line for c in "([{") and line.index("=") < 30:
+            return True
+
+    return False
 
 def has_type_annotation(line: str) -> bool:
     """True if line has any type hint."""
