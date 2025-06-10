@@ -699,6 +699,8 @@ custom_reward_function:
   # The name of the reward function within the specified file. Default is 'compute_score'.
   name: compute_score
 
+  reward_kwargs: {}
+
 # config for the algorithm
 algorithm:
 
