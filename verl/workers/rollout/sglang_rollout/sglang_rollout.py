@@ -851,7 +851,6 @@ class SGLangRollout(BaseRollout):
                         _req.add_assistant_message(
                             self.tokenizer,
                             content,
-                            format=self.config.multi_turn.format,
                         )
                         if _req.interaction_kwargs is not None and user_turns < self.config.multi_turn.max_user_turns and current_turns < self.config.multi_turn.max_assistant_turns:
                             _req.state = AsyncRolloutRequestStateEnum.INTERACTING
