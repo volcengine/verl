@@ -14,7 +14,6 @@ from codetiming import Timer
 from omegaconf import DictConfig, open_dict
 from peft import LoraConfig, TaskType, get_peft_model
 from safetensors.torch import save_file
-from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
@@ -49,31 +48,14 @@ from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
+from .utils import create_device_mesh, get_sharding_strategy
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
 
-
-def create_device_mesh(world_size, fsdp_size):
-    if fsdp_size < 0 or fsdp_size >= world_size:
-        device_mesh = init_device_mesh(device_name, mesh_shape=(world_size,), mesh_dim_names=["fsdp"])
-    else:
-        device_mesh = init_device_mesh(device_name, mesh_shape=(world_size // fsdp_size, fsdp_size), mesh_dim_names=["ddp", "fsdp"])
-    return device_mesh
-
-
-def get_sharding_strategy(device_mesh):
-    from torch.distributed.fsdp import ShardingStrategy
-
-    if device_mesh.ndim == 1:
-        sharding_strategy = ShardingStrategy.FULL_SHARD
-    elif device_mesh.ndim == 2:
-        sharding_strategy = ShardingStrategy.HYBRID_SHARD
-    else:
-        raise NotImplementedError(f"Get device mesh ndim={device_mesh.ndim}, but only support 1 or 2")
-    return sharding_strategy
 
 
 
@@ -107,7 +89,7 @@ class EngineTrainModeCtx:
         if self.engine._is_offload_param:
             load_fsdp_model_to_gpu(self.engine.critic_module)
         if self.engine._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.engine.critic_optimizer, device_id=torch.cuda.current_device())
+            load_fsdp_optimizer(optimizer=self.engine.critic_optimizer, device_id=get_torch_device().current_device())
 
         self.engine.ulysses_sharding_manager.__enter__()
         self.engine.critic_module.train()
@@ -119,7 +101,7 @@ class EngineTrainModeCtx:
         if self.engine._is_offload_param:
             offload_fsdp_model_to_cpu(self.engine.critic_module)
         if self.engine._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.engine.critic_optimizer, device_id=torch.cuda.current_device())
+            offload_fsdp_optimizer(optimizer=self.critic_optimizer)
         self.engine.mode = None
 
 
@@ -351,38 +333,73 @@ class FSDPEngine(object):
 
         return critic_module, critic_optimizer, critic_lr_scheduler
 
+
     def train_mode(self):
         return EngineTrainModeCtx(self)
+
 
     def eval_mode(self):
         return EngineEvalModeCtx(self)
     
+
     def shard_data(self, data):
         return self.ulysses_sharding_manager.preprocess_data(data)
+
 
     def unshard_data(self, data):
         return self.ulysses_sharding_manager.postprocess_data(data)
 
-    def forward_backward_step(self, batch, ctx=None, forward_only=False):
-        """
-        return
-        - preds
-        - loss
-        - out_ctx
-        """
+
+    def forward_backward_step(self, 
+                              batch, 
+                              ctx=None, 
+                              forward_only=False, 
+                              preprocess_fn=None, 
+                              postprocess_fn=None):
+        assert self.mode is not None
+        if self.mode == "train":
+            assert forward_only == False
+        elif self.mode == "eval":
+            assert forward_only ==True
+
         inputs, ctx = self.preprocess_fn(batch, ctx)
         outputs = self.critic_module(**inputs)
         preds, ctx = self.postprocess_fn(outputs, ctx)
-        return preds
+        if forward_only:
+            return preds, ctx
+
+        loss, ctx = self.loss_fn(batch, preds, ctx)
+        loss.backward()
+        return preds, loss, ctx
+
 
     def optimizer_zero_grad(self):
-        raise NotImplementedError
+        self.critic_optimizer.zero_grad()
+
 
     def optimizer_step(self):
-        raise NotImplementedError
+        assert self.config.grad_clip is not None
+
+        if isinstance(self.critic_module, FSDP):
+            grad_norm = self.critic_module.clip_grad_norm_(self.config.grad_clip)
+        elif isinstance(self.critic_module, FSDPModule):
+            grad_norm = fsdp2_clip_grad_norm_(self.critic_module.parameters(), max_norm=self.config.grad_clip)
+        else:
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.critic_module.parameters(), max_norm=self.config.grad_clip)
+
+        # if grad_norm is not finite, skip the update
+        if not torch.isfinite(grad_norm):
+            print(f"WARN: grad_norm is not finite: {grad_norm}")
+            self.critic_optimizer.zero_grad()
+        else:
+            self.critic_optimizer.step()
+        return grad_norm
+
 
     def lr_scheduler_step(self):
-        raise NotImplementedError
+        self.critic_lr_scheduler.step()
+        lr = self.critic_lr_scheduler.get_last_lr()
+        return lr
 
 
     def set_preprocess_fn(self, preprocess_fn):
@@ -403,7 +420,7 @@ class FSDPEngine(object):
         """
         loss_fn(data, preds, ctx) -> loss, out_ctx
         """
-        raise NotImplementedError
+        self.loss_fn = loss_fn
 
     def to():
         pass

@@ -27,8 +27,6 @@ import torch
 import torch.distributed
 import torch.distributed as dist
 from codetiming import Timer
-from omegaconf import DictConfig, open_dict
-from peft import LoraConfig, TaskType, get_peft_model
 from safetensors.torch import save_file
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -65,6 +63,7 @@ from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from verl.trainer.ppo import core_algos
 from verl.workers.engine.fsdp import FSDPEngine
 from verl.utils.seqlen_balancing import (get_reverse_idx,
                                          rearrange_micro_batches)
@@ -74,6 +73,7 @@ from verl.utils.torch_functional import masked_mean
 from verl.utils.ulysses import (gather_outpus_and_unpad,
                                 ulysses_pad_and_slice_inputs)
 from verl.workers.critic import BasePPOCritic
+from verl.utils.py_functional import append_to_dict
 
 if is_cuda_available:
     from flash_attn.bert_padding import (index_first_axis, pad_input,
@@ -87,25 +87,6 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
 
-
-# def create_device_mesh(world_size, fsdp_size):
-#     if fsdp_size < 0 or fsdp_size >= world_size:
-#         device_mesh = init_device_mesh(device_name, mesh_shape=(world_size,), mesh_dim_names=["fsdp"])
-#     else:
-#         device_mesh = init_device_mesh(device_name, mesh_shape=(world_size // fsdp_size, fsdp_size), mesh_dim_names=["ddp", "fsdp"])
-#     return device_mesh
-
-
-# def get_sharding_strategy(device_mesh):
-#     from torch.distributed.fsdp import ShardingStrategy
-
-#     if device_mesh.ndim == 1:
-#         sharding_strategy = ShardingStrategy.FULL_SHARD
-#     elif device_mesh.ndim == 2:
-#         sharding_strategy = ShardingStrategy.HYBRID_SHARD
-#     else:
-#         raise NotImplementedError(f"Get device mesh ndim={device_mesh.ndim}, but only support 1 or 2")
-#     return sharding_strategy
 
 
 
@@ -153,6 +134,36 @@ class CriticWorker(Worker):
 
         self.engine = FSDPEngine(self.config)
         self.device_name = get_device_name()
+
+        def loss_fn(batch, vpreds, ctx):
+            responses = batch["responses"]
+            attention_mask = batch["attention_mask"]
+            values = batch["values"]
+            returns = batch["returns"]
+            response_length = responses.size(1)
+            response_mask = attention_mask[:, -response_length:]
+            vf_loss, vf_clipfrac = core_algos.compute_value_loss(
+                vpreds=vpreds,
+                values=values,
+                returns=returns,
+                response_mask=response_mask,
+                cliprange_value=self.config.cliprange_value,
+                loss_agg_mode=self.config.loss_agg_mode,
+            )
+            if self.config.use_dynamic_bsz:
+                # relative to the dynamic bsz
+                loss = vf_loss * (ctx["data_size"] / self.config.ppo_mini_batch_size)
+            else:
+                loss = vf_loss / self.gradient_accumulation
+
+            ctx = {
+                "critic/vf_loss": vf_loss.detach().item(),
+                "critic/vf_clipfrac": vf_clipfrac.detach().item(),
+                "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
+            }
+
+            return loss, ctx
+        self.engine.set_loss_fn(loss_fn)
 
         # def preprocess_fn_with_rmpad(batch, ctx):
         #     ctx["response_length"] = batch["responses"].size(-1)
@@ -211,22 +222,13 @@ class CriticWorker(Worker):
         #     return values
 
 
-        # def postprocess_fn(outputs, ctx):
-        #     return preds, ctx
-
-
-        # def loss_fn(data, preds, ctx):
-        #     return loss, out_ctx
-
-
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         self.engine.init_model_and_optimizer()
 
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def compute_values(self, data: DataProto):
+    def get_microbatch_preprocess_fn(self):
         def preprocess_fn_without_rmpad(batch, ctx):
             ctx["response_length"] = batch["responses"].size(-1)
 
@@ -242,8 +244,9 @@ class CriticWorker(Worker):
                 position_ids = position_ids.transpose(0, 1)
             inputs["position_ids"] = position_ids
             return inputs, ctx
-
-
+        return preprocess_fn_without_rmpad
+        
+    def get_microbatch_postprocess_fn(self):
         def postprocess_fn_without_rmpad(outputs, ctx):
             response_length = ctx["response_length"]
             use_value_head_model = ctx["use_value_head_model"]
@@ -254,27 +257,27 @@ class CriticWorker(Worker):
                 values = outputs.logits
             values = values[:, -response_length - 1 : -1].squeeze(-1)
             return values, ctx
+        return postprocess_fn_without_rmpad
 
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    def compute_values(self, data: DataProto):
         self.use_remove_padding = self.config.model.get("use_remove_padding", False)
         assert self.use_remove_padding == False
-        self.engine.set_preprocess_fn(preprocess_fn_without_rmpad)
-        self.engine.set_postprocess_fn(postprocess_fn_without_rmpad)
+        self.engine.set_preprocess_fn(self.get_microbatch_preprocess_fn())
+        self.engine.set_postprocess_fn(self.get_microbatch_postprocess_fn())
         
-
         # Support all hardwares
         data = data.to(get_torch_device().current_device())
         micro_batch_size = self.config.forward_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
+        use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
 
-        with self.engine.eval_mode():
-            data = self.engine.shard_data(data=data)
-            
+        def get_micro_batches(data):
             micro_batch_size = data.meta_info["micro_batch_size"]
             select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
             batch = data.select(batch_keys=select_keys).batch
-            use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
             has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
 
             if has_multi_modal_inputs:
@@ -287,6 +290,11 @@ class CriticWorker(Worker):
                 micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
             else:
                 micro_batches = batch.split(micro_batch_size)
+            return micro_batches
+        
+        with self.engine.eval_mode():
+            data = self.engine.shard_data(data=data)
+            micro_batches = get_micro_batches(data)
 
             values_lst = []
             for micro_batch in micro_batches:
@@ -297,7 +305,8 @@ class CriticWorker(Worker):
                     # TODO: should not access module in the engine
                     use_value_head_model = hasattr(self.engine.critic_module, "v_head")
                     ctx = {"use_value_head_model": use_value_head_model}
-                    values = self.engine.forward_backward_step(micro_batch, ctx, forward_only=True)
+                    values, ctx = self.engine.forward_backward_step(micro_batch, ctx, forward_only=True)
+
                 values_lst.append(values)
             values = torch.concat(values_lst, dim=0)
 
@@ -316,44 +325,82 @@ class CriticWorker(Worker):
             output = self.engine.unshard_data(output)
 
         output = output.to("cpu")
-        raise ValueError
         return output
+
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_critic(self, data: DataProto):
         # Support all hardwares
         data = data.to(get_torch_device().current_device())
-        if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.critic_module)
-        if self._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.critic_optimizer, device_id=get_torch_device().current_device())
 
         # perform forward computation
-        with self.ulysses_sharding_manager:
-            data = self.ulysses_sharding_manager.preprocess_data(data=data)
+        with self.engine.train_mode():
+            data = self.engine.shard_data(data=data)
 
             with Timer(name="update_critic", logger=None) as timer:
-                metrics = self.critic.update_critic(data=data)
+                metrics = {}
+
+                select_keys = ["input_ids", "responses", "attention_mask", "position_ids", "values", "returns"]
+                batch = data.select(batch_keys=select_keys).batch
+                has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+
+                # Split to make minibatch iterator for updating the actor
+                # See PPO paper for details. https://arxiv.org/abs/1707.06347
+                if has_multi_modal_inputs:
+                    num_mini_batches = data.batch.batch_size[0] // self.config.ppo_mini_batch_size
+                    non_tensor_select_keys = ["multi_modal_inputs"]
+                    dataloader = data.select(select_keys, non_tensor_select_keys).chunk(num_mini_batches)
+                else:
+                    dataloader = batch.split(self.config.ppo_mini_batch_size)
+
+                for epoch in range(self.config.ppo_epochs):
+                    for batch_idx, mini_batch in enumerate(dataloader):
+                        # split batch into micro_batches
+                        if has_multi_modal_inputs:
+                            num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
+                            micro_batches = mini_batch.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
+                            self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                        elif self.config.use_dynamic_bsz:
+                            max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
+                            micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
+                        else:
+                            micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
+                            self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+
+                        self.engine.optimizer_zero_grad()
+
+                        for micro_batch in micro_batches:
+                            # Support all devices
+                            if isinstance(micro_batch, DataProto):
+                                micro_batch = {**micro_batch.batch.to(get_torch_device().current_device()), **micro_batch.non_tensor_batch}
+                            else:
+                                micro_batch = micro_batch.to(get_torch_device().current_device())  # critic device is cpu when using offload
+
+                            # TODO: should not access module in the engine
+                            use_value_head_model = hasattr(self.engine.critic_module, "v_head")
+                            ctx = {"use_value_head_model": use_value_head_model,
+                                'data_size': len(micro_batch)}
+                            vpreds, loss, metric = self.engine.forward_backward_step(micro_batch, ctx, forward_only=False)
+                            append_to_dict(metrics, metric)
+
+                        grad_norm = self.engine.optimizer_step() 
+                        append_to_dict(metrics, {"critic/grad_norm": grad_norm.detach().item()})
+                self.engine.optimizer_zero_grad()
             delta_time = timer.last
 
+            # TODO: should not access engine's flops_counter
             global_num_tokens = data.meta_info["global_token_num"]
-            estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
+            estimated_flops, promised_flops = self.engine.flops_counter.estimate_flops(global_num_tokens, delta_time)
             metrics["perf/mfu/critic"] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
 
-            self.critic_lr_scheduler.step()
-            lr = self.critic_lr_scheduler.get_last_lr()[0]
-            metrics["critic/lr"] = lr
-
+            metrics["critic/lr"] = self.engine.lr_scheduler_step()[0]
             output = DataProto(batch=None, meta_info={"metrics": metrics})
-            output = self.ulysses_sharding_manager.postprocess_data(data=output)
-
-        if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.critic_module)
-        if self._is_offload_optimizer:
-            offload_fsdp_optimizer(optimizer=self.critic_optimizer)
+            output = self.engine.unshard_data(data=output)
 
         output = output.to("cpu")
+        raise ValueError
         return output
+
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
@@ -367,6 +414,7 @@ class CriticWorker(Worker):
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.critic_module)
+
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
