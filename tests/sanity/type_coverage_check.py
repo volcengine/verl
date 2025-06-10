@@ -12,107 +12,80 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import ast
 import subprocess
 import sys
-import re
-from typing import List, Tuple, Optional
+from pathlib import Path
+import linecache
 
-# Detect inline type hints
-TYPE_HINT_REGEX = re.compile(r"(->|:\s*[\w\[\]., ]+)")
+def get_changed_files():
+    result = subprocess.run(
+        ["git", "diff", "--name-only", "--diff-filter=AM", "origin/main...HEAD"],
+        stdout=subprocess.PIPE,
+        text=True
+    )
+    return [Path(f) for f in result.stdout.splitlines() if f.endswith(".py")]
 
-def get_changed_python_lines() -> List[str]:
-    base_result = subprocess.run(
-        ["git", "merge-base", "HEAD", "origin/main"],
-        capture_output=True,
+def get_changed_lines(file_path):
+    result = subprocess.run(
+        ["git", "diff", "-U0", "origin/main...HEAD", "--", str(file_path)],
+        stdout=subprocess.PIPE,
         text=True,
-        check=True
     )
-    base_commit = base_result.stdout.strip()
+    lines = []
+    for line in result.stdout.splitlines():
+        if line.startswith("@@"):
+            # Parse diff hunk header like: @@ -10,0 +11,2 @@
+            for part in line.split():
+                if part.startswith("+") and "," in part:
+                    start, count = map(int, part[1:].split(","))
+                    lines.extend(range(start, start + count))
+                elif part.startswith("+") and "," not in part:
+                    lines.append(int(part[1:]))
+    return set(lines)
 
-    diff_result = subprocess.run(
-        ["git", "diff", "--unified=0", base_commit, "HEAD"],
-        capture_output=True,
-        text=True,
-        check=True
-    )
+def has_type_annotations(node):
+    if isinstance(node, ast.FunctionDef):
+        has_ann = all(
+            arg.annotation is not None for arg in node.args.args
+            if arg.arg != "self"  # ignore self
+        ) and node.returns is not None
+        return has_ann
+    elif isinstance(node, ast.AnnAssign):
+        return node.annotation is not None
+    elif isinstance(node, ast.Assign):
+        return False  # plain assignment has no type info
+    return True
 
-    diff_lines = diff_result.stdout.splitlines()
-    added_lines: List[str] = []
-    for line in diff_lines:
-        if line.startswith("+++ b/") and line.endswith(".py"):
-            continue
-        elif line.startswith("@@"):
-            continue
-        elif line.startswith("+") and not line.startswith("+++"):
-            added_lines.append(line[1:].rstrip())
+def check_file(file_path, changed_lines):
+    with open(file_path) as f:
+        source = f.read()
+    tree = ast.parse(source, filename=str(file_path))
 
-    return added_lines
+    failures = []
 
-def is_logical_line_start(line: str) -> bool:
-    """Is this the start of a logical block (assignment, def, class)?"""
-    line = line.strip()
-    return (
-        line.startswith("def ")
-        or line.startswith("class ")
-        or ("=" in line and not line.startswith(("=", ")", "]", "}")))
-    )
+    for node in ast.walk(tree):
+        if hasattr(node, "lineno") and node.lineno in changed_lines:
+            if isinstance(node, (ast.FunctionDef, ast.Assign, ast.AnnAssign)):
+                if not has_type_annotations(node):
+                    source_line = linecache.getline(str(file_path), node.lineno).strip()
+                    failures.append((file_path, node.lineno, source_line))
 
-def compute_annotation_ratio(added_lines: List[str]) -> Tuple[int, int]:
-    relevant = 0
-    annotated = 0
-    tracking_multiline = False
-    open_parens = 0
+    return failures
 
-    for line in added_lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
+def main():
+    failed = []
+    for fpath in get_changed_files():
+        changed_lines = get_changed_lines(fpath)
+        failed += check_file(fpath, changed_lines)
 
-        if not tracking_multiline:
-            if is_logical_line_start(line):
-                relevant += 1
-                if TYPE_HINT_REGEX.search(line):
-                    annotated += 1
-                else:
-                    print(f"Missing annotation: {line}")
-                # Start tracking if line ends with open structure
-                open_parens = (
-                    line.count("(") + line.count("[") + line.count("{")
-                    - line.count(")") - line.count("]") - line.count("}")
-                )
-                tracking_multiline = open_parens > 0
-        else:
-            open_parens += (
-                line.count("(") + line.count("[") + line.count("{")
-                - line.count(")") - line.count("]") - line.count("}")
-            )
-            tracking_multiline = open_parens > 0
-
-    return annotated, relevant
-
-def main() -> None:
-    try:
-        added_lines = get_changed_python_lines()
-    except subprocess.CalledProcessError:
-        print("❌ Cannot compute diff with origin/main. Make sure CI uses `fetch-depth: 0`.")
+    if failed:
+        print("❌ Missing type annotations on changed lines:\n")
+        for fname, lineno, line in failed:
+            print(f"{fname}:{lineno}: {line}")
         sys.exit(1)
-
-    annotated, total = compute_annotation_ratio(added_lines)
-
-    threshold = 0.5
-    print(f"🔍 Relevant lines: {total}, Annotated: {annotated}")
-
-    if total == 0:
-        print("ℹ️ No type-relevant lines changed.")
-        sys.exit(0)
-
-    ratio = annotated / total
-    if ratio >= threshold:
-        print("✅ Type annotation threshold met.")
-        sys.exit(0)
     else:
-        print(f"❌ Threshold not met. Required: {threshold:.0%}, Found: {ratio:.0%}")
-        sys.exit(1)
+        print("✅ All changed lines have type annotations.")
 
 if __name__ == "__main__":
     main()
