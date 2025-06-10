@@ -110,7 +110,7 @@ def _get_mla_transformer_config(hf_config: PretrainedConfig, mla_rope_config: di
         "v_head_dim": hf_config.v_head_dim,
         "rotary_base": hf_config.rope_theta,
         "rotary_scaling_factor": mla_rope_config["factor"],
-        "rotary_type": mla_rope_config["type"],
+        "rope_type": mla_rope_config["type"],
         "max_position_embeddings": mla_rope_config["original_max_position_embeddings"],
         "beta_fast": mla_rope_config["beta_fast"],
         "beta_slow": mla_rope_config["beta_slow"],
