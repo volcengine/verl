@@ -265,11 +265,13 @@ def apply_monkey_patch(
     elif model.config.model_type == "kimi_vl":
         if use_remove_padding or ulysses_sp_size > 1:
             # TODO: Changes need to be made when transformers are adapted.
-            from verl.models.transformers.kimi_vl import _merge_with_image_features, _ulysses_flash_attn_forward
+            from verl.models.transformers.kimi_vl import _ulysses_flash_attn_forward
 
-            module.KimiVLForConditionalGeneration._merge_with_image_features = _merge_with_image_features
             module.DeepseekV3FlashAttention2.forward = _ulysses_flash_attn_forward
             print("Monkey patch FlashAttention2.forward in KimiVL")
+
+        if ulysses_sp_size > 1:
+            patch_vlm_for_ulysses_input_slicing(module.DeepseekV3ForCausalLM)
 
         if use_fused_kernels:
             print("Not support fused kernels for KimiVL")

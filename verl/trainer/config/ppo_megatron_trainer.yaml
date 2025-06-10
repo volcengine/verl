@@ -178,7 +178,16 @@ actor_rollout_ref:
       enable: False  # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
       max_turns: null  # null for no limit (default max_length // 3)
       tool_config_path: null  # null for no tool
-      format: chatml  # chatml, more formats will be supported in the future
+      # - When set to True, the model's default chat template is used for multi-turn rollout, which typically matches production behavior.
+      # - When set to False, the token ids recorded for training are used instead; unlike the default chat template, these always include the model's full output,
+      #   which may contain additional content such as reasoning content. And this will lead to longer prompts.
+      use_inference_chat_template: True
+      # Tokenization is performed turn by turn and the resulting token ids are concatenated to form the full conversation.
+      # To ensure this matches the result of tokenizing the entire conversation at once, a sanity check is run at the end of each multi-turn rollout to compare the two sets of token ids.
+      # Some models are known to produce different tokenization results when tokenizing turn by turn vs. all at once. aThis behavior has already been validated for them.
+      # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
+      # Qwen/QwQ-32B, Qwen/Qwen3-xxB
+      enable_tokenization_sanity_check: True
 
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}

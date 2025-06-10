@@ -1,10 +1,15 @@
 ### Checklist Before Starting
 
-- [ ] Search for similar PR(s).
+- [ ] Searched for similar PR(s).
+- [ ] Checked PR Title format
+  - [ ] In format of: [modules] type: Title
+  - [ ] modules are in `fsdp, megatron, sglang, vllm, rollout, trainer, tests, training_utils, recipe, hardware, deployment, ray, worker, single_controller, misc, perf, model, algo, env, tool, ckpt`
+  - [ ] type is in `feat, fix, doc, refactor, chore`
+  - [ ] can involve multiple modules, seperated by `,` or space, like `[megatron, fsdp] feat: xxx`
 
 ### What does this PR do?
 
-> Add one-line overview of what this PR aims to achieve or accomplish. 
+> Add one-line overview of what this PR aims to achieve or accomplish.
 
 ### High-Level Design
 

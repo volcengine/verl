@@ -439,11 +439,20 @@ actor_rollout_ref:
       # null for no tool
       tool_config_path: null
 
-      # chatml, more formats will be supported in the future
-      format: chatml 
-
       # null for default callback
       completion_callback: null
+
+      # - When set to True, the model's default chat template is used for multi-turn rollout, which typically matches production behavior.
+      # - When set to False, the token ids recorded for training are used instead; unlike the default chat template, these always include the model's full output,
+      #   which may contain additional content such as reasoning content. This maintains the consistency between training and rollout, but it will lead to longer prompts.
+      use_inference_chat_template: False
+
+      # Tokenization is performed turn by turn and the resulting token ids are concatenated to form the full conversation.
+      # To ensure this matches the result of tokenizing the entire conversation at once, a sanity check is run at the end of each multi-turn rollout to compare the two sets of token ids.
+      # Some models are known to produce different tokenization results when tokenizing turn by turn vs. all at once. aThis behavior has already been validated for them.
+      # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
+      # Qwen/QwQ-32B, Qwen/Qwen3-xxB
+      enable_tokenization_sanity_check: True
 
 # configs for the critic
 critic:
