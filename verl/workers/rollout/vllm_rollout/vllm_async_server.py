@@ -154,6 +154,7 @@ class AsyncvLLMServer(AsyncServerBase):
         kwargs = dict(
             n=1,
             logprobs=0,
+            repetition_penalty=1.0,
             max_new_tokens=config.response_length,
         )
         for k in config.keys():
