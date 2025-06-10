@@ -61,6 +61,7 @@ def compute_annotation_ratio(changed_lines: List[Tuple[str, str]]) -> Tuple[int,
 
 def main() -> None:
     changed_lines: List[Tuple[str, str]] = get_changed_lines()
+    print(f"Changed lines:\n{changed_lines}", flush=True)
     annotated, total = compute_annotation_ratio(changed_lines)
 
     threshold: float = 0.3  # e.g., 30%
