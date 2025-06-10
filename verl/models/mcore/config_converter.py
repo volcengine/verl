@@ -85,6 +85,42 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
     return base_config
 
 
+def _get_mla_transformer_config(hf_config: PretrainedConfig, mla_rope_config: dict, dtype: torch.dtype, **override_transformer_config_kwargs) -> dict:
+    """
+    Create a MLATransformerConfig with common parameters across different model architectures.
+    This is specifically for MLA models like DeepseekV3.
+
+    Args:
+        hf_config: HuggingFace model configuration
+        mla_rope_config: MLA specific RoPE configuration
+        dtype: Data type for the model
+        override_transformer_config_kwargs: Additional parameters to override defaults
+
+    Returns:
+        MLATransformerConfig with common parameters
+    """
+    base_config = _get_base_transformer_config(hf_config=hf_config, dtype=dtype, **override_transformer_config_kwargs)
+    mla_config = {
+        # MLA specific parameters
+        "q_lora_rank": hf_config.q_lora_rank,
+        "kv_lora_rank": hf_config.kv_lora_rank,
+        "qk_head_dim": hf_config.qk_nope_head_dim,
+        "qk_pos_emb_head_dim": hf_config.qk_rope_head_dim,
+        "v_head_dim": hf_config.v_head_dim,
+        "rotary_base": hf_config.rope_theta,
+        "rotary_scaling_factor": mla_rope_config["factor"],
+        "rotary_type": mla_rope_config["type"],
+        "max_position_embeddings": mla_rope_config["original_max_position_embeddings"],
+        "beta_fast": mla_rope_config["beta_fast"],
+        "beta_slow": mla_rope_config["beta_slow"],
+        "mscale": mla_rope_config["mscale"],
+        "mscale_all_dim": mla_rope_config["mscale_all_dim"],
+    }
+
+    base_config.update(mla_config)
+    return base_config
+
+
 def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
     # for LlamaForCausalLM or Qwen2ForCausalLM
     qkv_bias = True if "Qwen2ForCausalLM" in hf_config.architectures else getattr(hf_config, "attention_bias", False)
@@ -212,17 +248,16 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, *
         assert hf_config.num_nextn_predict_layers == 0, "MTP is not supported for now, please modify the config.json to set num_nextn_predict_layers to 0"
     assert "quantization_config" not in hf_config or not hf_config.quantization_config, "quantization is not supported for now, please modify the config.json to remove quantization_config"
 
-    args = _get_base_transformer_config(
+    config_args = _get_mla_transformer_config(
         hf_config=hf_config,
+        mla_rope_config=mla_rope_config,
         dtype=dtype,
+        # Additional parameters
         use_cpu_initialization=False,
         add_bias_linear=False,
         attention_backend=AttnBackend.fused,
-        bf16=dtype is torch.bfloat16,
-        layernorm_epsilon=hf_config.rms_norm_eps,
-        ffn_hidden_size=hf_config.intermediate_size,
         qk_layernorm=True,
-        # moe specific
+        # Standard MoE parameters
         moe_ffn_hidden_size=hf_config.moe_intermediate_size,
         moe_token_dispatcher_type="alltoall",
         moe_router_bias_update_rate=0.001,
@@ -239,33 +274,19 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, *
         moe_router_pre_softmax=True,
         moe_router_topk_scaling_factor=hf_config.routed_scaling_factor,
         moe_layer_freq=moe_layer_freq,
-        # MLA
-        q_lora_rank=hf_config.q_lora_rank,
-        kv_lora_rank=hf_config.kv_lora_rank,
-        qk_head_dim=hf_config.qk_nope_head_dim,
-        qk_pos_emb_head_dim=hf_config.qk_rope_head_dim,
-        v_head_dim=hf_config.v_head_dim,
-        rotary_base=hf_config.rope_theta,
-        rotary_scaling_factor=mla_rope_config["factor"],
-        rope_type=mla_rope_config["type"],
-        mscale=mla_rope_config["mscale"],
-        mscale_all_dim=mla_rope_config["mscale_all_dim"],
-        max_position_embeddings=mla_rope_config["original_max_position_embeddings"],
-        beta_fast=mla_rope_config["beta_fast"],
-        beta_slow=mla_rope_config["beta_slow"],
         # mcore 0.12 moe
         moe_router_dtype="fp64",
         disable_bf16_reduced_precision_matmul=True,
-        # other
+        # Other optimizations
         # deallocate_pipeline_outputs=True,
         # gradient_accumulation_fusion=True,
         persist_layer_norm=True,
         bias_activation_fusion=True,
         bias_dropout_fusion=True,
+        **override_transformer_config_kwargs,
     )
-    if override_transformer_config_kwargs:
-        args.update(override_transformer_config_kwargs)
-    transformer_config = MLATransformerConfig(**args)
+    transformer_config = MLATransformerConfig(**config_args)
+    print(f"Overridden MLA TF init config: {transformer_config}")
     # MTP
     if "num_nextn_predict_layers" in hf_config:
         transformer_config.mtp_num_layers = hf_config.num_nextn_predict_layers
