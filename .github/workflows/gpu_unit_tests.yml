@@ -1,5 +1,4 @@
-name: kernels
-# latest version: Megatron-LM core_r0.11.0 https://github.com/NVIDIA/Megatron-LM/tree/core_r0.11.0
+name: GPU unit tests
 
 on:
   # Trigger the workflow on push or pull request,
@@ -7,14 +6,14 @@ on:
   push:
     branches:
       - main
-      - v0.2.x
+      - v0.4.x
     paths:
       - "**/*.py"
-      - .github/workflows/kernels.yml
+      - .github/workflows/gpu_unit_tests.yml
   pull_request:
     branches:
       - main
-      - v0.2.x
+      - v0.4.x
     paths:
       - "**/*.py"
       # Other entrypoints
@@ -25,8 +24,8 @@ on:
       # Recipes
       - "!recipe/**"
       # Entrypoints
-      - .github/workflows/kernels.yml
-      - "tests/kernels/*"
+      - .github/workflows/gpu_unit_tests.yml
+      - "tests/*"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -60,3 +59,6 @@ jobs:
       - name: Testing LinearCrossEntropy Correction, Computation Time and Memory Consumption
         run: |
           python3 tests/kernels/test_linear_cross_entropy.py
+      - name: Run all GPU unit tests
+        run: |
+          pytest -s -x --ignore-glob='*on_cpu.py' --ignore-glob='*on_cpu/*' --ignore=tests/utils/gpu_tests/dataset/ --ignore=tests/utils/gpu_tests/checkpoint/ tests/utils/gpu_tests

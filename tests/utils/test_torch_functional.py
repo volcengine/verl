@@ -44,7 +44,7 @@ def test_log_probs_from_logits_response_rmpad():
     assert torch.all(torch.eq(actual_output * response_mask, expected_output * response_mask))
 
 
-# @pytest.mark.parametrize("dtype", [torch.float64, torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("dtype", [torch.float64, torch.float32, torch.float16, torch.bfloat16])
 def test_logprobs_from_logits_v2(dtype):
     from verl.utils.torch_functional import logprobs_from_logits_naive, logprobs_from_logits_v2
 
