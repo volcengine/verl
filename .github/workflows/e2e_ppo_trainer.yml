@@ -69,7 +69,7 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.3
+      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.0-te2.3
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -181,19 +181,29 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test,geo,vllm]
+          pip3 install -e .[test,gpu,vllm,geo,trl]
       # Geo3k
       - name: Prepare Geo3k dataset
         run: |
           ray stop --force
           python3 examples/data_preprocess/geo3k.py
-      - name: Running Geo3k VLM E2E training tests on 8 L20 GPUs with rmpad using function rm
+      - name: Running Geo3k VLM GRPO E2E training tests on 8 L20 GPUs with rmpad using function rm
         run: |
           ray stop --force
           TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
             MAX_PROMPT_LEN=1536 MAX_RESPONSE_LEN=1536 \
             MODEL_ID=Qwen/Qwen2-VL-2B-Instruct \
             ADV_ESTIMATOR=grpo RM_PAD=True USE_KL=True ENABLE_CHUNKED_PREFILL=False \
+            SP_SIZE=2 \
+            bash tests/e2e/ppo_trainer/run_function_reward.sh
+
+      - name: Running Geo3k VLM PPO E2E training tests on 8 L20 GPUs with rmpad using function rm
+        run: |
+          ray stop --force
+          TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
+            MAX_PROMPT_LEN=1536 MAX_RESPONSE_LEN=1536 \
+            MODEL_ID=Qwen/Qwen2-VL-2B-Instruct \
+            ADV_ESTIMATOR=gae RM_PAD=True USE_KL=True ENABLE_CHUNKED_PREFILL=False \
             SP_SIZE=2 \
             bash tests/e2e/ppo_trainer/run_function_reward.sh
 

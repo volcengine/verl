@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
+# Note that we set the response length to 4k. This results in many truncations at the beginning.
+# So the training dynamic acts as using RL to compress the math capabilities of QWen3 236b into 4k response instead of verbose thinking.
+# We can achieve 0.5 on AIME'24 after 30 steps.
+
 project_name='DAPO'
 exp_name='DAPO-Qwen3-236b-megatron-0531a1'
 

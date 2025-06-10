@@ -77,7 +77,7 @@ def test_async_sglang_rollout_w_tool():
         device_mesh=fsdp_device_mesh,
     )
 
-    rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, None)
+    rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, "./resource/tool_configs/sandbox_fusion_tool_config")
     rollout = SGLangRollout(actor_module=local_model_path, config=rollout_config, tokenizer=tokenizer, model_hf_config=actor_model.config)
 
     rollout_sharding_manager = FSDPSGLangShardingManager(
@@ -100,7 +100,7 @@ def test_async_sglang_rollout_w_tool():
         print(f"preprocessed {input_ids.shape=}")
 
         messages = np.asarray(preencode_prompts)
-        prompts = DataProto(batch=prompt_dict, non_tensor_batch={"raw_prompt": messages})
+        prompts = DataProto(batch=prompt_dict, non_tensor_batch={"raw_prompt": messages, "tools_kwargs": np.array([{}] * input_ids.shape[0], dtype=object)})
 
         prompts.meta_info.update(
             {

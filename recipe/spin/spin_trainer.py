@@ -85,7 +85,7 @@ class ResourcePoolManager:
         for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
             # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
             # For FSDP backend, we recommend using max_colocate_count=1 that merge all WorkerGroups into one.
-            # For Megatron backend, we recommend using max_colocate_count>1 that can utilize different WorkerGroup for differnt models
+            # For Megatron backend, we recommend using max_colocate_count>1 that can utilize different WorkerGroup for different models
             resource_pool = RayResourcePool(process_on_nodes=process_on_nodes,
                                             use_gpu=True,
                                             max_colocate_count=1,
@@ -395,15 +395,6 @@ class RaySPINTrainer:
         if config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(config.algorithm.kl_ctrl)
 
-        # if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
-        #     self.use_critic = True
-        # elif self.config.algorithm.adv_estimator in [
-        #         AdvantageEstimator.GRPO, AdvantageEstimator.REINFORCE_PLUS_PLUS, AdvantageEstimator.REMAX,
-        #         AdvantageEstimator.RLOO, AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE
-        # ]:
-        #     self.use_critic = False
-        # else:
-        #     raise NotImplementedError
         self.use_critic = False
         self._validate_config()
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)

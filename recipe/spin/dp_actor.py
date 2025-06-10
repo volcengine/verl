@@ -52,7 +52,7 @@ class SPINDataParallelPPOActor(DataParallelPPOActor):
         self.actor_module.eval()
 
         micro_batch_size = data.meta_info['micro_batch_size']
-        temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
+        temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid silent error
         use_dynamic_bsz = data.meta_info['use_dynamic_bsz']
 
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']

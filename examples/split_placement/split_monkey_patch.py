@@ -85,6 +85,8 @@ def fit(self):
                 # generate a batch
                 with _timer("gen", timing_raw):
                     gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                    timing_raw.update(gen_batch_output.meta_info["timing"])
+                    gen_batch_output.meta_info.pop("timing", None)
 
                 if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                     with _timer("gen_max", timing_raw):

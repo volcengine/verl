@@ -15,10 +15,14 @@ import asyncio
 import time
 
 from verl import DataProto
+from verl.utils.reward_score import default_compute_score
+from verl.workers.reward_manager import register
 from verl.workers.reward_manager.base import BaseRewardManager
 
 
+@register("naive")
 class NaiveRewardManager(BaseRewardManager):
+    """The reward manager."""
     async def async_compute_scores(self, reward_data: DataProto) -> list[int | float | dict]:
         semaphore = asyncio.Semaphore(self.max_concurrency) if self.max_concurrency is not None else None
         min_interval = 1.0 / self.qps if self.qps and self.qps > 0 else None

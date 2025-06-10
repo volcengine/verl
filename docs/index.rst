@@ -85,7 +85,8 @@ verl is fast with:
 .. toctree::
    :maxdepth: 1
    :caption: Performance Tuning Guide
-   
+
+   perf/dpsk.md
    perf/perf_tuning
    README_vllm0.8.md
    perf/device_tuning

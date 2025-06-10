@@ -8,7 +8,7 @@ resource selection when dealing with different models and tasks, this section is
 mainly dedicated to introducing the environmental requirements based on experiments 
 we have conducted.
 
-However, due to limited manpower and equipment resources, we also hope for more 
+However, due to limited staff and equipment resources, we also hope for more 
 contributions from the open-source community. When submitting a PR, it is necessary 
 to provide a script to be added to the example/tuning scripts.
 

@@ -12,8 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Any, Optional, Tuple
+import importlib
+import json
+import sys
+from typing import Any, List, Optional, Tuple
 from uuid import uuid4
+
+from omegaconf import OmegaConf
 
 from .schemas import OpenAIFunctionToolSchema
 
@@ -32,8 +37,10 @@ class BaseTool:
 
     def __init__(self, config: dict, tool_schema: OpenAIFunctionToolSchema):
         self.config = config
-        self.name = tool_schema.function.name
-        self.tool_schema = tool_schema
+        self.tool_schema = tool_schema or self.get_openai_tool_schema()
+        assert self.tool_schema is not None, "Tool schema is not set!"
+        self.name = self.tool_schema.function.name
+        print(json.dumps(self.tool_schema.model_dump(exclude_unset=True, exclude_none=True), indent=2))
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
@@ -84,3 +91,41 @@ class BaseTool:
             instance_id: The instance id of the tool.
         """
         pass
+
+
+def initialize_tools_from_config(tools_config_file) -> List[BaseTool]:
+    """Initialize tools from config file.
+
+    Args:
+        tools_config_file: The config file of the tools.
+
+    Returns:
+        A list of tools.
+    """
+    tools_config = OmegaConf.load(tools_config_file)
+
+    tool_list = []
+    for tool_config in tools_config.tools:
+        cls_name = tool_config.class_name
+        module_name, class_name = cls_name.rsplit(".", 1)
+
+        if module_name not in sys.modules:
+            spec = importlib.util.find_spec(module_name)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+        else:
+            module = sys.modules[module_name]
+
+        tool_cls = getattr(module, class_name)
+
+        if tool_config.get("tool_schema", None) is None:
+            tool_schema = None
+        else:
+            tool_schema_dict = OmegaConf.to_container(tool_config.tool_schema, resolve=True)
+            tool_schema = OpenAIFunctionToolSchema.parse_obj(tool_schema_dict)
+
+        tool = tool_cls(config=OmegaConf.to_container(tool_config.config, resolve=True), tool_schema=tool_schema)
+        tool_list.append(tool)
+
+    return tool_list

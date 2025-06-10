@@ -20,8 +20,9 @@ import psutil
 import torch
 
 from verl import DataProto
-
 from verl.workers.reward_manager.base import BaseRewardManager
+from verl.utils.reward_score import default_compute_score
+from verl.workers.reward_manager import register
 
 
 async def single_compute_score(evaluation_func, completion, reference, task, task_extra_info, executor, timeout=300.0):
@@ -94,7 +95,11 @@ def run_reward_scoring(evaluation_func, completions, references, tasks, extra_in
         loop.close()
 
 
+@register("prime")
 class PrimeRewardManager(BaseRewardManager):
+    """
+    The Reward Manager used in https://github.com/PRIME-RL/PRIME
+    """
     def compute_scores(self, reward_data: DataProto) -> list[int | float | dict]:
         try:
             scores = run_reward_scoring(

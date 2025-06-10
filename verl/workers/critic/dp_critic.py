@@ -65,7 +65,7 @@ class DataParallelPPOCritic(BasePPOCritic):
     def _forward_micro_batch(self, micro_batch):
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
-        if "multi_modal_inputs" in micro_batch:
+        if "multi_modal_inputs" in micro_batch.keys():
             for key in micro_batch["multi_modal_inputs"][0].keys():
                 multi_modal_inputs[key] = torch.cat([inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0)
 
@@ -99,8 +99,13 @@ class DataParallelPPOCritic(BasePPOCritic):
                     **multi_modal_inputs,
                     use_cache=False,
                 )  # prevent model thinks we are generating
-                values_rmpad = output.logits
-                values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
+
+                if hasattr(self.critic_module, "v_head"):
+                    # For trl.AutoModelForCausalLMWithValueHead
+                    values_rmpad = output[2].squeeze(0).unsqueeze(-1)
+                else:
+                    values_rmpad = output.logits
+                    values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
 
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
@@ -117,7 +122,11 @@ class DataParallelPPOCritic(BasePPOCritic):
                     **multi_modal_inputs,
                     use_cache=False,
                 )  # prevent model thinks we are generating
-                values = output.logits
+                if hasattr(self.critic_module, "v_head"):
+                    # For trl.AutoModelForCausalLMWithValueHead
+                    values = output[2]
+                else:
+                    values = output.logits
                 values = values[:, -response_length - 1 : -1].squeeze(-1)
             return values
 
@@ -208,6 +217,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                 if has_multi_modal_inputs:
                     num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
                     micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
+                    self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
                 elif self.config.use_dynamic_bsz:
                     max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                     micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)

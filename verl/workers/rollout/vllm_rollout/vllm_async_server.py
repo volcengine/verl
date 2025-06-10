@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
-from collections.abc import AsyncGenerator
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import cloudpickle
@@ -66,7 +65,7 @@ class ExternalRayDistributedExecutor(Executor):
         actor_names = sorted(actor_names, key=get_pg_index_and_local_rank)
         actor_names = actor_names[vllm_dp_rank * vllm_tp_size : (vllm_dp_rank + 1) * vllm_tp_size]
         self.workers: List[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
-        print(f"instance_id: {self.vllm_config.instance_id} intializes with external actors: {actor_names}")
+        print(f"instance_id: {self.vllm_config.instance_id} initializes with external actors: {actor_names}")
 
         kwargs = dict(
             vllm_config=self.vllm_config,
@@ -78,7 +77,7 @@ class ExternalRayDistributedExecutor(Executor):
         self.collective_rpc("init_worker", args=([kwargs],))
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
-        print(f"instance_id: {self.vllm_config.instance_id} intializes finished.")
+        print(f"instance_id: {self.vllm_config.instance_id} initializes finished.")
 
     def collective_rpc(
         self,
@@ -122,14 +121,14 @@ class AsyncvLLMServer(AsyncServerBase):
     def __init__(self, config: DictConfig, vllm_dp_size: int, vllm_dp_rank: int, wg_prefix: str):
         """
         Args:
-            config: DictConfig, actor_rollout_ref config.
+            config: DictConfig.
             vllm_dp_size: int, vllm data parallel size.
             vllm_dp_rank: int, vllm data parallel rank.
             wg_prefix: str, worker group prefix, used to lookup actors.
         """
         super().__init__()
 
-        self.config = config
+        self.config = config.actor_rollout_ref
         self.vllm_dp_size = vllm_dp_size
         self.vllm_dp_rank = vllm_dp_rank
         self.wg_prefix = wg_prefix
@@ -154,7 +153,7 @@ class AsyncvLLMServer(AsyncServerBase):
         kwargs = dict(
             n=1,
             logprobs=0,
-            max_tokens=config.response_length,
+            max_new_tokens=config.response_length,
         )
         for k in config.keys():
             if hasattr(SamplingParams(), str(k)):
@@ -201,6 +200,8 @@ class AsyncvLLMServer(AsyncServerBase):
             request_logger=RequestLogger(max_log_len=4096),
             chat_template=None,
             chat_template_content_format="auto",
+            enable_auto_tools=True,
+            tool_parser=config.multi_turn.format,  # hermes, llama3_json, ...
         )
 
     async def chat_completion(self, raw_request: Request):
@@ -219,28 +220,6 @@ class AsyncvLLMServer(AsyncServerBase):
         else:
             assert isinstance(generator, ChatCompletionResponse)
             return JSONResponse(content=generator.model_dump())
-
-    async def chat_completion_generator(self, request: ChatCompletionRequest) -> AsyncGenerator[Tuple[int, str]]:
-        """Direct chat completion without FastAPI.
-
-        Args:
-            request: ChatCompletionRequest, request object.
-
-        Returns:
-            AsyncGenerator[Tuple[int, str]]: async generator of (status_code, data) pairs.
-        """
-        generator = await self.openai_serving_chat.create_chat_completion(request)
-        if isinstance(generator, ErrorResponse):
-            data = generator.model_dump_json(exclude_unset=True)
-            yield generator.code, f"data: {data}\n\n"
-
-        if request.stream:
-            async for chunk in generator:
-                yield 200, chunk
-        else:
-            assert isinstance(generator, ChatCompletionResponse)
-            data = generator.model_dump_json(exclude_unset=True)
-            yield 200, f"data: {data}\n\n"
 
     async def wake_up(self):
         await self.engine.wake_up()

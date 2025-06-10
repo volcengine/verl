@@ -42,6 +42,7 @@ from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.debug.performance import _timer, reduce_timing
 from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
@@ -620,16 +621,23 @@ class ActorRolloutRefWorker(Worker):
             "pad_token_id": self.generation_config.pad_token_id if self.generation_config is not None else self.tokenizer.pad_token_id,
         }
         prompts.meta_info.update(meta_info)
+        timing_generate = {}
         with self.rollout_sharding_manager:
             log_gpu_memory_usage("After entering rollout sharding manager", logger=logger)
 
             prompts = self.rollout_sharding_manager.preprocess_data(prompts)
-            output = self.rollout.generate_sequences(prompts=prompts)
+            with _timer("generate_sequences", timing_generate):
+                output = self.rollout.generate_sequences(prompts=prompts)
 
             log_gpu_memory_usage("After rollout generation", logger=logger)
 
             output = self.rollout_sharding_manager.postprocess_data(output)
 
+        timing_generate.update(self.rollout_sharding_manager.timing)
+        # We calculate the average timing across all ranks
+        # to make sure meta_info["timing"] is the same
+        timing_generate = reduce_timing(timing_generate)
+        output.meta_info["timing"] = timing_generate
         output = output.to("cpu")
 
         # clear kv cache
@@ -815,7 +823,7 @@ class CriticWorker(Worker):
         from torch import optim
         from torch.distributed.fsdp import MixedPrecision
 
-        from verl.utils.model import print_model_size
+        from verl.utils.model import load_valuehead_model, print_model_size
         from verl.utils.torch_dtypes import PrecisionType
 
         use_shm = config.model.get("use_shm", False)
@@ -856,11 +864,13 @@ class CriticWorker(Worker):
             warnings.simplefilter("ignore")
             critic_model_config.classifier_dropout = 0.0
             critic_model_config.hidden_dropout = "0"
-            critic_module = AutoModelForTokenClassification.from_pretrained(
-                pretrained_model_name_or_path=local_path,
-                torch_dtype=torch_dtype,
-                config=critic_model_config,
-                trust_remote_code=config.model.get("trust_remote_code", False),
+            critic_model_config.summary_dropout_prob = 0.0
+
+            critic_module = load_valuehead_model(
+                local_path,
+                torch_dtype,
+                critic_model_config,
+                config.model.get("trust_remote_code", False),
             )
 
             use_remove_padding = config.model.get("use_remove_padding", False)
@@ -1430,10 +1440,19 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
             print(f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: {method if isinstance(method, str) else 'Callable'}")
         return self.rollout.execute_method(method, *args, **kwargs)
 
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def resume(self):
-        return self.rollout.resume()
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
+    async def chat_completion(self, json_request):
+        ret = await self.rollout.chat_completion(json_request)
+        return ret
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def offload(self):
-        return self.rollout.offload()
+    async def wake_up(self):
+        await self.rollout.wake_up()
+        # return something to block the caller
+        return True
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def sleep(self):
+        await self.rollout.sleep()
+        # return something to block the caller
+        return True
