@@ -12,7 +12,7 @@ save_path=$2
 # Shift the arguments so $@ refers to the rest
 shift 2
 
-torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
+torchrun --nnodes=1 --nproc_per_node=$nproc_per_node \
      -m verl.trainer.fsdp_sft_trainer \
     data.train_files=$HOME/data/multiturn/train.parquet \
     data.val_files=$HOME/data/multiturn/test.parquet \
