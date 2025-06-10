@@ -91,7 +91,7 @@ class EngineEvalModeCtx:
 
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.engine.ulysses_sharding_manager.__exit__()
+        self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
         if self.engine._is_offload_param:
             offload_fsdp_model_to_cpu(self.engine.critic_module)
         self.engine.mode = None
@@ -356,19 +356,24 @@ class FSDPEngine(object):
 
     def eval_mode(self):
         return EngineEvalModeCtx(self)
+    
+    def shard_data(self, data):
+        return self.ulysses_sharding_manager.preprocess_data(data)
 
+    def unshard_data(self, data):
+        return self.ulysses_sharding_manager.postprocess_data(data)
 
-    def sharding_manager(self):
-        return self.ulysses_sharding_manager
-
-    def forward_backward_step(self, batch, forward_only=False, ctx={}):
+    def forward_backward_step(self, batch, ctx=None, forward_only=False):
         """
         return
         - preds
         - loss
         - out_ctx
         """
-        raise NotImplementedError
+        inputs, ctx = self.preprocess_fn(batch, ctx)
+        outputs = self.critic_module(**inputs)
+        preds, ctx = self.postprocess_fn(outputs, ctx)
+        return preds
 
     def optimizer_zero_grad(self):
         raise NotImplementedError
@@ -379,18 +384,19 @@ class FSDPEngine(object):
     def lr_scheduler_step(self):
         raise NotImplementedError
 
+
     def set_preprocess_fn(self, preprocess_fn):
         """
         preprocess_fn(data, ctx) -> inputs, ctx
         """
-        raise NotImplementedError
+        self.preprocess_fn = preprocess_fn
 
 
     def set_postprocess_fn(self, postprocess_fn):
         """
         postprocess_fn(outputs, ctx) -> preds, ctx
         """
-        raise NotImplementedError
+        self.postprocess_fn = postprocess_fn
         
 
     def set_loss_fn(self, loss_fn):

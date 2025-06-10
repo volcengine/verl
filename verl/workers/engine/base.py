@@ -35,9 +35,12 @@ class BaseEngine(object):
 
     def lr_scheduler_step(self):
         raise NotImplementedError
-    
-    def sharding_manager(self):
-        pass
+
+    def shard_data(self, data):
+        raise NotImplementedError
+
+    def unshard_data(self, data):
+        raise NotImplementedError
 
     def set_preprocess_fn(self, preprocess_fn):
         """
