@@ -15,14 +15,15 @@ import asyncio
 import time
 
 from verl import DataProto
-from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register
-from verl.workers.reward_manager.base import BaseRewardManager
+
+from .base import BaseRewardManager
 
 
 @register("naive")
 class NaiveRewardManager(BaseRewardManager):
     """The reward manager."""
+
     async def async_compute_scores(self, reward_data: DataProto) -> list[int | float | dict]:
         semaphore = asyncio.Semaphore(self.max_concurrency) if self.max_concurrency is not None else None
         min_interval = 1.0 / self.qps if self.qps and self.qps > 0 else None
@@ -42,11 +43,8 @@ class NaiveRewardManager(BaseRewardManager):
                             await asyncio.sleep(wait)
                         last_called = time.monotonic()
                 return await asyncio.wait_for(
-                    self.user_defined_compute_scores(data_source=data_item.non_tensor_batch["data_sources"],
-                                                     solution_str=data_item.non_tensor_batch["solution_strs"],
-                                                     ground_truth=data_item.non_tensor_batch["ground_truths"],
-                                                     extra_info=data_item.non_tensor_batch["extra_infos"]),
-                    self.timeout)
+                    self.user_defined_compute_scores(data_source=data_item.non_tensor_batch["data_sources"], solution_str=data_item.non_tensor_batch["solution_strs"], ground_truth=data_item.non_tensor_batch["ground_truths"], extra_info=data_item.non_tensor_batch["extra_infos"]), self.timeout
+                )
             finally:
                 if semaphore:
                     semaphore.release()
@@ -54,12 +52,15 @@ class NaiveRewardManager(BaseRewardManager):
         return await asyncio.gather(*[throttled_call(reward_data[i]) for i in range(len(reward_data))])
 
     def sync_compute_scores(self, reward_data: DataProto) -> list[int | float | dict]:
-        return [self.user_defined_compute_scores(
-            data_source=reward_data.non_tensor_batch["data_sources"][i],
-            solution_str=reward_data.non_tensor_batch["solution_strs"][i],
-            ground_truth=reward_data.non_tensor_batch["ground_truths"][i],
-            extra_info=reward_data.non_tensor_batch["extra_infos"][i],
-        ) for i in range(len(reward_data))]
+        return [
+            self.user_defined_compute_scores(
+                data_source=reward_data.non_tensor_batch["data_sources"][i],
+                solution_str=reward_data.non_tensor_batch["solution_strs"][i],
+                ground_truth=reward_data.non_tensor_batch["ground_truths"][i],
+                extra_info=reward_data.non_tensor_batch["extra_infos"][i],
+            )
+            for i in range(len(reward_data))
+        ]
 
     def compute_scores(self, reward_data: DataProto) -> list[int | float | dict]:
         if asyncio.iscoroutinefunction(self.user_defined_compute_scores):
