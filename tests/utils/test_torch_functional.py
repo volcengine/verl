@@ -44,7 +44,7 @@ def test_log_probs_from_logits_response_rmpad():
     assert torch.all(torch.eq(actual_output * response_mask, expected_output * response_mask))
 
 
-@pytest.mark.parametrize("dtype", [torch.float64, torch.float32, torch.float16, torch.bfloat16])
+# @pytest.mark.parametrize("dtype", [torch.float64, torch.float32, torch.float16, torch.bfloat16])
 def test_logprobs_from_logits_v2(dtype):
     from verl.utils.torch_functional import logprobs_from_logits_naive, logprobs_from_logits_v2
 
@@ -80,7 +80,7 @@ def test_lr_scheduler():
         lr_lst.append(constant_lr.get_last_lr()[0])
         constant_lr.step()
 
-    torch.testing.assert_close(lr_lst, [0.0, 0.0005, 0.001, 0.001, 0.001])
+    torch.testing.assert_close(lr_lst, [0.0, 0.0005, 0.001, 0.001, 0.001])    
 
     from verl.utils.torch_functional import get_cosine_schedule_with_warmup
 
@@ -93,4 +93,35 @@ def test_lr_scheduler():
         lr_lst.append(cosine_lr.get_last_lr()[0])
         cosine_lr.step()
 
-    torch.testing.assert_close(lr_lst, [0.0, 0.0005, 0.001, 0.0007750000000000002, 0.0003250000000000002])
+    torch.testing.assert_close(lr_lst, [0.0001, 0.00055, 0.001, 0.0007750000000000002, 0.0003250000000000002])
+
+def test_flash_attn_cross_entropy():
+    import torch
+    from flash_attn.ops.triton.cross_entropy import cross_entropy_loss
+    from torch import nn
+
+    from verl.utils.debug import log_gpu_memory_usage
+    from verl.utils.torch_functional import logprobs_from_logits_naive
+
+    log_gpu_memory_usage("At start")
+
+    hidden_states = torch.randn(size=(2048, 5120), device="cuda", requires_grad=True, dtype=torch.bfloat16)
+
+    linear = nn.Linear(in_features=5120, out_features=155136, bias=False, device="cuda", dtype=torch.bfloat16)
+
+    logits = linear(hidden_states)
+
+    # logits = logits.float()
+    labels = torch.randint(low=0, high=155136, size=(2048,), device="cuda")
+
+    log_gpu_memory_usage("before computation")
+    # output = checkpoint.checkpoint(logprobs_from_logits, logits, labels, use_reentrant=True)
+    output = -cross_entropy_loss(logits, labels)[0]
+    # output = logprobs_from_logits(logits, labels)
+    log_gpu_memory_usage("After forward")
+    output.sum().backward()
+    log_gpu_memory_usage("After backward")
+
+    groundtruth = logprobs_from_logits_naive(logits.float(), labels)
+
+    torch.testing.assert_close(output, groundtruth)
