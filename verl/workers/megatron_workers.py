@@ -80,17 +80,30 @@ class ActorRolloutRefWorker(MegatronWorker):
     """
 
     def __init__(self, config: DictConfig, role: str):
-        self.profile_discrete = (config.actor.get("profile_discrete", False)
-                            or config.rollout.get("profile_discrete", False)
-                            or config.ref.get("profile_discrete", False))
-        profile_ranks_all = (config.actor.get("profile_ranks_all", False)
-                            or config.rollout.get("profile_ranks_all", False)
-                            or config.ref.get("profile_ranks_all", False))
-        profile_ranks = ([] if config.actor.profile_ranks is None else config.actor.profile_ranks
-                        ) + ([] if config.rollout.profile_ranks is None else config.rollout.profile_ranks
-                        ) + ([] if config.ref.profile_ranks is None else config.ref.profile_ranks)
+        self.role = role
+        assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
 
-        super().__init__(profile_discrete=self.profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
+        self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
+        self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
+        self._is_ref = self.role in ["ref", "actor_rollout_ref"]
+
+        profile_ranks_all = False
+        profile_discrete = False
+        profile_ranks = []
+        if self._is_actor:
+            profile_ranks_all = profile_ranks_all or config.actor.get("profile_ranks_all", False)
+            profile_discrete = profile_discrete or config.actor.get("profile_discrete", False)
+            profile_ranks = profile_ranks + (config.actor.profile_ranks if config.actor.profile_ranks is not None else [])
+        if self._is_rollout:
+            profile_ranks_all = profile_ranks_all or config.rollout.get("profile_ranks_all", False)
+            profile_discrete = profile_discrete or config.rollout.get("profile_discrete", False)
+            profile_ranks = profile_ranks + (config.rollout.profile_ranks if config.rollout.profile_ranks is not None else [])
+        if self._is_ref:
+            profile_ranks_all = profile_ranks_all or config.ref.get("profile_ranks_all", False)
+            profile_discrete = profile_discrete or config.ref.get("profile_discrete", False)
+            profile_ranks = profile_ranks + (config.ref.profile_ranks if config.ref.profile_ranks is not None else [])
+
+        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
         self.config = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -119,13 +132,6 @@ class ActorRolloutRefWorker(MegatronWorker):
             )
 
         set_random_seed(seed=self.config.actor.megatron.seed)
-
-        self.role = role
-        assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
-
-        self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
-        self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
-        self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
         # TODO(sgm): Currently, we only support reference model param offload
         # will support other offload later
