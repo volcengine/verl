@@ -1,4 +1,4 @@
-name: ray_gpu
+name: single_controller_unit_tests
 
 on:
   # Trigger the workflow on push or pull request,
@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 jobs:
-  ray_gpu:
+  single_controller_unit_tests:
     runs-on: [L20x8]
     timeout-minutes: 10 # Increase this timeout value as needed
     env:
