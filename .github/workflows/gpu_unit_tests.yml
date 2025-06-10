@@ -56,9 +56,10 @@ jobs:
         run: |
           pip3 install hf_transfer
           pip3 install --no-deps -e .[test]
+          pip install --upgrade "ray>=2.40.0"
       - name: Testing LinearCrossEntropy Correction, Computation Time and Memory Consumption
         run: |
           python3 tests/kernels/test_linear_cross_entropy.py
       - name: Run all GPU unit tests
         run: |
-          pytest -s -x --ignore-glob='*on_cpu.py' --ignore-glob='*on_cpu/*' --ignore=tests/utils/gpu_tests/dataset/ --ignore=tests/utils/gpu_tests/checkpoint/ tests/utils/gpu_tests
+          pytest -s -x --ignore=test_rvdz.py --ignore-glob='*on_cpu.py' --ignore-glob='*on_cpu/*' --ignore=tests/utils/gpu_tests/dataset/ --ignore=tests/utils/gpu_tests/checkpoint/ tests/utils/gpu_tests tests/single_controller
