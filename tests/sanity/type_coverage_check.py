@@ -17,15 +17,15 @@ import sys
 import re
 from typing import List, Tuple, Optional
 
-# Detect inline type annotations (func args, return types, var annotations)
+# Detect inline type hints
 TYPE_HINT_REGEX = re.compile(r"(->|:\s*[\w\[\]., ]+)")
 
-def get_changed_python_lines() -> List[Tuple[str, str]]:
+def get_changed_python_lines() -> List[str]:
     base_result = subprocess.run(
         ["git", "merge-base", "HEAD", "origin/main"],
         capture_output=True,
         text=True,
-        check=True,
+        check=True
     )
     base_commit = base_result.stdout.strip()
 
@@ -33,80 +33,77 @@ def get_changed_python_lines() -> List[Tuple[str, str]]:
         ["git", "diff", "--unified=0", base_commit, "HEAD"],
         capture_output=True,
         text=True,
-        check=True,
+        check=True
     )
 
     diff_lines = diff_result.stdout.splitlines()
-    changed_lines: List[Tuple[str, str]] = []
-    current_file: Optional[str] = None
-
+    added_lines: List[str] = []
     for line in diff_lines:
         if line.startswith("+++ b/") and line.endswith(".py"):
-            current_file = line[6:]
-        elif line.startswith("@@") and current_file:
             continue
-        elif line.startswith("+") and not line.startswith("+++") and current_file:
-            changed_lines.append((current_file, line[1:].rstrip()))
+        elif line.startswith("@@"):
+            continue
+        elif line.startswith("+") and not line.startswith("+++"):
+            added_lines.append(line[1:].rstrip())
 
-    return changed_lines
+    return added_lines
 
-def is_type_check_relevant(line: str) -> bool:
-    """
-    Only count lines that:
-    - start a function or class definition
-    - or assign a new variable
-    - and are the start of the construct (not continuations)
-    """
-    stripped = line.strip()
-    if not stripped or stripped.startswith("#"):
-        return False
+def is_logical_line_start(line: str) -> bool:
+    """Is this the start of a logical block (assignment, def, class)?"""
+    line = line.strip()
+    return (
+        line.startswith("def ")
+        or line.startswith("class ")
+        or ("=" in line and not line.startswith(("=", ")", "]", "}")))
+    )
 
-    # Start of function or class
-    if stripped.startswith("def ") or stripped.startswith("class "):
-        return True
-
-    # New variable assignment (top-level, not continuation)
-    if "=" in line and not line.lstrip().startswith(("=", ")", "]", "}")):
-        # Ignore lines that are purely part of argument passing
-        if stripped.endswith(("(", "[", "{")):
-            return True
-        if not line.startswith(" "):  # avoid indented continuation lines
-            return True
-        if line.count("=") == 1 and not any(c in line for c in "([{") and line.index("=") < 30:
-            return True
-
-    return False
-
-def has_type_annotation(line: str) -> bool:
-    """True if line has any type hint."""
-    return bool(TYPE_HINT_REGEX.search(line))
-
-def compute_annotation_ratio(changed_lines: List[Tuple[str, str]]) -> Tuple[int, int]:
-    total = 0
+def compute_annotation_ratio(added_lines: List[str]) -> Tuple[int, int]:
+    relevant = 0
     annotated = 0
-    for _, line in changed_lines:
-        if is_type_check_relevant(line):
-            total += 1
-            if has_type_annotation(line):
-                annotated += 1
-            else:
-                print(f"Missing annotation: {line}")
-    return annotated, total
+    tracking_multiline = False
+    open_parens = 0
+
+    for line in added_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        if not tracking_multiline:
+            if is_logical_line_start(line):
+                relevant += 1
+                if TYPE_HINT_REGEX.search(line):
+                    annotated += 1
+                else:
+                    print(f"Missing annotation: {line}")
+                # Start tracking if line ends with open structure
+                open_parens = (
+                    line.count("(") + line.count("[") + line.count("{")
+                    - line.count(")") - line.count("]") - line.count("}")
+                )
+                tracking_multiline = open_parens > 0
+        else:
+            open_parens += (
+                line.count("(") + line.count("[") + line.count("{")
+                - line.count(")") - line.count("]") - line.count("}")
+            )
+            tracking_multiline = open_parens > 0
+
+    return annotated, relevant
 
 def main() -> None:
     try:
-        changed_lines = get_changed_python_lines()
+        added_lines = get_changed_python_lines()
     except subprocess.CalledProcessError:
-        print("❌ Cannot compute diff with origin/main. Ensure CI sets `fetch-depth: 0`.")
+        print("❌ Cannot compute diff with origin/main. Make sure CI uses `fetch-depth: 0`.")
         sys.exit(1)
 
-    annotated, total = compute_annotation_ratio(changed_lines)
+    annotated, total = compute_annotation_ratio(added_lines)
 
     threshold = 0.5
-    print(f"🔍 Relevant lines: {total}, Annotated: {annotated}", flush=True)
+    print(f"🔍 Relevant lines: {total}, Annotated: {annotated}")
 
     if total == 0:
-        print("ℹ️ No relevant lines to check.")
+        print("ℹ️ No type-relevant lines changed.")
         sys.exit(0)
 
     ratio = annotated / total
