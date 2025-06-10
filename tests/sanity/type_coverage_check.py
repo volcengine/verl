@@ -78,6 +78,8 @@ def compute_annotation_ratio(changed_lines: List[Tuple[str, str]]) -> Tuple[int,
             total += 1
             if has_type_annotation(line):
                 annotated += 1
+            else:
+                print(f"Missing annotation: {line}")
     return annotated, total
 
 def main() -> None:
@@ -90,7 +92,7 @@ def main() -> None:
     annotated, total = compute_annotation_ratio(changed_lines)
 
     threshold = 0.5
-    print(f"🔍 Relevant lines: {total}, Annotated: {annotated}")
+    print(f"🔍 Relevant lines: {total}, Annotated: {annotated}", flush=True)
 
     if total == 0:
         print("ℹ️ No relevant lines to check.")
