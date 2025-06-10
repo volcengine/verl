@@ -44,7 +44,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -129,12 +129,69 @@ class BaseModelMerger(ABC):
                 print(f"Warning: Generation config file not found in {self.hf_model_config_path}, using a generation config created from the model config.")
         return model
 
+    def save_lora_adapter(self, state_dict: dict[str, torch.Tensor]):
+        """
+        Save lora adapter to safetensors.
+
+        Returns:
+            lora_path: str, the path to the lora adapter. None if no lora adapter found.
+
+        Note:
+            This function change the 'state_dict' in place.
+        """
+        lora_params_names = [name for name in state_dict.keys() if "lora_" in name]
+
+        if len(lora_params_names) == 0:
+            return None
+
+        import json
+        from typing import OrderedDict
+
+        import peft
+        from safetensors.torch import save_file
+
+        lora_params = OrderedDict()
+        target_modules = set()
+        lora_key = None
+
+        for name in lora_params_names:
+            lora_key = name.replace(".default.weight", ".weight")
+            target_modules.add(lora_key.split(".")[-3])
+            lora_params[lora_key] = state_dict.pop(name)
+
+        lora_rank = min(lora_params[lora_key].shape[0], lora_params[lora_key].shape[1])
+        peft_dict = {
+            "r": lora_rank,
+            "lora_alpha": 0,  # lora_alpha is not set. An error should be raised to inform the user to set it manually.
+            "target_modules": list(target_modules),
+        }
+        peft_config = peft.LoraConfig(**peft_dict).to_dict()
+        peft_config["task_type"] = peft_config["task_type"].value if peft_config["task_type"] else None
+        peft_config["peft_type"] = peft_config["peft_type"].value if peft_config["peft_type"] else None
+        peft_config["target_modules"] = list(peft_config["target_modules"])
+
+        lora_path = os.path.join(self.config.target_dir, "lora_adapter")
+        os.makedirs(lora_path, exist_ok=True)
+        with open(os.path.join(lora_path, "adapter_config.json"), "w", encoding="utf-8") as f:
+            json.dump(peft_config, f, ensure_ascii=False, indent=4)
+        save_file(lora_params, os.path.join(lora_path, "adapter_model.safetensors"))
+
+        for name in list(state_dict.keys()):
+            key = name.replace("base_model.model.", "").replace(".base_layer.weight", ".weight").replace(".base_layer.bias", ".bias")
+            state_dict[key] = state_dict.pop(name)
+
+        return lora_path
+
     def save_hf_model_and_tokenizer(self, state_dict: dict[str, torch.Tensor]):
         auto_model_class = self.get_transformers_auto_model_class()
         with init_empty_weights():
             model = auto_model_class.from_config(self.model_config, torch_dtype=torch.bfloat16)
         model.to_empty(device="cpu")
         model = self.patch_model_generation_config(model)
+
+        lora_path = self.save_lora_adapter(state_dict)
+        if lora_path:
+            print(f"Saving lora adapter to {lora_path}")
 
         print(f"Saving model to {self.config.target_dir}")
         model.save_pretrained(self.config.target_dir, state_dict=state_dict)
@@ -406,7 +463,7 @@ class MegatronModelMerger(BaseModelMerger):
             pp_size = max(pp_size, pp_rank + 1)
         return sharded_dirs, tp_size, pp_size
 
-    def _merge_across_tp(self, key: str, tp_data: list[torch.Tensor], config: PretrainedConfig, tp_size: int, is_value_model: bool = False) -> torch.Tensor | list[torch.Tensor]:
+    def _merge_across_tp(self, key: str, tp_data: list[torch.Tensor], config: PretrainedConfig, tp_size: int, is_value_model: bool = False) -> Union[torch.Tensor, list[torch.Tensor]]:
         if "linear_fc1.weight" in key:
             # if the tensor is gate and proj
             gate_lst = []
