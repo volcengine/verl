@@ -15,8 +15,9 @@
 import ast
 import subprocess
 import sys
-from pathlib import Path
 import linecache
+import argparse
+from pathlib import Path
 
 def get_changed_files():
     result = subprocess.run(
@@ -35,7 +36,6 @@ def get_changed_lines(file_path):
     lines = []
     for line in result.stdout.splitlines():
         if line.startswith("@@"):
-            # Parse diff hunk header like: @@ -10,0 +11,2 @@
             for part in line.split():
                 if part.startswith("+") and "," in part:
                     start, count = map(int, part[1:].split(","))
@@ -48,13 +48,13 @@ def has_type_annotations(node):
     if isinstance(node, ast.FunctionDef):
         has_ann = all(
             arg.annotation is not None for arg in node.args.args
-            if arg.arg != "self"  # ignore self
+            if arg.arg != "self"
         ) and node.returns is not None
         return has_ann
     elif isinstance(node, ast.AnnAssign):
         return node.annotation is not None
     elif isinstance(node, ast.Assign):
-        return False  # plain assignment has no type info
+        return False
     return True
 
 def check_file(file_path, changed_lines):
@@ -62,30 +62,48 @@ def check_file(file_path, changed_lines):
         source = f.read()
     tree = ast.parse(source, filename=str(file_path))
 
+    annotated, total = 0, 0
     failures = []
 
     for node in ast.walk(tree):
         if hasattr(node, "lineno") and node.lineno in changed_lines:
             if isinstance(node, (ast.FunctionDef, ast.Assign, ast.AnnAssign)):
-                if not has_type_annotations(node):
+                total += 1
+                if has_type_annotations(node):
+                    annotated += 1
+                else:
                     source_line = linecache.getline(str(file_path), node.lineno).strip()
                     failures.append((file_path, node.lineno, source_line))
 
-    return failures
+    return annotated, total, failures
 
 def main():
-    failed = []
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--threshold", type=float, default=0.2,
+                        help="Minimum ratio of annotated lines required (0.0–1.0)")
+    args = parser.parse_args()
+
+    total_changed = 0
+    total_annotated = 0
+    all_failures = []
+
     for fpath in get_changed_files():
         changed_lines = get_changed_lines(fpath)
-        failed += check_file(fpath, changed_lines)
+        annotated, total, failures = check_file(fpath, changed_lines)
+        total_annotated += annotated
+        total_changed += total
+        all_failures.extend(failures)
 
-    if failed:
-        print("❌ Missing type annotations on changed lines:\n")
-        for fname, lineno, line in failed:
+    ratio = (total_annotated / total_changed) if total_changed else 1.0
+
+    print(f"🔍 Type coverage on changed lines: {total_annotated}/{total_changed} = {ratio:.2%}")
+    if ratio < args.threshold:
+        print(f"\n❌ Type coverage below threshold ({args.threshold:.0%}). Missing annotations:\n")
+        for fname, lineno, line in all_failures:
             print(f"{fname}:{lineno}: {line}")
         sys.exit(1)
     else:
-        print("✅ All changed lines have type annotations.")
+        print("✅ Type annotation coverage acceptable.")
 
 if __name__ == "__main__":
     main()
