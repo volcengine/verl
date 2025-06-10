@@ -451,7 +451,6 @@ def efficient_entropy_forward(hidden: torch.Tensor, weight: torch.Tensor, labels
     num_tokens = labels.shape[0]
     vocab_size, hidden_size = weight.shape
     assert hidden_size % 128 == 0
-    assert vocab_size % 128 == 0
 
     REDUCTION = get_entropy_reduction_enum(reduction)
 
@@ -1216,7 +1215,6 @@ def efficient_entropy_backward(
     num_tokens = labels.shape[0]
     vocab_size, hidden_size = weight.shape
     assert hidden_size % 128 == 0
-    assert vocab_size % 128 == 0
 
     REDUCTION = get_entropy_reduction_enum(reduction)
 
@@ -1376,8 +1374,9 @@ def efficient_entropy_backward(
                 1.0 / temperature,
             )
 
-            vocab_right_bound = min((split_idx + 1) * vocab_per_split, vocab_size) - split_idx * vocab_per_split
-            _d_logits = _d_logits[:, :vocab_right_bound].contiguous()
+            if split_idx == (num_splits - 1):
+                vocab_right_bound = min((split_idx + 1) * vocab_per_split, vocab_size) - split_idx * vocab_per_split
+                _d_logits = _d_logits[:, :vocab_right_bound].contiguous()
 
             if split_idx == 0:
                 torch.matmul(_d_logits, weight[split_idx * vocab_per_split : (split_idx + 1) * vocab_per_split, :], out=d_hidden)
