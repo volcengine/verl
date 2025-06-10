@@ -99,7 +99,8 @@ def logprobs_from_logits_flash_attn(logits, labels, inplace_backward=True):
 
 def logprobs_from_logits_torch_npu(logits, labels):
     batch_dim = logits.shape[:-1]
-    loss, _, _, _ = torch_npu.npu_cross_entropy_loss(logits, labels, reduction="none")
+    logits = logits.reshape(-1, logits.shape[-1])
+    loss, _, _, _ = torch_npu.npu_cross_entropy_loss(logits, labels.reshape(-1), reduction="none")
     return -loss.view(*batch_dim)
 
 

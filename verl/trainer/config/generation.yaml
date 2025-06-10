@@ -1,3 +1,13 @@
+# the generation config will override default ppo_trainer.yaml
+
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
 trainer:
   nnodes: 1
   n_gpus_per_node: 8
