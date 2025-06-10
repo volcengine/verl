@@ -107,13 +107,17 @@ def main() -> None:
     ratio = (total_annotated / total_changed) if total_changed else 1.0
 
     print(f"🔍 Type coverage on changed lines: {total_annotated}/{total_changed} = {ratio:.2%}")
-    if ratio < args.threshold:
-        print(f"\n❌ Type coverage below threshold ({args.threshold:.0%}). Missing annotations:\n")
+
+    if all_failures:
+        print(f"\n⚠️ Lines missing type annotations:\n")
         for fname, lineno, line in all_failures:
             print(f"{fname}:{lineno}: {line}")
+
+    if ratio < args.threshold:
+        print(f"\n❌ Type coverage below threshold ({args.threshold:.0%}).")
         sys.exit(1)
     else:
-        print("✅ Type annotation coverage acceptable.")
+        print("\n✅ Type annotation coverage acceptable.")
 
 
 if __name__ == "__main__":
