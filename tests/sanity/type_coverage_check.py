@@ -55,7 +55,7 @@ def get_changed_python_lines() -> List[Tuple[str, str]]:
             continue
         elif line.startswith("+") and not line.startswith("+++") and current_file:
             changed_lines.append((current_file, line[1:].rstrip()))
-
+    print(f"Changed lines:\n{changed_lines}")
     return changed_lines
 
 def is_type_check_relevant(line: str) -> bool:
@@ -76,6 +76,7 @@ def compute_annotation_ratio(changed_lines: List[Tuple[str, str]]) -> Tuple[int,
     for _, line in changed_lines:
         if is_type_check_relevant(line):
             total += 1
+            print(line)
             if has_type_annotation(line):
                 annotated += 1
     return annotated, total
@@ -90,7 +91,7 @@ def main() -> None:
     annotated, total = compute_annotation_ratio(changed_lines)
 
     threshold = 0.5  # At least 50% of relevant lines must be annotated
-    print(f"🔍 Relevant lines: {total}, Annotated: {annotated}")
+    print(f"🔍 Relevant lines: {total}, Annotated: {annotated}", flush=True)
 
     if total == 0:
         print("ℹ️ No new functions/classes/variables requiring annotation.")
