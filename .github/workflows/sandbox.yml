@@ -47,5 +47,5 @@ jobs:
           pip3 install vllm==0.5.4
       - name: Running sandbox tests on 8 L20 GPUs
         run: |
-          cd tests/sandbox
+          cd tests/utils/reward_score
           pytest -s -x .

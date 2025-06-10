@@ -150,7 +150,7 @@ def find_latest_ckpt_path(path, directory_format="global_step_{}"):
 
     tracker_file = get_checkpoint_tracker_filename(path)
     if not os.path.exists(tracker_file):
-        print("Checkpoint tracker file does not exist: %s", tracker_file)
+        print(f"Checkpoint tracker file does not exist: {tracker_file}")
         return None
 
     with open(tracker_file, "rb") as f:
