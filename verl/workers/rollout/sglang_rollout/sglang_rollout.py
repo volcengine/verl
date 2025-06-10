@@ -895,7 +895,7 @@ class SGLangRollout(BaseRollout):
         return _req
 
     async def _handle_engine_call(self, _req: AsyncRolloutRequest, sampling_params: dict) -> dict:
-        generation_prompt_ids = _req.get_generation_prompt(self.tokenizer)
+        generation_prompt_ids = _req.get_generation_prompt_ids(self.tokenizer)
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
         kwargs = sampling_params.copy()
         kwargs["max_new_tokens"] = max_new_tokens
