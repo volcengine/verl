@@ -17,14 +17,18 @@ import sys
 import re
 from typing import List, Tuple, Optional
 
+# Regex for relevant constructs
+FUNC_DEF_REGEX = re.compile(r"^\s*def\s+\w+\(.*\):")
+CLASS_DEF_REGEX = re.compile(r"^\s*class\s+\w+\(?.*\)?:")
+VAR_ASSIGN_REGEX = re.compile(r"^\s*\w+\s*:\s*[\w\[\], ]+\s*=?")
+
+# Regex to detect type annotations (simplified)
 TYPE_HINT_REGEX = re.compile(r"(->|:\s*[\w\[\], ]+)")
 
 def get_changed_python_lines() -> List[Tuple[str, str]]:
     """
-    Get the list of added or modified lines in Python files from the PR diff.
-    Compares current HEAD against the merge base with 'origin/main'.
+    Returns the list of added lines in changed Python files of a PR.
     """
-    # Determine base branch (main) for the current PR
     base_result = subprocess.run(
         ["git", "merge-base", "HEAD", "origin/main"],
         capture_output=True,
@@ -33,7 +37,6 @@ def get_changed_python_lines() -> List[Tuple[str, str]]:
     )
     base_commit = base_result.stdout.strip()
 
-    # Get the diff from base commit to HEAD
     diff_result = subprocess.run(
         ["git", "diff", "--unified=0", base_commit, "HEAD"],
         capture_output=True,
@@ -51,30 +54,46 @@ def get_changed_python_lines() -> List[Tuple[str, str]]:
         elif line.startswith("@@") and current_file:
             continue
         elif line.startswith("+") and not line.startswith("+++") and current_file:
-            changed_lines.append((current_file, line[1:].strip()))
+            changed_lines.append((current_file, line[1:].rstrip()))
 
     return changed_lines
+
+def is_type_check_relevant(line: str) -> bool:
+    """Check if line introduces a function, class, or variable that should be type-annotated."""
+    return (
+        FUNC_DEF_REGEX.match(line)
+        or CLASS_DEF_REGEX.match(line)
+        or VAR_ASSIGN_REGEX.match(line)
+    )
+
+def has_type_annotation(line: str) -> bool:
+    """Returns True if the line contains a type annotation."""
+    return bool(TYPE_HINT_REGEX.search(line))
 
 def compute_annotation_ratio(changed_lines: List[Tuple[str, str]]) -> Tuple[int, int]:
     total = 0
     annotated = 0
     for _, line in changed_lines:
-        if line and not line.startswith("#"):
+        if is_type_check_relevant(line):
             total += 1
-            if TYPE_HINT_REGEX.search(line):
+            if has_type_annotation(line):
                 annotated += 1
     return annotated, total
 
 def main() -> None:
-    changed_lines = get_changed_python_lines()
-    print(f"Changed lines:\n{changed_lines}", flush=True)
+    try:
+        changed_lines = get_changed_python_lines()
+    except subprocess.CalledProcessError:
+        print("❌ Cannot compute diff with origin/main. Make sure CI fetches full history (use `fetch-depth: 0`).")
+        sys.exit(1)
+
     annotated, total = compute_annotation_ratio(changed_lines)
 
-    threshold = 0.3  # 30%
-    print(f"📊 Type-annotated lines: {annotated} / {total}")
+    threshold = 0.5  # At least 50% of relevant lines must be annotated
+    print(f"🔍 Relevant lines: {total}, Annotated: {annotated}")
 
     if total == 0:
-        print("ℹ️ No Python lines changed in this PR.")
+        print("ℹ️ No new functions/classes/variables requiring annotation.")
         sys.exit(0)
 
     ratio = annotated / total
