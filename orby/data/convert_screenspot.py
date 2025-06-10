@@ -73,12 +73,14 @@ if __name__ == "__main__":
     # https://github.com/QwenLM/Qwen2.5-VL/blob/main/cookbooks/computer_use.ipynb
     parser.add_argument(
         "--prompt_format",
-        choices=["thinking", "qwen"],
+        choices=["thinking", "qwen", "sft"],
         default="thinking",
-        help="Select prompt format: 'thinking' or 'qwen'",
+        help="Select prompt format: ['thinking', 'qwen', 'sft']",
     )
-
+    
     args = parser.parse_args()
+
+    print(f"Prompt format: {args.prompt_format}", flush=True)
 
     data_source = "rootsautomation/ScreenSpot"
     print(f"Loading the {data_source} dataset from huggingface...", flush=True)
@@ -139,6 +141,15 @@ if __name__ == "__main__":
                             "Map the user instruction to the coordinates in the UI image. "
                             "Think step by step before you answer. The reasoning process MUST BE enclosed within <think> </think> tags. "
                             "The coordinate x and y MUST BE put in <answer> </answer> tags, separeted by space. "
+                            "<image> Instruction: " + instruction
+                        ),
+                    },
+                ]
+            elif args.prompt_format == "sft":
+                data["prompt"] = [
+                    {
+                        "role": "user",
+                        "content": (
                             "<image> Instruction: " + instruction
                         ),
                     },

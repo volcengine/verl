@@ -56,6 +56,7 @@ if __name__ == "__main__":
     parser.add_argument("--hdfs_dir", default=None)
     parser.add_argument("--data_files", default="shard_0000.parquet")
     parser.add_argument("--output_filename", default="train")
+    parser.add_argument("--prompt_format", choices=["thinking", "sft"], required=True, default="thinking")
 
     args = parser.parse_args()
 
@@ -99,19 +100,11 @@ if __name__ == "__main__":
                 "bbox": bbox,
             }
 
+            center_x = (bbox[0] + bbox[2]) / 2
+            center_y = (bbox[1] + bbox[3]) / 2
+
             data = {
                 "data_source": "uground",
-                "prompt": [
-                    {
-                        "role": "user",
-                        "content": (
-                            "Map the user instruction to the coordinates in the UI image. "
-                            "Think step by step before you answer. The reasoning process MUST BE enclosed within <think> </think> tags. "
-                            "The coordinate x and y MUST BE put in <answer> </answer> tags, separeted by space. "
-                            "<image> Instruction: " + instruction
-                        ),
-                    },
-                ],
                 "images": [image],
                 "ability": "vision",
                 "reward_model": {
@@ -125,17 +118,64 @@ if __name__ == "__main__":
                     "bounding_box": bbox,
                 },
             }
+            if args.prompt_format == "thinking":
+                data["prompt"] = [
+                    {
+                        "role": "user",
+                        "content": (
+                            "Map the user instruction to the coordinates in the UI image. "
+                            "Think step by step before you answer. The reasoning process MUST BE enclosed within <think> </think> tags. "
+                            "The coordinate x and y MUST BE put in <answer> </answer> tags, separeted by space. "
+                            "<image> Instruction: " + instruction
+                        ),
+                    },
+                ]
+            elif args.prompt_format == "sft":
+                data["prompt"] = [
+                    {
+                        "role": "user",
+                        "content": (
+                            "<image> Instruction: " + instruction
+                        ),
+                    },
+                ]
+
+                data["response"] = [
+                    {
+                        "role": "assistant",
+                        "content": f"<answer>{center_x:.0f} {center_y:.0f}</answer>"
+                    }
+                ]
             return data
 
         return process_fn
+    
+    if args.prompt_format == "sft":
+        dataset = dataset.train_test_split(train_size=0.8, seed=42)
+        train_dataset = dataset['train']
+        test_dataset = dataset['test']
 
-    dataset = dataset.map(function=make_map_fn("train"), with_indices=True, num_proc=16)
-    dataset = dataset.cast_column("images", Sequence(ImageData()))
+        train_dataset = train_dataset.map(function=make_map_fn("train"), with_indices=True, num_proc=16)
+        train_dataset = train_dataset.cast_column("images", Sequence(ImageData()))
 
-    local_dir = os.path.expanduser(args.local_dir)
-    os.makedirs(local_dir, exist_ok=True)
+        test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True, num_proc=16)
+        test_dataset = test_dataset.cast_column("images", Sequence(ImageData()))
+        
+        local_dir = os.path.expanduser(args.local_dir)
+        local_dir += "_sft"
+        print(f"Saving to {local_dir}...", flush=True)
+        os.makedirs(local_dir, exist_ok=True)
 
-    dataset.to_parquet(os.path.join(local_dir, f"{args.output_filename}.parquet"))
+        train_dataset.to_parquet(os.path.join(local_dir, "train.parquet"))
+        test_dataset.to_parquet(os.path.join(local_dir, "test.parquet"))
+    else:
+        dataset = dataset.map(function=make_map_fn("train"), with_indices=True, num_proc=16)
+        dataset = dataset.cast_column("images", Sequence(ImageData()))
+
+        local_dir = os.path.expanduser(args.local_dir)
+        os.makedirs(local_dir, exist_ok=True)
+
+        dataset.to_parquet(os.path.join(local_dir, f"{args.output_filename}.parquet"))
 
     if args.hdfs_dir is not None:
         makedirs(args.hdfs_dir)
