@@ -79,7 +79,7 @@ def process_json_file(json_path, image_dir, split, prompt_format="thinking"):
         json_path: Path to the JSON file
         image_dir: Directory containing the images
         split: Dataset split name (e.g., "train", "test")
-        prompt_format: Format of the prompt ("thinking" or "qwen")
+        prompt_format: Format of the prompt ("thinking", "qwen", "sft")
 
     Returns:
         List of processed examples
@@ -150,6 +150,15 @@ def process_json_file(json_path, image_dir, split, prompt_format="thinking"):
                     ),
                 },
             ]
+        elif prompt_format == "sft":
+            data["prompt"] = [
+                {
+                    "role": "user",
+                    "content": (
+                        "<image> Instruction: " + example["instruction"]
+                    ),
+                },
+            ]
         else:  # qwen format
             prompt = NousFnCallPrompt().preprocess_fncall_messages(
                 messages=[
@@ -196,9 +205,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--prompt_format",
-        choices=["thinking", "qwen"],
+        choices=["thinking", "qwen", "sft"],
         default="thinking",
-        help="Select prompt format: 'thinking' or 'qwen'",
+        help="Select prompt format: ['thinking', 'qwen', 'sft']",
     )
 
     args = parser.parse_args()
