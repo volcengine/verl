@@ -19,6 +19,7 @@
 
 import torch
 import torch.nn.functional as F
+from megatron.core import parallel_state as mpu
 from megatron.core.transformer import MLATransformerConfig, TransformerConfig
 from transformers import PretrainedConfig
 
@@ -36,7 +37,6 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
     Returns:
         TransformerConfig with common parameters
     """
-    from megatron.core import parallel_state as mpu
 
     # Common parallel state parameters
     overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size() is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
@@ -54,6 +54,7 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
         "hidden_dropout": getattr(hf_config, "hidden_dropout", 0.0),
         "kv_channels": getattr(hf_config, "head_dim", None),
         "layernorm_epsilon": hf_config.rms_norm_eps,
+        "add_bias_linear": True,
         # Activation and normalization
         "activation_func": F.silu,
         "normalization": "RMSNorm",
@@ -109,7 +110,7 @@ def _get_mla_transformer_config(hf_config: PretrainedConfig, mla_rope_config: di
         "v_head_dim": hf_config.v_head_dim,
         "rotary_base": hf_config.rope_theta,
         "rotary_scaling_factor": mla_rope_config["factor"],
-        "rotary_type": mla_rope_config["type"],
+        "rope_type": mla_rope_config["type"],
         "max_position_embeddings": mla_rope_config["original_max_position_embeddings"],
         "beta_fast": mla_rope_config["beta_fast"],
         "beta_slow": mla_rope_config["beta_slow"],
@@ -297,7 +298,17 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, *
 
 def hf_to_mcore_config_qwen2_5_vl(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
     # Qwen2_5_VLForConditionalGeneration
-    raise NotImplementedError("Qwen2_5_VLForConditionalGeneration is not supported yet")
+
+    args = _get_base_transformer_config(
+        hf_config=hf_config,
+        dtype=dtype,
+        add_bias_linear=False,
+        # qwen specific
+        add_qkv_bias=True,
+        mrope_section=hf_config.rope_scaling["mrope_section"],
+        **override_transformer_config_kwargs,
+    )
+    return TransformerConfig(**args)
 
 
 def hf_to_mcore_config_llama4(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:

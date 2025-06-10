@@ -13,7 +13,8 @@ data:
   multiturn:
     enable: false  # Set to true to use multi-turn dataset
     messages_key: messages  # Key for messages list in multi-turn mode
-    tools_key: tools # Key for tool list in multi-turn mode
+    tools_key: tools  # Key for tools list in multi-turn mode
+    enable_thinking_key: enable_thinking  # Whether to enable thinking in multi-turn mode
   max_length: 1024
   truncation: error
   balance_dp_token: False
@@ -32,7 +33,7 @@ model:
     cpu_offload: False
     offload_params: False
   external_lib: null
-  enable_gradient_checkpointing: False
+  enable_gradient_checkpointing: True
   trust_remote_code: False
   lora_rank: 0  # Set to positive value to enable LoRA (e.g., 32)
   lora_alpha: 16  # LoRA scaling factor
