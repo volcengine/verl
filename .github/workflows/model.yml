@@ -16,7 +16,7 @@ on:
       # Entrypoints
       - ".github/workflows/model.yml"
       - "tests/utils/gpu_tests/checkpoint/test_fsdp_ckpt.py"
-      - "tests/models/test_transformers_ulysses.py"
+      - "tests/models/**"
       - "tests/distributed/run_all.sh"
 
 # Declare permissions just read content.

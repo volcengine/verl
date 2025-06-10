@@ -43,7 +43,7 @@ permissions:
 
 jobs:
   checkpoint_converter:
-    runs-on: [L20x8]
+    runs-on: [self-hosted, gpu]
     timeout-minutes: 20 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}

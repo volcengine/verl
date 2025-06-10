@@ -65,8 +65,8 @@ jobs:
           pytest -s -x tests/utils/gpu_tests/dataset/test_rl_dataset.py
           pytest -s -x tests/utils/gpu_tests/dataset/test_sft_dataset.py
       - name: Running ray tests that can be tested on CPU machines
-          cd tests/ray_cpu
-          pytest -s -x --ignore=test_check_worker_alive.py .
+          cd tests/single_controller
+          pytest -s -x --ignore=test_check_worker_alive_on_cpu.py -k with_cpu .
       - name: Running sandbox tests
         run: |
           cd tests/utils/reward_score

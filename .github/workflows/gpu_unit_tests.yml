@@ -38,7 +38,7 @@ permissions:
 
 jobs:
   e2e_gsm8k_megatron:
-    runs-on: [L20x8]
+    runs-on: [self-hosted, gpu]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
