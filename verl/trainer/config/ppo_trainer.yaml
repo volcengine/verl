@@ -158,8 +158,8 @@ actor_rollout_ref:
     # Whether to profile all ranks.
     profile_ranks_all: False
 
-    # The ranks that will be profiled.
-    profile_ranks: null # [0,1]
+    # The ranks that will be profiled. null or [0,1,...]
+    profile_ranks: null
 
     # [Deprecated] Global micro batch size
     ppo_micro_batch_size: null
@@ -291,13 +291,18 @@ actor_rollout_ref:
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
   ref:
 
+    # True for each task has its own database, False for all tasks in one training step share one database.
+    profile_discrete: False
+
+    # Whether to profile all ranks.
+    profile_ranks_all: False
+
+    # The ranks that will be profiled. null or [0,1,...]
+    profile_ranks: null
+
     # actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it’s recommended to turn on offload for ref by default
     strategy: fsdp
 
-    # config for FSDP strategy
-    profile_discrete: False
-    profile_ranks: null # [0,1]
-    profile_ranks_all: False
     fsdp_config:
 
       # whether to offload parameters in FSDP
@@ -357,8 +362,8 @@ actor_rollout_ref:
     # Whether to profile all ranks.
     profile_ranks_all: False
 
-    # The ranks that will be profiled.
-    profile_ranks: null # [0,1]
+    # The ranks that will be profiled. null or [0,1,...]
+    profile_ranks: null
 
     # Sampling temperature for rollout.
     temperature: 1.0
@@ -514,8 +519,8 @@ critic:
   # Whether to profile all ranks.
   profile_ranks_all: False
 
-  # The ranks that will be profiled.
-  profile_ranks: null # [0,1]
+  # The ranks that will be profiled. null or [0,1,...]
+  profile_ranks: null
 
   # optimizer configs
   optim:
@@ -675,8 +680,8 @@ reward_model:
   # Whether to profile all ranks.
   profile_ranks_all: False
 
-  # The ranks that will be profiled.
-  profile_ranks: null # [0,1]
+  # The ranks that will be profiled. null or [0,1,...]
+  profile_ranks: null
 
   # model config for reward scoring
   model:
@@ -832,8 +837,8 @@ trainer:
   # Total training steps (can be set explicitly or derived from epochs)
   total_training_steps: null
 
-  # The steps that will be profiled. null means no profiling.
-  profile_steps: null #[1, 2, 5]
+  # The steps that will be profiled. null means no profiling. null or [1,2,5,...]
+  profile_steps: null
 
   # Project name for experiment tracking (e.g., wandb)
   project_name: verl_examples
