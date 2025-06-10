@@ -65,6 +65,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         layer_name_mapping,
         weight_converter: McoreToHFWeightConverterBase,
     ):
+        super().__init__()
+
         self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.model_config = model_config
