@@ -11,8 +11,8 @@ gsm8k_test_path=$HOME/data/gsm8k/test.parquet
 math_train_path=$HOME/data/math/train.parquet
 math_test_path=$HOME/data/math/test.parquet
 
-train_files="['$gsm8k_train_path']"
-test_files="['$gsm8k_test_path']"
+train_files=${train_files:-"$gsm8k_train_path"}
+test_files=${test_files:-"$gsm8k_test_path"}
 
 # Nsight profiling configuration
 PROFILE_STEPS="[1,2,5]" # or [] or null
