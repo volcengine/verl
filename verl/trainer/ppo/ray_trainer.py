@@ -1008,11 +1008,10 @@ class RayPPOTrainer:
                                 init_process_group(workers)
                                 self._actor_rollout_wg_initialized = True
 
-                            # Prepare state dict for all workers
-                            ray.get([worker.prepare_state_dict.remote() for worker in workers])
-
-                            # Get local shards from all workers except rank 0
-                            shards_refs = [worker.get_local_shards.remote() for worker in workers[1:]]
+                            # Prepare state dict for all workers, and get local shards from all workers
+                            # and pass them to rank 0
+                            workers[0].prepare_state_dict.remote()
+                            shards_refs = [worker.prepare_state_dict.options(tensor_transport="NCCL").remote() for worker in workers[1:]]
                             param_metadata_list_ref = workers[0].gather_params.remote(*shards_refs)
                             ray.get([worker.broadcast_params_and_sync_weights.remote(param_metadata_list_ref) for worker in workers])
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)

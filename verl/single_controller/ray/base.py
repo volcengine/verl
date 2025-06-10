@@ -724,33 +724,23 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
             import torch
             rank = torch.distributed.get_rank()
 
+            print(f"prepare_state_dict, rank {rank}")
+
             # Same as `__enter__` in `FSDPVLLMShardingManager`
             from verl.utils.device import get_torch_device
             get_torch_device().empty_cache()
 
-            print(f"prepare_state_dict, rank {rank}")
             rollout_sharding_manager = self.worker_dict["actor_rollout"].rollout_sharding_manager
-            self.tmp_params = rollout_sharding_manager.module.state_dict()
-            print(f"prepare_state_dict, rank {rank}, done, tmp_params: {len(self.tmp_params)}")
+            params = rollout_sharding_manager.module.state_dict()
 
-        @ray.method(tensor_transport="NCCL")
-        def get_local_shards(self):
-            try:
-                # for torch 2.5+
-                from torch.distributed.tensor import DTensor
-            except ImportError:
-                from torch.distributed._tensor import DTensor
-            import torch
-            rank = torch.distributed.get_rank()
-            assert rank != 0, "get_local_shards should not be called by rank 0"
-
-            print(f"get_local_shards, rank {rank}")
-            local_params = {}
-            for name, param in self.tmp_params.items():
-                if isinstance(param, DTensor):
-                    local_params[name] = param.to_local()
-            print(f"get_local_shards, rank {rank}, done")
-            return local_params
+            if rank != 0:
+                local_params = {}
+                for name, param in params.items():
+                    if isinstance(param, DTensor):
+                        local_params[name] = param.to_local()
+                return local_params
+            else:
+                self.tmp_params = params
         
         def gather_params(self, *args, **kwargs):
             try:
@@ -760,7 +750,7 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
                 from torch.distributed._tensor import DTensor
             import torch
             assert torch.distributed.get_rank() == 0, "gather_params should only be called by rank 0"
-
+            print(f"gather_params, rank {torch.distributed.get_rank()}")
             # If `arg` is (int, Dict[str, torch.Tensor]), `arg` will be object ref here.
             gathered = {}
             local_rank = torch.distributed.get_rank()
@@ -800,7 +790,8 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
             rank = torch.distributed.get_rank()
             print(f"broadcast_params_and_sync_weights, rank {rank}")
 
-            del self.tmp_params
+            if rank == 0:
+                del self.tmp_params
 
             from verl.utils.device import get_torch_device
             device = get_torch_device().current_device()

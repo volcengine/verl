@@ -299,7 +299,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         # `device` represents the logical device ID. For example:
         # - When CUDA_VISIBLE_DEVICES=0, device 0 maps to physical device 0
         # - When CUDA_VISIBLE_DEVICES=1, device 0 maps to physical device 1
-        # device = get_torch_device().current_device()  # used when fsdp2 set cpu_offload_policy
+        device = get_torch_device().current_device()  # used when fsdp2 set cpu_offload_policy
         # In our example, `dp_rank` is 0 - 3, and `tp_rank` is 0.
         # dp_rank = self.device_mesh["dp"].get_local_rank()
         # if dp_rank == 0:
