@@ -4,7 +4,7 @@ Nsight Profiling in verl
 This guide explains how to use NVIDIA Nsight Systems for profiling verl training runs.
 
 Configuration
-------------
+--------------
 
 Profiling in verl can be configured through several parameters in the trainer configuration file (ppo_trainer.yaml or other files like dapo_trainer.yaml):
 

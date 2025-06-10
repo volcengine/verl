@@ -30,12 +30,12 @@ from omegaconf import DictConfig
 
 from verl import DataProto
 from verl.single_controller.base.decorator import Dispatch, register
-from verl.single_controller.base.worker import Worker
 from verl.single_controller.base.megatron.worker import MegatronWorker
+from verl.single_controller.base.worker import Worker
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
-from verl.utils.debug.performance import simple_timer, reduce_timing
+from verl.utils.debug.performance import reduce_timing, simple_timer
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local

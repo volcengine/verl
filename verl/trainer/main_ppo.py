@@ -16,9 +16,10 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 """
 
 import os
+import socket
+
 import hydra
 import ray
-import socket
 from omegaconf import OmegaConf
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
@@ -46,11 +47,9 @@ def run_ppo(config) -> None:
     # Create a remote instance of the TaskRunner class, and
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
     if OmegaConf.select(config.trainer, "profile_steps") is not None and len(OmegaConf.select(config.trainer, "profile_steps")) > 0:
-        runner = TaskRunner.options(runtime_env={"nsight": {
-            "t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,opengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx",
-            "cuda-memory-usage": "true",
-            "cuda-graph-trace": "graph",
-            "kill": "none"}}).remote()
+        runner = TaskRunner.options(
+            runtime_env={"nsight": {"t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,opengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx", "cuda-memory-usage": "true", "cuda-graph-trace": "graph", "kill": "none"}}
+        ).remote()
     else:
         runner = TaskRunner.remote()
     ray.get(runner.run.remote(config))
