@@ -40,7 +40,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install the current repository
         run: |
-          pip install -e .[test]
+          pip install -e .[test,prime]
+          pip install --upgrade "ray>=2.40.0"
       - name: Running data proto test
         run: |
           cd tests
@@ -56,4 +57,17 @@ jobs:
       - name: Running worker tests
         run: |
           cd tests/workers/reward_manager
+          pytest -s -x .
+      - name: Running dataset tests
+        run: |
+          [ ! -d "$HOME/verl-data" ] && git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/verl-data
+          python3 examples/data_preprocess/geo3k.py
+          pytest -s -x tests/utils/gpu_tests/dataset/test_rl_dataset.py
+          pytest -s -x tests/utils/gpu_tests/dataset/test_sft_dataset.py
+      - name: Running ray tests that can be tested on CPU machines
+          cd tests/ray_cpu
+          pytest -s -x --ignore=test_check_worker_alive.py .
+      - name: Running sandbox tests
+        run: |
+          cd tests/utils/reward_score
           pytest -s -x .
