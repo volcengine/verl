@@ -1,0 +1,12 @@
+tools:
+  - class_name: verl.tools.mcp_search_tool.MCPSearchTool
+    config:
+      num_workers: 2
+      rate_limit: 120
+      timeout: 60
+      use_mcp: true
+    mcp:
+      mcp_servers_config_path: ./resource/tool_configs/mcp_server.json
+      # optional
+      tool_selected_list: 
+        - tavily_search_tool
