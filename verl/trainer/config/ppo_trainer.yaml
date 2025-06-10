@@ -146,20 +146,20 @@ actor_rollout_ref:
   # actor configs
   actor:
 
-    # True for each task has its own database, False for all tasks in one training step share one database.
-    profile_discrete: False
-
-    # Whether to profile all ranks. When True, overrides profile_ranks.
-    profile_ranks_all: False
-
-    # The ranks that will be profiled.
-    profile_ranks: null # [0,1]
-
     # fsdp, fsdp2 or megatron. fsdp backend used here.
     strategy: fsdp
 
     # Split each sample into sub-batches of this size for PPO
     ppo_mini_batch_size: 256
+
+    # True for each task has its own database, False for all tasks in one training step share one database.
+    profile_discrete: False
+
+    # Whether to profile all ranks.
+    profile_ranks_all: False
+
+    # The ranks that will be profiled.
+    profile_ranks: null # [0,1]
 
     # [Deprecated] Global micro batch size
     ppo_micro_batch_size: null
@@ -291,19 +291,13 @@ actor_rollout_ref:
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
   ref:
 
-    # True for each task has its own database, False for all tasks in one training step share one database.
-    profile_discrete: False
-
-    # Whether to profile all ranks.
-    profile_ranks_all: False
-
-    # The ranks that will be profiled.
-    profile_ranks: null # [0,1]
-
     # actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it’s recommended to turn on offload for ref by default
     strategy: fsdp
 
     # config for FSDP strategy
+    profile_discrete: False
+    profile_ranks: null # [0,1]
+    profile_ranks_all: False
     fsdp_config:
 
       # whether to offload parameters in FSDP
@@ -351,6 +345,12 @@ actor_rollout_ref:
   # Rollout model config.
   rollout:
 
+    # actor_rollout_ref.rollout.name: hf/vllm/sglang.
+    name: vllm
+
+    # sync: LLM, async: AsyncLLM
+    mode: sync
+
     # Profile discrete, True for each task has its own database, False for all tasks in one training step share one database.
     profile_discrete: False
 
@@ -359,12 +359,6 @@ actor_rollout_ref:
 
     # The ranks that will be profiled.
     profile_ranks: null # [0,1]
-
-    # actor_rollout_ref.rollout.name: hf/vllm/sglang.
-    name: vllm
-
-    # sync: LLM, async: AsyncLLM
-    mode: sync
 
     # Sampling temperature for rollout.
     temperature: 1.0
@@ -508,6 +502,12 @@ actor_rollout_ref:
 # configs for the critic
 critic:
 
+  # Number of rollouts per update (mirrors actor rollout_n)
+  rollout_n: ${actor_rollout_ref.rollout.n}
+
+  # fsdp or fsdp2 strategy used for critic model training
+  strategy: fsdp
+
   # Profile discrete, True for each task has its own database, False for all tasks in one training step share one database.
   profile_discrete: False
 
@@ -516,12 +516,6 @@ critic:
 
   # The ranks that will be profiled.
   profile_ranks: null # [0,1]
-
-  # Number of rollouts per update (mirrors actor rollout_n)
-  rollout_n: ${actor_rollout_ref.rollout.n}
-
-  # fsdp or fsdp2 strategy used for critic model training
-  strategy: fsdp
 
   # optimizer configs
   optim:
@@ -672,6 +666,9 @@ reward_model:
   # If False, the following parameters are not effective
   enable: False
 
+  # FSDP strategy: "fsdp" or "fsdp2"
+  strategy: fsdp
+
   # Profile discrete, True for each task has its own database, False for all tasks in one training step share one database.
   profile_discrete: False
 
@@ -680,9 +677,6 @@ reward_model:
 
   # The ranks that will be profiled.
   profile_ranks: null # [0,1]
-
-  # FSDP strategy: "fsdp" or "fsdp2"
-  strategy: fsdp
 
   # model config for reward scoring
   model:
