@@ -17,23 +17,27 @@ import sys
 import re
 from typing import List, Tuple, Optional
 
-# Regex for relevant constructs
-FUNC_DEF_REGEX = re.compile(r"^\s*def\s+\w+\(.*\):")
-CLASS_DEF_REGEX = re.compile(r"^\s*class\s+\w+\(?.*\)?:")
-VAR_ASSIGN_REGEX = re.compile(r"^\s*\w+\s*:\s*[\w\[\], ]+\s*=?")
+# Detect function or variable declaration lines
+CANDIDATE_LINE_REGEX = re.compile(
+    r"""
+    ^\s*(
+        def\s+\w+\s*\(.*\)                    # def foo(...)
+        |class\s+\w+\s*(\(|:)                 # class Foo:
+        |[\w\[\], ]+\s*=\s*[^=]               # x = ..., avoids matching '=='
+    )
+    """,
+    re.VERBOSE,
+)
 
-# Regex to detect type annotations (simplified)
-TYPE_HINT_REGEX = re.compile(r"(->|:\s*[\w\[\], ]+)")
+# Detect inline type annotations (func args, return types, var annotations)
+TYPE_HINT_REGEX = re.compile(r"(->|:\s*[\w\[\]., ]+)")
 
 def get_changed_python_lines() -> List[Tuple[str, str]]:
-    """
-    Returns the list of added lines in changed Python files of a PR.
-    """
     base_result = subprocess.run(
         ["git", "merge-base", "HEAD", "origin/main"],
         capture_output=True,
         text=True,
-        check=True
+        check=True,
     )
     base_commit = base_result.stdout.strip()
 
@@ -41,7 +45,7 @@ def get_changed_python_lines() -> List[Tuple[str, str]]:
         ["git", "diff", "--unified=0", base_commit, "HEAD"],
         capture_output=True,
         text=True,
-        check=True
+        check=True,
     )
 
     diff_lines = diff_result.stdout.splitlines()
@@ -55,19 +59,15 @@ def get_changed_python_lines() -> List[Tuple[str, str]]:
             continue
         elif line.startswith("+") and not line.startswith("+++") and current_file:
             changed_lines.append((current_file, line[1:].rstrip()))
-    print(f"Changed lines:\n{changed_lines}")
+
     return changed_lines
 
 def is_type_check_relevant(line: str) -> bool:
-    """Check if line introduces a function, class, or variable that should be type-annotated."""
-    return (
-        FUNC_DEF_REGEX.match(line)
-        or CLASS_DEF_REGEX.match(line)
-        or VAR_ASSIGN_REGEX.match(line)
-    )
+    """True if line is a function, class, or variable assignment."""
+    return bool(CANDIDATE_LINE_REGEX.match(line))
 
 def has_type_annotation(line: str) -> bool:
-    """Returns True if the line contains a type annotation."""
+    """True if line has any type hint."""
     return bool(TYPE_HINT_REGEX.search(line))
 
 def compute_annotation_ratio(changed_lines: List[Tuple[str, str]]) -> Tuple[int, int]:
@@ -76,7 +76,6 @@ def compute_annotation_ratio(changed_lines: List[Tuple[str, str]]) -> Tuple[int,
     for _, line in changed_lines:
         if is_type_check_relevant(line):
             total += 1
-            print(line)
             if has_type_annotation(line):
                 annotated += 1
     return annotated, total
@@ -85,16 +84,16 @@ def main() -> None:
     try:
         changed_lines = get_changed_python_lines()
     except subprocess.CalledProcessError:
-        print("❌ Cannot compute diff with origin/main. Make sure CI fetches full history (use `fetch-depth: 0`).")
+        print("❌ Cannot compute diff with origin/main. Ensure CI sets `fetch-depth: 0`.")
         sys.exit(1)
 
     annotated, total = compute_annotation_ratio(changed_lines)
 
-    threshold = 0.5  # At least 50% of relevant lines must be annotated
-    print(f"🔍 Relevant lines: {total}, Annotated: {annotated}", flush=True)
+    threshold = 0.5
+    print(f"🔍 Relevant lines: {total}, Annotated: {annotated}")
 
     if total == 0:
-        print("ℹ️ No new functions/classes/variables requiring annotation.")
+        print("ℹ️ No relevant lines to check.")
         sys.exit(0)
 
     ratio = annotated / total
@@ -102,7 +101,7 @@ def main() -> None:
         print("✅ Type annotation threshold met.")
         sys.exit(0)
     else:
-        print(f"❌ Type annotation threshold not met. Required: {threshold:.0%}, Found: {ratio:.0%}")
+        print(f"❌ Threshold not met. Required: {threshold:.0%}, Found: {ratio:.0%}")
         sys.exit(1)
 
 if __name__ == "__main__":
