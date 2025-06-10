@@ -18,8 +18,10 @@ import sys
 import linecache
 import argparse
 from pathlib import Path
+from typing import List, Set, Tuple
 
-def get_changed_files():
+
+def get_changed_files() -> List[Path]:
     result = subprocess.run(
         ["git", "diff", "--name-only", "--diff-filter=AM", "origin/main...HEAD"],
         stdout=subprocess.PIPE,
@@ -27,24 +29,26 @@ def get_changed_files():
     )
     return [Path(f) for f in result.stdout.splitlines() if f.endswith(".py")]
 
-def get_changed_lines(file_path):
+
+def get_changed_lines(file_path: Path) -> Set[int]:
     result = subprocess.run(
         ["git", "diff", "-U0", "origin/main...HEAD", "--", str(file_path)],
         stdout=subprocess.PIPE,
         text=True,
     )
-    lines = []
+    lines: Set[int] = set()
     for line in result.stdout.splitlines():
         if line.startswith("@@"):
             for part in line.split():
                 if part.startswith("+") and "," in part:
                     start, count = map(int, part[1:].split(","))
-                    lines.extend(range(start, start + count))
+                    lines.update(range(start, start + count))
                 elif part.startswith("+") and "," not in part:
-                    lines.append(int(part[1:]))
-    return set(lines)
+                    lines.add(int(part[1:]))
+    return lines
 
-def has_type_annotations(node):
+
+def has_type_annotations(node: ast.AST) -> bool:
     if isinstance(node, ast.FunctionDef):
         has_ann = all(
             arg.annotation is not None for arg in node.args.args
@@ -57,13 +61,18 @@ def has_type_annotations(node):
         return False
     return True
 
-def check_file(file_path, changed_lines):
+
+def check_file(
+    file_path: Path,
+    changed_lines: Set[int]
+) -> Tuple[int, int, List[Tuple[Path, int, str]]]:
     with open(file_path) as f:
-        source = f.read()
+        source: str = f.read()
     tree = ast.parse(source, filename=str(file_path))
 
-    annotated, total = 0, 0
-    failures = []
+    annotated = 0
+    total = 0
+    failures: List[Tuple[Path, int, str]] = []
 
     for node in ast.walk(tree):
         if hasattr(node, "lineno") and node.lineno in changed_lines:
@@ -77,7 +86,8 @@ def check_file(file_path, changed_lines):
 
     return annotated, total, failures
 
-def main():
+
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--threshold", type=float, default=0.2,
                         help="Minimum ratio of annotated lines required (0.0–1.0)")
@@ -85,7 +95,7 @@ def main():
 
     total_changed = 0
     total_annotated = 0
-    all_failures = []
+    all_failures: List[Tuple[Path, int, str]] = []
 
     for fpath in get_changed_files():
         changed_lines = get_changed_lines(fpath)
@@ -104,6 +114,7 @@ def main():
         sys.exit(1)
     else:
         print("✅ Type annotation coverage acceptable.")
+
 
 if __name__ == "__main__":
     main()
