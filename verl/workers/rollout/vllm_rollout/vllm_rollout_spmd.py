@@ -134,10 +134,6 @@ class vLLMRollout(BaseRollout):
         trust_remote_code = kwargs.get("trust_remote_code", False)
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
 
-        limit_mm_per_prompt = None
-        if config.get("limit_images", None):  # support for multi-image data
-            limit_mm_per_prompt = {"image": config.get("limit_images")}
-
         lora_kwargs = kwargs.pop("lora_kwargs", {})
         self.lora_kwargs = lora_kwargs
         # copy it to avoid secretly modifying the engine config
@@ -147,6 +143,9 @@ class vLLMRollout(BaseRollout):
         #    (which can vary across different vLLM versions);
         # - Otherwise it's the desired value we want to explicitly set.
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
+        if config.get("limit_images", None):  # support for multi-image data
+            engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
+
         self.inference_engine = LLM(
             model=model_path,
             enable_sleep_mode=True,
@@ -157,7 +156,6 @@ class vLLMRollout(BaseRollout):
             gpu_memory_utilization=config.gpu_memory_utilization,
             disable_custom_all_reduce=True,
             disable_mm_preprocessor_cache=True,
-            limit_mm_per_prompt=limit_mm_per_prompt,
             skip_tokenizer_init=False,
             max_model_len=max_model_len,
             load_format=load_format,
@@ -388,7 +386,7 @@ class vLLMAsyncRollout:
     def load_model(self, *args, **kwargs):
         self.inference_engine.load_model(*args, **kwargs)
 
-        # inference engine is intialized now, update sharding manager
+        # inference engine is initialized now, update sharding manager
         self.sharding_manager.inference_engine = self.inference_engine
         self.sharding_manager.model_runner = self.inference_engine.worker.model_runner
 

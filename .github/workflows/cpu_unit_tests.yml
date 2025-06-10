@@ -1,4 +1,4 @@
-name: utils_cpu_test
+name: cpu_unit_tests
 
 on:
   # Trigger the workflow on push or pull request,
@@ -13,7 +13,7 @@ on:
       - v0.*
     paths:
       - "**/*.py"
-      - .github/workflows/utils_cpu_test.yml
+      - .github/workflows/cpu_unit_tests.yml
       - "!recipe/**/*.py"
 
 # Cancel jobs on the same ref if a new one is triggered
@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 jobs:
-  utils_cpu_test:
+  cpu_unit_tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10 # Increase this timeout value as needed
     strategy:
@@ -41,7 +41,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -e .[test]
-      - name: Running test protocol.py
+      - name: Running data proto test
         run: |
           cd tests
           pytest -s -x test_protocol.py
@@ -52,4 +52,8 @@ jobs:
       - name: Running trainer tests
         run: |
           cd tests/trainer
+          pytest -s -x .
+      - name: Running worker tests
+        run: |
+          cd tests/workers/reward_manager
           pytest -s -x .

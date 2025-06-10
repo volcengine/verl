@@ -120,7 +120,7 @@ def generate_hf_output(model, input_ids, attention_mask, tokenizer, max_response
     return tokenizer.batch_decode(response)
 
 
-def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_config_path, interaction_config_path):
+def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_config_path=None, interaction_config_path=None):
     sampling_params = dict(
         n=1,
         temperature=0,
@@ -154,7 +154,8 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
                 "enable": True,
                 "tool_config_path": tool_config_path,
                 "interaction_config_path": interaction_config_path,
-                "format": "qwen",
+                "use_inference_chat_template": False,
+                "enable_tokenization_sanity_check": True,
             },
             "max_model_len": None,
             **sampling_params,

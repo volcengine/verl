@@ -21,26 +21,31 @@ import os
 
 import torch
 import torch.distributed
-from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
+from flash_attn.bert_padding import (index_first_axis, pad_input, rearrange,
+                                     unpad_input)
 from torch import nn, optim
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from verl import DataProto
 from verl.trainer.ppo import core_algos
 from verl.utils.debug import GPUMemoryLogger
+from verl.utils.device import (get_device_name, get_torch_device,
+                               is_cuda_available, is_npu_available)
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
+from verl.utils.seqlen_balancing import (get_reverse_idx,
+                                         rearrange_micro_batches)
 from verl.utils.torch_functional import masked_mean
-from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
+from verl.utils.ulysses import (gather_outpus_and_unpad,
+                                ulysses_pad_and_slice_inputs)
 from verl.workers.critic import BasePPOCritic
-from verl.utils.device import get_device_name, get_torch_device, is_npu_available, is_cuda_available
-
 
 if is_cuda_available:
-    from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
+    from flash_attn.bert_padding import (index_first_axis, pad_input,
+                                         rearrange, unpad_input)
 elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import pad_input, unpad_input, rearrange, index_first_axis
+    from transformers.integrations.npu_flash_attention import (
+        index_first_axis, pad_input, rearrange, unpad_input)
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -60,7 +65,7 @@ class DataParallelPPOCritic(BasePPOCritic):
     def _forward_micro_batch(self, micro_batch):
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
-        if "multi_modal_inputs" in micro_batch:
+        if "multi_modal_inputs" in micro_batch.keys():
             for key in micro_batch["multi_modal_inputs"][0].keys():
                 multi_modal_inputs[key] = torch.cat([inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0)
 
@@ -94,8 +99,13 @@ class DataParallelPPOCritic(BasePPOCritic):
                     **multi_modal_inputs,
                     use_cache=False,
                 )  # prevent model thinks we are generating
-                values_rmpad = output.logits
-                values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
+
+                if hasattr(self.critic_module, "v_head"):
+                    # For trl.AutoModelForCausalLMWithValueHead
+                    values_rmpad = output[2].squeeze(0).unsqueeze(-1)
+                else:
+                    values_rmpad = output.logits
+                    values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
 
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
@@ -112,7 +122,11 @@ class DataParallelPPOCritic(BasePPOCritic):
                     **multi_modal_inputs,
                     use_cache=False,
                 )  # prevent model thinks we are generating
-                values = output.logits
+                if hasattr(self.critic_module, "v_head"):
+                    # For trl.AutoModelForCausalLMWithValueHead
+                    values = output[2]
+                else:
+                    values = output.logits
                 values = values[:, -response_length - 1 : -1].squeeze(-1)
             return values
 
@@ -163,16 +177,18 @@ class DataParallelPPOCritic(BasePPOCritic):
                 values = self._forward_micro_batch(micro_batch)
             values_lst.append(values)
         values = torch.concat(values_lst, dim=0)
-        responses = data.batch["responses"]
-        attention_mask = data.batch["attention_mask"]
-        response_length = responses.size(1)
 
         if use_dynamic_bsz:
             indices = list(itertools.chain.from_iterable(indices))
             assert len(indices) == values.size(0), f"{len(indices)} vs. {values.size()}"
             revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
             values = values[revert_indices]
-        values = values * attention_mask[:, -response_length - 1 : -1]
+            
+        responses = data.batch["responses"]
+        attention_mask = data.batch["attention_mask"]
+        response_length = responses.size(1)
+        response_mask = attention_mask[:, -response_length:]
+        values = values * response_mask # Only action tokens have values
         return values
 
     @GPUMemoryLogger(role="dp critic", logger=logger)
@@ -201,6 +217,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                 if has_multi_modal_inputs:
                     num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
                     micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
+                    self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
                 elif self.config.use_dynamic_bsz:
                     max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                     micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
@@ -222,7 +239,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                     returns = data["returns"]
                     response_length = responses.size(1)
 
-                    response_mask = attention_mask[:, -response_length - 1 : -1]
+                    response_mask = attention_mask[:, -response_length:]
 
                     vpreds = self._forward_micro_batch(data)
 

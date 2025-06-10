@@ -36,37 +36,42 @@ class AsyncSglangServer(AsyncServerBase):
         self._dp_rank = dp_rank
         self.wg_prefix = wg_prefix
         self.workers = []
+        self.master_worker = None
 
     async def init_engine(self):
+        if self.workers:
+            # avoid init twice
+            return
         all_actors = ray.util.list_named_actors(all_namespaces=True)
         matched_actors = [actor for actor in all_actors if actor.get("name", None).startswith(self.wg_prefix + "WorkerDict_")]
 
-        # TODO support multi node
         for matched_actor in matched_actors:
-            current_rank = int(matched_actor["name"].split(":")[-1])
+            fields = matched_actor["name"].split(":")
+            assert len(fields) == 2, f"invalid actor name: {matched_actor['name']}"
+            pg_index, local_rank = int(fields[0].split("_")[-1]), int(fields[1])
 
-            # send to all works in this tp group, because sglang is SPMD
-            if current_rank >= self._dp_rank * self._tp_size and current_rank < (self._dp_rank + 1) * self._tp_size:
-                self.workers.append(ray.get_actor(**matched_actor))
+            if (self._dp_size * pg_index + local_rank) // self._tp_size == self._dp_rank:
+                worker = ray.get_actor(**matched_actor)
+                self.workers.append(worker)
+                if (self._dp_size * pg_index + local_rank) / self._tp_size == self._dp_rank:
+                    self.master_worker = worker
 
     async def chat_completion(self, raw_request: Request):
         request = await raw_request.json()
 
-        output_dp_lst = []
-        for worker in self.workers:
-            output_future = worker.execute_method.remote("chat_completion", request)
-            output_dp_lst.append(output_future)
-        outputs = await asyncio.gather(*output_dp_lst)
+        # only send request to master worker in tp rank 0
+        output_future = self.master_worker.chat_completion.remote(request)
+        [outputs] = await asyncio.gather(output_future)
+        return JSONResponse(outputs)
 
-        for output in outputs:
-            if output is not None:
-                return JSONResponse(output)
-        raise RuntimeError("AsyncSglangServer No output from workers self._dp_rank: {self._dp_rank}, self._tp_size: {self._tp_size}, self.workers: {self.workers}")
-
-    async def wake_up(self):
+    def wake_up(self):
+        futures = []
         for worker in self.workers:
-            worker.resume.remote()
+            futures.append(worker.wake_up.remote())
+        ray.get(futures)
 
-    async def sleep(self):
+    def sleep(self):
+        futures = []
         for worker in self.workers:
-            worker.offload.remote()
+            futures.append(worker.sleep.remote())
+        ray.get(futures)

@@ -584,7 +584,7 @@ class AsyncSGLangRollout(BaseRollout):
                     _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                     break
                 else:
-                    _req.add_user_message(self.tokenizer, content, format=self.config.multi_turn.format)
+                    _req.add_user_message(self.tokenizer, content)
                     if len(_req.input_ids) >= self.config.max_model_len:
                         finish_reason_type = FinishReasonTypeEnum.STOP
                         break
@@ -787,7 +787,7 @@ class AsyncSGLangRollout(BaseRollout):
                 if self._tool_schemas:
                     _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
                     _tool_schemas = []
-                    
+
                     for k in _tools_kwargs.keys():
                         _tool_schemas.append(self._tool_map[k].get_openai_tool_schema())
                     prompt_with_chat_template = self.tokenizer.apply_chat_template(
@@ -817,7 +817,7 @@ class AsyncSGLangRollout(BaseRollout):
                     _position_ids = compute_position_id_with_mask(torch.tensor(_attention_mask)).tolist()
                     _tool_schemas = []
                     _tools_kwargs = {}
-                    
+
                 if self.interaction is not None:
                     _interaction_kwargs = prompts.non_tensor_batch["interaction_kwargs"][data_idx]
                 else:
