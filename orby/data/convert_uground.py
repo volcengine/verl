@@ -19,6 +19,7 @@ import argparse
 import io
 import json
 import os
+import math
 
 import datasets
 from datasets import Sequence
@@ -26,13 +27,14 @@ from datasets import Image as ImageData
 from PIL import Image
 from transformers import AutoProcessor
 from qwen_vl_utils import smart_resize
+from datasets import Dataset
 
 from verl.utils.hdfs_io import copy, makedirs
-
+from verl.utils import hf_processor
 
 MODEL_PATH = "Qwen/Qwen2.5-VL-7B-Instruct"
-PROCESSOR = AutoProcessor.from_pretrained(MODEL_PATH)
-
+# PROCESSOR = AutoProcessor.from_pretrained(MODEL_PATH)
+PROCESSOR = hf_processor(MODEL_PATH, use_fast=True)
 
 def get_resized_wh(image):
     """
@@ -50,20 +52,51 @@ def get_resized_wh(image):
     return resized_height, resized_width
 
 
+def save_in_chunks(all_data, output_dir, prefix, max_examples_per_file=12500):
+    """Save processed data in multiple parquet files"""
+    os.makedirs(output_dir, exist_ok=True)
+    
+    file_counter = 0
+    total_examples = 0
+    
+    # Combine all datasets first to get total count
+    combined_data = datasets.concatenate_datasets(all_data)
+    total_examples = len(combined_data)
+    
+    print(f"Saving {total_examples} examples in chunks of {max_examples_per_file}...", flush=True)
+    
+    # Save in chunks
+    for start_idx in range(0, total_examples, max_examples_per_file):
+        end_idx = min(start_idx + max_examples_per_file, total_examples)
+        chunk = combined_data.select(range(start_idx, end_idx))
+        
+        output_file = os.path.join(output_dir, f"{prefix}_part_{file_counter:04d}.parquet")
+        chunk.to_parquet(output_file)
+        print(f"Saved {len(chunk)} examples to {output_file}", flush=True)
+        
+        file_counter += 1
+    
+    return file_counter
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--local_dir", default="~/data/uground")
     parser.add_argument("--hdfs_dir", default=None)
-    parser.add_argument("--data_files", default="shard_0000.parquet")
+    parser.add_argument("--data_files", default="shard_*.parquet")
     parser.add_argument("--output_filename", default="train")
     parser.add_argument("--prompt_format", choices=["thinking", "sft"], required=True, default="thinking")
+    parser.add_argument("--chunk_size", type=int, default=1000, help="Number of examples to process at once")
+    parser.add_argument("--max_examples", type=int, default=None, help="Maximum number of examples to process (for testing)")
+    parser.add_argument("--max_examples_per_file", type=int, default=12500, help="Maximum examples per output parquet file")
 
     args = parser.parse_args()
 
     data_source = "osunlp/UGround-V1-Data-Box"
-    print(f"Loading the {data_source} dataset from huggingface...", flush=True)
-    dataset = datasets.load_dataset(data_source, data_files=args.data_files)
-
+    print(f"Loading the {data_source} dataset from huggingface in streaming mode...", flush=True)
+    
+    # Load in streaming mode
+    dataset = datasets.load_dataset(data_source, data_files=args.data_files, streaming=True)
     dataset = dataset["train"]
 
     def make_map_fn(split):
@@ -150,24 +183,75 @@ if __name__ == "__main__":
 
         return process_fn
     
-    if args.prompt_format == "sft":
-        dataset = dataset.train_test_split(train_size=0.8, seed=42)
-        train_dataset = dataset['train']
-        test_dataset = dataset['test']
-
-        train_dataset = train_dataset.map(function=make_map_fn("train"), with_indices=True, num_proc=16)
-        train_dataset = train_dataset.cast_column("images", Sequence(ImageData()))
-
-        test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True, num_proc=16)
-        test_dataset = test_dataset.cast_column("images", Sequence(ImageData()))
+    def process_in_chunks(streaming_dataset, chunk_size=1000):
+        """Process streaming dataset in chunks to manage memory"""
+        chunk = []
+        total_processed = 0
         
-        local_dir = os.path.expanduser(args.local_dir)
-        local_dir += "_sft"
-        print(f"Saving to {local_dir}...", flush=True)
-        os.makedirs(local_dir, exist_ok=True)
+        for i, example in enumerate(streaming_dataset):
+            if args.max_examples and total_processed >= args.max_examples:
+                break
+                
+            chunk.append(example)
+            
+            if len(chunk) >= chunk_size:
+                print(f"Processing chunk {total_processed//chunk_size + 1}, examples {total_processed}-{total_processed + len(chunk)}", flush=True)
+                
+                # Convert chunk to Dataset for processing
+                chunk_dataset = Dataset.from_list(chunk)
+                
+                # Process the chunk
+                processed_chunk = chunk_dataset.map(
+                    function=make_map_fn("train"), 
+                    with_indices=True, 
+                    num_proc=4  # Reduced from 16 to manage memory
+                )
+                processed_chunk = processed_chunk.cast_column("images", Sequence(ImageData()))
+                
+                yield processed_chunk, total_processed
+                
+                total_processed += len(chunk)
+                chunk = []
+        
+        # Process remaining examples
+        if chunk:
+            print(f"Processing final chunk, examples {total_processed}-{total_processed + len(chunk)}", flush=True)
+            chunk_dataset = Dataset.from_list(chunk)
+            processed_chunk = chunk_dataset.map(
+                function=make_map_fn("train"), 
+                with_indices=True, 
+                num_proc=4
+            )
+            processed_chunk = processed_chunk.cast_column("images", Sequence(ImageData()))
+            yield processed_chunk, total_processed
 
-        train_dataset.to_parquet(os.path.join(local_dir, "train.parquet"))
-        test_dataset.to_parquet(os.path.join(local_dir, "test.parquet"))
+    local_dir = os.path.expanduser(args.local_dir)
+    if args.prompt_format == "sft":
+        local_dir += "_sft"
+    
+    print(f"Saving to {local_dir}...", flush=True)
+    os.makedirs(local_dir, exist_ok=True)
+
+    if args.prompt_format == "sft":
+        # For SFT, we need to handle train/test split differently with streaming
+        all_train_data = []
+        all_test_data = []
+        
+        for chunk_dataset, chunk_start in process_in_chunks(dataset, args.chunk_size):
+            # Split each chunk into train/test
+            chunk_split = chunk_dataset.train_test_split(train_size=0.8, seed=42)
+            all_train_data.append(chunk_split['train'])
+            all_test_data.append(chunk_split['test'])
+        
+        # Save train data in multiple files
+        if all_train_data:
+            train_dir = os.path.join(local_dir, "train")
+            train_files = save_in_chunks(all_train_data, train_dir, "train", args.max_examples_per_file)
+            print(f"Saved train data in {train_files} files", flush=True)
+            
+            test_dir = os.path.join(local_dir, "test")
+            test_files = save_in_chunks(all_test_data, test_dir, "test", args.max_examples_per_file // 4)  # Smaller test files
+            print(f"Saved test data in {test_files} files", flush=True)
     else:
         dataset = dataset.map(function=make_map_fn("train"), with_indices=True, num_proc=16)
         dataset = dataset.cast_column("images", Sequence(ImageData()))

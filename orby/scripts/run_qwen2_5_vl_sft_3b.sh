@@ -20,8 +20,8 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
      -m orby.trainer.fsdp_sft_trainer \
     data.train_batch_size=32 \
     data.micro_batch_size_per_gpu=4 \
-    data.train_files=$HOME/data/uground/train.parquet \
-    data.val_files=$HOME/data/uground/test.parquet \
+    data.train_files=$HOME/data/uground_sft/train/train_*.parquet \
+    data.val_files=$HOME/data/uground_sft/test/test_*.parquet \
     data.prompt_key=prompt \
     data.response_key=extra_info \
     +data.image_key=images \
