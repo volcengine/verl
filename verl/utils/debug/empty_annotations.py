@@ -12,15 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
 
 def mark_start_range(message=None, color=None, domain=None, category=None):
     pass
 
+
 def mark_end_range(range_id):
     pass
+
 
 def mark_annotate(message=None, color=None, domain=None, category=None):
     def decorator(func):
         return func
+
     return decorator

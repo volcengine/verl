@@ -36,6 +36,7 @@ from verl.trainer.ppo.metric_utils import (
 from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, apply_kl_penalty, compute_advantage, compute_response_mask
 from verl.utils.debug.performance import marked_timer
 
+
 class RayDAPOTrainer(RayPPOTrainer):
     """
     Note that this trainer runs on the driver process on a single CPU/GPU node.

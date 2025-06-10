@@ -15,17 +15,19 @@
 the class for Worker
 """
 
+import functools
 import os
 import socket
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict
 
 import ray
-
 import torch
+
+from verl.utils.debug import mark_end_range, mark_start_range
+
 from .decorator import Dispatch, Execute, register
-from verl.utils.debug import mark_start_range, mark_end_range
-import functools
+
 
 @dataclass
 class DistRankInfo:
@@ -336,5 +338,7 @@ class Worker(WorkerHelper):
                         torch.cuda.profiler.stop()
 
                 return result
+
             return wrapper
+
         return decorator
