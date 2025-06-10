@@ -33,8 +33,8 @@ from verl.trainer.ppo.metric_utils import (
     compute_timing_metrics,
     reduce_metrics,
 )
-from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, marked_timer, apply_kl_penalty, compute_advantage, compute_response_mask
-
+from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, apply_kl_penalty, compute_advantage, compute_response_mask
+from verl.utils.debug.performance import marked_timer
 
 class RayDAPOTrainer(RayPPOTrainer):
     """
