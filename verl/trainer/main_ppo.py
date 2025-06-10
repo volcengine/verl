@@ -127,7 +127,15 @@ class TaskRunner:
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             assert config.critic.strategy in {"fsdp", "fsdp2"}
             from verl.single_controller.ray import RayWorkerGroup
-            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
+            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+
+            if config.trainer.use_legacy_worker_impl:
+                # import warnings
+                # warnings.warn(f"Legacy worker impl is going to be deprecated, will be removed in the future. \
+                #               Please use the new worker impl supported for PPO trainer.")
+                from verl.workers.fsdp_workers import CriticWorker
+            else:
+                from verl.workers.roles import CriticWorker
 
             actor_rollout_cls = (
                 AsyncActorRolloutRefWorker
