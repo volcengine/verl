@@ -62,6 +62,8 @@ from verl.tools.schemas import (
     OpenAIFunctionParsedSchema,
     OpenAIFunctionToolCall,
 )
+from verl.tools.utils.mcp_clients.McpClientManager import ClientManager
+from verl.tools.utils.mcp_clients.utils import add_mcp_tools
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.net_utils import is_ipv6
 from verl.utils.torch_functional import (
@@ -433,9 +435,8 @@ class SGLangRollout(BaseRollout):
 
         from verl.tools.schemas import OpenAIFunctionToolSchema
 
-        def initialize_tools_from_config(tools_config) -> list:
+        async def initialize_tools_from_config(tools_config: str):
             tool_list = []
-
             for tool_config in tools_config.tools:
                 cls_name = tool_config.class_name
                 module_name, class_name = cls_name.rsplit(".", 1)
@@ -450,20 +451,49 @@ class SGLangRollout(BaseRollout):
 
                 tool_cls = getattr(module, class_name)
 
-                tool_schema_dict = OmegaConf.to_container(tool_config.tool_schema, resolve=True)
-                tool_schema = OpenAIFunctionToolSchema.model_validate(tool_schema_dict)
-
-                tool = tool_cls(
-                    config=OmegaConf.to_container(tool_config.config, resolve=True),
-                    tool_schema=tool_schema,
-                )
-                tool_list.append(tool)
+                use_mcp = tool_config.config.use_mcp if "use_mcp" in tool_config.config else False
+                if use_mcp:
+                    mcp_servers_config_path = tool_config.mcp.mcp_servers_config_path
+                    tool_selected_list = tool_config.mcp.tool_selected_list
+                    await ClientManager.initialize(mcp_servers_config_path)
+                    # Wait for MCP client to be ready
+                    max_retries = 10
+                    retry_interval = 2  # seconds
+                    for i in range(max_retries):
+                        tool_schemas = await add_mcp_tools(tool_selected_list)
+                        if tool_schemas:
+                            break
+                        if i < max_retries - 1:
+                            logger.debug(f"Waiting for MCP client to be ready, attempt {i + 1}/{max_retries}")
+                            await asyncio.sleep(retry_interval)
+                    else:
+                        raise RuntimeError("Failed to initialize MCP tools after maximum retries")
+                    # mcp registry
+                    assert len(tool_schemas), "mcp tool is empty"
+                    for tool_schema_dict in tool_schemas:
+                        logger.debug(f"tool_schema_dict: {tool_schema_dict}")
+                        tool_schema = OpenAIFunctionToolSchema.model_validate(tool_schema_dict)
+                        tool = tool_cls(
+                            config=OmegaConf.to_container(tool_config.config, resolve=True),
+                            tool_schema=tool_schema,
+                        )
+                        tool_list.append(tool)
+                else:
+                    tool_schema_dict = OmegaConf.to_container(tool_config.tool_schema, resolve=True)
+                    tool_schema = OpenAIFunctionToolSchema.model_validate(tool_schema_dict)
+                    tool = tool_cls(
+                        config=OmegaConf.to_container(tool_config.config, resolve=True),
+                        tool_schema=tool_schema,
+                    )
+                    tool_list.append(tool)
 
             return tool_list
 
         tools_config_file = config.multi_turn.tool_config_path
         tools_config = OmegaConf.load(tools_config_file)
-        tool_list = initialize_tools_from_config(tools_config)
+        loop = asyncio.get_event_loop()
+        tool_list = loop.run_until_complete(initialize_tools_from_config(tools_config))
+
         logger.info(f"Initialize tools from configuration.: tool_list: {tool_list}")
         tool_schemas = [tool.get_openai_tool_schema().model_dump() for tool in tool_list]
         tool_map = {tool.name: tool for tool in tool_list}
