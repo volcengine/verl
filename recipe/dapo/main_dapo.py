@@ -47,9 +47,6 @@ def run_ppo(config) -> None:
                     "t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,opengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx",
                     "cuda-memory-usage": "true",
                     "cuda-graph-trace": "graph",
-                    # "capture-range": "nvtx",
-                    # "capture-range-end": "stop",
-                    # "nvtx-capture": "main_task",
                     "kill": "none",
                 }
             }
