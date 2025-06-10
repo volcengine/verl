@@ -435,7 +435,7 @@ class FSDPSFTTrainer:
             torch.distributed.all_reduce(step_loss, op=torch.distributed.ReduceOp.AVG)
         elif is_npu_available:
             torch.distributed.all_reduce(step_loss)
-            step_loss /= self.ulysses_device_mesh.size(0)
+            step_loss /= self.device_mesh.size(0)
         return {"train/loss": step_loss.detach().item(), "train/lr(1e-3)": lr * 1e3}
 
     def validation_step(self, batch: TensorDict):
@@ -446,7 +446,7 @@ class FSDPSFTTrainer:
                 torch.distributed.all_reduce(loss, op=torch.distributed.ReduceOp.AVG)
             elif is_npu_available:
                 torch.distributed.all_reduce(loss)
-                loss /= self.ulysses_device_mesh.size(0)
+                loss /= self.device_mesh.size(0)
         return loss
 
     def save_checkpoint(self, step):
