@@ -146,6 +146,12 @@ class Worker(WorkerHelper):
         Args:
             cuda_visible_devices (str, optional):
                 CUDA visible devices configuration. Defaults to None.
+            profile_discrete (bool, optional):
+                Whether to profile in the discrete mode, seperate database for each task. Defaults to False.
+            profile_ranks (list, optional):
+                The ranks that will be profiled. Defaults to None.
+            profile_ranks_all (bool, optional):
+                Whether to profile all ranks. Defaults to False.
         """
         # construct a meta from environment variable. Note that the import must be inside the class because it is executed remotely
         import os
@@ -306,6 +312,7 @@ class Worker(WorkerHelper):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def start_profile(self):
+        """Start profiling for the current rank in the current training step."""
         if self.profile_this_rank:
             self.profile = True
             if not self.profile_discrete:
@@ -313,6 +320,7 @@ class Worker(WorkerHelper):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def stop_profile(self):
+        """Stop profiling for the current rank in the current training step."""
         if self.profile_this_rank:
             self.profile = False
             if not self.profile_discrete:
@@ -320,6 +328,19 @@ class Worker(WorkerHelper):
 
     @staticmethod
     def profile_annotate(message=None, color=None, domain=None, category=None):
+        """Decorate a Worker member function to profile the current rank in the current training step.
+
+        Args:
+            message (str, optional):
+                The message to be displayed in the profiler. Defaults to None.
+            color (str, optional):
+                The color of the range. Defaults to None.
+            domain (str, optional):
+                The domain of the range. Defaults to None.
+            category (str, optional):
+                The category of the range. Defaults to None.
+        """
+
         def decorator(func):
             @functools.wraps(func)
             def wrapper(self, *args, **kwargs):
@@ -328,7 +349,7 @@ class Worker(WorkerHelper):
                 if self.profile:
                     if self.profile_discrete:
                         torch.cuda.profiler.start()
-                    mark_range = mark_start_range(message=profile_name, color=color)
+                    mark_range = mark_start_range(message=profile_name, color=color, domain=domain, category=category)
 
                 result = func(self, *args, **kwargs)
 
