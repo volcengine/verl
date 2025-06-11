@@ -41,8 +41,7 @@ install_requires = [
     "tensordict<=0.6.2",
     "transformers",
     "wandb",
-    "packaging>=20.0",
-    "nvidia-cudnn-cu12==9.8.0.87"
+    "packaging>=20.0"
 ]
 
 TEST_REQUIRES = ["pytest", "pre-commit", "py-spy"]
@@ -63,6 +62,7 @@ MEGATRON_REQUIRES = [
     "apex",
     "transformer_engine<=2.3",
     "megatron.core<=0.12.1",
+    "nvidia-cudnn-cu12==9.8.0.87"
 ]
 
 extras_require = {
