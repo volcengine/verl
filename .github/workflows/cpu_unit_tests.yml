@@ -78,4 +78,4 @@ jobs:
         run: |
           [ ! -d "$HOME/verl-data" ] && git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/verl-data
           python3 examples/data_preprocess/geo3k.py
-          pytest -s -x -k on_cpu tests/
+          pytest -s -x --python-files="*_on_cpu.py" tests/
