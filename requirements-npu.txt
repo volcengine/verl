@@ -4,7 +4,7 @@ codetiming
 datasets
 dill
 hydra-core
-numpy
+numpy<2.0.0
 pandas
 peft
 pyarrow>=15.0.0
