@@ -183,6 +183,8 @@ class MegatronRewardModel(BasePPORewardModel):
         token_level_rewards = rewards.expand(attention_mask.shape[0], attention_mask.shape[1])  # (bs, ori_seqlen)
 
         # assign last valid token reward to ori position
+        if position_ids.dim() == 3:  # qwen2vl mrope [bs, 3, seq_len]
+            position_ids = position_ids[:, 0, :]
         eos_mask_idx = torch.argmax(position_ids * attention_mask, dim=-1)  # (bs,)
         eos_mask = torch.zeros_like(attention_mask)
         eos_mask[torch.arange(batch_size), eos_mask_idx] = 1.0
