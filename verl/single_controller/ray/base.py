@@ -327,9 +327,8 @@ class RayWorkerGroup(WorkerGroup):
         num_gpus = 1 / resource_pool.max_colocate_count
 
         rank = -1
-        local_world_size = resource_pool.store[0]
         for pg_idx, pg in enumerate(sort_placement_group_by_node_ip(pgs)):
-            assert local_world_size <= pg.bundle_count, f"when generating for {self.name_prefix}, for the "
+            local_world_size = pg.bundle_count
             for local_rank in range(local_world_size):
                 rank += 1
 
