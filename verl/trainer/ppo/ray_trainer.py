@@ -20,6 +20,7 @@ This trainer supports model-agonistic model initialization with huggingface
 
 import json
 import os
+import random
 import uuid
 from collections import defaultdict
 from copy import deepcopy
@@ -74,6 +75,7 @@ class Role(Enum):
     RefPolicy = 4
     RewardModel = 5
     ActorRolloutRef = 6
+    GenerativeRewardModel = 7
 
 
 @dataclass
@@ -257,14 +259,15 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
     else:
         # handle all other adv estimator type other than GAE and GRPO
         adv_estimator_fn = core_algos.get_adv_estimator_fn(adv_estimator)
-        adv_kwargs = {"token_level_rewards": data.batch["token_level_rewards"],
-                      "response_mask": data.batch["response_mask"],
-                      "config": config,
+        adv_kwargs = {
+            "token_level_rewards": data.batch["token_level_rewards"],
+            "response_mask": data.batch["response_mask"],
+            "config": config,
         }
-        if "uid" in data.non_tensor_batch: # optional
-            adv_kwargs['index'] = data.non_tensor_batch["uid"]
-        if "reward_baselines" in data.batch:# optional
-            adv_kwargs['reward_baselines'] = data.batch["reward_baselines"]
+        if "uid" in data.non_tensor_batch:  # optional
+            adv_kwargs["index"] = data.non_tensor_batch["uid"]
+        if "reward_baselines" in data.batch:  # optional
+            adv_kwargs["reward_baselines"] = data.batch["reward_baselines"]
 
         # calculate advantage estimator
         advantages, returns = adv_estimator_fn(**adv_kwargs)
@@ -314,6 +317,7 @@ class RayPPOTrainer:
         self.resource_pool_manager = resource_pool_manager
         self.use_reference_policy = Role.RefPolicy in role_worker_mapping
         self.use_rm = Role.RewardModel in role_worker_mapping
+        self.use_grm = Role.GenerativeRewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name
         self.validation_generations_logger = ValidationGenerationsLogger()
@@ -553,29 +557,96 @@ class RayPPOTrainer:
 
         print(f"Dumped generations to {filename}")
 
-    def _maybe_log_val_generations(self, inputs, outputs, scores):
+    def _maybe_log_val_generations(self, batch: DataProto):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
-
         generations_to_log = self.config.trainer.log_val_generations
 
         if generations_to_log == 0:
             return
+        prompts, response = batch.batch["prompts"], batch.batch["responses"]
+        prompts = self.tokenizer.batch_decode(prompts, skip_special_tokens=True)
+        response = self.tokenizer.batch_decode(response, skip_special_tokens=True)
 
-        import numpy as np
+        if batch.batch.get("prompts_grm", None) is not None:
+            prompts_grm = batch.batch["prompts_grm"]
+            prompts_grm = self.tokenizer.batch_decode(prompts_grm, skip_special_tokens=True)
+        if batch.batch.get("responses_grm", None) is not None:
+            response_grm = batch.batch["responses_grm"]
+            response_grm = self.tokenizer.batch_decode(response_grm, skip_special_tokens=True)
 
-        # Create tuples of (input, output, score) and sort by input text
-        samples = list(zip(inputs, outputs, scores))
-        samples.sort(key=lambda x: x[0])  # Sort by input text
+        res_ids = list(range(len(prompts)))
+        sample_ids = random.sample(res_ids, generations_to_log)
 
-        # Use fixed random seed for deterministic shuffling
-        rng = np.random.RandomState(42)
-        rng.shuffle(samples)
+        sample_inputs = []
+        sample_outputs = []
+        sample_scores = []
+        sample_inputs_grm = []
+        sample_outputs_grm = []
+        for idx in sample_ids:
+            sample_inputs.append(prompts[idx])
+            sample_outputs.append(response[idx])
+            sample_scores.append(f"{batch.non_tensor_batch['acc'][idx]:.2f}")
+            if batch.batch.get("prompts_grm", None) is not None:
+                sample_inputs_grm.append(prompts_grm[idx])
+                sample_outputs_grm.append(response_grm[idx])
 
-        # Take first N samples after shuffling
-        samples = samples[:generations_to_log]
-
+        # Create samples as dict[dict] format
+        samples = {}
+        for i, idx in enumerate(sample_ids):
+            sample_key = f"sample_{i + 1}"
+            sample_data = {"input": prompts[idx], "output": response[idx], "score": f"{batch.non_tensor_batch['acc'][idx]:.2f}"}
+            if batch.batch.get("prompts_grm", None) is not None:
+                sample_data["input_grm"] = prompts_grm[idx]
+                sample_data["output_grm"] = response_grm[idx]
+            samples[sample_key] = sample_data
         # Log to each configured logger
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
+
+    def _maybe_log_train_generations(self, batch: DataProto):
+        """Log a table of training samples to the configured logger (wandb or swanlab)"""
+        generations_to_log = self.config.trainer.log_train_generations
+
+        if generations_to_log == 0:
+            return
+        prompts, response = batch.batch["prompts"], batch.batch["responses"]
+        prompts = self.tokenizer.batch_decode(prompts, skip_special_tokens=True)
+        response = self.tokenizer.batch_decode(response, skip_special_tokens=True)
+
+        if batch.batch.get("prompts_grm", None) is not None:
+            prompts_grm = batch.batch["prompts_grm"]
+            prompts_grm = self.tokenizer.batch_decode(prompts_grm, skip_special_tokens=True)
+        if batch.batch.get("responses_grm", None) is not None:
+            response_grm = batch.batch["responses_grm"]
+            response_grm = self.tokenizer.batch_decode(response_grm, skip_special_tokens=True)
+
+        res_ids = list(range(len(prompts)))
+        sample_ids = random.sample(res_ids, generations_to_log)
+
+        sample_inputs = []
+        sample_outputs = []
+        sample_scores = []
+        sample_inputs_grm = []
+        sample_outputs_grm = []
+        for idx in sample_ids:
+            sample_inputs.append(prompts[idx])
+            sample_outputs.append(response[idx])
+            sample_scores.append(f"{batch.non_tensor_batch['acc'][idx]:.2f}")
+            if batch.batch.get("prompts_grm", None) is not None:
+                sample_inputs_grm.append(prompts_grm[idx])
+                sample_outputs_grm.append(response_grm[idx])
+
+        # Create samples as dict[dict] format
+        samples = {}
+        for i, idx in enumerate(sample_ids):
+            sample_key = f"sample_{i + 1}"
+            sample_data = {"input": prompts[idx], "output": response[idx], "score": f"{batch.non_tensor_batch['acc'][idx]:.2f}"}
+            if batch.batch.get("prompts_grm", None) is not None:
+                sample_data["input_grm"] = prompts_grm[idx]
+                sample_data["output_grm"] = response_grm[idx]
+            samples[sample_key] = sample_data
+
+        # Log to each configured logger
+        self.training_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
     def _validate(self):
         data_source_lst = []
@@ -733,6 +804,37 @@ class RayPPOTrainer:
             rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model)
             self.resource_pool_to_cls[resource_pool]["rm"] = rm_cls
 
+        if self.use_grm:
+
+            def copy_missing_params_to_grm(config):
+                """只复制grm中缺失的参数"""
+                with open_dict(config):
+                    # 确保grm配置存在
+                    if "grm" not in config.reward_model:
+                        config.reward_model.grm = {}
+
+                    rollout_config = config.actor_rollout_ref.rollout
+                    grm_config = config.reward_model.grm.rollout
+
+                    # 遍历actor配置，只复制grm中没有的字段
+                    for key, value in rollout_config.items():
+                        if key not in grm_config:
+                            grm_config[key] = value
+                            print(f"Copied {key} to grm: {value}")
+                        else:
+                            print(f"Skipped {key} (already exists in grm): {grm_config[key]}")
+                    config.reward_model.grm.rollout = grm_config
+
+                return config
+
+            # 使用
+            self.config = copy_missing_params_to_grm(self.config)
+            print(f"GRM config: {self.config.reward_model.grm}")
+            print(f"Actor rollout ref config: {self.config.actor_rollout_ref}")
+            resource_pool = self.resource_pool_manager.get_resource_pool(Role.GenerativeRewardModel)
+            grm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.GenerativeRewardModel], config=self.config.reward_model.grm, role="grm")
+            self.resource_pool_to_cls[resource_pool]["grm"] = grm_cls
+
         # initialize WorkerGroup
         # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
         # you should not use `create_colocated_worker_cls`.
@@ -742,6 +844,8 @@ class RayPPOTrainer:
         wg_kwargs = {}  # Setting up kwargs for RayWorkerGroup
         if OmegaConf.select(self.config.trainer, "ray_wait_register_center_timeout") is not None:
             wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
+
+        print(f"resource_pool_to_cls: {self.resource_pool_to_cls}")
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
@@ -760,6 +864,10 @@ class RayPPOTrainer:
         if self.use_rm:
             self.rm_wg = all_wg["rm"]
             self.rm_wg.init_model()
+
+        if self.use_grm:
+            self.grm_wg = all_wg["grm"]
+            self.grm_wg.init_model()
 
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
         self.actor_rollout_wg = all_wg["actor_rollout"]
@@ -1071,7 +1179,7 @@ class RayPPOTrainer:
                             num_repeat=self.config.actor_rollout_ref.rollout.n,
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                             multi_turn=self.config.actor_rollout_ref.rollout.multi_turn.enable,
-                            config=self.config.algorithm
+                            config=self.config.algorithm,
                         )
 
                     # update critic
