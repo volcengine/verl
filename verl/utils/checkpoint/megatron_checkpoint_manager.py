@@ -312,7 +312,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                         model = AutoModelForCausalLM.from_pretrained(self.config.model.path, torch_dtype="auto")
                 model.save_pretrained(hf_model_ckpt_path, state_dict=state_dict)
                 self.processing_class.save_pretrained(hf_model_ckpt_path)
-                log_with_rank(f"Saved Huggingface config and tokenizer to {hf_model_ckpt_path}", rank=self.rank, logger=logger, only_rank_0=True)
+                log_with_rank(f"Saved Huggingface config and tokenizer to {hf_model_ckpt_path}", rank=self.rank, logger=logger, log_only_rank_0=True)
 
                 if hdfs_path is not None:
                     log_with_rank(f"Uploading checkpoint to {hdfs_path}", rank=self.rank, logger=logger, log_only_rank_0=True)
@@ -344,6 +344,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 if self.lr_scheduler is not None:
                     state_dict = self.lr_scheduler.state_dict()
                     torch.save(state_dict, optimizer_scheduler_path)
-                    log_with_rank(f"Saved optimizer scheduler state to {optimizer_scheduler_path}", rank=self.rank, logger=logger, only_rank_0=True)
+                    log_with_rank(f"Saved optimizer scheduler state to {optimizer_scheduler_path}", rank=self.rank, logger=logger, log_only_rank_0=True)
 
         self.previous_saved_paths.append(local_path)
