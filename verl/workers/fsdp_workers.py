@@ -564,7 +564,7 @@ class ActorRolloutRefWorker(Worker):
                 lr_scheduler=self.actor_lr_scheduler,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
                 checkpoint_load_contents=self.config.actor.checkpoint.load_contents,
-                checkpoint_save_contents=self.config.actor.checkpoint.save_contents
+                checkpoint_save_contents=self.config.actor.checkpoint.save_contents,
             )
 
         if not self._is_actor and self._is_rollout:
@@ -777,7 +777,7 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
-        assert self._is_actor or (not self._is_actor and self._is_rollout)
+        assert self._is_actor or (not self._is_actor and self._is_rollout), f"Checkpoint loading is only supported for Actor or standalone Rollout Workers, but got {self._is_actor} and {self._is_rollout}"
 
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
@@ -865,7 +865,7 @@ class CriticWorker(Worker):
         torch_dtype = self.config.model.fsdp_config.get("model_dtype", "fp32")
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
-        from transformers import AutoConfig, AutoModelForTokenClassification
+        from transformers import AutoConfig
 
         critic_model_config = AutoConfig.from_pretrained(local_path, attn_implementation="flash_attention_2", trust_remote_code=config.model.get("trust_remote_code", False))
         critic_model_config.num_labels = 1
