@@ -78,6 +78,12 @@ python3 -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
+    actor_rollout_ref.actor.fsdp_config.forward_prefetch=True \
+    actor_rollout_ref.ref.fsdp_config.forward_prefetch=True \
+    actor_rollout_ref.actor.entropy_checkpointing=True \
+    actor_rollout_ref.ref.entropy_checkpointing=True \
+    actor_rollout_ref.actor.entropy_from_logits_with_chunking=True \
+    actor_rollout_ref.ref.entropy_from_logits_with_chunking=True \
     trainer.logger=['console'] \
     trainer.project_name='verl-test' \
     trainer.experiment_name="${exp_name}" \
