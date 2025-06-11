@@ -22,11 +22,16 @@ RUN pip install --resume-retries 999 --no-cache-dir "vllm==0.8.5"
 RUN wget -nv https://github.com/flashinfer-ai/flashinfer/releases/download/v0.2.2.post1/flashinfer_python-0.2.2.post1+cu124torch2.6-cp38-abi3-linux_x86_64.whl && \
     pip install --no-cache-dir flashinfer_python-0.2.2.post1+cu124torch2.6-cp38-abi3-linux_x86_64.whl
 
+# Fix packages
+RUN pip install --no-cache-dir "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
+    "numpy<2.0.0" "pyarrow>=19.0.1" pandas \
+    ray[default] codetiming hydra-core pylatexenc qwen-vl-utils wandb dill pybind11 liger-kernel mathruler blobfile xgrammar \
+    pytest py-spy pyext pre-commit ruff
+
+RUN pip uninstall -y pynvml nvidia-ml-py && \
+    pip install --no-cache-dir --upgrade "nvidia-ml-py>=12.560.30" "fastapi[standard]>=0.115.0" "optree>=0.13.0" "pydantic>=2.9" "grpcio>=1.62.1"
+
 RUN pip install --resume-retries 999 --no-cache-dir nvidia-cudnn-cu12==9.8.0.87
 
 # Install Megatron-LM
 RUN pip3 install --no-deps --no-cache-dir git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.1
-
-# Fix packages
-RUN pip uninstall -y pynvml nvidia-ml-py && \
-    pip install --no-cache-dir --upgrade "nvidia-ml-py>=12.560.30" "fastapi[standard]>=0.115.0" "optree>=0.13.0" "pydantic>=2.9" "grpcio>=1.62.1"
