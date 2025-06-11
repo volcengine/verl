@@ -5,7 +5,7 @@ tools:
       timeout: 120
       use_mcp: true
     mcp:
-      mcp_servers_config_path: ./resource/tool_configs/mcp_server.json
+      mcp_servers_config_path: ./mcp_server.json
       # optional
       tool_selected_list: 
         - tavily_search_tool

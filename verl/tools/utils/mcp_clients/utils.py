@@ -13,29 +13,10 @@
 # limitations under the License.
 
 import logging
-from typing import List
 
 from mcp import Tool
-from verl.tools.utils.mcp_clients.McpClientManager import ClientManager
-
 
 logger = logging.getLogger(__file__)
-
-async def add_mcp_tools(tool_selected_list: List[str]) -> List[dict]:
-    tool_schemas = []
-
-    for _, session in ClientManager.get_clients():
-        # if session is None, then the client is not running
-        if session.session is None:
-            logger.error(f"session is `None` for {session.name}")
-            continue
-
-        tools = await session.session.list_tools()
-        for tool in tools.tools:
-            if tool.name in tool_selected_list:
-                tool_schemas.append(mcp2openai(tool))
-
-    return tool_schemas
 
 
 def mcp2openai(mcp_tool: Tool) -> dict:
@@ -47,8 +28,8 @@ def mcp2openai(mcp_tool: Tool) -> dict:
             "description": mcp_tool.description,
             "parameters": mcp_tool.inputSchema,
             "strict": False,
-        }
+        },
     }
-    if not openai_format['function']['parameters'].get('required', None):
-        openai_format['function']['parameters']['required'] = []
+    if not openai_format["function"]["parameters"].get("required", None):
+        openai_format["function"]["parameters"]["required"] = []
     return openai_format

@@ -12,93 +12,109 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import json
-from typing import Any, Union
-
-from mcp import McpError, StdioServerParameters
-from verl.tools.utils.mcp_clients.config import SSEMCPServer, Settings
-from pydantic import ValidationError
-
-from .SseClient import SseClient
-from .StdioClient import StdioClient
 import logging
+import threading
+import time
+from typing import Any
+
+from fastmcp import Client
+from fastmcp.client.transports import SSETransport
+
+from verl.tools.utils.mcp_clients.utils import mcp2openai
+
 logger = logging.getLogger(__name__)
 
 
-client_types = Union[StdioClient, SseClient]
+class TokenBucket:
+    def __init__(self, rate_limit: float):
+        self.rate_limit = rate_limit  # tokens per second
+        self.tokens = rate_limit
+        self.last_update = time.time()
+        self.lock = threading.Lock()
+
+    def acquire(self) -> bool:
+        with self.lock:
+            now = time.time()
+            # Add new tokens based on time elapsed
+            new_tokens = (now - self.last_update) * self.rate_limit
+            self.tokens = min(self.rate_limit, self.tokens + new_tokens)
+            self.last_update = now
+
+            if self.tokens >= 1:
+                self.tokens -= 1
+                return True
+            return False
 
 
 class MCPClientManager:
-    clients: dict[str, client_types] = {}
+    rootServerName = "mcpServers"
     initialized = False
+    clients = []
+    tool_client_mapping = {}
+    rate_limiter = None
 
     def load_config(self, file: str) -> dict[str, Any]:
         try:
-            with open(file, "r") as f:
+            with open(file) as f:
                 return json.load(f)
-
         except FileNotFoundError:
             logger.warning(f'the "{file}" file was not found')
-
         except Exception:
             logger.error(f'there was an error reading the "{file}" file')
 
         return {}
 
-    async def initialize(self, config_path):
+    async def initialize(self, config_path, rate_limit: float = 10.0):
         if self.initialized:
             return
         """Initialize the MCP Client Manager and start all clients"""
         result = self.load_config(config_path)
-        try:
-            config = Settings(**result)
-        except ValidationError as e:
-            logger.error("unable to load a valid configuration")
-            for error in e.errors():
-                logger.error(f"{error['loc'][0]}: {error['msg']}")
-            exit(1)
+        servers = result[self.rootServerName]
+        exclude_sse_servers = {self.rootServerName: {}}
+        for server_name in servers.keys():
+            server = servers[server_name]
+            if "auth_token" in server:
+                transport = SSETransport(url=server["url"], headers={"Authorization": f"Bearer {server['auth_token']}"})
+                client = Client(transport)
+                self.clients.append(client)
+            else:
+                exclude_sse_servers[self.rootServerName][server_name] = server
 
-        for server_name, server_config in config.mcp_servers.items():
-            self.clients[server_name] = await self.construct_client(
-                server_name, server_config
-            )
+        if exclude_sse_servers[self.rootServerName]:
+            self.clients.append(Client(exclude_sse_servers))
+
+        # Initialize rate limiter
+        self.rate_limiter = TokenBucket(rate_limit)
         self.initialized = True
 
-    async def construct_client(self, name, server_config) -> client_types:
+    def _get_client_with_tool_name(self, tool_name: str):
+        return self.tool_client_mapping[tool_name]
 
-        if isinstance(server_config, StdioServerParameters):
-            client = StdioClient(name, server_config)
-            await client.start()
-            return client
+    async def call_tool(self, tool_name, parameters, timeout):
+        # Apply rate limiting
+        while not self.rate_limiter.acquire():
+            await asyncio.sleep(0.1)  # Wait a bit before trying again
 
-        if isinstance(server_config, SSEMCPServer):
-            # TODO: implement sse client
-            client = SseClient(name, server_config)  # type: ignore
-            await client.start()
-            return client
+        client = self._get_client_with_tool_name(tool_name)
+        async with client:
+            return await client.call_tool_mcp(tool_name, parameters)
 
-        raise NotImplementedError("Client Type not supported")
+    async def fetch_tool_schemas(self, tool_selected_list: list[str]) -> list[dict]:
+        tool_schemas = []
+        for client in self.clients:
+            async with client:
+                tools = await client.list_tools_mcp()
+                for tool in tools.tools:
+                    if not tool_selected_list:
+                        self.tool_client_mapping[tool.name] = client
+                        tool_schemas.append(mcp2openai(tool))
+                    elif tool.name in tool_selected_list:
+                        self.tool_client_mapping[tool.name] = client
+                        tool_schemas.append(mcp2openai(tool))
 
-    def get_client(self, server_name: str):
-        return self.clients[server_name]
-
-    def get_clients(self):
-        return list(self.clients.items())
-
-    async def get_client_from_tool(self, tool: str):
-        for _, client in self.get_clients():
-            
-            # client cannot have tools if it is not connected
-            if not client.session:
-                continue
-
-            try:
-                list_tools = await client.session.list_tools()
-                for client_tool in list_tools.tools:
-                    if client_tool.name == tool:
-                        return client
-            except McpError:
-                continue
+        return tool_schemas
 
 
 ClientManager = MCPClientManager()
