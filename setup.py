@@ -58,6 +58,11 @@ SGLANG_REQUIRES = [
     "torch==2.6.0",
 ]
 TRL_REQUIRES = ["trl<=0.9.6"]
+MEGATRON_REQUIRES = [
+    "apex",
+    "transformer_engine<=2.3",
+    "megatron.core<=0.12.1",
+]
 
 extras_require = {
     "test": TEST_REQUIRES,
@@ -68,6 +73,7 @@ extras_require = {
     "vllm": VLLM_REQUIRES,
     "sglang": SGLANG_REQUIRES,
     "trl": TRL_REQUIRES,
+    "megatron": MEGATRON_REQUIRES
 }
 
 
