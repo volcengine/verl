@@ -119,7 +119,7 @@ class CriticWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
-        self.engine.init_model_and_optimizer()
+        self.engine.init_model()
 
 
     def get_microbatch_process_fn(self):
@@ -218,10 +218,6 @@ class CriticWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
-        preprocess_fn, postprocess_fn = self.get_microbatch_process_fn()
-        self.engine.set_preprocess_fn(preprocess_fn)
-        self.engine.set_postprocess_fn(postprocess_fn)
-        
         # Support all hardwares
         data = data.to(get_torch_device().current_device())
         micro_batch_size = self.config.forward_micro_batch_size_per_gpu
@@ -248,6 +244,7 @@ class CriticWorker(Worker):
                 micro_batches = batch.split(micro_batch_size)
             return micro_batches
         
+        preprocess_fn, postprocess_fn = self.get_microbatch_process_fn()
         with self.engine.eval_mode():
             data = self.engine.shard_data(data=data)
             micro_batches = get_micro_batches(data)
@@ -261,7 +258,11 @@ class CriticWorker(Worker):
                     # TODO: should not access module in the engine
                     use_value_head_model = hasattr(self.engine.module, "v_head")
                     ctx = {"use_value_head_model": use_value_head_model}
-                    values, ctx = self.engine.forward_backward_step(micro_batch, ctx, forward_only=True)
+                    values, ctx = self.engine.forward_backward_step(micro_batch,
+                                                                    ctx,
+                                                                    forward_only=True,
+                                                                    preprocess_fn=preprocess_fn,
+                                                                    postprocess_fn=postprocess_fn)
 
                 values_lst.append(values)
             values = torch.concat(values_lst, dim=0)
@@ -288,6 +289,7 @@ class CriticWorker(Worker):
     def update_critic(self, data: DataProto):
         # Support all hardwares
         data = data.to(get_torch_device().current_device())
+        preprocess_fn, postprocess_fn = self.get_microbatch_process_fn()
 
         # perform forward computation
         with self.engine.train_mode():
@@ -336,7 +338,11 @@ class CriticWorker(Worker):
                             use_value_head_model = hasattr(self.engine.module, "v_head")
                             ctx = {"use_value_head_model": use_value_head_model,
                                 'data_size': len(micro_batch)}
-                            vpreds, loss, metric = self.engine.forward_backward_step(micro_batch, ctx, forward_only=False)
+                            vpreds, loss, metric = self.engine.forward_backward_step(micro_batch,
+                                                                                     ctx,
+                                                                                     forward_only=False,
+                                                                                     preprocess_fn=preprocess_fn,
+                                                                                     postprocess_fn=postprocess_fn)
                             append_to_dict(metrics, metric)
 
                         grad_norm = self.engine.optimizer_step() 

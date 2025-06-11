@@ -129,7 +129,7 @@ class FSDPEngine(object):
         self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
 
 
-    def init_model_and_optimizer(self):
+    def init_model(self):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
 
@@ -351,20 +351,35 @@ class FSDPEngine(object):
                               forward_only=False, 
                               preprocess_fn=None, 
                               postprocess_fn=None):
+        # mode guard to check this method is called in a proper context manager
         assert self.mode is not None
         if self.mode == "train":
             assert forward_only == False
         elif self.mode == "eval":
             assert forward_only ==True
 
-        inputs, ctx = self.preprocess_fn(batch, ctx)
+        # optional microbatch preprocess
+        if preprocess_fn is not None:
+            inputs, ctx = preprocess_fn(batch, ctx)
+        else:
+            inputs = batch
+
+        # forward execution
         inputs["use_cache"] = False
         outputs = self.module(**inputs)
-        preds, ctx = self.postprocess_fn(outputs, ctx)
+
+        # optional microbatch postprocess
+        if postprocess_fn is not None:
+            preds, ctx = postprocess_fn(outputs, ctx)
+        else:
+            preds = outputs
+
         if forward_only:
             return preds, ctx
 
+        # loss function
         loss, ctx = self.loss_fn(batch, preds, ctx)
+        # backward
         loss.backward()
         return preds, loss, ctx
 
@@ -397,20 +412,6 @@ class FSDPEngine(object):
         lr = self.lr_scheduler.get_last_lr()
         return lr
 
-
-    def set_preprocess_fn(self, preprocess_fn):
-        """
-        preprocess_fn(data, ctx) -> inputs, ctx
-        """
-        self.preprocess_fn = preprocess_fn
-
-
-    def set_postprocess_fn(self, postprocess_fn):
-        """
-        postprocess_fn(outputs, ctx) -> preds, ctx
-        """
-        self.postprocess_fn = postprocess_fn
-        
 
     def set_loss_fn(self, loss_fn):
         """

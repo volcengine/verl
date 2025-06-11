@@ -1,10 +1,3 @@
-from contextlib import nullcontext
-
-"""
-TODO:
-- checkpointing
-"""
-
 class BaseEngine(object):
     def __init__(self, config):
         """
@@ -19,7 +12,7 @@ class BaseEngine(object):
         """
         raise NotImplementedError
 
-    def init_model_and_optimizer(self):
+    def init_model(self):
         """
         Initialize the model and its corresponding optimizer.
         """
@@ -39,12 +32,15 @@ class BaseEngine(object):
         """
         raise NotImplementedError
 
-    def forward_backward_step(self, batch, forward_only=False, ctx=None):
+    def forward_backward_step(self, 
+                              batch, 
+                              ctx=None, 
+                              forward_only=False, 
+                              preprocess_fn=None, 
+                              postprocess_fn=None):
         """
-        return
-        - preds
-        - loss
-        - out_ctx
+        inputs, ctx = preprocess_fn(batch, ctx)
+        preds, ctx = postprocess_fn(outputs, ctx)
         """
         raise NotImplementedError
 
@@ -81,24 +77,11 @@ class BaseEngine(object):
 
     def unshard_data(self, data):
         raise NotImplementedError
-
-    def set_preprocess_fn(self, preprocess_fn):
-        """
-        preprocess_fn(data, ctx) -> inputs, ctx
-        """
-        raise NotImplementedError
-
-
-    def set_postprocess_fn(self, postprocess_fn):
-        """
-        postprocess_fn(outputs, ctx) -> preds, ctx
-        """
-        raise NotImplementedError
         
 
     def set_loss_fn(self, loss_fn):
         """
-        loss_fn(data, preds, ctx) -> loss, out_ctx
+        loss_fn(data, preds, ctx) -> loss, ctx
         """
         raise NotImplementedError
 
