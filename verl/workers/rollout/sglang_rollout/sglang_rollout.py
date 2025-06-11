@@ -97,6 +97,7 @@ def _set_envs_and_config(server_args: ServerArgs):
     os.environ["TORCH_NCCL_AVOID_RECORD_STREAMS"] = "1"
     os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "4"
     os.environ["CUDA_MODULE_LOADING"] = "AUTO"
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
     # Set prometheus env vars
     if server_args.enable_metrics:
@@ -141,12 +142,13 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
 
     async def release_memory_occupation(self, tags: Optional[List[str]] = None):
         """Release GPU occupation temporarily."""
+        print(f"release_memory_occupation with tags: {tags}")
         obj = ReleaseMemoryOccupationReqInput(tags=tags)
         return await self.tokenizer_manager.release_memory_occupation(obj, None)
 
     async def resume_memory_occupation(self, tags: Optional[List[str]] = None):
         """Resume GPU occupation."""
-
+        print(f"resume_memory_occupation with tags: {tags}")
         # because __init__ is a sync method, it can not call the async release_memory_occupation
         # have to move release_memory_occupation from __init__ to here
         if self._need_reload:

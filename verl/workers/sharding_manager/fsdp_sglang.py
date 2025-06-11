@@ -140,18 +140,18 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             torch.cuda.set_rng_state(self.torch_random_states)
 
     async def update_weights(self, params):
+        log_gpu_memory_usage("Before resume_memory_occupation in update_weights", logger=logger)
         if self.device_mesh["infer_tp"].get_local_rank() == 0:
+            # await self.inference_engine.resume_memory_occupation()
             if self.multi_stage_wake_up:
-                print("resume_memory_occupation weights")
                 await self.inference_engine.resume_memory_occupation(tags=["weights"])
-                print("resume_memory_occupation weights done")
+                # just try resume them separately, but it will fail with 
+                # [torch_memory_saver.cpp] CUresult error  result=1 file=csrc/torch_memory_saver.cpp func=resume
+                await self.inference_engine.resume_memory_occupation(tags=["kv_cache"])
             else:
                 await self.inference_engine.resume_memory_occupation()
 
-        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.multi_stage_wake_up:
-            print("resume_memory_occupation kv_cache")
-            await self.inference_engine.resume_memory_occupation(tags=["kv_cache"])
-            print("resume_memory_occupation kv_cache done")
+        log_gpu_memory_usage("After resume_memory_occupation in update_weights", logger=logger)
 
         # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
         named_tensors = [(k, v) for k, v in params.items()]
@@ -185,8 +185,9 @@ class FSDPSGLangShardingManager(BaseShardingManager):
     async def release_memory(self):
         if self.device_mesh["infer_tp"].get_local_rank() == 0:
             if self.multi_stage_wake_up:
-                await self.inference_engine.release_memory_occupation(tags=["weights"])
+                print("release_memory_occupation kv_cache")
                 await self.inference_engine.release_memory_occupation(tags=["kv_cache"])
+                await self.inference_engine.release_memory_occupation(tags=["weights"])
             else:
                 await self.inference_engine.release_memory_occupation()
 
