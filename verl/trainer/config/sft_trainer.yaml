@@ -34,6 +34,7 @@ model:
   external_lib: null
   enable_gradient_checkpointing: False
   trust_remote_code: False
+  lora_adapter: null # LoRA Adapter path. Default: null. If specified, config.json will override lora_rank, lora_alpha, and target_modules.
   lora_rank: 0  # Set to positive value to enable LoRA (e.g., 32)
   lora_alpha: 16  # LoRA scaling factor
   target_modules: all-linear  # Target modules for LoRA adaptation
@@ -56,6 +57,7 @@ trainer:
   experiment_name: test
   total_epochs: 4
   total_training_steps: null
+  skip_steps: 0 # Number of iterations to skip, useful for resuming training or debugging
   logger: [ 'console', 'wandb' ]
   seed: 1
 

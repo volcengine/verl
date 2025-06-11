@@ -118,6 +118,9 @@ actor_rollout_ref:
     # Whether to remove padding tokens in inputs during training
     use_remove_padding: false
     
+    # LoRA Adapter path. Default: null. If specified, config.json will override lora_rank, lora_alpha, and target_modules.
+    lora_adapter: null
+
     # Set to positive value to enable LoRA (e.g., 32)
     lora_rank: 0
     
@@ -743,6 +746,9 @@ trainer:
 
   # Total training steps (can be set explicitly or derived from epochs)
   total_training_steps: null
+
+  # Number of iterations to skip, useful for resuming training or debugging
+  skip_steps: 0
 
   # Project name for experiment tracking (e.g., wandb)
   project_name: verl_examples
