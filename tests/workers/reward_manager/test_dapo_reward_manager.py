@@ -1,8 +1,8 @@
 import asyncio
-from types import SimpleNamespace
 
 import numpy as np
 import torch
+from omegaconf import OmegaConf
 from transformers import AutoTokenizer
 
 from verl import DataProto
@@ -30,7 +30,7 @@ def test_dapo_reward_manager():
             "data_source": np.array(["source1", "source2"], dtype=object),
         }
     )
-    overlong_buffer_cfg = SimpleNamespace(enable=True, len=10, penalty_factor=1.0, log=False)
+    overlong_buffer_cfg = OmegaConf.create({"enable": True, "len": 10, "penalty_factor": 1.0, "log": False})
 
     manager = DAPORewardManager(tokenizer, 0, compute_score, max_resp_len=20, overlong_buffer_cfg=overlong_buffer_cfg, return_dict=False)
     reward = manager(data)
@@ -49,7 +49,7 @@ def test_async_dapo_reward_manager():
             "data_source": np.array(["source1", "source2"], dtype=object),
         }
     )
-    overlong_buffer_cfg = SimpleNamespace(enable=True, len=10, penalty_factor=1.0, log=False)
+    overlong_buffer_cfg = OmegaConf.create({"enable": True, "len": 10, "penalty_factor": 1.0, "log": False})
 
     manager = DAPORewardManager(tokenizer, 0, async_compute_score, max_resp_len=20, overlong_buffer_cfg=overlong_buffer_cfg, return_dict=False)
     reward = manager(data)
