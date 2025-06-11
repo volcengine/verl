@@ -119,4 +119,4 @@ def log_with_rank(message: str, rank, logger: logging.Logger, level=logging.INFO
         log_only_rank_0 (bool, optional): If True, only log for rank 0. Defaults to False.
     """
     if not log_only_rank_0 or rank == 0:
-        logger.log(level, f"[Rank {rank}] {message}", flush=True)
+        logger.log(level, f"[Rank {rank}] {message}")
