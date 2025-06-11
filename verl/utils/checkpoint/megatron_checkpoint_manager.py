@@ -39,8 +39,8 @@ from verl.utils.megatron_utils import (
 from .checkpoint_manager import BaseCheckpointManager
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))
 
 
 class MegatronCheckpointManager(BaseCheckpointManager):
