@@ -1,7 +1,8 @@
 {
-    "mcp_servers": {
+    "mcpServers": {
         "Tavily Expert": {
-            "url": "https://tavily.api.tadata.com/mcp/tavily/concern-research-minibus-mtkjj3"
+            "url": "https://tavily.api.tadata.com/mcp/tavily/concern-research-minibus-mtkjj3",
+            "auth_token": "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"
         }
     }
 }

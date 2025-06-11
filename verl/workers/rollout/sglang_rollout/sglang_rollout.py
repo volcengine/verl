@@ -47,7 +47,6 @@ from verl.tools.schemas import (
     OpenAIFunctionToolCall,
 )
 from verl.tools.utils.mcp_clients.McpClientManager import ClientManager
-from verl.tools.utils.mcp_clients.utils import add_mcp_tools
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.net_utils import is_ipv6
@@ -287,7 +286,7 @@ class SGLangRollout(BaseRollout):
         if self._tp_rank == 0:
             self._engine.release_memory_occupation()
         self.is_sleep = True
-        
+
     def _init_sampling_params(self, **kwargs):
         kwargs = dict(
             n=1,
@@ -302,7 +301,6 @@ class SGLangRollout(BaseRollout):
                 kwargs[k] = self.config.get(k)
         self.sampling_params = kwargs
 
-        
     def _initialize_tools(self, config, tokenizer):
         """Initialize tools from configuration.
 
@@ -356,13 +354,13 @@ class SGLangRollout(BaseRollout):
                 use_mcp = tool_config.config.use_mcp if "use_mcp" in tool_config.config else False
                 if use_mcp:
                     mcp_servers_config_path = tool_config.mcp.mcp_servers_config_path
-                    tool_selected_list = tool_config.mcp.tool_selected_list
-                    await ClientManager.initialize(mcp_servers_config_path)
+                    tool_selected_list = tool_config.mcp.tool_selected_list if "tool_selected_list" in tool_config.mcp else None
+                    await ClientManager.initialize(mcp_servers_config_path, tool_config.config.rate_limit)
                     # Wait for MCP client to be ready
                     max_retries = 10
                     retry_interval = 2  # seconds
                     for i in range(max_retries):
-                        tool_schemas = await add_mcp_tools(tool_selected_list)
+                        tool_schemas = await ClientManager.fetch_tool_schemas(tool_selected_list)
                         if tool_schemas:
                             break
                         if i < max_retries - 1:

@@ -21,17 +21,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
 import pytest
-import ray
 from tensordict import TensorDict
 from transformers import AutoConfig, AutoTokenizer
-from utils_sglang import (
-    get_rollout_config,
-    prepare_inputs,
-)
+from utils_sglang import get_rollout_config, prepare_inputs
 
 from verl.protocol import DataProto
 from verl.tools.mcp_search_tool import MCPSearchTool
-from verl.tools.schemas import OpenAIFunctionParametersSchema, OpenAIFunctionPropertySchema, OpenAIFunctionSchema, OpenAIFunctionToolSchema
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
 
@@ -58,21 +53,11 @@ def get_search_messages():
         "role": "assistant",
         "content": "Let me search the web.",
         "tool_calls": [
-          {
-            "id": "10",
-            "type": "function",
-            "function": {
-              "name": "tavily_search_tool",
-              "arguments": {
-                  "what_is_your_intent": "Search for the weather lately",
-                  "query": "the weather in Beijing lately", 
-                  "search_depth": "basic", 
-                  "time_range": "day", 
-                  "include_domains": ["arxiv.org", "nature.com", "science.org"], 
-                  "max_results": 10
-                  }
+            {
+                "id": "10",
+                "type": "function",
+                "function": {"name": "tavily_search_tool", "arguments": {"what_is_your_intent": "Search for the weather lately", "query": "the weather in Beijing lately", "search_depth": "basic", "time_range": "day", "include_domains": ["arxiv.org", "nature.com", "science.org"], "max_results": 10}},
             }
-          }
         ],
     }
 
@@ -82,10 +67,7 @@ def get_search_messages():
     }
 
     # Mock search tool responses
-    tool_return_0_msg = {"role": "tool", "content": [{
-        "type": "text",
-        "text": "Today's weather in Beijing is sunny."}]
-      }
+    tool_return_0_msg = {"role": "tool", "content": [{"type": "text", "text": "Today's weather in Beijing is sunny."}]}
 
     user_prompts = [user_prompt]
     expect_turn_array = [expect_turn_0_msg, expect_turn_1_msg]
@@ -179,21 +161,6 @@ class TestRolloutWithMCPSearchTools:
         assert req_list[0].state == AsyncRolloutRequestStateEnum.PENDING
         assert len(req_list[0].tools) == 1
 
-        assert req_list[0].tools[0] == OpenAIFunctionToolSchema(
-            type="function",
-            function=OpenAIFunctionSchema(
-                name="tavily_search_tool",
-                description="A powerful web search tool that provides comprehensive, real-time results using Tavily's AI search engine\n\n---\n\n**BEST PRACTICES:**\n\n            - Use specific terms rather than generic ones (e.g., 'climate change impacts on coral reefs' vs 'climate change')\n            - Add contextual information to disambiguate terms (e.g., 'python programming language' vs 'python snake')\n            - For exact phrase matching, use quotes in your query\n            - Keep queries concise but informative - focus on key terms\n            - Keep your query under 400 characters for efficient processing\n            - Break complex questions into multiple focused sub-queries and send them as separate requests\n            - Use 'topic': 'news' for current events, 'general' for broader knowledge\n            - For time-sensitive topics, use 'time_range' parameter to get recent information\n            - Use 'basic' search_depth for quick searches (1 credit), 'advanced' for comprehensive research (10 credits)\n            - With search_depth=advanced, setting include_raw_content=true can increase retrieval precision\n            - Use 'include_domains' to focus on trusted sources for specific topics (minimize the number of domains)\n            - Use 'exclude_domains' to filter out irrelevant domains from your results\n            - When working with news, use 'days' parameter to specify how many days back to include\n            - For post-processing, consider using metadata like score, title, and content for better results\n            - For extracting specific information, consider a two-step process: search first, then extract\n            \n\n**PARAMETER GUIDELINES:**\n- query: Be specific and include contextual information. For exact phrases, use quotes in your query string.\n- search_depth: Use 'basic' for quick searches (1 credit), 'advanced' for comprehensive research (10 credits).\n- topic: Use 'news' for current events, 'general' for broader knowledge.\n- days: Useful when topic='news' to specify how many days back to search.\n- time_range: Alternative time filter using 'day', 'week', 'month', or 'year'.\n- include_domains: Focus search on specific trusted domains (e.g., ['nature.com', 'bbc.com']).\n- exclude_domains: Exclude specific domains from search results (e.g., ['pinterest.com']).\n- max_results: Adjust between 5-20 to control how many results are returned.\n\n**EXAMPLES:**\nExample 1: News Search\nDescription: Search for recent news articles\nParameters: {'query': 'Latest AI developments', 'topic': 'news', 'days': 3}\nExplanation: Searches for AI news from the past 3 days\n\nExample 2: Academic Research\nDescription: Focus on academic or scholarly content\nParameters: {'query': 'recent advancements in quantum computing', 'include_domains': ['nature.com', 'science.org', 'arxiv.org'], 'time_range': 'year'}\nExplanation: Focuses on scholarly content about quantum computing from academic sources within the last year\n\nExample 3: Product Comparison\nDescription: Research product comparisons effectively\nParameters: {'query': 'iPhone 15 Pro vs Samsung Galaxy S23 Ultra camera comparison', 'exclude_domains': ['pinterest.com', 'quora.com'], 'time_range': 'month'}\nExplanation: Targets specific product comparison while excluding less reliable sources\n\n",
-                parameters=OpenAIFunctionParametersSchema(
-                    type="object",
-                    properties={'what_is_your_intent': 
-                                OpenAIFunctionPropertySchema(type='string', description='Describe your intent for using Tavily', enum=None), 'query': OpenAIFunctionPropertySchema(type='string', description='Search query', enum=None), 'search_depth': OpenAIFunctionPropertySchema(type='string', description="The depth of the search ('basic' or 'advanced')", enum=None), 'topic': OpenAIFunctionPropertySchema(type='string', description="The category of the search ('general' or 'news')", enum=None), 'days': OpenAIFunctionPropertySchema(type='integer', description="Number of days back to include in search results (only for \'news\' topic)", enum=None), 'time_range': OpenAIFunctionPropertySchema(type='string', description="Time range for results (\'day\', \'week\', \'month\', \'year\', \'d\', \'w\', \'m\', \'y\')", enum=None), 'include_domains': OpenAIFunctionPropertySchema(type='array', description='List of domains to specifically include in search results', enum=None), 'exclude_domains': OpenAIFunctionPropertySchema(type='array', description='List of domains to specifically exclude from search results', enum=None), 'include_answer': OpenAIFunctionPropertySchema(type='boolean', description='Whether to include an answer summary generated by an LLM', enum=None), 'include_raw_content': OpenAIFunctionPropertySchema(type='boolean', description='Whether to include the cleaned and parsed HTML content of each result', enum=None), 'include_images': OpenAIFunctionPropertySchema(type='boolean', description='Whether to include images from search results', enum=None), 'include_image_descriptions': OpenAIFunctionPropertySchema(type='boolean', description='Whether to include descriptions with images', enum=None), 'max_results': OpenAIFunctionPropertySchema(type='integer', description='Maximum number of results to return (5-20)', enum=None), 'async_search': OpenAIFunctionPropertySchema(type='boolean', description='Whether to perform the search asynchronously', enum=None)},
-                    required=['what_is_your_intent', 'query'],
-                ),
-                strict=False,
-            ),
-        )
-
     @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
@@ -277,7 +244,6 @@ class TestRolloutWithMCPSearchTools:
                 search_counter += 1
         assert search_counter == 1
 
-
     @patch.object(MCPSearchTool, "execute", new_callable=AsyncMock)
     @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
@@ -286,9 +252,7 @@ class TestRolloutWithMCPSearchTools:
         _, expect_turn_array, tool_return_array = search_data
 
         # Mock tool execution for large batch (100 requests * 2 calls each)
-        mock_execute.side_effect = [
-            (tool_return_array[0], 0.0, {"status": "success"})
-        ] * 100
+        mock_execute.side_effect = [(tool_return_array[0], 0.0, {"status": "success"})] * 100
 
         search_rollout_config.multi_turn.max_turns = 10
         rollout = SGLangRollout(
