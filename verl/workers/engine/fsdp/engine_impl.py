@@ -65,16 +65,16 @@ class EngineEvalModeCtx:
     def __enter__(self):
         self.engine.mode = "eval"
         if self.engine._is_offload_param:
-            load_fsdp_model_to_gpu(self.engine.critic_module)
+            load_fsdp_model_to_gpu(self.engine.module)
 
         self.engine.ulysses_sharding_manager.__enter__()
-        self.engine.critic_module.eval()
+        self.engine.module.eval()
 
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
         if self.engine._is_offload_param:
-            offload_fsdp_model_to_cpu(self.engine.critic_module)
+            offload_fsdp_model_to_cpu(self.engine.module)
         self.engine.mode = None
         
 
@@ -86,21 +86,21 @@ class EngineTrainModeCtx:
     def __enter__(self):
         self.engine.mode = "train"
         if self.engine._is_offload_param:
-            load_fsdp_model_to_gpu(self.engine.critic_module)
+            load_fsdp_model_to_gpu(self.engine.module)
         if self.engine._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.engine.critic_optimizer, device_id=get_torch_device().current_device())
+            load_fsdp_optimizer(optimizer=self.engine.optimizer, device_id=get_torch_device().current_device())
 
         self.engine.ulysses_sharding_manager.__enter__()
-        self.engine.critic_module.train()
+        self.engine.module.train()
 
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
 
         if self.engine._is_offload_param:
-            offload_fsdp_model_to_cpu(self.engine.critic_module)
+            offload_fsdp_model_to_cpu(self.engine.module)
         if self.engine._is_offload_optimizer:
-            offload_fsdp_optimizer(optimizer=self.critic_optimizer)
+            offload_fsdp_optimizer(optimizer=self.optimizer)
         self.engine.mode = None
 
 
@@ -133,25 +133,25 @@ class FSDPEngine(object):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
 
-        self.critic_module, self.critic_optimizer, self.critic_lr_scheduler = self._build_critic_model_optimizer(self.config)
+        self.module, self.optimizer, self.lr_scheduler = self._build_model_optimizer(self.config)
 
         if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.critic_module)
-            log_gpu_memory_usage("After offload critic model during init", logger=logger)
+            offload_fsdp_model_to_cpu(self.module)
+            log_gpu_memory_usage("After offload model during init", logger=logger)
         if self._is_offload_optimizer:
-            offload_fsdp_optimizer(optimizer=self.critic_optimizer)
-            log_gpu_memory_usage("After offload critic optimizer during init", logger=logger)
+            offload_fsdp_optimizer(optimizer=self.optimizer)
+            log_gpu_memory_usage("After offload optimizer during init", logger=logger)
 
-        self.flops_counter = FlopsCounter(self.critic_model_config)
+        self.flops_counter = FlopsCounter(self.model_config)
         self.checkpoint_manager = FSDPCheckpointManager(
-            model=self.critic_module,
-            optimizer=self.critic_optimizer,
-            lr_scheduler=self.critic_lr_scheduler,
+            model=self.module,
+            optimizer=self.optimizer,
+            lr_scheduler=self.lr_scheduler,
             processing_class=self.processor if self.processor is not None else self.tokenizer,
             checkpoint_contents=self.config.checkpoint.contents,
         )
     
-    def _build_critic_model_optimizer(self, config):
+    def _build_model_optimizer(self, config):
         # the following line is necessary
         from torch import optim
         from torch.distributed.fsdp import MixedPrecision
@@ -178,51 +178,51 @@ class FSDPEngine(object):
         }
         override_config_kwargs.update(override_config)
         if self.rank == 0:
-            print(f"Critic overriding config {override_config_kwargs}")
+            print(f"Overriding config {override_config_kwargs}")
 
         torch_dtype = self.config.model.fsdp_config.get("model_dtype", "fp32")
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         from transformers import AutoConfig, AutoModelForTokenClassification
 
-        critic_model_config = AutoConfig.from_pretrained(local_path, attn_implementation="flash_attention_2", trust_remote_code=config.model.get("trust_remote_code", False))
-        critic_model_config.num_labels = 1
+        model_config = AutoConfig.from_pretrained(local_path, attn_implementation="flash_attention_2", trust_remote_code=config.model.get("trust_remote_code", False))
+        model_config.num_labels = 1
         # patch for kimi-vl
-        if getattr(critic_model_config, "model_type", None) == "kimi_vl":
-            critic_model_config.text_config.topk_method = "greedy"
+        if getattr(model_config, "model_type", None) == "kimi_vl":
+            model_config.text_config.topk_method = "greedy"
 
-        init_context = get_init_weight_context_manager(use_meta_tensor=not critic_model_config.tie_word_embeddings, mesh=self.device_mesh)
+        init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings, mesh=self.device_mesh)
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            critic_model_config.classifier_dropout = 0.0
-            critic_model_config.hidden_dropout = "0"
-            critic_model_config.summary_dropout_prob = 0.0
+            model_config.classifier_dropout = 0.0
+            model_config.hidden_dropout = "0"
+            model_config.summary_dropout_prob = 0.0
 
-            critic_module = load_valuehead_model(
+            module = load_valuehead_model(
                 local_path,
                 torch_dtype,
-                critic_model_config,
+                model_config,
                 config.model.get("trust_remote_code", False),
             )
 
             use_remove_padding = config.model.get("use_remove_padding", False)
 
             apply_monkey_patch(
-                model=critic_module,
+                model=module,
                 use_remove_padding=use_remove_padding,
                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
             )
 
             # some parameters may not in torch_dtype
-            critic_module.to(torch_dtype)
+            module.to(torch_dtype)
 
             if config.model.get("enable_gradient_checkpointing", False):
-                critic_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+                module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
         if self._is_lora:
-            print("Applying LoRA to critic module")
-            critic_module.enable_input_require_grads()
+            print("Applying LoRA to module")
+            module.enable_input_require_grads()
             # Convert config to regular Python types before creating PEFT model
             lora_config = {
                 "task_type": TaskType.CAUSAL_LM,
@@ -231,12 +231,12 @@ class FSDPEngine(object):
                 "target_modules": convert_to_regular_types(self.config.model.target_modules),
                 "bias": "none",
             }
-            critic_module = get_peft_model(critic_module, LoraConfig(**lora_config))
+            module = get_peft_model(module, LoraConfig(**lora_config))
 
         if self.rank == 0:
-            print_model_size(critic_module)
+            print_model_size(module)
 
-        self.critic_model_config = critic_model_config
+        self.model_config = model_config
 
         fsdp_config = self.config.model.fsdp_config
         mixed_precision_config = fsdp_config.get("mixed_precision", None)
@@ -251,17 +251,17 @@ class FSDPEngine(object):
 
         mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
 
-        auto_wrap_policy = get_fsdp_wrap_policy(module=critic_module, config=self.config.model.fsdp_config.wrap_policy, is_lora=self.config.model.get("lora_rank", 0) > 0)
+        auto_wrap_policy = get_fsdp_wrap_policy(module=module, config=self.config.model.fsdp_config.wrap_policy, is_lora=self.config.model.get("lora_rank", 0) > 0)
 
-        log_gpu_memory_usage("Before critic FSDP", logger=None)
+        log_gpu_memory_usage("Before FSDP", logger=None)
 
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
-        # Note: We force turn off CPUOffload for critic because it causes incorrect results when using grad accumulation
+        # Note: We force turn off CPUOffload because it causes incorrect results when using grad accumulation
         if config.strategy == "fsdp":
-            critic_module = FSDP(
-                critic_module,
+            module = FSDP(
+                module,
                 param_init_fn=init_fn,
                 use_orig_params=False,
                 auto_wrap_policy=auto_wrap_policy,
@@ -288,20 +288,20 @@ class FSDPEngine(object):
                 "offload_policy": offload_policy,
                 "reshard_after_forward": fsdp_config.reshard_after_forward,
             }
-            full_state = critic_module.state_dict()
-            apply_fsdp2(critic_module, fsdp_kwargs, fsdp_config)
-            fsdp2_load_full_state_dict(critic_module, full_state, fsdp_mesh, offload_policy)
+            full_state = module.state_dict()
+            apply_fsdp2(module, fsdp_kwargs, fsdp_config)
+            fsdp2_load_full_state_dict(module, full_state, fsdp_mesh, offload_policy)
         else:
             raise NotImplementedError(f"Unknown strategy {config.strategy}")
 
         if config.model.get("enable_activation_offload", False):
             enable_gradient_checkpointing = config.model.get("enable_gradient_checkpointing", False)
-            enable_activation_offloading(critic_module, config.strategy, enable_gradient_checkpointing)
+            enable_activation_offloading(module, config.strategy, enable_gradient_checkpointing)
 
-        log_gpu_memory_usage("After critic FSDP", logger=None)
+        log_gpu_memory_usage("After FSDP", logger=None)
 
-        critic_optimizer = optim.AdamW(
-            critic_module.parameters(),
+        optimizer = optim.AdamW(
+            module.parameters(),
             lr=config.optim.lr,
             betas=config.optim.get("betas", (0.9, 0.999)),
             weight_decay=config.optim.get("weight_decay", 1e-2),
@@ -320,13 +320,13 @@ class FSDPEngine(object):
         from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 
         if warmup_style == "constant":
-            critic_lr_scheduler = get_constant_schedule_with_warmup(optimizer=critic_optimizer, num_warmup_steps=num_warmup_steps)
+            lr_scheduler = get_constant_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=num_warmup_steps)
         elif warmup_style == "cosine":
-            critic_lr_scheduler = get_cosine_schedule_with_warmup(optimizer=critic_optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=total_steps)
+            lr_scheduler = get_cosine_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=total_steps)
         else:
             raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
 
-        return critic_module, critic_optimizer, critic_lr_scheduler
+        return module, optimizer, lr_scheduler
 
 
     def train_mode(self):
@@ -359,7 +359,7 @@ class FSDPEngine(object):
 
         inputs, ctx = self.preprocess_fn(batch, ctx)
         inputs["use_cache"] = False
-        outputs = self.critic_module(**inputs)
+        outputs = self.module(**inputs)
         preds, ctx = self.postprocess_fn(outputs, ctx)
         if forward_only:
             return preds, ctx
@@ -370,31 +370,31 @@ class FSDPEngine(object):
 
 
     def optimizer_zero_grad(self):
-        self.critic_optimizer.zero_grad()
+        self.optimizer.zero_grad()
 
 
     def optimizer_step(self):
         assert self.config.grad_clip is not None
 
-        if isinstance(self.critic_module, FSDP):
-            grad_norm = self.critic_module.clip_grad_norm_(self.config.grad_clip)
-        elif isinstance(self.critic_module, FSDPModule):
-            grad_norm = fsdp2_clip_grad_norm_(self.critic_module.parameters(), max_norm=self.config.grad_clip)
+        if isinstance(self.module, FSDP):
+            grad_norm = self.module.clip_grad_norm_(self.config.grad_clip)
+        elif isinstance(self.module, FSDPModule):
+            grad_norm = fsdp2_clip_grad_norm_(self.module.parameters(), max_norm=self.config.grad_clip)
         else:
-            grad_norm = torch.nn.utils.clip_grad_norm_(self.critic_module.parameters(), max_norm=self.config.grad_clip)
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.module.parameters(), max_norm=self.config.grad_clip)
 
         # if grad_norm is not finite, skip the update
         if not torch.isfinite(grad_norm):
             print(f"WARN: grad_norm is not finite: {grad_norm}")
-            self.critic_optimizer.zero_grad()
+            self.optimizer.zero_grad()
         else:
-            self.critic_optimizer.step()
+            self.optimizer.step()
         return grad_norm
 
 
     def lr_scheduler_step(self):
-        self.critic_lr_scheduler.step()
-        lr = self.critic_lr_scheduler.get_last_lr()
+        self.lr_scheduler.step()
+        lr = self.lr_scheduler.get_last_lr()
         return lr
 
 
@@ -444,26 +444,26 @@ class FSDPEngine(object):
 
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.critic_module)
+            load_fsdp_model_to_gpu(self.module)
 
         self.checkpoint_manager.save_checkpoint(local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep)
 
         torch.distributed.barrier()
         if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.critic_module)
+            offload_fsdp_model_to_cpu(self.module)
 
 
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
         import torch
 
         if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.critic_module)
+            load_fsdp_model_to_gpu(self.module)
 
         self.checkpoint_manager.load_checkpoint(local_path=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load)
 
         torch.distributed.barrier()
         if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.critic_module)
+            offload_fsdp_model_to_cpu(self.module)
 
         if self._is_offload_optimizer:
-            offload_fsdp_optimizer(self.critic_optimizer)
+            offload_fsdp_optimizer(self.optimizer)

@@ -36,33 +36,7 @@ from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
-from verl.utils import hf_processor, hf_tokenizer
-from verl.utils.activation_offload import enable_activation_offloading
-from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.debug import log_gpu_memory_usage
-from verl.utils.debug.performance import _timer, reduce_timing
-from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
-from verl.utils.flops_counter import FlopsCounter
-from verl.utils.fs import copy_to_local
-from verl.utils.fsdp_utils import (
-    CPUOffloadPolicy,
-    MixedPrecisionPolicy,
-    apply_fsdp2,
-    fsdp2_load_full_state_dict,
-    fsdp_version,
-    get_fsdp_wrap_policy,
-    get_init_weight_context_manager,
-    init_fn,
-    layered_summon_lora_params,
-    load_fsdp_model_to_gpu,
-    load_fsdp_optimizer,
-    offload_fsdp_model_to_cpu,
-    offload_fsdp_optimizer,
-)
-from verl.utils.import_utils import import_external_libs
-from verl.utils.model import compute_position_id_with_mask
-from verl.utils.py_functional import convert_to_regular_types
-from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from verl.utils.device import get_torch_device, is_cuda_available, is_npu_available
 from verl.trainer.ppo import core_algos
 from verl.workers.engine.fsdp import FSDPEngine
 from verl.utils.seqlen_balancing import (get_reverse_idx,
@@ -72,7 +46,6 @@ import itertools
 from verl.utils.torch_functional import masked_mean
 from verl.utils.ulysses import (gather_outpus_and_unpad,
                                 ulysses_pad_and_slice_inputs)
-from verl.workers.critic import BasePPOCritic
 from verl.utils.py_functional import append_to_dict
 
 if is_cuda_available:
@@ -85,8 +58,6 @@ elif is_npu_available:
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-device_name = get_device_name()
-
 
 
 
@@ -98,25 +69,7 @@ class CriticWorker(Worker):
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend="nccl" if is_cuda_available else "hccl")
         self.config = config
-
-        # # build device mesh for Ulysses Sequence Parallel
-        # world_size = torch.distributed.get_world_size()
-        # from torch.distributed.device_mesh import init_device_mesh
-
-        # fsdp_size = self.config.model.fsdp_config.fsdp_size
-        # self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=fsdp_size)
-
-        # self.ulysses_device_mesh = None
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
-        # dp = world_size // self.ulysses_sequence_parallel_size
-        # if self.ulysses_sequence_parallel_size > 1:
-        #     self.ulysses_device_mesh = init_device_mesh(device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"])
-
-        # self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
-
-        # # set FSDP offload params
-        # self._is_offload_param = self.config.model.fsdp_config.param_offload
-        # self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
 
         # normalize config
         self.config.ppo_mini_batch_size *= self.config.rollout_n
@@ -130,10 +83,8 @@ class CriticWorker(Worker):
         if self.config.ppo_micro_batch_size_per_gpu is not None:
             assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0, f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be divisible by ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
             assert self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu > 0, f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be larger than ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
-        # self._is_lora = self.config.model.get("lora_rank", 0) > 0
 
         self.engine = FSDPEngine(self.config)
-        self.device_name = get_device_name()
 
         def loss_fn(batch, vpreds, ctx):
             responses = batch["responses"]
@@ -308,7 +259,7 @@ class CriticWorker(Worker):
 
                 with torch.no_grad():
                     # TODO: should not access module in the engine
-                    use_value_head_model = hasattr(self.engine.critic_module, "v_head")
+                    use_value_head_model = hasattr(self.engine.module, "v_head")
                     ctx = {"use_value_head_model": use_value_head_model}
                     values, ctx = self.engine.forward_backward_step(micro_batch, ctx, forward_only=True)
 
@@ -382,7 +333,7 @@ class CriticWorker(Worker):
                                 micro_batch = micro_batch.to(get_torch_device().current_device())  # critic device is cpu when using offload
 
                             # TODO: should not access module in the engine
-                            use_value_head_model = hasattr(self.engine.critic_module, "v_head")
+                            use_value_head_model = hasattr(self.engine.module, "v_head")
                             ctx = {"use_value_head_model": use_value_head_model,
                                 'data_size': len(micro_batch)}
                             vpreds, loss, metric = self.engine.forward_backward_step(micro_batch, ctx, forward_only=False)
@@ -414,5 +365,4 @@ class CriticWorker(Worker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
         self.engine.load_checkpoint(local_path, hdfs_path, del_local_after_load)
-        raise ValueError
 
