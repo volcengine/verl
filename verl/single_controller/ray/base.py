@@ -741,7 +741,8 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
                 return local_params
             else:
                 self.tmp_params = params
-        
+
+        @ray.method(tensor_transport="NCCL")
         def gather_params(self, *args, **kwargs):
             try:
                 # for torch 2.5+
@@ -779,35 +780,37 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
                 else:
                     self.params.append((name, param.to(device)))
 
-            param_metadata_list = []
-            for name, param in self.params:
-                param_metadata_list.append((name, param.shape, param.dtype))
-            return param_metadata_list
+            del self.tmp_params
 
-        def broadcast_params_and_sync_weights(self, param_metadata_list):
+            # param_metadata_list = []
+            # for name, param in self.params:
+            #     param_metadata_list.append((name, param.shape, param.dtype))
+            # return param_metadata_list
+            return self.params
+
+        def broadcast_params_and_sync_weights(self, *args):
             import torch
-            import time
             rank = torch.distributed.get_rank()
             print(f"broadcast_params_and_sync_weights, rank {rank}")
 
-            if rank == 0:
-                del self.tmp_params
+            if rank != 0:
+                self.params = args[0]
 
-            from verl.utils.device import get_torch_device
-            device = get_torch_device().current_device()
+            # from verl.utils.device import get_torch_device
+            # device = get_torch_device().current_device()
 
-            if rank == 0:
-                for name, param in self.params:
-                    assert isinstance(param, torch.Tensor), f"param {name} is not a torch.Tensor, but in params"
-                    torch.distributed.broadcast(param, src=0)
-            else:
-                assert not hasattr(self, "params"), "params should not exist in non-rank 0 before broadcast_params"
-                self.params = []
-                for param_metadata in param_metadata_list:
-                    name, shape, dtype = param_metadata
-                    param = torch.zeros(shape, dtype=dtype, device=device)
-                    torch.distributed.broadcast(param, src=0)
-                    self.params.append((name, param))
+            # if rank == 0:
+            #     for name, param in self.params:
+            #         assert isinstance(param, torch.Tensor), f"param {name} is not a torch.Tensor, but in params"
+            #         torch.distributed.broadcast(param, src=0)
+            # else:
+            #     assert not hasattr(self, "params"), "params should not exist in non-rank 0 before broadcast_params"
+            #     self.params = []
+            #     for param_metadata in param_metadata_list:
+            #         name, shape, dtype = param_metadata
+            #         param = torch.zeros(shape, dtype=dtype, device=device)
+            #         torch.distributed.broadcast(param, src=0)
+            #         self.params.append((name, param))
 
             print(f"broadcast_params_and_sync_weights, rank {rank}, broadcast done, params: {len(self.params)}")
 
@@ -821,6 +824,7 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
             print("broadcast_params_and_sync_weights load_weights")
             model.load_weights(self.params)
             print("broadcast_params_and_sync_weights load_weights done")
+
             del self.params
 
 
