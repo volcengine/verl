@@ -92,6 +92,7 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
                 optim_config=optim_config,
                 override_model_config=override_model_config,
                 use_remove_padding=use_remove_padding,
+                use_fused_kernels=use_fused_kernels,
                 enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False),
                 trust_remote_code=self.config.model.get('trust_remote_code', False),
                 use_liger=self.config.model.get('use_liger', False),
@@ -123,6 +124,7 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
                                                                optim_config=None,
                                                                override_model_config=override_model_config,
                                                                use_remove_padding=use_remove_padding,
+                                                               use_fused_kernels=use_fused_kernels,
                                                                trust_remote_code=self.config.model.get(
                                                                    'trust_remote_code', False),
                                                                use_liger=self.config.model.get('use_liger', False),
