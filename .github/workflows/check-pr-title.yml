@@ -18,6 +18,6 @@ jobs:
           python-version: '3.11'
 
       - name: Run PR title checker
-        run: python3 tests/sanity/check_pr_title.py
+        run: python3 tests/special_sanity/check_pr_title.py
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}

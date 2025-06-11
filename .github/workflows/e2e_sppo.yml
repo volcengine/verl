@@ -27,7 +27,7 @@ on:
       # Entrypoints
       - ".github/workflows/e2e_sppo.yml"
       - "examples/data_preprocess/gsm8k.py"
-      - "tests/e2e/run_sppo.sh"
+      - "tests/special_e2e/run_sppo.sh"
 
 # Declare permissions just read content.
 permissions:
@@ -62,4 +62,4 @@ jobs:
       - name: Running the E2E test with the SPPO algorithm
         run: |
           ray stop --force
-          bash tests/e2e/run_sppo.sh
+          bash tests/special_e2e/run_sppo.sh

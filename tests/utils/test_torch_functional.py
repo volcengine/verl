@@ -12,116 +12,92 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 import pytest
 import torch
-from flash_attn.bert_padding import unpad_input
+import torch.distributed as dist
+import torch.multiprocessing as mp
 
-from verl.utils.model import create_random_mask
-
-
-def test_log_probs_from_logits_response_rmpad():
-    from verl.utils.torch_functional import log_probs_from_logits_response, log_probs_from_logits_response_rmpad
-
-    vocab_size = 32000
-    batch_size = 2
-    prompt_length = 256
-    response_length = 256
-
-    input_ids = torch.randint(low=0, high=vocab_size, size=(batch_size, prompt_length + response_length), device="cuda")
-    attention_mask = create_random_mask(input_ids=input_ids, max_ratio_of_left_padding=0.2, max_ratio_of_valid_token=0.8, min_ratio_of_valid_token=0.6)
-
-    response_mask = attention_mask[:, -response_length:]
-
-    assert torch.all(response_mask[:, 0] == 1)
-
-    logits = torch.randn(batch_size, prompt_length + response_length, vocab_size, device="cuda")
-    logits_rmpad = unpad_input(logits, attention_mask)[0]
-
-    expected_output = log_probs_from_logits_response(input_ids=input_ids, logits=logits, response_length=response_length)
-    actual_output = log_probs_from_logits_response_rmpad(input_ids=input_ids, attention_mask=attention_mask, logits_rmpad=logits_rmpad, response_length=response_length)
-
-    # This should bitwise align as only this operation only contains gather operators
-    assert torch.all(torch.eq(actual_output * response_mask, expected_output * response_mask))
+from verl.utils.torch_functional import distributed_masked_mean, distributed_mean_max_min_std
 
 
-@pytest.mark.parametrize("dtype", [torch.float64, torch.float32, torch.float16, torch.bfloat16])
-def test_logprobs_from_logits_v2(dtype):
-    from verl.utils.torch_functional import logprobs_from_logits_naive, logprobs_from_logits_v2
+def _worker_mean(rank: int, world_size: int, rendezvous_file: str):
+    # 1) set GPU and init NCCL
+    torch.cuda.set_device(rank)
+    dist.init_process_group(
+        backend="nccl",
+        init_method=f"file://{rendezvous_file}",
+        rank=rank,
+        world_size=world_size,
+    )
 
-    vocab_size = 32000
-    batch_size = 2
-    seq_len = 512
+    # each rank holds tensor [rank+1]
+    local = torch.tensor([float(rank + 1)], device=f"cuda:{rank}")
+    mean, gmax, gmin, gstd = distributed_mean_max_min_std(local, True, True, True)
 
-    labels = torch.randint(low=0, high=vocab_size, size=(batch_size, seq_len), device="cuda")
-    logits = torch.randn(batch_size, seq_len, vocab_size, device="cuda", dtype=dtype)
+    values = [float(i + 1) for i in range(world_size)]
+    exp_mean = sum(values) / len(values)
+    exp_max = max(values)
+    exp_min = min(values)
+    var = sum((x - exp_mean) ** 2 for x in values) / (len(values) - 1)
+    exp_std = var**0.5
 
-    expected_output = logprobs_from_logits_naive(labels=labels, logits=logits)
-    actual_output = logprobs_from_logits_v2(labels=labels, logits=logits)
+    # all ranks should see the same result
+    assert torch.allclose(mean.cpu(), torch.tensor(exp_mean)), f"mean@{rank}"
+    assert torch.allclose(gmax.cpu(), torch.tensor(exp_max)), f"max@{rank}"
+    assert torch.allclose(gmin.cpu(), torch.tensor(exp_min)), f"min@{rank}"
+    assert torch.allclose(gstd.cpu(), torch.tensor(exp_std)), f"std@{rank}"
 
-    if dtype in [torch.float16, torch.bfloat16]:  # float16 falls back to an exactly equivalent method
-        assert torch.equal(actual_output, expected_output)
-    else:  # small numerical difference when using gather / logsumexp approach
-        torch.testing.assert_close(actual_output, expected_output, rtol=1e-5, atol=1e-5)
+    dist.destroy_process_group()
 
 
-def test_lr_scheduler():
-    from torch import nn
+@pytest.mark.parametrize("world_size", [2, 4])
+def test_distributed_mean_max_min_std(world_size, tmp_path):
+    rendezvous_file = str(tmp_path / "rdzv_mean")
+    os.makedirs(os.path.dirname(rendezvous_file), exist_ok=True)
 
-    model = nn.Linear(10, 10)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    mp.spawn(
+        fn=_worker_mean,
+        args=(world_size, rendezvous_file),
+        nprocs=world_size,
+        join=True,
+    )
 
-    from verl.utils.torch_functional import get_constant_schedule_with_warmup
 
-    constant_lr = get_constant_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=2)
+def _worker_mask(rank: int, world_size: int, rendezvous_file: str):
+    torch.cuda.set_device(rank)
+    dist.init_process_group(
+        backend="nccl",
+        init_method=f"file://{rendezvous_file}",
+        rank=rank,
+        world_size=world_size,
+    )
 
-    lr_lst = []
+    # build per‐rank tensor and mask
+    local_tensor = torch.tensor([rank * 2 + 1.0, rank * 2 + 2.0], device=f"cuda:{rank}")
+    if rank == 0:
+        mask = torch.tensor([1, 0], device=f"cuda:{rank}", dtype=torch.float32)
+    else:
+        mask = torch.tensor([0, 1], device=f"cuda:{rank}", dtype=torch.float32)
 
-    for _ in range(5):
-        lr_lst.append(constant_lr.get_last_lr()[0])
-        constant_lr.step()
+    gmean = distributed_masked_mean(local_tensor, mask)
 
-    torch.testing.assert_close(lr_lst, [0.0, 0.0005, 0.001, 0.001, 0.001])    
+    valid_values = [1.0] + [2 * i + 2.0 for i in range(1, world_size)]
+    expected_mean = sum(valid_values) / len(valid_values)
+    assert torch.allclose(gmean.cpu(), torch.tensor(expected_mean)), f"masked_mean@{rank}"
 
-    from verl.utils.torch_functional import get_cosine_schedule_with_warmup
+    dist.destroy_process_group()
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    cosine_lr = get_cosine_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=2, num_training_steps=5, min_lr_ratio=0.1)
 
-    lr_lst = []
+@pytest.mark.parametrize("world_size", [2, 4])
+def test_distributed_masked_mean(world_size, tmp_path):
+    rendezvous_file = str(tmp_path / "rdzv_mask")
+    os.makedirs(os.path.dirname(rendezvous_file), exist_ok=True)
 
-    for _ in range(5):
-        lr_lst.append(cosine_lr.get_last_lr()[0])
-        cosine_lr.step()
-
-    torch.testing.assert_close(lr_lst, [0.0001, 0.00055, 0.001, 0.0007750000000000002, 0.0003250000000000002])
-
-def test_flash_attn_cross_entropy():
-    import torch
-    from flash_attn.ops.triton.cross_entropy import cross_entropy_loss
-    from torch import nn
-
-    from verl.utils.debug import log_gpu_memory_usage
-    from verl.utils.torch_functional import logprobs_from_logits_naive
-
-    log_gpu_memory_usage("At start")
-
-    hidden_states = torch.randn(size=(2048, 5120), device="cuda", requires_grad=True, dtype=torch.bfloat16)
-
-    linear = nn.Linear(in_features=5120, out_features=155136, bias=False, device="cuda", dtype=torch.bfloat16)
-
-    logits = linear(hidden_states)
-
-    # logits = logits.float()
-    labels = torch.randint(low=0, high=155136, size=(2048,), device="cuda")
-
-    log_gpu_memory_usage("before computation")
-    # output = checkpoint.checkpoint(logprobs_from_logits, logits, labels, use_reentrant=True)
-    output = -cross_entropy_loss(logits, labels)[0]
-    # output = logprobs_from_logits(logits, labels)
-    log_gpu_memory_usage("After forward")
-    output.sum().backward()
-    log_gpu_memory_usage("After backward")
-
-    groundtruth = logprobs_from_logits_naive(logits.float(), labels)
-
-    torch.testing.assert_close(output, groundtruth)
+    mp.spawn(
+        fn=_worker_mask,
+        args=(world_size, rendezvous_file),
+        nprocs=world_size,
+        join=True,
+    )

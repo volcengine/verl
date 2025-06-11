@@ -38,7 +38,7 @@ permissions:
 
 jobs:
   e2e_gsm8k_megatron:
-    runs-on: [self-hosted, gpu]
+    runs-on: [L20x8]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -56,10 +56,8 @@ jobs:
         run: |
           pip3 install hf_transfer
           pip3 install --no-deps -e .[test]
-          pip install --upgrade "ray>=2.40.0"
-      - name: Testing LinearCrossEntropy Correction, Computation Time and Memory Consumption
-        run: |
-          python3 tests/kernels/test_linear_cross_entropy.py
+          pip3 install --upgrade "ray>=2.40.0"
+          pip3 install cupy-cuda12x
       - name: Run all GPU unit tests
         run: |
-          pytest -s -x --ignore=test_rvdz.py --ignore-glob='*on_cpu.py' --ignore-glob='*on_cpu/*' --ignore=tests/utils/gpu_tests/dataset/ --ignore=tests/utils/gpu_tests/checkpoint/ tests/utils/gpu_tests tests/single_controller
+          pytest -s -x --ignore-glob='*on_cpu.py' --ignore-glob="*test_vllm*" --ignore-glob="*test_sglang*" --ignore-glob="tests/models/" --ignore-glob='special*' tests/

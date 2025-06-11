@@ -42,32 +42,8 @@ jobs:
         run: |
           pip install -e .[test,prime]
           pip install --upgrade "ray>=2.40.0"
-      - name: Running data proto test
-        run: |
-          cd tests
-          pytest -s -x test_protocol.py
-      - name: running utils cpu tests
-        run: |
-          cd tests/utils/cpu_tests
-          pytest -s -x .
-      - name: Running trainer tests
-        run: |
-          cd tests/trainer
-          pytest -s -x .
-      - name: Running worker tests
-        run: |
-          cd tests/workers/reward_manager
-          pytest -s -x .
-      - name: Running dataset tests
+      - name: Running CPU unit tests
         run: |
           [ ! -d "$HOME/verl-data" ] && git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/verl-data
           python3 examples/data_preprocess/geo3k.py
-          pytest -s -x tests/utils/gpu_tests/dataset/test_rl_dataset.py
-          pytest -s -x tests/utils/gpu_tests/dataset/test_sft_dataset.py
-      - name: Running ray tests that can be tested on CPU machines
-          cd tests/single_controller
-          pytest -s -x --ignore=test_check_worker_alive_on_cpu.py -k with_cpu .
-      - name: Running sandbox tests
-        run: |
-          cd tests/utils/reward_score
-          pytest -s -x .
+          pytest -s -x -k on_cpu tests/

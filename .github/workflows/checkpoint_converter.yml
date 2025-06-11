@@ -27,7 +27,7 @@ on:
       - ".github/workflows/checkpoint_converter.yml"
       - ".github/workflows/e2e_ppo_trainer_megatron.yml"
       - "examples/data_preprocess/gsm8k.py"
-      - "tests/e2e/run_ppo_trainer_megatron.sh"
+      - "tests/special_e2e/run_ppo_trainer_megatron.sh"
       - "verl/trainer/main_ppo.py"
       - "verl/trainer/config/ppo_megatron_trainer.yaml"
 
@@ -43,7 +43,7 @@ permissions:
 
 jobs:
   checkpoint_converter:
-    runs-on: [self-hosted, gpu]
+    runs-on: [L20x8]
     timeout-minutes: 20 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}

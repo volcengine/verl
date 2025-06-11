@@ -15,9 +15,9 @@ on:
       - "verl/**/*.py"
       # Entrypoints
       - ".github/workflows/model.yml"
-      - "tests/utils/gpu_tests/checkpoint/test_fsdp_ckpt.py"
+      - "tests/utils/checkpoint/test_fsdp_ckpt.py"
       - "tests/models/**"
-      - "tests/distributed/run_all.sh"
+      - "tests/special_distributed/run_all.sh"
 
 # Declare permissions just read content.
 permissions:
@@ -53,7 +53,7 @@ jobs:
           pytest -s tests/models/test_transformer.py
       - name: Running FSDP rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
-          STRATEGY=fsdp torchrun --nproc_per_node=8 tests/utils/gpu_tests/checkpoint/test_fsdp_ckpt.py
+          STRATEGY=fsdp torchrun --nproc_per_node=8 tests/utils/checkpoint/test_fsdp_ckpt.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + latest transformers
         run: |
           torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
@@ -79,7 +79,7 @@ jobs:
           torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Run distributed test
         run: |
-          bash tests/distributed/run_all.sh
+          bash tests/special_distributed/run_all.sh
 
   # TODO: Move this back to model_rmpad once FSDP2 is stable.
   # NOTE: List as an independent job to make rerun easier.
@@ -106,4 +106,4 @@ jobs:
       - name: Running FSDP2 rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
           pip3 install --upgrade flash_attn --no-build-isolation
-          STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/utils/gpu_tests/checkpoint/test_fsdp_ckpt.py
+          STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/special_distributed/test_fsdp_ckpt.py

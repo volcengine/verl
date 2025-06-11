@@ -28,8 +28,8 @@ on:
       - "!**/*sglang*"
       # Entrypoints
       - ".github/workflows/vllm.yml"
-      - "tests/e2e/generation"
-      - "tests/rollout"
+      - "tests/special_e2e/generation"
+      - "tests/workers/rollout"
       - "verl/trainer/main_generation.py"
       - "verl/trainer/config/generation.yaml"
 
@@ -82,13 +82,13 @@ jobs:
           torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_vllm_spmd.py
       - name: Run Qwen 0.5B generation test
         run: |
-          cd tests/e2e/generation
+          cd tests/special_e2e/generation
           export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
           MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=4 GEN_TP=2 bash ./run_gen_qwen05.sh
           rm -rf "${OUTPUT_PATH}"
       - name: Run Qwen 0.5B generation test when world_size == 1
         run: |
-          cd tests/e2e/generation
+          cd tests/special_e2e/generation
           export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
           MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=1 GEN_TP=1 bash ./run_gen_qwen05.sh
           rm -rf "${OUTPUT_PATH}"
@@ -96,3 +96,4 @@ jobs:
         run: |
           pip3 install --upgrade vllm==0.8.3 tensordict==0.7.2
           pytest -svvv tests/workers/rollout/test_vllm_chat_scheduler.py
+      # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests

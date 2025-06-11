@@ -14,6 +14,7 @@ on:
     paths:
       - "**/*.py"
       - .github/workflows/sanity.yml
+      - "tests/special_sanity/**"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -42,10 +43,10 @@ jobs:
           pip install -e .[test]
       - name: Run sanity test
         run: |
-          pytest -s -x tests/sanity
+          pytest -s -x tests/special_sanity
       - name: Run license test
         run: |
-          python3 tests/sanity/check_license.py --directory .
+          python3 tests/special_sanity/check_license.py --directory .
       - name: Assert naming convention
         run: |
           if grep -rIn --exclude-dir=.git --exclude-dir=.github --exclude-dir=venv --exclude-dir=__pycache__ 'veRL' .; then

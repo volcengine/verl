@@ -86,3 +86,4 @@ jobs:
         run: |
           cd tests/workers/rollout
           pytest -s test_sglang_async_rollout_search_tools.py
+      # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests
