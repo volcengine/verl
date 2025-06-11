@@ -17,6 +17,7 @@ import importlib
 import itertools
 import json
 import logging
+import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 from uuid import uuid4
@@ -367,6 +368,7 @@ class ChatCompletionScheduler:
             await session.close()
 
     async def generate_sequences(self, batch: DataProto) -> DataProto:
+        t_start = time.time()
         kwargs = dict(
             model=self.model_name,
             temperature=self.config.temperature,
@@ -399,9 +401,10 @@ class ChatCompletionScheduler:
             )
 
         await asyncio.gather(*tasks)
+        output_batch = self.completion_callback.postprocess(batch, batch_conversations, n=n)
+        output_batch.meta_info["timing"] = {"generate_sequences": time.time() - t_start}
         print("[ChatCompletionScheduler] generate_sequences done")
-
-        return self.completion_callback.postprocess(batch, batch_conversations, n=n)
+        return output_batch
 
     async def _submit_chat_completions_semaphore(self, messages: List[Dict[str, str]], request_id: str, sampling_params: Dict[str, Any]):
         done = asyncio.Event()

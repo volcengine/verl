@@ -37,7 +37,7 @@ permissions:
   contents: read
 
 jobs:
-  e2e_gsm8k_megatron:
+  kernels:
     runs-on: [L20x8]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
@@ -60,4 +60,7 @@ jobs:
           pip3 install cupy-cuda12x
       - name: Run all GPU unit tests
         run: |
-          pytest -s -x --ignore-glob='*on_cpu.py' --ignore-glob="*test_vllm*" --ignore-glob="*test_sglang*" --ignore-glob="tests/models/" --ignore-glob='special*' tests/
+          pytest -s -x --ignore-glob="*test_linear_cross_entropy_tp.py" --ignore-glob='*on_cpu.py' --ignore-glob="*test_vllm*" --ignore-glob="*test_sglang*" --ignore-glob="tests/models/" --ignore-glob='special*' tests/
+      - name: Testing LinearCrossEntropyTP Correctness, Computation Time and Memory Consumption
+        run: |
+          LOW_MEMORY=True torchrun --standalone --nnodes=1 --nproc-per-node=8 tests/utils/test_linear_cross_entropy_tp.py

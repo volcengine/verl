@@ -23,8 +23,8 @@ pr_title = os.environ.get("PR_TITLE", "").strip()
 allowed_modules = ["fsdp", "megatron", "sglang", "vllm", "rollout", "trainer"]
 allowed_modules += ["tests", "training_utils", "recipe", "hardware", "deployment"]
 allowed_modules += ["ray", "worker", "single_controller", "misc", "docker", "ci"]
-allowed_modules += ["perf", "model", "algo", "env", "tool", "ckpt"]
-allowed_types = ["feat", "fix", "doc", "refactor", "chore"]
+allowed_modules += ["perf", "model", "algo", "env", "tool", "ckpt", "doc"]
+allowed_types = ["feat", "fix", "refactor", "chore"]
 
 # Build dynamic regex pattern
 re_modules_pattern = re.compile(r"^\[([a-z_,\s]+)\]", re.IGNORECASE)
