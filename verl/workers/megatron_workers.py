@@ -214,7 +214,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         layer_name_mapping = {
             "qkv_layer_name": "self_attention.linear_qkv.",
-            "gate_proj_layer_name": "linear_fc1.weight",
+            "gate_proj_layer_name": "linear_fc1.",
         }
         if self.config.rollout.name == "vllm":
             from torch.distributed.device_mesh import init_device_mesh

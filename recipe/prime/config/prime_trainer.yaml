@@ -33,6 +33,8 @@ reward_model:
     ref_path: ${reward_model.model.path}
     use_remove_padding:  True
     use_fused_kernels: ${actor_rollout_ref.model.use_fused_kernels}
+    fused_kernel_options:
+      impl_backend: torch # triton, torch
     tokenizer_path: ${actor_rollout_ref.model.path}
     enable_gradient_checkpointing: ${actor_rollout_ref.model.enable_gradient_checkpointing}
     ref_type: freeze
