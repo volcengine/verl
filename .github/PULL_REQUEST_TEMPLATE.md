@@ -1,11 +1,11 @@
 ### Checklist Before Starting
 
 - [ ] Searched for similar PR(s).
-- [ ] Edit PR title to follow the below format:
-  - In format of: [modules] type: description
-  - modules are in `fsdp, megatron, sglang, vllm, rollout, trainer, tests, training_utils, recipe, hardware, deployment, ray, worker, single_controller, misc, perf, model, algo, env, tool, ckpt`
-  - type is in `feat, fix, doc, refactor, chore`
-  - can involve multiple modules, seperated by `,` or space, like `[megatron, fsdp] feat: xxx`
+- [ ] Checked PR Title format
+  - [ ] In format of: [modules] type: Title
+  - [ ] modules are in `fsdp, megatron, sglang, vllm, rollout, trainer, tests, training_utils, recipe, hardware, deployment, ray, worker, single_controller, misc, perf, model, algo, env, tool, ckpt, doc`
+  - [ ] type is in `feat, fix, refactor, chore`
+  - [ ] can involve multiple modules, seperated by `,` or space, like `[megatron, fsdp, doc] feat: xxx`
 
 ### What does this PR do?
 
