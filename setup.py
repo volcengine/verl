@@ -24,6 +24,7 @@ with open(os.path.join(version_folder, "verl/version/version")) as f:
     __version__ = f.read().strip()
 
 install_requires = [
+    "torch>2.1.0",
     "accelerate",
     "codetiming",
     "datasets",
