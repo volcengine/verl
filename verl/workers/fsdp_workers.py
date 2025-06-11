@@ -569,11 +569,8 @@ class ActorRolloutRefWorker(Worker):
         if not self._is_actor and self._is_rollout:
             # If ActorRolloutRefWorker is initialized as a standalone rollout,
             # create a checkpoint manager for FSDP model to allow loading FSDP checkpoints for rollout.
-            from copy import deepcopy
 
-            checkpoint_contents = deepcopy(self.config.actor.checkpoint)
-            checkpoint_contents.load_contents = ["model"]
-            checkpoint_contents.save_contents = []
+            checkpoint_contents = OmegaConf.create({"load_contents": ["model"], "save_contents": []})
             self.checkpoint_manager = FSDPCheckpointManager(
                 model=self.actor_module_fsdp,
                 optimizer=None,
