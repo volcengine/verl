@@ -139,12 +139,64 @@ def patch_vlm_for_ulysses_input_slicing(model_class: type):
     print(f"Monkey patch {model_class.__name__}.forward for Ulysses SP input slicing.")
 
 
+def patch_forward_with_backends(
+    model: PreTrainedModel,
+    use_fused_kernels: bool = False,
+    fused_kernels_backend: str = None,
+):
+    """
+    Choose the forward function based on the model and backend.
+    Args:
+        model (PreTrainedModel): The model to apply the monkey patch.
+        use_fused_kernels (bool): Whether to use fused kernels.
+        fused_kernels_backend (str): The backend to use for fused kernels.
+    """
+    if not use_fused_kernels or fused_kernels_backend not in ["triton", "torch"]:
+        print(f"Skipping monkey patch for {model.__class__.__name__} as use_fused_kernels is {use_fused_kernels} or fused_kernels_backend is {fused_kernels_backend}")
+        return
+
+    forward_with_torch_backend_function = model.__class__.forward
+    forward_with_triton_backend_function = model.__class__.forward
+    if model.config.model_type == "qwen2_5_vl":
+        from verl.models.transformers.qwen2_5_vl import forward_with_torch_backend, forward_with_triton_backend
+
+        forward_with_torch_backend_function = forward_with_torch_backend
+        forward_with_triton_backend_function = forward_with_triton_backend
+    elif model.config.model_type == "qwen2_vl":
+        from verl.models.transformers.qwen2_vl import forward_with_torch_backend, forward_with_triton_backend
+
+        forward_with_torch_backend_function = forward_with_torch_backend
+        forward_with_triton_backend_function = forward_with_triton_backend
+    else:
+        from verl.models.transformers.dense_common import forward_with_torch_backend, forward_with_triton_backend
+
+        forward_with_torch_backend_function = forward_with_torch_backend
+        forward_with_triton_backend_function = forward_with_triton_backend
+
+    if fused_kernels_backend == "triton":
+        model.__class__.forward = forward_with_triton_backend_function
+        print(f"Using Triton backend for fused kernels in {model.__class__.__name__}")
+    elif fused_kernels_backend == "torch":
+        model.__class__.forward = forward_with_torch_backend_function
+        print(f"Using Torch backend for fused kernels in {model.__class__.__name__}")
+    else:
+        raise ValueError(f"Unsupported fused_kernels_backend: {fused_kernels_backend}. Choose 'triton' or 'torch'.")
+
+
 def apply_monkey_patch(
     model: PreTrainedModel,
     ulysses_sp_size: int = 1,
     use_remove_padding: bool = True,
     use_fused_kernels: bool = False,
+    fused_kernels_backend: str = None,
 ):
+    """
+    Apply monkey patch to the models for ulysses sequence parallel and fused kernel.
+
+    In the end of this function forward function of the model is patched for fused kernel.
+    If the model is not supported with fused kernel, please return after patch.
+    """
+
     """Replace _flash_attention_forward to _ulysses_flash_attention_forward"""
     module = sys.modules[model.__module__]
 
@@ -152,7 +204,7 @@ def apply_monkey_patch(
         num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
     except AttributeError:
         num_attention_heads, num_key_value_heads = model.config.text_config.num_attention_heads, model.config.text_config.num_key_value_heads
-    
+
     assert num_attention_heads % ulysses_sp_size == 0, f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
     assert num_key_value_heads % ulysses_sp_size == 0 or ulysses_sp_size % num_key_value_heads == 0, (
         f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,kv heads are repeated to ensure correctness."
@@ -171,7 +223,6 @@ def apply_monkey_patch(
     if model.config.model_type == "qwen2_5_vl":
         from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
             Qwen2_5_VLFlashAttention2,
-            Qwen2_5_VLForConditionalGeneration,
         )
 
         if use_remove_padding or ulysses_sp_size > 1:
@@ -183,22 +234,16 @@ def apply_monkey_patch(
         if ulysses_sp_size > 1:
             if is_transformers_version_in_range(min_version="4.52.0"):
                 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLTextModel
+
                 patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLTextModel)
             else:
                 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLModel
+
                 patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLModel)
-
-        if use_fused_kernels:
-            from verl.models.transformers.qwen2_5_vl import forward_for_ppo
-
-            Qwen2_5_VLForConditionalGeneration.forward = forward_for_ppo
-
-        return
 
     elif model.config.model_type == "qwen2_vl":
         from transformers.models.qwen2_vl.modeling_qwen2_vl import (
             Qwen2VLFlashAttention2,
-            Qwen2VLForConditionalGeneration,
         )
 
         if use_remove_padding or ulysses_sp_size > 1:
@@ -210,17 +255,12 @@ def apply_monkey_patch(
         if ulysses_sp_size > 1:
             if is_transformers_version_in_range(min_version="4.52.0"):
                 from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLTextModel
+
                 patch_vlm_for_ulysses_input_slicing(Qwen2VLTextModel)
             else:
                 from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLModel
+
                 patch_vlm_for_ulysses_input_slicing(Qwen2VLModel)
-
-        if use_fused_kernels:
-            from verl.models.transformers.qwen2_vl import forward_for_ppo
-
-            Qwen2VLForConditionalGeneration.forward = forward_for_ppo
-
-        return
 
     elif model.config.model_type == "kimi_vl":
         if use_remove_padding or ulysses_sp_size > 1:
@@ -229,10 +269,10 @@ def apply_monkey_patch(
 
             module.DeepseekV3FlashAttention2.forward = _ulysses_flash_attn_forward
             print("Monkey patch FlashAttention2.forward in KimiVL")
-            
+
         if ulysses_sp_size > 1:
             patch_vlm_for_ulysses_input_slicing(module.DeepseekV3ForCausalLM)
-            
+
         if use_fused_kernels:
             print("Not support fused kernels for KimiVL")
 
@@ -250,10 +290,7 @@ def apply_monkey_patch(
             flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
             print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
 
-    if use_fused_kernels:
-        from verl.models.transformers.llama import forward_for_ppo
-
-        model.__class__.forward = forward_for_ppo
+    patch_forward_with_backends(model, use_fused_kernels=use_fused_kernels, fused_kernels_backend=fused_kernels_backend)
 
 
 @lru_cache

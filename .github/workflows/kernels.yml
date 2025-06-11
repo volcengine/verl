@@ -38,7 +38,7 @@ permissions:
   contents: read
 
 jobs:
-  e2e_gsm8k_megatron:
+  kernels:
     runs-on: [L20x8]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
@@ -60,3 +60,6 @@ jobs:
       - name: Testing LinearCrossEntropy Correction, Computation Time and Memory Consumption
         run: |
           python3 tests/kernels/test_linear_cross_entropy.py
+      - name: Testing LinearCrossEntropyTP Correction, Computation Time and Memory Consumption
+        run: |
+          LOW_MEMORY=True torchrun --standalone --nnodes=1 --nproc-per-node=8 tests/kernels/test_linear_cross_entropy_tp.py
