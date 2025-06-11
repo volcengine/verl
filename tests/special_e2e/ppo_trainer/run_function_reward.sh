@@ -136,7 +136,7 @@ python3 -m verl.trainer.main_ppo \
     | tee "${output_file}"
 
 if [ "${CUSTOM_REWARD_FN}" = "True" ]; then
-    python3 tests/e2e/check_custom_rwd_fn.py --output_file="${output_file}"
+    python3 tests/special_e2e/check_custom_rwd_fn.py --output_file="${output_file}"
     check_exit_code=$?
     rm -rf "${reward_fn_file_path}"
     rm -rf "${output_file}"
