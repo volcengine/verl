@@ -15,6 +15,7 @@
 import json
 import logging
 import os
+import re
 from typing import TypeVar
 
 from verl.tools.mcp_base_tool import MCPBaseTool
@@ -44,9 +45,19 @@ class MCPSearchTool(MCPBaseTool):
             for part in content:
                 if part.type != "text":
                     continue
-                # FIXME(hechanghao): use json load for parsing result string
-                res += part.text
-                res_cnt += 1
+                text = part.text.replace("'", '"')
+                query_match = re.search(r'query"\s*:\s*"([^"]+)"', text)
+                query = query_match.group(1) if query_match else ""
+                query_list.append(query)
+
+                title_matches = re.findall(r'"title"\s*:', text)
+                title_count = len(title_matches)
+
+                results_match = re.search(r'"results"\s*:\s*(\[.*?\])', text, re.DOTALL)
+                results_content = results_match.group(1) if results_match else ""
+
+                res += results_content
+                res_cnt += title_count
         except json.JSONDecodeError:
             err_msg = "json parse error."
             logger.error(err_msg)
