@@ -36,9 +36,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name='deepseek_llm_7b_function_rm' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
-    trainer.total_training_steps=2 \
+    trainer.total_training_steps=5 \
+    trainer.save_freq=2 \
+    trainer.test_freq=4 \
     trainer.use_legacy_worker_impl=False \
     trainer.total_epochs=15 $@
-
-    # trainer.save_freq=20 \
-    # trainer.test_freq=1 \

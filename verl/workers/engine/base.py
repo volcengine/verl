@@ -102,5 +102,13 @@ class BaseEngine(object):
         """
         raise NotImplementedError
 
-    def to():
+    def to(self, device: str, model: bool = True, optimizer: bool = True):
+        raise NotImplementedError
+
+
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+        raise NotImplementedError
+
+
+    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
         raise NotImplementedError

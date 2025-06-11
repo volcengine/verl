@@ -4,9 +4,8 @@ import logging
 import os
 import warnings
 from dataclasses import asdict
-from typing import Union
+import gc
 
-import psutil
 import torch
 import torch.distributed
 import torch.distributed as dist
@@ -134,8 +133,6 @@ class FSDPEngine(object):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
 
-        # from verl.workers.critic import DataParallelPPOCritic
-
         self.critic_module, self.critic_optimizer, self.critic_lr_scheduler = self._build_critic_model_optimizer(self.config)
 
         if self._is_offload_param:
@@ -144,8 +141,6 @@ class FSDPEngine(object):
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.critic_optimizer)
             log_gpu_memory_usage("After offload critic optimizer during init", logger=logger)
-
-        # self.critic = DataParallelPPOCritic(config=self.config, critic_module=self.critic_module, critic_optimizer=self.critic_optimizer)
 
         self.flops_counter = FlopsCounter(self.critic_model_config)
         self.checkpoint_manager = FSDPCheckpointManager(
@@ -423,5 +418,52 @@ class FSDPEngine(object):
         """
         self.loss_fn = loss_fn
 
-    def to():
-        pass
+
+    def to(self, device: str, model: bool = True, optimizer: bool = True):
+        """
+        move model to device.
+        """
+        assert device in ("cuda", "cpu")
+        if device == "cuda":
+            if not self.config.model.fsdp_config.param_offload:
+                if model:
+                    load_fsdp_model_to_gpu(self.model_module)
+                if optimizer and self.optimizer is not None:
+                    load_fsdp_optimizer(self.optimizer, device)
+            gc.collect()
+        elif device == "cpu":
+            if not self.config.model.fsdp_config.param_offload:
+                if model:
+                    offload_fsdp_model_to_cpu(self.model_module)
+                if optimizer and self.optimizer is not None:
+                    offload_fsdp_optimizer(self.optimizer)
+        else:
+            raise ValueError(f"Invalid device type: {device}")
+
+
+
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.critic_module)
+
+        self.checkpoint_manager.save_checkpoint(local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep)
+
+        torch.distributed.barrier()
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.critic_module)
+
+
+    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
+        import torch
+
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.critic_module)
+
+        self.checkpoint_manager.load_checkpoint(local_path=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load)
+
+        torch.distributed.barrier()
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.critic_module)
+
+        if self._is_offload_optimizer:
+            offload_fsdp_optimizer(self.critic_optimizer)

@@ -236,8 +236,6 @@ class CriticWorker(Worker):
             ctx["indices"] = indices
             ctx["seqlen"] = seqlen
             ctx["bs"] = bs
-            torch.cuda.synchronize()
-            torch.distributed.barrier()
             return inputs, ctx
 
         def postprocess_fn_with_rmpad(outputs, ctx):
@@ -257,10 +255,7 @@ class CriticWorker(Worker):
             # pad it back
             values = pad_input(values_rmpad, indices=ctx["indices"], batch=ctx["bs"], seqlen=ctx["seqlen"]).squeeze(-1)
             values = values[:, -response_length - 1 : -1]
-            torch.cuda.synchronize()
-            torch.distributed.barrier()
-            raise ValueError
-            return values
+            return values, ctx
 
 
         self.use_remove_padding = self.config.model.get("use_remove_padding", False)
@@ -408,37 +403,16 @@ class CriticWorker(Worker):
             output = self.engine.unshard_data(data=output)
 
         output = output.to("cpu")
-        raise ValueError
         return output
 
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
-        import torch
-
-        if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.critic_module)
-
-        self.checkpoint_manager.save_checkpoint(local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep)
-
-        torch.distributed.barrier()
-        if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.critic_module)
+        self.engine.save_checkpoint(local_path, hdfs_path, global_step, max_ckpt_to_keep)
 
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
-        import torch
-
-        if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.critic_module)
-
-        self.checkpoint_manager.load_checkpoint(local_path=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load)
-
-        torch.distributed.barrier()
-        if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.critic_module)
-
-        if self._is_offload_optimizer:
-            offload_fsdp_optimizer(self.critic_optimizer)
+        self.engine.load_checkpoint(local_path, hdfs_path, del_local_after_load)
+        raise ValueError
 
