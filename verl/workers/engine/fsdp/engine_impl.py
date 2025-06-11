@@ -363,6 +363,7 @@ class FSDPEngine(object):
             assert forward_only ==True
 
         inputs, ctx = self.preprocess_fn(batch, ctx)
+        inputs["use_cache"] = False
         outputs = self.critic_module(**inputs)
         preds, ctx = self.postprocess_fn(outputs, ctx)
         if forward_only:
