@@ -6,7 +6,9 @@
 
 # dataset config
 data:
-
+  
+  _target_: verl.trainer.ppo_config.DataConfig
+  
   # Tokenizer class or path. If null, it will be inferred from the model.
   tokenizer: null
 
@@ -714,6 +716,7 @@ reward_model:
 # custom reward function definition
 custom_reward_function:
 
+  _target_: verl.trainer.ppo_config.CustomRewardFunc
   # The path to the file containing your customized reward function.
   # If not specified, pre-implemented reward functions will be used.
   path: null
@@ -723,6 +726,8 @@ custom_reward_function:
 
 # config for the algorithm
 algorithm:
+  
+  _target_: verl.trainer.ppo_config.AlgorithmConfig
 
   # Discount factor for future rewards
   gamma: 1.0
@@ -771,6 +776,7 @@ algorithm:
 
 # config for the trainer
 trainer:
+  _target_: verl.trainer.ppo_config.TrainerConfig
 
   # Whether to balance batch sizes across distributed workers
   balance_batch: True
@@ -849,6 +855,8 @@ trainer:
 
 # configs related to ray initialization
 ray_init:
+
+  _target_: verl.trainer.ppo_config.RayInit
 
   # Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.
   num_cpus: null

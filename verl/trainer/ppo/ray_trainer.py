@@ -32,6 +32,7 @@ import numpy as np
 import ray
 import torch
 from omegaconf import OmegaConf, open_dict
+from omegaconf.dictconfig import DictConfig
 from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
@@ -272,6 +273,23 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
     return data
+
+
+def to_container(config):
+    from dataclasses import asdict, is_dataclass
+
+    def convert(val):
+        if isinstance(val, DictConfig):
+            return OmegaConf.to_container(val, resolve=True)
+        elif is_dataclass(val):
+            c = asdict(val)
+            ret = {}
+            for k, v in c.items():
+                ret[c] = convert(v)
+            return ret
+        return val
+
+    return convert(config)
 
 
 class RayPPOTrainer:
@@ -741,7 +759,7 @@ class RayPPOTrainer:
         # See https://github.com/volcengine/verl/blob/master/examples/ray/tutorial.ipynb for more information.
         all_wg = {}
         wg_kwargs = {}  # Setting up kwargs for RayWorkerGroup
-        if OmegaConf.select(self.config.trainer, "ray_wait_register_center_timeout") is not None:
+        if self.config.trainer.get("ray_wait_register_center_timeout", None) is not None:
             wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
@@ -881,16 +899,10 @@ class RayPPOTrainer:
         to construct the PPO dataflow.
         The light-weight advantage computation is done on the driver process.
         """
-        from omegaconf import OmegaConf
 
         from verl.utils.tracking import Tracking
 
-        logger = Tracking(
-            project_name=self.config.trainer.project_name,
-            experiment_name=self.config.trainer.experiment_name,
-            default_backend=self.config.trainer.logger,
-            config=OmegaConf.to_container(self.config, resolve=True),
-        )
+        logger = Tracking(project_name=self.config.trainer.project_name, experiment_name=self.config.trainer.experiment_name, default_backend=self.config.trainer.logger, config=to_container(self.config))
 
         self.global_steps = 0
 

@@ -20,6 +20,7 @@ import ray
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
+from verl.trainer.ppo_config import PPOConfig
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
@@ -52,6 +53,20 @@ def run_ppo(config) -> None:
         ray.timeline(filename=timeline_json_file)
 
 
+def convert_to_dataclass(config):
+    ppo_config = PPOConfig()
+    ppo_config.data = hydra.utils.instantiate(config.data)
+    ppo_config.custom_reward_function = hydra.utils.instantiate(config.custom_reward_function)
+    ppo_config.ray_init = hydra.utils.instantiate(config.ray_init)
+    ppo_config.trainer = hydra.utils.instantiate(config.trainer)
+    ppo_config.algorithm = hydra.utils.instantiate(config.algorithm)
+    # TODO: convert all the config below to dataclass
+    ppo_config.actor_rollout_ref = config.actor_rollout_ref
+    ppo_config.reward_model = config.reward_model
+    ppo_config.critic = config.critic
+    return ppo_config
+
+
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
 class TaskRunner:
     def run(self, config):
@@ -64,7 +79,7 @@ class TaskRunner:
 
         pprint(OmegaConf.to_container(config, resolve=True))
         OmegaConf.resolve(config)
-
+        config = convert_to_dataclass(config)
         # Download the checkpoint from HDFS to the local machine.
         # `use_shm` determines whether to use shared memory, which could lead to faster model loading if turned on
         local_path = copy_to_local(config.actor_rollout_ref.model.path, use_shm=config.actor_rollout_ref.model.get("use_shm", False))
