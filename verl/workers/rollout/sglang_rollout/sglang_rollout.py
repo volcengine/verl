@@ -97,7 +97,6 @@ def _set_envs_and_config(server_args: ServerArgs):
     os.environ["TORCH_NCCL_AVOID_RECORD_STREAMS"] = "1"
     os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "4"
     os.environ["CUDA_MODULE_LOADING"] = "AUTO"
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
     # Set prometheus env vars
     if server_args.enable_metrics:
@@ -140,17 +139,18 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
         # default to use dummy load format, which need to reload weights in first time
         self._need_reload = True
 
-    async def release_memory_occupation(self, tags: Optional[List[str]] = None):
+    async def release_memory_occupation(self, tags: Optional[list[str]] = None):
         """Release GPU occupation temporarily."""
         print(f"release_memory_occupation with tags: {tags}")
         obj = ReleaseMemoryOccupationReqInput(tags=tags)
         return await self.tokenizer_manager.release_memory_occupation(obj, None)
 
-    async def resume_memory_occupation(self, tags: Optional[List[str]] = None):
+    async def resume_memory_occupation(self, tags: Optional[list[str]] = None):
         """Resume GPU occupation."""
         print(f"resume_memory_occupation with tags: {tags}")
         # because __init__ is a sync method, it can not call the async release_memory_occupation
         # have to move release_memory_occupation from __init__ to here
+        # For multi-stage awake, we run release weight and kv_cache when we resume weights for the first time.
         if self._need_reload:
             await self.release_memory_occupation()
             self._need_reload = False
@@ -658,7 +658,6 @@ class SGLangRollout(BaseRollout):
                 output = None
 
             # Most naive implementation, can extract tensor and send via gloo if too slow
-            torch.cuda.synchronize()
             dist.barrier()
             [output] = broadcast_pyobj(
                 data=[output],
