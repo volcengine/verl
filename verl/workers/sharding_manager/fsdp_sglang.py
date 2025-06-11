@@ -98,6 +98,15 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         self.timing = {}
         with _timer("reshard", self.timing):
             torch.cuda.empty_cache()
+            loop = asyncio.get_event_loop()
+            
+            if self.device_mesh["infer_tp"].get_local_rank() == 0:
+                if self.multi_stage_wake_up:
+                    loop.run_until_complete(self.inference_engine.resume_memory_occupation(tags=["weights"]))
+                    log_gpu_memory_usage("Before resume SGLang weights in sharding manager", logger=logger)
+                else:
+                    loop.run_until_complete(self.inference_engine.resume_memory_occupation())
+                    log_gpu_memory_usage("Before resume SGLang weights + kv_cache in sharding manager", logger=logger)
             log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
             if self.offload_param:
                 load_fsdp_model_to_gpu(self.module)
@@ -107,7 +116,6 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             params = {k: v.to(device, non_blocking=True) if fsdp_version(self.module) == 2 else v for k, v in params.items()}
             params = convert_weight_keys(params, getattr(self.module, "_fsdp_wrapped_module", self.module))
             # Copy, not share memory
-            loop = asyncio.get_event_loop()
             loop.run_until_complete(self.update_weights(params))
             log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
 
@@ -119,6 +127,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
             if self.multi_stage_wake_up:
                 loop.run_until_complete(self.inference_engine.resume_memory_occupation(tags=["kv_cache"]))
+                log_gpu_memory_usage("After resume SGLang kv_cache in sharding manager", logger=logger)
 
             # important: need to manually set the random states of each tp to be identical.
             if self.device_mesh is not None:
@@ -143,16 +152,6 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             torch.cuda.set_rng_state(self.torch_random_states)
 
     async def update_weights(self, params):
-        log_gpu_memory_usage("Before resume_memory_occupation in update_weights", logger=logger)
-        if self.device_mesh["infer_tp"].get_local_rank() == 0:
-            # await self.inference_engine.resume_memory_occupation()
-            if self.multi_stage_wake_up:
-                await self.inference_engine.resume_memory_occupation(tags=["weights"])
-            else:
-                await self.inference_engine.resume_memory_occupation()
-
-        log_gpu_memory_usage("After resume_memory_occupation in update_weights", logger=logger)
-
         # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
         named_tensors = [(k, v) for k, v in params.items()]
         load_format = None
@@ -185,7 +184,6 @@ class FSDPSGLangShardingManager(BaseShardingManager):
     async def release_memory(self):
         if self.device_mesh["infer_tp"].get_local_rank() == 0:
             if self.multi_stage_wake_up:
-                print("release_memory_occupation kv_cache")
                 await self.inference_engine.release_memory_occupation(tags=["kv_cache"])
                 await self.inference_engine.release_memory_occupation(tags=["weights"])
             else:

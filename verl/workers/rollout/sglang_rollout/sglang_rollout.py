@@ -658,6 +658,7 @@ class SGLangRollout(BaseRollout):
                 output = None
 
             # Most naive implementation, can extract tensor and send via gloo if too slow
+            torch.cuda.synchronize()
             dist.barrier()
             [output] = broadcast_pyobj(
                 data=[output],
