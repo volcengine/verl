@@ -59,7 +59,7 @@ permissions:
 
 jobs:
   cpu_unit_tests:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gpu]
     timeout-minutes: 10 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
