@@ -15,3 +15,16 @@ There are a few folders with `special_` prefix, created for special purposes:
 Accelerators for tests 
 - By default tests are run with GPU available, except for the ones under `special_npu`, and any test script whose name ends with `on_cpu.py`.
 - For test scripts with `on_cpu.py` name suffix would be tested on CPU resources in linux environment.
+
+# Workflow layout
+
+All CI tests are configured by yaml files in `.github/workflows/`. Here's an overview of all test configs:
+1. A list of always triggered CPU sanity tests: `check-pr-title.yml`, `secrets_scan.yml`, `check-pr-title,yml`, `pre-commit.yml`, `doc.yml`
+2. Some heavy multi-GPU unit tests, such as `model.yml`, `vllm.yml`, `sgl.yml`
+3. End-to-end tests: `e2e_*.yml`
+4. Unit tests
+  - `cpu_unit_tests.yml`, run pytest on all scripts with file name pattern `tests/**/test_*_on_cpu.py`
+  - `gpu_unit_tests.yml`, run pytest on all scripts with file without the `on_cpu.py` suffix.
+  - Since cpu/gpu unit tests by default runs all tests under `tests`, please make sure tests are manually excluded in them when
+    - new workflow yaml is added to `.github/workflows`
+    - new tests are added to workflow mentioned in 2.

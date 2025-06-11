@@ -25,7 +25,7 @@ on:
       # Entrypoints
       - ".github/workflows/e2e_sft.yml"
       - "examples/data_preprocess/gsm8k.py"
-      - "tests/e2e/sft"
+      - "tests/special_e2e/sft"
       - "verl/trainer/fsdp_sft_trainer.py"
       - "verl/trainer/config/sft_trainer.yaml"
 
@@ -66,25 +66,25 @@ jobs:
       - name: Running GSM8K E2E training tests on 8 L20 GPUs with rmpad using function rm
         run: |
           ray stop --force
-          bash tests/e2e/sft/run_sft.sh
+          bash tests/special_e2e/sft/run_sft.sh
       - name: Running GSM8K E2E training tests on 8 L20 GPUs w/o rmpad using function rm
         run: |
           ray stop --force
-          RM_PAD=False bash tests/e2e/sft/run_sft.sh
+          RM_PAD=False bash tests/special_e2e/sft/run_sft.sh
       - name: Running GSM8K E2E training tests on 8 L20 GPUs with sequence parallism
         run: |
           ray stop --force
-          SP_SIZE=2 bash tests/e2e/sft/run_sft.sh
+          SP_SIZE=2 bash tests/special_e2e/sft/run_sft.sh
       - name: Check loss difference between sequence parallel vs. default implementation
         run: |
           ray stop --force
-          ENTRYPOINT="tests/e2e/sft/test_sp_loss_match.py" SP_SIZE=2 bash tests/e2e/sft/run_sft.sh
+          ENTRYPOINT="tests/special_e2e/sft/test_sp_loss_match.py" SP_SIZE=2 bash tests/special_e2e/sft/run_sft.sh
       - name: Running GSM8K E2E training tests on 8 L20 GPUs with sequence parallism and liger
         run: |
           ray stop --force
-          SP_SIZE=2 LIGER=True bash tests/e2e/sft/run_sft.sh
+          SP_SIZE=2 LIGER=True bash tests/special_e2e/sft/run_sft.sh
       - name: Running GSM8K E2E training tests with LoRA
         run: |
           ray stop --force
-          LORA_RANK=32 bash tests/e2e/sft/run_sft.sh
+          LORA_RANK=32 bash tests/special_e2e/sft/run_sft.sh
       # TODO: multiturn
