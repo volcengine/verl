@@ -1,31 +1,36 @@
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""
+The concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP)
+"""
 
-import json
 import logging
 import os
 import warnings
-from dataclasses import asdict
 import gc
 
 import torch
 import torch.distributed
-import torch.distributed as dist
-from codetiming import Timer
-from omegaconf import DictConfig, open_dict
 from peft import LoraConfig, TaskType, get_peft_model
-from safetensors.torch import save_file
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-import verl.utils.torch_functional as verl_F
-from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
-from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.debug import log_gpu_memory_usage
-from verl.utils.debug.performance import _timer, reduce_timing
-from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
+from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import (
@@ -33,18 +38,15 @@ from verl.utils.fsdp_utils import (
     MixedPrecisionPolicy,
     apply_fsdp2,
     fsdp2_load_full_state_dict,
-    fsdp_version,
     get_fsdp_wrap_policy,
     get_init_weight_context_manager,
     init_fn,
-    layered_summon_lora_params,
     load_fsdp_model_to_gpu,
     load_fsdp_optimizer,
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
 )
 from verl.utils.import_utils import import_external_libs
-from verl.utils.model import compute_position_id_with_mask
 from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
@@ -53,60 +55,23 @@ from .utils import create_device_mesh, get_sharding_strategy
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-device_name = get_device_name()
-
-
-
-
-class EngineEvalModeCtx:
-    def __init__(self, engine):
-        self.engine = engine
-    
-    def __enter__(self):
-        self.engine.mode = "eval"
-        if self.engine._is_offload_param:
-            load_fsdp_model_to_gpu(self.engine.module)
-
-        self.engine.ulysses_sharding_manager.__enter__()
-        self.engine.module.eval()
-
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
-        if self.engine._is_offload_param:
-            offload_fsdp_model_to_cpu(self.engine.module)
-        self.engine.mode = None
-        
-
-class EngineTrainModeCtx:
-    def __init__(self, engine):
-        self.engine = engine
-    
-    
-    def __enter__(self):
-        self.engine.mode = "train"
-        if self.engine._is_offload_param:
-            load_fsdp_model_to_gpu(self.engine.module)
-        if self.engine._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.engine.optimizer, device_id=get_torch_device().current_device())
-
-        self.engine.ulysses_sharding_manager.__enter__()
-        self.engine.module.train()
-
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
-
-        if self.engine._is_offload_param:
-            offload_fsdp_model_to_cpu(self.engine.module)
-        if self.engine._is_offload_optimizer:
-            offload_fsdp_optimizer(optimizer=self.optimizer)
-        self.engine.mode = None
-
 
 
 class FSDPEngine(object):
+    """
+    Concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP).
+
+    Supports model sharding, activation/optimizer offloading, LoRA, and sequence parallelism.
+    """
     def __init__(self, config):
+        """
+        Initialize the FSDPEngine.
+
+        Sets up distributed device meshes, LoRA, and offload policies based on config.
+
+        Args:
+            config: Configuration object with FSDP and model settings.
+        """
         self.config = config
         self.rank = torch.distributed.get_rank()
         # build device mesh for Ulysses Sequence Parallel
@@ -120,6 +85,7 @@ class FSDPEngine(object):
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
         dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
+            device_name = get_device_name()
             self.ulysses_device_mesh = init_device_mesh(device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"])
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)        
@@ -130,6 +96,12 @@ class FSDPEngine(object):
 
 
     def init_model(self):
+        """
+        Build the model, optimizer, and learning rate scheduler under FSDP.
+
+        Applies device, dtype, and precision configurations, including mixed precision.
+        Sets up checkpoint manager and FLOPs counter.
+        """
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
 
@@ -330,18 +302,34 @@ class FSDPEngine(object):
 
 
     def train_mode(self):
+        """
+        Return a context manager that switches to training mode with FSDP-specific handling.
+
+        Includes parameter and optimizer offload entry/exit.
+        """
         return EngineTrainModeCtx(self)
 
 
     def eval_mode(self):
+        """
+        Return a context manager that switches to evaluation mode with FSDP-specific handling.
+
+        Includes activation offload entry/exit.
+        """
         return EngineEvalModeCtx(self)
     
 
     def shard_data(self, data):
+        """
+        Preprocess data into sharded format via UlyssesShardingManager.
+        """
         return self.ulysses_sharding_manager.preprocess_data(data)
 
 
     def unshard_data(self, data):
+        """
+        Postprocess data from sharded format back to full format.
+        """
         return self.ulysses_sharding_manager.postprocess_data(data)
 
 
@@ -351,6 +339,22 @@ class FSDPEngine(object):
                               forward_only=False, 
                               preprocess_fn=None, 
                               postprocess_fn=None):
+        """
+        Perform forward (and backward if training) pass using the FSDP-wrapped module.
+
+        Args:
+            batch: Raw batch data (e.g., tensors or mappings) to process.
+            ctx: Optional context dict passed to preprocess/postprocess functions.
+            forward_only: If True, skip gradient computation and backward pass.
+            preprocess_fn: Function(batch, ctx) -> (inputs, ctx), applied before model call.
+            postprocess_fn: Function(outputs, ctx) -> (predictions, ctx), applied after model call.
+
+        Returns:
+            If forward_only:
+                (predictions, ctx)
+            Else:
+                (predictions, loss, ctx)
+        """
         # mode guard to check this method is called in a proper context manager
         assert self.mode is not None
         if self.mode == "train":
@@ -385,10 +389,19 @@ class FSDPEngine(object):
 
 
     def optimizer_zero_grad(self):
+        """
+        Zero gradients and enforce FSDP grad-clipping logic.
+        """
         self.optimizer.zero_grad()
 
 
-    def optimizer_step(self):
+    def optimizer_step(self):        
+        """
+        Clip gradients, skip update if non-finite, and step optimizer.
+
+        Returns:
+            grad_norm (float): Norm of gradients before clipping.
+        """
         assert self.config.grad_clip is not None
 
         if isinstance(self.module, FSDP):
@@ -408,6 +421,9 @@ class FSDPEngine(object):
 
 
     def lr_scheduler_step(self):
+        """
+        Advance FSDP scheduler and return updated learning rate.
+        """
         self.lr_scheduler.step()
         lr = self.lr_scheduler.get_last_lr()
         return lr
@@ -415,14 +431,17 @@ class FSDPEngine(object):
 
     def set_loss_fn(self, loss_fn):
         """
-        loss_fn(data, preds, ctx) -> loss, out_ctx
+        Register custom loss function for training.
+
+        Args:
+            loss_fn: Callable(data, preds, ctx) -> (loss_tensor, updated_ctx)
         """
         self.loss_fn = loss_fn
 
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
         """
-        move model to device.
+        Move FSDP model and/or optimizer to CPU or GPU with offload support.
         """
         assert device in ("cuda", "cpu")
         if device == "cuda":
@@ -444,6 +463,9 @@ class FSDPEngine(object):
 
 
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+        """
+        Save FSDP checkpoint, handling parameter offload as needed.
+        """
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.module)
 
@@ -455,6 +477,9 @@ class FSDPEngine(object):
 
 
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
+        """
+        Load FSDP checkpoint, restoring parameters and optimizer state.
+        """
         import torch
 
         if self._is_offload_param:
@@ -468,3 +493,49 @@ class FSDPEngine(object):
 
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(self.optimizer)
+
+
+class EngineEvalModeCtx:
+    def __init__(self, engine):
+        self.engine = engine
+    
+    def __enter__(self):
+        self.engine.mode = "eval"
+        if self.engine._is_offload_param:
+            load_fsdp_model_to_gpu(self.engine.module)
+
+        self.engine.ulysses_sharding_manager.__enter__()
+        self.engine.module.eval()
+
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
+        if self.engine._is_offload_param:
+            offload_fsdp_model_to_cpu(self.engine.module)
+        self.engine.mode = None
+        
+
+class EngineTrainModeCtx:
+    def __init__(self, engine):
+        self.engine = engine
+    
+    
+    def __enter__(self):
+        self.engine.mode = "train"
+        if self.engine._is_offload_param:
+            load_fsdp_model_to_gpu(self.engine.module)
+        if self.engine._is_offload_optimizer:
+            load_fsdp_optimizer(optimizer=self.engine.optimizer, device_id=get_torch_device().current_device())
+
+        self.engine.ulysses_sharding_manager.__enter__()
+        self.engine.module.train()
+
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
+
+        if self.engine._is_offload_param:
+            offload_fsdp_model_to_cpu(self.engine.module)
+        if self.engine._is_offload_optimizer:
+            offload_fsdp_optimizer(optimizer=self.optimizer)
+        self.engine.mode = None
