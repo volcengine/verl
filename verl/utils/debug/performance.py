@@ -23,7 +23,7 @@ import torch.distributed as dist
 from codetiming import Timer
 
 from verl.utils.device import get_torch_device
-from verl.utils.logger.aggregate_logger import DecoratorLoggerBase
+from verl.utils.logger import DecoratorLoggerBase
 
 
 def _get_current_mem_info(unit: str = "GB", precision: int = 2) -> Tuple[str]:

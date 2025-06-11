@@ -576,7 +576,7 @@ class ActorRolloutRefWorker(Worker):
                 lr_scheduler=None,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
                 checkpoint_load_contents=["model"],
-                checkpoint_save_contents=["model"],
+                checkpoint_save_contents=[],
             )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -737,6 +737,8 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+        from verl.utils.logger import log_with_rank
+
         # only support save and load ckpt for actor
         assert self._is_actor
 
@@ -765,12 +767,10 @@ class ActorRolloutRefWorker(Worker):
                         with open(os.path.join(lora_save_path, "adapter_config.json"), "w", encoding="utf-8") as f:
                             json.dump(peft_config, f, ensure_ascii=False, indent=4)
             except Exception as e:
-                if dist.get_rank() == 0:
-                    print(f"[rank-{self.rank}]: Save LoRA Adapter Error ({e})")
+                log_with_rank(f"Save LoRA Adapter Error ({e})", rank=dist.get_rank(), logger=logger, log_only_rank_0=True)
 
             dist.barrier()
-            if dist.get_rank() == 0:
-                print(f"[rank-{self.rank}]: Saved LoRA adapter to: {lora_save_path}")
+            log_with_rank(f"[rank-{self.rank}]: Saved LoRA adapter to: {lora_save_path}", rank=dist.get_rank(), logger=logger, log_only_rank_0=True)
 
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
