@@ -68,7 +68,7 @@ permissions:
   contents: read
 
 jobs:
-  kernels:
+  gpu_unit_tests:
     runs-on: [L20x8]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
