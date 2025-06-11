@@ -117,6 +117,9 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             torch.cuda.empty_cache()
             log_gpu_memory_usage("After del state_dict and empty_cache in sharding manager", logger=logger)
 
+            if self.multi_stage_wake_up:
+                loop.run_until_complete(self.inference_engine.resume_memory_occupation(tags=["kv_cache"]))
+
             # important: need to manually set the random states of each tp to be identical.
             if self.device_mesh is not None:
                 self.torch_random_states = torch.cuda.get_rng_state()
@@ -145,9 +148,6 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             # await self.inference_engine.resume_memory_occupation()
             if self.multi_stage_wake_up:
                 await self.inference_engine.resume_memory_occupation(tags=["weights"])
-                # just try resume them separately, but it will fail with 
-                # [torch_memory_saver.cpp] CUresult error  result=1 file=csrc/torch_memory_saver.cpp func=resume
-                await self.inference_engine.resume_memory_occupation(tags=["kv_cache"])
             else:
                 await self.inference_engine.resume_memory_occupation()
 

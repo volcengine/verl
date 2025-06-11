@@ -152,7 +152,7 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
         # because __init__ is a sync method, it can not call the async release_memory_occupation
         # have to move release_memory_occupation from __init__ to here
         if self._need_reload:
-            await self.release_memory_occupation(tags=tags)
+            await self.release_memory_occupation()
             self._need_reload = False
 
         obj = ResumeMemoryOccupationReqInput(tags=tags)
