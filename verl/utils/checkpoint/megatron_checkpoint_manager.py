@@ -15,13 +15,13 @@
 import logging
 import os
 import random
-from typing import Optional
 
 import numpy as np
 import torch
 import torch.distributed
 from megatron.core import mpu, tensor_parallel
 from megatron.core.dist_checkpointing.mapping import ShardedObject
+from omegaconf import DictConfig
 from transformers import GenerationConfig
 
 from verl.models.weight_loader_registry import get_weight_saver
@@ -73,8 +73,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         optimizer_scheduler,
         use_distributed_optimizer: bool,
         use_checkpoint_opt_param_scheduler: bool = False,
-        checkpoint_load_contents: Optional[list] = None,
-        checkpoint_save_contents: Optional[list] = None,
+        checkpoint_contents: DictConfig = None,
         **kwargs,
     ):
         super().__init__(
@@ -82,8 +81,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             optimizer=optimizer,
             lr_scheduler=optimizer_scheduler,
             processing_class=tokenizer,
-            checkpoint_load_contents=checkpoint_load_contents,
-            checkpoint_save_contents=checkpoint_save_contents,
+            checkpoint_contents=checkpoint_contents,
         )
         self.arch = arch
         self.config = config

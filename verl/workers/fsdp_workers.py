@@ -563,20 +563,23 @@ class ActorRolloutRefWorker(Worker):
                 optimizer=self.actor.actor_optimizer,
                 lr_scheduler=self.actor_lr_scheduler,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
-                checkpoint_load_contents=self.config.actor.checkpoint.load_contents,
-                checkpoint_save_contents=self.config.actor.checkpoint.save_contents,
+                checkpoint_contents=self.config.actor.checkpoint,
             )
 
         if not self._is_actor and self._is_rollout:
             # If ActorRolloutRefWorker is initialized as a standalone rollout,
             # create a checkpoint manager for FSDP model to allow loading FSDP checkpoints for rollout.
+            from copy import deepcopy
+
+            checkpoint_contents = deepcopy(self.config.actor.checkpoint)
+            checkpoint_contents.load_contents = ["model"]
+            checkpoint_contents.save_contents = []
             self.checkpoint_manager = FSDPCheckpointManager(
                 model=self.actor_module_fsdp,
                 optimizer=None,
                 lr_scheduler=None,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
-                checkpoint_load_contents=["model"],
-                checkpoint_save_contents=[],
+                checkpoint_contents=checkpoint_contents,
             )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -1034,8 +1037,7 @@ class CriticWorker(Worker):
             optimizer=self.critic_optimizer,
             lr_scheduler=self.critic_lr_scheduler,
             processing_class=self.processor if self.processor is not None else self.tokenizer,
-            checkpoint_load_contents=self.config.checkpoint.load_contents,
-            checkpoint_save_contents=self.config.checkpoint.save_contents,
+            checkpoint_contents=self.config.checkpoint,
         )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)

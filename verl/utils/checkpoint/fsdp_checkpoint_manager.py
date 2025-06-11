@@ -20,6 +20,7 @@ from typing import Optional, Union
 import torch
 import torch.distributed
 from accelerate import init_empty_weights
+from omegaconf import DictConfig
 from torch.distributed.fsdp import FullStateDictConfig, ShardedOptimStateDictConfig, ShardedStateDictConfig, StateDictType
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
@@ -50,10 +51,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         lr_scheduler (LRScheduler): Learning-rate scheduler.
         processing_class (PreTrainedTokenizer or ProcessorMixin, optional):
             Pre-/post-processing artifact handler.
-        checkpoint_load_contents (list[str], optional):
-            Components to load; must contain 'model'. Defaults to ['model', 'optimizer', 'extra'].
-        checkpoint_save_contents (list[str], optional):
-            Components to save; must contain 'model'. Defaults to ['model', 'optimizer', 'extra'].
+        checkpoint_contents DictConfig: Configuration for checkpoint contents.
+            - 'load': Components to load; must contain 'model'. Defaults to ['model', 'optimizer', 'extra'].
+            - 'save': Components to save; must contain 'model'. Defaults to ['model', 'optimizer', 'extra'].
     """
 
     def __init__(
@@ -62,8 +62,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         optimizer: Optional[torch.optim.Optimizer] = None,
         lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
-        checkpoint_load_contents: Optional[list] = None,
-        checkpoint_save_contents: Optional[list] = None,
+        checkpoint_contents: DictConfig = None,
         **kwargs,
     ):
         if processing_class is None:
@@ -76,8 +75,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             optimizer,
             lr_scheduler=lr_scheduler,
             processing_class=processing_class,
-            checkpoint_load_contents=checkpoint_load_contents,
-            checkpoint_save_contents=checkpoint_save_contents,
+            checkpoint_contents=checkpoint_contents,
         )
 
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load=False):

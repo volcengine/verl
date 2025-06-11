@@ -11,16 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import os
 import random
 import shutil
 import tempfile
-from typing import Optional, Union
+from typing import Union
 
 import numpy as np
 import torch
 import torch.distributed
 from filelock import FileLock
+from omegaconf import DictConfig
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.device import is_cuda_available, is_npu_available
@@ -47,9 +49,10 @@ class BaseCheckpointManager:
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler = None,
         processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
-        checkpoint_load_contents: Optional[list] = None,
-        checkpoint_save_contents: Optional[list] = None,
+        checkpoint_contents: DictConfig = None,
     ):
+        checkpoint_load_contents = checkpoint_contents.get("load", None) if checkpoint_contents else None
+        checkpoint_save_contents = checkpoint_contents.get("save", None) if checkpoint_contents else None
         if checkpoint_load_contents is None:
             checkpoint_load_contents = ["model", "optimizer", "extra"]
         if checkpoint_save_contents is None:
@@ -94,21 +97,21 @@ class BaseCheckpointManager:
         Returns True if 'hf_model' is in checkpoint_save_contents, indicating the model should be converted to hf model and saved.
         """
         return "hf_model" in self.checkpoint_save_contents
-    
+
     @property
     def should_load_model(self) -> bool:
         """
         Returns True if 'model' is in checkpoint_load_contents, indicating the model state should be loaded.
         """
         return "model" in self.checkpoint_load_contents
-    
+
     @property
     def should_load_optimizer(self) -> bool:
         """
         Returns True if 'optimizer' is in checkpoint_load_contents, indicating the optimizer state should be loaded.
         """
         return "optimizer" in self.checkpoint_load_contents
-    
+
     @property
     def should_load_extra(self) -> bool:
         """
