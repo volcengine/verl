@@ -96,3 +96,7 @@ jobs:
         run: |
           pip3 install --upgrade vllm==0.8.3 tensordict==0.7.2
           pytest -svvv tests/workers/rollout/test_vllm_chat_scheduler.py
+      - name: Running LangGraph multi-turn rollout tests on 8 L20 GPUs
+        run: |
+          pip3 install -e .[langgraph]
+          pytest -svvv tests/workers/rollout/test_langgraph_chat_scheduler.py
