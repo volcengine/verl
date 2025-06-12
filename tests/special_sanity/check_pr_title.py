@@ -33,14 +33,14 @@ if not re_modules:
     print(f"❌ Invalid PR title: '{pr_title}'")
     print("Expected format: [module] type: description")
     print(f"Allowed modules: {', '.join(allowed_modules)}")
-    sys.exit(1)
+    raise Exception("Invalid PR title")
 else:
     modules = re.findall(r"[a-z]+", re_modules.group(1).lower())
     if not all(module in allowed_modules for module in modules):
         invalid_modules = [module for module in modules if module not in allowed_modules]
         print(f"❌ Invalid modules: {', '.join(invalid_modules)}")
         print(f"Allowed modules: {', '.join(allowed_modules)}")
-        sys.exit(1)
+        raise Exception("Invalid PR title")
 
 types_pattern = "|".join(re.escape(t) for t in allowed_types)
 re_types_pattern = re.compile(rf"^\[[a-z_,\s]+\]\s+({types_pattern}):\s+.+$", re.IGNORECASE)
@@ -50,7 +50,7 @@ if not match:
     print(f"❌ Invalid PR title: '{pr_title}'")
     print("Expected format: [module] type: description")
     print(f"Allowed types: {', '.join(allowed_types)}")
-    sys.exit(1)
+    raise Exception("Invalid PR title")
 
 change_type = match.group(1).lower()
 
