@@ -120,7 +120,7 @@ class Tracking:
             self.logger["tensorboard"] = _TensorboardAdapter()
 
         if "console" in default_backend:
-            from verl.utils.logger.aggregate_logger import LocalLogger
+            from verl.utils.logger import LocalLogger
 
             self.console_logger = LocalLogger(print_to_console=True)
             self.logger["console"] = self.console_logger
