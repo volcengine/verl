@@ -12,6 +12,7 @@ on:
       - main
     paths:
       - "**/*.py"
+      - "requirements-npu.txt"
       # Other entrypoints
       - "!examples/**"
       - "!tests/**"
