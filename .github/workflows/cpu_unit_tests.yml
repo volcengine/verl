@@ -72,7 +72,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install the current repository
         run: |
-          pip install -e .[test,prime]
+          pip install -e .[test,prime,geo]
           pip install --upgrade "ray>=2.40.0" pillow
       - name: Running CPU unit tests
         run: |
