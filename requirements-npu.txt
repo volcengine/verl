@@ -12,9 +12,10 @@ pybind11
 pylatexenc
 ray
 tensordict<=0.6.2
-transformers>=4.52.0
+transformers>=4.52.4
 wandb
 mathruler
 torchdata
 einops
 qwen_vl_utils
+torchvision==0.20.1
