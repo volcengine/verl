@@ -55,6 +55,11 @@ on:
 permissions:
   contents: read
 
+# Cancel jobs on the same ref if a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   model_rmpad:
     runs-on: [L20x8]
