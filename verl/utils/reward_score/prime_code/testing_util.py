@@ -194,7 +194,8 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
 
             sol += tmp_test
             if debug:
-                print(f"sol = {sol}", file=open("/home/lichen/verl/output_1.log", "a"))
+                # print(f"sol = {sol}", file=open("/home/lichen/verl/output_1.log", "a"))
+                print(f"sol = {sol}")
             method_name = "code"
             signal.alarm(timeout)
             try:
@@ -265,9 +266,12 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                 True
 
             if debug:
+                # print(
+                #     f"time: {datetime.now().time()} testing index = {index}  inputs = {inputs}, {type(inputs)}. type = {which_type}"
+                # , file=open("/home/lichen/verl/output_1.log", "a"))
                 print(
                     f"time: {datetime.now().time()} testing index = {index}  inputs = {inputs}, {type(inputs)}. type = {which_type}"
-                , file=open("/home/lichen/verl/output_1.log", "a"))
+                )
             if which_type == CODE_TYPE.call_based:  # Call-based
                 signal.alarm(timeout)
                 faulthandler.enable()
@@ -384,15 +388,18 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                         if not isinstance(inputs, list):
                             print(
                                 f"not passed output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs.replace(nl, ' new-line ')}, {type(inputs)}, {output == [in_outs['outputs'][index]]}"
-                            , file=open("/home/lichen/verl/output_1.log", "a"))
+                            # , file=open("/home/lichen/verl/output_1.log", "a"))
+                            )
                         else:
                             print(
                                 f"not passed output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs}, {type(inputs)}, {output == [in_outs['outputs'][index]]}"
-                            , file=open("/home/lichen/verl/output_1.log", "a"))
+                            # , file=open("/home/lichen/verl/output_1.log", "a"))
+                            )
                     continue
 
                 if passed and debug:
-                    print(f"==> output = {output}, test outputs = {in_outs['outputs'][index]}", file=open("/home/lichen/verl/output_1.log", "a"))
+                    # print(f"==> output = {output}, test outputs = {in_outs['outputs'][index]}", file=open("/home/lichen/verl/output_1.log", "a"))
+                    print(f"==> output = {output}, test outputs = {in_outs['outputs'][index]}")
 
                 if custom_compare_(output, in_outs["outputs"][index]):
                     tmp_result = True
@@ -719,6 +726,6 @@ def reliability_guard(maximum_memory_bytes=None):
 
 
 if __name__ == "__main__":
-    in_outs = {"inputs": ["680"], "outputs": ["68"]}
-    test = "def remove_trailing_zeros(num):\n    for i in range(len(num)-1, -1, -1):\n        if num[i] != '0':\n            return num[:i+1]\n    return num  # This line is technically unreachable due to problem constraints\n\nnum = input()\nprint(remove_trailing_zeros(num))"
+    in_outs = {'inputs': ['[25,7]'], 'outputs': ['1']}
+    test = """import math\n\ndef get_possible_values(x):\n    if x == 1:\n        return [(1, 0)]\n    possible = [(x, 0)]\n    current = x\n    while True:\n        if current == 1:\n            break\n        smallest_div = None\n        for i in range(2, int(math.sqrt(current)) + 1):\n            if current % i == 0:\n                smallest_div = i\n                break\n        if smallest_div is None:\n            break\n        else:\n            g = current // smallest_div\n            new_val = current // g\n            if new_val < current:\n                possible.append((new_val, len(possible)))\n            current = new_val\n    return possible\n\ndef main():\n    import sys\n    input = sys.stdin.read().split()\n    n = int(input[0])\n    nums = list(map(int, input[1:n+1]))\n    \n    if n == 0:\n        print(0)\n        return\n    \n    possible = []\n    for x in nums:\n        if x == 1:\n            possible.append([(1, 0)])\n        else:\n            possible.append(get_possible_values(x))\n    \n    steps_dict = {}\n    for v, s in possible[0]:\n        steps_dict[v] = s\n    \n    for i in range(1, n):\n        current_possible = possible[i]\n        current_steps = {}\n        for (v_prev, s_prev) in steps_dict.items():\n            for (v_i, s_i) in current_possible:\n                if v_prev <= v_i:\n                    total_steps = s_prev + s_i\n                    if v_i not in current_steps or total_steps < current_steps[v_i]:\n                        current_steps[v_i] = total_steps\n        if not current_steps:\n            print(-1)\n            return\n        steps_dict = current_steps\n    \n    if not steps_dict:\n        print(0)\n    else:\n        print(min(steps_dict.values()))\n\nif __name__ == "__main__":\n    main()\n"""
     print(run_test(in_outs, test, debug=True, timeout=5))

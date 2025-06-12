@@ -5,8 +5,9 @@ import random
 import glob
 import pandas as pd
 from tqdm import tqdm
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
-import torch
+from transformers import AutoTokenizer
+from typing import List, Dict, Any
+import re
 
 print("Loading tokenizer...")
 # tokenizer = AutoTokenizer.from_pretrained("/home/share/reasoning/Qwen3-8B")
@@ -306,22 +307,94 @@ def process_code_contests(code_contests_data_path:str, out_dir:str):
     print(f"Total valid entries processed: {total}, and filtered {filtered}")
     return all_items
 
+def postprocess_samples(all_items: List[Dict[str, Any]], benchmark_items: List[Dict[str, Any]], max_test_cases: int = 2000, min_test_cases: int = 5) -> List[Dict[str, Any]]:
+    seen_questions = set()
+    multiple_answers_patterns = [
+        r"multiple possible answers",
+        r"multiple answers",
+        r"more than one answer",
+        r"any valid answer",
+        r"any correct answer",
+        r"any possible answer",
+        r"any valid solution",
+        r"any correct solution"
+    ]
+    
+    # Compile regex patterns
+    patterns = [re.compile(pattern, re.IGNORECASE) for pattern in multiple_answers_patterns]
+    
+    filtered_samples = []
+    total_samples = len(all_items)
+    duplicate_filtered_count = 0
+    multiple_answers_filtered_count = 0
+    test_cases_filtered_count = 0
+    benchmark_filtered_count = 0
+    none_filtered_count = 0
+
+    benchmark_questions_hash = [get_question_hash(item["question"]) for item in benchmark_items]
+    
+    for sample in all_items:
+        try:
+            question = sample.get("question", "").lower()
+            question_hash = get_question_hash(question)
+            if question_hash in seen_questions:
+                duplicate_filtered_count += 1
+                continue
+            has_multiple_answers = any(pattern.search(question) for pattern in patterns)
+            test_cases = sample.get("test_cases", {})
+            num_test_cases = len(test_cases.get("inputs", []))
+
+            if "None" in sample.get("test_cases", {}).get("inputs", []):
+                none_filtered_count += 1
+                continue
+            
+            if has_multiple_answers:
+                multiple_answers_filtered_count += 1
+                continue
+                
+            if num_test_cases > max_test_cases or num_test_cases < min_test_cases:
+                test_cases_filtered_count += 1
+                continue    
+            
+            if question_hash in benchmark_questions_hash:
+                benchmark_filtered_count += 1
+                continue
+            
+            seen_questions.add(question_hash)
+            filtered_samples.append(sample)
+            
+        except Exception as e:
+            print(f"Error processing sample: {e}")
+            continue
+    
+    print(f"postprocessing complete:")
+    print(f"Total samples: {total_samples}")
+    print(f"Duplicate filtered samples: {duplicate_filtered_count}")
+    print(f"Multiple answers filtered samples: {multiple_answers_filtered_count}")
+    print(f"Test cases filtered samples: {test_cases_filtered_count}")
+    print(f"Benchmark filtered samples: {benchmark_filtered_count}")
+    print(f"Remaining samples: {len(filtered_samples)}")
+    print(f"None filtered samples: {none_filtered_count}")
+    return filtered_samples
+
 def main():
     # Path for the final processed data
-    out_dir = "/home/yangkai/data/data_process"
+    out_dir = "/home/liunazhou/data"
     # data_dir = "/home/share/reasoning/raw_data"
     outfile_name = "raw_merged_code_data.jsonl"
 
-    # livecode_data_path = "/home/yangkai/data/code/code_generation_lite"
+    livecode_data_path = "/home/yangkai/data/code/code_generation_lite"
     codeforces_data_path = "/home/yangkai/data/code/Codeforces-Python-Submissions/data"
     # apps_data_path = "/home/yangkai/data/code/apps"
     code_contests_data_path = "/home/yangkai/data/code/code_contests/data"
 
     all_items = []
     # all_items += process_livecode(livecode_data_path, out_dir)
+    benchmark_items = process_livecode(livecode_data_path, out_dir)
     all_items += process_codeforces(codeforces_data_path, out_dir)
     # all_items += process_apps(apps_data_path, out_dir)
     all_items += process_code_contests(code_contests_data_path, out_dir)
+    all_items = postprocess_samples(all_items, benchmark_items)
 
     random.seed(2025)
     random.shuffle(all_items)
