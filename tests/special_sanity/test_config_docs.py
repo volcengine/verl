@@ -71,5 +71,6 @@ def test_trainer_config_doc():
         print("Please read the top block of `verl/trainer/config/ppo_trainer.yaml` to see format rules:\n")
         for err in validation_errors:
             print(" -", err)
+        raise Exception("Please fix documentation format.")
     else:
         print("YAML format check passed ✅")

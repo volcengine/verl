@@ -104,8 +104,8 @@ def test_image_rl_data():
 
     data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
 
-    assert "multi_modal_data" in data_proto.non_tensor_batch
-    assert "multi_modal_inputs" in data_proto.non_tensor_batch
+    assert "multi_modal_data" in data_proto.non_tensor_batch, data_proto
+    assert "multi_modal_inputs" in data_proto.non_tensor_batch, data_proto
 
     data = dataset[0]["input_ids"]
     output = tokenizer.batch_decode([data])[0]
