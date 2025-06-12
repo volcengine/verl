@@ -14,7 +14,6 @@
 
 import ast
 import subprocess
-import sys
 import linecache
 import argparse
 from pathlib import Path
@@ -90,7 +89,7 @@ def check_file(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--threshold", type=float, default=0.2,
-                        help="Minimum ratio of annotated lines required (0.0–1.0)")
+                        help="Minimum ratio of annotated lines required (0.0 - 1.0)")
     args = parser.parse_args()
 
     total_changed = 0
@@ -114,8 +113,7 @@ def main() -> None:
             print(f"{fname}:{lineno}: {line}")
 
     if ratio < args.threshold:
-        print(f"\n❌ Type coverage below threshold ({args.threshold:.0%}).")
-        sys.exit(1)
+        raise Exception(f"\n❌ Type coverage below threshold ({args.threshold:.0%}).")
     else:
         print("\n✅ Type annotation coverage acceptable.")
 

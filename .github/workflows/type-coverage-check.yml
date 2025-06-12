@@ -23,4 +23,4 @@ jobs:
 
       - name: Run type coverage check
         run: |
-          python3 tests/sanity/type_coverage_check.py
+          python3 tests/special_sanity/type_coverage_check.py
