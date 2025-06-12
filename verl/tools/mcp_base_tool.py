@@ -61,7 +61,7 @@ class MCPBaseTool(BaseTool):
         }
         return instance_id
 
-    async def _async_execute(self, instance_id, parameters):
+    async def _call_tool(self, instance_id, parameters) -> Tuple[str, dict]:
         err_msg = ""
         try:
             call_tool_result = await ClientManager.call_tool(self.name, parameters, self.timeout)
@@ -73,7 +73,7 @@ class MCPBaseTool(BaseTool):
             err_msg = f"\n An unexpected error occurred: {e}"
 
         logger.debug(f"Search result for instance {instance_id} with tool {self.name}: {call_tool_result.content}")
-        result, metadata = self.post_process(call_tool_result.content)
+        result, metadata = self._parse_tool_result(call_tool_result.content)
         metadata["api_request_error"] += err_msg
         return result, metadata
 
@@ -84,7 +84,7 @@ class MCPBaseTool(BaseTool):
             return json.dumps({"result": error_msg}), 0.0, {}
 
         try:
-            result_text, metadata = await self._async_execute(instance_id, parameters)
+            result_text, metadata = await self._call_tool(instance_id, parameters)
 
             # Store results in instance dictionary
             self._instance_dict[instance_id]["reward"].append(result_text.strip())
@@ -106,6 +106,6 @@ class MCPBaseTool(BaseTool):
         if instance_id in self._instance_dict:
             del self._instance_dict[instance_id]
 
-    def post_process(self, content: list):
+    def _parse_tool_result(self, content: list) -> Tuple[str, dict]:
         tools_content = [part.text for part in filter(lambda x: x.type == "text", content)]
         return " ".join(tools_content), {}

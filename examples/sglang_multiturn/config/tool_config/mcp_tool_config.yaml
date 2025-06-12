@@ -3,7 +3,7 @@ tools:
     config:
       rate_limit: 120
       timeout: 120
-      use_mcp: true
+      type: mcp
     mcp:
       mcp_servers_config_path: ./mcp_server.json
       # optional
