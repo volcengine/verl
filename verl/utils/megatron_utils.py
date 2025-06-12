@@ -420,15 +420,6 @@ def load_megatron_optimizer(optimizers):
         torch.cuda.empty_cache()
 
 
-def print_rank_0(message):
-    """If distributed is initialized, print only on rank 0."""
-    if torch.distributed.is_initialized():
-        if torch.distributed.get_rank() == 0:
-            print(message, flush=True)
-    else:
-        print(message, flush=True)
-
-
 def get_model_checkpoint_path(checkpoint_path):
     os.makedirs(checkpoint_path, exist_ok=True)
     return os.path.join(checkpoint_path, "model")
