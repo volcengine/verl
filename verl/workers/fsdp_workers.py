@@ -823,7 +823,8 @@ class CriticWorker(Worker):
     def __init__(self, config):
         profile_discrete = config.get("profile_discrete", False)
         profile_ranks = config.get("profile_ranks", None)
-        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks)
+        profile_ranks_all = config.get("profile_ranks_all", False)
+        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -1169,7 +1170,8 @@ class RewardModelWorker(Worker):
     def __init__(self, config):
         profile_discrete = config.get("profile_discrete", False)
         profile_ranks = config.get("profile_ranks", None)
-        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks)
+        profile_ranks_all = config.get("profile_ranks_all", False)
+        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
         import torch.distributed
 
         if not torch.distributed.is_initialized():
