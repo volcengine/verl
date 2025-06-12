@@ -23,59 +23,25 @@ version_folder = os.path.dirname(os.path.join(os.path.abspath(__file__)))
 with open(os.path.join(version_folder, "verl/version/version")) as f:
     __version__ = f.read().strip()
 
-install_requires = [
-    "torch>2.1.0",
-    "accelerate",
-    "codetiming",
-    "datasets",
-    "dill",
-    "hydra-core",
-    "numpy<2.0.0",
-    "pandas",
-    "peft",
-    "pyarrow>=19.0.0",
-    "pybind11",
-    "pylatexenc",
-    "ray[default]>=2.41.0",
-    "torchdata",
-    "tensordict<=0.6.2",
-    "transformers",
-    "wandb",
-    "packaging>=20.0"
-]
+install_requires = ["torch>2.1.0", "accelerate", "codetiming", "datasets", "dill", "hydra-core", "numpy<2.0.0", "pandas", "peft", "pyarrow>=19.0.0", "pybind11", "pylatexenc", "ray[default]>=2.41.0", "torchdata", "tensordict<=0.6.2", "transformers", "wandb", "packaging>=20.0"]
 
 TEST_REQUIRES = ["pytest", "pre-commit", "py-spy"]
 PRIME_REQUIRES = ["pyext"]
 GEO_REQUIRES = ["mathruler"]
 GPU_REQUIRES = ["liger-kernel", "flash-attn"]
 MATH_REQUIRES = ["math-verify"]  # Add math-verify as an optional dependency
-VLLM_REQUIRES = ["tensordict<=0.6.2", "vllm<=0.8.5", "flash_infer<0.2.3"]
+VLLM_REQUIRES = ["tensordict<=0.6.2", "vllm<=0.8.5", "flashinfer<0.2.3"]
 SGLANG_REQUIRES = [
     "tensordict<=0.6.2",
     "sglang[srt,openai]==0.4.6.post5",
-    "flash_infer<=0.2.5",
+    "flashinfer<=0.2.5",
     "torch-memory-saver>=0.0.5",
     "torch==2.6.0",
 ]
 TRL_REQUIRES = ["trl<=0.9.6"]
-MEGATRON_REQUIRES = [
-    "apex",
-    "transformer_engine<=2.3",
-    "megatron.core<=0.12.1",
-    "nvidia-cudnn-cu12==9.8.0.87"
-]
+MEGATRON_REQUIRES = ["apex", "transformer_engine<=2.3", "megatron.core<=0.12.1", "nvidia-cudnn-cu12==9.8.0.87"]
 
-extras_require = {
-    "test": TEST_REQUIRES,
-    "prime": PRIME_REQUIRES,
-    "geo": GEO_REQUIRES,
-    "gpu": GPU_REQUIRES,
-    "math": MATH_REQUIRES,
-    "vllm": VLLM_REQUIRES,
-    "sglang": SGLANG_REQUIRES,
-    "trl": TRL_REQUIRES,
-    "megatron": MEGATRON_REQUIRES
-}
+extras_require = {"test": TEST_REQUIRES, "prime": PRIME_REQUIRES, "geo": GEO_REQUIRES, "gpu": GPU_REQUIRES, "math": MATH_REQUIRES, "vllm": VLLM_REQUIRES, "sglang": SGLANG_REQUIRES, "trl": TRL_REQUIRES, "megatron": MEGATRON_REQUIRES}
 
 
 this_directory = Path(__file__).parent
