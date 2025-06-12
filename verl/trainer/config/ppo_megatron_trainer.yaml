@@ -356,6 +356,18 @@ trainer:
   # The timeout for ray worker group to wait for the register center to be ready
   ray_wait_register_center_timeout: 300
   device: cuda
+  # see ppo_trainer.yaml for more details
+  controller_nsight_options:
+    trace: "cuda,nvtx,cublas,ucx"
+    cuda-memory-usage: "true"
+    cuda-graph-trace: "graph"
+  worker_nsight_options:
+    trace: "cuda,nvtx,cublas,ucx"
+    cuda-memory-usage: "true"
+    cuda-graph-trace: "graph"
+    capture-range: "cudaProfilerApi"
+    capture-range-end: null
+    kill: none
 
 ray_init:
   num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
