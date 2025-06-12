@@ -22,7 +22,8 @@ from megatron.core.distributed import DistributedDataParallel as LocalDDP
 from megatron.core.transformer.module import Float16Module
 from torch.nn.parallel import DistributedDataParallel as torchDDP
 
-from verl.utils.megatron_utils import print_rank_0, unwrap_model
+from verl.utils.logger import print_rank_0
+from verl.utils.megatron_utils import unwrap_model
 
 
 def _megatron_calc_global_rank(tp_rank: int = 0, dp_rank: int = 0, pp_rank: int = 0, cp_rank: int = 0, ep_rank: int = 0):
@@ -465,6 +466,10 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
 
 def merge_megatron_ckpt_gptmodel_qwen_moe(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
     raise NotImplementedError("merge_megatron_ckpt_gptmodel_qwen_moe is not implemented")
+
+
+def merge_megatron_ckpt_gptmodel_qwen2_5_vl(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
+    raise NotImplementedError("merge_megatron_ckpt_gptmodel_qwen2_5_vl is not implemented")
 
 
 def merge_megatron_ckpt_gptmodel_dpskv3(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):

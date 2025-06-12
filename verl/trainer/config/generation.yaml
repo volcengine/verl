@@ -43,8 +43,12 @@ rollout:
 actor:
   strategy: fsdp  # This is for backward-compatibility
   ulysses_sequence_parallel_size: 1 # sp size
+  entropy_from_logits_with_chunking: False  # calculate entropy with chunking to reduce memory peak
+  entropy_checkpointing: False  # recompute entropy
   fsdp_config:
     fsdp_size: -1
+    forward_prefetch: False  # FSDP1 forward_prefetch configuration
 
 ray_init:
   num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
+  timeline_json_file: null

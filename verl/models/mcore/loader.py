@@ -56,7 +56,8 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
     from megatron.core.transformer.module import Float16Module
     from torch.nn.parallel import DistributedDataParallel as torchDDP
 
-    from verl.utils.megatron_utils import print_rank_0, unwrap_model
+    from verl.utils.logger import print_rank_0
+    from verl.utils.megatron_utils import unwrap_model
 
     start_time = time.time()
 
@@ -382,7 +383,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
                 sync_layer.self_attention.linear_qkv.layer_norm_weight if dst_pp_rank == pp_rank else None,
                 f"{layer_name}.input_layernorm.weight",
             )
-     
+
             if f"{layer_name}.self_attn.q_norm.weight" in state_dict:
                 _broadcast_tensor(
                     sync_layer.self_attention.q_layernorm.weight if dst_pp_rank == pp_rank else None,

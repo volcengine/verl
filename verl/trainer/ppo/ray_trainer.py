@@ -22,17 +22,15 @@ import json
 import os
 import uuid
 from collections import defaultdict
-from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Dict, Optional, Type
+from typing import Optional, Type
 
 import numpy as np
 import ray
 import torch
-from codetiming import Timer
 from omegaconf import OmegaConf, open_dict
 from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
@@ -44,7 +42,7 @@ from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
-from verl.trainer.ppo.core_algos import agg_loss
+from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_throughout_metrics,
@@ -52,14 +50,14 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
+from verl.utils.checkpoint.checkpoint_manager import BaseCheckpointManager, find_latest_ckpt_path
+from verl.utils.debug.performance import _timer
 from verl.utils.metric import (
     reduce_metrics,
 )
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
-from verl.workers.rollout.async_server import AsyncLLMServerManager
 
 WorkerType = Type[Worker]
 
@@ -76,20 +74,6 @@ class Role(Enum):
     RefPolicy = 4
     RewardModel = 5
     ActorRolloutRef = 6
-
-
-class AdvantageEstimator(str, Enum):
-    """
-    Using an enumeration class to avoid spelling errors in adv_estimator
-    """
-
-    GAE = "gae"
-    GRPO = "grpo"
-    REINFORCE_PLUS_PLUS = "reinforce_plus_plus"
-    REINFORCE_PLUS_PLUS_BASELINE = "reinforce_plus_plus_baseline"
-    REMAX = "remax"
-    RLOO = "rloo"
-    GRPO_PASSK = "grpo_passk"
 
 
 @dataclass
@@ -212,7 +196,7 @@ def compute_response_mask(data: DataProto):
     return attention_mask[:, -response_length:]
 
 
-def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1, multi_turn=False, norm_adv_by_std_in_grpo=True, **kwargs):
+def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1, multi_turn=False, norm_adv_by_std_in_grpo=True, config=None):
     """Compute advantage estimates for policy optimization.
 
     This function computes advantage estimates using various estimators like GAE, GRPO, REINFORCE++, etc.
@@ -226,16 +210,17 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         num_repeat (int, optional): Number of times to repeat the computation. Defaults to 1.
         multi_turn (bool, optional): Whether the data is from a multi-turn conversation. Defaults to False.
         norm_adv_by_std_in_grpo (bool, optional): Whether to normalize advantages by standard deviation in GRPO. Defaults to True.
+        config (dict, optional): Configuration dictionary for algorithm settings. Defaults to None.
 
     Returns:
         DataProto: The updated data with computed advantages and returns.
     """
     # Back-compatible with trainers that do not compute response mask in fit
-    if "response_mask" not in data.batch:
+    if "response_mask" not in data.batch.keys():
         data.batch["response_mask"] = compute_response_mask(data)
     # prepare response group
-    # TODO: add other ways to estimate advantages
     if adv_estimator == AdvantageEstimator.GAE:
+        # Compute advantages and returns using Generalized Advantage Estimation (GAE)
         advantages, returns = core_algos.compute_gae_advantage_return(
             token_level_rewards=data.batch["token_level_rewards"],
             values=data.batch["values"],
@@ -245,19 +230,21 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
-        if kwargs.get("use_pf_ppo", False):
+        if config.get("use_pf_ppo", False):
             data = core_algos.compute_pf_ppo_reweight_data(
                 data,
-                kwargs.get("pf_ppo_reweight_method", "pow"),
-                kwargs.get("pf_ppo_weight_pow", 2.0),
+                config.get("pf_ppo_reweight_method", "pow"),
+                config.get("pf_ppo_weight_pow", 2.0),
             )
     elif adv_estimator == AdvantageEstimator.GRPO:
-        # TODO: test on more adv estimator type
+        # Initialize the mask for GRPO calculation
         grpo_calculation_mask = data.batch["response_mask"]
         if multi_turn:
             # If multi-turn, replace the mask with the relevant part of loss_mask
-            response_length = grpo_calculation_mask.size(1)  # Get length from the initial response mask
-            grpo_calculation_mask = data.batch["loss_mask"][:, -response_length:]  # This mask is the one intended for GRPO
+            # Get length from the initial response mask
+            response_length = grpo_calculation_mask.size(1)
+            # This mask is the one intended for GRPO
+            grpo_calculation_mask = data.batch["loss_mask"][:, -response_length:]
         # Call compute_grpo_outcome_advantage with parameters matching its definition
         advantages, returns = core_algos.compute_grpo_outcome_advantage(
             token_level_rewards=data.batch["token_level_rewards"],
@@ -267,72 +254,24 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
-    elif adv_estimator == AdvantageEstimator.GRPO_PASSK:
-        advantages, returns = core_algos.compute_grpo_passk_outcome_advantage(
-            token_level_rewards=data.batch["token_level_rewards"],
-            response_mask=data.batch["response_mask"],
-            index=data.non_tensor_batch["uid"],
-            norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
-        )
-        data.batch["advantages"] = advantages
-        data.batch["returns"] = returns
-    elif adv_estimator == AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE:
-        advantages, returns = core_algos.compute_reinforce_plus_plus_baseline_outcome_advantage(
-            token_level_rewards=data.batch["token_level_rewards"],
-            response_mask=data.batch["response_mask"],
-            index=data.non_tensor_batch["uid"],
-        )
-        data.batch["advantages"] = advantages
-        data.batch["returns"] = returns
-    elif adv_estimator == AdvantageEstimator.REINFORCE_PLUS_PLUS:
-        advantages, returns = core_algos.compute_reinforce_plus_plus_outcome_advantage(
-            token_level_rewards=data.batch["token_level_rewards"],
-            response_mask=data.batch["response_mask"],
-            gamma=gamma,
-        )
-        data.batch["advantages"] = advantages
-        data.batch["returns"] = returns
-    elif adv_estimator == AdvantageEstimator.REMAX:
-        advantages, returns = core_algos.compute_remax_outcome_advantage(
-            token_level_rewards=data.batch["token_level_rewards"],
-            reward_baselines=data.batch["reward_baselines"],
-            response_mask=data.batch["response_mask"],
-        )
-
-        data.batch["advantages"] = advantages
-        data.batch["returns"] = returns
-    elif adv_estimator == AdvantageEstimator.RLOO:
-        advantages, returns = core_algos.compute_rloo_outcome_advantage(
-            token_level_rewards=data.batch["token_level_rewards"],
-            response_mask=data.batch["response_mask"],
-            index=data.non_tensor_batch["uid"],
-        )
-        data.batch["advantages"] = advantages
-        data.batch["returns"] = returns
     else:
-        raise NotImplementedError
+        # handle all other adv estimator type other than GAE and GRPO
+        adv_estimator_fn = core_algos.get_adv_estimator_fn(adv_estimator)
+        adv_kwargs = {
+            "token_level_rewards": data.batch["token_level_rewards"],
+            "response_mask": data.batch["response_mask"],
+            "config": config,
+        }
+        if "uid" in data.non_tensor_batch:  # optional
+            adv_kwargs["index"] = data.non_tensor_batch["uid"]
+        if "reward_baselines" in data.batch:  # optional
+            adv_kwargs["reward_baselines"] = data.batch["reward_baselines"]
+
+        # calculate advantage estimator
+        advantages, returns = adv_estimator_fn(**adv_kwargs)
+        data.batch["advantages"] = advantages
+        data.batch["returns"] = returns
     return data
-
-
-@contextmanager
-def _timer(name: str, timing_raw: Dict[str, float]):
-    """Context manager for timing code execution.
-
-    This utility function measures the execution time of code within its context
-    and accumulates the timing information in the provided dictionary.
-
-    Args:
-        name (str): The name/identifier for this timing measurement.
-        timing_raw (Dict[str, float]): Dictionary to store timing information.
-
-    Yields:
-        None: This is a context manager that yields control back to the code block.
-    """
-    with Timer(name=name, logger=None) as timer:
-        yield
-    if name not in timing_raw:
-        timing_raw[name] = 0
-    timing_raw[name] += timer.last
 
 
 class RayPPOTrainer:
@@ -381,7 +320,7 @@ class RayPPOTrainer:
         self.validation_generations_logger = ValidationGenerationsLogger()
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied
-        self.ref_in_actor = config.actor_rollout_ref.model.get('lora_rank', 0) > 0
+        self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
@@ -396,6 +335,7 @@ class RayPPOTrainer:
             AdvantageEstimator.REINFORCE_PLUS_PLUS,
             AdvantageEstimator.REMAX,
             AdvantageEstimator.RLOO,
+            AdvantageEstimator.OPO,
             AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE,
         ]:
             self.use_critic = False
@@ -409,10 +349,17 @@ class RayPPOTrainer:
         config = self.config
         # number of GPUs total
         n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
+        if config.actor_rollout_ref.actor.strategy == "megatron":
+            model_parallel_size = config.actor_rollout_ref.actor.megatron.tensor_model_parallel_size * config.actor_rollout_ref.actor.megatron.pipeline_model_parallel_size
+            assert n_gpus % (model_parallel_size * config.actor_rollout_ref.actor.megatron.context_parallel_size) == 0, f"n_gpus ({n_gpus}) must be divisible by model_parallel_size ({model_parallel_size}) times context_parallel_size ({config.actor_rollout_ref.actor.megatron.context_parallel_size})"
+            megatron_dp = n_gpus // (model_parallel_size * config.actor_rollout_ref.actor.megatron.context_parallel_size)
+            minimal_bsz = megatron_dp * config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu
+        else:
+            minimal_bsz = n_gpus
 
         # 1. Check total batch size for data correctness
         real_train_batch_size = config.data.train_batch_size * config.actor_rollout_ref.rollout.n
-        assert real_train_batch_size % n_gpus == 0, f"real_train_batch_size ({real_train_batch_size}) must be divisible by total n_gpus ({n_gpus})."
+        assert real_train_batch_size % minimal_bsz == 0, f"real_train_batch_size ({real_train_batch_size}) must be divisible by minimal possible batch size ({minimal_bsz})"
 
         # A helper function to check "micro_batch_size" vs "micro_batch_size_per_gpu"
         # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
@@ -555,7 +502,7 @@ class RayPPOTrainer:
             dataset=self.val_dataset,
             batch_size=val_batch_size,
             num_workers=self.config.data.get("dataloader_num_workers", 8),
-            shuffle=False,
+            shuffle=self.config.data.get("validation_shuffle", True),
             drop_last=False,
             collate_fn=collate_fn,
         )
@@ -822,9 +769,11 @@ class RayPPOTrainer:
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
         if self.config.actor_rollout_ref.rollout.mode == "async":
+            from verl.workers.rollout.async_server import AsyncLLMServerManager
+
             self.async_rollout_mode = True
             self.async_rollout_manager = AsyncLLMServerManager(
-                config=self.config.actor_rollout_ref,
+                config=self.config,
                 worker_group=self.actor_rollout_wg,
             )
 
@@ -851,6 +800,7 @@ class RayPPOTrainer:
             self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps, max_ckpt_to_keep=max_critic_ckpt_to_keep)
 
         # save dataloader
+        BaseCheckpointManager.local_mkdir(local_global_step_folder)
         dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
         dataloader_state_dict = self.train_dataloader.state_dict()
         torch.save(dataloader_state_dict, dataloader_local_path)
@@ -995,6 +945,8 @@ class RayPPOTrainer:
                             self.async_rollout_manager.wake_up()
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
                             self.async_rollout_manager.sleep()
+                        timing_raw.update(gen_batch_output.meta_info["timing"])
+                        gen_batch_output.meta_info.pop("timing", None)
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer("gen_max", timing_raw):
@@ -1018,9 +970,11 @@ class RayPPOTrainer:
                     batch = batch.union(gen_batch_output)
 
                     batch.batch["response_mask"] = compute_response_mask(batch)
-                    # balance the number of valid tokens on each dp rank.
-                    # Note that this breaks the order of data inside the batch.
-                    # Please take care when you implement group based adv computation such as GRPO and rloo
+                    # Balance the number of valid tokens across DP ranks.
+                    # NOTE: This usually changes the order of data in the `batch`,
+                    # which won't affect the advantage calculation (since it's based on uid),
+                    # but might affect the loss calculation (due to the change of mini-batching).
+                    # TODO: Decouple the DP balancing and mini-batching.
                     if self.config.trainer.balance_batch:
                         self._balance_batch(batch, metrics=metrics)
 
@@ -1044,8 +998,8 @@ class RayPPOTrainer:
                         entropys = old_log_prob.batch["entropys"]
                         response_masks = batch.batch["response_mask"]
                         loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
-                        entropy_loss = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
-                        old_log_prob_metrics = {"actor/entropy_loss": entropy_loss.detach().item()}
+                        entropy_agg = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
+                        old_log_prob_metrics = {"actor/entropy": entropy_agg.detach().item()}
                         metrics.update(old_log_prob_metrics)
                         old_log_prob.batch.pop("entropys")
                         batch = batch.union(old_log_prob)
@@ -1096,7 +1050,6 @@ class RayPPOTrainer:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                         batch.batch["token_level_scores"] = reward_tensor
 
-                        print(f"{list(reward_extra_infos_dict.keys())=}")
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
@@ -1119,9 +1072,7 @@ class RayPPOTrainer:
                             num_repeat=self.config.actor_rollout_ref.rollout.n,
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                             multi_turn=self.config.actor_rollout_ref.rollout.multi_turn.enable,
-                            use_pf_ppo=self.config.algorithm.use_pf_ppo,
-                            pf_ppo_reweight_method=self.config.algorithm.pf_ppo.reweight_method,
-                            pf_ppo_weight_pow=self.config.algorithm.pf_ppo.weight_pow,
+                            config=self.config.algorithm,
                         )
 
                     # update critic

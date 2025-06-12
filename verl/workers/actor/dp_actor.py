@@ -35,7 +35,7 @@ from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import logprobs_from_logits
-from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs, ulysses_pad
+from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.actor import BasePPOActor
 
 if is_cuda_available:
@@ -58,17 +58,24 @@ class DataParallelPPOActor(BasePPOActor):
         self.actor_optimizer = actor_optimizer
 
         self.use_remove_padding = self.config.get("use_remove_padding", False)
-        print(f"Actor use_remove_padding={self.use_remove_padding}")
+        if torch.distributed.get_rank() == 0:
+            print(f"Actor use_remove_padding={self.use_remove_padding}")
         self.use_fused_kernels = self.config.get("use_fused_kernels", False)
-        print(f"Actor use_fused_kernels={self.use_fused_kernels}")
+        if torch.distributed.get_rank() == 0:
+            print(f"Actor use_fused_kernels={self.use_fused_kernels}")
 
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
+        if self.config.entropy_from_logits_with_chunking:
+            entropy_from_logits = verl_F.entropy_from_logits_with_chunking
+        else:
+            entropy_from_logits = verl_F.entropy_from_logits
+
         self.compute_entropy_from_logits = (
-            torch.compile(verl_F.entropy_from_logits, dynamic=True)
+            torch.compile(entropy_from_logits, dynamic=True)
             if self.config.get("use_torch_compile", True)  #  use torch compile by default
-            else verl_F.entropy_from_logits
+            else entropy_from_logits
         )
         self.device_name = get_device_name()
 
@@ -80,7 +87,7 @@ class DataParallelPPOActor(BasePPOActor):
         """
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
-        if "multi_modal_inputs" in micro_batch:
+        if "multi_modal_inputs" in micro_batch.keys():
             for key in micro_batch["multi_modal_inputs"][0].keys():
                 multi_modal_inputs[key] = torch.cat([inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0)
 
@@ -134,6 +141,7 @@ class DataParallelPPOActor(BasePPOActor):
                 extra_args = {}
                 if self.use_fused_kernels:
                     extra_args["temperature"] = temperature
+                    extra_args["return_dict"] = True
 
                 output = self.actor_module(
                     input_ids=input_ids_rmpad,
@@ -164,7 +172,10 @@ class DataParallelPPOActor(BasePPOActor):
 
                     # compute entropy
                     if calculate_entropy:
-                        entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+                        if not self.config.entropy_checkpointing:
+                            entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+                        else:
+                            entropy_rmpad = torch.utils.checkpoint.checkpoint(self.compute_entropy_from_logits, logits_rmpad)
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:
@@ -309,6 +320,8 @@ class DataParallelPPOActor(BasePPOActor):
             assert len(indices) == log_probs.size(0), f"{len(indices)} vs. {log_probs.size()}"
             revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
             log_probs = log_probs[revert_indices]
+            if calculate_entropy:
+                entropys = entropys[revert_indices]
 
         return log_probs, entropys
 
