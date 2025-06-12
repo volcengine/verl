@@ -217,7 +217,10 @@ actor_rollout_ref:
     
       # What to include in saved checkpoints
       # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
-      contents: ['model', 'optimizer', 'extra']
+      save_contents: ['model', 'optimizer', 'extra']
+
+      # For more flexibility, you can specify the contents to load from the checkpoint.
+      load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
 
     # optimizer configs
     optim:
@@ -618,7 +621,8 @@ critic:
 
     # What to include in saved checkpoints
     # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
-    contents: ['model', 'optimizer', 'extra']
+    save_contents: ['model', 'optimizer', 'extra']
+    load_contents: ${critic.checkpoint.save_contents}
 
 # configs for the reward model
 reward_model:

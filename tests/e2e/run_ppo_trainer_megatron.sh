@@ -2,6 +2,8 @@
 set -xeuo pipefail
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation overlapping
+export VERL_LOGGING_LEVEL=INFO
+export VERL_PPO_LOGGING_LEVEL=INFO
 
 NUM_GPUS=${NUM_GPUS:-8}
 
@@ -155,7 +157,7 @@ for ENGINE in "${ENGINES[@]}"; do
         actor_rollout_ref.actor.use_kl_loss=True \
         actor_rollout_ref.actor.kl_loss_coef=0.001 \
         actor_rollout_ref.actor.kl_loss_type=low_var_kl \
-        actor_rollout_ref.actor.checkpoint.contents=$CHECKPOINT_CONTENTS \
+        actor_rollout_ref.actor.checkpoint.save_contents=$CHECKPOINT_CONTENTS \
         actor_rollout_ref.rollout.name="${ENGINE}" \
         actor_rollout_ref.rollout.tensor_model_parallel_size=$ROLLOUT_TP \
         actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
@@ -188,7 +190,7 @@ for ENGINE in "${ENGINES[@]}"; do
         critic.megatron.grad_offload=${CRITIC_GRAD_OFFLOAD} \
         critic.megatron.use_dist_checkpointing=${USE_DIST_CKPT} \
         critic.megatron.dist_checkpointing_path=${DIST_CKPT_PATH} \
-        critic.checkpoint.contents=$CHECKPOINT_CONTENTS \
+        critic.checkpoint.save_contents=$CHECKPOINT_CONTENTS \
         reward_model.enable=True \
         reward_model.model.path="${MODEL_PATH}" \
         reward_model.micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
