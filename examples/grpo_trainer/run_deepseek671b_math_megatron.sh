@@ -82,8 +82,6 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     trainer.test_freq=5 \
     +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_first_pipeline_stage=3 \
     +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=2 \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.moe_router_bias_update_rate=0.0 \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.moe_aux_loss_coeff=0.0001 \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=$PP \
     actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=$PP \
     actor_rollout_ref.actor.megatron.tensor_model_parallel_size=$TP \
