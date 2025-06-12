@@ -10,7 +10,9 @@
 /third_party/vllm @PeterSH6 @wuxibin89
 /verl/single_controller @zw0610 @wuxibin89
 /verl/trainer @eric-haibin-lin @vermouth1992 @tongyx361 @PeterSH6
+/verl/workers/rollout/vllm_rollout @wuxibin89 @PeterSH6
 /verl/workers/rollout/sglang_rollout @zhaochenyang20 @SwordFaith
 
 /tests/single_controller @zw0610 @wuxibin89
 /tests/trainer @eric-haibin-lin @vermouth1992 @tongyx361 @PeterSH6
+/tests/workers/rollout/vllm_rollout @wuxibin89 @PeterSH6
