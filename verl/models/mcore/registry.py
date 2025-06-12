@@ -35,6 +35,7 @@ from .config_converter import (
 )
 from .model_forward import (
     gptmodel_forward,
+    gptmodel_forward_qwen2_5_vl,
 )
 from .model_initializer import (
     BaseModelInitializer,
@@ -49,6 +50,7 @@ from .weight_converter import (
     McoreToHFWeightConverterDense,
     McoreToHFWeightConverterDpskv3,
     McoreToHFWeightConverterMixtral,
+    McoreToHFWeightConverterQwen2_5_VL,
     McoreToHFWeightConverterQwen2Moe,
     McoreToHFWeightConverterQwen3Moe,
 )
@@ -77,6 +79,7 @@ MODEL_CONFIG_CONVERTER_REGISTRY: Dict[SupportedModel, Callable[[PretrainedConfig
     SupportedModel.LLAMA4: hf_to_mcore_config_llama4,
     SupportedModel.QWEN3: hf_to_mcore_config_dense,
     SupportedModel.QWEN3_MOE: hf_to_mcore_config_qwen3moe,
+    SupportedModel.QWEN2_5_VL: hf_to_mcore_config_qwen2_5_vl,
 }
 
 # Registry for model initializers
@@ -90,6 +93,7 @@ MODEL_INITIALIZER_REGISTRY: Dict[SupportedModel, Type[BaseModelInitializer]] = {
     SupportedModel.LLAMA4: DenseModel,
     SupportedModel.QWEN3: DenseModel,
     SupportedModel.QWEN3_MOE: Qwen3MoEModel,
+    SupportedModel.QWEN2_5_VL: Qwen25VLModel,
 }
 
 # Registry for model forward functions
@@ -103,6 +107,7 @@ MODEL_FORWARD_REGISTRY: Dict[SupportedModel, Callable] = {
     SupportedModel.LLAMA4: gptmodel_forward,
     SupportedModel.QWEN3: gptmodel_forward,
     SupportedModel.QWEN3_MOE: gptmodel_forward,
+    SupportedModel.QWEN2_5_VL: gptmodel_forward_qwen2_5_vl,
     SupportedModel.DEEPSEEK_V3: gptmodel_forward,
 }
 
@@ -115,6 +120,7 @@ MODEL_WEIGHT_CONVERTER_REGISTRY: Dict[SupportedModel, Type] = {
     SupportedModel.DEEPSEEK_V3: McoreToHFWeightConverterDpskv3,
     SupportedModel.QWEN3: McoreToHFWeightConverterDense,
     SupportedModel.QWEN3_MOE: McoreToHFWeightConverterQwen3Moe,
+    SupportedModel.QWEN2_5_VL: McoreToHFWeightConverterQwen2_5_VL,
 }
 
 

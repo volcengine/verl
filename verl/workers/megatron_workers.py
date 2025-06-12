@@ -214,7 +214,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         layer_name_mapping = {
             "qkv_layer_name": "self_attention.linear_qkv.",
-            "gate_proj_layer_name": "linear_fc1.weight",
+            "gate_proj_layer_name": "linear_fc1.",
         }
         if self.config.rollout.name == "vllm":
             from torch.distributed.device_mesh import init_device_mesh
@@ -406,7 +406,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 optimizer_scheduler=self.actor_optimizer_scheduler,
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
                 use_checkpoint_opt_param_scheduler=self.config.actor.optim.use_checkpoint_opt_param_scheduler,
-                checkpoint_contents=self.config.actor.checkpoint.contents,
+                checkpoint_contents=self.config.actor.checkpoint,
             )
         torch.cuda.empty_cache()
         log_gpu_memory_usage("After init_model finish", logger=logger)
@@ -750,7 +750,7 @@ class CriticWorker(MegatronWorker):
             optimizer_scheduler=self.critic_optimizer_scheduler,
             use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
             use_checkpoint_opt_param_scheduler=self.config.optim.use_checkpoint_opt_param_scheduler,
-            checkpoint_contents=self.config.checkpoint.contents,
+            checkpoint_contents=self.config.checkpoint,
         )
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
