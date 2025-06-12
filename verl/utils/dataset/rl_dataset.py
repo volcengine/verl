@@ -283,6 +283,9 @@ class RLHFDataset(Dataset):
             logger.warning("tools_kwargs is empty for index {}, data source: {}", index, row_dict["data_source"])
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
+        expected_structure = row_dict.get("extra_info", {}).get("expected_structure")
+        if expected_structure is not None:
+            row_dict["expected_schema"] = expected_structure
         return row_dict
 
     def __getstate__(self):
