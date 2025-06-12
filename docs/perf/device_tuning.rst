@@ -1,4 +1,4 @@
-Resource Needed for verl RL
+Resource Needed for verl RL(LoRA)
 ==============================
 
 Since RL requires more resources compared to regular training, 
@@ -27,6 +27,84 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
 
 ----------------------------------------
 
+0.5B
+~~~
+
+.. list-table::
+    :widths: auto
+    :header-rows: 1
+    
+    * - Tag
+      - Model
+      - Task
+      - Resource
+      - MaxBatch
+      - Train
+      - Infer
+      - Link
+      - Contributor
+    * - MIN
+      - Qwen2.5-0.5B
+      - GRPO-LoRA
+      - 1*H100
+      - 116
+      - fsdp
+      - vllm0.8.3
+      - `qwen2-0.5b_grpo-lora_1_h100_fsdp_vllm.sh <https://github.com/volcengine/verl/blob/main/examples/tuning/0.5b/qwen2-0.5b_grpo-lora_1_h100_fsdp_vllm.sh>`_
+      - `SimonHuang <thelongestusernameofall@gmail.com>`_
+
+1.5B
+~~~
+
+.. list-table::
+    :widths: auto
+    :header-rows: 1
+    
+    * - Tag
+      - Model
+      - Task
+      - Resource
+      - MaxBatch
+      - Train
+      - Infer
+      - Link
+      - Contributor
+    * - MIN
+      - Qwen2.5-1.5B
+      - GRPO-LoRA
+      - 1*H100
+      - 128
+      - fsdp
+      - vllm0.8.3
+      - `qwen2-1.5b_grpo-lora_1_h100_fsdp_vllm.sh <https://github.com/volcengine/verl/blob/main/examples/tuning/1.5b/qwen2-1.5b_grpo-lora_1_h100_fsdp_vllm.sh>`_
+      - `SimonHuang <thelongestusernameofall@gmail.com>`_
+
+3B
+~~~
+
+.. list-table::
+    :widths: auto
+    :header-rows: 1
+    
+    * - Tag
+      - Model
+      - Task
+      - Resource
+      - MaxBatch
+      - Train
+      - Infer
+      - Link
+      - Contributor
+    * - MIN
+      - Qwen2.5-3B
+      - GRPO-LoRA
+      - 1*H100
+      - 62
+      - fsdp
+      - vllm0.8.3
+      - `qwen2-3b_grpo-lora_1_h100_fsdp_vllm.sh <https://github.com/volcengine/verl/blob/main/examples/tuning/3b/qwen2-3b_grpo-lora_1_h100_fsdp_vllm.sh>`_
+      - `SimonHuang <thelongestusernameofall@gmail.com>`_
+
 7B
 ~~~
 
@@ -38,6 +116,7 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - Model
       - Task
       - Resource
+      - MaxBatch
       - Train
       - Infer
       - Link
@@ -46,11 +125,20 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - Qwen2-7B
       - GRPO
       - 2*H800
+      - \
       - fsdp
       - vllm0.8.2
       - `qwen2-7b_grpo_2_h800_fsdp_vllm <https://github.com/volcengine/verl/blob/main/examples/tuning/7b/qwen2-7b_grpo_2_h800_fsdp_vllm.sh>`_
       - `Xiangyongan <xiangyongan@bytedance.com>`_
-      
+    * - MIN
+      - Qwen2.5-7B
+      - GRPO-LoRA
+      - 1*H100
+      - 16
+      - fsdp
+      - vllm0.8.3
+      - `qwen2-7b_grpo-lora_1_h100_fsdp_vllm.sh <https://github.com/volcengine/verl/blob/main/examples/tuning/7b/qwen2-7b_grpo-lora_1_h100_fsdp_vllm.sh>`_
+      - `SimonHuang <thelongestusernameofall@gmail.com>`_
 
 14B
 ~~~
@@ -63,6 +151,7 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - Model
       - Task
       - Resource
+      - MaxBatch
       - Train
       - Infer
       - Link
@@ -71,11 +160,20 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - Qwen2-14B
       - GRPO
       - 4*H800
+      - \
       - fsdp
       - vllm0.8.2
       - `qwen2-14b_grpo_4_h800_fsdp_vllm <https://github.com/volcengine/verl/blob/main/examples/tuning/14b/qwen2-14b_grpo_4_h800_fsdp_vllm.sh>`_
       - `Xiangyongan <xiangyongan@bytedance.com>`_
-
+    * - MIN
+      - Qwen2.5-14B
+      - GRPO-LoRA
+      - 2*H100
+      - 116
+      - fsdp
+      - vllm0.8.3
+      - `qwen2-14b_grpo-lora_2_h100_fsdp_vllm.sh <https://github.com/volcengine/verl/blob/main/examples/tuning/14b/qwen2-14b_grpo-lora_2_h100_fsdp_vllm.sh>`_
+      - `SimonHuang <thelongestusernameofall@gmail.com>`_
 
 32B
 ~~~
@@ -88,6 +186,7 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - Model
       - Task
       - Resource
+      - MaxBatch
       - Train
       - Infer
       - Link
@@ -96,10 +195,20 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - Qwen2-32B
       - GRPO
       - 8*H20
+      - \
       - megatron
       - vllm0.8.2
       - `qwen2-32b_grpo_8_h20_megatron_vllm <https://github.com/volcengine/verl/tree/main/examples/tuning/32b/qwen2_32B_grpo_8_h20_megatron_vllm.sh>`_
       - `Xiangyongan <xiangyongan@bytedance.com>`_
+    * - MIN
+      - Qwen2.5-32B
+      - GRPO-LoRA
+      - 4*H100
+      - 180
+      - fsdp
+      - vllm0.8.3
+      - `qwen2-32b_grpo-lora_4_h100_fsdp_vllm.sh <https://github.com/volcengine/verl/blob/main/examples/tuning/32b/qwen2-32b_grpo-lora_4_h100_fsdp_vllm.sh>`_
+      - `SimonHuang <thelongestusernameofall@gmail.com>`_
 
 70B
 ~~~
@@ -112,6 +221,7 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - Model
       - Task
       - Resource
+      - MaxBatch
       - Train
       - Infer
       - Link
@@ -120,6 +230,7 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - Qwen2-70B
       - GRPO
       - 32*H20
+      - \
       - fsdp
       - vllm0.8.2
       - `qwen2-70b_grpo_32_h20_fsdp_vllm <https://github.com/volcengine/verl/blob/main/examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh>`_
@@ -128,10 +239,20 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - Qwen2-70B
       - GRPO
       - 32*H800
+      - \
       - fsdp
       - vllm0.8.3
       - `qwen2-70b_grpo_32_h800_fsdp_vllm <https://github.com/volcengine/verl/blob/main/examples/tuning/70b/qwen2-70b_grpo_32_h800_fsdp_vllm.sh>`_
       - `Xiangyongan <xiangyongan@bytedance.com>`_
+    * - MIN
+      - Qwen2.5-72B
+      - GRPO-LoRA
+      - 8*H100
+      - 176
+      - fsdp
+      - vllm0.8.3
+      - `qwen2-72b_grpo-lora_8_h100_fsdp_vllm.sh <https://github.com/volcengine/verl/blob/main/examples/tuning/70b/qwen2-72b_grpo-lora_8_h100_fsdp_vllm.sh>`_
+      - `SimonHuang <thelongestusernameofall@gmail.com>`_
 
 405B
 ~~~~
@@ -139,12 +260,11 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
 .. table::
    :widths: auto
 
-   ====== ====== ====== ======== ====== ====== ======
-   tag    model  task   resource train  infer  link
-   ====== ====== ====== ======== ====== ====== ======
-   \      \      \        \      \      \
-   ====== ====== ====== ======== ====== ====== ======
-
+   ====== ====== ====== ======== ======== ====== ====== ======
+   tag    model  task   resource MaxBatch train  infer  link
+   ====== ====== ====== ======== ======== ====== ====== ======
+   \      \      \        \        \      \      \
+   ====== ====== ====== ======== ======== ====== ====== ======
 
 671B
 ~~~~
@@ -152,8 +272,8 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
 .. table::
    :widths: auto
 
-   ====== ====== ====== ======== ====== ====== ======
-   tag    model  task   resource train  infer  link
-   ====== ====== ====== ======== ====== ====== ======
-   \      \      \        \      \      \
-   ====== ====== ====== ======== ====== ====== ======
+   ====== ====== ====== ======== ======== ====== ====== ======
+   tag    model  task   resource MaxBatch train  infer  link
+   ====== ====== ====== ======== ======== ====== ====== ======
+   \      \      \        \        \      \      \
+   ====== ====== ====== ======== ======== ====== ====== ======
