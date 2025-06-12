@@ -15,37 +15,14 @@
 import asyncio
 import json
 import logging
-import threading
-import time
 from typing import Any
 
 from fastmcp import Client
 from fastmcp.client.transports import SSETransport
 
-from verl.tools.utils.mcp_clients.utils import mcp2openai
+from verl.tools.utils.mcp_clients.utils import TokenBucket, mcp2openai
 
 logger = logging.getLogger(__name__)
-
-
-class TokenBucket:
-    def __init__(self, rate_limit: float):
-        self.rate_limit = rate_limit  # tokens per second
-        self.tokens = rate_limit
-        self.last_update = time.time()
-        self.lock = threading.Lock()
-
-    def acquire(self) -> bool:
-        with self.lock:
-            now = time.time()
-            # Add new tokens based on time elapsed
-            new_tokens = (now - self.last_update) * self.rate_limit
-            self.tokens = min(self.rate_limit, self.tokens + new_tokens)
-            self.last_update = now
-
-            if self.tokens >= 1:
-                self.tokens -= 1
-                return True
-            return False
 
 
 class MCPClientManager:
@@ -55,22 +32,11 @@ class MCPClientManager:
     tool_client_mapping = {}
     rate_limiter = None
 
-    def load_config(self, file: str) -> dict[str, Any]:
-        try:
-            with open(file) as f:
-                return json.load(f)
-        except FileNotFoundError:
-            logger.warning(f'the "{file}" file was not found')
-        except Exception:
-            logger.error(f'there was an error reading the "{file}" file')
-
-        return {}
-
     async def initialize(self, config_path, rate_limit: float = 10.0):
         if self.initialized:
             return
         """Initialize the MCP Client Manager and start all clients"""
-        result = self.load_config(config_path)
+        result = self._load_config(config_path)
         servers = result[self.rootServerName]
         exclude_sse_servers = {self.rootServerName: {}}
         for server_name in servers.keys():
@@ -88,9 +54,6 @@ class MCPClientManager:
         # Initialize rate limiter
         self.rate_limiter = TokenBucket(rate_limit)
         self.initialized = True
-
-    def _get_client_with_tool_name(self, tool_name: str):
-        return self.tool_client_mapping[tool_name]
 
     async def call_tool(self, tool_name, parameters, timeout):
         # Apply rate limiting
@@ -115,6 +78,20 @@ class MCPClientManager:
                         tool_schemas.append(mcp2openai(tool))
 
         return tool_schemas
+
+    def get_client_with_tool_name(self, tool_name: str):
+        return self.tool_client_mapping[tool_name]
+
+    def _load_config(self, file: str) -> dict[str, Any]:
+        try:
+            with open(file) as f:
+                return json.load(f)
+        except FileNotFoundError:
+            logger.warning(f'the "{file}" file was not found')
+        except Exception:
+            logger.error(f'there was an error reading the "{file}" file')
+
+        return {}
 
 
 ClientManager = MCPClientManager()

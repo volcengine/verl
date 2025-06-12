@@ -16,7 +16,7 @@ import json
 import logging
 import os
 import re
-from typing import TypeVar
+from typing import Tuple, TypeVar
 
 from verl.tools.mcp_base_tool import MCPBaseTool
 
@@ -32,7 +32,7 @@ class MCPSearchTool(MCPBaseTool):
     def __init__(self, config: dict, tool_schema: OpenAIFunctionToolSchema):
         super().__init__(config, tool_schema)
 
-    def post_process(self, content: list):
+    def _parse_tool_result(self, content: list) -> Tuple[str, dict]:
         res = ""
         res_cnt = 0
         query_list = []

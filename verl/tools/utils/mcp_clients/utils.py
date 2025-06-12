@@ -13,10 +13,33 @@
 # limitations under the License.
 
 import logging
+import threading
+import time
 
 from mcp import Tool
 
 logger = logging.getLogger(__file__)
+
+
+class TokenBucket:
+    def __init__(self, rate_limit: float):
+        self.rate_limit = rate_limit  # tokens per second
+        self.tokens = rate_limit
+        self.last_update = time.time()
+        self.lock = threading.Lock()
+
+    def acquire(self) -> bool:
+        with self.lock:
+            now = time.time()
+            # Add new tokens based on time elapsed
+            new_tokens = (now - self.last_update) * self.rate_limit
+            self.tokens = min(self.rate_limit, self.tokens + new_tokens)
+            self.last_update = now
+
+            if self.tokens >= 1:
+                self.tokens -= 1
+                return True
+            return False
 
 
 def mcp2openai(mcp_tool: Tool) -> dict:
