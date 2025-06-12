@@ -14,9 +14,11 @@
 # limitations under the License.
 
 import argparse
+from contextlib import contextmanager
 import os
 import warnings
 
+from accelerate import init_empty_weights
 import torch
 from megatron.core import dist_checkpointing
 from megatron.core import parallel_state as mpu
@@ -248,53 +250,64 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
 @torch.no_grad()
 def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_config, tfconfig):
     warnings.warn("MTP model is not supported yet", stacklevel=2)
-    model.embedding.word_embeddings.weight.copy_(hf_model.model.embed_tokens.weight)
+    numel = 0
+    numel += safe_copy(model.embedding.word_embeddings.weight, hf_model.model.embed_tokens.weight)
+    print(f"{numel=}")
     for layer_idx, (layer, hf_layer) in enumerate(zip(model.decoder.layers, hf_model.model.layers)):
-        print(layer_idx)
-        layer.input_layernorm.weight.copy_(hf_layer.input_layernorm.weight)
+        numel_cur = numel
+        numel += safe_copy(layer.input_layernorm.weight, hf_layer.input_layernorm.weight)
 
         if hf_config.q_lora_rank is None:
-            layer.self_attention.linear_q_proj.weight.copy_(hf_layer.self_attn.q_proj.weight)
+            numel += safe_copy(layer.self_attention.linear_q_proj.weight, hf_layer.self_attn.q_proj.weight)
         else:
-            layer.self_attention.linear_q_down_proj.weight.copy_(hf_layer.self_attn.q_a_proj.weight)
-            layer.self_attention.linear_q_up_proj.weight.copy_(hf_layer.self_attn.q_b_proj.weight)
-            layer.self_attention.linear_q_up_proj.layer_norm_weight.copy_(hf_layer.self_attn.q_a_layernorm.weight)
+            numel += safe_copy(layer.self_attention.linear_q_down_proj.weight, hf_layer.self_attn.q_a_proj.weight)
+            numel += safe_copy(layer.self_attention.linear_q_up_proj.weight, hf_layer.self_attn.q_b_proj.weight)
+            numel += safe_copy(layer.self_attention.linear_q_up_proj.layer_norm_weight, hf_layer.self_attn.q_a_layernorm.weight)
 
-        layer.self_attention.linear_kv_down_proj.weight.copy_(hf_layer.self_attn.kv_a_proj_with_mqa.weight)
-        layer.self_attention.linear_kv_up_proj.weight.copy_(hf_layer.self_attn.kv_b_proj.weight)
-        layer.self_attention.linear_kv_up_proj.layer_norm_weight.copy_(hf_layer.self_attn.kv_a_layernorm.weight)
-        layer.self_attention.linear_proj.weight.copy_(hf_layer.self_attn.o_proj.weight)
+        numel += safe_copy(layer.self_attention.linear_kv_down_proj.weight, hf_layer.self_attn.kv_a_proj_with_mqa.weight)
+        numel += safe_copy(layer.self_attention.linear_kv_up_proj.weight, hf_layer.self_attn.kv_b_proj.weight)
+        numel += safe_copy(layer.self_attention.linear_kv_up_proj.layer_norm_weight, hf_layer.self_attn.kv_a_layernorm.weight)
+        numel += safe_copy(layer.self_attention.linear_proj.weight, hf_layer.self_attn.o_proj.weight)
 
         if not hasattr(layer.mlp, "router"):
-            layer.mlp.linear_fc1.layer_norm_weight.copy_(hf_layer.post_attention_layernorm.weight)
-            layer.mlp.linear_fc1.weight.copy_(torch.cat([hf_layer.mlp.gate_proj.weight, hf_layer.mlp.up_proj.weight]))
-            layer.mlp.linear_fc2.weight.copy_(hf_layer.mlp.down_proj.weight)
+            numel += safe_copy(layer.mlp.linear_fc1.layer_norm_weight, hf_layer.post_attention_layernorm.weight)
+            numel += safe_copy(layer.mlp.linear_fc1.weight, torch.cat([hf_layer.mlp.gate_proj.weight, hf_layer.mlp.up_proj.weight]))
+            numel += safe_copy(layer.mlp.linear_fc2.weight, hf_layer.mlp.down_proj.weight)
         else:
-            layer.mlp.router.weight.copy_(hf_layer.mlp.gate.weight)
+            numel += safe_copy(layer.mlp.router.weight, hf_layer.mlp.gate.weight)
             # NOTE: the e_score_correction_bias in mcore model will be initialized with bfloat16 and \
             # recover to fp32 in the first forward. There is always a diff in the bias between two models (~0.3%)
-            safe_copy(hf_layer.mlp.gate.e_score_correction_bias, layer.mlp.router.expert_bias, skip_dtype_assert=True)
+            numel += safe_copy(hf_layer.mlp.gate.e_score_correction_bias, layer.mlp.router.expert_bias, skip_dtype_assert=True)
             if tfconfig.moe_grouped_gemm:
                 for i, hf_expert in enumerate(hf_layer.mlp.experts):
                     fc1_weight = torch.cat([hf_expert.gate_proj.weight, hf_expert.up_proj.weight])
                     linear_fc1_weighti = getattr(layer.mlp.experts.linear_fc1, "weight" + str(i))
-                    linear_fc1_weighti.copy_(fc1_weight)
+                    numel += safe_copy(linear_fc1_weighti, fc1_weight)
                     linear_fc2_weighti = getattr(layer.mlp.experts.linear_fc2, "weight" + str(i))
-                    linear_fc2_weighti.copy_(hf_expert.down_proj.weight)
+                    numel += safe_copy(linear_fc2_weighti, hf_expert.down_proj.weight)
             else:
                 for i, hf_expert in enumerate(hf_layer.mlp.experts):
                     expert = layer.mlp.experts.local_experts[i]
                     fc1_weight = torch.cat([hf_expert.gate_proj.weight, hf_expert.up_proj.weight])
-                    expert.linear_fc1.weight.copy_(fc1_weight)
-                    expert.linear_fc2.weight.copy_(hf_expert.down_proj.weight)
-            layer.pre_mlp_layernorm.weight.copy_(hf_layer.post_attention_layernorm.weight)
+                    numel += safe_copy(expert.linear_fc1.weight, fc1_weight)
+                    numel += safe_copy(expert.linear_fc2.weight, hf_expert.down_proj.weight)
+            numel += safe_copy(layer.pre_mlp_layernorm.weight, hf_layer.post_attention_layernorm.weight)
             shared_fc1_weight = torch.cat([hf_layer.mlp.shared_experts.gate_proj.weight, hf_layer.mlp.shared_experts.up_proj.weight])
-            layer.mlp.shared_experts.linear_fc1.weight.copy_(shared_fc1_weight)
-            layer.mlp.shared_experts.linear_fc2.weight.copy_(hf_layer.mlp.shared_experts.down_proj.weight)
+            numel += safe_copy(layer.mlp.shared_experts.linear_fc1.weight, shared_fc1_weight)
+            numel += safe_copy(layer.mlp.shared_experts.linear_fc2.weight, hf_layer.mlp.shared_experts.down_proj.weight)
+            print(f"{layer_idx=} {numel=} numel this layer={numel - numel_cur}")
 
-        model.decoder.final_layernorm.weight.copy_(hf_model.model.norm.weight)
-        if not hf_config.tie_word_embeddings:
-            model.output_layer.weight.copy_(hf_model.lm_head.weight)
+    numel += safe_copy(model.decoder.final_layernorm.weight, hf_model.model.norm.weight)
+
+    if not hf_config.tie_word_embeddings:
+        numel += safe_copy(model.output_layer.weight, hf_model.lm_head.weight)
+    print(f"{numel=}")
+    return numel
+
+
+@contextmanager
+def noop_context():
+    yield
 
 
 def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False, test=False, trust_remote_code=False):
@@ -341,12 +354,18 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
         )
         return parallel_model
 
-    model = get_model(
-        model_provider_func=megatron_model_provider,
-        model_type=ModelType.encoder_or_decoder,
-        wrap_with_ddp=False,
-        transformer_config=tfconfig,
-    )
+    context = init_empty_weights if use_cpu_initialization else noop_context
+    with context():
+        model = get_model(
+            model_provider_func=megatron_model_provider,
+            model_type=ModelType.encoder_or_decoder,
+            wrap_with_ddp=False,
+            transformer_config=tfconfig,
+        )
+
+    if use_cpu_initialization:
+        # 空初始化，因为 meta device 无法 copy
+        model[0].module = model[0].module.to_empty(device="cpu")
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -365,7 +384,9 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
     elif "Qwen2_5_VLForConditionalGeneration" in hf_config.architectures:
         convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hf_model, model[0].module, hf_config)
     elif "DeepseekV3ForCausalLM" in hf_config.architectures:
-        convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model[0].module, hf_config, tfconfig=tfconfig)
+        numel = convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model[0].module, hf_config, tfconfig=tfconfig)
+        if numel != hf_model.num_parameters():
+            print(f"[WARNING] numel mismatch: {numel} != {hf_model.num_parameters()}")
     elif "Qwen3MoeForCausalLM" in hf_config.architectures:
         convert_checkpoint_from_transformers_to_megatron(hf_model, model[0].module, hf_config)
     else:
