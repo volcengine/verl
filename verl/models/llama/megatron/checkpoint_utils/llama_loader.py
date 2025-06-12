@@ -55,7 +55,8 @@ def load_state_dict_to_megatron_llama(state_dict, wrapped_models, config, params
     from megatron.core.transformer.module import Float16Module
     from torch.nn.parallel import DistributedDataParallel as torchDDP
 
-    from verl.utils.megatron_utils import print_rank_0, unwrap_model
+    from verl.utils.logger import print_rank_0
+    from verl.utils.megatron_utils import unwrap_model
 
     start_time = time.time()
 
