@@ -743,7 +743,10 @@ class RayPPOTrainer:
         wg_kwargs = {}  # Setting up kwargs for RayWorkerGroup
         if OmegaConf.select(self.config.trainer, "ray_wait_register_center_timeout") is not None:
             wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
-        wg_kwargs["profile_steps"] = OmegaConf.select(self.config.trainer, "profile_steps")
+        if OmegaConf.select(self.config.trainer, "profile_steps") is not None:
+            wg_kwargs["profile_steps"] = OmegaConf.select(self.config.trainer, "profile_steps")
+            assert OmegaConf.select(self.config.trainer, "worker_nsight_options") is not None, "worker_nsight_options must be set when profile_steps is set"
+            wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(OmegaConf.select(self.config.trainer, "worker_nsight_options"))
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
