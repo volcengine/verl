@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
 import os
+from dataclasses import dataclass
+from typing import Callable, Optional
 
 import torch
 import torch.distributed
@@ -91,3 +94,99 @@ class Profiler:
         if self.check():
             print(f"[Profiler] Trace stopped for rank {self.rank}")
             self.skip_prof = True
+
+
+@dataclass
+class ProfilerConfig:
+    """
+    Worker profiler config. Currently only support Nsight system profiler.
+    """
+
+    all_ranks: bool = False
+    ranks: Optional[list[int]] = None
+    discrete: bool = False
+
+    def union(self, other: "ProfilerConfig") -> "ProfilerConfig":
+        return ProfilerConfig(
+            all_ranks=self.all_ranks or other.all_ranks,
+            ranks=list(set(self.ranks or []) | set(other.ranks or [])),
+            discrete=self.discrete or other.discrete,
+        )
+
+    def intersect(self, other: "ProfilerConfig") -> "ProfilerConfig":
+        return ProfilerConfig(
+            all_ranks=self.all_ranks and other.all_ranks,
+            ranks=list(set(self.ranks or []) & set(other.ranks or [])),
+            discrete=self.discrete and other.discrete,
+        )
+
+
+class NsightSystemsProfiler:
+    """
+    Nsight system profiler. Installed in a worker to control the Nsight system profiler.
+    """
+
+    def __init__(self, rank: int, config: Optional[ProfilerConfig] = None):
+        config = config or ProfilerConfig()
+        self.this_step: bool = False
+        self.discrete: bool = config.discrete
+        self.this_rank: bool = rank in (config.ranks or []) or config.all_ranks
+
+    def start(self):
+        if self.this_rank:
+            self.this_step = True
+            if not self.discrete:
+                torch.cuda.profiler.start()
+
+    def stop(self):
+        if self.this_rank:
+            self.this_step = False
+            if not self.discrete:
+                torch.cuda.profiler.stop()
+
+    @staticmethod
+    def annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
+        """Decorate a Worker member function to profile the current rank in the current training step.
+
+        Requires the target function to be a member function of a Worker, which has a member field `profiler` with NightSystemsProfiler type.
+
+        Args:
+            message (str, optional):
+                The message to be displayed in the profiler. Defaults to None.
+            color (str, optional):
+                The color of the range. Defaults to None.
+            domain (str, optional):
+                The domain of the range. Defaults to None.
+            category (str, optional):
+                The category of the range. Defaults to None.
+        """
+
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(self, *args, **kwargs):
+                from verl.utils.import_utils import is_nvtx_available
+
+                if is_nvtx_available():
+                    from .nvtx_annotations import mark_end_range, mark_start_range
+                else:
+                    from .empty_annotations import mark_end_range, mark_start_range
+
+                profile_name = message or func.__name__
+
+                if self.profiler.this_step:
+                    if self.profiler.discrete:
+                        torch.cuda.profiler.start()
+                    mark_range = mark_start_range(message=profile_name, color=color, domain=domain, category=category)
+
+                result = func(self, *args, **kwargs)
+
+                if self.profiler.this_step:
+                    mark_end_range(mark_range)
+                    if self.profiler.discrete:
+                        torch.cuda.profiler.stop()
+
+                return result
+
+            return wrapper
+
+        return decorator

@@ -152,15 +152,6 @@ actor_rollout_ref:
     # Split each sample into sub-batches of this size for PPO
     ppo_mini_batch_size: 256
 
-    # True for each task has its own database, False for all tasks in one training step share one database.
-    profile_discrete: False
-
-    # Whether to profile all ranks.
-    profile_ranks_all: False
-
-    # The ranks that will be profiled. null or [0,1,...]
-    profile_ranks: null
-
     # [Deprecated] Global micro batch size
     ppo_micro_batch_size: null
 
@@ -287,22 +278,25 @@ actor_rollout_ref:
       # before the current forward computation.
       forward_prefetch: False
 
+    # profiler configs
+    profiler:
+      # True for each task has its own database, False for all tasks in one training step share one database.
+      discrete: False
+
+      # Whether to profile all ranks.
+      all_ranks: False
+
+      # The ranks that will be profiled. null or [0,1,...]
+      ranks: null
+
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
   ref:
 
-    # True for each task has its own database, False for all tasks in one training step share one database.
-    profile_discrete: False
-
-    # Whether to profile all ranks.
-    profile_ranks_all: False
-
-    # The ranks that will be profiled. null or [0,1,...]
-    profile_ranks: null
-
     # actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it’s recommended to turn on offload for ref by default
     strategy: fsdp
 
+    # config for FSDP strategy
     fsdp_config:
 
       # whether to offload parameters in FSDP
@@ -347,6 +341,17 @@ actor_rollout_ref:
     # recompute entropy
     entropy_checkpointing: False
 
+    # profiler configs
+    profiler:
+      # True for each task has its own database, False for all tasks in one training step share one database.
+      discrete: False
+
+      # Whether to profile all ranks.
+      all_ranks: False
+
+      # The ranks that will be profiled. null or [0,1,...]
+      ranks: null
+
   # Rollout model config.
   rollout:
 
@@ -355,15 +360,6 @@ actor_rollout_ref:
 
     # sync: LLM, async: AsyncLLM
     mode: sync
-
-    # Profile discrete, True for each task has its own database, False for all tasks in one training step share one database.
-    profile_discrete: False
-
-    # Whether to profile all ranks.
-    profile_ranks_all: False
-
-    # The ranks that will be profiled. null or [0,1,...]
-    profile_ranks: null
 
     # Sampling temperature for rollout.
     temperature: 1.0
@@ -504,6 +500,17 @@ actor_rollout_ref:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
       enable_tokenization_sanity_check: True
 
+    # profiler configs
+    profiler:
+      # True for each task has its own database, False for all tasks in one training step share one database.
+      discrete: False
+
+      # Whether to profile all ranks.
+      all_ranks: False
+
+      # The ranks that will be profiled. null or [0,1,...]
+      ranks: null
+
 # configs for the critic
 critic:
 
@@ -512,15 +519,6 @@ critic:
 
   # fsdp or fsdp2 strategy used for critic model training
   strategy: fsdp
-
-  # Profile discrete, True for each task has its own database, False for all tasks in one training step share one database.
-  profile_discrete: False
-
-  # Whether to profile all ranks.
-  profile_ranks_all: False
-
-  # The ranks that will be profiled. null or [0,1,...]
-  profile_ranks: null
 
   # optimizer configs
   optim:
@@ -662,6 +660,17 @@ critic:
     # What to include when loading checkpoints
     load_contents: ${critic.checkpoint.save_contents}
 
+  # profiler configs
+  profiler:
+    # True for each task has its own database, False for all tasks in one training step share one database.
+    discrete: False
+
+    # Whether to profile all ranks.
+    all_ranks: False
+
+    # The ranks that will be profiled. null or [0,1,...]
+    ranks: null
+
 # configs for the reward model
 reward_model:
 
@@ -673,15 +682,6 @@ reward_model:
 
   # FSDP strategy: "fsdp" or "fsdp2"
   strategy: fsdp
-
-  # Profile discrete, True for each task has its own database, False for all tasks in one training step share one database.
-  profile_discrete: False
-
-  # Whether to profile all ranks.
-  profile_ranks_all: False
-
-  # The ranks that will be profiled. null or [0,1,...]
-  profile_ranks: null
 
   # model config for reward scoring
   model:
@@ -766,6 +766,17 @@ reward_model:
 
     # Max concurrent requests allowed to sandbox
     max_concurrent: 64
+
+  # profiler configs
+  profiler:
+    # True for each task has its own database, False for all tasks in one training step share one database.
+    discrete: False
+
+    # Whether to profile all ranks.
+    all_ranks: False
+
+    # The ranks that will be profiled. null or [0,1,...]
+    ranks: null
 
 # custom reward function definition
 custom_reward_function:
