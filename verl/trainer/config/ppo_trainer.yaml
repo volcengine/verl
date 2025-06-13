@@ -128,6 +128,10 @@ actor_rollout_ref:
     # [q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]
     target_modules: all-linear
     
+    # Exclude modules from applying Lora. Similar usage to target_modules and Peft.
+    # Example: '.*visual.*' for excluding ViT part in VL model, as vllm does not support ViT Lora.
+    exclude_modules: null
+
     # Whether to use Liger for linear layer fusion
     use_liger: false
     
