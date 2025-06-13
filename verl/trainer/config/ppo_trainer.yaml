@@ -147,6 +147,7 @@ actor_rollout_ref:
     # Whether to enable loading a remote code model
     trust_remote_code: false
 
+  # actor configs
   actor:
   
     # fsdp, fsdp2 or megatron. fsdp backend used here.
@@ -626,6 +627,8 @@ critic:
     # What to include in saved checkpoints
     # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
     save_contents: ['model', 'optimizer', 'extra']
+
+    # What to include when loading checkpoints
     load_contents: ${critic.checkpoint.save_contents}
 
 # configs for the reward model
