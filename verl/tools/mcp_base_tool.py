@@ -15,7 +15,7 @@
 import json
 import logging
 import os
-from typing import Any, Optional, Tuple, TypeVar
+from typing import Any, Optional, Tuple
 from uuid import uuid4
 
 from fastmcp.exceptions import ClientError
@@ -27,8 +27,6 @@ from .schemas import OpenAIFunctionToolSchema
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-T = TypeVar("T")
 
 
 class MCPBaseTool(BaseTool):

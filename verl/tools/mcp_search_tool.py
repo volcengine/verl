@@ -16,7 +16,7 @@ import json
 import logging
 import os
 import re
-from typing import Tuple, TypeVar
+from typing import Tuple
 
 from verl.tools.mcp_base_tool import MCPBaseTool
 
@@ -24,8 +24,6 @@ from .schemas import OpenAIFunctionToolSchema
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-T = TypeVar("T")
 
 
 class MCPSearchTool(MCPBaseTool):
