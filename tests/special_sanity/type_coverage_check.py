@@ -48,10 +48,13 @@ def has_type_annotations(node: ast.AST) -> bool:
         has_ann = all(arg.annotation is not None for arg in node.args.args if arg.arg != "self") and node.returns is not None
         return has_ann
     elif isinstance(node, ast.AnnAssign):
-        return node.annotation is not None
-    elif isinstance(node, ast.Assign):
         if isinstance(node.value, ast.Call):
-            return hasattr(node, "annotation")
+            return node.annotation is not None
+        elif not isinstance(node.value, ast.Constant):
+            return node.annotation is not None
+    elif isinstance(node, ast.Assign):
+        if not isinstance(node.value, ast.Constant):
+            return False
     return True
 
 
