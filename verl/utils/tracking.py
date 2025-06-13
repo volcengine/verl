@@ -66,10 +66,20 @@ class Tracking:
             MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:////tmp/mlruns.db")
             mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
+            log_system_metrics = config and config.get('log_system_metrics', None)
+
+            if log_system_metrics:
+                # Set system metrics sampling interval and samples before logging so that system metrics
+                # are collected every 5s, and aggregated over 6 samples before being logged
+                # (logging per 30s).
+                mlflow.set_system_metrics_samples_before_logging(6)
+                mlflow.set_system_metrics_sampling_interval(5)
+
+
             # Project_name is actually experiment_name in MLFlow
             # If experiment does not exist, will create a new experiment
             experiment = mlflow.set_experiment(project_name)
-            mlflow.start_run(experiment_id=experiment.experiment_id, run_name=experiment_name)
+            mlflow.start_run(experiment_id=experiment.experiment_id, run_name=experiment_name, log_system_metrics=log_system_metrics)
             mlflow.log_params(_compute_mlflow_params_from_objects(config))
             self.logger["mlflow"] = _MlflowLoggingAdapter()
 
