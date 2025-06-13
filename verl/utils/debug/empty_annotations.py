@@ -12,16 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Callable, Optional
 
-def mark_start_range(message=None, color=None, domain=None, category=None):
+
+def mark_start_range(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> None:
     pass
 
 
-def mark_end_range(range_id):
+def mark_end_range(range_id: str) -> None:
     pass
 
 
-def mark_annotate(message=None, color=None, domain=None, category=None):
+def mark_annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
     def decorator(func):
         return func
 
