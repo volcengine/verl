@@ -110,6 +110,11 @@ actor_rollout_ref:
       save_contents: ['model', 'optimizer', 'extra']
       # For more flexibility, you can specify the contents to load from the checkpoint.
       load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
+    # Nsight system profiler configs
+    profiler:
+      discrete: False
+      all_ranks: False
+      ranks: null
   ref:
     strategy: megatron
     profile_discrete: False
@@ -141,6 +146,11 @@ actor_rollout_ref:
     log_prob_micro_batch_size_per_gpu: null
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
+    # Nsight system profiler configs
+    profiler:
+      discrete: False
+      all_ranks: False
+      ranks: null
   rollout:
     name: vllm
     mode: sync # sync: LLM, async: AsyncLLM
@@ -202,7 +212,11 @@ actor_rollout_ref:
       # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
       enable_tokenization_sanity_check: True
-
+    # Nsight system profiler configs
+    profiler:
+      discrete: False
+      all_ranks: False
+      ranks: null
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
   strategy: megatron
@@ -274,7 +288,11 @@ critic:
     # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
     save_contents: ['model', 'optimizer', 'extra']
     load_contents: ${critic.checkpoint.save_contents}
-
+  # Nsight system profiler configs
+  profiler:
+    discrete: False
+    all_ranks: False
+    ranks: null
 reward_model:
   enable: False
   strategy: megatron
@@ -309,6 +327,12 @@ reward_model:
   sandbox_fusion:
     url: null # faas url to run code in cloud sandbox
     max_concurrent: 64 # max concurrent requests to sandbox
+  # Nsight system profiler configs
+  profiler:
+    discrete: False
+    all_ranks: False
+    ranks: null
+
 custom_reward_function:
   path: null
   name: compute_score

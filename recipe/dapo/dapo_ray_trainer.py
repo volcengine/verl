@@ -88,7 +88,7 @@ class RayDAPOTrainer(RayPPOTrainer):
         num_gen_batches = 0
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
-                do_profile = self.global_steps in self.config.trainer.profile_steps if self.config.trainer.profile_steps is not None else False
+                do_profile = self.global_steps in (self.config.trainer.profile_steps or [])
                 if do_profile:
                     self.actor_rollout_wg.start_profile()
                     if self.use_reference_policy:

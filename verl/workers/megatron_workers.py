@@ -26,15 +26,14 @@ import torch
 import torch.distributed
 from codetiming import Timer
 from megatron.core import parallel_state as mpu
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from verl import DataProto
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.base.megatron.worker import MegatronWorker
-from verl.single_controller.base.worker import Worker
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
-from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
+from verl.utils.debug import GPUMemoryLogger, NsightSystemsProfiler, ProfilerConfig, log_gpu_memory_usage
 from verl.utils.debug.performance import reduce_timing, simple_timer
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
 from verl.utils.flops_counter import FlopsCounter
@@ -87,23 +86,15 @@ class ActorRolloutRefWorker(MegatronWorker):
         self._is_rollout: bool = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref: bool = self.role in ["ref", "actor_rollout_ref"]
 
-        profile_ranks_all: bool = False
-        profile_discrete: bool = False
-        profile_ranks: List[int] = []
+        profiler_config: ProfilerConfig = ProfilerConfig()
         if self._is_actor:
-            profile_ranks_all = profile_ranks_all or config.actor.get("profile_ranks_all", False)
-            profile_discrete = profile_discrete or config.actor.get("profile_discrete", False)
-            profile_ranks = profile_ranks + (config.actor.profile_ranks if config.actor.profile_ranks is not None else [])
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.actor.get("profiler", None))))
         if self._is_rollout:
-            profile_ranks_all = profile_ranks_all or config.rollout.get("profile_ranks_all", False)
-            profile_discrete = profile_discrete or config.rollout.get("profile_discrete", False)
-            profile_ranks = profile_ranks + (config.rollout.profile_ranks if config.rollout.profile_ranks is not None else [])
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.rollout.get("profiler", None))))
         if self._is_ref:
-            profile_ranks_all = profile_ranks_all or config.ref.get("profile_ranks_all", False)
-            profile_discrete = profile_discrete or config.ref.get("profile_discrete", False)
-            profile_ranks = profile_ranks + (config.ref.profile_ranks if config.ref.profile_ranks is not None else [])
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.ref.get("profiler", None))))
 
-        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
+        super().__init__(profiler_config=profiler_config)
         self.config = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -159,10 +150,6 @@ class ActorRolloutRefWorker(MegatronWorker):
             else:
                 assert self.config.ref.get("log_prob_micro_batch_size_per_gpu", None) is not None, "Please note that in the ref policy configuration, `log_prob_micro_batch_size_per_gpu` and `log_prob_micro_batch_size` should not be None at the same time."
             self._ref_is_offload_param = self.config.ref.megatron.get("param_offload", False)
-
-        self.profile_actor: bool = self._is_actor and (self.config.actor.profile_ranks is not None)
-        self.profile_rollout: bool = self._is_rollout and (self.config.rollout.profile_ranks is not None)
-        self.profile_ref: bool = self._is_ref and (self.config.ref.profile_ranks is not None)
 
     def _build_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
@@ -436,7 +423,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     @GPUMemoryLogger(role="update_actor", logger=logger)
-    @Worker.profile_annotate(color="red")
+    @NsightSystemsProfiler.annotate(color="red")
     def update_actor(self, data: DataProto):
         assert self._is_actor
         if self._is_offload_param:
@@ -477,7 +464,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @GPUMemoryLogger(role="generate_sequences", logger=logger)
-    @Worker.profile_annotate(color="red")
+    @NsightSystemsProfiler.annotate(color="red")
     def generate_sequences(self, prompts: DataProto):
         assert self._is_rollout
         if self._is_offload_param:
@@ -525,7 +512,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     @GPUMemoryLogger(role="compute_ref_log_prob", logger=logger)
-    @Worker.profile_annotate(color="olive")
+    @NsightSystemsProfiler.annotate(color="olive")
     def compute_ref_log_prob(self, data: DataProto):
         assert self._is_ref
         if self._ref_is_offload_param:
@@ -548,7 +535,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     @GPUMemoryLogger(role="compute_log_prob", logger=logger)
-    @Worker.profile_annotate(color="blue")
+    @NsightSystemsProfiler.annotate(color="blue")
     def compute_log_prob(self, data: DataProto):
         assert self._is_actor
         if self._is_offload_param:
@@ -637,12 +624,9 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
 class CriticWorker(MegatronWorker):
     def __init__(self, config):
-        profile_discrete: bool = config.get("profile_discrete", False)
-        profile_ranks: List[int] = config.profile_ranks
-        profile_ranks_all: bool = config.get("profile_ranks_all", False)
-        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
+        profiler_config: ProfilerConfig = ProfilerConfig(**OmegaConf.to_object(config.get("profiler", None)))
+        super().__init__(profiler_config=profiler_config)
         self.config = config
-        self.profile_critic: bool = self.config.profile_ranks is not None
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
@@ -785,7 +769,7 @@ class CriticWorker(MegatronWorker):
         )
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
-    @Worker.profile_annotate(color="cyan")
+    @NsightSystemsProfiler.annotate(color="cyan")
     def compute_values(self, data: DataProto):
         micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
@@ -802,7 +786,7 @@ class CriticWorker(MegatronWorker):
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
-    @Worker.profile_annotate(color="pink")
+    @NsightSystemsProfiler.annotate(color="pink")
     def update_critic(self, data: DataProto):
         data = data.to(get_device_id())
 
@@ -857,12 +841,9 @@ class RewardModelWorker(MegatronWorker):
     """
 
     def __init__(self, config):
-        profile_discrete: bool = config.get("profile_discrete", False)
-        profile_ranks: List[int] = config.profile_ranks
-        profile_ranks_all: bool = config.get("profile_ranks_all", False)
-        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
+        profiler_config = ProfilerConfig(**OmegaConf.to_object(config.get("profiler", None)))
+        super().__init__(profiler_config=profiler_config)
         self.config = config
-        self.profile_reward: bool = self.config.profile_ranks is not None
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
@@ -986,7 +967,7 @@ class RewardModelWorker(MegatronWorker):
     # TODO: reward model use itself tokenizer instead of sft tokenizer
     # the input_ids, responses, attention_mask and position_ids may be different!
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
-    @Worker.profile_annotate(color="brown")
+    @NsightSystemsProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
         data.meta_info["micro_batch_size"] = self.config.micro_batch_size_per_gpu
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu

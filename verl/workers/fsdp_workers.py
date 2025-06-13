@@ -20,14 +20,14 @@ import logging
 import os
 import warnings
 from dataclasses import asdict
-from typing import List, Union
+from typing import Union
 
 import psutil
 import torch
 import torch.distributed
 import torch.distributed as dist
 from codetiming import Timer
-from omegaconf import DictConfig, open_dict
+from omegaconf import DictConfig, OmegaConf, open_dict
 from peft import LoraConfig, TaskType, get_peft_model
 from safetensors.torch import save_file
 from torch.distributed.device_mesh import init_device_mesh
@@ -41,7 +41,7 @@ from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.debug import NsightSystemsProfiler, ProfilerConfig, log_gpu_memory_usage
 from verl.utils.debug.performance import reduce_timing, simple_timer
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device, is_cuda_available, is_npu_available
 from verl.utils.flops_counter import FlopsCounter
@@ -106,23 +106,15 @@ class ActorRolloutRefWorker(Worker):
         self._is_rollout: bool = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref: bool = self.role in ["ref", "actor_rollout_ref"]
 
-        profile_ranks_all: bool = False
-        profile_discrete: bool = False
-        profile_ranks: List[int] = []
+        profiler_config: ProfilerConfig = ProfilerConfig()
         if self._is_actor:
-            profile_ranks_all = profile_ranks_all or config.actor.get("profile_ranks_all", False)
-            profile_discrete = profile_discrete or config.actor.get("profile_discrete", False)
-            profile_ranks = profile_ranks + (config.actor.profile_ranks if config.actor.get("profile_ranks", None) is not None else [])
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.actor.get("profiler", None))))
         if self._is_rollout:
-            profile_ranks_all = profile_ranks_all or config.rollout.get("profile_ranks_all", False)
-            profile_discrete = profile_discrete or config.rollout.get("profile_discrete", False)
-            profile_ranks = profile_ranks + (config.rollout.profile_ranks if config.rollout.get("profile_ranks", None) is not None else [])
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.rollout.get("profiler", None))))
         if self._is_ref:
-            profile_ranks_all = profile_ranks_all or config.ref.get("profile_ranks_all", False)
-            profile_discrete = profile_discrete or config.ref.get("profile_discrete", False)
-            profile_ranks = profile_ranks + (config.ref.profile_ranks if config.ref.get("profile_ranks", None) is not None else [])
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.ref.get("profiler", None))))
 
-        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
+        super().__init__(profiler_config=profiler_config)
         self.config = config
         import torch.distributed
 
@@ -146,10 +138,6 @@ class ActorRolloutRefWorker(Worker):
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
         self._lora_rank = self.config.model.get("lora_rank", 0)
         self._is_lora = self._lora_rank > 0
-
-        self.profile_actor: bool = self._is_actor and (self.config.actor.get("profile_ranks", None) is not None)
-        self.profile_rollout: bool = self._is_rollout and (self.config.rollout.get("profile_ranks", None) is not None)
-        self.profile_ref: bool = self._is_ref and (self.config.ref.get("profile_ranks", None) is not None)
 
         self._is_offload_param = False
         self._is_offload_optimizer = False
@@ -604,7 +592,7 @@ class ActorRolloutRefWorker(Worker):
             )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @Worker.profile_annotate(color="red")
+    @NsightSystemsProfiler.annotate(color="red")
     def update_actor(self, data: DataProto):
         # Support all hardwares
         data = data.to("cpu")  # data will to device with each micro batch on actor.update_policy
@@ -648,7 +636,7 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @Worker.profile_annotate(color="red")
+    @NsightSystemsProfiler.annotate(color="red")
     def generate_sequences(self, prompts: DataProto):
         # Support all hardwares
         prompts = prompts.to(get_device_id())
@@ -684,7 +672,7 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @Worker.profile_annotate(color="blue")
+    @NsightSystemsProfiler.annotate(color="blue")
     def compute_log_prob(self, data: DataProto):
         # when is_lora is True, we use the actor without lora applied to calculate the log_prob
         # which is mostly used for ref log_prob calculation
@@ -728,7 +716,7 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @Worker.profile_annotate(color="olive")
+    @NsightSystemsProfiler.annotate(color="olive")
     def compute_ref_log_prob(self, data: DataProto):
         if self._is_lora:
             # if _is_lora, actor without lora applied is the ref
@@ -821,10 +809,8 @@ class ActorRolloutRefWorker(Worker):
 
 class CriticWorker(Worker):
     def __init__(self, config):
-        profile_discrete: bool = config.get("profile_discrete", False)
-        profile_ranks: List[int] = config.get("profile_ranks", None)
-        profile_ranks_all: bool = config.get("profile_ranks_all", False)
-        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
+        profiler_config = ProfilerConfig(**OmegaConf.to_object(config.get("profiler", None)))
+        super().__init__(profiler_config=profiler_config)
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -849,8 +835,6 @@ class CriticWorker(Worker):
         # set FSDP offload params
         self._is_offload_param = self.config.model.fsdp_config.param_offload
         self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
-
-        self.profile_critic: bool = self.config.get("profile_ranks", None) is not None
 
         # normalize config
         self.config.ppo_mini_batch_size *= self.config.rollout_n
@@ -1071,7 +1055,7 @@ class CriticWorker(Worker):
         )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @Worker.profile_annotate(color="cyan")
+    @NsightSystemsProfiler.annotate(color="cyan")
     def compute_values(self, data: DataProto):
         # Support all hardwares
         data = data.to(get_device_id())
@@ -1095,7 +1079,7 @@ class CriticWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @Worker.profile_annotate(color="pink")
+    @NsightSystemsProfiler.annotate(color="pink")
     def update_critic(self, data: DataProto):
         # Support all hardwares
         data = data.to(get_device_id())
@@ -1168,10 +1152,8 @@ class RewardModelWorker(Worker):
     """
 
     def __init__(self, config):
-        profile_discrete: bool = config.get("profile_discrete", False)
-        profile_ranks: List[int] = config.get("profile_ranks", None)
-        profile_ranks_all: bool = config.get("profile_ranks_all", False)
-        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
+        profiler_config = ProfilerConfig(**OmegaConf.to_object(config.get("profiler", None)))
+        super().__init__(profiler_config=profiler_config)
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -1194,8 +1176,6 @@ class RewardModelWorker(Worker):
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
 
         self.use_remove_padding = self.config.model.get("use_remove_padding", False)
-
-        self.profile_reward: bool = self.config.get("profile_ranks", None) is not None
 
         # normalize config
         if self.config.micro_batch_size is not None:
@@ -1414,7 +1394,7 @@ class RewardModelWorker(Worker):
         return DataProto.from_dict(rm_inputs)
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @Worker.profile_annotate(color="brown")
+    @NsightSystemsProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
         import itertools
 
