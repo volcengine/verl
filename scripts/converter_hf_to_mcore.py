@@ -89,7 +89,11 @@ def test_conversion(megatron_model_provider, tfconfig, output_path, model):
         if ref_state_dict[name] is None:
             print(f"[Warning] {name} is none in ref_state_dict")
             continue
-        ref_data = ref_state_dict[name].data
+        ref_data = ref_state_dict[name]
+        if isinstance(ref_data, ShardedTensor):
+            ref_data = ref_data.data.view(ref_data.local_shape)
+        else:
+            ref_data = ref_data.data        
         if name in dut_state_dict:
             dut_data = dut_state_dict[name].data
             assert dut_data.shape == ref_data.shape, f"{name=} {dut_data.shape=} {ref_data.shape=}"
