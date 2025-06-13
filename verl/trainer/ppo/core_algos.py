@@ -78,6 +78,7 @@ class AdvantageEstimator(str, Enum):
     RLOO = "rloo"
     OPO = "opo"
     GRPO_PASSK = "grpo_passk"
+    GRPO_ATROPOS = "grpo_atropos"
 
 
 class AdaptiveKLController:
@@ -278,6 +279,120 @@ def compute_grpo_passk_outcome_advantage(
 
     advantages = advantages.unsqueeze(-1) * response_mask
     return advantages, advantages
+
+@register_adv_est(AdvantageEstimator.GRPO_ATROPOS) # or simply: @register_adv_est("grpo_atropos")
+def compute_grpo_atropos_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+    config = None,
+    **kwargs,
+):
+    """
+    Compute advantage for GRPO with Atropos integration, supporting both
+    token-level and response-level advantages with optional overrides.
+
+    This estimator handles:
+    - Token-level advantages provided directly by Atropos environments
+    - Response-level advantages that need broadcasting
+    - Advantage overrides for specific tokens or sequences
+    - Group-relative normalization as in standard GRPO
+
+    Args:
+        token_level_rewards: (bs, response_length)
+            Token-level rewards/advantages from Atropos. Can be pre-computed advantages
+            or raw rewards that need GRPO normalization.
+        response_mask: (bs, response_length)
+            Mask indicating valid response tokens
+        index: (bs,) 
+            Group ID per sample for GRPO grouping
+        epsilon: float for numerical stability
+        norm_adv_by_std_in_grpo: (bool)
+            Whether to normalize advantages by standard deviation within groups
+        config: (dict) algorithm settings
+
+    Returns:
+        advantages: (bs, response_length)
+        returns: (bs, response_length)
+    """
+    
+    # Check if we have pre-computed token-level advantages
+    # This is indicated by having non-uniform values across the sequence dimension
+    has_token_level_advantages = torch.any(
+        torch.std(token_level_rewards, dim=-1) > epsilon
+    )
+    
+    if has_token_level_advantages:
+        # Use token-level advantages directly, but still apply group normalization
+        advantages = token_level_rewards.clone()
+        
+        # Apply response mask
+        advantages = advantages * response_mask
+        
+        # Group-wise normalization if requested
+        if norm_adv_by_std_in_grpo:
+            id2advantages = defaultdict(list)
+            id2indices = defaultdict(list)
+            
+            with torch.no_grad():
+                bsz = advantages.shape[0]
+                for i in range(bsz):
+                    idx = index[i]
+                    # Collect all advantages for this group
+                    adv_tokens = advantages[i][response_mask[i] > 0]
+                    if len(adv_tokens) > 0:
+                        id2advantages[idx].extend(adv_tokens.tolist())
+                        id2indices[idx].append(i)
+                
+                # Normalize by group statistics
+                for idx in id2advantages:
+                    if len(id2advantages[idx]) > 1:
+                        group_advantages = torch.tensor(id2advantages[idx])
+                        group_mean = torch.mean(group_advantages)
+                        group_std = torch.std(group_advantages)
+                        
+                        # Apply normalization to all samples in this group
+                        for i in id2indices[idx]:
+                            mask = response_mask[i] > 0
+                            advantages[i][mask] = (advantages[i][mask] - group_mean) / (group_std + epsilon)
+        
+        return advantages, advantages
+    
+    else:
+        # Fall back to standard GRPO computation using response-level scores
+        scores = token_level_rewards.sum(dim=-1)
+        
+        id2score = defaultdict(list)
+        id2mean = {}
+        id2std = {}
+        
+        with torch.no_grad():
+            bsz = scores.shape[0]
+            for i in range(bsz):
+                id2score[index[i]].append(scores[i])
+            
+            for idx in id2score:
+                if len(id2score[idx]) == 1:
+                    id2mean[idx] = torch.tensor(0.0)
+                    id2std[idx] = torch.tensor(1.0)
+                elif len(id2score[idx]) > 1:
+                    id2mean[idx] = torch.mean(torch.tensor(id2score[idx]))
+                    id2std[idx] = torch.std(torch.tensor(id2score[idx]))
+                else:
+                    raise ValueError(f"no score in prompt index: {idx}")
+            
+            for i in range(bsz):
+                if norm_adv_by_std_in_grpo:
+                    scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
+                else:
+                    scores[i] = scores[i] - id2mean[index[i]]
+            
+            # Broadcast to token level
+            advantages = scores.unsqueeze(-1) * response_mask
+        
+        return advantages, advantages
 
 @register_adv_est(AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE) # or simply: @register_adv_est("reinforce_plus_plus_baseline")
 def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: torch.Tensor,
