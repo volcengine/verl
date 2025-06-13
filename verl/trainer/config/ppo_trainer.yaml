@@ -12,7 +12,8 @@ data:
 
   # Whether to use shared memory for data loading.
   use_shm: False
-
+  # the train dataset weights while sampling from different train datasets
+  train_weights: null
   # Training set parquet. Can be a list or a single file.
   # The program will read all files into memory, so it can't be too large (< 100GB).
   # The path can be either a local path or an HDFS path.
