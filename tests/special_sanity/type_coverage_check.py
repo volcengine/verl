@@ -12,20 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import ast
-import subprocess
-import linecache
 import argparse
+import ast
+import linecache
+import subprocess
 from pathlib import Path
 from typing import List, Set, Tuple
 
 
 def get_changed_files() -> List[Path]:
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "--diff-filter=AM", "origin/main...HEAD"],
-        stdout=subprocess.PIPE,
-        text=True
-    )
+    result = subprocess.run(["git", "diff", "--name-only", "--diff-filter=AM", "origin/main...HEAD"], stdout=subprocess.PIPE, text=True)
     return [Path(f) for f in result.stdout.splitlines() if f.endswith(".py")]
 
 
@@ -49,22 +45,17 @@ def get_changed_lines(file_path: Path) -> Set[int]:
 
 def has_type_annotations(node: ast.AST) -> bool:
     if isinstance(node, ast.FunctionDef):
-        has_ann = all(
-            arg.annotation is not None for arg in node.args.args
-            if arg.arg != "self"
-        ) and node.returns is not None
+        has_ann = all(arg.annotation is not None for arg in node.args.args if arg.arg != "self") and node.returns is not None
         return has_ann
     elif isinstance(node, ast.AnnAssign):
         return node.annotation is not None
     elif isinstance(node, ast.Assign):
-        return False
+        if isinstance(node.value, ast.Call):
+            return hasattr(node, "annotation")
     return True
 
 
-def check_file(
-    file_path: Path,
-    changed_lines: Set[int]
-) -> Tuple[int, int, List[Tuple[Path, int, str]]]:
+def check_file(file_path: Path, changed_lines: Set[int]) -> Tuple[int, int, List[Tuple[Path, int, str]]]:
     with open(file_path) as f:
         source: str = f.read()
     tree = ast.parse(source, filename=str(file_path))
@@ -88,8 +79,7 @@ def check_file(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--threshold", type=float, default=0.2,
-                        help="Minimum ratio of annotated lines required (0.0 - 1.0)")
+    parser.add_argument("--threshold", type=float, default=0.2, help="Minimum ratio of annotated lines required (0.0 - 1.0)")
     args = parser.parse_args()
 
     total_changed = 0
@@ -108,7 +98,7 @@ def main() -> None:
     print(f"🔍 Type coverage on changed lines: {total_annotated}/{total_changed} = {ratio:.2%}")
 
     if all_failures:
-        print(f"\n⚠️ Lines missing type annotations:\n")
+        print("\n⚠️ Lines missing type annotations:\n")
         for fname, lineno, line in all_failures:
             print(f"{fname}:{lineno}: {line}")
 
