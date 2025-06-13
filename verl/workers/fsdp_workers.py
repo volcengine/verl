@@ -20,7 +20,7 @@ import logging
 import os
 import warnings
 from dataclasses import asdict
-from typing import Union
+from typing import List, Union
 
 import psutil
 import torch
@@ -99,16 +99,16 @@ class ActorRolloutRefWorker(Worker):
     """
 
     def __init__(self, config: DictConfig, role: str):
-        self.role = role
+        self.role: str = role
         assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
 
-        self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
-        self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
-        self._is_ref = self.role in ["ref", "actor_rollout_ref"]
+        self._is_actor: bool = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
+        self._is_rollout: bool = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
+        self._is_ref: bool = self.role in ["ref", "actor_rollout_ref"]
 
-        profile_ranks_all = False
-        profile_discrete = False
-        profile_ranks = []
+        profile_ranks_all: bool = False
+        profile_discrete: bool = False
+        profile_ranks: List[int] = []
         if self._is_actor:
             profile_ranks_all = profile_ranks_all or config.actor.get("profile_ranks_all", False)
             profile_discrete = profile_discrete or config.actor.get("profile_discrete", False)
@@ -147,9 +147,9 @@ class ActorRolloutRefWorker(Worker):
         self._lora_rank = self.config.model.get("lora_rank", 0)
         self._is_lora = self._lora_rank > 0
 
-        self.profile_actor = self._is_actor and (self.config.actor.get("profile_ranks", None) is not None)
-        self.profile_rollout = self._is_rollout and (self.config.rollout.get("profile_ranks", None) is not None)
-        self.profile_ref = self._is_ref and (self.config.ref.get("profile_ranks", None) is not None)
+        self.profile_actor: bool = self._is_actor and (self.config.actor.get("profile_ranks", None) is not None)
+        self.profile_rollout: bool = self._is_rollout and (self.config.rollout.get("profile_ranks", None) is not None)
+        self.profile_ref: bool = self._is_ref and (self.config.ref.get("profile_ranks", None) is not None)
 
         self._is_offload_param = False
         self._is_offload_optimizer = False
@@ -821,9 +821,9 @@ class ActorRolloutRefWorker(Worker):
 
 class CriticWorker(Worker):
     def __init__(self, config):
-        profile_discrete = config.get("profile_discrete", False)
-        profile_ranks = config.get("profile_ranks", None)
-        profile_ranks_all = config.get("profile_ranks_all", False)
+        profile_discrete: bool = config.get("profile_discrete", False)
+        profile_ranks: List[int] = config.get("profile_ranks", None)
+        profile_ranks_all: bool = config.get("profile_ranks_all", False)
         super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
         import torch.distributed
 
@@ -850,7 +850,7 @@ class CriticWorker(Worker):
         self._is_offload_param = self.config.model.fsdp_config.param_offload
         self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
 
-        self.profile_critic = self.config.get("profile_ranks", None) is not None
+        self.profile_critic: bool = self.config.get("profile_ranks", None) is not None
 
         # normalize config
         self.config.ppo_mini_batch_size *= self.config.rollout_n
@@ -1168,9 +1168,9 @@ class RewardModelWorker(Worker):
     """
 
     def __init__(self, config):
-        profile_discrete = config.get("profile_discrete", False)
-        profile_ranks = config.get("profile_ranks", None)
-        profile_ranks_all = config.get("profile_ranks_all", False)
+        profile_discrete: bool = config.get("profile_discrete", False)
+        profile_ranks: List[int] = config.get("profile_ranks", None)
+        profile_ranks_all: bool = config.get("profile_ranks_all", False)
         super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
         import torch.distributed
 
@@ -1195,7 +1195,7 @@ class RewardModelWorker(Worker):
 
         self.use_remove_padding = self.config.model.get("use_remove_padding", False)
 
-        self.profile_reward = self.config.get("profile_ranks", None) is not None
+        self.profile_reward: bool = self.config.get("profile_ranks", None) is not None
 
         # normalize config
         if self.config.micro_batch_size is not None:

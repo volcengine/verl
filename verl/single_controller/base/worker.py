@@ -19,7 +19,7 @@ import functools
 import os
 import socket
 from dataclasses import dataclass
-from typing import Dict
+from typing import Callable, Dict, List, Optional
 
 import ray
 
@@ -84,7 +84,7 @@ class Worker(WorkerHelper):
     """
 
     fused_worker_attr_name = "fused_worker_dict"
-    profile = False
+    profile: bool = False
 
     def __new__(cls, *args, **kwargs):
         """Create a new Worker instance with proper initialization based on environment settings."""
@@ -139,7 +139,7 @@ class Worker(WorkerHelper):
         """The keys of the environment variables that are used to configure the Worker."""
         return ["WORLD_SIZE", "RANK", "LOCAL_WORLD_SIZE", "LOCAL_RANK", "MASTER_ADDR", "MASTER_PORT", "CUDA_VISIBLE_DEVICES"]
 
-    def __init__(self, cuda_visible_devices=None, profile_discrete=False, profile_ranks=None, profile_ranks_all=False) -> None:
+    def __init__(self, cuda_visible_devices: Optional[str] = None, profile_discrete: bool = False, profile_ranks: Optional[List[int]] = None, profile_ranks_all: bool = False) -> None:
         """Initialize the worker with environment settings and device configuration.
 
         Args:
@@ -147,7 +147,7 @@ class Worker(WorkerHelper):
                 CUDA visible devices configuration. Defaults to None.
             profile_discrete (bool, optional):
                 Whether to profile in the discrete mode, seperate database for each task. Defaults to False.
-            profile_ranks (list, optional):
+            profile_ranks (list[int], optional):
                 The ranks that will be profiled. Defaults to None.
             profile_ranks_all (bool, optional):
                 Whether to profile all ranks. Defaults to False.
@@ -309,7 +309,7 @@ class Worker(WorkerHelper):
         return result
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def start_profile(self):
+    def start_profile(self) -> None:
         """Start profiling for the current rank in the current training step."""
         if self.profile_this_rank:
             self.profile = True
@@ -317,7 +317,7 @@ class Worker(WorkerHelper):
                 torch.cuda.profiler.start()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def stop_profile(self):
+    def stop_profile(self) -> None:
         """Stop profiling for the current rank in the current training step."""
         if self.profile_this_rank:
             self.profile = False
@@ -325,7 +325,7 @@ class Worker(WorkerHelper):
                 torch.cuda.profiler.stop()
 
     @staticmethod
-    def profile_annotate(message=None, color=None, domain=None, category=None):
+    def profile_annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
         """Decorate a Worker member function to profile the current rank in the current training step.
 
         Args:
