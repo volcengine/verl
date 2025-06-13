@@ -80,16 +80,16 @@ class ActorRolloutRefWorker(MegatronWorker):
     """
 
     def __init__(self, config: DictConfig, role: str):
-        self.role = role
+        self.role: str = role
         assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
 
-        self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
-        self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
-        self._is_ref = self.role in ["ref", "actor_rollout_ref"]
+        self._is_actor: bool = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
+        self._is_rollout: bool = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
+        self._is_ref: bool = self.role in ["ref", "actor_rollout_ref"]
 
-        profile_ranks_all = False
-        profile_discrete = False
-        profile_ranks = []
+        profile_ranks_all: bool = False
+        profile_discrete: bool = False
+        profile_ranks: List[int] = []
         if self._is_actor:
             profile_ranks_all = profile_ranks_all or config.actor.get("profile_ranks_all", False)
             profile_discrete = profile_discrete or config.actor.get("profile_discrete", False)
@@ -160,9 +160,9 @@ class ActorRolloutRefWorker(MegatronWorker):
                 assert self.config.ref.get("log_prob_micro_batch_size_per_gpu", None) is not None, "Please note that in the ref policy configuration, `log_prob_micro_batch_size_per_gpu` and `log_prob_micro_batch_size` should not be None at the same time."
             self._ref_is_offload_param = self.config.ref.megatron.get("param_offload", False)
 
-        self.profile_actor = self._is_actor and (self.config.actor.profile_ranks is not None)
-        self.profile_rollout = self._is_rollout and (self.config.rollout.profile_ranks is not None)
-        self.profile_ref = self._is_ref and (self.config.ref.profile_ranks is not None)
+        self.profile_actor: bool = self._is_actor and (self.config.actor.profile_ranks is not None)
+        self.profile_rollout: bool = self._is_rollout and (self.config.rollout.profile_ranks is not None)
+        self.profile_ref: bool = self._is_ref and (self.config.ref.profile_ranks is not None)
 
     def _build_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
@@ -637,12 +637,12 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
 class CriticWorker(MegatronWorker):
     def __init__(self, config):
-        profile_discrete = config.get("profile_discrete", False)
-        profile_ranks = config.profile_ranks
-        profile_ranks_all = config.get("profile_ranks_all", False)
+        profile_discrete: bool = config.get("profile_discrete", False)
+        profile_ranks: List[int] = config.profile_ranks
+        profile_ranks_all: bool = config.get("profile_ranks_all", False)
         super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
         self.config = config
-        self.profile_critic = self.config.profile_ranks is not None
+        self.profile_critic: bool = self.config.profile_ranks is not None
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
@@ -857,12 +857,12 @@ class RewardModelWorker(MegatronWorker):
     """
 
     def __init__(self, config):
-        profile_discrete = config.get("profile_discrete", False)
-        profile_ranks = config.profile_ranks
-        profile_ranks_all = config.get("profile_ranks_all", False)
+        profile_discrete: bool = config.get("profile_discrete", False)
+        profile_ranks: List[int] = config.profile_ranks
+        profile_ranks_all: bool = config.get("profile_ranks_all", False)
         super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
         self.config = config
-        self.profile_reward = self.config.profile_ranks is not None
+        self.profile_reward: bool = self.config.profile_ranks is not None
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
