@@ -211,7 +211,8 @@ To enable multi-turn reasoning, set the following fields in your config:
 
    actor_rollout_ref:
      rollout:
-       name: "sglang_async"
+       name: "sglang"
+       mode: "async"
        multi_turn:
          enable: True
 

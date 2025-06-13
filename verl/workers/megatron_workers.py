@@ -219,7 +219,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self.config.rollout.name == "vllm":
             from torch.distributed.device_mesh import init_device_mesh
 
-            from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMRollout
+            from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMAsyncRollout, vLLMRollout
             from verl.workers.sharding_manager.megatron_vllm import MegatronVLLMShardingManager
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
@@ -232,22 +232,28 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
             local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
-            if vllm_mode == "customized":
-                rollout = vLLMRollout(
-                    actor_module=self.actor_module,
-                    config=self.config.rollout,
-                    tokenizer=self.tokenizer,
-                    model_hf_config=self.actor_model_config,
-                )
-            elif vllm_mode == "spmd":
-                rollout = vLLMRollout(
-                    model_path=local_path,
-                    config=self.config.rollout,
-                    tokenizer=self.tokenizer,
-                    model_hf_config=self.actor_model_config,
-                    device_mesh=rollout_device_mesh,
-                    trust_remote_code=trust_remote_code,
-                )
+            if self.config.rollout.name == "vllm":
+                if vllm_mode == "customized":
+                    rollout = vLLMRollout(
+                        actor_module=self.actor_module,
+                        config=self.config.rollout,
+                        tokenizer=self.tokenizer,
+                        model_hf_config=self.actor_model_config,
+                    )
+                elif vllm_mode == "spmd":
+                    from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
+
+                    vllm_rollout_cls = vLLMAsyncRollout if self.config.rollout.mode == "async" else vLLMRollout
+                    rollout = vllm_rollout_cls(
+                        model_path=local_path,
+                        config=self.config.rollout,
+                        tokenizer=self.tokenizer,
+                        model_hf_config=self.actor_model_config,
+                        device_mesh=rollout_device_mesh,
+                        trust_remote_code=trust_remote_code,
+                    )
+                else:
+                    raise NotImplementedError(f"vllm_mode {vllm_mode} is not supported, must be 'customized' or 'spmd'")
             log_gpu_memory_usage("After building vllm rollout", logger=logger)
 
             # perform weight resharding between actor and rollout
@@ -264,13 +270,10 @@ class ActorRolloutRefWorker(MegatronWorker):
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
-        elif self.config.rollout.name in ["sglang", "sglang_async"]:
-            if self.config.rollout.name == "sglang_async":
-                warnings.warn(
-                    "'sglang_async' has been deprecated and merged into 'sglang'. Please use 'sglang' going forward.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
+        elif self.config.rollout.name == "sglang":
+            if self.config.rollout.mode == "sync":
+                warnings.warn("SGLang rollout sync mode is not supported yet, using async mode instead.", stacklevel=2)
+                self.config.rollout.mode = "async"
             from verl.workers.rollout.sglang_rollout import SGLangRollout
 
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's model_runner would check CUDA device capability.
