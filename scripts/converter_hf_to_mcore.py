@@ -75,7 +75,7 @@ def test_conversion(megatron_model_provider, tfconfig, output_path, model):
         dut_data = dut_state_dict[name].data
         if name in ref_state_dict:
             ref_data = ref_state_dict[name].data
-            assert dut_data.shape == ref_state_dict.shape, f"{name=} {dut_data.shape=} {ref_data.shape=}"
+            assert dut_data.shape == ref_data.shape, f"{name=} {dut_data.shape=} {ref_data.shape=}"
             assert (dut_data == ref_data).all(), f"{name} is not equal"
             print(f"{name} is equal")
         else:
