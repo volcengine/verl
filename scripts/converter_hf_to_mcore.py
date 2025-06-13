@@ -17,6 +17,7 @@ import argparse
 import os
 import warnings
 from contextlib import contextmanager
+from typing import Callable, ContextManager
 
 import torch
 from accelerate import init_empty_weights
@@ -250,11 +251,11 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
 @torch.no_grad()
 def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_config, tfconfig):
     warnings.warn("MTP model is not supported yet", stacklevel=2)
-    numel = 0
+    numel: int = 0
     numel += safe_copy(model.embedding.word_embeddings.weight, hf_model.model.embed_tokens.weight)
     print(f"{numel=}")
     for layer_idx, (layer, hf_layer) in enumerate(zip(model.decoder.layers, hf_model.model.layers)):
-        numel_cur = numel
+        numel_cur: int = numel
         numel += safe_copy(layer.input_layernorm.weight, hf_layer.input_layernorm.weight)
 
         if hf_config.q_lora_rank is None:
@@ -306,7 +307,7 @@ def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_
 
 
 @contextmanager
-def noop_context():
+def noop_context() -> None:
     yield
 
 
@@ -354,7 +355,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
         )
         return parallel_model
 
-    context = init_empty_weights if use_cpu_initialization else noop_context
+    context: Callable[..., ContextManager] = init_empty_weights if use_cpu_initialization else noop_context
     with context():
         model = get_model(
             model_provider_func=megatron_model_provider,
@@ -384,7 +385,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
     elif "Qwen2_5_VLForConditionalGeneration" in hf_config.architectures:
         convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hf_model, model[0].module, hf_config)
     elif "DeepseekV3ForCausalLM" in hf_config.architectures:
-        numel = convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model[0].module, hf_config, tfconfig=tfconfig)
+        numel: int = convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model[0].module, hf_config, tfconfig=tfconfig)
         if numel != hf_model.num_parameters():
             warnings.warn(f"numel mismatch: {numel=} != {hf_model.num_parameters()=}", stacklevel=1)
     elif "Qwen3MoeForCausalLM" in hf_config.architectures:
