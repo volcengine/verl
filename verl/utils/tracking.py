@@ -16,6 +16,7 @@ A unified tracking interface that supports logging data to different backend
 """
 
 import dataclasses
+import os
 from enum import Enum
 from functools import partial
 from pathlib import Path
@@ -51,7 +52,10 @@ class Tracking:
         if "tracking" in default_backend or "wandb" in default_backend:
             import wandb
 
-            wandb.init(project=project_name, name=experiment_name, config=config)
+            settings = None
+            if config and config["trainer"].get("wandb_proxy", None):
+                settings = wandb.Settings(https_proxy=config["trainer"]["wandb_proxy"])
+            wandb.init(project=project_name, name=experiment_name, config=config, settings=settings)
             self.logger["wandb"] = wandb
 
         if "mlflow" in default_backend:
@@ -116,7 +120,7 @@ class Tracking:
             self.logger["tensorboard"] = _TensorboardAdapter()
 
         if "console" in default_backend:
-            from verl.utils.logger.aggregate_logger import LocalLogger
+            from verl.utils.logger import LocalLogger
 
             self.console_logger = LocalLogger(print_to_console=True)
             self.logger["console"] = self.console_logger
@@ -265,7 +269,9 @@ class ValidationGenerationsLogger:
             self.log_generations_to_mlflow(samples, step)
 
         if "clearml" in loggers:
-            self.log_generation_to_clearml(samples, step)
+            self.log_generations_to_clearml(samples, step)
+        if "tensorboard" in loggers:
+            self.log_generations_to_tensorboard(samples, step)
 
     def log_generations_to_wandb(self, samples, step):
         """Log samples to wandb as a table"""
@@ -338,7 +344,7 @@ class ValidationGenerationsLogger:
         except Exception as e:
             print(f"WARNING: save validation generation file to mlflow failed with error {e}")
 
-    def log_generation_to_clearml(self, samples, step):
+    def log_generations_to_clearml(self, samples, step):
         """Log validation generation to clearml as table"""
 
         import clearml
@@ -365,3 +371,37 @@ class ValidationGenerationsLogger:
             table_plot=pd.DataFrame.from_records(table),
             iteration=step,
         )
+
+    def log_generations_to_tensorboard(self, samples, step):
+        """Log samples to tensorboard as text"""
+        # Initialize tensorboard writer if not exists
+        if not hasattr(self, "writer"):
+            from torch.utils.tensorboard import SummaryWriter
+
+            tensorboard_dir = os.environ.get("TENSORBOARD_DIR", "tensorboard_log")
+            os.makedirs(tensorboard_dir, exist_ok=True)
+            self.writer = SummaryWriter(log_dir=tensorboard_dir)
+
+        # Format the samples data into readable text
+        text_content = f"**Generation Results - Step {step}**\n\n"
+
+        for i, sample in enumerate(samples):
+            text_content += f"### Sample {i + 1}\n"
+
+            # Assuming sample contains [input, output, score]
+            if len(sample) >= 3:
+                input_text, output_text, score = sample[0], sample[1], sample[2]
+
+                text_content += f"**Input:** {input_text}\n\n"
+                text_content += f"**Output:** {output_text}\n\n"
+                text_content += f"**Score:** {score}\n\n"
+            else:
+                # Handle cases where sample format might be different
+                text_content += f"**Data:** {sample}\n\n"
+
+            text_content += "---\n\n"
+
+        # Log to tensorboard as text
+        self.writer.add_text("val/generations", text_content, step)
+        # Flush to ensure data is written
+        self.writer.flush()

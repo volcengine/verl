@@ -28,8 +28,8 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import GenerationConfig
 
 from verl import DataProto
-from verl.utils.torch_functional import get_response_mask
 from verl.utils.device import get_torch_device
+from verl.utils.torch_functional import get_response_mask
 
 from .base import BaseRollout
 
@@ -52,7 +52,7 @@ class HFRollout(BaseRollout):
 
     @torch.no_grad()
     def _generate_minibatch(self, prompts: DataProto) -> DataProto:
-        # make sampling args can be overriden by inputs
+        # make sampling args can be overridden by inputs
         do_sample = prompts.meta_info.get("do_sample", self.config.do_sample)
         is_validate = prompts.meta_info.get("validate", False)
 

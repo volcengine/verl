@@ -79,15 +79,26 @@ vllm & vllm-ascend
 +--------------+---------------+
 | liger-kernel | not supported |
 +--------------+---------------+
+| tensordict   | 0.8.3 (ARM)   |
++--------------+---------------+
 
 1. 支持通过 transformers 使能 --flash_attention_2， transformers 需大于等于 4.52.0版本。
 2. 不支持通过 flash_attn 使能 flash attention 加速。
 3. 不支持 liger-kernel 使能。
+4. 针对 ARM 服务器，tensordict 要求 0.8.3，可在依赖安装完成后再手动安装 tensordict。
 
 
 快速开始
 -----------------------------------
 正式使用前，建议您通过对Qwen2.5-0.5B GRPO的训练尝试以检验环境准备和安装的正确性。
+
+1.下载数据集并将数据集预处理为parquet格式，以便包含计算RL奖励所需的必要字段
+
+.. code-block:: bash
+
+    python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+
+2.执行训练
 
 .. code-block:: bash
 
@@ -107,6 +118,7 @@ vllm & vllm-ascend
         actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
         actor_rollout_ref.actor.optim.lr=5e-7 \
         actor_rollout_ref.model.use_remove_padding=False \
+        actor_rollout_ref.actor.entropy_coeff=0.001 \
         actor_rollout_ref.actor.ppo_mini_batch_size=64 \
         actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=20 \
         actor_rollout_ref.actor.use_kl_loss=True \
@@ -145,6 +157,8 @@ vllm & vllm-ascend
 |   GRPO    | Qwen2.5-7B-instruct  |    0.38%    |        0.588      |  Atlas 200T A2 Box16 |
 +-----------+----------------------+-------------+-------------------+----------------------+
 |   GRPO    | Qwen2.5-32B-instruct |    0.30%    |        0.685      |  Atlas 200T A2 Box16 |
++-----------+----------------------+-------------+-------------------+----------------------+
+|   DAPO    | Qwen2.5-7B-instruct  |    3.83%    |        pending    |  Atlas 200T A2 Box16 |
 +-----------+----------------------+-------------+-------------------+----------------------+
 
 目前支持 Qwen2.5 的 GRPO 训练，Qwen2.5-VL GRPO 训练在 vllm-ascend 的修复后支持，涉及到的issue为：

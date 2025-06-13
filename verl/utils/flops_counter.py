@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
 from transformers import PretrainedConfig
-from verl.utils.device import is_cuda_available, get_torch_device
+
+from verl.utils.device import get_torch_device
 
 VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen2_vl", "qwen2_5_vl", "qwen3", "qwen3_moe", "deepseek_v3"}
 
@@ -35,7 +35,7 @@ def get_device_flops(unit="T"):
 
     if "MI300X" in device_name:
         flops = 1336e12
-    elif "H100" in device_name or "H800" in device_name:
+    elif "H100" in device_name or "H800" in device_name or "H200" in device_name:
         flops = 989e12
     elif "A100" in device_name or "A800" in device_name:
         flops = 312e12
@@ -47,6 +47,8 @@ def get_device_flops(unit="T"):
         flops = 148e12
     elif "910B" in device_name:
         flops = 354e12
+    elif "RTX 3070 Ti" in device_name:
+        flops = 21.75e12
     flops_unit = unit_convert(flops, unit)
     return flops_unit
 

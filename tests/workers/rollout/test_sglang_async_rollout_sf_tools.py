@@ -32,7 +32,7 @@ from verl.protocol import DataProto
 from verl.tools.sandbox_fusion_tools import TokenBucketWorker
 from verl.tools.schemas import OpenAIFunctionParametersSchema, OpenAIFunctionPropertySchema, OpenAIFunctionSchema, OpenAIFunctionToolSchema
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
-from verl.workers.rollout.sglang_rollout.async_sglang_rollout import AsyncSGLangRollout
+from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
 
 sandbox_url = ""
 
@@ -200,11 +200,11 @@ class TestRolloutWithTools:
         prompts = DataProto(batch=prompt_dict, non_tensor_batch={"raw_prompt": messages, "tools_kwargs": tools_kwargs, "index": index})
         return prompts
 
-    @patch.object(AsyncSGLangRollout, "_init_distributed_env", return_value=None)
-    @patch.object(AsyncSGLangRollout, "_init_inference_engine", return_value=None)
-    @patch.object(AsyncSGLangRollout, "_init_sampling_params", return_value=None)
+    @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
+    @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
+    @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_tools_registration(self, mock_env, mock_engine, mock_sampling, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config):
-        rollout = AsyncSGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
         assert len(rollout._tool_schemas) == 1
         assert "code_interpreter" in rollout._tool_map.keys()
         from verl.tools.sandbox_fusion_tools import SandboxFusionTool
@@ -212,17 +212,17 @@ class TestRolloutWithTools:
         assert isinstance(rollout._tool_map["code_interpreter"], SandboxFusionTool)
         assert rollout._tool_call_parser_type == "qwen25"
 
-    @patch.object(AsyncSGLangRollout, "_init_distributed_env", return_value=None)
-    @patch.object(AsyncSGLangRollout, "_init_inference_engine", return_value=None)
-    @patch.object(AsyncSGLangRollout, "_init_sampling_params", return_value=None)
+    @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
+    @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
+    @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_rollout_req_creation(self, mock_env, mock_engine, mock_sampling, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config, sandbox_data_proto):
-        rollout = AsyncSGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
         req_list = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)
         assert len(req_list) == 1
         assert req_list[0].state == AsyncRolloutRequestStateEnum.PENDING
-        assert len(req_list[0].tools) == 1
-        print(type(req_list[0].tools[0]))
-        assert req_list[0].tools[0] == OpenAIFunctionToolSchema(
+        assert len(req_list[0].tool_schemas) == 1
+        print(type(req_list[0].tool_schemas[0]))
+        assert req_list[0].tool_schemas[0] == OpenAIFunctionToolSchema(
             type="function",
             function=OpenAIFunctionSchema(
                 name="code_interpreter",
@@ -242,12 +242,12 @@ class TestRolloutWithTools:
             ),
         )
 
-    @patch.object(AsyncSGLangRollout, "_init_distributed_env", return_value=None)
-    @patch.object(AsyncSGLangRollout, "_init_inference_engine", return_value=None)
-    @patch.object(AsyncSGLangRollout, "_init_sampling_params", return_value=None)
+    @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
+    @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
+    @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_over_size_case(self, mock_env, mock_engine, mock_sampling, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config, sandbox_data_proto, sandbox_fusion_data):
         sandbox_fusion_rollout_config.multi_turn.max_turns = 1
-        rollout = AsyncSGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
         req = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
         req.finalize = MagicMock()
@@ -279,12 +279,12 @@ class TestRolloutWithTools:
         )
 
     @skip_if_valid_sandbox(sandbox_url)
-    @patch.object(AsyncSGLangRollout, "_init_distributed_env", return_value=None)
-    @patch.object(AsyncSGLangRollout, "_init_inference_engine", return_value=None)
-    @patch.object(AsyncSGLangRollout, "_init_sampling_params", return_value=None)
+    @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
+    @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
+    @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_tool_call_basic_case(self, mock_env, mock_engine, mock_sampling, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config, sandbox_data_proto, sandbox_fusion_data):
         sandbox_fusion_rollout_config.multi_turn.max_turns = 10
-        rollout = AsyncSGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
         self._tool_map["code_interpreter"].sandbox_fusion_url = sandbox_url
         req = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
@@ -323,12 +323,12 @@ class TestRolloutWithTools:
         assert code_counter == 2
 
     @skip_if_valid_sandbox(sandbox_url)
-    @patch.object(AsyncSGLangRollout, "_init_distributed_env", return_value=None)
-    @patch.object(AsyncSGLangRollout, "_init_inference_engine", return_value=None)
-    @patch.object(AsyncSGLangRollout, "_init_sampling_params", return_value=None)
+    @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
+    @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
+    @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_tool_call_batch_case(self, mock_env, mock_engine, mock_sampling, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config, sandbox_data_proto, sandbox_fusion_data):
         sandbox_fusion_rollout_config.multi_turn.max_turns = 10
-        rollout = AsyncSGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
         self._tool_map["code_interpreter"].sandbox_fusion_url = sandbox_url
         req = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
         req_nums = 100
@@ -357,7 +357,7 @@ class TestRolloutWithTools:
             re = await result
             return re
 
-        with patch.object(AsyncSGLangRollout, "_handle_engine_call", new=hacked_handle_engine_call):
+        with patch.object(SGLangRollout, "_handle_engine_call", new=hacked_handle_engine_call):
             rollout._tp_rank = 0
             loop = asyncio.get_event_loop()
             output_req_list = loop.run_until_complete(
