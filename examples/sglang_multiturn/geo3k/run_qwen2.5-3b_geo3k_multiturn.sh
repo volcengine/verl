@@ -46,8 +46,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=20 \
-    data.train_files=$HOME/data/geo3k/train.parquet \
-    data.val_files=$HOME/data/geo3k/test.parquet \
+    data.train_files=$HOME/data/geo3k_multiturn_w_tool/train.parquet \
+    data.val_files=$HOME/data/geo3k_multiturn_w_tool/test.parquet \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/geo3k_tool_config.yaml" \
     trainer.total_epochs=15 $@
 
