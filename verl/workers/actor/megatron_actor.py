@@ -410,12 +410,13 @@ class MegatronPPOActor(BasePPOActor):
             if "multi_modal_inputs" in batch:
                 for key in batch["multi_modal_inputs"][0].keys():
                     multi_modal_inputs[key] = torch.cat([batch["multi_modal_inputs"][i][key] for i in batch["multi_modal_inputs_idx"]], dim=0)
+
+            if position_ids.dim() == 3:     # qwen2vl mrope [bs, 3, seq_len]
+                position_ids = position_ids[:, 0]  # mcore patch recompute qwen2vl's pos ids during forward
+
             responses = batch["responses"]
             response_length = responses.size(1)
-            if position_ids.dim() == 3:     # qwen2vl mrope [bs, 3, seq_len]
-                label = copy.deepcopy(position_ids[:,0,:])
-            else:
-                label = copy.deepcopy(position_ids)
+            label = copy.deepcopy(position_ids)
             label[:, -response_length - 1 : -1] = responses
             label_mask = copy.deepcopy(attention_mask)
             label_mask[:, : -response_length - 1] = False
