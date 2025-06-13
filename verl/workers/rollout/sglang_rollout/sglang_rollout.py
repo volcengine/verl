@@ -23,7 +23,7 @@ import time
 from contextlib import contextmanager
 from copy import deepcopy
 from json import JSONDecodeError
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union, Any
 from uuid import uuid4
 
 import numpy as np
@@ -52,7 +52,7 @@ from sglang.srt.utils import (
 from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.nn.utils.rnn import pad_sequence
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin
 
 from verl import DataProto
 from verl.third_party.sglang import parallel_state as sglang_ps
@@ -75,7 +75,7 @@ from verl.workers.rollout.schemas import (
     FinishReasonTypeEnum,
     Message,
 )
-from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
+from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj, VLM_CHAT_TEMPLATE
 
 try:
     from sglang.srt.function_call.function_call_parser import FunctionCallParser
@@ -187,7 +187,17 @@ def _pre_process_inputs(
 
 
 # NOTE(linjunrong): adhoc
-def _post_process_outputs(tokenizer, output):
+def _post_process_outputs(processing_class, output):
+    try:
+        # This is when processing_class is a processor
+        tokenizer = processing_class.tokenizer
+    except AttributeError:
+        try:
+            # This is when processing_class is a tokenizer
+            tokenizer = processing_class
+        except AttributeError as e:
+            raise ValueError(f"Cannot get tokenizer from processing_class {processing_class}") from e
+
     def _map_each_response(resp):
         output_token_logprobs = resp["meta_info"]["output_token_logprobs"]
         log_probs, output_token_ids = zip(*[(log_prob, token_ids) for log_prob, token_ids, _ in output_token_logprobs])
@@ -206,14 +216,24 @@ def _post_process_outputs(tokenizer, output):
     return batched_output_token_ids, batched_logprobs
 
 
-def get_tool_call_parser_type(tokenizer: PreTrainedTokenizer) -> str:
+def get_tool_call_parser_type(processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin]) -> str:
     items = FunctionCallParser.ToolCallParserEnum.items()
     for parser_type, parser_cls in items:
         parser = parser_cls()
-        if parser.bot_token.strip() in tokenizer.get_vocab() and (parser.eot_token == "" or parser.eot_token.strip() in tokenizer.get_vocab()):
+        try:
+            # This is when processing_class is a tokenizer
+            tokenizer_vocab = processing_class.get_vocab()
+        except AttributeError:
+            try:
+                # This is when processing_class is a processor
+                tokenizer_vocab = processing_class.tokenizer.get_vocab()
+            except AttributeError as e:
+                raise ValueError(f"Cannot get vocab from processing_class {processing_class}") from e
+        
+        if parser.bot_token.strip() in tokenizer_vocab and (parser.eot_token == "" or parser.eot_token.strip() in tokenizer_vocab):
             return parser_type
     else:
-        raise ValueError(f"No tool call parser found for tokenizer {tokenizer}")
+        raise ValueError(f"No tool call parser found for processing_class {processing_class}")
 
 
 class SGLangRollout(BaseRollout):
@@ -221,7 +241,7 @@ class SGLangRollout(BaseRollout):
         self,
         actor_module: str,
         config: DictConfig,
-        tokenizer,
+        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
         model_hf_config,
         port=None,
         trust_remote_code: bool = False,
@@ -261,7 +281,7 @@ class SGLangRollout(BaseRollout):
             self._tool_call_parser_type,
             self._sgl_tools,
             self._function_call_parser,
-        ) = self._initialize_tools(config, tokenizer)
+        ) = self._initialize_tools(config, processing_class)
         # If turn on `free_cache_engine`, SGLang engine's KV cache
         # will be freed after each `generate_sequences` call.
         assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
@@ -276,8 +296,20 @@ class SGLangRollout(BaseRollout):
 
         self._init_sampling_params(**kwargs)
 
-        self.tokenizer = tokenizer
-        self.pad_token_id = tokenizer.pad_token_id
+        self.processing_class = processing_class
+
+        try:
+            # This is when processing_class is a tokenizer
+            self.pad_token_id = self.processing_class.pad_token_id
+        except AttributeError:
+            try:
+                # This is when processing_class is a processor
+                self.pad_token_id = self.processing_class.tokenizer.pad_token_id
+
+                # Will remove this in the future when ProcessorMixin model supports tool as an input in chattemplate
+                self.processing_class.chat_template = VLM_CHAT_TEMPLATE
+            except AttributeError as e:
+                raise ValueError(f"Cannot get pad_token_id from processing_class {self.processing_class}") from e
 
     def _init_distributed_env(self, device_mesh_cpu, **kwargs):
         self._device_mesh_cpu = device_mesh_cpu
@@ -399,7 +431,7 @@ class SGLangRollout(BaseRollout):
                 kwargs[k] = self.config.get(k)
         self.sampling_params = kwargs
 
-    def _initialize_tools(self, config, tokenizer):
+    def _initialize_tools(self, config, processing_class):
         """Initialize tools from configuration.
 
         Args:
@@ -467,7 +499,7 @@ class SGLangRollout(BaseRollout):
         logger.info(f"Initialize tools from configuration.: tool_list: {tool_list}")
         tool_schemas = [tool.get_openai_tool_schema().model_dump() for tool in tool_list]
         tool_map = {tool.name: tool for tool in tool_list}
-        tool_call_parser_type = get_tool_call_parser_type(tokenizer)
+        tool_call_parser_type = get_tool_call_parser_type(processing_class)
         sgl_tools = [Tool.model_validate(tool_schema) for tool_schema in tool_schemas]
         function_call_parser = FunctionCallParser(
             sgl_tools,
@@ -663,7 +695,7 @@ class SGLangRollout(BaseRollout):
                 src=self._device_mesh_cpu["tp"].mesh[0].item(),
                 force_cpu_device=False,
             )
-            out = _post_process_outputs(self.tokenizer, output)
+            out = _post_process_outputs(self.processing_class, output)
 
             response = out[0].to(idx.device)
             rollout_log_probs = out[1].to(idx.device)
@@ -730,6 +762,15 @@ class SGLangRollout(BaseRollout):
         finish_reason_type = None
         output = None
 
+        image_data = None
+        video_data = None
+        if _req.multi_modal_data is not None and isinstance(_req.multi_modal_data, dict):
+            if "image" in _req.multi_modal_data and _req.multi_modal_data["image"]:
+                image_data = _req.multi_modal_data["image"]
+            if "video" in _req.multi_modal_data and _req.multi_modal_data["video"]:
+                logger.warning("video support is not implemented yet")
+                video_data = _req.multi_modal_data["video"]
+
         current_turns = 0
         while current_turns < self.config.multi_turn.max_turns:
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
@@ -748,7 +789,7 @@ class SGLangRollout(BaseRollout):
                             for tool_call in parsed_tool_calls
                         ]
                     )
-                    _req.add_tool_response_messages(self.tokenizer, [resp for resp, _, _ in tool_call_results])
+                    _req.add_tool_response_messages(self.processing_class, [resp for resp, _, _ in tool_call_results])
                     for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results):
                         _req.update_metrics(metrics, tool_call.function.name)
                     if len(_req.input_ids) >= self.config.max_model_len:
@@ -760,15 +801,17 @@ class SGLangRollout(BaseRollout):
             elif _req.state == AsyncRolloutRequestStateEnum.RUNNING:
                 # Only continue the conversation if the prompt length is not greater than max_model_len - 1,
                 # since SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra token accounts for the EOS token).
-                if len(_req.get_generation_prompt_ids(self.tokenizer)) + 1 >= self.config.max_model_len:
+                if len(_req.get_generation_prompt_ids(self.processing_class)) + 1 >= self.config.max_model_len:
                     finish_reason_type = FinishReasonTypeEnum.LENGTH
                     break
-                output = await self._handle_engine_call(_req, do_sample, is_validate, **kwargs)
+
+                # Video support is not implemented yet
+                output = await self._handle_engine_call(_req, do_sample=do_sample, is_validate=is_validate, image_data=image_data, **kwargs)
                 content = output["text"]
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
-                    _req.add_assistant_message(self.tokenizer, content)
+                    _req.add_assistant_message(self.processing_class, content)
                     break
                 else:
                     if self._function_call_parser and self._function_call_parser.has_tool_call(content):
@@ -800,14 +843,14 @@ class SGLangRollout(BaseRollout):
                                 )
                             )
                         if len(parsed_tool_calls) > 0:
-                            _req.add_assistant_message(self.tokenizer, normed_content, tool_calls=parsed_tool_calls)
+                            _req.add_assistant_message(self.processing_class, normed_content, tool_calls=parsed_tool_calls)
                         else:
-                            _req.add_assistant_message(self.tokenizer, content)
+                            _req.add_assistant_message(self.processing_class, content)
                             finish_reason_type = FinishReasonTypeEnum.STOP
                             _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                             break
                     else:
-                        _req.add_assistant_message(self.tokenizer, content)
+                        _req.add_assistant_message(self.processing_class, content)
                         break
 
         if current_turns >= self.config.multi_turn.max_turns:
@@ -825,12 +868,12 @@ class SGLangRollout(BaseRollout):
             tool_reward_tasks.append(calc_reward_and_release_fn(name, tool))
         tool_reward_scores = await asyncio.gather(*tool_reward_tasks)
         tool_reward_scores = dict(tool_reward_scores)
-        _req.finalize(self.tokenizer, tool_reward_scores, finish_reason_type)
+        _req.finalize(self.processing_class, tool_reward_scores, finish_reason_type)
 
         return _req
 
-    async def _handle_engine_call(self, _req: AsyncRolloutRequest, do_sample: bool, is_validate: bool, override_n: bool = True, **kwargs) -> dict:
-        generation_prompt_ids = _req.get_generation_prompt_ids(self.tokenizer)
+    async def _handle_engine_call(self, _req: AsyncRolloutRequest, do_sample: bool, is_validate: bool, override_n: bool = True, image_data: Optional[List[Any]] = None, **kwargs) -> dict:
+        generation_prompt_ids = _req.get_generation_prompt_ids(self.processing_class)
         # Adjust max_new_tokens to ensure it is not greater than max_model_len - 1
         # SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra token accounts for the EOS token).
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
@@ -866,8 +909,10 @@ class SGLangRollout(BaseRollout):
                 input_ids=generation_prompt_ids,
                 sampling_params=self.sampling_params,
                 return_logprob=False,
+                image_data=image_data,
             )
         return output
+        
 
     async def _handle_pending_state(self, _req: AsyncRolloutRequest) -> AsyncRolloutRequest:
         if _req.tool_schemas is not None:
@@ -932,9 +977,9 @@ class SGLangRollout(BaseRollout):
             error_message_lines = [
                 f"""Request {req.request_id} has input_ids length {len(req.input_ids)}
                     greater than max_model_len {self.config.max_model_len}""",
-                f"Decoded input_ids: {self.tokenizer.decode(req.input_ids)}",
-                f"Decoded prompt_ids: {self.tokenizer.decode(req.prompt_ids)}",
-                f"Decoded response_ids: {self.tokenizer.decode(req.response_ids)}",
+                f"Decoded input_ids: {self.processing_class.decode(req.input_ids)}",
+                f"Decoded prompt_ids: {self.processing_class.decode(req.prompt_ids)}",
+                f"Decoded response_ids: {self.processing_class.decode(req.response_ids)}",
                 f"Messages: {req.messages}",
                 f"Max model length: {req.max_model_len}",
             ]
@@ -1027,7 +1072,11 @@ class SGLangRollout(BaseRollout):
     def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: int) -> list[AsyncRolloutRequest]:
         assert "raw_prompt" in prompts.non_tensor_batch, "need data.return_raw_chat=True, due to no official way do parse_messages"
         req_list = []
-        for data_idx, raw_prompt in enumerate(prompts.non_tensor_batch["raw_prompt"]):
+        multi_modal_data_list = prompts.non_tensor_batch.get("multi_modal_data", [None] * len(prompts.non_tensor_batch["raw_prompt"]))
+        for data_idx, (raw_prompt, multi_modal_data) in enumerate(zip(
+            prompts.non_tensor_batch["raw_prompt"], 
+            multi_modal_data_list)):
+
             for rollout_offset in range(n):
                 if self._tool_schemas:
                     _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
@@ -1046,6 +1095,7 @@ class SGLangRollout(BaseRollout):
                     request_id=str(uuid4()),
                     state=AsyncRolloutRequestStateEnum.PENDING,
                     messages=raw_prompt.tolist(),
+                    multi_modal_data=multi_modal_data,
                     tool_schemas=_tool_schemas,
                     tools_kwargs=_tools_kwargs,
                     input_ids=_input_ids,
@@ -1060,7 +1110,7 @@ class SGLangRollout(BaseRollout):
                     max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
                     use_inference_chat_template=self.config.multi_turn.use_inference_chat_template,
                     enable_tokenization_sanity_check=self.config.multi_turn.enable_tokenization_sanity_check,
-                    tokenizer=self.tokenizer,
+                    processing_class=self.processing_class,
                 )
 
                 error_message = f"Request {req.request_id} has mismatched lengths: input_ids={len(req.input_ids)}, attention_mask={len(req.attention_mask)}, position_ids={len(req.position_ids)}, loss_mask={len(req.loss_mask)}"
@@ -1102,7 +1152,7 @@ class SGLangRollout(BaseRollout):
         )
 
         # json_request already contains sampling_params
-        output = await self._handle_engine_call(req, True, False, False, **json_request)
+        output = await self._handle_engine_call(req, do_sample=True, is_validate=False, override_n=False, **json_request)
         # it can be Dict or AsyncIterator[Dict]
         if isinstance(output, dict):
             outputs = [output]

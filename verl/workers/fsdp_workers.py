@@ -448,7 +448,7 @@ class ActorRolloutRefWorker(Worker):
             rollout = SGLangRollout(
                 actor_module=local_path,
                 config=self.config.rollout,
-                tokenizer=self.tokenizer,
+                processing_class=self.processor if self.processor is not None else self.tokenizer,
                 model_hf_config=self.actor_model_config,
                 trust_remote_code=trust_remote_code,
             )
