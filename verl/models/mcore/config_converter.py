@@ -80,6 +80,7 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
     }
 
     # Update with any provided overrides
+    # override_transformer_config_kwargs as kwargs shall never be none
     base_config.update(override_transformer_config_kwargs)
 
     return base_config
@@ -127,6 +128,7 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype, **
     qk_layernorm = True if "Qwen3ForCausalLM" in hf_config.architectures else False
 
     args = _get_base_transformer_config(hf_config=hf_config, dtype=dtype, use_cpu_initialization=False, add_bias_linear=False, add_qkv_bias=qkv_bias, qk_layernorm=qk_layernorm)
+    # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
@@ -159,6 +161,7 @@ def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype,
         moe_router_pre_softmax=True,
         add_qkv_bias=True,
     )
+    # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
@@ -190,6 +193,7 @@ def hf_to_mcore_config_mixtral(hf_config: PretrainedConfig, dtype: torch.dtype, 
         bias_activation_fusion=True,
         bias_dropout_fusion=True,
     )
+    # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
@@ -220,6 +224,7 @@ def hf_to_mcore_config_qwen3moe(hf_config: PretrainedConfig, dtype: torch.dtype,
         moe_router_pre_softmax=False,
         qk_layernorm=True,
     )
+    # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
@@ -289,6 +294,7 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, *
         bias_activation_fusion=True,
         bias_dropout_fusion=True,
     )
+    # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
     transformer_config = MLATransformerConfig(**args)
     print(f"Overridden MLA TF init config: {transformer_config}")
@@ -311,6 +317,7 @@ def hf_to_mcore_config_qwen2_5_vl(hf_config: PretrainedConfig, dtype: torch.dtyp
         add_qkv_bias=True,
         mrope_section=hf_config.rope_scaling["mrope_section"],
     )
+    # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
