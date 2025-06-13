@@ -133,11 +133,17 @@ actor_rollout_ref:
     
     # Whether to use custom fused kernels (e.g., FlashAttention, fused MLP)
     use_fused_kernels: false
+
+    # Options for fused kernels. If use_fused_kernels is true, this will be used.
+    fused_kernel_options:
+
+      # Implementation backend for fused kernels. Options: "triton" or "torch".
+      impl_backend: torch
     
     # Whether to enable loading a remote code model
     trust_remote_code: false
 
-  # configs for the actor
+  # actor configs
   actor:
   
     # fsdp, fsdp2 or megatron. fsdp backend used here.
@@ -201,12 +207,21 @@ actor_rollout_ref:
     # Sequence parallelism size for Ulysses-style model parallelism
     ulysses_sequence_parallel_size: 1
 
+    # calculate entropy with chunking to reduce memory peak
+    entropy_from_logits_with_chunking: False
+
+    # recompute entropy
+    entropy_checkpointing: False
+
     # checkpoint configs
     checkpoint:
     
       # What to include in saved checkpoints
       # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
-      contents: ['model', 'optimizer', 'extra']
+      save_contents: ['model', 'optimizer', 'extra']
+
+      # For more flexibility, you can specify the contents to load from the checkpoint.
+      load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
 
     # optimizer configs
     optim:
@@ -259,6 +274,10 @@ actor_rollout_ref:
       # Number of GPUs in each FSDP shard group; -1 means auto
       fsdp_size: -1
 
+      # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
+      # before the current forward computation.
+      forward_prefetch: False
+
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
   ref:
@@ -275,6 +294,10 @@ actor_rollout_ref:
       # whether to perform reshard after model forward to save memory.
       # only for fsdp2, [True, False, int between 1 and fsdp_size]
       reshard_after_forward: True
+
+      # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
+      # before the current forward computation.
+      forward_prefetch: False
 
       # the wrap policy for FSDP model
       wrap_policy:
@@ -300,6 +323,12 @@ actor_rollout_ref:
 
     # sequence parallel size
     ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size}
+
+    # calculate entropy with chunking to reduce memory peak
+    entropy_from_logits_with_chunking: False
+
+    # recompute entropy
+    entropy_checkpointing: False
 
   # Rollout model config.
   rollout:
@@ -533,6 +562,10 @@ critic:
       # Number of GPUs in each FSDP shard group; -1 means auto
       fsdp_size: -1
 
+      # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
+      # before the current forward computation.
+      forward_prefetch: False
+
     # Set to positive value to enable LoRA (e.g., 32)
     lora_rank: 0
 
@@ -589,7 +622,10 @@ critic:
 
     # What to include in saved checkpoints
     # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
-    contents: ['model', 'optimizer', 'extra']
+    save_contents: ['model', 'optimizer', 'extra']
+
+    # What to include when loading checkpoints
+    load_contents: ${critic.checkpoint.save_contents}
 
 # configs for the reward model
 reward_model:
@@ -647,6 +683,10 @@ reward_model:
 
       # Number of GPUs in each FSDP shard group; -1 means auto
       fsdp_size: -1
+
+      # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
+      # before the current forward computation.
+      forward_prefetch: False
 
   # [Deprecated] Global micro batch size
   micro_batch_size: null

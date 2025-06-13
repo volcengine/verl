@@ -22,6 +22,7 @@ data:
 
 actor_rollout_ref:
   hybrid_engine: True
+  nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
   model:
     path: ~/models/deepseek-llm-7b-chat
     external_lib: null
@@ -101,7 +102,11 @@ actor_rollout_ref:
       save_path: null # the path to save the profile result
     load_weight: True
     checkpoint:
-      contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+      # What to include in saved checkpoints
+      # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+      save_contents: ['model', 'optimizer', 'extra']
+      # For more flexibility, you can specify the contents to load from the checkpoint.
+      load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
   ref:
     strategy: megatron
     use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
@@ -192,6 +197,7 @@ actor_rollout_ref:
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
   strategy: megatron
+  nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
   optim:
     optimizer: adam
     lr: 1e-6
@@ -255,11 +261,15 @@ critic:
     kl_coef: 0.001
   loss_agg_mode: ${actor_rollout_ref.actor.loss_agg_mode}
   checkpoint:
-    contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+    # What to include in saved checkpoints
+    # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+    save_contents: ['model', 'optimizer', 'extra']
+    load_contents: ${critic.checkpoint.save_contents}
 
 reward_model:
   enable: False
   strategy: megatron
+  nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
   megatron:
     param_offload: False
     tensor_model_parallel_size: 1

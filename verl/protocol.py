@@ -96,6 +96,7 @@ def pad_dataproto_to_divisor(data: "DataProto", size_divisor: int):
 
 
 def unpad_dataproto(data: "DataProto", pad_size):
+    """Unpad the data proto with pad_size. i.e. `data[:-pad_size]`"""
     if pad_size != 0:
         data = data[:-pad_size]
     return data

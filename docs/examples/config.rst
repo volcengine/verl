@@ -137,7 +137,11 @@ Actor/Rollout/Reference Policy
         optimizer_offload: False
         fsdp_size: -1
       checkpoint:
-        contents: ['model', 'optimizer', 'extra']
+        # What to include in saved checkpoints
+        # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+        save_contents: ['model', 'optimizer', 'extra']
+        # For more flexibility, you can specify the contents to load from the checkpoint.
+        load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
     ref:
       fsdp_config:
         param_offload: False
@@ -267,9 +271,11 @@ Actor/Rollout/Reference Policy
 
 - ``actor_rollout_ref.actor.checkpoint``: The configurations of checkpoint function in actor
 
-  - ``contents``: The contents to save in the checkpoint. By default, we save model, optimizer and extra information in the checkpoint.
+  - ``save_contents``: The contents to save in the checkpoint. By default, we save model, optimizer and extra information in the checkpoint.
     The extra information includes Rng states currently, FSDP supported lr_scheduler, and Megatron opt_param_scheduler will coming soon.
-    We do not store hf_model in checkpoint by default, but we provide a tool in `scripts/model_merge.py` to convert checkpoint format to hf format.
+    We do not store hf_model in checkpoint by default, but we provide a tool in ``scripts/model_merge.py`` to convert checkpoint format to hf format.
+
+  - ``load_contents``: The contents to load in the checkpoint, you can specify different checkpoint loading contents. By default, it is the same with ``save_checkpoint``.
 
 **Reference Model**
 
