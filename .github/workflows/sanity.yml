@@ -87,3 +87,5 @@ jobs:
           fi
       - name: Validate test folder structure
         run: python3 tests/special_sanity/validate_structure.py
+      - name: Assert documentation requirement for functions
+        run: python3 tests/special_sanity/validate_imported_docs.py
