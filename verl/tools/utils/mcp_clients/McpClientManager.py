@@ -58,9 +58,9 @@ class MCPClientManager:
     async def call_tool(self, tool_name, parameters, timeout):
         # Apply rate limiting
         while not self.rate_limiter.acquire():
-            await asyncio.sleep(0.1)  # Wait a bit before trying again
+            await asyncio.sleep(0.1)
 
-        client = self._get_client_with_tool_name(tool_name)
+        client = self.get_client_with_tool_name(tool_name)
         async with client:
             return await client.call_tool_mcp(tool_name, parameters)
 
