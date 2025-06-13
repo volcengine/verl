@@ -60,6 +60,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         device_mesh: DeviceMesh = None,
         offload_param: bool = False,
     ):
+        super().__init__()
         self.module = module
         self.inference_engine = inference_engine
         self.model_config = model_config

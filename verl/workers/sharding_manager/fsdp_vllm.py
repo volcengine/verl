@@ -52,6 +52,8 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class FSDPVLLMShardingManager(BaseShardingManager):
     @check_device_is_available()
     def __init__(self, module: FSDP, inference_engine: LLM, model_config, full_params: bool = False, device_mesh: DeviceMesh = None, offload_param: bool = False, load_format: str = "dummy_hf", layered_summon: bool = True):
+        super().__init__()
+
         self.module = module
         # For AsyncLLM, inference_engine and model_runner are defer initialized in vLLMAsyncRollout.load_model
         self.inference_engine = inference_engine
