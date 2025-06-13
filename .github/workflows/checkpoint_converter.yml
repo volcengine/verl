@@ -96,11 +96,11 @@ jobs:
       - name: Running Huggingface to Megatron dist_ckpt converter (Qwen/Qwen2.5-0.5B)
         run: |
           ray stop --force
-          python scripts/converter_hf_to_mcore.py --hf_model_path=${HOME}/models/Qwen/Qwen2.5-0.5B --output_path checkpoints/Qwen/Qwen2.5-0.5B
+          python scripts/converter_hf_to_mcore.py --hf_model_path=${HOME}/models/Qwen/Qwen2.5-0.5B --output_path checkpoints/Qwen/Qwen2.5-0.5B --test
       - name: Running Huggingface to Megatron dist_ckpt converter (deepseek-ai/deepseek-coder-1.3b-instruct)
         run: |
           ray stop --force
-          python scripts/converter_hf_to_mcore.py --hf_model_path=${HOME}/models/deepseek-ai/deepseek-coder-1.3b-instruct --output_path checkpoints/deepseek-ai/deepseek-coder-1.3b-instruct
+          python scripts/converter_hf_to_mcore.py --hf_model_path=${HOME}/models/deepseek-ai/deepseek-coder-1.3b-instruct --output_path checkpoints/deepseek-ai/deepseek-coder-1.3b-instruct --test
       - name: Clean up
         run: |
           rm -rf checkpoints
