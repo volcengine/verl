@@ -1,0 +1,127 @@
+# Configuration for Atropos-VERL GRPO Integration
+# This config extends the standard GRPO trainer with Atropos environment coordination
+
+# Inherit from base PPO trainer configuration
+defaults:
+  - ppo_trainer
+  - _self_
+
+# Override algorithm to use GRPO with Atropos
+algorithm:
+  adv_estimator: grpo_atropos  # Use Atropos-aware GRPO advantage estimation
+  use_kl_in_reward: false      # GRPO uses KL loss instead of KL reward
+
+# Atropos-specific configuration
+atropos:
+  # Atropos API endpoint
+  api_url: "http://localhost:8000"
+  
+  # API timeout and retry settings
+  timeout: 30
+  batch_retry_attempts: 8
+  batch_retry_delay: 0.3
+  batch_max_wait_time: 12.0
+  
+  # Environment coordination settings
+  environment_sync_timeout: 60
+  max_environments: 10
+  
+  # Inference server endpoints (will be auto-populated by launcher)
+  inference_endpoints: []
+
+# GRPO-specific configuration (matching VeRL examples)
+actor_rollout_ref:
+  # Model configuration
+  model:
+    path: "Qwen/Qwen2.5-3B-Instruct"  # Default model, override as needed
+    use_shm: true
+    lora_rank: 0  # Set to >0 for LoRA training
+    lora_alpha: 32
+    use_remove_padding: true
+    enable_gradient_checkpointing: true
+    trust_remote_code: false
+
+  # Actor training configuration
+  actor:
+    strategy: "fsdp"  # or "megatron" for larger models
+    optim:
+      lr: 3e-6
+    ppo_mini_batch_size: 256
+    ppo_micro_batch_size_per_gpu: 40
+    ppo_epochs: 1
+    
+    # GRPO-specific settings
+    use_kl_loss: true
+    kl_loss_coef: 0.001
+    kl_loss_type: "low_var_kl"
+    entropy_coeff: 0
+    clip_ratio: 0.2
+    loss_agg_mode: "token-mean"  # More stable than seq-mean for long sequences
+    
+    # FSDP configuration
+    fsdp_config:
+      param_offload: false
+      optimizer_offload: false
+
+  # Rollout configuration (using Atropos worker)
+  rollout:
+    name: "atropos"  # Use Atropos rollout worker
+    log_prob_micro_batch_size_per_gpu: 40
+    tensor_model_parallel_size: 2
+    gpu_memory_utilization: 0.6
+    n: 5  # Number of samples per prompt for GRPO
+    load_format: "safetensors"
+    layered_summon: true
+    mode: "sync"  # Synchronous rollout for Atropos coordination
+
+  # Reference model configuration
+  ref:
+    log_prob_micro_batch_size_per_gpu: 40
+    fsdp_config:
+      param_offload: true
+
+# Data configuration
+data:
+  train_files: null  # Will be provided by Atropos environments
+  val_files: null    # Will be provided by Atropos environments
+  train_batch_size: 1024
+  max_prompt_length: 512
+  max_response_length: 1024
+  filter_overlong_prompts: true
+  truncation: "error"
+  shuffle: false
+  trust_remote_code: false
+
+# Trainer configuration
+trainer:
+  strategy: "fsdp"
+  critic_warmup: 0
+  logger: ["console", "wandb"]
+  project_name: "verl_atropos_grpo"
+  experiment_name: "atropos_grpo_integration"
+  wandb_group: "atropos_integration"
+  n_gpus_per_node: 8
+  nnodes: 1
+  save_freq: 20
+  test_freq: 5
+  total_epochs: 100
+  output_dir: "/tmp/verl_atropos_checkpoints"
+
+# Critic configuration (disabled for GRPO)
+critic:
+  strategy: "fsdp"
+  optim:
+    lr: 1e-5
+  train_micro_batch_size_per_gpu: 40
+  ppo_micro_batch_size_per_gpu: 40
+  fsdp_config:
+    param_offload: true
+    optimizer_offload: true
+
+# Reward model configuration (optional)
+reward_model:
+  enable: false  # Atropos environments provide rewards directly
+
+# Ray configuration
+ray_init:
+  num_cpus: 32 
