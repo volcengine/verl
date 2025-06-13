@@ -14,12 +14,12 @@
 # limitations under the License.
 
 import argparse
-from contextlib import contextmanager
 import os
 import warnings
+from contextlib import contextmanager
 
-from accelerate import init_empty_weights
 import torch
+from accelerate import init_empty_weights
 from megatron.core import dist_checkpointing
 from megatron.core import parallel_state as mpu
 from megatron.core.dist_checkpointing.serialization import StrictHandling
@@ -364,7 +364,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
         )
 
     if use_cpu_initialization:
-        # 空初始化，因为 meta device 无法 copy
+        # convert meta device to empty tensor so it can use `copy_` function
         model[0].module = model[0].module.to_empty(device="cpu")
 
     with warnings.catch_warnings():
@@ -386,7 +386,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
     elif "DeepseekV3ForCausalLM" in hf_config.architectures:
         numel = convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model[0].module, hf_config, tfconfig=tfconfig)
         if numel != hf_model.num_parameters():
-            print(f"[WARNING] numel mismatch: {numel} != {hf_model.num_parameters()}")
+            warnings.warn(f"numel mismatch: {numel=} != {hf_model.num_parameters()=}", stacklevel=1)
     elif "Qwen3MoeForCausalLM" in hf_config.architectures:
         convert_checkpoint_from_transformers_to_megatron(hf_model, model[0].module, hf_config)
     else:
