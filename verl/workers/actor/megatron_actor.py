@@ -299,6 +299,9 @@ class MegatronPPOActor(BasePPOActor):
             mini_batch.batch["multi_modal_inputs"] = mini_batch.non_tensor_batch["multi_modal_inputs"]
             mini_batch.batch["multi_modal_inputs_idx"] = torch.Tensor(list(range(len(mini_batch.non_tensor_batch["multi_modal_inputs"])))).to(torch.int64)
 
+        if mini_batch.batch["position_ids"].dim() == 3:  # qwen2vl mrope [bs, 3, seq_len]
+            mini_batch.batch["position_ids"] = mini_batch.batch["position_ids"][:, 0]  # mcore patch recompute qwen2vl's pos ids during forward
+
         indices = None
         if use_dynamic_bsz:
             assert max_token_len is not None, "max_token_len must be set when use_dynamic_bsz is True"
@@ -410,9 +413,6 @@ class MegatronPPOActor(BasePPOActor):
             if "multi_modal_inputs" in batch:
                 for key in batch["multi_modal_inputs"][0].keys():
                     multi_modal_inputs[key] = torch.cat([batch["multi_modal_inputs"][i][key] for i in batch["multi_modal_inputs_idx"]], dim=0)
-
-            if position_ids.dim() == 3:     # qwen2vl mrope [bs, 3, seq_len]
-                position_ids = position_ids[:, 0]  # mcore patch recompute qwen2vl's pos ids during forward
 
             responses = batch["responses"]
             response_length = responses.size(1)
