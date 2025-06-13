@@ -633,7 +633,9 @@ class ActorRolloutRefWorker(Worker):
 
             output = self.rollout_sharding_manager.postprocess_data(output)
 
-        timing_generate.update(self.rollout_sharding_manager.timing)
+        if hasattr(self.rollout_sharding_manager, "timing"):
+            # BaseShardingManager does not have timing, so we skip it
+            timing_generate.update(self.rollout_sharding_manager.timing)
         # We calculate the average timing across all ranks
         # to make sure meta_info["timing"] is the same
         timing_generate = reduce_timing(timing_generate)
@@ -850,7 +852,7 @@ class CriticWorker(Worker):
         torch_dtype = self.config.model.fsdp_config.get("model_dtype", "fp32")
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
-        from transformers import AutoConfig, AutoModelForTokenClassification
+        from transformers import AutoConfig
 
         critic_model_config = AutoConfig.from_pretrained(local_path, attn_implementation="flash_attention_2", trust_remote_code=config.model.get("trust_remote_code", False))
         critic_model_config.num_labels = 1
