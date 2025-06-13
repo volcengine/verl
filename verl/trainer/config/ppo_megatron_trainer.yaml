@@ -42,9 +42,6 @@ actor_rollout_ref:
     trust_remote_code: False
   actor:
     strategy: megatron  # This is for backward-compatibility
-    profile_discrete: False
-    profile_ranks_all: False
-    profile_ranks: null # [0,1]
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
     ppo_micro_batch_size_per_gpu: null
@@ -117,9 +114,6 @@ actor_rollout_ref:
       ranks: null
   ref:
     strategy: megatron
-    profile_discrete: False
-    profile_ranks_all: False
-    profile_ranks: null # [0,1]
     use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
     megatron:
       param_offload: False
@@ -154,9 +148,6 @@ actor_rollout_ref:
   rollout:
     name: vllm
     mode: sync # sync: LLM, async: AsyncLLM
-    profile_discrete: False
-    profile_ranks_all: False
-    profile_ranks: null # [0,1]
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1
