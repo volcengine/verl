@@ -21,6 +21,7 @@ The main component is AtroposRolloutWorker which handles:
 - Inference server endpoint provision
 - Data collection and submission
 - Batch retrieval with token-level advantages
+- GPU device management and tensor placement
 """
 
 import asyncio
@@ -42,7 +43,8 @@ from verl.utils.logger import HFTBLogger
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
 from verl.utils.atropos_utils import (
     AtroposAPIValidator, AtroposDataConverter, AtroposEndpointManager,
-    AtroposRetryHandler, create_atropos_registration_data, validate_atropos_config
+    AtroposRetryHandler, create_atropos_registration_data, validate_atropos_config,
+    get_device_for_tensor_ops
 )
 
 logger = logging.getLogger(__name__)
@@ -64,10 +66,22 @@ class AtroposRolloutWorker(ActorRolloutRefWorker):
     3. Coordinates data collection through Atropos environments
     4. Retrieves processed batches with token-level advantages
     5. Manages policy weight updates to inference servers
+    6. Handles GPU device placement and memory management
     """
     
     def __init__(self, config: DictConfig, device: str = "cuda:0"):
         super().__init__(config=config, device=device)
+        
+        # Setup GPU device for tensor operations
+        self.tensor_device = get_device_for_tensor_ops(device)
+        
+        # Initialize CUDA if available and using GPU
+        if self.tensor_device.type == "cuda":
+            torch.cuda.init()
+            torch.cuda.set_device(self.tensor_device)
+            logger.info(f"Initialized CUDA device: {self.tensor_device}")
+        else:
+            logger.warning(f"Using CPU device: {self.tensor_device}")
         
         # Atropos configuration
         self.atropos_config = config.get("atropos", {})
@@ -86,6 +100,7 @@ class AtroposRolloutWorker(ActorRolloutRefWorker):
         self.inference_endpoints = []
         
         logger.info(f"AtroposRolloutWorker initialized with API URL: {self.api_url}")
+        logger.info(f"Using device: {self.tensor_device} for tensor operations")
     
     def set_inference_endpoints(self, endpoints: List[str]):
         """Set inference server endpoints that will be provided to Atropos"""
@@ -108,6 +123,14 @@ class AtroposRolloutWorker(ActorRolloutRefWorker):
             # Create registration data using utility function
             registration_data = create_atropos_registration_data(self.config)
             registration_data["starting_step"] = self.step_count
+            
+            # Add GPU/device information to registration
+            registration_data["device_info"] = {
+                "device_type": self.tensor_device.type,
+                "device_index": self.tensor_device.index if self.tensor_device.type == "cuda" else None,
+                "cuda_available": torch.cuda.is_available(),
+                "cuda_device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0
+            }
             
             # Validate registration data
             if not AtroposAPIValidator.validate_registration_data(registration_data):
@@ -147,7 +170,8 @@ class AtroposRolloutWorker(ActorRolloutRefWorker):
                 "model_info": {
                     "max_tokens": self.config.data.max_response_length,
                     "temperature": 0.7,
-                    "top_p": 0.9
+                    "top_p": 0.9,
+                    "device": str(self.tensor_device)
                 }
             }
             
@@ -210,9 +234,19 @@ class AtroposRolloutWorker(ActorRolloutRefWorker):
         )
     
     def _submit_scored_data_to_atropos(self, tokens, masks, scores, ref_logprobs=None):
-        """Submit scored data to Atropos for processing"""
+        """Submit scored data to Atropos for processing with proper device handling"""
         try:
-            # Convert data using utility function
+            # Ensure tensors are properly placed before conversion
+            if torch.is_tensor(tokens) and tokens.device != self.tensor_device:
+                tokens = tokens.to(self.tensor_device)
+            if torch.is_tensor(masks) and masks.device != self.tensor_device:
+                masks = masks.to(self.tensor_device)
+            if torch.is_tensor(scores) and scores.device != self.tensor_device:
+                scores = scores.to(self.tensor_device)
+            if ref_logprobs is not None and torch.is_tensor(ref_logprobs) and ref_logprobs.device != self.tensor_device:
+                ref_logprobs = ref_logprobs.to(self.tensor_device)
+            
+            # Convert data using utility function (handles GPU->CPU conversion internally)
             data_payload = AtroposDataConverter.verl_to_atropos_batch(
                 tokens, masks, scores, ref_logprobs
             )
@@ -240,17 +274,28 @@ class AtroposRolloutWorker(ActorRolloutRefWorker):
         except RequestException as e:
             logger.error(f"Failed to submit scored data to Atropos: {e}")
             return False
+        except Exception as e:
+            logger.error(f"Unexpected error submitting scored data: {e}")
+            return False
     
     def _convert_atropos_to_verl_data(self, atropos_batch: Dict[str, Any]) -> DataProto:
-        """Convert Atropos batch data to VeRL DataProto format"""
-        # Use utility function for conversion
-        tokens, masks, advantages, scores = AtroposDataConverter.atropos_to_verl_batch(atropos_batch)
+        """Convert Atropos batch data to VeRL DataProto format with proper GPU device placement"""
+        # Use utility function for conversion with target device
+        tokens, masks, advantages, scores = AtroposDataConverter.atropos_to_verl_batch(
+            atropos_batch, device=self.tensor_device
+        )
+        
+        # Ensure all tensors are on the correct device
+        tokens = tokens.to(self.tensor_device)
+        masks = masks.to(self.tensor_device)
+        advantages = advantages.to(self.tensor_device)
+        scores = scores.to(self.tensor_device)
         
         # Create UIDs for GRPO grouping
         batch_size = tokens.shape[0]
         uids = np.arange(batch_size)
         
-        # Create DataProto
+        # Create DataProto with properly placed tensors
         batch_data = {
             'input_ids': tokens,
             'attention_mask': masks,
@@ -281,7 +326,19 @@ class AtroposRolloutWorker(ActorRolloutRefWorker):
         3. Generates responses using VeRL's inference engines
         4. Submits scored data to Atropos for environment processing
         5. Retrieves processed batches with token-level advantages from Atropos
+        
+        All tensor operations are performed on the configured GPU device.
         """
+        
+        # Ensure prompts are on the correct device
+        if prompts.batch is not None:
+            for key, tensor in prompts.batch.items():
+                if torch.is_tensor(tensor) and tensor.device != self.tensor_device:
+                    prompts.batch[key] = tensor.to(self.tensor_device)
+        
+        # Clear GPU cache before heavy operations
+        if self.tensor_device.type == "cuda":
+            torch.cuda.empty_cache()
         
         # Ensure API connectivity
         try:
@@ -306,15 +363,16 @@ class AtroposRolloutWorker(ActorRolloutRefWorker):
         logger.info("Generating responses using VeRL inference engines...")
         generated_data = super().generate_sequences(prompts, sampling_params, **kwargs)
         
-        # Step 2: Extract data for Atropos submission
-        tokens = generated_data.batch['input_ids']
+        # Step 2: Extract data for Atropos submission and ensure proper device placement
+        tokens = generated_data.batch['input_ids'].to(self.tensor_device)
         attention_mask = generated_data.batch.get('attention_mask', 
-                                                 torch.ones_like(tokens))
+                                                 torch.ones_like(tokens).to(self.tensor_device))
         
         # Compute initial scores (these will be refined by Atropos environments)
         # For now, use simple length-based scoring as placeholder
         response_lengths = attention_mask.sum(dim=-1)
         initial_scores = response_lengths.float() / tokens.shape[-1]  # Normalize by max length
+        initial_scores = initial_scores.to(self.tensor_device)
         
         # Step 3: Submit scored data to Atropos for environment processing
         logger.info("Submitting scored data to Atropos environments...")
@@ -328,7 +386,8 @@ class AtroposRolloutWorker(ActorRolloutRefWorker):
         if not submission_success:
             logger.warning("Failed to submit data to Atropos, using generated data as-is")
             self.step_count += 1
-            return generated_data
+            # Ensure return data is on correct device
+            return self._ensure_data_on_device(generated_data)
         
         # Step 4: Retrieve processed batch with advantages from Atropos
         logger.info("Retrieving processed batch with advantages from Atropos...")
@@ -338,43 +397,77 @@ class AtroposRolloutWorker(ActorRolloutRefWorker):
         
         if atropos_batch is None:
             logger.warning("Failed to retrieve batch from Atropos, using generated data")
-            return generated_data
+            return self._ensure_data_on_device(generated_data)
         
         # Step 5: Convert Atropos batch to VeRL format with token-level advantages
         verl_data = self._convert_atropos_to_verl_data(atropos_batch)
         
+        # Clear GPU cache after processing
+        if self.tensor_device.type == "cuda":
+            torch.cuda.empty_cache()
+        
         logger.info(f"Successfully processed Atropos batch for step {self.step_count}")
         return verl_data
     
+    def _ensure_data_on_device(self, data: DataProto) -> DataProto:
+        """Ensure all tensors in DataProto are on the correct device"""
+        if data.batch is not None:
+            for key, tensor in data.batch.items():
+                if torch.is_tensor(tensor) and tensor.device != self.tensor_device:
+                    data.batch[key] = tensor.to(self.tensor_device)
+        return data
+    
     @contextmanager
     def policy_weight_sync(self):
-        """Context manager for policy weight synchronization"""
+        """Context manager for policy weight synchronization with GPU memory management"""
         # This will be called before rollout to ensure inference servers have latest weights
         logger.debug("Syncing policy weights to inference servers")
+        
+        # Clear GPU cache before weight sync
+        if self.tensor_device.type == "cuda":
+            torch.cuda.empty_cache()
+        
         try:
             yield
         finally:
+            # Clear GPU cache after weight sync
+            if self.tensor_device.type == "cuda":
+                torch.cuda.empty_cache()
             logger.debug("Policy weight sync complete")
 
 
 class AtroposShardingManager:
     """
     Sharding manager for Atropos integration that handles weight synchronization
-    between training and inference engines.
+    between training and inference engines with GPU support.
     """
     
-    def __init__(self, training_model, inference_engine):
+    def __init__(self, training_model, inference_engine, device: Union[str, torch.device] = None):
         self.training_model = training_model
         self.inference_engine = inference_engine
+        self.device = get_device_for_tensor_ops(device)
+        
+        # Initialize CUDA if using GPU
+        if self.device.type == "cuda":
+            torch.cuda.set_device(self.device)
     
     def __enter__(self):
         """Sync latest training weights to inference engine"""
-        logger.debug("Syncing training weights to inference engine")
-        # TODO: Implement weight synchronization
+        logger.debug(f"Syncing training weights to inference engine on device {self.device}")
+        
+        # Clear GPU cache before weight sync
+        if self.device.type == "cuda":
+            torch.cuda.empty_cache()
+        
+        # TODO: Implement weight synchronization with device placement
         # This would use VeRL's existing weight update mechanisms
+        # Ensure all weight tensors are moved to the correct device
+        
         return self
     
     def __exit__(self, *args):
-        """Clean up after inference"""
-        logger.debug("Inference complete, releasing resources")
-        pass 
+        """Clean up after inference with GPU memory management"""
+        # Clear GPU cache after inference
+        if self.device.type == "cuda":
+            torch.cuda.empty_cache()
+        logger.debug("Inference complete, released GPU resources") 

@@ -23,11 +23,14 @@ Key features:
 - Atropos API integration for environment coordination
 - Token-level advantage support from Atropos environments
 - Full online RL with policy weight synchronization
+- GPU device management and memory optimization
 """
 
 import hydra
 import logging
+import os
 import ray
+import torch
 from omegaconf import DictConfig, OmegaConf
 from pprint import pprint
 
@@ -46,11 +49,14 @@ def main(config):
 
 def run_atropos_grpo(config: DictConfig) -> None:
     """
-    Run Atropos-VERL GRPO training with automatic inference server management
-    and environment coordination.
+    Run Atropos-VERL GRPO training with automatic inference server management,
+    environment coordination, and GPU optimization.
     """
     
-    # Initialize Ray with environment variables for inference servers
+    # Initialize CUDA environment variables for distributed training
+    _setup_cuda_environment()
+    
+    # Initialize Ray with GPU-optimized runtime environment
     if not ray.is_initialized():
         runtime_env = {
             "env_vars": {
@@ -58,14 +64,28 @@ def run_atropos_grpo(config: DictConfig) -> None:
                 "NCCL_DEBUG": "WARN", 
                 "VLLM_LOGGING_LEVEL": "WARN",
                 "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "true",
+                # GPU optimization environment variables
+                "CUDA_LAUNCH_BLOCKING": "0",  # Enable async CUDA operations
+                "TORCH_CUDNN_DETERMINISTIC": "0",  # Allow non-deterministic ops for speed
+                "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:512",  # Optimize memory allocation
                 # Atropos-specific environment variables
                 "ATROPOS_API_URL": config.atropos.api_url,
             }
         }
-        ray.init(
-            runtime_env=runtime_env,
-            num_cpus=config.ray_init.num_cpus,
-        )
+        
+        # Configure Ray for GPU-optimized operation
+        ray_init_kwargs = {
+            "runtime_env": runtime_env,
+            "num_cpus": config.ray_init.num_cpus,
+        }
+        
+        # Add GPU configuration if available
+        if torch.cuda.is_available():
+            ray_init_kwargs["num_gpus"] = torch.cuda.device_count()
+            ray_init_kwargs["resources"] = {"GPU": torch.cuda.device_count()}
+            logger.info(f"Initializing Ray with {torch.cuda.device_count()} GPUs")
+        
+        ray.init(**ray_init_kwargs)
     
     # Create and run the Atropos task runner
     runner = AtroposTaskRunner.remote()
@@ -77,18 +97,45 @@ def run_atropos_grpo(config: DictConfig) -> None:
         ray.timeline(filename=timeline_json_file)
 
 
-@ray.remote(num_cpus=1)
+def _setup_cuda_environment():
+    """Setup CUDA environment variables for optimal GPU performance"""
+    if torch.cuda.is_available():
+        # Optimize CUDA memory allocation
+        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:512")
+        
+        # Enable CUDA caching allocator
+        os.environ.setdefault("CUDA_CACHE_DISABLE", "0")
+        
+        # Set optimal CUDA stream settings
+        os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
+        
+        # Initialize CUDA context early
+        torch.cuda.init()
+        
+        logger.info(f"CUDA setup complete. Available devices: {torch.cuda.device_count()}")
+        for i in range(torch.cuda.device_count()):
+            props = torch.cuda.get_device_properties(i)
+            logger.info(f"GPU {i}: {props.name} ({props.total_memory // 1024**3} GB)")
+    else:
+        logger.warning("CUDA not available - using CPU only")
+
+
+@ray.remote(num_cpus=1, num_gpus=1 if torch.cuda.is_available() else 0)
 class AtroposTaskRunner:
-    """Task runner for Atropos-VERL integration"""
+    """GPU-optimized task runner for Atropos-VERL integration"""
     
     def run(self, config: DictConfig):
         """
         Run the complete Atropos-VERL training pipeline including:
-        1. Inference server startup
-        2. Atropos environment coordination
-        3. GRPO training with token-level advantages
-        4. Policy weight synchronization
+        1. GPU initialization and optimization
+        2. Inference server startup with GPU allocation
+        3. Atropos environment coordination
+        4. GRPO training with token-level advantages
+        5. Policy weight synchronization with GPU memory management
         """
+        
+        # Initialize GPU context in the worker
+        self._init_gpu_context()
         
         # Print configuration
         logger.info("Starting Atropos-VERL GRPO Training")
@@ -99,7 +146,7 @@ class AtroposTaskRunner:
         # Validate configuration
         self._validate_atropos_config(config)
         
-        # Download model to local machine
+        # Download model to local machine with GPU considerations
         from verl.utils.fs import copy_to_local
         local_path = copy_to_local(
             config.actor_rollout_ref.model.path, 
@@ -119,7 +166,7 @@ class AtroposTaskRunner:
                 if not is_version_ge(pkg="vllm", minver="0.7.3"):
                     raise NotImplementedError("PPO LoRA is not supported before vllm 0.7.3")
         
-        # Set up worker classes based on strategy
+        # Set up worker classes based on strategy with GPU support
         if config.actor_rollout_ref.actor.strategy in ["fsdp", "fsdp2"]:
             from verl.single_controller.ray import RayWorkerGroup
             from verl.workers.atropos_workers import AtroposRolloutWorker
@@ -142,13 +189,15 @@ class AtroposTaskRunner:
         
         from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
         
-        # Map roles to worker classes
+        # Map roles to worker classes with GPU resource allocation
+        gpu_resources = 1 if torch.cuda.is_available() else 0
+        
         role_worker_mapping = {
-            Role.ActorRollout: ray.remote(actor_rollout_cls),
-            Role.Critic: ray.remote(CriticWorker),
+            Role.ActorRollout: ray.remote(num_gpus=gpu_resources)(actor_rollout_cls),
+            Role.Critic: ray.remote(num_gpus=gpu_resources)(CriticWorker),
         }
         
-        # Set up resource pool
+        # Set up resource pool with GPU allocation
         global_pool_id = "global_pool"
         resource_pool_spec = {
             global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
@@ -166,13 +215,13 @@ class AtroposTaskRunner:
                 from verl.workers.megatron_workers import RewardModelWorker
             else:
                 raise NotImplementedError
-            role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+            role_worker_mapping[Role.RewardModel] = ray.remote(num_gpus=gpu_resources)(RewardModelWorker)
             mapping[Role.RewardModel] = global_pool_id
         
         # Add reference policy worker if needed
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
             from verl.workers.fsdp_workers import ActorRolloutRefWorker
-            role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+            role_worker_mapping[Role.RefPolicy] = ray.remote(num_gpus=gpu_resources)(ActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
         
         # Load reward functions (optional for Atropos)
@@ -196,7 +245,7 @@ class AtroposTaskRunner:
         val_dataset = self._create_atropos_dataset(config.data, tokenizer, processor)
         train_sampler = self._create_atropos_sampler(config.data, train_dataset)
         
-        # Initialize the Atropos-aware PPO trainer
+        # Initialize the Atropos-aware PPO trainer with GPU optimization
         trainer = AtroposPPOTrainer(
             config=config,
             tokenizer=tokenizer,
@@ -217,15 +266,49 @@ class AtroposTaskRunner:
         trainer.init_workers()
         trainer.fit()
     
+    def _init_gpu_context(self):
+        """Initialize GPU context in the Ray worker"""
+        if torch.cuda.is_available():
+            # Initialize CUDA in worker
+            torch.cuda.init()
+            device_count = torch.cuda.device_count()
+            
+            # Set device based on Ray worker GPU allocation
+            if device_count > 0:
+                # Ray automatically sets CUDA_VISIBLE_DEVICES for workers
+                # Use device 0 as it will be the only visible device
+                torch.cuda.set_device(0)
+                logger.info(f"Worker initialized with GPU: {torch.cuda.current_device()}")
+                
+                # Warm up GPU
+                dummy_tensor = torch.zeros(1, device='cuda')
+                del dummy_tensor
+                torch.cuda.empty_cache()
+            else:
+                logger.warning("No CUDA devices available in worker")
+        else:
+            logger.warning("CUDA not available in worker")
+    
     def _validate_atropos_config(self, config: DictConfig):
         """Validate Atropos-specific configuration"""
-        required_fields = ["api_url", "timeout"]
+        required_fields = ["api_url"]
+        
+        # Add default timeout if not specified
+        if "timeout" not in config.atropos:
+            config.atropos.timeout = 30
+        
         for field in required_fields:
             if field not in config.atropos:
                 raise ValueError(f"Missing required Atropos config field: {field}")
         
         logger.info(f"Atropos API URL: {config.atropos.api_url}")
         logger.info(f"Using GRPO advantage estimator: {config.algorithm.adv_estimator}")
+        
+        # Validate GPU configuration
+        if torch.cuda.is_available():
+            logger.info(f"GPU acceleration enabled with {torch.cuda.device_count()} devices")
+        else:
+            logger.warning("GPU acceleration not available - training will use CPU")
     
     def _create_atropos_dataset(self, data_config, tokenizer, processor):
         """Create dataset for Atropos coordination (may be empty/placeholder)"""
@@ -255,13 +338,13 @@ class AtroposTaskRunner:
 
 class AtroposPPOTrainer(RayPPOTrainer):
     """
-    Extended PPO trainer with Atropos integration support.
+    Extended PPO trainer with Atropos integration and GPU optimization support.
     
     This trainer extends the standard RayPPOTrainer to:
     - Coordinate with Atropos environments
-    - Handle inference server management
+    - Handle inference server management with GPU allocation
     - Support token-level advantages
-    - Manage policy weight synchronization
+    - Manage policy weight synchronization with GPU memory optimization
     """
     
     def __init__(self, *args, **kwargs):
@@ -269,33 +352,42 @@ class AtroposPPOTrainer(RayPPOTrainer):
         
         # Atropos-specific initialization
         self.atropos_config = self.config.get("atropos", {})
-        logger.info("AtroposPPOTrainer initialized")
+        
+        # GPU context initialization
+        if torch.cuda.is_available():
+            self.device = torch.cuda.current_device()
+            logger.info(f"AtroposPPOTrainer using GPU: {self.device}")
+        else:
+            self.device = torch.device("cpu")
+            logger.warning("AtroposPPOTrainer using CPU")
+        
+        logger.info("AtroposPPOTrainer initialized with GPU optimization")
     
     def init_workers(self):
-        """Initialize workers with Atropos-specific setup"""
+        """Initialize workers with Atropos-specific setup and GPU allocation"""
         super().init_workers()
         
         # Configure Atropos rollout workers with inference endpoints
         self._setup_atropos_integration()
     
     def _setup_atropos_integration(self):
-        """Set up Atropos integration including inference server coordination"""
-        logger.info("Setting up Atropos integration...")
+        """Set up Atropos integration including GPU-optimized inference server coordination"""
+        logger.info("Setting up Atropos integration with GPU optimization...")
         
         # Get inference endpoints from rollout workers
         # This would be implemented based on VeRL's server management
         inference_endpoints = self._get_inference_endpoints()
         
-        # Configure Atropos rollout workers
+        # Configure Atropos rollout workers with GPU information
         actor_rollout_workers = self.resource_pool_manager.name_to_remote_cls_mapping.get("ActorRollout", [])
         for worker in actor_rollout_workers:
             if hasattr(worker, 'set_inference_endpoints'):
                 ray.get(worker.set_inference_endpoints.remote(inference_endpoints))
         
-        logger.info(f"Configured {len(actor_rollout_workers)} Atropos rollout workers")
+        logger.info(f"Configured {len(actor_rollout_workers)} Atropos rollout workers with GPU support")
     
     def _get_inference_endpoints(self):
-        """Get inference server endpoints for Atropos environments"""
+        """Get GPU-optimized inference server endpoints for Atropos environments"""
         # This would integrate with VeRL's inference server management
         # For now, return configured endpoints
         endpoints = self.atropos_config.get("inference_endpoints", [])
@@ -304,8 +396,14 @@ class AtroposPPOTrainer(RayPPOTrainer):
             # Auto-discover endpoints based on VeRL's server management
             # This would be implemented based on the specific inference backend
             logger.warning("No inference endpoints configured, using defaults")
-            endpoints = ["http://localhost:9000", "http://localhost:9001"]
+            # Generate endpoints based on available GPUs
+            if torch.cuda.is_available():
+                num_gpus = torch.cuda.device_count()
+                endpoints = [f"http://localhost:{9000 + i}" for i in range(min(num_gpus, 4))]
+            else:
+                endpoints = ["http://localhost:9000"]
         
+        logger.info(f"Using inference endpoints: {endpoints}")
         return endpoints
 
 

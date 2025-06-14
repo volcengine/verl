@@ -1,0 +1,123 @@
+# Configuration for Qwen3-0.6B training with GSM8K
+# Optimized for single GPU training with Atropos integration
+
+# Inherit from base Atropos trainer configuration
+defaults:
+  - atropos_grpo_trainer
+  - _self_
+
+# Model configuration optimized for Qwen3-0.6B
+actor_rollout_ref:
+  model:
+    path: "Qwen/Qwen3-0.6B"
+    use_shm: true
+    lora_rank: 0  # Full fine-tuning for small model
+    lora_alpha: 32
+    use_remove_padding: true
+    enable_gradient_checkpointing: false  # Not needed for small model
+    trust_remote_code: true  # Required for Qwen models
+
+  # Actor training configuration optimized for 0.6B
+  actor:
+    strategy: "fsdp"
+    optim:
+      lr: 5e-6  # Higher learning rate for smaller model
+    ppo_mini_batch_size: 128  # Smaller for 0.6B model
+    ppo_micro_batch_size_per_gpu: 32
+    ppo_epochs: 1
+    
+    # GRPO-specific settings
+    use_kl_loss: true
+    kl_loss_coef: 0.001
+    kl_loss_type: "low_var_kl"
+    entropy_coeff: 0
+    clip_ratio: 0.2
+    loss_agg_mode: "token-mean"
+    
+    # FSDP configuration for single GPU
+    fsdp_config:
+      param_offload: false
+      optimizer_offload: false
+
+  # Rollout configuration optimized for 0.6B
+  rollout:
+    name: "vllm"
+    log_prob_micro_batch_size_per_gpu: 32
+    tensor_model_parallel_size: 1  # Single GPU
+    gpu_memory_utilization: 0.8  # Higher utilization for small model
+    max_model_len: 1536  # Optimized for GSM8K
+    enforce_eager: false
+    disable_log_stats: false
+    enable_prefix_caching: true
+    kv_cache_dtype: "auto"
+    n: 4  # Fewer samples for faster training
+    load_format: "safetensors"
+    layered_summon: true
+    mode: "sync"
+
+  # Reference model configuration
+  ref:
+    log_prob_micro_batch_size_per_gpu: 32
+    fsdp_config:
+      param_offload: false  # Keep in GPU memory for small model
+
+# Data configuration optimized for GSM8K
+data:
+  train_files: null  # Provided by Atropos
+  val_files: null
+  train_batch_size: 256  # Optimized for 0.6B model
+  max_prompt_length: 512  # Sufficient for GSM8K problems
+  max_response_length: 1024  # Allow for detailed solutions
+  filter_overlong_prompts: true
+  truncation: "error"
+  shuffle: false
+  trust_remote_code: true
+
+# Trainer configuration for single GPU
+trainer:
+  strategy: "fsdp"
+  critic_warmup: 0
+  logger: ["console", "wandb"]
+  project_name: "qwen3_gsm8k"
+  experiment_name: "qwen3_0.6b_gsm8k_training"
+  wandb_group: "qwen3_gsm8k"
+  n_gpus_per_node: 1  # Single GPU
+  nnodes: 1
+  save_freq: 10  # Save more frequently for monitoring
+  test_freq: 5
+  total_epochs: 50  # Fewer epochs for small model
+  output_dir: "/tmp/qwen3_gsm8k_checkpoints"
+
+# Critic configuration (minimal for GRPO)
+critic:
+  strategy: "fsdp"
+  optim:
+    lr: 1e-5
+  train_micro_batch_size_per_gpu: 32
+  ppo_micro_batch_size_per_gpu: 32
+  fsdp_config:
+    param_offload: false
+    optimizer_offload: false
+
+# Atropos configuration
+atropos:
+  api_url: "http://localhost:8000"
+  timeout: 60  # Longer timeout for GSM8K processing
+  batch_retry_attempts: 10
+  batch_retry_delay: 0.5
+  batch_max_wait_time: 30.0
+  environment_sync_timeout: 120
+  max_environments: 5
+
+# Algorithm configuration
+algorithm:
+  adv_estimator: "grpo_atropos"
+  use_kl_in_reward: false
+
+# Reward model (disabled for Atropos)
+reward_model:
+  enable: false
+
+# Ray configuration for single GPU
+ray_init:
+  num_cpus: 8  # Adjust based on your instance 

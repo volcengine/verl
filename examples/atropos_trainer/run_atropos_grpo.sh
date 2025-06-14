@@ -60,6 +60,24 @@ export VLLM_LOGGING_LEVEL=WARN
 export VLLM_ALLOW_RUNTIME_LORA_UPDATING=true
 export ATROPOS_API_URL="$ATROPOS_API_URL"
 
+# GPU optimization environment variables
+if command -v nvidia-smi &> /dev/null; then
+    echo "🔍 GPU Environment Detected:"
+    nvidia-smi --query-gpu=name,memory.total,temperature.gpu --format=csv,noheader,nounits | head -3
+    
+    # Enable GPU optimizations
+    export CUDA_LAUNCH_BLOCKING=0
+    export TORCH_CUDNN_DETERMINISTIC=0
+    export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512,expandable_segments:True
+    export CUDA_CACHE_DISABLE=0
+    export CUDA_DEVICE_ORDER=PCI_BUS_ID
+    
+    echo "✅ GPU optimizations enabled"
+else
+    echo "⚠️ No GPU detected, will use CPU-only mode"
+    export CUDA_VISIBLE_DEVICES=""
+fi
+
 # Ray configuration
 export RAY_DEDUP_LOGS=0
 export RAY_DISABLE_IMPORT_WARNING=1

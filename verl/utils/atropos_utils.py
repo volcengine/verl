@@ -21,7 +21,7 @@ including API validation, data conversion, and endpoint management.
 
 import logging
 import time
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Union
 import requests
 from requests.exceptions import ConnectionError, RequestException, Timeout
 
@@ -101,7 +101,7 @@ class AtroposAPIValidator:
 
 
 class AtroposDataConverter:
-    """Converts data between VeRL and Atropos formats"""
+    """Converts data between VeRL and Atropos formats with proper GPU device handling"""
     
     @staticmethod
     def verl_to_atropos_batch(
@@ -114,38 +114,52 @@ class AtroposDataConverter:
         Convert VeRL batch data to Atropos submission format
         
         Args:
-            tokens: Token IDs [batch_size, seq_len]
-            masks: Attention masks [batch_size, seq_len]
-            scores: Response scores [batch_size]
-            ref_logprobs: Reference log probabilities [batch_size, seq_len]
+            tokens: Token IDs [batch_size, seq_len] - can be on GPU or CPU
+            masks: Attention masks [batch_size, seq_len] - can be on GPU or CPU
+            scores: Response scores [batch_size] - can be on GPU or CPU
+            ref_logprobs: Reference log probabilities [batch_size, seq_len] - can be on GPU or CPU
             
         Returns:
-            Dictionary in Atropos submission format
+            Dictionary in Atropos submission format (all data moved to CPU)
         """
+        # Move tensors to CPU for JSON serialization
+        # This handles both GPU and CPU tensors gracefully
         submission_data = {
-            "tokens": tokens.tolist() if torch.is_tensor(tokens) else tokens,
-            "masks": masks.tolist() if torch.is_tensor(masks) else masks,
-            "scores": scores.tolist() if torch.is_tensor(scores) else scores,
+            "tokens": tokens.detach().cpu().tolist() if torch.is_tensor(tokens) else tokens,
+            "masks": masks.detach().cpu().tolist() if torch.is_tensor(masks) else masks,
+            "scores": scores.detach().cpu().tolist() if torch.is_tensor(scores) else scores,
         }
         
         if ref_logprobs is not None:
             submission_data["ref_logprobs"] = (
-                ref_logprobs.tolist() if torch.is_tensor(ref_logprobs) else ref_logprobs
+                ref_logprobs.detach().cpu().tolist() if torch.is_tensor(ref_logprobs) else ref_logprobs
             )
         
         return submission_data
     
     @staticmethod
-    def atropos_to_verl_batch(atropos_batch: Dict[str, Any]) -> Tuple[torch.Tensor, ...]:
+    def atropos_to_verl_batch(
+        atropos_batch: Dict[str, Any], 
+        device: Union[str, torch.device] = None
+    ) -> Tuple[torch.Tensor, ...]:
         """
-        Convert Atropos batch to VeRL tensors
+        Convert Atropos batch to VeRL tensors with proper GPU device placement
         
         Args:
             atropos_batch: Batch data from Atropos API
+            device: Target device for tensors (e.g., 'cuda:0', 'cpu'). 
+                   If None, uses current CUDA device if available, else CPU
             
         Returns:
-            Tuple of (tokens, masks, advantages, scores)
+            Tuple of (tokens, masks, advantages, scores) all on the specified device
         """
+        # Determine target device
+        if device is None:
+            if torch.cuda.is_available() and torch.cuda.current_device() >= 0:
+                device = f"cuda:{torch.cuda.current_device()}"
+            else:
+                device = "cpu"
+        
         batch_items = atropos_batch['batch']
         
         all_tokens = []
@@ -154,22 +168,23 @@ class AtroposDataConverter:
         all_scores = []
         
         for item in batch_items:
-            tokens = torch.tensor(item['tokens'], dtype=torch.long)
-            masks = torch.tensor(item['masks'], dtype=torch.float)
+            # Create tensors and move to device immediately
+            tokens = torch.tensor(item['tokens'], dtype=torch.long, device=device)
+            masks = torch.tensor(item['masks'], dtype=torch.float, device=device)
             
             # Handle advantages - can be token-level or response-level
             if 'advantages' in item and item['advantages'] is not None:
                 if isinstance(item['advantages'][0], list):
                     # Token-level advantages
-                    advantages = torch.tensor(item['advantages'], dtype=torch.float)
+                    advantages = torch.tensor(item['advantages'], dtype=torch.float, device=device)
                 else:
                     # Response-level advantages - broadcast to token level
                     adv_val = item['advantages'][0]
-                    advantages = torch.full_like(masks, adv_val)
+                    advantages = torch.full_like(masks, adv_val, device=device)
             else:
                 # Use scores as advantages if no explicit advantages
                 score = item.get('scores', [0.0])[0]
-                advantages = torch.full_like(masks, score)
+                advantages = torch.full_like(masks, score, device=device)
             
             all_tokens.append(tokens)
             all_masks.append(masks)
@@ -179,6 +194,7 @@ class AtroposDataConverter:
         # Pad sequences to same length
         max_len = max(tokens.shape[-1] for tokens in all_tokens)
         
+        # Pad and stack on GPU
         padded_tokens = torch.stack([
             torch.nn.functional.pad(tokens, (0, max_len - tokens.shape[-1]), value=0)
             for tokens in all_tokens
@@ -194,7 +210,7 @@ class AtroposDataConverter:
             for advantages in all_advantages
         ])
         
-        scores_tensor = torch.tensor([scores[0] for scores in all_scores], dtype=torch.float)
+        scores_tensor = torch.tensor([scores[0] for scores in all_scores], dtype=torch.float, device=device)
         
         return padded_tokens, padded_masks, padded_advantages, scores_tensor
 
@@ -365,4 +381,45 @@ def validate_atropos_config(config) -> bool:
         return False
     
     logger.info("Atropos configuration validation passed")
-    return True 
+    return True
+
+
+def get_device_for_tensor_ops(preferred_device: Union[str, torch.device] = None) -> torch.device:
+    """
+    Get the appropriate device for tensor operations in Atropos integration
+    
+    Args:
+        preferred_device: Preferred device specification
+        
+    Returns:
+        torch.device object for tensor operations
+    """
+    if preferred_device is not None:
+        device = torch.device(preferred_device)
+        # Validate device availability
+        if device.type == "cuda":
+            if not torch.cuda.is_available():
+                logger.warning(f"CUDA device {preferred_device} requested but CUDA not available, falling back to CPU")
+                return torch.device("cpu")
+            if device.index is not None and device.index >= torch.cuda.device_count():
+                logger.warning(f"CUDA device index {device.index} out of range, using device 0")
+                return torch.device("cuda:0")
+        return device
+    
+    # Auto-detect best device
+    if torch.cuda.is_available():
+        current_device = torch.cuda.current_device()
+        device = torch.device(f"cuda:{current_device}")
+        
+        # Warm up the device with a small operation to ensure it's ready
+        try:
+            test_tensor = torch.zeros(1, device=device)
+            _ = test_tensor + 1  # Simple operation to warm up
+            del test_tensor
+            return device
+        except Exception as e:
+            logger.warning(f"GPU device {device} failed warm-up test: {e}, falling back to CPU")
+            return torch.device("cpu")
+    else:
+        logger.warning("CUDA not available, falling back to CPU for tensor operations")
+        return torch.device("cpu") 

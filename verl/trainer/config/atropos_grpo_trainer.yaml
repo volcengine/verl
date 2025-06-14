@@ -69,6 +69,11 @@ actor_rollout_ref:
     log_prob_micro_batch_size_per_gpu: 40
     tensor_model_parallel_size: 2
     gpu_memory_utilization: 0.6
+    max_model_len: 2048  # Optimize for GPU memory
+    enforce_eager: false  # Allow CUDA graphs for performance
+    disable_log_stats: false
+    enable_prefix_caching: true  # Optimize repeated prefixes
+    kv_cache_dtype: "auto"  # Use optimal KV cache precision
     n: 5  # Number of samples per prompt for GRPO
     load_format: "safetensors"
     layered_summon: true
