@@ -280,6 +280,7 @@ actor_rollout_ref:
 
     # profiler configs
     profiler:
+
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
 
@@ -343,6 +344,7 @@ actor_rollout_ref:
 
     # profiler configs
     profiler:
+
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
 
@@ -502,6 +504,7 @@ actor_rollout_ref:
 
     # profiler configs
     profiler:
+
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
 
@@ -662,6 +665,7 @@ critic:
 
   # profiler configs
   profiler:
+
     # True for each task has its own database, False for all tasks in one training step share one database.
     discrete: False
 
@@ -769,6 +773,7 @@ reward_model:
 
   # profiler configs
   profiler:
+
     # True for each task has its own database, False for all tasks in one training step share one database.
     discrete: False
 
