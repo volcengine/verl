@@ -82,7 +82,6 @@ def run_atropos_grpo(config: DictConfig) -> None:
         # Add GPU configuration if available
         if torch.cuda.is_available():
             ray_init_kwargs["num_gpus"] = torch.cuda.device_count()
-            ray_init_kwargs["resources"] = {"GPU": torch.cuda.device_count()}
             logger.info(f"Initializing Ray with {torch.cuda.device_count()} GPUs")
         
         ray.init(**ray_init_kwargs)
