@@ -35,11 +35,15 @@ def get_changed_lines(file_path: Path) -> Set[int]:
     for line in result.stdout.splitlines():
         if line.startswith("@@"):
             for part in line.split():
-                if part.startswith("+") and "," in part:
-                    start, count = map(int, part[1:].split(","))
-                    lines.update(range(start, start + count))
-                elif part.startswith("+") and "," not in part:
-                    lines.add(int(part[1:]))
+                try:
+                    if part.startswith("+") and "," in part:
+                        start, count = map(int, part[1:].split(","))
+                        lines.update(range(start, start + count))
+                    elif part.startswith("+") and "," not in part:
+                        lines.add(int(part[1:]))
+                except Exception:
+                    # (vermouth1992) There are many edge cases here because + can be in the changed program
+                    pass
     return lines
 
 
