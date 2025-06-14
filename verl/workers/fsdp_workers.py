@@ -1261,13 +1261,18 @@ class RewardModelWorker(Worker):
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
             position_ids = micro_batch["position_ids"]
-
+            if position_ids.dim() == 3:  # qwen2vl mrope
+                position_ids = position_ids.transpose(0, 1)         # (bsz, 3, seqlen) -> (3, bsz, seqlen)
+                
             if self.use_remove_padding:
                 input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
                 # unpad the position_ids to align the rotary
-                position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(0, 1)
+                if position_ids.dim() == 3:
+                    position_ids_rmpad = index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
+                else:
+                    position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(0, 1)
 
                 # pad and slice the inputs if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
@@ -1300,6 +1305,8 @@ class RewardModelWorker(Worker):
         attention_mask = data.batch["attention_mask"]
         position_ids = data.batch["position_ids"]
         response_length = data.batch["responses"].shape[-1]
+        if position_ids.dim() == 3:  # qwen2vl mrope [bs, 3, seq_len]
+            position_ids = position_ids[:, 0, :]
         eos_mask_idx = torch.argmax(position_ids * attention_mask, dim=-1)  # (bsz,)
         token_level_scores = torch.zeros_like(attention_mask, dtype=scores.dtype)  # (bsz, seqlen)
         token_level_scores[torch.arange(batch_size), eos_mask_idx] = scores
