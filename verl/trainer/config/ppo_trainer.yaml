@@ -702,6 +702,9 @@ reward_model:
   # Whether to launch custom reward function asynchronously during log_prob
   launch_reward_fn_async: False
 
+  # Number of multithreaded workers to run the reward function; set to 0 to run in the main process.
+  reward_fn_workers: 0 
+
   # Cloud/local sandbox fusion configuration for custom reward logic
   sandbox_fusion:
 

@@ -287,6 +287,7 @@ reward_model:
   max_length: null
   reward_manager: naive
   launch_reward_fn_async: False # custom reward function executed async on CPU, during log_prob
+  reward_fn_workers: 0 # Number of multithreaded workers to run the reward function; set to 0 to run in the main process.
   sandbox_fusion:
     url: null # faas url to run code in cloud sandbox
     max_concurrent: 64 # max concurrent requests to sandbox
