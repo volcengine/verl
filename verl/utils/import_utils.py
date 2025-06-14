@@ -49,6 +49,15 @@ def is_sglang_available():
 
 
 @cache
+def is_nvtx_available():
+    try:
+        nvtx_spec = importlib.util.find_spec("nvtx")
+    except ModuleNotFoundError:
+        nvtx_spec = None
+    return nvtx_spec is not None
+
+
+@cache
 def is_trl_available():
     try:
         trl_spec = importlib.util.find_spec("trl")

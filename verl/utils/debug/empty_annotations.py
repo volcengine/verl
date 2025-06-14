@@ -12,13 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ..import_utils import is_nvtx_available
-from .performance import GPUMemoryLogger, log_gpu_memory_usage, log_print
-from .profile import NsightSystemsProfiler, ProfilerConfig
+from typing import Callable, Optional
 
-if is_nvtx_available():
-    from .nvtx_annotations import mark_annotate, mark_end_range, mark_start_range
-else:
-    from .empty_annotations import mark_annotate, mark_end_range, mark_start_range
 
-__all__ = ["GPUMemoryLogger", "log_gpu_memory_usage", "log_print", "mark_start_range", "mark_end_range", "mark_annotate", "ProfilerConfig", "NsightSystemsProfiler"]
+def mark_start_range(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> None:
+    pass
+
+
+def mark_end_range(range_id: str) -> None:
+    pass
+
+
+def mark_annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
+    def decorator(func):
+        return func
+
+    return decorator
