@@ -86,13 +86,13 @@ class ActorRolloutRefWorker(MegatronWorker):
         self._is_rollout: bool = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref: bool = self.role in ["ref", "actor_rollout_ref"]
 
-        profiler_config: ProfilerConfig = ProfilerConfig()
+        profiler_config = ProfilerConfig()
         if self._is_actor:
-            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.actor.get("profiler", None))))
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.actor.get("profiler", DictConfig({})))))
         if self._is_rollout:
-            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.rollout.get("profiler", None))))
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.rollout.get("profiler", DictConfig({})))))
         if self._is_ref:
-            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.ref.get("profiler", None))))
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.ref.get("profiler", DictConfig({})))))
 
         super().__init__(profiler_config=profiler_config)
         self.config = config
@@ -624,7 +624,7 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
 class CriticWorker(MegatronWorker):
     def __init__(self, config):
-        profiler_config: ProfilerConfig = ProfilerConfig(**OmegaConf.to_object(config.get("profiler", None)))
+        profiler_config = ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))
         super().__init__(profiler_config=profiler_config)
         self.config = config
 
@@ -841,7 +841,7 @@ class RewardModelWorker(MegatronWorker):
     """
 
     def __init__(self, config):
-        profiler_config = ProfilerConfig(**OmegaConf.to_object(config.get("profiler", None)))
+        profiler_config = ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))
         super().__init__(profiler_config=profiler_config)
         self.config = config
 
