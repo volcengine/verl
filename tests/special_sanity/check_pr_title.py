@@ -14,7 +14,6 @@
 
 import os
 import re
-import sys
 
 # Get PR title from environment
 pr_title = os.environ.get("PR_TITLE", "").strip()
