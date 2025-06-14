@@ -151,8 +151,9 @@ class RayPRIMETrainer(RayPPOTrainer):
         ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
         reward_fn=None,
         val_reward_fn=None,
+        device_name="cuda",
     ):
-        # assert torch.cuda.is_available(), 'cuda must be available on driver'
+        # assert get_torch_device().is_available(), 'cuda must be available on driver'
 
         super().__init__(
             config,
@@ -162,6 +163,7 @@ class RayPRIMETrainer(RayPPOTrainer):
             ray_worker_group_cls,
             reward_fn,
             val_reward_fn,
+            device_name=device_name,
         )
 
         self.use_critic = False
