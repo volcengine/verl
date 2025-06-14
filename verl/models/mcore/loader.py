@@ -18,9 +18,9 @@ import time
 import torch
 import torch.distributed as dist
 
-from .saver import _megatron_calc_global_rank
+from verl.utils.device import get_device_id, get_torch_device
 
-from verl.utils.device import get_torch_device, get_device_id
+from .saver import _megatron_calc_global_rank
 
 
 def _megatron_calc_layer_map(config):

@@ -17,7 +17,7 @@ import os
 
 import torch.distributed
 
-from verl.utils.device import get_torch_device, get_nccl_backend
+from verl.utils.device import get_nccl_backend, get_torch_device
 
 
 def initialize_global_process_group(timeout_second=36000):

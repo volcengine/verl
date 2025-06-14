@@ -31,12 +31,12 @@ from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.debug.performance import _timer
+from verl.utils.device import get_torch_device
 from verl.utils.megatron_utils import (
     per_tensor_generator,
 )
 from verl.utils.torch_functional import check_device_is_available
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
-from verl.utils.device import get_torch_device
 
 from .base import BaseShardingManager
 

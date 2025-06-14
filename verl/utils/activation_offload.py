@@ -25,8 +25,8 @@ from typing import Any, Optional
 import torch
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from verl.utils.fsdp_utils import FSDPModule as FSDP2
 from verl.utils.device import get_torch_device
+from verl.utils.fsdp_utils import FSDPModule as FSDP2
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))

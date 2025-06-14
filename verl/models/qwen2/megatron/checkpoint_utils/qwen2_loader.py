@@ -17,7 +17,7 @@ import time
 import torch
 import torch.distributed as dist
 
-from verl.utils.device import get_torch_device, get_device_id
+from verl.utils.device import get_device_id, get_torch_device
 
 
 def _megatron_calc_layer_map(config):

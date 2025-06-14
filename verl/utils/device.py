@@ -76,4 +76,3 @@ def get_nccl_backend() -> str:
         return "hccl"
     else:
         raise RuntimeError(f"No available nccl backend found on device type {get_device_name()}.")
-

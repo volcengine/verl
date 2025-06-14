@@ -34,9 +34,9 @@ from megatron.core.utils import get_attr_wrapped_model
 from transformers import PretrainedConfig
 
 import verl.utils.megatron.tensor_parallel as tp_utils
+from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.model import normalize_model_name
 from verl.utils.torch_dtypes import PrecisionType
-from verl.utils.device import get_device_name, get_torch_device, get_device_id
 
 
 def get_model_config(model):

@@ -23,8 +23,8 @@ import torch
 
 from recipe.spin.core_algos import compute_online_dpo_loss, get_batch_logps
 from verl import DataProto
-from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.device import get_device_name
+from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.workers.actor import DataParallelPPOActor
 
 __all__ = ["DataParallelPPOActor"]

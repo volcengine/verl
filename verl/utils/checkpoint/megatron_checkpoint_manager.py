@@ -25,6 +25,7 @@ from omegaconf import DictConfig
 from transformers import GenerationConfig
 
 from verl.models.weight_loader_registry import get_weight_saver
+from verl.utils.device import is_cuda_available, is_npu_available
 from verl.utils.fs import is_non_local
 from verl.utils.logger import log_with_rank
 from verl.utils.megatron_utils import (
@@ -35,7 +36,6 @@ from verl.utils.megatron_utils import (
     get_optimizer_scheduler_checkpoint_path,
     get_rng_states_checkpoint_path,
 )
-from verl.utils.device import is_cuda_available, is_npu_available
 
 from .checkpoint_manager import BaseCheckpointManager
 

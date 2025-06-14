@@ -21,7 +21,6 @@ import asyncio
 import logging
 import os
 
-import torch
 from sglang.srt.entrypoints.engine import Engine
 from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
@@ -29,8 +28,8 @@ from torch.distributed.device_mesh import DeviceMesh
 from verl.protocol import DataProto, all_gather_data_proto
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.debug.performance import _timer
-from verl.utils.megatron_utils import per_tensor_generator
 from verl.utils.device import get_torch_device
+from verl.utils.megatron_utils import per_tensor_generator
 
 from .base import BaseShardingManager
 

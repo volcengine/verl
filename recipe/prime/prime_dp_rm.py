@@ -25,10 +25,10 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
+from verl.utils.device import get_device_name
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
-from verl.utils.device import get_device_name
 
 from .prime_core_algos import compute_ce_dpo_loss_rm, compute_detach_dpo_loss_rm
 

@@ -22,7 +22,7 @@ import torch
 import torch.distributed as dist
 from codetiming import Timer
 
-from verl.utils.device import get_torch_device, get_device_id
+from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.logger import DecoratorLoggerBase
 
 

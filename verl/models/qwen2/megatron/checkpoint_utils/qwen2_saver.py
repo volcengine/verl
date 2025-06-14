@@ -21,9 +21,9 @@ from megatron.core.distributed import DistributedDataParallel as LocalDDP
 from megatron.core.transformer.module import Float16Module
 from torch.nn.parallel import DistributedDataParallel as torchDDP
 
+from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.logger import print_rank_0
 from verl.utils.megatron_utils import unwrap_model
-from verl.utils.device import get_torch_device, get_device_id
 
 
 def _megatron_calc_global_rank(tp_rank: int = 0, dp_rank: int = 0, pp_rank: int = 0):

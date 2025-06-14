@@ -29,10 +29,10 @@ from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 from transformers.models.qwen2.modeling_qwen2 import CausalLMOutputWithPast
 
+from verl.utils.device import get_device_name
 from verl.utils.megatron import sequence_parallel as sp_utils
 from verl.utils.megatron import tensor_parallel as tp_utils
 from verl.utils.megatron_utils import TransformerConfig, convert_config
-from verl.utils.device import get_device_name
 
 from .layers import ParallelQwen2DecoderLayer, ParallelQwen2DecoderLayerRmPad, ParallelQwen2RMSNorm
 
