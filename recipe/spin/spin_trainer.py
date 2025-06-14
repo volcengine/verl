@@ -357,8 +357,9 @@ class RaySPINTrainer:
         val_dataset: Optional[Dataset] = None,
         collate_fn=None,
         train_sampler: Optional[Sampler] = None,
+        device_name="cuda",
     ):
-        # assert torch.cuda.is_available(), 'cuda must be available on driver'
+        # assert get_torch_device().is_available(), 'cuda must be available on driver'
 
         self.tokenizer = tokenizer
         self.processor = processor
@@ -379,6 +380,7 @@ class RaySPINTrainer:
         self.ray_worker_group_cls = ray_worker_group_cls
         self.validation_generations_logger = ValidationGenerationsLogger()
         self.async_rollout_mode = False
+        self.device_name = device_name
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
@@ -732,7 +734,7 @@ class RaySPINTrainer:
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
-            wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls, **wg_kwargs)
+            wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls, device_name=self.device_name, **wg_kwargs)
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)
             # keep the referece of WorkerDict to support ray >= 2.31. Ref: https://github.com/ray-project/ray/pull/45699

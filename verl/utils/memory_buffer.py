@@ -20,6 +20,8 @@ from typing import Dict, List, Optional
 import torch
 from torch import nn
 
+from verl.utils.device import get_device_name
+
 
 class MemoryBuffer:
     """
@@ -34,7 +36,7 @@ class MemoryBuffer:
         if source is not None:
             self.data = source
         else:
-            self.data = torch.zeros(self.numel_padded, dtype=self.dtype, device="cuda", requires_grad=False)
+            self.data = torch.zeros(self.numel_padded, dtype=self.dtype, device=get_device_name(), requires_grad=False)
 
     def zero(self):
         """Reset the buffer to zero."""
