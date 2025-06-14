@@ -27,7 +27,8 @@ from torch import nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 from transformers import PreTrainedTokenizer
-from verl.utils.device import get_torch_device, get_device_name
+
+from verl.utils.device import get_device_name, get_torch_device
 
 try:
     from flash_attn.ops.triton.cross_entropy import cross_entropy_loss
@@ -35,6 +36,13 @@ try:
     FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = True
 except ImportError:
     FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = False
+
+
+try:
+    import torch_npu
+    NPU_CROSS_ENTROPY_LOSS_AVAILABLE = hasattr(torch_npu, 'npu_cross_entropy_loss')
+except ImportError:
+    NPU_CROSS_ENTROPY_LOSS_AVAILABLE = False
 
 
 def gather_from_labels(data, label):
@@ -76,6 +84,8 @@ def logprobs_from_logits(logits, labels, inplace_backward=True):
         labels = labels.reshape(-1)
         output = logprobs_from_logits_flash_attn(logits, labels, inplace_backward=inplace_backward)
         output = output.view(*batch_dim)
+    elif NPU_CROSS_ENTROPY_LOSS_AVAILABLE:
+        output = logprobs_from_logits_torch_npu(logits, labels)
     else:
         output = logprobs_from_logits_v2(logits, labels)
     return output
@@ -85,6 +95,13 @@ def logprobs_from_logits_flash_attn(logits, labels, inplace_backward=True):
     output = cross_entropy_loss(logits, labels, inplace_backward=inplace_backward)
     assert isinstance(output, tuple), "please make sure flash-attn>=2.4.3 where cross_entropy_loss returns Tuple[losses, z_losses]."
     return -output[0]
+
+
+def logprobs_from_logits_torch_npu(logits, labels):
+    batch_dim = logits.shape[:-1]
+    logits = logits.reshape(-1, logits.shape[-1])
+    loss, _, _, _ = torch_npu.npu_cross_entropy_loss(logits, labels.reshape(-1), reduction="none")
+    return -loss.view(*batch_dim)
 
 
 def logprobs_from_logits_naive(logits, labels):
@@ -126,6 +143,17 @@ def entropy_from_logits(logits: torch.Tensor):
     """Calculate entropy from logits."""
     pd = torch.nn.functional.softmax(logits, dim=-1)
     entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
+    return entropy
+
+
+def entropy_from_logits_with_chunking(logits: torch.Tensor, chunk_size: int = 2048):
+    """Memory-efficient entropy calculation with chunking."""
+    entropy = torch.zeros(logits.shape[0], device=logits.device)
+    for i in range(0, logits.shape[0], chunk_size):
+        logits_chunk = logits[i:i + chunk_size].float()
+        pd_chunk = torch.nn.functional.softmax(logits_chunk, dim=-1)
+        entropy_chunk = torch.logsumexp(logits_chunk, dim=-1) - torch.sum(pd_chunk * logits_chunk, dim=-1)
+        entropy[i:i + chunk_size] = entropy_chunk
     return entropy
 
 

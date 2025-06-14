@@ -395,15 +395,6 @@ class RaySPINTrainer:
         if config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(config.algorithm.kl_ctrl)
 
-        # if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
-        #     self.use_critic = True
-        # elif self.config.algorithm.adv_estimator in [
-        #         AdvantageEstimator.GRPO, AdvantageEstimator.REINFORCE_PLUS_PLUS, AdvantageEstimator.REMAX,
-        #         AdvantageEstimator.RLOO, AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE
-        # ]:
-        #     self.use_critic = False
-        # else:
-        #     raise NotImplementedError
         self.use_critic = False
         self._validate_config()
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)

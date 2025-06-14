@@ -23,6 +23,7 @@ from transformers import PreTrainedTokenizer
 
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
+from verl.workers.reward_manager import register
 
 
 async def single_compute_score(evaluation_func, completion, reference, task, task_extra_info, executor, timeout=300.0):
@@ -94,7 +95,7 @@ def run_reward_scoring(evaluation_func, completions, references, tasks, extra_in
     finally:
         loop.close()
 
-
+@register("prime")
 class PrimeRewardManager:
     """
     The Reward Manager used in https://github.com/PRIME-RL/PRIME
