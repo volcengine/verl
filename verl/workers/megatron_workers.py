@@ -43,6 +43,7 @@ from verl.utils.megatron_utils import (
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
 )
+from verl.utils.device import get_torch_device, get_device_name, get_nccl_backend, get_device_id
 from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
 from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
@@ -61,7 +62,7 @@ def set_random_seed(seed):
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
-    if torch.cuda.device_count() > 0:
+    if get_torch_device().device_count() > 0:
         from megatron.core import tensor_parallel
 
         tensor_parallel.model_parallel_cuda_manual_seed(seed)
@@ -89,8 +90,8 @@ class ActorRolloutRefWorker(MegatronWorker):
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
             rank = int(os.environ["LOCAL_RANK"])
-            torch.distributed.init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)))
-            torch.cuda.set_device(rank)
+            torch.distributed.init_process_group(backend=get_nccl_backend(), timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)))
+            get_torch_device().set_device(rank)
 
             if self.config.actor.megatron.sequence_parallel:
                 os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "1"
@@ -156,7 +157,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             from verl.models.mcore import init_mcore_model
 
             parallel_model = init_mcore_model(self.tf_config, self.hf_config, pre_process, post_process, share_embeddings_and_output_weights=self.share_embeddings_and_output_weights, value=False, freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False))
-            parallel_model.cuda()
+            parallel_model.to(get_device_name())
             return parallel_model
 
         # Step 3: initialize the megatron model
@@ -229,7 +230,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             infer_tp = self.config.rollout.tensor_model_parallel_size
             dp = self.world_size // infer_tp
             assert self.world_size % infer_tp == 0, f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
-            rollout_device_mesh = init_device_mesh("cuda", mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"])
+            rollout_device_mesh = init_device_mesh(get_device_name(), mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"])
             log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
             local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
@@ -409,7 +410,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 use_checkpoint_opt_param_scheduler=self.config.actor.optim.use_checkpoint_opt_param_scheduler,
                 checkpoint_contents=self.config.actor.checkpoint,
             )
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
         log_gpu_memory_usage("After init_model finish", logger=logger)
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
@@ -422,7 +423,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_offload_optimizer:
             load_megatron_optimizer(self.actor_optimizer)
             log_gpu_memory_usage("After load actor optimizer during update_actor", logger=logger)
-        data.batch = data.batch.cuda()
+        data.batch = data.batch.to(get_device_name())
 
         micro_batch_size = self.config.actor.ppo_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
@@ -449,7 +450,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             offload_megatron_optimizer(self.actor_optimizer)
             log_gpu_memory_usage("After offload actor optimizer during update_actor", logger=logger)
 
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -459,7 +460,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
             log_gpu_memory_usage("After load actor params during generate_sequences", logger=logger)
-        prompts.batch = prompts.batch.cuda()
+        prompts.batch = prompts.batch.to(get_device_name())
         meta_info = {
             "eos_token_id": self.generation_config.eos_token_id if self.generation_config is not None else self.tokenizer.eos_token_id,
             "pad_token_id": self.generation_config.pad_token_id if self.generation_config is not None else self.tokenizer.pad_token_id,
@@ -496,7 +497,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         output.meta_info["timing"] = timing_generate
         output = output.to("cpu")
         # clear kv cache
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
@@ -511,14 +512,14 @@ class ActorRolloutRefWorker(MegatronWorker):
         data.meta_info["max_token_len"] = self.config.ref.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
-        data = data.to(torch.cuda.current_device())
+        data = data.to(get_device_id())
         output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
         output = DataProto.from_dict(tensors={"ref_log_prob": output})
         output = output.to("cpu")
         if self._ref_is_offload_param:
             offload_megatron_model_to_cpu(self.ref_module)
             log_gpu_memory_usage("After offload ref params and grad during compute_ref_log_prob", logger=logger)
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
@@ -533,7 +534,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
-        data = data.to(torch.cuda.current_device())
+        data = data.to(get_device_id())
         output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
         output = DataProto.from_dict(tensors={"old_log_probs": output, "entropys": entropys}, meta_info={"temperature": self.config.rollout.temperature})
         output = output.to("cpu")
@@ -541,7 +542,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
             log_gpu_memory_usage("After offload actor params and grad during compute_log_prob", logger=logger)
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -622,8 +623,8 @@ class CriticWorker(MegatronWorker):
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
             rank = int(os.environ["LOCAL_RANK"])
-            torch.distributed.init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)))
-            torch.cuda.set_device(rank)
+            torch.distributed.init_process_group(backend=get_nccl_backend(), timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)))
+            get_torch_device().set_device(rank)
 
             if self.config.megatron.sequence_parallel:
                 os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "1"
@@ -667,7 +668,7 @@ class CriticWorker(MegatronWorker):
             from verl.models.mcore import init_mcore_model
 
             parallel_model = init_mcore_model(self.tf_config, self.hf_config, pre_process, post_process, share_embeddings_and_output_weights=False, value=True, freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False))
-            parallel_model.cuda()
+            parallel_model.to(get_device_name())
             return parallel_model
 
         # Step 3: initialize the megatron model
@@ -697,7 +698,7 @@ class CriticWorker(MegatronWorker):
         optim_config_megatron = init_megatron_optim_config(optim_config)
         critic_optimizer = get_megatron_optimizer(model=critic_module, config=optim_config_megatron)
         critic_optimizer_scheduler = get_megatron_optimizer_param_scheduler(optimizer=critic_optimizer, config=optim_config)
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
         return critic_module, critic_optimizer, critic_optimizer_scheduler, self.hf_config, optim_config
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -760,7 +761,7 @@ class CriticWorker(MegatronWorker):
         data.meta_info["micro_batch_size"] = micro_batch_size
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
-        data = data.to(torch.cuda.current_device())
+        data = data.to(get_device_id())
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.critic_module)
         values = self.critic.compute_values(data=data)
@@ -772,7 +773,7 @@ class CriticWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def update_critic(self, data: DataProto):
-        data = data.to(torch.cuda.current_device())
+        data = data.to(get_device_id())
 
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.critic_module)
@@ -836,8 +837,8 @@ class RewardModelWorker(MegatronWorker):
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
             rank = int(os.environ["LOCAL_RANK"])
-            torch.distributed.init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)))
-            torch.cuda.set_device(rank)
+            torch.distributed.init_process_group(backend=get_nccl_backend(), timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)))
+            get_torch_device().set_device(rank)
 
             if self.config.megatron.sequence_parallel:
                 os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "1"
@@ -878,7 +879,7 @@ class RewardModelWorker(MegatronWorker):
                 share_embeddings_and_output_weights=False,
                 value=True,
             )
-            parallel_model.cuda()
+            parallel_model.to(get_device_name())
             return parallel_model
 
         # Step 3: initialize the megatron model
@@ -899,7 +900,7 @@ class RewardModelWorker(MegatronWorker):
                 load_megatron_gptmodel_weights(self.config, self.hf_config, reward_model, params_dtype=self.dtype, is_value_model=True)
 
         # TODO: add more optimizer args into config
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
         return reward_model, self.hf_config
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -954,7 +955,7 @@ class RewardModelWorker(MegatronWorker):
         data.meta_info["micro_batch_size"] = self.config.micro_batch_size_per_gpu
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
-        data = data.to(torch.cuda.current_device())
+        data = data.to(get_device_id())
         output = self.rm.compute_reward(data)
         output = output.to("cpu")
         return output

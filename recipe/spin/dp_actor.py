@@ -24,6 +24,7 @@ import torch
 from recipe.spin.core_algos import compute_online_dpo_loss, get_batch_logps
 from verl import DataProto
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
+from verl.utils.device import get_device_name
 from verl.workers.actor import DataParallelPPOActor
 
 __all__ = ["DataParallelPPOActor"]
@@ -175,7 +176,7 @@ class SPINDataParallelPPOActor(DataParallelPPOActor):
             # Determine autocast dtype
             autocast_dtype = torch.bfloat16  # Or get dynamically from config/FSDP settings
             # --- Autocast Forward Pass ---
-            with torch.autocast(device_type="cuda", dtype=autocast_dtype):
+            with torch.autocast(device_type=get_device_name(), dtype=autocast_dtype):
                 # --- Step 1: Forward pass for CURRENT policy log probs (with grad) ---
                 policy_chosen_outputs = self.actor_module(**micro_batch_chosen_inputs, use_cache=False)
                 policy_rejected_outputs = self.actor_module(**micro_batch_rejected_inputs, use_cache=False)

@@ -21,14 +21,13 @@ import os
 
 import torch
 import torch.distributed
-from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 from torch import nn, optim
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from verl import DataProto
 from verl.trainer.ppo import core_algos
 from verl.utils.debug import GPUMemoryLogger
-from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
+from verl.utils.device import get_device_name, get_device_id, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
@@ -224,9 +223,9 @@ class DataParallelPPOCritic(BasePPOCritic):
                 for data in micro_batches:
                     # Support all devices
                     if isinstance(data, DataProto):
-                        data = {**data.batch.to(get_torch_device().current_device()), **data.non_tensor_batch}
+                        data = {**data.batch.to(get_device_id()), **data.non_tensor_batch}
                     else:
-                        data = data.to(get_torch_device().current_device())  # critic device is cpu when using offload
+                        data = data.to(get_device_id())  # critic device is cpu when using offload
                     responses = data["responses"]
                     attention_mask = data["attention_mask"]
                     values = data["values"]

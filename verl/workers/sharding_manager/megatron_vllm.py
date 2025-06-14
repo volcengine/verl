@@ -36,6 +36,7 @@ from verl.utils.megatron_utils import (
 )
 from verl.utils.torch_functional import check_device_is_available
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
+from verl.utils.device import get_torch_device
 
 from .base import BaseShardingManager
 
@@ -136,7 +137,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         for model in self.actor_module:
             model.train()
 
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:

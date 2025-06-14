@@ -27,6 +27,7 @@ from verl import DataProto
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import broadcast_dict_tensor, pad_sequence_to_length
+from verl.utils.device import get_torch_device, get_device_name, get_device_id
 from verl.workers.reward_model.base import BasePPORewardModel
 
 
@@ -85,8 +86,8 @@ class MegatronRewardModel(BasePPORewardModel):
             if print_decode and torch.distributed.get_rank() == 0:
                 # only print first decode result
                 print(
-                    f"device {torch.cuda.current_device()}: sft decode result:\n{decode_result}\n \
-                        \ndevice {torch.cuda.current_device()}: sft decode result with \
+                    f"device {get_device_id()}: sft decode result:\n{decode_result}\n \
+                        \ndevice {get_device_id()}: sft decode result with \
                         rm chat template:\n{decode_with_rm_chat}\n\n"
                 )
                 print_decode = False
@@ -194,7 +195,7 @@ class MegatronRewardModel(BasePPORewardModel):
             self.offload_params_to_cpu()
         else:
             # add empty cache after each compute
-            torch.cuda.empty_cache()
+            get_torch_device().empty_cache()
 
         batch = TensorDict({"rm_scores": token_level_rewards}, batch_size=input_ids.shape[0])
 
@@ -306,16 +307,16 @@ class MegatronRewardModel(BasePPORewardModel):
         return losses_reduced
 
     def offload_params_to_cpu(self):
-        if self.device == "cuda":
+        if self.device in ["cuda", "npu"]:
             for reward_model_module in self.reward_model_module:
                 for name, param in reward_model_module.named_parameters():
                     param.data = param.data.to("cpu", non_blocking=True)
             self.device = "cpu"
-            torch.cuda.empty_cache()
+            get_torch_device().empty_cache()
 
     def load_params_to_cuda(self):
         if self.device == "cpu":
             for reward_model_module in self.reward_model_module:
                 for name, param in reward_model_module.named_parameters():
-                    param.data = param.data.to(torch.cuda.current_device(), non_blocking=True)
-            self.device = "cuda"
+                    param.data = param.data.to(get_device_id(), non_blocking=True)
+            self.device = get_device_name()

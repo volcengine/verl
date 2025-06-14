@@ -47,6 +47,7 @@ from verl.utils.megatron_utils import get_model_config
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import broadcast_dict_tensor
+from verl.utils.device import get_torch_device, get_device_id
 from verl.workers.actor import BasePPOActor
 
 __all__ = ["MegatronPPOActor"]
@@ -166,7 +167,7 @@ class MegatronPPOActor(BasePPOActor):
         Returns:
             DataProto: torch.Tensor: the log_prob tensor
         """
-        data.to(torch.cuda.current_device())
+        data.to(get_device_id())
         data.batch = data.batch.contiguous()
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
         micro_batch_size = data.meta_info.get("micro_batch_size", None)
@@ -241,7 +242,7 @@ class MegatronPPOActor(BasePPOActor):
                     )
 
         # add empty cache after each compute
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
 
         return log_probs, entropys
 
@@ -505,7 +506,7 @@ class MegatronPPOActor(BasePPOActor):
         metrics = {}
         self.prof.start()
         for data in dataloader:
-            data.to(torch.cuda.current_device())
+            data.to(get_device_id())
             self.actor_optimizer.zero_grad()
             # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
             for chunk in self.actor_module:
@@ -539,5 +540,5 @@ class MegatronPPOActor(BasePPOActor):
         # add empty cache after each compute
         self.prof.stop_and_save()
         self.prof.stop_trace()
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
         return metrics
