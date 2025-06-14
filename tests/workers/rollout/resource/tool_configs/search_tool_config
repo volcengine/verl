@@ -5,6 +5,7 @@ tools:
       num_workers: 120
       rate_limit: 120
       timeout: 30
+      type: native
     tool_schema:
       type: function
       function:
