@@ -176,6 +176,8 @@ class FSDPSFTTrainer:
         # load config first
         config = AutoConfig.from_pretrained(local_model_path, trust_remote_code=trust_remote_code)
         self.model_config = config
+        if hasattr(self.model_config, "max_position_embeddings"):
+            self.model_config.max_position_embeddings = max(self.model_config.max_position_embeddings, self.config.data.max_length)
         if self.config.ulysses_sequence_parallel_size > 1:
             assert self.use_remove_padding, "Sequence parallel is only supported when remove_padding is enabled"
 
