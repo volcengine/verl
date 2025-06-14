@@ -698,7 +698,7 @@ def distributed_mean_max_min_std(local_tensor, compute_max=True, compute_min=Tru
     """
     # Sum the local tensor across all processes
     local_sum = torch.sum(local_tensor)
-    local_num = torch.tensor(torch.numel(local_tensor), device="cuda")
+    local_num = torch.tensor(torch.numel(local_tensor), device=get_device_name())
 
     torch.distributed.all_reduce(local_sum, op=torch.distributed.ReduceOp.SUM)
     torch.distributed.all_reduce(local_num, op=torch.distributed.ReduceOp.SUM)

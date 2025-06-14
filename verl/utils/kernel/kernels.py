@@ -40,6 +40,8 @@ import torch.distributed as dist
 import triton
 import triton.language as tl
 
+from verl.utils.device import get_torch_device
+
 
 @dataclass
 class EntropyReductionEnum:
@@ -443,8 +445,8 @@ def efficient_entropy_forward(hidden: torch.Tensor, weight: torch.Tensor, labels
 
     if dist_process_group is not None and not hasattr(efficient_entropy_forward, "_initialized"):
         global _dedicated_stream, _dedicated_events
-        _dedicated_stream = torch.cuda.Stream(hidden.device)
-        _dedicated_events = [torch.cuda.Event() for _ in range(2)]
+        _dedicated_stream = get_torch_device().Stream(hidden.device)
+        _dedicated_events = [get_torch_device().Event() for _ in range(2)]
         efficient_entropy_forward._initialized = True
 
     num_tokens, hidden_size = hidden.shape
@@ -560,8 +562,8 @@ def efficient_entropy_forward(hidden: torch.Tensor, weight: torch.Tensor, labels
         _max_backup = _max.clone()
         dist.all_reduce(_max, op=dist.ReduceOp.MAX, group=dist_process_group)
 
-        torch.cuda.current_stream().record_event(_dedicated_events[0])
-        with torch.cuda.stream(_dedicated_stream):
+        get_torch_device().current_stream().record_event(_dedicated_events[0])
+        with get_torch_device().stream(_dedicated_stream):
             _dedicated_stream.wait_event(_dedicated_events[0])
             dist.all_reduce(_logprobs, op=dist.ReduceOp.SUM, group=dist_process_group)
             _dedicated_stream.record_event(_dedicated_events[1])
@@ -588,7 +590,7 @@ def efficient_entropy_forward(hidden: torch.Tensor, weight: torch.Tensor, labels
             entropy_b,
             entropy_b.stride(0),
         )
-        torch.cuda.current_stream().wait_event(_dedicated_events[1])
+        get_torch_device().current_stream().wait_event(_dedicated_events[1])
 
         dist.all_reduce(accumulate_and_entropy_b, op=dist.ReduceOp.SUM, group=dist_process_group)
 

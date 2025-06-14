@@ -55,3 +55,24 @@ def get_torch_device() -> any:
     except AttributeError:
         logger.warning(f"Device namespace '{device_name}' not found in torch, try to load torch.cuda.")
         return torch.cuda
+
+
+def get_device_id() -> int:
+    """Return current device id based on the device type.
+    Returns:
+        device index
+    """
+    return get_torch_device().current_device()
+
+
+def get_nccl_backend() -> str:
+    """Return nccl backend type based on the device type.
+    Returns:
+        nccl backend type string.
+    """
+    if is_cuda_available:
+        return "nccl"
+    elif is_npu_available:
+        return "hccl"
+    else:
+        raise RuntimeError(f"No available nccl backend found on device type {get_device_name()}.")
