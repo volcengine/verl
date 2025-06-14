@@ -14,7 +14,6 @@
 # limitations under the License.
 
 
-
 import numpy as np
 import torch
 
@@ -48,10 +47,10 @@ class FixedKLController:
 
 
 def get_kl_controller(kl_ctrl):
-    if kl_ctrl.type == 'fixed':
+    if kl_ctrl.type == "fixed":
         return FixedKLController(kl_coef=kl_ctrl.kl_coef)
-    elif kl_ctrl.type == 'adaptive':
-        assert kl_ctrl.horizon > 0, f'horizon must be larger than 0. Got {kl_ctrl.horizon}'
+    elif kl_ctrl.type == "adaptive":
+        assert kl_ctrl.horizon > 0, f"horizon must be larger than 0. Got {kl_ctrl.horizon}"
         return AdaptiveKLController(init_kl_coef=kl_ctrl.kl_coef, target_kl=kl_ctrl.target_kl, horizon=kl_ctrl.horizon)
     else:
         raise NotImplementedError
@@ -79,10 +78,9 @@ def compute_onlinedpo_pref(
     """
     # print(f"---- [DEBUG] Inside compute_onlinedpo_pref ----")
     if token_level_rewards.shape[0] % 2 != 0 or response_mask.shape[0] % 2 != 0:
-        raise ValueError(f"Input tensor batch dimension must be even for pair comparison, "
-                         f"got shapes: {token_level_rewards.shape}, {response_mask.shape}")
+        raise ValueError(f"Input tensor batch dimension must be even for pair comparison, got shapes: {token_level_rewards.shape}, {response_mask.shape}")
     if token_level_rewards.shape != response_mask.shape:
-         raise ValueError(f"Shape mismatch between rewards {token_level_rewards.shape} and mask {response_mask.shape}")
+        raise ValueError(f"Shape mismatch between rewards {token_level_rewards.shape} and mask {response_mask.shape}")
 
     # 1. Calculate Sequence Scores
     scores = (token_level_rewards * response_mask).sum(dim=-1)
@@ -94,11 +92,11 @@ def compute_onlinedpo_pref(
     except RuntimeError as e:
         print(f"ERROR reshaping scores (shape {scores.shape}) into pairs: {e}")
         raise e
-    print(f"  Reshaped score pairs shape: {score_pairs.shape}") # [batch_size, 2]
+    print(f"  Reshaped score pairs shape: {score_pairs.shape}")  # [batch_size, 2]
 
     # 3. Compare scores to find which index (0 or 1) is the winner within each pair
     #    winner_indices[i] = 0 if score_pairs[i, 0] >= score_pairs[i, 1] else 1
-    winner_indices = torch.argmax(score_pairs, dim=1) # 0 if first is max, 1 if second is max
+    winner_indices = torch.argmax(score_pairs, dim=1)  # 0 if first is max, 1 if second is max
     # Handle ties explicitly if argmax behavior isn't guaranteed (usually picks first max)
     # Alternatively: winner_mask_original = score_pairs[:, 0] >= score_pairs[:, 1]
     # print(f"  Winner indices shape: {winner_indices.shape}") # [batch_size]
@@ -108,7 +106,7 @@ def compute_onlinedpo_pref(
     num_pairs = score_pairs.shape[0]
     full_batch_size = num_pairs * 2
     # Create indices for the full batch [0, 1, 2, 3, ..., N*2-1]
-    full_indices = torch.arange(full_batch_size, device=scores.device)
+    # full_indices = torch.arange(full_batch_size, device=scores.device)
     # Create indices corresponding to the winner within each pair's original index
     # E.g., if winner_indices is [0, 1, 0], pair_indices is [0, 1, 2]
     # winner_global_indices = (pair_indices * 2) + winner_indices -> [ (0*2)+0, (1*2)+1, (2*2)+0 ] -> [0, 3, 4]
@@ -125,7 +123,6 @@ def compute_onlinedpo_pref(
     # print(f"---- [DEBUG] Exiting compute_onlinedpo_pref ----")
 
     return output_preference_mask
-    
 
 
 def compute_online_dpo_loss(
@@ -138,8 +135,8 @@ def compute_online_dpo_loss(
     loss_type: str = "sigmoid",
     reference_free: bool = False,
 ) -> torch.Tensor:
-    
     import torch.nn.functional as F
+
     pi_logratios = policy_chosen_logps - policy_rejected_logps
     ref_logratios = reference_chosen_logps - reference_rejected_logps
 
@@ -156,6 +153,7 @@ def compute_online_dpo_loss(
         raise ValueError(f"Unsupported loss_type: {loss_type}. Choose 'sigmoid', 'ipo', or 'hinge'.")
 
     return losses.mean()
+
 
 def get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, average_log_prob: bool = False) -> torch.FloatTensor:
     """
@@ -177,21 +175,21 @@ def get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, average
     # Shift so that tokens < n predict n
     shift_logits = logits[..., :-1, :].contiguous()
     shift_labels = labels[..., 1:].contiguous()
-    
-    # Calculate per token log probability    
-    loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100, reduction='none')
+
+    # Calculate per token log probability
+    loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100, reduction="none")
     per_token_logps = -loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-    per_token_logps = per_token_logps.view(shift_logits.size(0), shift_logits.size(1)) # Reshape back to (batch_size, seq_len-1)
-    
+    per_token_logps = per_token_logps.view(shift_logits.size(0), shift_logits.size(1))  # Reshape back to (batch_size, seq_len-1)
+
     # Create a mask for the labels that are not -100
-    loss_mask = (shift_labels != -100)
-    
+    loss_mask = shift_labels != -100
+
     # Apply the mask to the per token log probabilities
     masked_logps = per_token_logps * loss_mask
-    
+
     # Calculate the sum or average log probability per sequence
     sequence_logps = masked_logps.sum(dim=-1)
-    
+
     if average_log_prob:
         # Avoid division by zero for sequences with no valid tokens
         num_valid_tokens = loss_mask.sum(dim=-1)

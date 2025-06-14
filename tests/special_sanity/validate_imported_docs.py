@@ -27,22 +27,18 @@ import importlib
 import inspect
 import pathlib
 import sys
-from typing import List
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description="Verify that imported functions/classes have docstrings."
-    )
+    p = argparse.ArgumentParser(description="Verify that imported functions/classes have docstrings.")
     p.add_argument(
         "--target-file",
-        default='verl/trainer/ppo/ray_trainer.py',
-        help="Path to the Python source file to analyse "
-             "(e.g. verl/trainer/ppo/ray_trainer.py)",
+        default="verl/trainer/ppo/ray_trainer.py",
+        help="Path to the Python source file to analyse (e.g. verl/trainer/ppo/ray_trainer.py)",
     )
     p.add_argument(
         "--allow-list",
-        default=['omegaconf.open_dict'],
+        default=["omegaconf.open_dict"],
         help="a list of third_party dependencies that do not have proper docs :(",
     )
     p.add_argument(
@@ -64,13 +60,13 @@ def _import_attr(module_name: str, attr_name: str):
     return getattr(module, attr_name)
 
 
-def _check_file(py_file: pathlib.Path, project_root: pathlib.Path, allow_list: List[str]) -> List[str]:
+def _check_file(py_file: pathlib.Path, project_root: pathlib.Path, allow_list: list[str]) -> list[str]:
     """Return a list of error strings (empty == success)."""
     # Ensure local packages resolve
     sys.path.insert(0, str(project_root.resolve()))
 
     tree = ast.parse(py_file.read_text(), filename=str(py_file))
-    problems: List[str] = []
+    problems: list[str] = []
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.ImportFrom):
@@ -80,17 +76,14 @@ def _check_file(py_file: pathlib.Path, project_root: pathlib.Path, allow_list: L
         module_name = "." * node.level + (node.module or "")
         for alias in node.names:
             if alias.name == "*":
-                problems.append(
-                    f"{py_file}:{node.lineno} - wildcard import "
-                    f"`from {module_name} import *` cannot be verified."
-                )
+                problems.append(f"{py_file}:{node.lineno} - wildcard import `from {module_name} import *` cannot be verified.")
                 continue
 
             imported_name = alias.name
 
             try:
                 obj = _import_attr(module_name, imported_name)
-            except Exception as exc:  # pragma: no cover – wide net for import quirks
+            except Exception:  # pragma: no cover – wide net for import quirks
                 pass
                 # For some reason the module cannot be imported, skip for now
                 # problems.append(
@@ -105,10 +98,7 @@ def _check_file(py_file: pathlib.Path, project_root: pathlib.Path, allow_list: L
                 doc = inspect.getdoc(obj)
                 if not (doc and doc.strip()):
                     kind = "class" if inspect.isclass(obj) else "function"
-                    problems.append(
-                        f"{py_file}:{node.lineno} - {kind} "
-                        f"`{module_name}.{imported_name}` is missing a docstring."
-                    )
+                    problems.append(f"{py_file}:{node.lineno} - {kind} `{module_name}.{imported_name}` is missing a docstring.")
 
     return problems
 

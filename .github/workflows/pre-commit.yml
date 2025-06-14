@@ -29,6 +29,5 @@ jobs:
         run: |
           sed -i 's/--output-format=full/--output-format=github/' .pre-commit-config.yaml
           git add .pre-commit-config.yaml
+      # Check "--all-files" by default
       - uses: pre-commit/action@v3.0.1
-        with:
-          extra_args: "" # Overriding default "--all-files"

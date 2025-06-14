@@ -134,6 +134,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq="${SAVE_FREQ}" \
     trainer.resume_mode="${RESUME_MODE}" \
     trainer.total_epochs=2 \
+    trainer.device=cuda \
     trainer.total_training_steps="${TOTAL_TRAIN_STEPS}" $@ \
     | tee "${output_file}"
 

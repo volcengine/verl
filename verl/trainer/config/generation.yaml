@@ -1,6 +1,7 @@
 trainer:
   nnodes: 1
   n_gpus_per_node: 8
+  device: cuda
 
 data:
   path: ~/data/rlhf/math/test.parquet

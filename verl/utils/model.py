@@ -474,7 +474,6 @@ def patch_valuehead_model(model) -> None:
     from types import MethodType
 
     from transformers import PreTrainedModel
-
     from trl import AutoModelForCausalLMWithValueHead
 
     def tie_weights(self: "AutoModelForCausalLMWithValueHead") -> None:
@@ -493,16 +492,16 @@ def patch_valuehead_model(model) -> None:
         return False
 
     ignore_modules = [name for name, _ in model.named_parameters() if "pretrained_model" in name]
-    setattr(model, "_keys_to_ignore_on_save", ignore_modules)
-    setattr(model, "tie_weights", MethodType(tie_weights, model))
-    setattr(model, "get_input_embeddings", MethodType(get_input_embeddings, model))
-    setattr(model, "get_output_embeddings", MethodType(get_output_embeddings, model))
-    setattr(model, "can_generate", MethodType(can_generate, model))
-    setattr(model, "_no_split_modules", getattr(model.pretrained_model, "_no_split_modules", []))
+    model._keys_to_ignore_on_save = ignore_modules
+    model.tie_weights = MethodType(tie_weights, model)
+    model.get_input_embeddings = MethodType(get_input_embeddings, model)
+    model.get_output_embeddings = MethodType(get_output_embeddings, model)
+    model.can_generate = MethodType(can_generate, model)
+    model._no_split_modules = getattr(model.pretrained_model, "_no_split_modules", [])
 
 
 def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_code):
-    from transformers import AutoModelForTokenClassification, AutoModelForCausalLM, AutoModelForVision2Seq
+    from transformers import AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq
 
     try:
         model = AutoModelForTokenClassification.from_pretrained(
