@@ -150,11 +150,6 @@ def compute_reward(data: DataProto, reward_fn, num_workers: int) -> tuple:
         tuple:
             - merged_reward (torch.Tensor | list): Concatenated or aggregated rewards from all chunks.
             - merged_info (dict): Merged auxiliary information returned by each chunk.
-
-    Notes:
-        - If `reward_fn` is pickleable, `ProcessPoolExecutor` is used (avoids Python GIL).
-        - Otherwise, `ThreadPoolExecutor` is used (subject to GIL constraints).
-        - Rewards and extra information are aggregated across all chunks.
     """
     if num_workers < 0:
         raise ValueError("num_workers must be non-negative, got {}".format(num_workers))
