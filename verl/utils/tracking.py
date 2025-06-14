@@ -66,7 +66,7 @@ class Tracking:
             MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:////tmp/mlruns.db")
             mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
-            log_system_metrics = config and config.get('log_system_metrics', None)
+            log_system_metrics = config and config['trainer'].get('log_system_metrics', None)
 
             if log_system_metrics:
                 # Set system metrics sampling interval and samples before logging so that system metrics
