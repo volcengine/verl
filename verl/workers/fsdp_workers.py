@@ -1262,8 +1262,8 @@ class RewardModelWorker(Worker):
             attention_mask = micro_batch["attention_mask"]
             position_ids = micro_batch["position_ids"]
             if position_ids.dim() == 3:  # qwen2vl mrope
-                position_ids = position_ids.transpose(0, 1)         # (bsz, 3, seqlen) -> (3, bsz, seqlen)
-                
+                position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
+
             if self.use_remove_padding:
                 input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
