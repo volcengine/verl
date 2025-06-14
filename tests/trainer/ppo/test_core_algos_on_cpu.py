@@ -23,6 +23,7 @@ from verl.trainer.ppo.core_algos import get_adv_estimator_fn, register_adv_est
 def mock_test_fn():
     pass
 
+
 class TestRegisterAdvEst(unittest.TestCase):
     def setUp(self):
         """Clear the registry before each test"""
@@ -39,16 +40,18 @@ class TestRegisterAdvEst(unittest.TestCase):
 
     def test_register_new_function(self):
         """Test registering a new function with a string name"""
+
         @register_adv_est("test_estimator")
         def test_fn():
             pass
-            
+
         self.assertIn("test_estimator", self.ADV_ESTIMATOR_REGISTRY)
         self.assertEqual(self.ADV_ESTIMATOR_REGISTRY["test_estimator"], test_fn)
 
     def test_register_with_enum(self):
         """Test registering with an enum value (assuming AdvantageEstimator exists)"""
         from enum import Enum
+
         class AdvantageEstimator(Enum):
             TEST = "test_enum_estimator"
 
@@ -68,30 +71,34 @@ class TestRegisterAdvEst(unittest.TestCase):
 
     def test_duplicate_registration_different_function(self):
         """Test that registering different functions with same name raises ValueError"""
+
         @register_adv_est("conflict_test")
         def test_fn1():
             pass
-            
+
         with self.assertRaises(ValueError):
+
             @register_adv_est("conflict_test")
             def test_fn2():
                 pass
 
     def test_decorator_preserves_function(self):
         """Test that the decorator returns the original function"""
+
         def test_fn():
             return "original"
-            
+
         decorated = register_adv_est("preserve_test")(test_fn)
         self.assertEqual(decorated(), "original")
 
     def test_multiple_registrations(self):
         """Test registering multiple different functions"""
         init_adv_count = len(self.ADV_ESTIMATOR_REGISTRY)
+
         @register_adv_est("estimator1")
         def fn1():
             pass
-            
+
         @register_adv_est("estimator2")
         def fn2():
             pass
@@ -105,7 +112,7 @@ class TestRegisterAdvEst(unittest.TestCase):
         # Test GAE
         gae_fn = get_adv_estimator_fn("gae")
         assert gae_fn(5) == 10  # 5 * 2 = 10
-        
+
         # Test Vtrace
         vtrace_fn = get_adv_estimator_fn("vtrace")
         assert vtrace_fn(5) == 6  # 5 + 1 = 6
