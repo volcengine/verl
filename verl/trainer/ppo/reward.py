@@ -25,12 +25,12 @@ from verl import DataProto
 from verl.utils.reward_score import default_compute_score
 
 
-def get_custom_reward_fn(config):  # 获取自定义奖励函数
+def get_custom_reward_fn(config):
     import importlib.util
     import sys
 
-    reward_fn_config = config.get("custom_reward_function") or {}  # 获取奖励函数信息
-    file_path = reward_fn_config.get("path")  # 自定义奖励函数路径
+    reward_fn_config = config.get("custom_reward_function") or {}
+    file_path = reward_fn_config.get("path")
     if not file_path:
         return None
 
@@ -38,31 +38,27 @@ def get_custom_reward_fn(config):  # 获取自定义奖励函数
         raise FileNotFoundError(f"Reward function file '{file_path}' not found.")
 
     module_name = os.path.splitext(os.path.basename(file_path))[0]
-    # 把自定义的函数加载到当前的Python环境中
-    # spec = importlib.util.spec_from_file_location("custom_module", file_path)   # 准备加载自定义模块
     spec = importlib.util.spec_from_file_location(module_name, file_path)
-    module = importlib.util.module_from_spec(spec)  # 加载自定义模块(效果类似于import)
+    module = importlib.util.module_from_spec(spec)
     try:
-        # sys.modules["custom_module"] = module           # 将模块添加到sys.modules中，以便可以通过模块名访问.
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)  # 执行模块代码
+        sys.modules["custom_module"] = module
+        spec.loader.exec_module(module)
     except Exception as e:
         raise RuntimeError(f"Error loading module from '{file_path}': {e}") from e
 
-    function_name = reward_fn_config.get("name")  # 获取自定义奖励函数名称(这里是my_reward_fn)
+    function_name = reward_fn_config.get("name")
     if not hasattr(module, function_name):
         raise AttributeError(f"Reward function '{function_name}' not found in '{file_path}'.")
 
     print(f"using customized reward function '{function_name}' from '{file_path}'")
-    raw_fn = getattr(module, function_name)  # 获取函数对象
+    raw_fn = getattr(module, function_name)
 
-    reward_kwargs = dict(reward_fn_config.get("reward_kwargs", {}))  # 获取奖励函数的额外参数
+    reward_kwargs = dict(reward_fn_config.get("reward_kwargs", {}))
 
     def wrapped_fn(*args, **kwargs):
-        return raw_fn(*args, **kwargs, **reward_kwargs)  # 给自定义奖励函数传入额外参数并封装
+        return raw_fn(*args, **kwargs, **reward_kwargs)
 
-    return wrapped_fn  # 返回自定义奖励函数
-    # return raw_fn
+    return wrapped_fn
 
 
 def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
@@ -86,22 +82,18 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
     else:
         raise NotImplementedError
 
-    compute_score = get_custom_reward_fn(config)  # 获取自定义奖励函数
+    compute_score = get_custom_reward_fn(config)
     final_compute_score = compute_score
 
-    # sandbox是它通常指一个专门用于运行模型输出评估逻辑的外部服务或系统, 用于处理模型输出的评分和评估
-    if compute_score is None:  # 如果没有自定义奖励函数，则使用默认的计算分数函数
-        sandbox_config = config.reward_model.get("sandbox_fusion")  # 获取沙箱配置
-        sandbox_url = sandbox_config.get("url") if sandbox_config else None  # 获取沙箱URL
-        if sandbox_url:  # 如果使用沙箱远程打分
-            sandbox_manager = multiprocessing.Manager()  # 创建一个多进程管理器
-            # sandbox_manager.Semaphore是一个信号量, 用于限制并发访问的数量, 这里默认最大64个并发请求
+    if compute_score is None:
+        sandbox_config = config.reward_model.get("sandbox_fusion")
+        sandbox_url = sandbox_config.get("url") if sandbox_config else None
+        if sandbox_url:
+            sandbox_manager = multiprocessing.Manager()
             _concurrent_semaphore = sandbox_manager.Semaphore(sandbox_config.get("max_concurrent", 64))
-            # 使用partial创建一个带默认参数的函数, 以后调用final_compute_score时,
-            # 会自动传入sandbox_fusion_url和_concurrent_semaphore
             final_compute_score = partial(default_compute_score, sandbox_fusion_url=sandbox_url, concurrent_semaphore=_concurrent_semaphore)
         else:
-            final_compute_score = default_compute_score  # 没有使用沙箱服务, 就使用默认的奖励函数.
+            final_compute_score = default_compute_score
 
     return reward_manager_cls(
         tokenizer=tokenizer,
