@@ -1,19 +1,18 @@
-
+import chess
 
 mapper = {
-    'K': 'White King',
-    'Q': 'White Queen',
-    'R': 'White Rook',
-    'B': 'White Bishop',
-    'N': 'White Knight',
-    'P': 'White Pawn',
-    'k': 'Black King',
-    'q': 'Black Queen',
-    'r': 'Black Rook',
-    'b': 'Black Bishop',
-    'n': 'Black Knight',
-    'p': 'Black Pawn',
-    '.': 'Empty',
+    'K': 'White King (K)',
+    'Q': 'White Queen (Q)',
+    'R': 'White Rook (R)',
+    'B': 'White Bishop (B)',
+    'N': 'White Knight (N)',
+    'P': 'White Pawn (P)',
+    'k': 'Black King (k)',
+    'q': 'Black Queen (q)',
+    'r': 'Black Rook (r)',
+    'b': 'Black Bishop (b)',
+    'n': 'Black Knight (n)',
+    'p': 'Black Pawn (p)'
 }
 
 def fen_to_board(fen_string):
@@ -58,3 +57,25 @@ def fen_to_board(fen_string):
         result += f"{' '.join(row)} | {row_label}\n"
     
     return result
+
+
+
+def fen_to_pieces(fen):
+    
+    board = chess.Board(fen)
+    
+    pieces = {}
+    for square in chess.SQUARES:
+        piece = board.piece_at(square)
+        if piece is not None:
+            piece_symbol = mapper[piece.symbol()]
+            square_name = chess.square_name(square)
+            if piece_symbol not in pieces:
+                pieces[piece_symbol] = []
+            pieces[piece_symbol].append(square_name)
+        else:
+            pieces['Empty'] = pieces.get('Empty', []) + [chess.square_name(square)]
+    
+    assert sum([len(v) for v in pieces.values()]) == 64
+    
+    return pieces

@@ -2,11 +2,11 @@ set -x
 
 export WANDB_API_KEY=b946fefc3d07285c361fb257fc851e05994a864e
 export HYDRA_FULL_ERROR=1
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export MODEL_ROOT=/data1/models/Qwen
-export MODEL_NAME=Qwen3-0.6B
+export MODEL_NAME=Qwen3-1.7B
 export PROJECT_NAME=chess-llm
-export MIRCO_BS=16
+export MIRCO_BS=8
 export EXPERIMENT_NAME=${MODEL_NAME}_$(date +%Y%m%d_%H%M%S)
 export CHECKPOINT_DIR=/data1/models/jt_checkpoints/${PROJECT_NAME}/${EXPERIMENT_NAME}
 
@@ -14,8 +14,8 @@ python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=./input_data/chess_multi/train.parquet \
     data.val_files=./input_data/chess_multi/test.parquet \
-    data.train_batch_size=256 \
-    data.max_prompt_length=1024 \
+    data.train_batch_size=128\
+    data.max_prompt_length=512 \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
@@ -38,8 +38,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.n=5 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$MIRCO_BS \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    actor_rollout_ref.rollout.enforce_eager=False \
-    actor_rollout_ref.rollout.free_cache_engine=False \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
@@ -48,8 +46,10 @@ python3 -m verl.trainer.main_ppo \
     trainer.project_name=$PROJECT_NAME \
     trainer.experiment_name=$EXPERIMENT_NAME \
     trainer.default_local_dir=$CHECKPOINT_DIR \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
-    trainer.save_freq=100 \
+    trainer.save_freq=50 \
     trainer.test_freq=10 \
-    trainer.total_epochs=1 $@
+    trainer.total_epochs=1 $@ \
+    # trainer.resume_mode=resume_path \
+    # trainer.resume_from_path=/data1/models/jt_checkpoints/chess-llm/Qwen3-4B_20250508_060203/global_step_100

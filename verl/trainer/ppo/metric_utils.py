@@ -53,12 +53,26 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
     
     data_source = batch.non_tensor_batch['data_source']
     
-    chess_best_idx = [i for i, source in enumerate(data_source) if "chess_best" in source]
-    chess_legal_idx = [i for i, source in enumerate(data_source) if "chess_legal" in source]
+    # chess_best_wo_idx = [i for i, source in enumerate(data_source) if source == "chess_best_wo_train"]
+    # chess_best_w_idx = [i for i, source in enumerate(data_source) if source == "chess_best_w_train"]
+    chess_legal_any_idx = [i for i, source in enumerate(data_source) if source == "chess_legal_any_train"]
+    chess_legal_all_idx = [i for i, source in enumerate(data_source) if source == "chess_legal_all_train"]
+    chess_legal_left_idx = [i for i, source in enumerate(data_source) if source == "chess_legal_left_train"]
+    chess_piece_idx = [i for i, source in enumerate(data_source) if source == "chess_piece_train"]
+    # chess_matein1_wo_idx = [i for i, source in enumerate(data_source) if source == "chess_matein1_wo_train"]
+    chess_matein1_w_idx = [i for i, source in enumerate(data_source) if source == "chess_matein1_w_train"]
     
     sequence_score = batch.batch["token_level_scores"].sum(-1)
-    sequence_score_chess_best = sequence_score[chess_best_idx]
-    sequence_score_chess_legal = sequence_score[chess_legal_idx]
+    
+    # sequence_score_chess_best_wo = sequence_score[chess_best_wo_idx]
+    # sequence_score_chess_best_w = sequence_score[chess_best_w_idx]
+    sequence_score_chess_legal_any = sequence_score[chess_legal_any_idx]
+    sequence_score_chess_legal_all = sequence_score[chess_legal_all_idx]
+    sequence_score_chess_legal_left = sequence_score[chess_legal_left_idx]
+    sequence_score_chess_piece = sequence_score[chess_piece_idx]
+    # sequence_score_chess_matein1_wo = sequence_score[chess_matein1_wo_idx]
+    sequence_score_chess_matein1_w = sequence_score[chess_matein1_w_idx]
+    
     sequence_reward = batch.batch["token_level_rewards"].sum(-1)
 
     advantages = batch.batch["advantages"]
@@ -87,16 +101,40 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
     metrics = {
         # score
         "critic/score/mean": torch.mean(sequence_score).detach().item(),
-        "critic/score/max": torch.max(sequence_score).detach().item(),
+        # "critic/score/max": torch.max(sequence_score).detach().item(),
         # "critic/score/min": torch.min(sequence_score).detach().item(),
-        # score chess_best
-        "critic/score_chess_best/mean": torch.mean(sequence_score_chess_best).detach().item(),
-        "critic/score_chess_best/max": torch.max(sequence_score_chess_best).detach().item(),
-        # "critic/score_chess_best/min": torch.min(sequence_score_chess_best).detach().item(),
-        # score chess_legal
-        "critic/score_chess_legal/mean": torch.mean(sequence_score_chess_legal).detach().item(),
-        "critic/score_chess_legal/max": torch.max(sequence_score_chess_legal).detach().item(),
-        # "critic/score_chess_legal/min": torch.min(sequence_score_chess_legal).detach().item(),
+        # score chess_best_wo
+        # "critic/score_chess_best_wo/mean": torch.mean(sequence_score_chess_best_wo).detach().item(),
+        # "critic/score_chess_best_wo/max": torch.max(sequence_score_chess_best_wo).detach().item(),
+        # "critic/score_chess_best_wo/min": torch.min(sequence_score_chess_best_wo).detach().item(),
+        # score chess_best_w
+        # "critic/score_chess_best_w/mean": torch.mean(sequence_score_chess_best_w).detach().item(),
+        # "critic/score_chess_best_w/max": torch.max(sequence_score_chess_best_w).detach().item(),
+        # "critic/score_chess_best_w/min": torch.min(sequence_score_chess_best_w).detach().item(),
+        # score chess_legal_any
+        "critic/score_chess_legal_any/mean": torch.mean(sequence_score_chess_legal_any).detach().item(),
+        # "critic/score_chess_legal_any/max": torch.max(sequence_score_chess_legal_any).detach().item(),
+        # "critic/score_chess_legal_any/min": torch.min(sequence_score_chess_legal_any).detach().item(),
+        # score chess_legal_all
+        "critic/score_chess_legal_all/mean": torch.mean(sequence_score_chess_legal_all).detach().item(),
+        # "critic/score_chess_legal_all/max": torch.max(sequence_score_chess_legal_all).detach().item(),
+        # "critic/score_chess_legal_all/min": torch.min(sequence_score_chess_legal_all).detach().item(),
+        # score chess_legal_left
+        "critic/score_chess_legal_left/mean": torch.mean(sequence_score_chess_legal_left).detach().item(),
+        # "critic/score_chess_legal_left/max": torch.max(sequence_score_chess_legal_left).detach().item(),
+        # "critic/score_chess_legal_left/min": torch.min(sequence_score_chess_legal_left).detach().item(),
+        # score chess_piece
+        "critic/score_chess_piece/mean": torch.mean(sequence_score_chess_piece).detach().item(),
+        # "critic/score_chess_piece/max": torch.max(sequence_score_chess_piece).detach().item(),
+        # "critic/score_chess_piece/min": torch.min(sequence_score_chess_piece).detach().item(),
+        # score chess_matein1_wo
+        # "critic/score_chess_matein1_wo/mean": torch.mean(sequence_score_chess_matein1_wo).detach().item(),
+        # "critic/score_chess_matein1_wo/max": torch.max(sequence_score_chess_matein1_wo).detach().item(),
+        # "critic/score_chess_matein1_wo/min": torch.min(sequence_score_chess_matein1_wo).detach().item(),
+        # score chess_matein1_w
+        "critic/score_chess_matein1_w/mean": torch.mean(sequence_score_chess_matein1_w).detach().item(),
+        # "critic/score_chess_matein1_w/max": torch.max(sequence_score_chess_matein1_w).detach().item(),
+        # "critic/score_chess_matein1_w/min": torch.min(sequence_score_chess_matein1_w).detach().item(),
         # reward
         "critic/rewards/mean": torch.mean(sequence_reward).detach().item(),
         "critic/rewards/max": torch.max(sequence_reward).detach().item(),

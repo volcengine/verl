@@ -30,7 +30,7 @@ def extract_solution(solution_str):
     return final_answer
 
 
-def compute_score_legal(solution_str, ground_truth, method="strict", format_score=0.0, score=1.0):
+def compute_score_1_in_n(solution_str, ground_truth, method="strict", format_score=0.0, score=1.0):
     
     answer = extract_solution(solution_str=solution_str)
     
@@ -43,14 +43,27 @@ def compute_score_legal(solution_str, ground_truth, method="strict", format_scor
             return format_score
 
 
-def compute_score_best(solution_str, ground_truth, method="strict", format_score=0.0, score=1.0):
+def compute_score_set_match(solution_str, ground_truth, method="strict", format_score=0.0, score=1.0):
     
     answer = extract_solution(solution_str=solution_str)
     
     if answer is None:
         return 0
     else:
-        if answer in ground_truth['ground_truth']:
+        if set(answer.split(', ')) == set(ground_truth['ground_truth'].split(' ')):
+            return score
+        else:
+            return format_score
+
+
+def compute_score_exact_match(solution_str, ground_truth, method="strict", format_score=0.0, score=1.0):
+    
+    answer = extract_solution(solution_str=solution_str)
+    
+    if answer is None:
+        return 0
+    else:
+        if answer == ground_truth['ground_truth']:
             return score
         else:
             return format_score
@@ -64,10 +77,27 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
         print(f"Predicted: {solution_str} | GT: {ground_truth['ground_truth']}")
         print(f"Solution: {solution_str}")
     
-    if data_source in ["chess_legal_train", "chess_legal_test"]:
-        res = compute_score_legal(solution_str, ground_truth)
-    elif data_source in ["chess_best_train", "chess_best_test"]:
-        res = compute_score_best(solution_str, ground_truth)
+    if data_source in ["chess_legal_any_train", 
+                       "chess_legal_any_test"]:
+        res = compute_score_1_in_n(solution_str, ground_truth)
+    elif data_source in ["chess_legal_all_train", 
+                         "chess_legal_all_test"]:
+        res = compute_score_set_match(solution_str, ground_truth)
+    elif data_source in [
+                        "chess_legal_left_train",
+                        "chess_legal_left_test",
+                        "chess_best_wo_train",
+                        "chess_best_wo_test",
+                        "chess_best_w_train",
+                        "chess_best_w_test",
+                        "chess_piece_train",
+                        "chess_piece_test",
+                        "chess_matein1_wo_train",
+                        "chess_matein1_wo_test",
+                        "chess_matein1_w_train",
+                        "chess_matein1_w_test",
+                        ]:
+        res = compute_score_exact_match(solution_str, ground_truth)
     else:
         raise NotImplementedError(f"Reward function is not implemented for {data_source=}")
     
