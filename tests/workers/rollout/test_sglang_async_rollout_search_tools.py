@@ -190,7 +190,7 @@ class TestRolloutWithSearchTools:
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_over_size_case(self, mock_env, mock_engine, mock_sampling, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto, search_data):
-        search_rollout_config.multi_turn.max_turns = 1
+        search_rollout_config.multi_turn.max_assistant_turns = 1
         rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
         req = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
@@ -232,7 +232,7 @@ class TestRolloutWithSearchTools:
         # Mock search tool execution to return predefined responses
         mock_execute.side_effect = [(msg, 0.0, {"status": "success"}) for msg in tool_return_array]
 
-        search_rollout_config.multi_turn.max_turns = 10
+        search_rollout_config.multi_turn.max_assistant_turns = 10
         rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
 
         rollout._tool_map["search"].retrieval_service_url = "mock://dummy"
@@ -284,7 +284,7 @@ class TestRolloutWithSearchTools:
             (tool_return_array[1], 0.0, {"status": "success"}),
         ] * 100
 
-        search_rollout_config.multi_turn.max_turns = 10
+        search_rollout_config.multi_turn.max_assistant_turns = 10
         rollout = SGLangRollout(
             actor_module="",
             config=search_rollout_config,

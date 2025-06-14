@@ -63,6 +63,7 @@ class AsyncRolloutRequestStateEnum(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     TOOL_CALLING = "tool_calling"
+    INTERACTING = "interacting"
 
 
 class AsyncRolloutRequest(BaseModel):
@@ -75,6 +76,7 @@ class AsyncRolloutRequest(BaseModel):
     messages: List[Message]
     tool_schemas: Optional[List[OpenAIFunctionToolSchema]] = None
     tools_kwargs: Dict[str, Any] = {}
+    interaction_kwargs: Dict[str, Any] = {}
     input_ids: List[int]
     prompt_ids: List[int]
     response_ids: List[int]
@@ -151,6 +153,16 @@ class AsyncRolloutRequest(BaseModel):
         else:
             return self.input_ids
 
+    def add_user_message(
+        self,
+        tokenizer: PreTrainedTokenizer,
+        content: str,
+    ) -> None:
+        self.messages.append(Message(role="user", content=content))
+        content = tokenizer.apply_chat_template([*BASE_CHAT_HISTORY, self.messages[-1]], tools=([tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None), add_generation_prompt=False, tokenize=False)
+        content_ids = tokenizer.encode(content[self.base_conv_wo_gen_prompt_end_pos :], add_special_tokens=False)
+        self._update_input_ids(content_ids, attention_mask=True, loss_mask=False)
+
     def add_assistant_message(
         self,
         tokenizer: PreTrainedTokenizer,
@@ -181,7 +193,7 @@ class AsyncRolloutRequest(BaseModel):
     def finalize(
         self,
         tokenizer: PreTrainedTokenizer,
-        reward_scores: Dict[str, float],
+        reward_scores: Dict[str, List[float]],
         finish_reason_type: FinishReasonTypeEnum = FinishReasonTypeEnum.STOP,
     ) -> None:
         self.state = AsyncRolloutRequestStateEnum.COMPLETED

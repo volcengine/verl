@@ -65,9 +65,7 @@ if __name__ == "__main__":
                         "role": "system",
                         "content": (
                             "You are a math expert. You are given a question and you need to solve it step by step. "
-                            "Reasoning step by step before any tool call. "
-                            "You should use the `calc_gsm8k_reward` tool after step by step solving the question, "
-                            "before generate final answer at least once and refine your answer if necessary. "
+                            "You should rethinking carefully if user point out your answer is wrong. "
                             "Put your final answer in the format of `#### <answer>`."
                         ),
                     },
@@ -83,15 +81,6 @@ if __name__ == "__main__":
                     "index": idx,
                     "answer": answer_raw,
                     "question": question_raw,
-                    "need_tools_kwargs": True,
-                    "tools_kwargs": {
-                        "calc_gsm8k_reward": {
-                            "create_kwargs": {"ground_truth": solution},
-                            # "execute_kwargs": {},
-                            # "calc_reward_kwargs": {},
-                            # "release_kwargs": {},
-                        },
-                    },
                     "interaction_kwargs": {
                         "query": question,
                         "ground_truth": solution,

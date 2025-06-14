@@ -20,12 +20,12 @@ def extract_solution(solution_str, method="strict"):
 
     if method == "strict":
         # this also tests the formatting of the model
-        solution = re.search("#### (\\-?[0-9\\.\\,]+)", solution_str)
-        if solution is None:
+        solutions = re.findall("#### (\\-?[0-9\\.\\,]+)", solution_str)
+        if len(solutions) == 0:
             final_answer = None
         else:
-            final_answer = solution.group(0)
-            final_answer = final_answer.split("#### ")[1].replace(",", "").replace("$", "")
+            # take the last solution
+            final_answer = solutions[-1].replace(",", "").replace("$", "")
     elif method == "flexible":
         answer = re.findall("(\\-?[0-9\\.\\,]+)", solution_str)
         final_answer = None
