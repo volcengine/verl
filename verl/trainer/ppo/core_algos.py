@@ -643,7 +643,7 @@ def compute_value_loss(vpreds: torch.Tensor, returns: torch.Tensor, values: torc
     vf_losses1 = (vpreds - returns) ** 2
     vf_losses2 = (vpredclipped - returns) ** 2
     clipped_vf_losses = torch.max(vf_losses1, vf_losses2)
-    vf_loss = agg_loss(loss_mat=clipped_vf_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+    vf_loss = 0.5 * agg_loss(loss_mat=clipped_vf_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
     vf_clipfrac = verl_F.masked_mean(torch.gt(vf_losses2, vf_losses1).float(), response_mask)
     return vf_loss, vf_clipfrac
 
