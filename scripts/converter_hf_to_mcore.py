@@ -23,10 +23,10 @@ import torch
 from accelerate import init_empty_weights
 from megatron.core import dist_checkpointing
 from megatron.core import parallel_state as mpu
+from megatron.core.dist_checkpointing.mapping import ShardedTensor
 from megatron.core.dist_checkpointing.serialization import StrictHandling
 from megatron.core.models.gpt.gpt_model import ModelType
 from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
-from megatron.core.dist_checkpointing.mapping import ShardedTensor
 from transformers import AutoConfig
 
 from verl.models.mcore import hf_to_mcore_config
@@ -96,7 +96,7 @@ def test_conversion(megatron_model_provider, tfconfig, output_path, model):
         if isinstance(ref_data, ShardedTensor):
             ref_data = ref_data.data.view(ref_data.local_shape)
         else:
-            ref_data = ref_data.data        
+            ref_data = ref_data.data
         if name in dut_state_dict:
             dut_data = dut_state_dict[name].data
             assert dut_data.shape == ref_data.shape, f"{name=} {dut_data.shape=} {ref_data.shape=}"

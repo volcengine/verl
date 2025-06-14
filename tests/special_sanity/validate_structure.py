@@ -28,47 +28,40 @@ python check_tests_structure.py \
     --tests-root tests \
     --allow-dirs special_e2e special_sanity special_standalone special_distributed
 """
+
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
-from typing import List, Set
 
 
-def discover_allowed_modules(impl_root: Path, extra: List[str]) -> Set[str]:
+def discover_allowed_modules(impl_root: Path, extra: list[str]) -> set[str]:
     """Return the set of first-level directories that tests may live under."""
     allowed = {p.name for p in impl_root.iterdir() if p.is_dir()}
     allowed.update(extra)
     return allowed
 
 
-def find_violations(tests_root: Path, allowed: Set[str], allowed_files: List[str]) -> List[str]:
+def find_violations(tests_root: Path, allowed: set[str], allowed_files: list[str]) -> list[str]:
     """Return a list of error strings for test files in the wrong place."""
-    errors: List[str] = []
+    errors: list[str] = []
     for test_file in tests_root.rglob("test*.py"):
         if str(test_file) in allowed_files:
             continue
         rel_parts = test_file.relative_to(tests_root).parts
         if len(rel_parts) < 2:
-            errors.append(
-                f"{test_file}: must be inside one of {sorted(allowed)} (not at tests root)"
-            )
+            errors.append(f"{test_file}: must be inside one of {sorted(allowed)} (not at tests root)")
             continue
 
         first_folder = rel_parts[0]
         if first_folder not in allowed:
-            errors.append(
-                f"{test_file}: subfolder '{first_folder}' under tests/ "
-                f"is not an allowed module. The valid ones are: {sorted(allowed)}"
-            )
+            errors.append(f"{test_file}: subfolder '{first_folder}' under tests/ is not an allowed module. The valid ones are: {sorted(allowed)}")
     return errors
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Check that test files follow tests/<module>/… layout."
-    )
+    parser = argparse.ArgumentParser(description="Check that test files follow tests/<module>/… layout.")
     parser.add_argument(
         "--impl-root",
         type=Path,
@@ -109,10 +102,7 @@ def main() -> None:
             print("  -", err, file=sys.stderr)
 
         print(
-            "\nGuideline:\n"
-            "  Place each test file under   tests/<module_name>/…\n"
-            "  where <module_name> is one of the top-level packages inside "
-            f"'{args.impl_root}', or is explicitly listed via --allow-dirs.\n",
+            f"\nGuideline:\n  Place each test file under   tests/<module_name>/…\n  where <module_name> is one of the top-level packages inside '{args.impl_root}', or is explicitly listed via --allow-dirs.\n",
             file=sys.stderr,
         )
         raise Exception("❌  Test layout violations found.")

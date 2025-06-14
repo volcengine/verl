@@ -19,10 +19,7 @@ Preprocess the Retool dataset to parquet format
 import argparse
 import os
 
-import pandas as pd
 import datasets
-
-from verl.utils.hdfs_io import copy, makedirs
 
 
 def main():
