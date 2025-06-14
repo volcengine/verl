@@ -42,7 +42,7 @@ def get_changed_lines(file_path: Path) -> Set[int]:
                     elif part.startswith("+") and "," not in part:
                         lines.add(int(part[1:]))
                 except Exception:
-                    # There are many edge cases here because + can be in the changed program
+                    # (vermouth1992) There are many edge cases here because + can be in the changed program
                     pass
     return lines
 
