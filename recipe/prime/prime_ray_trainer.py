@@ -390,7 +390,7 @@ class RayPRIMETrainer(RayPPOTrainer):
 
                     # verify
                     with _timer("verify", timing_raw):
-                        scores = self.reward_fn.verify(batch)
+                        scores = self.reward_fn(batch, return_dict=True)["reward_extra_info"]["score"]
                         metrics["acc"] = statistics.mean(scores)
 
                     # filter the batch. 1/oversample_factor samples will be kept.

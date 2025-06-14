@@ -710,6 +710,12 @@ reward_model:
   # Default is naive. If all verification functions are multiprocessing-safe,
   # the reward manager can be set to prime for parallel verification.
   reward_manager: naive
+  # Only effective in async reward function configurations
+  qps: null # Number of task being created / sec. No limit will be set if this is null.
+  max_concurrency: null # max number of concurrent tasks that can be run in parallel. No limit will be set if this is null.
+  timeout: null # max time in seconds an asyncio task will wait before quitting, null means task will wait infinitely.
+  # end of async reward function configurations
+
 
   # Whether to launch custom reward function asynchronously during log_prob
   launch_reward_fn_async: False
@@ -732,6 +738,8 @@ custom_reward_function:
 
   # The name of the reward function within the specified file. Default is 'compute_score'.
   name: compute_score
+
+  reward_kwargs: {}
 
 # config for the algorithm
 algorithm:

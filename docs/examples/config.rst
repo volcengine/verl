@@ -454,7 +454,9 @@ Reward Model
 - ``reward_model.reward_manager``:  Reward Manager. This defines the mechanism
   of computing rule-based reward and handling different reward sources. Default
   is ``naive``. If all verification functions are multiprocessing-safe, the reward
-  manager can be set to ``prime`` for parallel verification.
+  manager can be set to ``prime`` for parallel verification. If your reward function
+  is IO bound, you can defined an async reward function for ``naive`` or ``dapo``
+  for async calculation.
 
 Customized Reward Function
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
