@@ -18,6 +18,7 @@ import copy
 import logging
 import os
 import re
+import json
 from collections import defaultdict
 from typing import List, Optional, Union
 
@@ -283,6 +284,22 @@ class RLHFDataset(Dataset):
             logger.warning("tools_kwargs is empty for index {}, data source: {}", index, row_dict["data_source"])
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
+        
+        # Add expected schema to row_dict, None if not present
+        expected_structure = row_dict.get("extra_info", {}).get("expected_structure")
+        if expected_structure is not None:
+            # Verify that expected_structure is a valid JSON schema
+            try:
+                # Try to parse as JSON to validate basic structure, also SGLang expects a dict for json_schema
+                if isinstance(expected_structure, str):
+                    expected_structure = json.loads(expected_structure)
+                if not isinstance(expected_structure, dict):
+                    raise ValueError("Expected structure must be a dictionary, or a valid JSON string")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Invalid JSON schema format: {str(e)}")
+            except ValueError as e:
+                logger.warning(f"Invalid JSON schema structure: {str(e)}")
+        row_dict["expected_schema"] = expected_structure if isinstance(expected_structure, dict) else None
         return row_dict
 
     def __getstate__(self):
