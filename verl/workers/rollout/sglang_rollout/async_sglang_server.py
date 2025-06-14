@@ -65,12 +65,18 @@ class AsyncSglangServer(AsyncServerBase):
         return JSONResponse(outputs)
 
     def wake_up(self):
+        if not self.config.rollout.free_cache_engine:
+            return
+
         futures = []
         for worker in self.workers:
             futures.append(worker.wake_up.remote())
         ray.get(futures)
 
     def sleep(self):
+        if not self.config.rollout.free_cache_engine:
+            return
+
         futures = []
         for worker in self.workers:
             futures.append(worker.sleep.remote())
