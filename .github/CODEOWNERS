@@ -1,0 +1,18 @@
+/docs @eric-haibin-lin @zhaochenyang20 @hongpeng-guo
+/docs/amd_tutorial @yushengsu-thu
+/docs/slang_multiturn @zhaochenyang20 @SwordFaith
+
+/recipe/dapo @tongyx361 @PeterSH6
+/recipe/spin @zhaochenyang20
+/recipe/sppo @zhaochenyang20
+
+/third_party/sglang @zhaochenyang20 @SwordFaith
+/third_party/vllm @PeterSH6 @wuxibin89
+/verl/single_controller @zw0610 @wuxibin89
+/verl/trainer @eric-haibin-lin @vermouth1992 @tongyx361 @PeterSH6
+/verl/workers/rollout/vllm_rollout @wuxibin89 @PeterSH6 @chenhaiq
+/verl/workers/rollout/sglang_rollout @zhaochenyang20 @SwordFaith @chenhaiq
+
+/tests/single_controller @zw0610 @wuxibin89
+/tests/trainer @eric-haibin-lin @vermouth1992 @tongyx361 @PeterSH6
+/tests/workers/rollout/vllm_rollout @wuxibin89 @PeterSH6 @chenhaiq
