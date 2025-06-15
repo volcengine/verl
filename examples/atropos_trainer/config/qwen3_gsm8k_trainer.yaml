@@ -1,16 +1,16 @@
 # Configuration for Qwen3-0.6B training with GSM8K
 # Optimized for single GPU training with Atropos integration
 
-# Inherit from base Atropos trainer configuration
+# Self-contained configuration for demo
 defaults:
-  - atropos_grpo_trainer
   - _self_
 
 # Model configuration optimized for Qwen3-0.6B
 actor_rollout_ref:
+  hybrid_engine: true  # Required by VeRL
   model:
     path: "Qwen/Qwen3-0.6B"
-    use_shm: true
+    use_shm: false
     lora_rank: 0  # Full fine-tuning for small model
     lora_alpha: 32
     use_remove_padding: true
@@ -20,10 +20,12 @@ actor_rollout_ref:
   # Actor training configuration optimized for 0.6B
   actor:
     strategy: "fsdp"
+    use_dynamic_bsz: false  # Use fixed batch sizes
     optim:
       lr: 5e-6  # Higher learning rate for smaller model
-    ppo_mini_batch_size: 128  # Smaller for 0.6B model
-    ppo_micro_batch_size_per_gpu: 32
+    ppo_mini_batch_size: 32   # Smaller for faster demo
+    ppo_micro_batch_size: null  # Use per_gpu version instead
+    ppo_micro_batch_size_per_gpu: 8
     ppo_epochs: 1
     
     # GRPO-specific settings
@@ -42,21 +44,30 @@ actor_rollout_ref:
   # Rollout configuration optimized for 0.6B
   rollout:
     name: "vllm"
-    log_prob_micro_batch_size_per_gpu: 32
+    log_prob_micro_batch_size: null  # Use per_gpu version instead
+    log_prob_micro_batch_size_per_gpu: 8
     tensor_model_parallel_size: 1  # Single GPU
     gpu_memory_utilization: 0.8  # Higher utilization for small model
-    max_model_len: 1536  # Optimized for GSM8K
+    max_model_len: 1024  # Shorter for demo
     enforce_eager: false
     disable_log_stats: false
     enable_prefix_caching: true
     kv_cache_dtype: "auto"
-    n: 4  # Fewer samples for faster training
+    n: 2  # Fewer samples for faster demo
     load_format: "safetensors"
     layered_summon: true
     mode: "sync"
+    temperature: 0.7  # Required for validation
+    multi_turn:
+      enable: false  # Disable multi-turn for demo
+    val_kwargs:
+      do_sample: false  # Deterministic validation
+      temperature: 0.7
+      n: 1  # Number of validation samples per prompt
 
   # Reference model configuration
   ref:
+    log_prob_micro_batch_size: null  # Use per_gpu version instead
     log_prob_micro_batch_size_per_gpu: 32
     fsdp_config:
       param_offload: false  # Keep in GPU memory for small model
@@ -65,13 +76,15 @@ actor_rollout_ref:
 data:
   train_files: null  # Provided by Atropos
   val_files: null
-  train_batch_size: 256  # Optimized for 0.6B model
+  train_batch_size: 64   # Smaller for faster demo
   max_prompt_length: 512  # Sufficient for GSM8K problems
-  max_response_length: 1024  # Allow for detailed solutions
+  max_response_length: 512  # Shorter for faster demo
   filter_overlong_prompts: true
   truncation: "error"
   shuffle: false
   trust_remote_code: true
+  reward_fn_key: null  # Atropos provides rewards directly
+  val_batch_size: null  # Use full validation set
 
 # Trainer configuration for single GPU
 trainer:
@@ -83,18 +96,23 @@ trainer:
   wandb_group: "qwen3_gsm8k"
   n_gpus_per_node: 1  # Single GPU
   nnodes: 1
-  save_freq: 10  # Save more frequently for monitoring
-  test_freq: 5
-  total_epochs: 50  # Fewer epochs for small model
+  save_freq: 2   # Save every 2 epochs for demo
+  test_freq: 2    # Test every 2 epochs
+  total_epochs: 10  # Demo with 10 epochs
+  total_training_steps: null  # Will be calculated from epochs
   output_dir: "/tmp/qwen3_gsm8k_checkpoints"
+  device: "cuda"  # GPU device
 
 # Critic configuration (minimal for GRPO)
 critic:
   strategy: "fsdp"
+  use_dynamic_bsz: false  # Use fixed batch sizes
   optim:
     lr: 1e-5
   train_micro_batch_size_per_gpu: 32
+  ppo_micro_batch_size: null  # Use per_gpu version instead
   ppo_micro_batch_size_per_gpu: 32
+  ppo_mini_batch_size: 32  # Mini batch size for critic
   fsdp_config:
     param_offload: false
     optimizer_offload: false
@@ -120,4 +138,5 @@ reward_model:
 
 # Ray configuration for single GPU
 ray_init:
-  num_cpus: 8  # Adjust based on your instance 
+  num_cpus: 8  # Adjust based on your instance
+  num_gpus: 1  # Ensure Ray detects the GPU 

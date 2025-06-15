@@ -39,7 +39,6 @@ from omegaconf import DictConfig
 from requests.exceptions import ConnectionError, RequestException, Timeout
 
 from verl import DataProto
-from verl.utils.logger import HFTBLogger
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
 from verl.utils.atropos_utils import (
     AtroposAPIValidator, AtroposDataConverter, AtroposEndpointManager,
@@ -69,11 +68,11 @@ class AtroposRolloutWorker(ActorRolloutRefWorker):
     6. Handles GPU device placement and memory management
     """
     
-    def __init__(self, config: DictConfig, device: str = "cuda:0"):
-        super().__init__(config=config, device=device)
+    def __init__(self, config: DictConfig, role: str = "actor_rollout_ref"):
+        super().__init__(config=config, role=role)
         
         # Setup GPU device for tensor operations
-        self.tensor_device = get_device_for_tensor_ops(device)
+        self.tensor_device = get_device_for_tensor_ops()
         
         # Initialize CUDA if available and using GPU
         if self.tensor_device.type == "cuda":

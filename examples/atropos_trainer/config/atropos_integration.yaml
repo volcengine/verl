@@ -1,0 +1,65 @@
+# Simplified Atropos-VeRL Configuration
+# Clean, simple configuration for the improved integration
+
+defaults:
+  - _self_
+
+# Model configuration
+model:
+  path: "Qwen/Qwen3-0.6B"
+  trust_remote_code: true
+
+# Simplified Atropos configuration
+atropos:
+  api_url: "http://localhost:8000"
+  timeout: 30
+  
+  # Multiple environment support with weights
+  environments:
+    weights:
+      gsm8k: 0.7      # 70% math problems
+      math: 0.2       # 20% advanced math
+      code: 0.1       # 10% coding problems
+    default_batch_size: 64
+
+# Unified inference configuration
+inference:
+  port: 9000
+  engine: "vllm"
+  model_config:
+    temperature: 0.7
+    top_p: 0.9
+    max_tokens: 512
+    gpu_memory_utilization: 0.8
+
+# Training configuration
+training:
+  algorithm: "grpo_atropos"
+  batch_size: 64
+  learning_rate: 5e-6
+  total_epochs: 10
+  save_freq: 2
+  eval_freq: 2
+  
+  # GRPO specific
+  kl_loss_coef: 0.001
+  entropy_coeff: 0.0
+  clip_ratio: 0.2
+
+# Data configuration
+data:
+  max_prompt_length: 512
+  max_response_length: 512
+  trust_remote_code: true
+
+# Device configuration
+device:
+  type: "cuda"
+  gpu_memory_fraction: 0.8
+
+# Logging
+logging:
+  level: "INFO"
+  loggers: ["console"]
+  project_name: "simple_atropos_grpo"
+  experiment_name: "multi_env_training" 
