@@ -650,7 +650,9 @@ class ActorRolloutRefWorker(Worker):
 
             output = self.rollout_sharding_manager.postprocess_data(output)
 
-        timing_generate.update(self.rollout_sharding_manager.timing)
+        if hasattr(self.rollout_sharding_manager, "timing"):
+            # BaseShardingManager does not have timing, so we skip it
+            timing_generate.update(self.rollout_sharding_manager.timing)
         # We calculate the average timing across all ranks
         # to make sure meta_info["timing"] is the same
         timing_generate = reduce_timing(timing_generate)
