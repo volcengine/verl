@@ -73,7 +73,7 @@ verl is fast with:
    algo/opo.md
    algo/baseline.md
 
-.. toctree:: 
+.. toctree::
    :maxdepth: 1
    :caption: PPO Trainer and Workers
 
@@ -90,6 +90,7 @@ verl is fast with:
    perf/perf_tuning
    README_vllm0.8.md
    perf/device_tuning
+   perf/nsight_systems
 
 .. toctree::
    :maxdepth: 1

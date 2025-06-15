@@ -18,10 +18,11 @@ the class for Worker
 import os
 import socket
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Optional
 
 import ray
 
+from verl.utils.debug import NsightSystemsProfiler, ProfilerConfig
 from verl.utils.device import get_torch_device
 
 from .decorator import Dispatch, Execute, register
@@ -137,12 +138,14 @@ class Worker(WorkerHelper):
         """The keys of the environment variables that are used to configure the Worker."""
         return ["WORLD_SIZE", "RANK", "LOCAL_WORLD_SIZE", "LOCAL_RANK", "MASTER_ADDR", "MASTER_PORT", "CUDA_VISIBLE_DEVICES"]
 
-    def __init__(self, cuda_visible_devices=None) -> None:
+    def __init__(self, cuda_visible_devices: Optional[str] = None, profiler_config: Optional[ProfilerConfig] = None) -> None:
         """Initialize the worker with environment settings and device configuration.
 
         Args:
             cuda_visible_devices (str, optional):
                 CUDA visible devices configuration. Defaults to None.
+            profiler_config (ProfilerConfig):
+                The profiler configuration. Defaults to ProfilerConfig().
         """
         # construct a meta from environment variable. Note that the import must be inside the class because it is executed remotely
         import os
@@ -174,6 +177,7 @@ class Worker(WorkerHelper):
         self._configure_with_store(store=store)
 
         self.fused_worker_dict = {}
+        self.profiler = NsightSystemsProfiler(rank=rank, config=profiler_config)
 
     def get_fused_worker_by_name(self, worker_name: str):
         """Get a fused worker by its name.
@@ -295,3 +299,13 @@ class Worker(WorkerHelper):
         """
         result = func(*args, **kwargs)
         return result
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def start_profile(self) -> None:
+        """Start profiling for the current rank in the current training step."""
+        self.profiler.start()
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def stop_profile(self) -> None:
+        """Stop profiling for the current rank in the current training step."""
+        self.profiler.stop()
