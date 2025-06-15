@@ -293,8 +293,8 @@ def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_
                     fc1_weight = torch.cat([hf_expert.gate_proj.weight, hf_expert.up_proj.weight])
                     linear_fc1_weighti = getattr(layer.mlp.experts.linear_fc1, "weight" + str(i))
                     numel += safe_copy(fc1_weight, linear_fc1_weighti)
-                    linear_fc2_weight = getattr(layer.mlp.experts.linear_fc2, "weight" + str(i))
-                    numel += safe_copy(hf_expert.down_proj.weight, linear_fc2_weight)
+                    linear_fc2_weighti = getattr(layer.mlp.experts.linear_fc2, "weight" + str(i))
+                    numel += safe_copy(hf_expert.down_proj.weight, linear_fc2_weighti)
             else:
                 for i, hf_expert in enumerate(hf_layer.mlp.experts):
                     expert = layer.mlp.experts.local_experts[i]
