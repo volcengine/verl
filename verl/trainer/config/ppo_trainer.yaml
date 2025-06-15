@@ -176,7 +176,14 @@ actor_rollout_ref:
     
     # Upper bound for asymmetric clipping (used in dual-clip PPO)
     clip_ratio_high: 0.2
-    
+    clip_ratio_c: 3.0 # lower bound of the value for Dual-clip PPO from https://arxiv.org/pdf/1912.09729
+    loss_agg_mode: "token-mean" # / "seq-mean-token-sum" / "seq-mean-token-mean"
+    loss_mode: "vanilla" # /clip-cov / kl-cov from https://arxiv.org/abs/2505.
+    clip_cov_ratio: 0.0002 # for clip-cov loss
+    clip_cov_lb: 1.0 # for clip-cov loss
+    clip_cov_ub: 5.0 # for clip-cov loss
+    k_ratio: 0.0002 # for kl-cov loss
+    ppo_kl_coef: 0.1 # for kl-cov loss
     # Constant C in Dual-clip PPO; clips when advantage < -C
     clip_ratio_c: 3.0
     
@@ -184,6 +191,7 @@ actor_rollout_ref:
     loss_agg_mode: token-mean
     
     # Entropy regularization coefficient in PPO loss
+
     entropy_coeff: 0
     
     # Whether to use KL loss instead of KL reward penalty. True for GRPO
