@@ -57,7 +57,7 @@ def has_type_annotations(node: ast.AST) -> int:
         has_ann = all(arg.annotation is not None for arg in node.args.args if arg.arg != "self") and node.returns is not None
         return has_ann
     elif isinstance(node, ast.Assign):
-        if not isinstance(node.value, ast.Constant):
+        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute):
             return CHECK_WARNING
     return CHECK_SUCCESS
 
@@ -66,7 +66,6 @@ def check_file(file_path: Path, changed_lines: Set[int]) -> Tuple[int, int, List
     with open(file_path) as f:
         source: str = f.read()
     tree = ast.parse(source, filename=str(file_path))
-
     annotated = 0
     total = 0
     warning_lines: List[Tuple[Path, int, str]] = []
@@ -77,7 +76,7 @@ def check_file(file_path: Path, changed_lines: Set[int]) -> Tuple[int, int, List
             if isinstance(node, (ast.FunctionDef, ast.Assign, ast.AnnAssign)):
                 total += 1
                 result = has_type_annotations(node)
-                if result == CHECK_SUCCESS or result == CHECK_WARNING:
+                if result == CHECK_SUCCESS:
                     annotated += 1
                     if result == CHECK_WARNING:
                         warning_lines.append((file_path, node.lineno, linecache.getline(str(file_path), node.lineno).strip()))
@@ -91,6 +90,12 @@ def check_file(file_path: Path, changed_lines: Set[int]) -> Tuple[int, int, List
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--threshold", type=float, default=0.2, help="Minimum ratio of annotated lines required (0.0 - 1.0)")
+    parser.add_argument("--target-file", type=str, default=None, help="Path to the Python source file to analyse")
+    parser.add_argument(
+        "--all-lines",
+        action="store_true",
+        help="Check all lines in the file instead of only changed lines based on git",
+    )
     args = parser.parse_args()
 
     total_changed = 0
@@ -98,8 +103,12 @@ def main() -> None:
     all_warnings: List[Tuple[Path, int, str]] = []
     all_failures: List[Tuple[Path, int, str]] = []
 
-    for fpath in get_changed_files():
-        changed_lines = get_changed_lines(fpath)
+    target_files = [args.target_file] if args.target_file is not None else get_changed_files()
+    for fpath in target_files:
+        if args.all_lines:
+            changed_lines = [i + 1 for i in range(len(open(fpath, 'r').readlines()))]
+        else:
+            changed_lines = get_changed_lines(fpath)
         annotated, total, warning_lines, failure_lines = check_file(fpath, changed_lines)
         total_annotated += annotated
         total_changed += total
@@ -108,7 +117,7 @@ def main() -> None:
 
     ratio = (total_annotated / total_changed) if total_changed else 1.0
 
-    print(f"🔍 Type coverage on changed lines: {total_annotated}/{total_changed} = {ratio:.2%}")
+    print(f"🔍 Type coverage on {'all' if args.all_lines else 'changed'} lines: {total_annotated}/{total_changed} = {ratio:.2%}")
 
     if all_warnings:
         print("\n⚠️ Suggest Improve: Lines missing type annotations:\n")
