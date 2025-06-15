@@ -136,7 +136,7 @@ actor_rollout_ref:
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
   rollout:
-    name: vllm
+    name: vllm  # vllm, sglang
     mode: sync # sync: LLM, async: AsyncLLM
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout

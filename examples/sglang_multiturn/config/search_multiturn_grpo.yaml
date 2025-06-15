@@ -16,7 +16,8 @@ data:
 actor_rollout_ref:
   hybrid_engine: True
   rollout:
-    name: sglang_async
+    name: sglang
+    mode: async
     multi_turn:
       enable: True
       max_turns: 2
