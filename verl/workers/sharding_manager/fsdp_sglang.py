@@ -95,13 +95,8 @@ class FSDPSGLangShardingManager(BaseShardingManager):
     @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
     def __enter__(self):
         self.timing = {}
-<<<<<<< HEAD
-        with _timer("reshard", self.timing):
-            get_torch_device().empty_cache()
-=======
         with simple_timer("reshard", self.timing):
-            torch.cuda.empty_cache()
->>>>>>> 1f8c307 (def simple_timer and marked_timer)
+            get_torch_device().empty_cache()
             log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
             if self.offload_param:
                 load_fsdp_model_to_gpu(self.module)
