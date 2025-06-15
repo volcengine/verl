@@ -261,30 +261,30 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
 def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_config, tfconfig):
     warnings.warn("MTP model is not supported yet", stacklevel=2)
     numel: int = 0
-    numel += safe_copy(model.embedding.word_embeddings.weight, hf_model.model.embed_tokens.weight)
+    numel += safe_copy(hf_model.model.embed_tokens.weight, model.embedding.word_embeddings.weight)
     print(f"{numel=}")
     for layer_idx, (layer, hf_layer) in enumerate(zip(model.decoder.layers, hf_model.model.layers)):
         numel_cur: int = numel
-        numel += safe_copy(layer.input_layernorm.weight, hf_layer.input_layernorm.weight)
+        numel += safe_copy(hf_layer.input_layernorm.weight, layer.input_layernorm.weight)
 
         if hf_config.q_lora_rank is None:
-            numel += safe_copy(layer.self_attention.linear_q_proj.weight, hf_layer.self_attn.q_proj.weight)
+            numel += safe_copy(hf_layer.self_attn.q_proj.weight, layer.self_attention.linear_q_proj.weight)
         else:
-            numel += safe_copy(layer.self_attention.linear_q_down_proj.weight, hf_layer.self_attn.q_a_proj.weight)
-            numel += safe_copy(layer.self_attention.linear_q_up_proj.weight, hf_layer.self_attn.q_b_proj.weight)
-            numel += safe_copy(layer.self_attention.linear_q_up_proj.layer_norm_weight, hf_layer.self_attn.q_a_layernorm.weight)
+            numel += safe_copy(hf_layer.self_attn.q_a_proj.weight, layer.self_attention.linear_q_down_proj.weight)
+            numel += safe_copy(hf_layer.self_attn.q_b_proj.weight, layer.self_attention.linear_q_up_proj.weight)
+            numel += safe_copy(hf_layer.self_attn.q_a_layernorm.weight, layer.self_attention.linear_q_up_proj.layer_norm_weight)
 
-        numel += safe_copy(layer.self_attention.linear_kv_down_proj.weight, hf_layer.self_attn.kv_a_proj_with_mqa.weight)
-        numel += safe_copy(layer.self_attention.linear_kv_up_proj.weight, hf_layer.self_attn.kv_b_proj.weight)
-        numel += safe_copy(layer.self_attention.linear_kv_up_proj.layer_norm_weight, hf_layer.self_attn.kv_a_layernorm.weight)
-        numel += safe_copy(layer.self_attention.linear_proj.weight, hf_layer.self_attn.o_proj.weight)
+        numel += safe_copy(hf_layer.self_attn.kv_a_proj_with_mqa.weight, layer.self_attention.linear_kv_down_proj.weight)
+        numel += safe_copy(hf_layer.self_attn.kv_b_proj.weight, layer.self_attention.linear_kv_up_proj.weight)
+        numel += safe_copy(hf_layer.self_attn.kv_a_layernorm.weight, layer.self_attention.linear_kv_up_proj.layer_norm_weight)
+        numel += safe_copy(hf_layer.self_attn.o_proj.weight, layer.self_attention.linear_proj.weight)
 
         if not hasattr(layer.mlp, "router"):
-            numel += safe_copy(layer.mlp.linear_fc1.layer_norm_weight, hf_layer.post_attention_layernorm.weight)
-            numel += safe_copy(layer.mlp.linear_fc1.weight, torch.cat([hf_layer.mlp.gate_proj.weight, hf_layer.mlp.up_proj.weight]))
-            numel += safe_copy(layer.mlp.linear_fc2.weight, hf_layer.mlp.down_proj.weight)
+            numel += safe_copy(hf_layer.post_attention_layernorm.weight, layer.mlp.linear_fc1.layer_norm_weight)
+            numel += safe_copy(torch.cat([hf_layer.mlp.gate_proj.weight, hf_layer.mlp.up_proj.weight]), layer.mlp.linear_fc1.weight)
+            numel += safe_copy(hf_layer.mlp.down_proj.weight, layer.mlp.linear_fc2.weight)
         else:
-            numel += safe_copy(layer.mlp.router.weight, hf_layer.mlp.gate.weight)
+            numel += safe_copy(hf_layer.mlp.gate.weight, layer.mlp.router.weight)
             # NOTE: the e_score_correction_bias in mcore model will be initialized with bfloat16 and \
             # recover to fp32 in the first forward. There is always a diff in the bias between two models (~0.3%)
             numel += safe_copy(hf_layer.mlp.gate.e_score_correction_bias, layer.mlp.router.expert_bias, skip_dtype_assert=True)
@@ -292,25 +292,25 @@ def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_
                 for i, hf_expert in enumerate(hf_layer.mlp.experts):
                     fc1_weight = torch.cat([hf_expert.gate_proj.weight, hf_expert.up_proj.weight])
                     linear_fc1_weighti = getattr(layer.mlp.experts.linear_fc1, "weight" + str(i))
-                    numel += safe_copy(linear_fc1_weighti, fc1_weight)
-                    linear_fc2_weighti = getattr(layer.mlp.experts.linear_fc2, "weight" + str(i))
-                    numel += safe_copy(linear_fc2_weighti, hf_expert.down_proj.weight)
+                    numel += safe_copy(fc1_weight, linear_fc1_weighti)
+                    linear_fc2_weight = getattr(layer.mlp.experts.linear_fc2, "weight" + str(i))
+                    numel += safe_copy(hf_expert.down_proj.weight, linear_fc2_weight)
             else:
                 for i, hf_expert in enumerate(hf_layer.mlp.experts):
                     expert = layer.mlp.experts.local_experts[i]
                     fc1_weight = torch.cat([hf_expert.gate_proj.weight, hf_expert.up_proj.weight])
-                    numel += safe_copy(expert.linear_fc1.weight, fc1_weight)
-                    numel += safe_copy(expert.linear_fc2.weight, hf_expert.down_proj.weight)
-            numel += safe_copy(layer.pre_mlp_layernorm.weight, hf_layer.post_attention_layernorm.weight)
+                    numel += safe_copy(fc1_weight, expert.linear_fc1.weight)
+                    numel += safe_copy(hf_expert.down_proj.weight, expert.linear_fc2.weight)
+            numel += safe_copy(hf_layer.post_attention_layernorm.weight, layer.pre_mlp_layernorm.weight)
             shared_fc1_weight = torch.cat([hf_layer.mlp.shared_experts.gate_proj.weight, hf_layer.mlp.shared_experts.up_proj.weight])
-            numel += safe_copy(layer.mlp.shared_experts.linear_fc1.weight, shared_fc1_weight)
-            numel += safe_copy(layer.mlp.shared_experts.linear_fc2.weight, hf_layer.mlp.shared_experts.down_proj.weight)
+            numel += safe_copy(shared_fc1_weight, layer.mlp.shared_experts.linear_fc1.weight)
+            numel += safe_copy(hf_layer.mlp.shared_experts.down_proj.weight, layer.mlp.shared_experts.linear_fc2.weight)
             print(f"{layer_idx=} {numel=} numel this layer={numel - numel_cur}")
 
-    numel += safe_copy(model.decoder.final_layernorm.weight, hf_model.model.norm.weight)
+    numel += safe_copy(hf_model.model.norm.weight, model.decoder.final_layernorm.weight)
 
     if not hf_config.tie_word_embeddings:
-        numel += safe_copy(model.output_layer.weight, hf_model.lm_head.weight)
+        numel += safe_copy(hf_model.lm_head.weight, model.output_layer.weight)
     print(f"{numel=}")
     return numel
 
