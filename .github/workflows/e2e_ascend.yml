@@ -74,7 +74,7 @@ jobs:
     runs-on: [self-hosted, npu-0]
     timeout-minutes: 30 # Increase this timeout value as needed
     container:
-      image: crispig/verl_npu:cann8.1rc1-py3.10-torch2.5.1-vllm0.7.3-250603
+      image: crispig/verl_npu:cann8.1rc1-py3.10-torch2.5.1-vllm-ascend0.7.3.post1-250616
       volumes:
         - /usr/local/dcmi:/usr/local/dcmi
         - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
