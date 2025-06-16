@@ -104,7 +104,6 @@ def create_local_tool_config():
         os.remove(tool_config_path)
 
 
-
 @pytest.fixture
 def create_fake_tool_config():
     tool_config = {
@@ -153,6 +152,7 @@ def test_initialize_tools_from_local_config(create_local_tool_config):
 
     assert len(tools) == 2
     from tests.tools.test_base_tool import WeatherToolForTest, WeatherToolWithDataForTest
+
     assert isinstance(tools[0], WeatherToolForTest)
     assert isinstance(tools[1], WeatherToolWithDataForTest)
     assert tools[0].config == {}
