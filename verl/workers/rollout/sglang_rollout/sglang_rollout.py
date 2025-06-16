@@ -22,7 +22,7 @@ import os
 import time
 from copy import deepcopy
 from json import JSONDecodeError
-from typing import List, Optional, Tuple, Union, Any
+from typing import Any, List, Optional, Tuple, Union
 from uuid import uuid4
 
 import numpy as np
@@ -74,7 +74,7 @@ from verl.workers.rollout.schemas import (
     FinishReasonTypeEnum,
     Message,
 )
-from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj, VLM_CHAT_TEMPLATE
+from verl.workers.rollout.sglang_rollout.utils import VLM_CHAT_TEMPLATE, broadcast_pyobj
 
 try:
     from sglang.srt.function_call.function_call_parser import FunctionCallParser
@@ -228,7 +228,7 @@ def get_tool_call_parser_type(processing_class: Union[PreTrainedTokenizer, PreTr
                 tokenizer_vocab = processing_class.tokenizer.get_vocab()
             except AttributeError as e:
                 raise ValueError(f"Cannot get vocab from processing_class {processing_class}") from e
-        
+
         if parser.bot_token.strip() in tokenizer_vocab and (parser.eot_token == "" or parser.eot_token.strip() in tokenizer_vocab):
             return parser_type
     else:
@@ -514,7 +514,6 @@ class SGLangRollout(BaseRollout):
             function_call_parser,
         )
 
-
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
@@ -747,8 +746,8 @@ class SGLangRollout(BaseRollout):
             if "image" in _req.multi_modal_data and _req.multi_modal_data["image"]:
                 image_data = _req.multi_modal_data["image"]
             if "video" in _req.multi_modal_data and _req.multi_modal_data["video"]:
-                logger.warning("video support is not implemented yet")
                 video_data = _req.multi_modal_data["video"]
+                logger.warning("video support is not implemented yet, current length of video data is %d", len(video_data))
 
         current_turns = 0
 
@@ -883,7 +882,7 @@ class SGLangRollout(BaseRollout):
 
         return _req
 
-    async def _handle_engine_call(self, _req: AsyncRolloutRequest, sampling_params: dict, image_data: Optional[List[Any]] = None) -> dict:
+    async def _handle_engine_call(self, _req: AsyncRolloutRequest, sampling_params: dict, image_data: Optional[list[Any]] = None) -> dict:
         generation_prompt_ids = _req.get_generation_prompt_ids(self.processing_class)
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
         kwargs = sampling_params.copy()
@@ -1056,10 +1055,7 @@ class SGLangRollout(BaseRollout):
         assert "raw_prompt" in prompts.non_tensor_batch, "need data.return_raw_chat=True, due to no official way do parse_messages"
         req_list = []
         multi_modal_data_list = prompts.non_tensor_batch.get("multi_modal_data", [None] * len(prompts.non_tensor_batch["raw_prompt"]))
-        for data_idx, (raw_prompt, multi_modal_data) in enumerate(zip(
-            prompts.non_tensor_batch["raw_prompt"], 
-            multi_modal_data_list)):
-
+        for data_idx, (raw_prompt, multi_modal_data) in enumerate(zip(prompts.non_tensor_batch["raw_prompt"], multi_modal_data_list)):
             for rollout_offset in range(n):
                 if self._tool_schemas:
                     _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
