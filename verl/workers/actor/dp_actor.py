@@ -289,16 +289,43 @@ class DataParallelPPOActor(BasePPOActor):
         batch = data.select(batch_keys=select_keys).batch
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
 
-        if has_multi_modal_inputs:
-            num_micro_batches = data.batch.batch_size[0] // micro_batch_size
-            non_tensor_select_keys = ["multi_modal_inputs"]
-            micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
-        elif use_dynamic_bsz:
-            # split using dynamic bsz
-            max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
-            micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
-        else:
-            micro_batches = batch.split(micro_batch_size)
+        def _get_micro_batches(data: DataProto) -> Tuple[list, list | None]:
+            micro_batch_size_config = data.meta_info.get("micro_batch_size")  # Used for non-dynamic
+            use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
+
+            batch_tensordict = data.batch  # This is a TensorDict
+            has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch
+
+            if has_multi_modal_inputs:
+                all_multi_modal_inputs_list = data.non_tensor_batch["multi_modal_inputs"]
+                if use_dynamic_bsz:
+                    max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
+                    rearranged_text_micro_batches_tds, textual_indices = rearrange_micro_batches(
+                        batch=batch_tensordict, max_token_len=max_token_len
+                    )
+
+                    final_micro_batches_list = []
+                    for i, text_mb_td in enumerate(rearranged_text_micro_batches_tds):
+                        current_original_indices = textual_indices[i]
+                        current_mm_inputs_list = [all_multi_modal_inputs_list[idx] for idx in current_original_indices]
+
+                        mb_dict = {k: v for k, v in text_mb_td.items()}
+                        mb_dict["multi_modal_inputs"] = current_mm_inputs_list
+                        final_micro_batches_list.append(mb_dict)
+                    return final_micro_batches_list, textual_indices
+                else:
+                    num_micro_batches = batch_tensordict.batch_size[0] // micro_batch_size_config
+                    micro_batches_dp = data.chunk(num_micro_batches)  # Returns List[DataProto]
+                    return micro_batches_dp, None
+            elif use_dynamic_bsz:
+                max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
+                micro_batches_tds, indices = rearrange_micro_batches(batch=batch_tensordict, max_token_len=max_token_len)
+                return micro_batches_tds, indices
+            else:
+                micro_batches_tds = batch_tensordict.split(micro_batch_size_config)
+                return micro_batches_tds, None
+
+        micro_batches, indices = _get_micro_batches(data)
 
         log_probs_lst = []
         entropy_lst = []
@@ -356,9 +383,25 @@ class DataParallelPPOActor(BasePPOActor):
                 # split batch into micro_batches
                 mini_batch = data
                 if has_multi_modal_inputs:
-                    self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
-                    num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
-                    micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
+                    micro_batches = []
+                    if self.config.use_dynamic_bsz:
+                        all_multi_modal_inputs_list = data.non_tensor_batch["multi_modal_inputs"]
+                        batch_tensordict_for_rearrange = data.batch
+
+                        max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
+                        rearranged_text_micro_batches_tds, textual_indices = rearrange_micro_batches(
+                            batch=batch_tensordict_for_rearrange, max_token_len=max_token_len
+                        )
+
+                        for current_original_indices, text_mb_td in zip(textual_indices, rearranged_text_micro_batches_tds):
+                            current_mm_inputs_list = [all_multi_modal_inputs_list[idx] for idx in current_original_indices]
+                            mb_dict = {k: v for k, v in text_mb_td.items()}
+                            mb_dict["multi_modal_inputs"] = current_mm_inputs_list
+                            micro_batches.append(mb_dict)
+                    else:
+                        self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                        num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
+                        micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
                 elif self.config.use_dynamic_bsz:
                     max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                     micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
@@ -373,6 +416,17 @@ class DataParallelPPOActor(BasePPOActor):
                     # Support all hardwares
                     if isinstance(data, DataProto):
                         data = {**data.batch.to(get_device_id()), **data.non_tensor_batch}
+                    elif isinstance(data, dict):
+                        for k, v in data.items():
+                            if isinstance(v, torch.Tensor):
+                                data[k] = v.to(get_device_id())
+                            elif k == "multi_modal_inputs" and v is not None:
+                                data[k] = [
+                                    {kk: vv.to(get_device_id()) for kk, vv in item_dict.items()}
+                                    for item_dict in v
+                                ]
+                            else:
+                                data[k] = v
                     else:
                         data = data.to(get_device_id())  # actor device is cpu when using offload
                     responses = data["responses"]
