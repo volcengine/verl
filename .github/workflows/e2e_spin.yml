@@ -27,12 +27,17 @@ on:
       # Entrypoints
       - ".github/workflows/e2e_spin.yml"
       - "examples/data_preprocess/gsm8k.py"
-      - "tests/e2e/run_spin.sh"
+      - "tests/special_e2e/run_spin.sh"
       - "!examples"
 
 # Declare permissions just read content.
 permissions:
   contents: read
+
+# Cancel jobs on the same ref if a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   e2e_spin:
@@ -63,4 +68,4 @@ jobs:
       - name: Running the E2E test with the spin algorithm
         run: |
           ray stop --force
-          bash tests/e2e/run_spin.sh
+          bash tests/special_e2e/run_spin.sh

@@ -18,9 +18,9 @@ and the megatron backend now has a wider list of models supported:
 - Qwen2
 - Mixtral
 
-# Getting Started
+## Getting Started
 
-## DeepSeek 671b
+### DeepSeek 671b
 
 The recommended image with pre-built megatron dependency is `whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.1-te2.3-deepseekv3`, built with the Dockerfile in [docker/Dockerfile.vllm.sglang.megatron.deepseek](https://github.com/volcengine/verl/blob/main/docker/Dockerfile.vllm.sglang.megatron.deepseek).
 
@@ -32,11 +32,11 @@ To run end-to-end training on the DAPO dataset, run [recipe/dapo/test_dapo_dspk_
 
 MTP is disabled during RL training.
 
-## Qwen3 236b
+### Qwen3 236b
 
 For Qwen3-236b, please refer to [examples/grpo_trainer/run_qwen3-236b_megatron.sh](https://github.com/volcengine/verl/blob/main/examples/grpo_trainer/run_qwen3-236b_megatron.sh), which runs on 128 H20(96GB) GPUs.
 
-# Upcoming Optimizations
+## Upcoming Optimizations
 
 The community continue to optimize large MoE models further, ongoing efforts include:
 - further optimizing memory consumption, and provide recommended/tuned configurations with various machine types
@@ -45,5 +45,5 @@ The community continue to optimize large MoE models further, ongoing efforts inc
 
 We invite the community to try and improve verl together. Get connected with us on [slack](https://join.slack.com/t/verlgroup/shared_invite/zt-2w5p9o4c3-yy0x2Q56s_VlGLsJ93A6vA)/[wechat](https://raw.githubusercontent.com/eric-haibin-lin/verl-community/refs/heads/main/WeChat.JPG)/[Github issues](https://github.com/volcengine/verl/issues/708)!
 
-# Acknowledgement
+## Acknowledgement
 @vermouth1992 @ISEEKYAN @ETOgaosion @yzlnew @ShareLer @BearBiscuit05 @ccclyu @ann-qin-lu @SwordFaith @zzong2006 @zhaochenyang20 @ocss884 @eric-haibin-lin

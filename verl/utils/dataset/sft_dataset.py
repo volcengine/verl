@@ -45,7 +45,7 @@ class SFTDataset(Dataset):
         response_dict_keys = config.get("response_dict_keys", None)
         max_length = config.get("max_length", 1024)
         truncation = config.get("truncation", "error")
-        use_shm = config.get('use_shm', False)
+        use_shm = config.get("use_shm", False)
 
         assert truncation in ["error", "left", "right"]
         self.truncation = truncation

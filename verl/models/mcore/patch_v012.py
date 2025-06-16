@@ -19,8 +19,8 @@
 
 def apply_patch():
     import torch
-    from megatron.core.transformer.multi_latent_attention import MLASelfAttention, apply_rotary_pos_emb, deprecate_inference_params, gather_from_sequence_parallel_region, gather_from_tensor_model_parallel_region, scatter_to_sequence_parallel_region
     from megatron.core import parallel_state, tensor_parallel
+    from megatron.core.transformer.multi_latent_attention import MLASelfAttention, apply_rotary_pos_emb, deprecate_inference_params, gather_from_sequence_parallel_region, gather_from_tensor_model_parallel_region, scatter_to_sequence_parallel_region
 
     def patch_get_query_key_value_tensors(
         self,

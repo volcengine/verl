@@ -193,4 +193,63 @@ class Qwen25VLModel(BaseModelInitializer):
     """Initializer for Qwen2.5 VL models."""
 
     def get_transformer_layer_spec(self):
-        raise NotImplementedError("VLM is not supported yet")
+        transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True)
+        return transformer_layer_spec
+
+    def initialize(
+        self,
+        pre_process=None,
+        post_process=None,
+        share_embeddings_and_output_weights=False,
+        value=False,
+        **extra_kwargs,
+    ):
+        tfconfig = self.tfconfig
+        hf_config = self.hf_config
+        # Qwen2_5_VLForConditionalGeneration
+        from copy import deepcopy
+
+        transformer_layer_spec = self.get_transformer_layer_spec()
+
+        from megatron.core.extensions.transformer_engine import TEColumnParallelLinear, TERowParallelLinear
+        from megatron.core.models.gpt.moe_module_specs import MLPSubmodules
+        from megatron.core.models.vision.vit_layer_specs import get_vit_layer_with_transformer_engine_spec
+
+        from .qwen2_5_vl import Qwen2_5VLModel, get_vision_model_config, get_vision_projection_config
+
+        vision_transformer_config = get_vision_model_config(deepcopy(tfconfig))
+        vision_transformer_config.pipeline_model_parallel_size = 1
+        vision_transformer_config.first_pipeline_num_layers = None
+
+        vision_projection_config = get_vision_projection_config(deepcopy(tfconfig), vision_transformer_config.hidden_size, spatial_merge_size=hf_config.vision_config.spatial_merge_size)
+        vision_projection_layer_spec = MLPSubmodules(
+            linear_fc1=TEColumnParallelLinear,
+            linear_fc2=TERowParallelLinear,
+        )
+        vision_transformer_layer_spec = get_vit_layer_with_transformer_engine_spec()
+
+        qwen25_vl_model = Qwen2_5VLModel(
+            language_transformer_config=tfconfig,
+            language_transformer_layer_spec=transformer_layer_spec,
+            language_vocab_size=hf_config.vocab_size,
+            language_max_sequence_length=hf_config.max_position_embeddings,
+            vision_transformer_config=vision_transformer_config,
+            vision_transformer_layer_spec=vision_transformer_layer_spec,
+            vision_projection_config=vision_projection_config,
+            vision_projection_layer_spec=vision_projection_layer_spec,
+            vision_projection_type="mlp",
+            language_rotary_base=hf_config.rope_theta,
+            pre_process=pre_process,
+            post_process=post_process,
+            add_decoder=True,
+            add_encoder=True,
+            parallel_output=True,
+            language_share_embeddings_and_output_weights=share_embeddings_and_output_weights,
+        )
+
+        if post_process and value:
+            from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
+
+            qwen25_vl_model.language_model.output_layer = LinearForLastLayer(input_size=tfconfig.hidden_size, output_size=1, config=tfconfig)
+
+        return qwen25_vl_model

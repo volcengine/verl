@@ -45,8 +45,8 @@ if os.getenv("VERL_USE_MODELSCOPE", "False").lower() == "true":
     patch_hub()
 
 if is_npu_available:
-    package_name = 'transformers'
-    required_version_spec = '4.51.0'
+    package_name = "transformers"
+    required_version_spec = "4.51.0"
     try:
         installed_version = pkg_resources.get_distribution(package_name).version
         installed = parse_version(installed_version)
@@ -54,6 +54,5 @@ if is_npu_available:
 
         if not installed >= required:
             raise ValueError(f"{package_name} version >= {required_version_spec} is required on ASCEND NPU, current version is {installed}.")
-    except DistributionNotFound:
-        raise ImportError(
-            f"package {package_name} is not installed, please run pip install {package_name}=={required_version_spec}")
+    except DistributionNotFound as e:
+        raise ImportError(f"package {package_name} is not installed, please run pip install {package_name}=={required_version_spec}") from e

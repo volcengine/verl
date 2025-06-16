@@ -155,7 +155,7 @@ https://excalidraw.com/#json=pfhkRmiLm1jnnRli9VFhb,Ut4E8peALlgAUpr7E5pPCA
 
 .. image:: https://github.com/user-attachments/assets/16aebad1-0da6-4eb3-806d-54a74e712c2d
 
-How to generate ray timeline to analyse performance of a trainning job?
+How to generate ray timeline to analyse performance of a training job?
 ------------------------------------------------------------------------------------------
 
 To generate the ray timeline file, you can set the config term ``ray_init.timeline_file`` to a json file path.
