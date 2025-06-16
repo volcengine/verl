@@ -84,7 +84,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: create-runner
-        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        uses: plutoZZZZ/verl-github-runner-demo@v1
         with:
           mode: "create"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -98,7 +98,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: create-runner
-        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        uses: plutoZZZZ/verl-github-runner-demo@v1
         with:
           mode: "create"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -112,7 +112,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: create-runner
-        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        uses: plutoZZZZ/verl-github-runner-demo@v1
         with:
           mode: "create"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -126,7 +126,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: create-runner
-        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        uses: plutoZZZZ/verl-github-runner-demo@v1
         with:
           mode: "create"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -140,7 +140,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: create-runner
-        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        uses: plutoZZZZ/verl-github-runner-demo@v1
         with:
           mode: "create"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -154,7 +154,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: create-runner
-        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        uses: plutoZZZZ/verl-github-runner-demo@v1
         with:
           mode: "create"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -168,7 +168,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: create-runner
-        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        uses: plutoZZZZ/verl-github-runner-demo@v1
         with:
           mode: "create"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -421,7 +421,7 @@ jobs:
     if: always()
     steps:
       - id: destory-runner
-        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        uses: plutoZZZZ/verl-github-runner-demo@v1
         with:
           mode: "destory"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -434,7 +434,7 @@ jobs:
     if: always()
     steps:
       - id: destory-runner
-        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        uses: plutoZZZZ/verl-github-runner-demo@v1
         with:
           mode: "destory"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -447,7 +447,7 @@ jobs:
     if: always()
     steps:
       - id: destory-runner
-        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        uses: plutoZZZZ/verl-github-runner-demo@v1
         with:
           mode: "destory"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -460,7 +460,7 @@ jobs:
     if: always()
     steps:
       - id: destory-runner
-        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        uses: plutoZZZZ/verl-github-runner-demo@v1
         with:
           mode: "destory"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -473,7 +473,7 @@ jobs:
     if: always()
     steps:
       - id: destory-runner
-        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        uses: plutoZZZZ/verl-github-runner-demo@v1
         with:
           mode: "destory"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -486,7 +486,7 @@ jobs:
     if: always()
     steps:
       - id: destory-runner
-        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        uses: plutoZZZZ/verl-github-runner-demo@v1
         with:
           mode: "destory"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -499,7 +499,7 @@ jobs:
     if: always()
     steps:
       - id: destory-runner
-        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        uses: plutoZZZZ/verl-github-runner-demo@v1
         with:
           mode: "destory"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
