@@ -1,7 +1,5 @@
 set -x
 ENGINE=${1:-vllm}
-# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 
 # Some models are optimized by vllm ascend. While in some case, e.g. rlhf training, 
 # the optimized model may not be suitable. In this case, set this value to 0 to disable the optimized model.
@@ -49,6 +47,6 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=-1 \
-    trainer.total_epochs=15 \
-    trainer.device=npu \
-    trainer.total_training_steps=2 $@
+    trainer.total_epochs=1 \
+    trainer.total_training_steps=1 \
+    trainer.device=npu $@

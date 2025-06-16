@@ -19,15 +19,13 @@ from typing import Tuple
 import torch
 import torch_npu
 from torch_npu import npu_rotary_mul as apply_rotary_emb
-from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2RMSNorm
 from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
+from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2RMSNorm
 
 
 # This patch takes effect when using apply_rotary_pos_emb_flashatt on qwen2_5_vl and will be removed in subsequent versions
 # https://github.com/huggingface/transformers/pull/38491
-def apply_rotary_pos_emb_flashatt_npu(
-    q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor]:
+def apply_rotary_pos_emb_flashatt_npu(q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     cos = cos.chunk(2, dim=-1)[0].contiguous()
     sin = sin.chunk(2, dim=-1)[0].contiguous()
     cos = cos.repeat(1, 2)

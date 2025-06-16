@@ -133,7 +133,7 @@ jobs:
       - name: Running geo3k e2e training tests with GRPO on ASCEND NPU
         run: |
           ray stop --force
-          bash tests/npu/run_qwen2_5_vl_3b_npu.sh
+          bash tests/special_npu/run_qwen2_5_vl_3b_npu.sh
           rm -rf $HOME/ckpts
       - name: Running gsm8k e2e training tests with DAPO on ASCEND NPU
         run: |
