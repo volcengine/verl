@@ -14,10 +14,12 @@
 
 from ..import_utils import is_nvtx_available
 from .performance import GPUMemoryLogger, log_gpu_memory_usage, log_print
+from .profile import ProfilerConfig, WorkerProfilerExtension
 
 if is_nvtx_available():
-    from .nvtx_annotations import mark_annotate, mark_end_range, mark_start_range
+    from .nvtx_profile import NsightSystemsProfiler as WorkerProfiler
+    from .nvtx_profile import mark_annotate, mark_end_range, mark_start_range
 else:
-    from .empty_annotations import mark_annotate, mark_end_range, mark_start_range
+    from .profile import WorkerProfiler, mark_annotate, mark_end_range, mark_start_range
 
-__all__ = ["GPUMemoryLogger", "log_gpu_memory_usage", "log_print", "mark_start_range", "mark_end_range", "mark_annotate"]
+__all__ = ["GPUMemoryLogger", "log_gpu_memory_usage", "log_print", "mark_start_range", "mark_end_range", "mark_annotate", "WorkerProfiler", "WorkerProfilerExtension", "ProfilerConfig"]

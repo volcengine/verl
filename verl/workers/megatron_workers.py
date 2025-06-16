@@ -34,8 +34,7 @@ from verl.single_controller.base.megatron.worker import MegatronWorker
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
-from verl.utils.debug.performance import reduce_timing, simple_timer
-from verl.utils.debug.profile import NsightSystemsProfiler, ProfilerConfig, WorkerProfilerExtension
+from verl.utils.debug.performance import ProfilerConfig, WorkerProfiler, WorkerProfilerExtension, reduce_timing, simple_timer
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
@@ -125,7 +124,7 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
         if self._is_ref:
             profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.ref.get("profiler", DictConfig({})))))
 
-        WorkerProfilerExtension.__init__(self, NsightSystemsProfiler(rank=self.rank, config=profiler_config))
+        WorkerProfilerExtension.__init__(self, WorkerProfiler(rank=self.rank, config=profiler_config))
 
         # TODO(sgm): Currently, we only support reference model param offload
         # will support other offload later
@@ -426,7 +425,7 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     @GPUMemoryLogger(role="update_actor", logger=logger)
-    @NsightSystemsProfiler.annotate(color="red")
+    @WorkerProfiler.annotate(color="red")
     def update_actor(self, data: DataProto):
         assert self._is_actor
         if self._is_offload_param:
@@ -467,7 +466,7 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @GPUMemoryLogger(role="generate_sequences", logger=logger)
-    @NsightSystemsProfiler.annotate(color="red")
+    @WorkerProfiler.annotate(color="red")
     def generate_sequences(self, prompts: DataProto):
         assert self._is_rollout
         if self._is_offload_param:
@@ -515,7 +514,7 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     @GPUMemoryLogger(role="compute_ref_log_prob", logger=logger)
-    @NsightSystemsProfiler.annotate(color="olive")
+    @WorkerProfiler.annotate(color="olive")
     def compute_ref_log_prob(self, data: DataProto):
         assert self._is_ref
         if self._ref_is_offload_param:
@@ -538,7 +537,7 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     @GPUMemoryLogger(role="compute_log_prob", logger=logger)
-    @NsightSystemsProfiler.annotate(color="blue")
+    @WorkerProfiler.annotate(color="blue")
     def compute_log_prob(self, data: DataProto):
         assert self._is_actor
         if self._is_offload_param:
@@ -628,7 +627,7 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 class CriticWorker(MegatronWorker, WorkerProfilerExtension):
     def __init__(self, config):
         MegatronWorker.__init__(self)
-        WorkerProfilerExtension.__init__(self, NsightSystemsProfiler(rank=self.rank, config=ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))))
+        WorkerProfilerExtension.__init__(self, WorkerProfiler(rank=self.rank, config=ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))))
         self.config = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -772,7 +771,7 @@ class CriticWorker(MegatronWorker, WorkerProfilerExtension):
         )
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
-    @NsightSystemsProfiler.annotate(color="cyan")
+    @WorkerProfiler.annotate(color="cyan")
     def compute_values(self, data: DataProto):
         micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
@@ -789,7 +788,7 @@ class CriticWorker(MegatronWorker, WorkerProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
-    @NsightSystemsProfiler.annotate(color="pink")
+    @WorkerProfiler.annotate(color="pink")
     def update_critic(self, data: DataProto):
         data = data.to(get_device_id())
 
@@ -845,7 +844,7 @@ class RewardModelWorker(MegatronWorker, WorkerProfilerExtension):
 
     def __init__(self, config):
         MegatronWorker.__init__(self)
-        WorkerProfilerExtension.__init__(self, NsightSystemsProfiler(rank=self.rank, config=ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))))
+        WorkerProfilerExtension.__init__(self, WorkerProfiler(rank=self.rank, config=ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))))
         self.config = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -970,7 +969,7 @@ class RewardModelWorker(MegatronWorker, WorkerProfilerExtension):
     # TODO: reward model use itself tokenizer instead of sft tokenizer
     # the input_ids, responses, attention_mask and position_ids may be different!
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
-    @NsightSystemsProfiler.annotate(color="brown")
+    @WorkerProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
         data.meta_info["micro_batch_size"] = self.config.micro_batch_size_per_gpu
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu

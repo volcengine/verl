@@ -41,9 +41,8 @@ from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.debug import ProfilerConfig, WorkerProfiler, WorkerProfilerExtension, log_gpu_memory_usage
 from verl.utils.debug.performance import reduce_timing, simple_timer
-from verl.utils.debug.profile import NsightSystemsProfiler, ProfilerConfig, WorkerProfilerExtension
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device, is_cuda_available, is_npu_available
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
@@ -141,7 +140,7 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
         if self._is_ref:
             profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.ref.get("profiler", DictConfig({})))))
 
-        WorkerProfilerExtension.__init__(self, NsightSystemsProfiler(rank=self.rank, config=profiler_config))
+        WorkerProfilerExtension.__init__(self, WorkerProfiler(rank=self.rank, config=profiler_config))
 
         self._is_offload_param = False
         self._is_offload_optimizer = False
@@ -596,7 +595,7 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
             )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @NsightSystemsProfiler.annotate(color="red")
+    @WorkerProfiler.annotate(color="red")
     def update_actor(self, data: DataProto):
         # Support all hardwares
         data = data.to("cpu")  # data will to device with each micro batch on actor.update_policy
@@ -640,7 +639,7 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @NsightSystemsProfiler.annotate(color="red")
+    @WorkerProfiler.annotate(color="red")
     def generate_sequences(self, prompts: DataProto):
         # Support all hardwares
         prompts = prompts.to(get_device_id())
@@ -676,7 +675,7 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @NsightSystemsProfiler.annotate(color="blue")
+    @WorkerProfiler.annotate(color="blue")
     def compute_log_prob(self, data: DataProto):
         # when is_lora is True, we use the actor without lora applied to calculate the log_prob
         # which is mostly used for ref log_prob calculation
@@ -720,7 +719,7 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @NsightSystemsProfiler.annotate(color="olive")
+    @WorkerProfiler.annotate(color="olive")
     def compute_ref_log_prob(self, data: DataProto):
         if self._is_lora:
             # if _is_lora, actor without lora applied is the ref
@@ -824,7 +823,7 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
 class CriticWorker(Worker, WorkerProfilerExtension):
     def __init__(self, config):
         Worker.__init__(self)
-        WorkerProfilerExtension.__init__(self, NsightSystemsProfiler(rank=self.rank, config=ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))))
+        WorkerProfilerExtension.__init__(self, WorkerProfiler(rank=self.rank, config=ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))))
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -1069,7 +1068,7 @@ class CriticWorker(Worker, WorkerProfilerExtension):
         )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @NsightSystemsProfiler.annotate(color="cyan")
+    @WorkerProfiler.annotate(color="cyan")
     def compute_values(self, data: DataProto):
         # Support all hardwares
         data = data.to(get_device_id())
@@ -1093,7 +1092,7 @@ class CriticWorker(Worker, WorkerProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @NsightSystemsProfiler.annotate(color="pink")
+    @WorkerProfiler.annotate(color="pink")
     def update_critic(self, data: DataProto):
         # Support all hardwares
         data = data.to(get_device_id())
@@ -1167,7 +1166,7 @@ class RewardModelWorker(Worker, WorkerProfilerExtension):
 
     def __init__(self, config):
         Worker.__init__(self)
-        WorkerProfilerExtension.__init__(self, NsightSystemsProfiler(rank=self.rank, config=ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))))
+        WorkerProfilerExtension.__init__(self, WorkerProfiler(rank=self.rank, config=ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))))
 
         import torch.distributed
 
@@ -1409,7 +1408,7 @@ class RewardModelWorker(Worker, WorkerProfilerExtension):
         return DataProto.from_dict(rm_inputs)
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @NsightSystemsProfiler.annotate(color="brown")
+    @WorkerProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
         import itertools
 
