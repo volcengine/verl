@@ -15,12 +15,13 @@
 The main entry point to run the PPO algorithm
 """
 
+import datetime
 import logging
 import os
 import time
 import warnings
 from typing import Union
-import datetime
+
 import torch
 import torch.distributed
 from codetiming import Timer
@@ -290,7 +291,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             rollout = SGLangRollout(
                 actor_module=local_path,
                 config=self.config.rollout,
-                tokenizer=self.tokenizer,
+                processing_class=self.tokenizer,  # TODO： do we need to add processor to megatron_worker?
                 model_hf_config=self.actor_model_config,
                 trust_remote_code=trust_remote_code,
                 device_mesh=rollout_device_mesh,

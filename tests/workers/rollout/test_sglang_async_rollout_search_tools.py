@@ -147,7 +147,7 @@ class TestRolloutWithSearchTools:
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_tools_registration(self, mock_env, mock_engine, mock_sampling, search_rollout_config, qwen_tokenizer, qwen_model_config):
-        rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=search_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
         assert len(rollout._tool_schemas) == 1
         assert "search" in rollout._tool_map.keys()
         from verl.tools.search_tool import SearchTool
@@ -160,7 +160,7 @@ class TestRolloutWithSearchTools:
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_rollout_req_creation(self, mock_env, mock_engine, mock_sampling, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto):
-        rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=search_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
         req_list = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)
         assert len(req_list) == 1
         assert req_list[0].state == AsyncRolloutRequestStateEnum.PENDING
@@ -191,7 +191,7 @@ class TestRolloutWithSearchTools:
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_over_size_case(self, mock_env, mock_engine, mock_sampling, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto, search_data):
         search_rollout_config.multi_turn.max_turns = 1
-        rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=search_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
         req = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
         req.finalize = MagicMock()
@@ -233,7 +233,7 @@ class TestRolloutWithSearchTools:
         mock_execute.side_effect = [(msg, 0.0, {"status": "success"}) for msg in tool_return_array]
 
         search_rollout_config.multi_turn.max_turns = 10
-        rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=search_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
 
         rollout._tool_map["search"].retrieval_service_url = "mock://dummy"
 
@@ -288,7 +288,7 @@ class TestRolloutWithSearchTools:
         rollout = SGLangRollout(
             actor_module="",
             config=search_rollout_config,
-            tokenizer=qwen_tokenizer,
+            processing_class=qwen_tokenizer,
             model_hf_config=qwen_model_config,
         )
         rollout._tool_map["search"].retrieval_service_url = "mock://dummy"
