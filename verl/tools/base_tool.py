@@ -115,10 +115,13 @@ def initialize_tools_from_config(tools_config_file) -> List[BaseTool]:
             module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = module
             spec.loader.exec_module(module)
+            print("exec_module", spec, module)
         else:
             module = sys.modules[module_name]
-
+            print("in sys.modules")
+        print(module, module_name, class_name)
         tool_cls = getattr(module, class_name)
+        print(type(tool_cls), tool_cls, class_name)
 
         if tool_config.get("tool_schema", None) is None:
             tool_schema = None
