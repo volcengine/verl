@@ -87,11 +87,11 @@ def create_local_tool_config():
     tool_config = {
         "tools": [
             {
-                "class_name": "tests.tools.test_base_tool.WeatherToolForTest",
+                "class_name": "tests.tools.test_base_tool_on_cpu.WeatherToolForTest",
                 "config": {},
             },
             {
-                "class_name": "tests.tools.test_base_tool.WeatherToolWithDataForTest",
+                "class_name": "tests.tools.test_base_tool_on_cpu.WeatherToolWithDataForTest",
                 "config": {},
             },
         ]
@@ -131,7 +131,7 @@ def test_initialize_tools_from_fake_config(create_fake_tool_config):
 
     # Use pytest.raises to check if an exception is raised when calling initialize_tools_from_config.
     # Since the tool configuration uses fake paths, an exception is expected during the tool initialization process.
-    with pytest.raises(AssertionError):
+    with pytest.raises(ModuleNotFoundError):
         _ = initialize_tools_from_config(tool_config_path)
 
 
@@ -151,7 +151,7 @@ def test_initialize_tools_from_local_config(create_local_tool_config):
     tools = initialize_tools_from_config(tool_config_path)
 
     assert len(tools) == 2
-    from tests.tools.test_base_tool import WeatherToolForTest, WeatherToolWithDataForTest
+    from tests.tools.test_base_tool_on_cpu import WeatherToolForTest, WeatherToolWithDataForTest
 
     assert isinstance(tools[0], WeatherToolForTest)
     assert isinstance(tools[1], WeatherToolWithDataForTest)
