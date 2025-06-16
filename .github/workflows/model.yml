@@ -63,7 +63,7 @@ concurrency:
 jobs:
   model_rmpad:
     runs-on: [L20x8]
-    timeout-minutes: 20 # Increase this timeout value as needed
+    timeout-minutes: 30 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -86,7 +86,7 @@ jobs:
           pytest -s tests/models/test_transformer.py
       - name: Running rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
-          pip3 install --upgrade flash_attn --no-build-isolation
+          FLASH_ATTENTION_FORCE_BUILD=TRUE pip3 install --upgrade flash_attn --no-build-isolation
           pytest -s tests/models/test_transformer.py
       - name: Running FSDP rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
@@ -122,7 +122,7 @@ jobs:
   # NOTE: List as an independent job to make rerun easier.
   model_rmpad_fsdp2_unstable:
     runs-on: [L20x8]
-    timeout-minutes: 20 # Increase this timeout value as needed
+    timeout-minutes: 30 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -142,5 +142,5 @@ jobs:
           pip3 install --upgrade transformers
       - name: Running FSDP2 rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
-          pip3 install --upgrade flash_attn --no-build-isolation
+          FLASH_ATTENTION_FORCE_BUILD=TRUE pip3 install --upgrade flash_attn --no-build-isolation
           STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/special_distributed/test_fsdp_ckpt.py
