@@ -132,8 +132,8 @@ def test_initialize_tools_from_fake_config(create_fake_tool_config):
 
     # Use pytest.raises to check if an exception is raised when calling initialize_tools_from_config.
     # Since the tool configuration uses fake paths, an exception is expected during the tool initialization process.
-    with pytest.raises(Exception):
-        tools = initialize_tools_from_config(tool_config_path)
+    with pytest.raises(AssertionError):
+        _ = initialize_tools_from_config(tool_config_path)
 
 
 def test_initialize_tools_from_local_config(create_local_tool_config):
