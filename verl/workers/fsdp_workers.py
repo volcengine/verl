@@ -41,8 +41,9 @@ from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.debug import NsightSystemsProfiler, ProfilerConfig, log_gpu_memory_usage
+from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.debug.performance import reduce_timing, simple_timer
+from verl.utils.debug.profile import NsightSystemsProfiler, ProfilerConfig, WorkerProfilerExtension
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device, is_cuda_available, is_npu_available
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
@@ -92,29 +93,15 @@ def get_sharding_strategy(device_mesh):
     return sharding_strategy
 
 
-class ActorRolloutRefWorker(Worker):
+class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
     """
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
     or a hybrid engine based on the config.rollout
     """
 
     def __init__(self, config: DictConfig, role: str):
-        self.role: str = role
-        assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
+        Worker.__init__(self)
 
-        self._is_actor: bool = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
-        self._is_rollout: bool = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
-        self._is_ref: bool = self.role in ["ref", "actor_rollout_ref"]
-
-        profiler_config: ProfilerConfig = ProfilerConfig()
-        if self._is_actor:
-            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.actor.get("profiler", DictConfig({})))))
-        if self._is_rollout:
-            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.rollout.get("profiler", DictConfig({})))))
-        if self._is_ref:
-            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.ref.get("profiler", DictConfig({})))))
-
-        super().__init__(profiler_config=profiler_config)
         self.config = config
         import torch.distributed
 
@@ -138,6 +125,23 @@ class ActorRolloutRefWorker(Worker):
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
         self._lora_rank = self.config.model.get("lora_rank", 0)
         self._is_lora = self._lora_rank > 0
+
+        self.role = role
+        assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
+
+        self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
+        self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
+        self._is_ref = self.role in ["ref", "actor_rollout_ref"]
+
+        profiler_config = ProfilerConfig()
+        if self._is_actor:
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.actor.get("profiler", DictConfig({})))))
+        if self._is_rollout:
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.rollout.get("profiler", DictConfig({})))))
+        if self._is_ref:
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.ref.get("profiler", DictConfig({})))))
+
+        WorkerProfilerExtension.__init__(self, NsightSystemsProfiler(rank=self.rank, config=profiler_config))
 
         self._is_offload_param = False
         self._is_offload_optimizer = False
@@ -806,11 +810,21 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(self.actor_optimizer)
 
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def start_profile(self) -> None:
+        """Start profiling for the current rank in the current training step."""
+        self.profiler.start()
 
-class CriticWorker(Worker):
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def stop_profile(self) -> None:
+        """Stop profiling for the current rank in the current training step."""
+        self.profiler.stop()
+
+
+class CriticWorker(Worker, WorkerProfilerExtension):
     def __init__(self, config):
-        profiler_config = ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))
-        super().__init__(profiler_config=profiler_config)
+        Worker.__init__(self)
+        WorkerProfilerExtension.__init__(self, NsightSystemsProfiler(rank=self.rank, config=ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))))
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -1146,14 +1160,15 @@ class CriticWorker(Worker):
 
 
 # TODO(sgm): we may need to extract it to dp_reward_model.py
-class RewardModelWorker(Worker):
+class RewardModelWorker(Worker, WorkerProfilerExtension):
     """
     Note that we only implement the reward model that is subclass of AutoModelForTokenClassification.
     """
 
     def __init__(self, config):
-        profiler_config = ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))
-        super().__init__(profiler_config=profiler_config)
+        Worker.__init__(self)
+        WorkerProfilerExtension.__init__(self, NsightSystemsProfiler(rank=self.rank, config=ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))))
+
         import torch.distributed
 
         if not torch.distributed.is_initialized():

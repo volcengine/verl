@@ -33,8 +33,9 @@ from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.base.megatron.worker import MegatronWorker
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
-from verl.utils.debug import GPUMemoryLogger, NsightSystemsProfiler, ProfilerConfig, log_gpu_memory_usage
+from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.debug.performance import reduce_timing, simple_timer
+from verl.utils.debug.profile import NsightSystemsProfiler, ProfilerConfig, WorkerProfilerExtension
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
@@ -72,29 +73,14 @@ def set_random_seed(seed):
     # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 
 
-class ActorRolloutRefWorker(MegatronWorker):
+class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
     """
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
     or a hybrid engine based on the config.rollout
     """
 
     def __init__(self, config: DictConfig, role: str):
-        self.role: str = role
-        assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
-
-        self._is_actor: bool = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
-        self._is_rollout: bool = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
-        self._is_ref: bool = self.role in ["ref", "actor_rollout_ref"]
-
-        profiler_config = ProfilerConfig()
-        if self._is_actor:
-            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.actor.get("profiler", DictConfig({})))))
-        if self._is_rollout:
-            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.rollout.get("profiler", DictConfig({})))))
-        if self._is_ref:
-            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.ref.get("profiler", DictConfig({})))))
-
-        super().__init__(profiler_config=profiler_config)
+        MegatronWorker.__init__(self)
         self.config = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -123,6 +109,23 @@ class ActorRolloutRefWorker(MegatronWorker):
             )
 
         set_random_seed(seed=self.config.actor.megatron.seed)
+
+        self.role = role
+        assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
+
+        self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
+        self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
+        self._is_ref = self.role in ["ref", "actor_rollout_ref"]
+
+        profiler_config = ProfilerConfig()
+        if self._is_actor:
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.actor.get("profiler", DictConfig({})))))
+        if self._is_rollout:
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.rollout.get("profiler", DictConfig({})))))
+        if self._is_ref:
+            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.ref.get("profiler", DictConfig({})))))
+
+        WorkerProfilerExtension.__init__(self, NsightSystemsProfiler(rank=self.rank, config=profiler_config))
 
         # TODO(sgm): Currently, we only support reference model param offload
         # will support other offload later
@@ -622,10 +625,10 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         return True
 
 
-class CriticWorker(MegatronWorker):
+class CriticWorker(MegatronWorker, WorkerProfilerExtension):
     def __init__(self, config):
-        profiler_config = ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))
-        super().__init__(profiler_config=profiler_config)
+        MegatronWorker.__init__(self)
+        WorkerProfilerExtension.__init__(self, NsightSystemsProfiler(rank=self.rank, config=ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))))
         self.config = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -835,14 +838,14 @@ class CriticWorker(MegatronWorker):
             offload_megatron_model_to_cpu(self.critic_module)
 
 
-class RewardModelWorker(MegatronWorker):
+class RewardModelWorker(MegatronWorker, WorkerProfilerExtension):
     """
     Note that we only implement the reward model that is subclass of AutoModelForSequenceClassification.
     """
 
     def __init__(self, config):
-        profiler_config = ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))
-        super().__init__(profiler_config=profiler_config)
+        MegatronWorker.__init__(self)
+        WorkerProfilerExtension.__init__(self, NsightSystemsProfiler(rank=self.rank, config=ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))))
         self.config = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.

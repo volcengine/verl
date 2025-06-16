@@ -190,3 +190,20 @@ class NsightSystemsProfiler:
             return wrapper
 
         return decorator
+
+
+class WorkerProfilerExtension:
+    def __init__(self, profiler: NsightSystemsProfiler):
+        self.profiler = profiler
+
+    from verl.single_controller.base.decorator import Dispatch, register
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def start_profile(self) -> None:
+        """Start profiling for the current rank in the current training step."""
+        self.profiler.start()
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def stop_profile(self) -> None:
+        """Stop profiling for the current rank in the current training step."""
+        self.profiler.stop()
