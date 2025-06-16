@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import functools
 import os
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -149,11 +148,7 @@ class WorkerProfiler:
     @staticmethod
     def annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
         def decorator(func):
-            @functools.wraps(func)
-            def wrapper(self, *args, **kwargs):
-                return func(self, *args, **kwargs)
-
-            return wrapper
+            return func
 
         return decorator
 
