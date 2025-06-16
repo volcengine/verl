@@ -30,7 +30,7 @@ import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
-from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
+from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
@@ -67,10 +67,15 @@ class DataParallelPPOActor(BasePPOActor):
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
+        if self.config.entropy_from_logits_with_chunking:
+            entropy_from_logits = verl_F.entropy_from_logits_with_chunking
+        else:
+            entropy_from_logits = verl_F.entropy_from_logits
+
         self.compute_entropy_from_logits = (
-            torch.compile(verl_F.entropy_from_logits, dynamic=True)
+            torch.compile(entropy_from_logits, dynamic=True)
             if self.config.get("use_torch_compile", True)  #  use torch compile by default
-            else verl_F.entropy_from_logits
+            else entropy_from_logits
         )
         self.device_name = get_device_name()
 
@@ -136,6 +141,7 @@ class DataParallelPPOActor(BasePPOActor):
                 extra_args = {}
                 if self.use_fused_kernels:
                     extra_args["temperature"] = temperature
+                    extra_args["return_dict"] = True
 
                 output = self.actor_module(
                     input_ids=input_ids_rmpad,
@@ -166,7 +172,10 @@ class DataParallelPPOActor(BasePPOActor):
 
                     # compute entropy
                     if calculate_entropy:
-                        entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+                        if not self.config.entropy_checkpointing:
+                            entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+                        else:
+                            entropy_rmpad = torch.utils.checkpoint.checkpoint(self.compute_entropy_from_logits, logits_rmpad)
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:
@@ -311,6 +320,8 @@ class DataParallelPPOActor(BasePPOActor):
             assert len(indices) == log_probs.size(0), f"{len(indices)} vs. {log_probs.size()}"
             revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
             log_probs = log_probs[revert_indices]
+            if calculate_entropy:
+                entropys = entropys[revert_indices]
 
         return log_probs, entropys
 
@@ -361,9 +372,9 @@ class DataParallelPPOActor(BasePPOActor):
                 for data in micro_batches:
                     # Support all hardwares
                     if isinstance(data, DataProto):
-                        data = {**data.batch.to(get_torch_device().current_device()), **data.non_tensor_batch}
+                        data = {**data.batch.to(get_device_id()), **data.non_tensor_batch}
                     else:
-                        data = data.to(get_torch_device().current_device())  # actor device is cpu when using offload
+                        data = data.to(get_device_id())  # actor device is cpu when using offload
                     responses = data["responses"]
                     response_length = responses.size(1)
                     attention_mask = data["attention_mask"]

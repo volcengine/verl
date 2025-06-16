@@ -300,7 +300,7 @@ def symbolic_equal(a, b, tolerance, timeout=10.0):
             if simplify(a - b) == 0:
                 return True
     except TimeoutError:
-        print(f"Simplification timed out for {a} - {b}") 
+        print(f"Simplification timed out for {a} - {b}")
         pass
     except Exception:
         pass
@@ -315,6 +315,7 @@ def symbolic_equal(a, b, tolerance, timeout=10.0):
     except Exception:
         pass
     return False
+
 
 def format_intervals(prediction):
     patterns = {

@@ -1,3 +1,35 @@
+# # Tests layout
+
+# Each folder under tests/ corresponds to a test category for a sub-namespace in verl. For instance:
+# - `tests/trainer` for testing functionality related to `verl/trainer`
+# - `tests/models` for testing functionality related to `verl/models`
+# - ...
+
+# There are a few folders with `special_` prefix, created for special purposes:
+# - `special_distributed`: unit tests that must run with multiple GPUs
+# - `special_e2e`: end-to-end tests with training/generation scripts
+# - `special_npu`: tests for NPUs
+# - `special_sanity`: a suite of quick sanity tests
+# - `special_standalone`: a set of test that are designed to run in dedicated environments
+
+# Accelerators for tests 
+# - By default tests are run with GPU available, except for the ones under `special_npu`, and any test script whose name ends with `on_cpu.py`.
+# - For test scripts with `on_cpu.py` name suffix would be tested on CPU resources in linux environment.
+
+# # Workflow layout
+
+# All CI tests are configured by yaml files in `.github/workflows/`. Here's an overview of all test configs:
+# 1. A list of always triggered CPU sanity tests: `check-pr-title.yml`, `secrets_scan.yml`, `check-pr-title,yml`, `pre-commit.yml`, `doc.yml`
+# 2. Some heavy multi-GPU unit tests, such as `model.yml`, `vllm.yml`, `sgl.yml`
+# 3. End-to-end tests: `e2e_*.yml`
+# 4. Unit tests
+#   - `cpu_unit_tests.yml`, run pytest on all scripts with file name pattern `tests/**/test_*_on_cpu.py`
+#   - `gpu_unit_tests.yml`, run pytest on all scripts with file without the `on_cpu.py` suffix.
+#   - Since cpu/gpu unit tests by default runs all tests under `tests`, please make sure tests are manually excluded in them when
+#     - new workflow yaml is added to `.github/workflows`
+#     - new tests are added to workflow mentioned in 2.
+
+
 name: vllm
 
 on:
@@ -28,8 +60,8 @@ on:
       - "!**/*sglang*"
       # Entrypoints
       - ".github/workflows/vllm.yml"
-      - "tests/e2e/generation"
-      - "tests/rollout"
+      - "tests/special_e2e/generation"
+      - "tests/workers/rollout"
       - "verl/trainer/main_generation.py"
       - "verl/trainer/config/generation.yaml"
 
@@ -73,26 +105,27 @@ jobs:
         # Disable requests to avoid network errors
       - name: Running vllm tests on 8 L20 GPUs
         run: |
-          cd tests/workers/rollout
+          cd tests/workers/rollout/rollout_vllm
           torchrun --standalone --nnodes=1 --nproc_per_node=8 $(which pytest) -s test_vllm_hf_loader.py
       - name: Test the latest vLLM
         run: |
           pip3 install --upgrade vllm==0.7.3
-          cd tests/workers/rollout
+          cd tests/workers/rollout/rollout_vllm
           torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_vllm_spmd.py
       - name: Run Qwen 0.5B generation test
         run: |
-          cd tests/e2e/generation
+          cd tests/special_e2e/generation
           export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
           MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=4 GEN_TP=2 bash ./run_gen_qwen05.sh
           rm -rf "${OUTPUT_PATH}"
       - name: Run Qwen 0.5B generation test when world_size == 1
         run: |
-          cd tests/e2e/generation
+          cd tests/special_e2e/generation
           export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
           MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=1 GEN_TP=1 bash ./run_gen_qwen05.sh
           rm -rf "${OUTPUT_PATH}"
       - name: Running multi-turn rollout tests on 8 L20 GPUs
         run: |
           pip3 install --upgrade vllm==0.8.3 tensordict==0.7.2
-          pytest -svvv tests/workers/rollout/test_vllm_chat_scheduler.py
+          pytest -svvv tests/workers/rollout/rollout_vllm/test_vllm_chat_scheduler.py
+      # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests

@@ -31,7 +31,7 @@ from torch.distributed.fsdp._runtime_utils import _lazy_init
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
 from transformers.trainer_pt_utils import get_module_class_from_name
 
-from verl.utils.device import get_device_name, get_torch_device
+from verl.utils.device import get_device_id, get_device_name, get_torch_device
 
 if version.parse(torch.__version__) >= version.parse("2.6"):
     from torch.distributed.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard
@@ -43,7 +43,7 @@ else:
 
 def init_fn(x: torch.nn.Module):
     if torch.distributed.get_rank() != 0:
-        x = x.to_empty(device=get_torch_device().current_device(), recurse=False)
+        x = x.to_empty(device=get_device_id(), recurse=False)
         get_torch_device().empty_cache()
     return x
 
@@ -168,7 +168,7 @@ def load_fsdp_model_to_gpu(model: FSDP):
     # lazy init FSDP model
     _lazy_init(model, model)
     assert model._is_root, "Only support root model loading to GPU"
-    device_id = get_torch_device().current_device()
+    device_id = get_device_id()
     for handle in model._all_handles:
         if handle._offload_params:
             continue
@@ -180,7 +180,7 @@ def load_fsdp_model_to_gpu(model: FSDP):
 
 @torch.no_grad()
 def load_fsdp2_model_to_gpu(model):
-    device = torch.cuda.current_device()
+    device = get_device_id()
     for param in model.parameters():
         param.data = param.data.to(device, non_blocking=True)
 
@@ -282,7 +282,7 @@ def parallel_load_safetensors(filepath):
     ckpt_chunks = [ckpt_chunks[rank * size : rank * size + size] for rank in range(world_size)]
 
     shard_states = {}
-    device = get_torch_device().current_device()
+    device = get_device_id()
     for rank, files in enumerate(ckpt_chunks):
         if rank == dist.get_rank():
             for file in files:
@@ -320,7 +320,7 @@ def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, tor
     @torch.no_grad()
     def create_and_sync_state(param_name, state, is_param):
         assert param_name in shard_states, f"{param_name} not loaded"
-        device = get_torch_device().current_device()
+        device = get_device_id()
         if is_param:
             param = torch.nn.Parameter(torch.empty_like(state.data, device=device), requires_grad=state.requires_grad)
         else:  # buffer
@@ -405,9 +405,9 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
 
     # To broadcast, it needs to be instantiated in the GPU.
     if dist.get_rank() == 0:
-        model = model.to(device=torch.cuda.current_device(), non_blocking=True)
+        model = model.to(device=get_device_id(), non_blocking=True)
     else:
-        model = model.to_empty(device=torch.cuda.current_device())
+        model = model.to_empty(device=get_device_id())
 
     cpu_offload = cpu_offload is not None
     options = StateDictOptions(full_state_dict=True, cpu_offload=cpu_offload, broadcast_from_rank0=True)
@@ -420,7 +420,7 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
     if cpu_offload:
         model.to("cpu", non_blocking=True)
         for buf in model.buffers():
-            buf.data = buf.data.to(torch.cuda.current_device())
+            buf.data = buf.data.to(get_device_id())
 
 
 def apply_fsdp2(model, fsdp_kwargs, config):
@@ -456,7 +456,7 @@ def fsdp2_clip_grad_norm_(parameters, max_norm, norm_type=2.0, error_if_nonfinit
         parameters = list(parameters)
     grads = [p.grad for p in parameters if p.grad is not None]
     total_norm = _get_total_norm(grads, norm_type, error_if_nonfinite, foreach)
-    total_norm = total_norm.to(torch.cuda.current_device(), non_blocking=True)
+    total_norm = total_norm.to(get_device_id(), non_blocking=True)
     _clip_grads_with_norm_(parameters, max_norm, total_norm, foreach)
     return total_norm
 
@@ -492,5 +492,5 @@ def layered_summon_lora_params(fsdp_module) -> OrderedDict:
                     sub_lora_params = {f"{prefix}.{name}": param.full_tensor().detach().cpu() if hasattr(param, "full_tensor") else param.detach().cpu() for name, param in sub_lora_params.items()}
                     lora_params.update(sub_lora_params)
                     submodule._is_root = False
-                torch.cuda.empty_cache()
+                get_torch_device().empty_cache()
     return lora_params

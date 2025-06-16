@@ -22,8 +22,8 @@ import torch
 import torch.distributed as dist
 from codetiming import Timer
 
-from verl.utils.device import get_torch_device
-from verl.utils.logger.aggregate_logger import DecoratorLoggerBase
+from verl.utils.device import get_device_id, get_torch_device
+from verl.utils.logger import DecoratorLoggerBase
 
 
 def _get_current_mem_info(unit: str = "GB", precision: int = 2) -> Tuple[str]:
@@ -144,7 +144,7 @@ def reduce_timing(timing_raw: Dict[str, float]) -> Dict[str, float]:
     for key in sorted(timing_raw.keys()):
         key_list.append(key)
         timing_list.append(timing_raw[key])
-    timing_list = torch.tensor(timing_list, dtype=torch.float32, device=torch.cuda.current_device())
+    timing_list = torch.tensor(timing_list, dtype=torch.float32, device=get_device_id())
     torch.distributed.all_reduce(timing_list, op=torch.distributed.ReduceOp.AVG)
     timing_list = [tensor.item() for tensor in timing_list.to("cpu")]
     timing_generate = {key_list[i]: timing_list[i] for i in range(len(key_list))}

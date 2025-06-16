@@ -48,6 +48,7 @@ class CODE_TYPE(Enum):
     call_based = 0
     standard_input = 1
 
+
 # used to capture stdout as a list
 # from https://stackoverflow.com/a/16571630/6416660
 # alternative use redirect_stdout() from contextlib

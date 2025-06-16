@@ -55,6 +55,5 @@ if is_npu_available:
 
         if not installed >= required:
             raise ValueError(f"{package_name} version >= {required_version_spec} is required on ASCEND NPU, current version is {installed}.")
-    except DistributionNotFound:
-        raise ImportError(
-            f"package {package_name} is not installed, please run pip install {package_name}=={required_version_spec}")
+    except DistributionNotFound as e:
+        raise ImportError(f"package {package_name} is not installed, please run pip install {package_name}=={required_version_spec}") from e

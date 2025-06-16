@@ -39,11 +39,12 @@ https://verl.readthedocs.io/en/latest/advance/checkpoint.html#convert-fsdp-and-m
 import argparse
 import os
 import re
+import warnings
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -128,12 +129,69 @@ class BaseModelMerger(ABC):
                 print(f"Warning: Generation config file not found in {self.hf_model_config_path}, using a generation config created from the model config.")
         return model
 
+    def save_lora_adapter(self, state_dict: dict[str, torch.Tensor]):
+        """
+        Save lora adapter to safetensors.
+
+        Returns:
+            lora_path: str, the path to the lora adapter. None if no lora adapter found.
+
+        Note:
+            This function change the 'state_dict' in place.
+        """
+        lora_params_names = [name for name in state_dict.keys() if "lora_" in name]
+
+        if len(lora_params_names) == 0:
+            return None
+
+        import json
+        from typing import OrderedDict
+
+        import peft
+        from safetensors.torch import save_file
+
+        lora_params = OrderedDict()
+        target_modules = set()
+        lora_key = None
+
+        for name in lora_params_names:
+            lora_key = name.replace(".default.weight", ".weight")
+            target_modules.add(lora_key.split(".")[-3])
+            lora_params[lora_key] = state_dict.pop(name)
+
+        lora_rank = min(lora_params[lora_key].shape[0], lora_params[lora_key].shape[1])
+        peft_dict = {
+            "r": lora_rank,
+            "lora_alpha": 0,  # lora_alpha is not set. An error should be raised to inform the user to set it manually.
+            "target_modules": list(target_modules),
+        }
+        peft_config = peft.LoraConfig(**peft_dict).to_dict()
+        peft_config["task_type"] = peft_config["task_type"].value if peft_config["task_type"] else None
+        peft_config["peft_type"] = peft_config["peft_type"].value if peft_config["peft_type"] else None
+        peft_config["target_modules"] = list(peft_config["target_modules"])
+
+        lora_path = os.path.join(self.config.target_dir, "lora_adapter")
+        os.makedirs(lora_path, exist_ok=True)
+        with open(os.path.join(lora_path, "adapter_config.json"), "w", encoding="utf-8") as f:
+            json.dump(peft_config, f, ensure_ascii=False, indent=4)
+        save_file(lora_params, os.path.join(lora_path, "adapter_model.safetensors"))
+
+        for name in list(state_dict.keys()):
+            key = name.replace("base_model.model.", "").replace(".base_layer.weight", ".weight").replace(".base_layer.bias", ".bias")
+            state_dict[key] = state_dict.pop(name)
+
+        return lora_path
+
     def save_hf_model_and_tokenizer(self, state_dict: dict[str, torch.Tensor]):
         auto_model_class = self.get_transformers_auto_model_class()
         with init_empty_weights():
             model = auto_model_class.from_config(self.model_config, torch_dtype=torch.bfloat16)
         model.to_empty(device="cpu")
         model = self.patch_model_generation_config(model)
+
+        lora_path = self.save_lora_adapter(state_dict)
+        if lora_path:
+            print(f"Saving lora adapter to {lora_path}")
 
         print(f"Saving model to {self.config.target_dir}")
         model.save_pretrained(self.config.target_dir, state_dict=state_dict)
@@ -339,11 +397,55 @@ class MegatronModelMerger(BaseModelMerger):
         config.hf_model_config_path = get_hf_config_and_tokenizer_checkpoint_path(config.local_dir)
         super().__init__(config)
 
+        self.params_mapping = {
+            # megatron core gpt model name, huggingface model name
+            # NOTICE: It's a little bit tricky, when 2 keys have the same prefix, we need to make sure the longer key within the containing relationship is processed first.
+            "embedding.word_embeddings": "model.embed_tokens",
+            # attn
+            "self_attention.linear_qkv.layer_norm_weight": "input_layernorm.weight",
+            "self_attention.linear_qkv.layer_norm_bias": "input_layernorm.bias",
+            "self_attention.linear_qkv": "self_attn.qkv_proj",
+            "self_attention.q_layernorm": "self_attn.q_norm",
+            "self_attention.k_layernorm": "self_attn.k_norm",
+            "self_attention.linear_proj": "self_attn.o_proj",
+            # mla
+            "self_attention.linear_q_proj": "self_attn.q_proj",
+            "self_attention.linear_q_down_proj": "self_attn.q_a_proj",
+            "self_attention.linear_q_up_proj.layer_norm_weight": "self_attn.q_a_layernorm.weight",
+            "self_attention.linear_q_up_proj": "self_attn.q_b_proj",
+            "self_attention.linear_kv_down_proj": "self_attn.kv_a_proj_with_mqa",
+            "self_attention.linear_kv_up_proj.layer_norm_weight": "self_attn.kv_a_layernorm.weight",
+            "self_attention.linear_kv_up_proj": "self_attn.kv_b_proj",
+            # mlp
+            "pre_mlp_layernorm": "post_attention_layernorm",
+            "mlp.linear_fc1.layer_norm_weight": "post_attention_layernorm.weight",
+            "mlp.linear_fc1.layer_norm_bias": "post_attention_layernorm.bias",
+            "mlp.linear_fc1": "mlp.gate_up_proj",
+            "mlp.linear_fc2": "mlp.down_proj",
+            # moe
+            "mlp.router.expert_bias": "mlp.gate.e_score_correction_bias",
+            "mlp.router": "mlp.gate",
+            "mlp.shared_experts.linear_fc1": "mlp.shared_experts.gate_up_proj",
+            "mlp.shared_experts.linear_fc2": "mlp.shared_experts.down_proj",
+            "linear_fc1": "gate_up_proj",
+            "linear_fc2": "down_proj",
+            # output
+            "final_layernorm": "norm",
+            "output_layer": "lm_head",
+        }
+
     def _get_tp_pp_rank_from_sharded_dir(self, sharded_dir: str) -> tuple[int, int]:
-        match = re.match(r"mp_rank_(\d\d)_(\d\d\d)", sharded_dir)
-        assert match, f"Invalid sharded dir {sharded_dir}"
-        tp_rank = int(match.group(1))
-        pp_rank = int(match.group(2))
+        tp_rank = pp_rank = None
+        rank_list = sharded_dir.split("_")[2:]
+        if re.match(r"mp_rank_(\d\d)_(\d\d\d)", sharded_dir):
+            tp_rank = int(rank_list[0])
+            pp_rank = int(rank_list[1])
+        elif re.match(r"mp_rank_(\d\d)", sharded_dir):
+            tp_rank = int(rank_list[0])
+            pp_rank = 0
+
+        assert tp_rank is not None and pp_rank is not None, f"Invalid sharded dir {sharded_dir}"
+
         return tp_rank, pp_rank
 
     def _check_megatron_checkpoint_path(self, model_path: str) -> tuple[list[str], int, int]:
@@ -361,7 +463,7 @@ class MegatronModelMerger(BaseModelMerger):
             pp_size = max(pp_size, pp_rank + 1)
         return sharded_dirs, tp_size, pp_size
 
-    def _merge_across_tp(self, key: str, tp_data: list[torch.Tensor], config: PretrainedConfig, tp_size: int, is_value_model: bool = False) -> torch.Tensor | list[torch.Tensor]:
+    def _merge_across_tp(self, key: str, tp_data: list[torch.Tensor], config: PretrainedConfig, tp_size: int, is_value_model: bool = False) -> Union[torch.Tensor, list[torch.Tensor]]:
         if "linear_fc1.weight" in key:
             # if the tensor is gate and proj
             gate_lst = []
@@ -373,7 +475,6 @@ class MegatronModelMerger(BaseModelMerger):
             gate = torch.cat(gate_lst, dim=0)
             up = torch.cat(up_lst, dim=0)
             return [gate, up]
-
         elif "self_attention.linear_qkv." in key and "layer_norm" not in key:
             # if the tensor is qkv, for each param on tp, split into q, k, v
             # concat q, k, v separately.
@@ -403,8 +504,7 @@ class MegatronModelMerger(BaseModelMerger):
             k = torch.cat(k_lst, dim=0)
             v = torch.cat(v_lst, dim=0)
             return [q, k, v]
-
-        elif "layer_norm" in key or "layernorm" in key or "output_layer" in key and is_value_model:
+        elif "layer_norm" in key or "layernorm" in key or "router" in key or ("output_layer" in key and is_value_model):
             return tp_data[0]
         else:
             dim = 0
@@ -428,6 +528,26 @@ class MegatronModelMerger(BaseModelMerger):
 
         return model_state_dict_lst
 
+    def _check_megatron_state_key(self, key: str) -> bool:
+        """
+        Checks if the key is a valid Megatron state key.
+
+        Now the model merger only supports keys that start with "decoder/embedding/output_layer" in TransformerLayer.
+        Shall not use key starts with "model."
+        """
+        if key.startswith("model."):
+            raise ValueError(f"Invalid key {key} in Megatron state_dict. Expected keys to start with 'decoder/embedding/output_layer' in TransformerLayer.")
+
+        skip_checking_keys = ["embedding.word_embeddings", "output_layer"]
+        for skip_key in skip_checking_keys:
+            if skip_key in key:
+                print(f"skip checking key {key}")
+                return
+
+        # Exclude extra state keys
+        if not key.startswith("decoder"):
+            raise ValueError(f"Invalid key {key} in Megatron state_dict. Expected keys to start with 'decoder' in TransformerLayer.")
+
     def _merge_state_dicts(self, model_state_dict_lst: list[list[dict]], tp_size: int, pp_size: int) -> dict[str, torch.Tensor]:
         state_dict = {}
         vpp_size = len(model_state_dict_lst[0][0])
@@ -444,28 +564,33 @@ class MegatronModelMerger(BaseModelMerger):
                         print("skip lm_head and reward_head loading because of tie_word_embeddings")
                         continue
 
-                    new_key = key
-                    if "decoder.layers." in key:
-                        local_layer_no = int(key.split(".")[2])
+                    self._check_megatron_state_key(key)
+                    hf_name = self._replace_name(key, self.params_mapping)
+                    assert hf_name is not None, f"Failed to convert layer name [{key}] from megatron to huggingface."
+                    if "model.layers." in hf_name:
+                        local_layer_no = int(hf_name.split(".")[2])
                         layers_handled = max(local_layer_no, layers_handled)
                         global_layer_no = local_layer_no + layers_cum
-                        new_key_list = key.split(".")
+                        new_key_list = hf_name.split(".")
                         new_key_list[2] = str(global_layer_no)
-                        new_key = ".".join(new_key_list)
+                        hf_name = ".".join(new_key_list)
+                    else:
+                        warnings.warn(f"hf_name {hf_name} will not be fixed with layer number", stacklevel=2)
 
                     tp_data = [model_state_dict_lst[pp_rank][tp_rank][vpp_rank][key] for tp_rank in range(tp_size)]
-                    merged = self._merge_across_tp(new_key, tp_data, self.model_config, tp_size, self.config.is_value_model)
+                    merged = self._merge_across_tp(key, tp_data, self.model_config, tp_size, self.config.is_value_model)
 
                     if not isinstance(merged, list):
-                        state_dict[new_key] = merged
+                        state_dict[hf_name] = merged
                     elif len(merged) == 3:
                         # split qkv
                         for n, d in zip(["q", "k", "v"], merged):
-                            state_dict[new_key.replace("linear_qkv", f"linear_{n}")] = d
+                            state_dict[hf_name.replace("qkv", n)] = d
                     elif len(merged) == 2:
                         # split gate up
-                        state_dict[new_key.replace("linear_fc1", "gate_proj")] = merged[0]
-                        state_dict[new_key.replace("linear_fc1", "up_proj")] = merged[1]
+                        state_dict[hf_name.replace("gate_up", "gate")] = merged[0]
+                        state_dict[hf_name.replace("gate_up", "up")] = merged[1]
+                    print(f"converted {key} to {hf_name} with shape {merged.shape if isinstance(merged, torch.Tensor) else [t.shape for t in merged]}")
 
                 layers_cum += layers_handled + 1  # zero based
 
@@ -500,27 +625,8 @@ class MegatronModelMerger(BaseModelMerger):
         """
         ref_state_dict = load_file(Path(self.config.test_hf_dir) / "model.safetensors")
 
-        params_mapping = [
-            # (megatron core gpt model name, vllm model name)
-            ("self_attention.linear_qkv.layer_norm_weight", "input_layernorm.weight"),
-            ("self_attention.linear_qkv.layer_norm_bias", "input_layernorm.bias"),
-            ("embedding.word_embeddings", "model.embed_tokens"),
-            ("self_attention.linear_qkv", "self_attn.qkv_proj"),
-            ("self_attention.linear_proj", "self_attn.o_proj"),
-            ("pre_mlp_layernorm", "post_attention_layernorm"),
-            ("mlp.linear_fc1.layer_norm_weight", "post_attention_layernorm.weight"),
-            ("mlp.linear_fc1.layer_norm_bias", "post_attention_layernorm.bias"),
-            ("mlp.linear_fc1", "mlp.gate_up_proj"),
-            ("mlp.linear_fc2", "mlp.down_proj"),
-            ("decoder.final_layernorm", "model.norm"),
-            ("output_layer", "lm_head"),
-            ("self_attention.linear_q", "self_attn.q_proj"),
-            ("self_attention.linear_k", "self_attn.k_proj"),
-            ("self_attention.linear_v", "self_attn.v_proj"),
-        ]
-
-        for original_name, loaded_weight in state_dict.items():
-            name = self._replace_name(original_name, params_mapping)
+        for name, loaded_weight in state_dict.items():
+            # name = self._replace_name(original_name, self.params_mapping)
             if not name or name.endswith(".bias") and name not in ref_state_dict:
                 continue
             if "rotary_emb.inv_freq" in name:
@@ -533,27 +639,15 @@ class MegatronModelMerger(BaseModelMerger):
             assert loaded_weight.dtype == param.dtype
             torch.testing.assert_close(loaded_weight, param, atol=1e-2, rtol=5e-2)
 
-    def _replace_name(self, megatron_name: str, name_mapping: list[tuple[str, str]]) -> str:
-        for m_name, v_name in name_mapping:
+    def _replace_name(self, megatron_name: str, name_mapping: dict[str, str]) -> str:
+        for m_name, v_name in name_mapping.items():
             if m_name not in megatron_name:
                 continue
-            if "layers" in megatron_name:  # deal with decoder layers
-                megatron_name = megatron_name.replace("decoder", "model")
-                megatron_name_list = megatron_name.split(".")
-                if "layer_norm_weight" in megatron_name_list or "layer_norm_bias" in megatron_name_list:
-                    param_name_list = megatron_name_list[:3]
-                    param_name_list.append(v_name)
-                    param_name = ".".join(param_name_list)
-                else:
-                    param_name_list = megatron_name_list[:3]
-                    weight_or_bias = megatron_name_list[-1]
-                    param_name_list.append(v_name)
-                    param_name_list.append(weight_or_bias)
-                    param_name = ".".join(param_name_list)
-                return param_name
-            else:
-                param_name = megatron_name.replace(m_name, v_name)
-                return param_name
+
+            megatron_name = megatron_name.replace("decoder", "model")
+            param_name = megatron_name.replace(m_name, v_name)
+            return param_name
+
         return None  # Return None if no mapping found
 
 

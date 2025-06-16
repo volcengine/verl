@@ -38,6 +38,14 @@ except ImportError:
     FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = False
 
 
+try:
+    import torch_npu
+
+    NPU_CROSS_ENTROPY_LOSS_AVAILABLE = hasattr(torch_npu, "npu_cross_entropy_loss")
+except ImportError:
+    NPU_CROSS_ENTROPY_LOSS_AVAILABLE = False
+
+
 def gather_from_labels(data, label):
     """Gather the label from data. The value in label should be [0, vocab_size)
 
@@ -77,6 +85,8 @@ def logprobs_from_logits(logits, labels, inplace_backward=True):
         labels = labels.reshape(-1)
         output = logprobs_from_logits_flash_attn(logits, labels, inplace_backward=inplace_backward)
         output = output.view(*batch_dim)
+    elif NPU_CROSS_ENTROPY_LOSS_AVAILABLE:
+        output = logprobs_from_logits_torch_npu(logits, labels)
     else:
         output = logprobs_from_logits_v2(logits, labels)
     return output
@@ -86,6 +96,13 @@ def logprobs_from_logits_flash_attn(logits, labels, inplace_backward=True):
     output = cross_entropy_loss(logits, labels, inplace_backward=inplace_backward)
     assert isinstance(output, tuple), "please make sure flash-attn>=2.4.3 where cross_entropy_loss returns Tuple[losses, z_losses]."
     return -output[0]
+
+
+def logprobs_from_logits_torch_npu(logits, labels):
+    batch_dim = logits.shape[:-1]
+    logits = logits.reshape(-1, logits.shape[-1])
+    loss, _, _, _ = torch_npu.npu_cross_entropy_loss(logits, labels.reshape(-1), reduction="none")
+    return -loss.view(*batch_dim)
 
 
 def logprobs_from_logits_naive(logits, labels):
@@ -127,6 +144,17 @@ def entropy_from_logits(logits: torch.Tensor):
     """Calculate entropy from logits."""
     pd = torch.nn.functional.softmax(logits, dim=-1)
     entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
+    return entropy
+
+
+def entropy_from_logits_with_chunking(logits: torch.Tensor, chunk_size: int = 2048):
+    """Memory-efficient entropy calculation with chunking."""
+    entropy = torch.zeros(logits.shape[0], device=logits.device)
+    for i in range(0, logits.shape[0], chunk_size):
+        logits_chunk = logits[i : i + chunk_size].float()
+        pd_chunk = torch.nn.functional.softmax(logits_chunk, dim=-1)
+        entropy_chunk = torch.logsumexp(logits_chunk, dim=-1) - torch.sum(pd_chunk * logits_chunk, dim=-1)
+        entropy[i : i + chunk_size] = entropy_chunk
     return entropy
 
 
@@ -670,7 +698,7 @@ def distributed_mean_max_min_std(local_tensor, compute_max=True, compute_min=Tru
     """
     # Sum the local tensor across all processes
     local_sum = torch.sum(local_tensor)
-    local_num = torch.tensor(torch.numel(local_tensor), device="cuda")
+    local_num = torch.tensor(torch.numel(local_tensor), device=get_device_name())
 
     torch.distributed.all_reduce(local_sum, op=torch.distributed.ReduceOp.SUM)
     torch.distributed.all_reduce(local_num, op=torch.distributed.ReduceOp.SUM)
