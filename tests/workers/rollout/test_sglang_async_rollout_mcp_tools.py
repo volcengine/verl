@@ -56,22 +56,34 @@ def get_search_messages():
             {
                 "id": "10",
                 "type": "function",
-                "function": {"name": "tavily_search_tool", "arguments": {"what_is_your_intent": "Search for the weather lately", "query": "the weather in Beijing lately", "search_depth": "basic", "time_range": "day", "include_domains": ["arxiv.org", "nature.com", "science.org"], "max_results": 10}},
+                "function": {"name": "tavily_search_tool", "arguments": {"what_is_your_intent": "Search for the weather lately", "query": "the weather in Beijing today", "search_depth": "basic", "time_range": "day", "include_domains": ["google.com", "baidu.com"], "max_results": 2}},
             }
         ],
     }
 
     expect_turn_1_msg = {
         "role": "assistant",
+        "content": "Let me search again.",
+        "tool_calls": [
+            {
+                "type": "function",
+                "function": {"name": "tavily_search_tool", "arguments": {"what_is_your_intent": "Search for the weather lately", "query": "the weather in Beijing tomorrow", "search_depth": "basic", "time_range": "day", "include_domains": ["google.com", "baidu.com"], "max_results": 2}},
+            }
+        ],
+    }
+
+    expect_turn_2_msg = {
+        "role": "assistant",
         "content": "<answer>Today is sunny and tomorrow will be cloudy in Beijing.</answer>",
     }
 
     # Mock search tool responses
     tool_return_0_msg = {"role": "tool", "content": [{"type": "text", "text": "Today's weather in Beijing is sunny."}]}
+    tool_return_1_msg = {"role": "tool", "content": [{"type": "text", "text": "Tomorrow's weather in Beijing is cloudy."}]}
 
     user_prompts = [user_prompt]
-    expect_turn_array = [expect_turn_0_msg, expect_turn_1_msg]
-    tool_return_array = [tool_return_0_msg]
+    expect_turn_array = [expect_turn_0_msg, expect_turn_1_msg, expect_turn_2_msg]
+    tool_return_array = [tool_return_0_msg, tool_return_1_msg]
 
     return user_prompts, expect_turn_array, tool_return_array
 
@@ -234,15 +246,15 @@ class TestRolloutWithMCPSearchTools:
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
         assert "tavily_search_tool" in output_req.metrics
         assert output_req.metrics["tavily_search_tool"][0]["status"] == "success"
-        assert mock_execute.await_count == 1
-        assert len(output_req.messages) == 4
+        assert mock_execute.await_count == 2
+        assert len(output_req.messages) == 6
         # Verify tool response messages contain expected content
         search_counter = 0
         for msg in output_req.messages:
             if msg.role == "tool":
                 assert msg.content == tool_return_array[search_counter]
                 search_counter += 1
-        assert search_counter == 1
+        assert search_counter == 2
 
     @patch.object(MCPSearchTool, "execute", new_callable=AsyncMock)
     @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
@@ -252,7 +264,10 @@ class TestRolloutWithMCPSearchTools:
         _, expect_turn_array, tool_return_array = search_data
 
         # Mock tool execution for large batch (100 requests * 2 calls each)
-        mock_execute.side_effect = [(tool_return_array[0], 0.0, {"status": "success"})] * 100
+        mock_execute.side_effect = [
+            (tool_return_array[0], 0.0, {"status": "success"}),
+            (tool_return_array[1], 0.0, {"status": "success"}),
+        ] * 100
 
         search_rollout_config.multi_turn.max_turns = 10
         rollout = SGLangRollout(
@@ -308,7 +323,7 @@ class TestRolloutWithMCPSearchTools:
             assert "tavily_search_tool" in out_req.metrics
             for metric in out_req.metrics["tavily_search_tool"]:
                 assert metric["status"] == "success"
-            assert len(out_req.messages) == 4
-            assert sum(1 for m in out_req.messages if m.role == "tool") == 1
+            assert len(out_req.messages) == 6
+            assert sum(1 for m in out_req.messages if m.role == "tool") == 2
 
-        assert mock_execute.await_count == req_nums
+        assert mock_execute.await_count == 2 * req_nums
