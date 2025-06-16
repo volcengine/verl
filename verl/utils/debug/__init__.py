@@ -20,7 +20,7 @@ if is_nvtx_available():
     from .nvtx_profile import NsightSystemsProfiler as WorkerProfiler
     from .nvtx_profile import mark_annotate, mark_end_range, mark_start_range, marked_timer
 else:
+    from .performance import simple_timer as marked_timer
     from .profile import WorkerProfiler, mark_annotate, mark_end_range, mark_start_range
-    from .profile import simple_timer as marked_timer
 
 __all__ = ["GPUMemoryLogger", "log_gpu_memory_usage", "log_print", "mark_start_range", "mark_end_range", "mark_annotate", "WorkerProfiler", "WorkerProfilerExtension", "ProfilerConfig", "simple_timer", "marked_timer"]
