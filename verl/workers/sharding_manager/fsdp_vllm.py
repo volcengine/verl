@@ -34,8 +34,7 @@ from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
-from verl.utils.debug.performance import simple_timer
+from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.fsdp_utils import fsdp_version, layered_summon_lora_params, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
 from verl.utils.model import convert_weight_keys

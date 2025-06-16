@@ -26,8 +26,7 @@ from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.protocol import DataProto, all_gather_data_proto
-from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
-from verl.utils.debug.performance import simple_timer
+from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.device import get_torch_device
 from verl.utils.megatron_utils import per_tensor_generator
 

@@ -29,8 +29,7 @@ from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
 from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.debug import GPUMemoryLogger
-from verl.utils.debug.performance import simple_timer
+from verl.utils.debug import GPUMemoryLogger, simple_timer
 from verl.utils.device import get_torch_device
 from verl.utils.megatron_utils import (
     per_tensor_generator,

@@ -135,34 +135,6 @@ def simple_timer(name: str, timing_raw: Dict[str, float]):
     yield from _timer(name, timing_raw)
 
 
-@contextmanager
-def marked_timer(name: str, timing_raw: Dict[str, float], color: str = None):
-    """Context manager for timing with NVTX markers.
-
-    This utility function measures the execution time of code within its context,
-    accumulates the timing information, and adds NVTX markers for profiling.
-
-    Args:
-        name (str): The name/identifier for this timing measurement.
-        timing_raw (Dict[str, float]): Dictionary to store timing information.
-        color (Optional[str]): Color for the NVTX marker. Defaults to None.
-
-    Yields:
-        None: This is a context manager that yields control back to the code block.
-    """
-
-    from verl.utils.import_utils import is_nvtx_available
-
-    if is_nvtx_available():
-        from .nvtx_annotations import mark_end_range, mark_start_range
-    else:
-        from .empty_annotations import mark_end_range, mark_start_range
-
-    mark_range = mark_start_range(message=name, color=color)
-    yield from _timer(name, timing_raw)
-    mark_end_range(mark_range)
-
-
 def reduce_timing(timing_raw: Dict[str, float]) -> Dict[str, float]:
     """Reduce timing information across all processes.
 
