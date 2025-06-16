@@ -12,12 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # Unit Tests for `initialize_tools_from_config`
-import pytest
 import json
 import os
 from typing import Any, Tuple
-from verl.tools.base_tool import initialize_tools_from_config, BaseTool, OpenAIFunctionToolSchema
+
+import pytest
 from transformers.utils import get_json_schema
+
+from verl.tools.base_tool import BaseTool, OpenAIFunctionToolSchema, initialize_tools_from_config
+
 
 class WeatherToolForTest(BaseTool):
     def get_current_temperature(self, location: str, unit: str = "celsius"):
