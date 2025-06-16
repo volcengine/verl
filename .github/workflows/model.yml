@@ -86,7 +86,6 @@ jobs:
           pytest -s tests/models/test_transformer.py
       - name: Running rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
-          pip3 install --upgrade flash_attn --no-build-isolation
           pytest -s tests/models/test_transformer.py
       - name: Running FSDP rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
@@ -142,5 +141,4 @@ jobs:
           pip3 install --upgrade transformers
       - name: Running FSDP2 rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
-          pip3 install --upgrade flash_attn --no-build-isolation
           STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/special_distributed/test_fsdp_ckpt.py
