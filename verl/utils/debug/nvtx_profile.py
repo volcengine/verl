@@ -71,7 +71,7 @@ def mark_annotate(message: Optional[str] = None, color: Optional[str] = None, do
 
 
 @contextmanager
-def marked_timer(name: str, timing_raw: Dict[str, float], color: str = None):
+def marked_timer(name: str, timing_raw: Dict[str, float], color: str = None, domain: Optional[str] = None, category: Optional[str] = None):
     """Context manager for timing with NVTX markers.
 
     This utility function measures the execution time of code within its context,
@@ -81,11 +81,13 @@ def marked_timer(name: str, timing_raw: Dict[str, float], color: str = None):
         name (str): The name/identifier for this timing measurement.
         timing_raw (Dict[str, float]): Dictionary to store timing information.
         color (Optional[str]): Color for the NVTX marker. Defaults to None.
+        domain (Optional[str]): Domain for the NVTX marker. Defaults to None.
+        category (Optional[str]): Category for the NVTX marker. Defaults to None.
 
     Yields:
         None: This is a context manager that yields control back to the code block.
     """
-    mark_range = mark_start_range(message=name, color=color)
+    mark_range = mark_start_range(message=name, color=color, domain=domain, category=category)
     from .performance import _timer
 
     yield from _timer(name, timing_raw)
