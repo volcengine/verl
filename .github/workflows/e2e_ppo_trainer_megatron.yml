@@ -76,34 +76,107 @@ env:
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
-  setup:
+  setup0:
     runs-on: ubuntu-latest
     outputs:
-      runner-label: ${{ steps.create-runner.outputs.runner_label }}
-      mlp-task-id: ${{ steps.create-runner.outputs.mlp_task_id }}
+      runner-label: ${{ steps.create-runner.outputs.runner-label }}
+      mlp-task-id: ${{ steps.create-runner.outputs.mlp-task-id }}
     steps:
-      - name: create runner
-        id: create-runner
-        shell: bash
-        run: |
-          if [[ "${{ github.event.repository.full_name }}" != "volcengine/verl" ]]; then
-            echo "no need create runner, skip"
-            exit 0
-          fi
-          resp=$(curl -X POST "${{ env.DYNAMIC_RUNNER_ENDPOINT }}/create" \
-          -d '{"Image": "${{ env.IMAGE }}"}')
-          runner_label=$(echo $resp | jq -r '.runner_label')
-          if [[ -z $runner_label || $runner_label == "null" ]]; then
-            echo "create runner failed"
-            exit 1
-          fi
-          echo "runner_label=$runner_label" >> $GITHUB_OUTPUT   
-          mlp_task_id=$(echo $resp | jq -r '.task_id')
-          echo "mlp_task_id=$mlp_task_id" >> $GITHUB_OUTPUT 
+      - uses: actions/checkout@v4
+      - id: create-runner
+        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        with:
+          mode: "create"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-image: "${{ env.IMAGE }}"
+  
+  setup1:
+    runs-on: ubuntu-latest
+    outputs:
+      runner-label: ${{ steps.create-runner.outputs.runner-label }}
+      mlp-task-id: ${{ steps.create-runner.outputs.mlp-task-id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: create-runner
+        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        with:
+          mode: "create"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-image: "${{ env.IMAGE }}"
+
+  setup2:
+    runs-on: ubuntu-latest
+    outputs:
+      runner-label: ${{ steps.create-runner.outputs.runner-label }}
+      mlp-task-id: ${{ steps.create-runner.outputs.mlp-task-id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: create-runner
+        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        with:
+          mode: "create"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-image: "${{ env.IMAGE }}"
+
+  setup3:
+    runs-on: ubuntu-latest
+    outputs:
+      runner-label: ${{ steps.create-runner.outputs.runner-label }}
+      mlp-task-id: ${{ steps.create-runner.outputs.mlp-task-id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: create-runner
+        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        with:
+          mode: "create"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-image: "${{ env.IMAGE }}"
+
+  setup4:
+    runs-on: ubuntu-latest
+    outputs:
+      runner-label: ${{ steps.create-runner.outputs.runner-label }}
+      mlp-task-id: ${{ steps.create-runner.outputs.mlp-task-id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: create-runner
+        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        with:
+          mode: "create"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-image: "${{ env.IMAGE }}"
+
+  setup5:
+    runs-on: ubuntu-latest
+    outputs:
+      runner-label: ${{ steps.create-runner.outputs.runner-label }}
+      mlp-task-id: ${{ steps.create-runner.outputs.mlp-task-id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: create-runner
+        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        with:
+          mode: "create"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-image: "${{ env.IMAGE }}"
+
+  setup6:
+    runs-on: ubuntu-latest
+    outputs:
+      runner-label: ${{ steps.create-runner.outputs.runner-label }}
+      mlp-task-id: ${{ steps.create-runner.outputs.mlp-task-id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: create-runner
+        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        with:
+          mode: "create"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-image: "${{ env.IMAGE }}" 
 
   e2e_ppo_trainer_megatron-deepseek:
-    needs: setup
-    runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
+    needs: setup0
+    runs-on: ["${{ needs.setup0.outputs.runner-label || 'L20x8' }}"]
     timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -142,8 +215,8 @@ jobs:
         run: |
           rm -rf checkpoints
   e2e_ppo_trainer_megatron-qwen3:
-    needs: setup
-    runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
+    needs: setup1
+    runs-on: ["${{ needs.setup1.outputs.runner-label || 'L20x8' }}"]
     timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -179,8 +252,8 @@ jobs:
         run: |
           rm -rf checkpoints
   e2e_ppo_trainer_megatron-different-train-infer-tp-qwen-tie-embedding:
-    needs: setup
-    runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
+    needs: setup2
+    runs-on: ["${{ needs.setup2.outputs.runner-label || 'L20x8' }}"]
     timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -210,8 +283,8 @@ jobs:
         run: |
           rm -rf checkpoints
   e2e_ppo_trainer_megatron-qwen-override-transformer-config:
-    needs: setup
-    runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
+    needs: setup3
+    runs-on: ["${{ needs.setup3.outputs.runner-label || 'L20x8' }}"]
     timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -247,8 +320,8 @@ jobs:
         run: |
           rm -rf checkpoints
   e2e_ppo_trainer_megatron-deepseek-override-transformer-config:
-    needs: setup
-    runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
+    needs: setup4
+    runs-on: ["${{ needs.setup4.outputs.runner-label || 'L20x8' }}"]
     timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -279,8 +352,8 @@ jobs:
         run: |
           rm -rf checkpoints
   e2e_ppo_trainer_megatron-moe-expert-parallel:
-    needs: setup
-    runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
+    needs: setup5
+    runs-on: ["${{ needs.setup5.outputs.runner-label || 'L20x8' }}"]
     timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -311,8 +384,8 @@ jobs:
         run: |
           rm -rf checkpoints
   e2e_ppo_trainer_megatron-qwen2_5vl-3b:
-    needs: setup
-    runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
+    needs: setup6
+    runs-on: ["${{ needs.setup6.outputs.runner-label || 'L20x8' }}"]
     timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -341,23 +414,93 @@ jobs:
         run: |
           rm -rf checkpoints
 
-  cleanup: 
+  cleanup0: 
     runs-on: ubuntu-latest  
-    needs: [setup, 
-      e2e_ppo_trainer_megatron-deepseek, 
-      e2e_ppo_trainer_megatron-qwen3,
-      e2e_ppo_trainer_megatron-different-train-infer-tp-qwen-tie-embedding,
-      e2e_ppo_trainer_megatron-qwen-override-transformer-config,
-      e2e_ppo_trainer_megatron-deepseek-override-transformer-config,
-      e2e_ppo_trainer_megatron-moe-expert-parallel,
-      e2e_ppo_trainer_megatron-qwen2_5vl-3b]        
-    if: always()          
+    needs: [setup0, 
+      e2e_ppo_trainer_megatron-deepseek]        
+    if: always()
     steps:
-      - name: remove runner
-        run: |
-          if [[ -z "${{ needs.setup.outputs.mlp-task-id }}" ]]; then
-            echo "no need remove runner, skip"
-            exit 0
-          fi
-          resp=$(curl -X POST "${{ env.DYNAMIC_RUNNER_ENDPOINT }}/delete" \
-          -d '{"TaskId": "${{ needs.setup.outputs.mlp-task-id }}"}')
+      - id: destory-runner
+        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        with:
+          mode: "destory"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-task-id: "${{ needs.setup0.outputs.mlp-task-id }}"
+  
+  cleanup1: 
+    runs-on: ubuntu-latest  
+    needs: [setup1,
+      e2e_ppo_trainer_megatron-qwen3]        
+    if: always()
+    steps:
+      - id: destory-runner
+        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        with:
+          mode: "destory"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-task-id: "${{ needs.setup1.outputs.mlp-task-id }}"
+
+  cleanup2: 
+    runs-on: ubuntu-latest  
+    needs: [setup2,
+      e2e_ppo_trainer_megatron-different-train-infer-tp-qwen-tie-embedding]        
+    if: always()
+    steps:
+      - id: destory-runner
+        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        with:
+          mode: "destory"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-task-id: "${{ needs.setup2.outputs.mlp-task-id }}"
+
+  cleanup3: 
+    runs-on: ubuntu-latest  
+    needs: [setup3,
+      e2e_ppo_trainer_megatron-qwen-override-transformer-config]        
+    if: always()
+    steps:
+      - id: destory-runner
+        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        with:
+          mode: "destory"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-task-id: "${{ needs.setup3.outputs.mlp-task-id }}"
+
+  cleanup4: 
+    runs-on: ubuntu-latest  
+    needs: [setup4,
+      e2e_ppo_trainer_megatron-deepseek-override-transformer-config]        
+    if: always()
+    steps:
+      - id: destory-runner
+        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        with:
+          mode: "destory"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-task-id: "${{ needs.setup4.outputs.mlp-task-id }}"
+
+  cleanup5: 
+    runs-on: ubuntu-latest  
+    needs: [setup5,
+      e2e_ppo_trainer_megatron-moe-expert-parallel]        
+    if: always()
+    steps:
+      - id: destory-runner
+        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        with:
+          mode: "destory"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-task-id: "${{ needs.setup5.outputs.mlp-task-id }}"
+
+  cleanup6: 
+    runs-on: ubuntu-latest  
+    needs: [setup6,
+      e2e_ppo_trainer_megatron-qwen2_5vl-3b]        
+    if: always()
+    steps:
+      - id: destory-runner
+        uses: plutoZZZZ/verl-github-runner-demo@786499d9ac3999d2189df98b3a68480275586d60
+        with:
+          mode: "destory"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-task-id: "${{ needs.setup6.outputs.mlp-task-id }}"
