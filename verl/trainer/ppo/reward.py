@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import asyncio
 import multiprocessing
 import os
 from functools import partial
@@ -60,7 +60,13 @@ def get_custom_reward_fn(config):
 
     reward_kwargs = dict(reward_fn_config.get("reward_kwargs", {}))
 
-    return partial(_call_with_kwargs, raw_fn, reward_kwargs)
+    if asyncio.iscoroutinefunction(raw_fn):
+
+        async def wrapped_fn(*args, **kwargs):
+            return await raw_fn(*args, **kwargs, **reward_kwargs)
+        return wrapped_fn
+    else:
+        return partial(_call_with_kwargs, raw_fn, reward_kwargs)
 
 
 def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
@@ -116,6 +122,9 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
         num_examine=num_examine,
         compute_score=final_compute_score,
         reward_fn_key=config.data.reward_fn_key,
+        qps=config.reward_model.qps,
+        max_concurrency=config.reward_model.max_concurrency,
+        timeout=config.reward_model.timeout,
         **reward_kwargs,
     )
 
