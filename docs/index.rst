@@ -90,7 +90,7 @@ verl is fast with:
    perf/perf_tuning
    README_vllm0.8.md
    perf/device_tuning
-   perf/nsight_systems
+   perf/nsight_profiling.md
 
 .. toctree::
    :maxdepth: 1
@@ -126,6 +126,12 @@ verl is fast with:
    :caption: FAQ
 
    faq/faq
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Development Notes
+
+   sglang_multiturn/sandbox_fusion.rst
 
 Contribution
 -------------
