@@ -34,8 +34,9 @@ from verl.single_controller.ray import RayWorkerGroup
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import reduce_metrics
-from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, ResourcePoolManager, Role, WorkerType, _timer, apply_kl_penalty, compute_response_mask
+from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, ResourcePoolManager, Role, WorkerType, apply_kl_penalty, compute_response_mask
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
+from verl.utils.debug.performance import simple_timer
 from verl.utils.tracking import ValidationGenerationsLogger
 
 
@@ -179,9 +180,9 @@ class RaySPPOTrainer(RayPPOTrainer):
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
-                with _timer("step", timing_raw):
+                with simple_timer("step", timing_raw):
                     # generate a batch
-                    with _timer("gen", timing_raw):
+                    with simple_timer("gen", timing_raw):
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
@@ -192,7 +193,7 @@ class RaySPPOTrainer(RayPPOTrainer):
                         gen_batch_output.meta_info.pop("timing", None)
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
-                        with _timer("gen_max", timing_raw):
+                        with simple_timer("gen_max", timing_raw):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info["do_sample"] = False
                             gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
@@ -224,7 +225,7 @@ class RaySPPOTrainer(RayPPOTrainer):
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
-                with _timer("reward", timing_raw):
+                with simple_timer("reward", timing_raw):
                     # compute reward model score
                     if self.use_rm:
                         reward_tensor = self.rm_wg.compute_rm_score(batch)
@@ -236,7 +237,7 @@ class RaySPPOTrainer(RayPPOTrainer):
                         reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
                 # recompute old_log_probs
-                with _timer("old_log_prob", timing_raw):
+                with simple_timer("old_log_prob", timing_raw):
                     old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                     entropys = old_log_prob.batch["entropys"]
                     response_masks = batch.batch["response_mask"]
@@ -249,17 +250,17 @@ class RaySPPOTrainer(RayPPOTrainer):
 
                 if self.use_reference_policy:
                     # compute reference log_prob
-                    with _timer("ref", timing_raw):
+                    with simple_timer("ref", timing_raw):
                         ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
                         batch = batch.union(ref_log_prob)
 
                 # compute values
                 if self.use_critic:
-                    with _timer("values", timing_raw):
+                    with simple_timer("values", timing_raw):
                         values = self.critic_wg.compute_values(batch)
                         batch = batch.union(values)
 
-                with _timer("adv", timing_raw):
+                with simple_timer("adv", timing_raw):
                     # we combine with rule-based rm
                     reward_extra_infos_dict: dict[str, list]
                     if self.config.reward_model.launch_reward_fn_async:
@@ -282,7 +283,7 @@ class RaySPPOTrainer(RayPPOTrainer):
 
                 # update critic
                 if self.use_critic:
-                    with _timer("update_critic", timing_raw):
+                    with simple_timer("update_critic", timing_raw):
                         critic_output = self.critic_wg.update_critic(batch)
                     critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
                     metrics.update(critic_output_metrics)
@@ -290,7 +291,7 @@ class RaySPPOTrainer(RayPPOTrainer):
                 # implement critic warmup
                 if self.config.trainer.critic_warmup <= self.global_steps:
                     # update actor
-                    with _timer("update_actor", timing_raw):
+                    with simple_timer("update_actor", timing_raw):
                         batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
                         actor_output = self.actor_rollout_wg.update_actor(batch)
                     actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
@@ -299,7 +300,7 @@ class RaySPPOTrainer(RayPPOTrainer):
                 # Log rollout generations if enabled
                 rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
                 if rollout_data_dir:
-                    with _timer("dump_rollout_generations", timing_raw):
+                    with simple_timer("dump_rollout_generations", timing_raw):
                         print(batch.batch.keys())
                         inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
                         outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
@@ -314,14 +315,14 @@ class RaySPPOTrainer(RayPPOTrainer):
 
                 # validate
                 if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0):
-                    with _timer("testing", timing_raw):
+                    with simple_timer("testing", timing_raw):
                         val_metrics: dict = self._validate()
                         if is_last_step:
                             last_val_metrics = val_metrics
                     metrics.update(val_metrics)
 
                 if self.config.trainer.save_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0):
-                    with _timer("save_checkpoint", timing_raw):
+                    with simple_timer("save_checkpoint", timing_raw):
                         self._save_checkpoint()
 
             # training metrics
