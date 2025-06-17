@@ -113,6 +113,14 @@ verl is fast with:
 
 .. toctree::
    :maxdepth: 1
+   :caption: Hardware Support
+
+   amd_tutorial/amd_build_dockerfile_page.rst
+   amd_tutorial/amd_vllm_page.rst
+   ascend_tutorial/ascend_quick_start.rst
+
+.. toctree::
+   :maxdepth: 1
    :caption: API References
 
    api/data
