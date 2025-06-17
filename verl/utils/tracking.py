@@ -258,6 +258,35 @@ def _flatten_dict(raw: Dict[str, Any], *, sep: str) -> Dict[str, Any]:
     return ans
 
 
+def _generate_table_columns(samples):
+    """Generate table columns based on samples format.
+
+    Args:
+        samples: dict[dict] format where each key is sample_id and value is a dict of fields
+
+    Returns:
+        list: Column names for the table
+    """
+    if not samples:
+        return ["step"]
+
+    # Get all unique field names from all samples
+    all_fields = set()
+    for sample_data in samples.values():
+        all_fields.update(sample_data.keys())
+
+    # Sort fields for consistent ordering
+    sorted_fields = sorted(all_fields)
+
+    # Create columns: step + sample_1_field1, sample_1_field2, ..., sample_2_field1, sample_2_field2, ...
+    columns = ["step"]
+    for sample_key in sorted(samples.keys(), key=lambda x: int(x.split("_")[1])):  # Sort by sample number
+        for field in sorted_fields:
+            columns.append(f"{sample_key}_{field}")
+
+    return columns
+
+
 @dataclasses.dataclass
 class ValidationGenerationsLogger:
     def log(self, loggers, samples, step):
@@ -278,7 +307,7 @@ class ValidationGenerationsLogger:
         import wandb
 
         # Create column names for all samples
-        columns = ["step"] + sum([[f"input_{i + 1}", f"output_{i + 1}", f"score_{i + 1}"] for i in range(len(samples))], [])
+        columns = _generate_table_columns(samples)
 
         if not hasattr(self, "validation_table"):
             # Initialize the table on first call
@@ -291,8 +320,11 @@ class ValidationGenerationsLogger:
         # Add new row with all data
         row_data = []
         row_data.append(step)
-        for sample in samples:
-            row_data.extend(sample)
+        for sample_key in sorted(samples.keys(), key=lambda x: int(x.split("_")[1])):  # Sort by sample number
+            sample_data = samples[sample_key]
+            sorted_fields = sorted(sample_data.keys())
+            for field in sorted_fields:
+                row_data.append(sample_data[field])
 
         new_table.add_data(*row_data)
 
@@ -305,17 +337,17 @@ class ValidationGenerationsLogger:
         import swanlab
 
         swanlab_text_list = []
-        for i, sample in enumerate(samples):
+        for i, sample in enumerate(samples.values()):
             row_text = f"""
-            input: {sample[0]}
+            input: {sample["input"]}
             
             ---
             
-            output: {sample[1]}
+            output: {sample["output"]}
             
             ---
             
-            score: {sample[2]}
+            score: {sample["score"]}
             """
             swanlab_text_list.append(swanlab.Text(row_text, caption=f"sample {i + 1}"))
 
@@ -335,8 +367,8 @@ class ValidationGenerationsLogger:
             with tempfile.TemporaryDirectory() as tmp_dir:
                 validation_gen_step_file = Path(tmp_dir, f"val_step{step}.json")
                 row_data = []
-                for sample in samples:
-                    data = {"input": sample[0], "output": sample[1], "score": sample[2]}
+                for sample in samples.values():
+                    data = {"input": sample["input"], "output": sample["output"], "score": sample["score"]}
                     row_data.append(data)
                 with open(validation_gen_step_file, "w") as file:
                     json.dump(row_data, file)

@@ -1,0 +1,1 @@
+The above is a Q&A dialogue between a user and an assistant. It is now known that the standard answer to the user's question is {ground_truth}. Please determine whether the assistant has answered the user's question clearly, precisely, and accurately. Present your reasoning and judgment in the following format:\n\nThink: Content of Thinking\nJudgment: Correct / Incorrect

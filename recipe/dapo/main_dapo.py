@@ -88,8 +88,10 @@ class TaskRunner:
         }
 
         global_pool_id = "global_pool"
+        grm_pool_id = "grm_pool"
         resource_pool_spec = {
             global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
+            grm_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.get("grm_nnodes", 0),
         }
         mapping = {
             Role.ActorRollout: global_pool_id,
@@ -111,6 +113,10 @@ class TaskRunner:
                 raise NotImplementedError
             role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
             mapping[Role.RewardModel] = global_pool_id
+
+        if config.reward_model.grm.enable:
+            role_worker_mapping[Role.GenerativeRewardModel] = ray.remote(ActorRolloutRefWorker)
+            mapping[Role.GenerativeRewardModel] = grm_pool_id
 
         # reference model
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
