@@ -852,7 +852,7 @@ class SGLangRollout(BaseRollout):
                             self.tokenizer,
                             content,
                         )
-                        if _req.interaction_kwargs is not None and user_turns < self.config.multi_turn.max_user_turns and current_turns < self.config.multi_turn.max_assistant_turns:
+                        if _req.interaction_kwargs and user_turns < self.config.multi_turn.max_user_turns and current_turns < self.config.multi_turn.max_assistant_turns:
                             _req.state = AsyncRolloutRequestStateEnum.INTERACTING
                         else:
                             break
@@ -914,7 +914,7 @@ class SGLangRollout(BaseRollout):
                 create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
                 tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
             await asyncio.gather(*tool_creation_coroutines)
-        if _req.interaction_kwargs is not None:
+        if _req.interaction_kwargs:
             interaction_kwargs = _req.interaction_kwargs
             await self.interaction.start_interaction(_req.request_id, **interaction_kwargs)
 
