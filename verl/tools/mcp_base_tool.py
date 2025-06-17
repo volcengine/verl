@@ -36,7 +36,7 @@ class MCPBaseTool(BaseTool):
         self.timeout = config.get("timeout", 30)
 
         # TODO(hechanghao): create a global client manager to manage the rate limit, client and pool
-        logger.info(f"Initialized MCPSearchTool with config: {config}")
+        logger.info(f"Initialized MCPBaseTool with config: {config}")
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         """Return the OpenAI tool schema."""
@@ -70,7 +70,7 @@ class MCPBaseTool(BaseTool):
         except Exception as e:
             err_msg = f"\n An unexpected error occurred: {e}"
 
-        logger.debug(f"Search result for instance {instance_id} with tool {self.name}: {call_tool_result.content}")
+        logger.debug(f"Tool result for instance {instance_id} with tool {self.name}: {call_tool_result.content}")
         result, metadata = self._parse_tool_result(call_tool_result.content)
         metadata["api_request_error"] += err_msg
         return result, metadata
@@ -93,8 +93,8 @@ class MCPBaseTool(BaseTool):
             return result_text, 0.0, metrics
 
         except Exception as e:
-            error_result = json.dumps({"result": f"Search execution failed: {e}"})
-            logger.error(f"[MCPSearchTool] Execution failed: {e}")
+            error_result = json.dumps({"result": f"Tool execution failed: {e}"})
+            logger.error(f"[MCPBaseTool] Execution failed: {e}")
             return error_result, 0.0, {"error": str(e)}
 
     async def calc_reward(self, instance_id: str, **kwargs) -> str:
