@@ -25,6 +25,7 @@ from omegaconf import DictConfig
 from transformers import GenerationConfig
 
 from verl.models.weight_loader_registry import get_weight_saver
+from verl.models.mcore.patch_v012 import apply_optimizer_sharded_save_load_patches
 from verl.utils.device import is_cuda_available, is_npu_available
 from verl.utils.fs import is_non_local
 from verl.utils.logger import log_with_rank
@@ -101,6 +102,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.rank = torch.distributed.get_rank()
 
         self.weight_saver = get_weight_saver(self.arch)
+
+        log_with_rank(f"Applying mcore 0.12.0 optimizer save / load patches", rank=self.rank, logger=logger)
+        apply_optimizer_sharded_save_load_patches()
 
     def get_rng_state(self, use_dist_ckpt: bool = False, data_parallel_random_init: bool = False):
         """collect rng state across data parallel ranks"""
@@ -190,7 +194,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         # TODO: Check Optimizer format and distributed optimizer
         optimizer_path = get_optimizer_checkpoint_path(ckpt_path)
         log_with_rank(f"Loading optimizer from {optimizer_path}", rank=self.rank, logger=logger)
-        self.optimizer.load_parameter_state(optimizer_path)
+        if hasattr(self.optimizer, 'load_sharded_parameter_state'):
+            self.optimizer.load_sharded_parameter_state(optimizer_path)
+        else:
+            self.optimizer.load_parameter_state(optimizer_path)
 
     def load_rng_states(self, ckpt_path, data_parallel_random_init=False, use_dist_ckpt=False):
         rng_state_path = get_rng_states_checkpoint_path(ckpt_path, only_rank0_save=False)
@@ -337,7 +344,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             torch.distributed.barrier()
 
             optimizer_path = get_optimizer_checkpoint_path(local_path)
-            self.optimizer.save_parameter_state(optimizer_path)
+            if hasattr(self.optimizer, 'save_sharded_parameter_state'):
+                self.optimizer.save_sharded_parameter_state(optimizer_path)
+            else:
+                self.optimizer.save_parameter_state(optimizer_path)
             log_with_rank(f"Saved optimizer state to {optimizer_path}", rank=self.rank, logger=logger)
 
         # Save RNG States
