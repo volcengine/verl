@@ -93,3 +93,5 @@ html_static_path = ["_static"]
 html_js_files = [
     "js/runllm-widget.js",
 ]
+
+exclude_patterns = ['README.md', 'README_vllm0.7.md']
