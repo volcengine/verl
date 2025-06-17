@@ -802,6 +802,9 @@ trainer:
   # Logging backends to use: "console", "wandb", etc.
   logger: [ 'console', 'wandb' ]
 
+  # When using wandb, the group name for runs
+  entity: verl
+
   # Number of generations to log during validation
   log_val_generations: 0
 
