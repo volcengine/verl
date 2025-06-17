@@ -20,7 +20,7 @@ import os
 import time
 import warnings
 from typing import Union
-
+import datetime
 import torch
 import torch.distributed
 from codetiming import Timer
@@ -88,7 +88,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
             rank = int(os.environ["LOCAL_RANK"])
-            torch.distributed.init_process_group(backend="nccl")
+            torch.distributed.init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)))
             torch.cuda.set_device(rank)
 
             if self.config.actor.megatron.sequence_parallel:
@@ -406,7 +406,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 optimizer_scheduler=self.actor_optimizer_scheduler,
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
                 use_checkpoint_opt_param_scheduler=self.config.actor.optim.use_checkpoint_opt_param_scheduler,
-                checkpoint_contents=self.config.actor.checkpoint.contents,
+                checkpoint_contents=self.config.actor.checkpoint,
             )
         torch.cuda.empty_cache()
         log_gpu_memory_usage("After init_model finish", logger=logger)
@@ -611,7 +611,7 @@ class CriticWorker(MegatronWorker):
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
             rank = int(os.environ["LOCAL_RANK"])
-            torch.distributed.init_process_group(backend="nccl")
+            torch.distributed.init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)))
             torch.cuda.set_device(rank)
 
             if self.config.megatron.sequence_parallel:
@@ -740,7 +740,7 @@ class CriticWorker(MegatronWorker):
             optimizer_scheduler=self.critic_optimizer_scheduler,
             use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
             use_checkpoint_opt_param_scheduler=self.config.optim.use_checkpoint_opt_param_scheduler,
-            checkpoint_contents=self.config.checkpoint.contents,
+            checkpoint_contents=self.config.checkpoint,
         )
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
@@ -825,7 +825,7 @@ class RewardModelWorker(MegatronWorker):
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
             rank = int(os.environ["LOCAL_RANK"])
-            torch.distributed.init_process_group(backend="nccl")
+            torch.distributed.init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)))
             torch.cuda.set_device(rank)
 
             if self.config.megatron.sequence_parallel:
