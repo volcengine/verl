@@ -1083,7 +1083,7 @@ class SGLangRollout(BaseRollout):
                 if self.interaction is not None:
                     _interaction_kwargs = prompts.non_tensor_batch["interaction_kwargs"][data_idx]
                 else:
-                    _interaction_kwargs = None
+                    _interaction_kwargs = {}
 
                 req = AsyncRolloutRequest(
                     batch_data_id=data_idx,
