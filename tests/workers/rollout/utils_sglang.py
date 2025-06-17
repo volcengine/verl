@@ -149,8 +149,8 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
             "response_length": max_response_length,
             "tensor_model_parallel_size": tensor_parallel_size,
             "multi_turn": {
-                "max_assistant_turns": 1,
-                "max_user_turns": 1,
+                "max_assistant_turns": 4,
+                "max_user_turns": 4,
                 "enable": True,
                 "tool_config_path": tool_config_path,
                 "interaction_config_path": interaction_config_path,
