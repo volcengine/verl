@@ -38,7 +38,7 @@ from omegaconf import OmegaConf
 from torch import nn
 
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
+from verl.trainer.ppo.core_algos import agg_loss, compute_gpg_loss, compute_policy_loss, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.debug.profile import Profiler
 from verl.utils.device import get_device_id, get_torch_device
@@ -348,6 +348,7 @@ class MegatronPPOActor(BasePPOActor):
             # compute policy loss
             log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
             ret_entropy = None
+            stats = {}
             if not forward_only:
                 old_log_prob = data["old_log_probs"]
                 advantages = data["advantages"]
@@ -356,17 +357,35 @@ class MegatronPPOActor(BasePPOActor):
                 clip_ratio_low = self.config.clip_ratio_low if self.config.clip_ratio_low is not None else clip_ratio
                 clip_ratio_high = self.config.clip_ratio_high if self.config.clip_ratio_high is not None else clip_ratio
                 clip_ratio_c = meta_info["clip_ratio_c"]
-                pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
-                    old_log_prob=old_log_prob,
-                    log_prob=log_prob,
-                    advantages=advantages,
-                    response_mask=response_mask,
-                    cliprange=clip_ratio,
-                    cliprange_low=clip_ratio_low,
-                    cliprange_high=clip_ratio_high,
-                    clip_ratio_c=clip_ratio_c,
-                    loss_agg_mode=loss_agg_mode,
-                )
+
+                if self.config.use_gpg_loss:
+                    pg_loss = compute_gpg_loss(log_prob=log_prob, advantages=advantages, response_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                    stats.update(
+                        {
+                            "actor/pg_loss": pg_loss.detach().item(),
+                        }
+                    )
+                else:
+                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
+                        old_log_prob=old_log_prob,
+                        log_prob=log_prob,
+                        advantages=advantages,
+                        response_mask=response_mask,
+                        cliprange=clip_ratio,
+                        cliprange_low=clip_ratio_low,
+                        cliprange_high=clip_ratio_high,
+                        clip_ratio_c=clip_ratio_c,
+                        loss_agg_mode=loss_agg_mode,
+                    )
+                    stats.update(
+                        {
+                            "actor/pg_loss": pg_loss.detach().item(),
+                            "actor/pg_clipfrac": pg_clipfrac.detach().item(),
+                            "actor/ppo_kl": ppo_kl.detach().item(),
+                            "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+                        }
+                    )
+
                 policy_loss = pg_loss
             if calculate_entropy:
                 entropy = output["entropy"][:, -response_length - 1 : -1].contiguous()
@@ -377,7 +396,6 @@ class MegatronPPOActor(BasePPOActor):
                 else:
                     ret_entropy = entropy
 
-            stats = {}
             if forward_only:
                 policy_loss = torch.tensor(1.0, device=device)
             else:
@@ -392,14 +410,6 @@ class MegatronPPOActor(BasePPOActor):
                     metrics["actor/kl_coef"] = self.config.kl_loss_coef
 
                 # return loss and stats
-                stats.update(
-                    {
-                        "actor/pg_loss": pg_loss.detach().item(),
-                        "actor/pg_clipfrac": pg_clipfrac.detach().item(),
-                        "actor/ppo_kl": ppo_kl.detach().item(),
-                        "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
-                    }
-                )
 
             append_to_dict(metrics, stats)
             return policy_loss, [metrics, ret_entropy]

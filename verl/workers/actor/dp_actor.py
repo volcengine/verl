@@ -28,7 +28,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
+from verl.trainer.ppo.core_algos import agg_loss, compute_gpg_loss, compute_policy_loss, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
@@ -399,17 +399,35 @@ class DataParallelPPOActor(BasePPOActor):
                         calculate_entropy = True
                     entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature, calculate_entropy=calculate_entropy)
 
-                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
-                        old_log_prob=old_log_prob,
-                        log_prob=log_prob,
-                        advantages=advantages,
-                        response_mask=response_mask,
-                        cliprange=clip_ratio,
-                        cliprange_low=clip_ratio_low,
-                        cliprange_high=clip_ratio_high,
-                        clip_ratio_c=clip_ratio_c,
-                        loss_agg_mode=loss_agg_mode,
-                    )
+                    stats = {}
+
+                    if self.config.use_gpg_loss:
+                        pg_loss = compute_gpg_loss(log_prob=log_prob, advantages=advantages, response_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                        stats.update(
+                            {
+                                "actor/pg_loss": pg_loss.detach().item(),
+                            }
+                        )
+                    else:
+                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
+                            old_log_prob=old_log_prob,
+                            log_prob=log_prob,
+                            advantages=advantages,
+                            response_mask=response_mask,
+                            cliprange=clip_ratio,
+                            cliprange_low=clip_ratio_low,
+                            cliprange_high=clip_ratio_high,
+                            clip_ratio_c=clip_ratio_c,
+                            loss_agg_mode=loss_agg_mode,
+                        )
+                        stats.update(
+                            {
+                                "actor/pg_loss": pg_loss.detach().item(),
+                                "actor/pg_clipfrac": pg_clipfrac.detach().item(),
+                                "actor/ppo_kl": ppo_kl.detach().item(),
+                                "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+                            }
+                        )
 
                     if entropy_coeff != 0:
                         entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
@@ -436,13 +454,7 @@ class DataParallelPPOActor(BasePPOActor):
                         loss = policy_loss / self.gradient_accumulation
                     loss.backward()
 
-                    data = {
-                        "actor/pg_loss": pg_loss.detach().item(),
-                        "actor/pg_clipfrac": pg_clipfrac.detach().item(),
-                        "actor/ppo_kl": ppo_kl.detach().item(),
-                        "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
-                    }
-                    append_to_dict(metrics, data)
+                    append_to_dict(metrics, stats)
 
                 grad_norm = self._optimizer_step()
                 data = {"actor/grad_norm": grad_norm.detach().item()}

@@ -188,6 +188,9 @@ actor_rollout_ref:
     
     # Whether to use KL loss instead of KL reward penalty. True for GRPO
     use_kl_loss: false
+
+    # Whether to use GPG loss. True for GPG
+    use_gpg_loss: fasle
     
     # Whether to use torch.compile()
     use_torch_compile: true
