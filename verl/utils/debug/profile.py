@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import os
+from dataclasses import dataclass
+from typing import Callable, Optional
 
 import torch
 import torch.distributed
@@ -91,3 +93,78 @@ class Profiler:
         if self.check():
             print(f"[Profiler] Trace stopped for rank {self.rank}")
             self.skip_prof = True
+
+
+def mark_start_range(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> None:
+    pass
+
+
+def mark_end_range(range_id: str) -> None:
+    pass
+
+
+def mark_annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
+    def decorator(func):
+        return func
+
+    return decorator
+
+
+@dataclass
+class ProfilerConfig:
+    """
+    Worker profiler config. Currently only support Nsight system profiler.
+    """
+
+    all_ranks: bool = False
+    ranks: Optional[list[int]] = None
+    discrete: bool = False
+
+    def union(self, other: "ProfilerConfig") -> "ProfilerConfig":
+        return ProfilerConfig(
+            all_ranks=self.all_ranks or other.all_ranks,
+            ranks=list(set(self.ranks or []) | set(other.ranks or [])),
+            discrete=self.discrete or other.discrete,
+        )
+
+    def intersect(self, other: "ProfilerConfig") -> "ProfilerConfig":
+        return ProfilerConfig(
+            all_ranks=self.all_ranks and other.all_ranks,
+            ranks=list(set(self.ranks or []) & set(other.ranks or [])),
+            discrete=self.discrete and other.discrete,
+        )
+
+
+class WorkerProfiler:
+    def __init__(self, rank: int, config: Optional[ProfilerConfig] = None):
+        pass
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+    @staticmethod
+    def annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
+        def decorator(func):
+            return func
+
+        return decorator
+
+
+class WorkerProfilerExtension:
+    def __init__(self, profiler: WorkerProfiler):
+        self.profiler = profiler
+
+    from verl.single_controller.base.decorator import Dispatch, register
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def start_profile(self) -> None:
+        """Start profiling for the current rank in the current training step."""
+        self.profiler.start()
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def stop_profile(self) -> None:
+        """Stop profiling for the current rank in the current training step."""
+        self.profiler.stop()
