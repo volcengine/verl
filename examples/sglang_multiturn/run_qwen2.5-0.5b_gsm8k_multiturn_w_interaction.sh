@@ -3,27 +3,13 @@
 
 set -x
 
-export PYTHONUNBUFFERED=1
-export RAY_DEDUP_LOGS=0
-export HF_HUB_OFFLINE=1
-export HF_ENDPOINT=https://hf-mirror.com
-export WANDB_MODE=offline
-export WANDB_DIR=/data/tensorboard/
-export RUST_BACKTRACE=1
-export HYDRA_FULL_ERROR=1
-export PIP_INDEX_URL=https://swnexus.thuwayinfo.com/repository/group-pypi/simple
-export http_proxy=http://whitelist-proxy.cybertron.svc.cluster.local:7891
-export https_proxy=http://whitelist-proxy.cybertron.svc.cluster.local:7891
-export no_proxy=127.0.0.1,localhost,code-sandbox.ali-dev.modelbest.co,swnexus.thuwayinfo.com
-
 ulimit -n 65535
 
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-512}
 MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE:-8}
-OFFLOAD=${OFFLOAD:-True}
-HOME=/user/longxiang1
+OFFLOAD=${OFFLOAD:-False}
 
 python3 -m verl.trainer.main_ppo \
     --config-path="$CONFIG_PATH" \
@@ -35,7 +21,7 @@ python3 -m verl.trainer.main_ppo \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.return_raw_chat=True \
-    actor_rollout_ref.model.path=$HOME/models/Qwen/Qwen2.5-0.5B-Instruct \
+    actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     +actor_rollout_ref.model.enable_activation_offloading=True \
