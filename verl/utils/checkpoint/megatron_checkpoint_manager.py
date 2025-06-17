@@ -75,6 +75,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         use_distributed_optimizer: bool,
         use_checkpoint_opt_param_scheduler: bool = False,
         checkpoint_contents: DictConfig = None,
+        bridge=None,
         **kwargs,
     ):
         super().__init__(
@@ -97,7 +98,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.model_path = self.config.model.path
         self.use_distributed_optimizer = use_distributed_optimizer
         self.use_checkpoint_opt_param_scheduler = use_checkpoint_opt_param_scheduler
-
+        self.bridge = bridge
         self.rank = torch.distributed.get_rank()
 
         self.weight_saver = get_weight_saver(self.arch)
@@ -217,7 +218,11 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if local_path is None:
             return
 
-        if self.should_load_model:
+        if self.should_load_model and self.bridge is not None and not self.is_value_model:
+            model_path = get_model_checkpoint_path(local_path)
+            self.bridge.load_weights(self.model, model_path)
+            log_with_rank(f"Loaded HF model checkpoint from {model_path} with bridge", rank=self.rank, logger=logger)
+        elif self.should_load_model:
             model_path = get_model_checkpoint_path(local_path)
             ckpt_name = self.get_checkpoint_name(model_path, return_base_dir=False)
             state_dicts = torch.load(os.path.join(ckpt_name), weights_only=False)
@@ -260,7 +265,14 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         local_path = self.local_mkdir(local_path)
 
         # Save Model
-        if self.should_save_model and mpu.get_data_parallel_rank() == 0:
+        saved = False
+        if self.should_save_model and self.bridge is not None and not self.is_value_model:
+            log_with_rank(f"Saving HF model checkpoint to {local_path} with bridge", rank=self.rank, logger=logger)
+            model_ckpt_path = get_model_checkpoint_path(local_path)
+            self.bridge.save_weights(self.model, model_ckpt_path)
+            log_with_rank(f"Saved bridge checkpoint to {model_ckpt_path}", rank=self.rank, logger=logger)
+            saved = True
+        elif self.should_save_model and mpu.get_data_parallel_rank() == 0:
             state_dicts = []
 
             for vpp_rank, model in enumerate(self.model):
@@ -274,23 +286,24 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             torch.save(state_dicts, os.path.join(ckpt_name))
 
             log_with_rank(f"Saved checkpoint to {model_ckpt_path}", rank=self.rank, logger=logger)
-            if self.rank == 0:
-                self.processing_class.save_pretrained(hf_config_and_tokenizer_path)
-                self.hf_config.save_pretrained(hf_config_and_tokenizer_path)
-                if hasattr(self.hf_config, "name_or_path") and self.hf_config.name_or_path:
-                    try:
-                        generation_config = GenerationConfig.from_pretrained(self.hf_config.name_or_path)
-                        generation_config.save_pretrained(hf_config_and_tokenizer_path)
-                    except Exception:
-                        # if the generation config isn't available, we don't save it
-                        pass
-                if hdfs_path is not None:
-                    log_with_rank(f"Uploading checkpoint to {hdfs_path}", rank=self.rank, logger=logger)
-                    from verl.utils import hdfs_io
+            saved = True
+        if self.rank == 0 and saved:
+            self.processing_class.save_pretrained(hf_config_and_tokenizer_path)
+            self.hf_config.save_pretrained(hf_config_and_tokenizer_path)
+            if hasattr(self.hf_config, "name_or_path") and self.hf_config.name_or_path:
+                try:
+                    generation_config = GenerationConfig.from_pretrained(self.hf_config.name_or_path)
+                    generation_config.save_pretrained(hf_config_and_tokenizer_path)
+                except Exception:
+                    # if the generation config isn't available, we don't save it
+                    pass
+            if hdfs_path is not None:
+                log_with_rank(f"Uploading checkpoint to {hdfs_path}", rank=self.rank, logger=logger)
+                from verl.utils import hdfs_io
 
-                    hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                    hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
-                    hdfs_io.copy(src=hf_config_and_tokenizer_path, dst=hdfs_path, dirs_exist_ok=True)
+                hdfs_io.makedirs(hdfs_path, exist_ok=True)
+                hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
+                hdfs_io.copy(src=hf_config_and_tokenizer_path, dst=hdfs_path, dirs_exist_ok=True)
 
         if self.should_save_hf_model:
             # wait for everyone to dump to local

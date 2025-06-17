@@ -65,6 +65,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         transformer_config,
         layer_name_mapping,
         weight_converter: McoreToHFWeightConverterBase,
+        bridge=None,
     ):
         self.actor_module = actor_module
         self.inference_engine = inference_engine
@@ -72,6 +73,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.transformer_config = transformer_config
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
+        self.bridge = bridge
         # initialize groups for vllm inference
         self.rank = torch.distributed.get_rank()
         self.world_size = torch.distributed.get_world_size()
@@ -108,13 +110,16 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                     self.inference_engine.wake_up(tags=["weights"])
                 else:
                     self.inference_engine.wake_up()
-                per_tensor_param = per_tensor_generator(
-                    self.actor_module,
-                    self.model_config,
-                    self.weight_converter,
-                    self.transformer_config,
-                    self.layer_name_mapping,
-                )
+                if self.bridge is not None:
+                    per_tensor_param = self.bridge.export_weights(self.actor_module)
+                else:
+                    per_tensor_param = per_tensor_generator(
+                        self.actor_module,
+                        self.model_config,
+                        self.weight_converter,
+                        self.transformer_config,
+                        self.layer_name_mapping,
+                    )
                 model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
                 patch_vllm_moe_model_weight_loader(model)
                 loaded_params = model.load_weights(per_tensor_param)

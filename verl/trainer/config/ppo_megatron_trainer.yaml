@@ -94,6 +94,7 @@ actor_rollout_ref:
       dist_checkpointing_path: null
       seed: 42
       override_transformer_config: {} # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
+      use_mbridge: False
     profile: # profile the actor model in `update_policy` 
       use_profile: False # open it when you want to profile the actor model
       profile_ranks: null # list, you can specify the ranks to profile
@@ -124,6 +125,7 @@ actor_rollout_ref:
       dist_checkpointing_path: null
       seed: ${actor_rollout_ref.actor.megatron.seed}
       override_transformer_config: ${actor_rollout_ref.actor.megatron.override_transformer_config}
+      use_mbridge: ${actor_rollout_ref.actor.megatron.use_mbridge}
     profile:
       use_profile: False
       profile_ranks: null
@@ -245,6 +247,7 @@ critic:
     dist_checkpointing_path: null
     seed: ${actor_rollout_ref.actor.megatron.seed}
     override_transformer_config: ${actor_rollout_ref.actor.megatron.override_transformer_config}
+    use_mbridge: ${actor_rollout_ref.actor.megatron.use_mbridge}
   load_weight: True
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
   ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
@@ -284,6 +287,7 @@ reward_model:
     dist_checkpointing_path: null
     seed: ${actor_rollout_ref.actor.megatron.seed}
     override_transformer_config: {}
+    use_mbridge: ${actor_rollout_ref.actor.megatron.use_mbridge}
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
