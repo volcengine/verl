@@ -538,7 +538,7 @@ Trainer
 - ``trainer.resume_mode``: The mode of resuming training. Support
   ``disable``, ``auto`` and ``resume_path``. If set to ``auto`` as default, the
   program will automatically resume from the latest checkpoint in the
-  default_hdfs_dir. If set to ``resume_path``, the program will resume
+  ``default_local_dir``. If set to ``resume_path``, the program will resume
   from the path specified in ``resume_from_path``.
 - ``trainer.resume_from_path``: The path to resume training from. Only
   effective when ``resume_mode`` is set to ``resume_path``.
