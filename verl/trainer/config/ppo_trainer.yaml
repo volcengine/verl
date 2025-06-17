@@ -281,8 +281,11 @@ actor_rollout_ref:
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
   ref:
-    model:
-      path: null
+
+    # ref model is assumed to be identical to actor model. Specify model.path for using a different ref model.
+    # Potential use case involves on policy distillation where we calculate KL divergence between student actor
+    # and teacher ref
+    model: null
     # actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it’s recommended to turn on offload for ref by default
     strategy: fsdp
 
