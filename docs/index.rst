@@ -60,6 +60,8 @@ verl is fast with:
    examples/ppo_code_architecture
    examples/gsm8k_example
    examples/multi_modal_example
+   examples/atropos_integration
+   examples/atropos_quick_reference
 
 .. toctree::
    :maxdepth: 1
@@ -119,6 +121,7 @@ verl is fast with:
    api/single_controller.rst
    api/trainer.rst
    api/utils.rst
+   api/atropos.rst
 
 
 .. toctree::
