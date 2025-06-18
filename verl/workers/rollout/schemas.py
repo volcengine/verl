@@ -73,7 +73,7 @@ class AsyncRolloutRequest(BaseModel):
     request_id: str
     state: AsyncRolloutRequestStateEnum
     messages: List[Message]
-    multi_modal_data: Dict[str, Any] = {}
+    multi_modal_data: Optional[Dict[str, Any]] = None
     tool_schemas: Optional[List[OpenAIFunctionToolSchema]] = None
     tools_kwargs: Dict[str, Any] = {}
     input_ids: List[int]
@@ -111,9 +111,11 @@ class AsyncRolloutRequest(BaseModel):
             raise ValueError("processing_class is required for AsyncRolloutRequest initialization")
 
         values["messages"] = [Message.model_validate(msg) for msg in messages]
+        values["multi_modal_data"] = {} if values.get("multi_modal_data") is None else values.get("multi_modal_data")
 
         tools = [tool.model_dump() for tool in tool_schemas] if (tool_schemas := values.get("tool_schemas", [])) else None
-        multi_modal_data = values.get("multi_modal_data", {})
+
+        multi_modal_data = values["multi_modal_data"]
         tokens_without_prompt = cls._handle_apply_chat_template(processing_class, messages, multi_modal_data=multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True)
         if not values.get("input_ids") or not values.get("attention_mask"):
             tokenization_dict_with_prompt = cls._handle_apply_chat_template(processing_class, messages, multi_modal_data=multi_modal_data, tools=tools, add_generation_prompt=True, tokenize=True, return_dict=True)
@@ -136,7 +138,7 @@ class AsyncRolloutRequest(BaseModel):
     def _handle_apply_chat_template(
         processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
         messages: List[Message],
-        multi_modal_data: Optional[Dict[str, Any]] = None,
+        multi_modal_data: Dict[str, Any],
         tools: Optional[List[OpenAIFunctionToolSchema]] = None,
         add_generation_prompt: bool = False,
         tokenize: bool = False,
@@ -151,8 +153,6 @@ class AsyncRolloutRequest(BaseModel):
             if not tokenize:
                 return raw_prompt
 
-            if multi_modal_data is None:
-                multi_modal_data = {}
             model_inputs = processing_class(text=[raw_prompt], images=multi_modal_data.get("image", None), videos=multi_modal_data.get("video", None), return_tensors="pt")
             assert model_inputs["input_ids"].shape[0] == 1, "input_ids should be a 1D array"
             model_inputs = {k: v[0].tolist() if hasattr(v, "tolist") else v for k, v in model_inputs.items()}
