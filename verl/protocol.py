@@ -34,7 +34,7 @@ from packaging import version
 from tensordict import TensorDict
 from torch.utils.data import DataLoader
 
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.py_functional import union_two_dict
 from verl.utils.torch_functional import allgather_dict_tensors
 
@@ -291,11 +291,11 @@ class DataProto:
 
     def print_size(self, prefix=""):
         size_of_tensordict = 0
-        if self.batch is None:
-            for key, tensor in self.batch.items():
+        if self.batch is not None:
+            for _, tensor in self.batch.items():
                 size_of_tensordict += tensor.element_size() * tensor.numel()
         size_of_numpy_array = 0
-        for key, numpy_array in self.non_tensor_batch.items():
+        for _, numpy_array in self.non_tensor_batch.items():
             size_of_numpy_array += numpy_array.nbytes
 
         size_of_numpy_array /= 1024**3
@@ -890,7 +890,7 @@ def all_gather_data_proto(data: DataProto, process_group):
     group_size = torch.distributed.get_world_size(group=process_group)
     assert isinstance(data, DataProto)
     prev_device = data.batch.device
-    data.batch = data.batch.to(get_torch_device().current_device())
+    data.batch = data.batch.to(get_device_id())
     data.batch = allgather_dict_tensors(data.batch.contiguous(), size=group_size, group=process_group, dim=0)
     data.batch = data.batch.to(prev_device)
     # all gather non_tensor_batch

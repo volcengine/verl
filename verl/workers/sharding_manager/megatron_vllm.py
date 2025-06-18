@@ -29,8 +29,8 @@ from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
 from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.debug import GPUMemoryLogger
-from verl.utils.debug.performance import _timer
+from verl.utils.debug import GPUMemoryLogger, simple_timer
+from verl.utils.device import get_torch_device
 from verl.utils.megatron_utils import (
     per_tensor_generator,
 )
@@ -46,7 +46,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 """
 Megatron Hybrid Engine:
 - During training, only the current pp stage holds the parameters
-- Before inference, broadcast the parameters of the current pp rank 
+- Before inference, broadcast the parameters of the current pp rank
    to all other pp ranks (all pp ranks holds all the parameters)
 - Bind the parameters to the inference engine
 - Do inference in tp. pp is treated as additional dp
@@ -94,7 +94,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def __enter__(self):
         self.timing = {}
-        with _timer("reshard", self.timing):
+        with simple_timer("reshard", self.timing):
             if vllm_version in (
                 "0.5.4",
                 "0.6.3",
@@ -136,7 +136,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         for model in self.actor_module:
             model.train()
 
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:

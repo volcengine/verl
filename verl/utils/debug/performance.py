@@ -16,13 +16,13 @@ import datetime
 import inspect
 import logging
 from contextlib import contextmanager
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.distributed as dist
 from codetiming import Timer
 
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.logger import DecoratorLoggerBase
 
 
@@ -104,9 +104,23 @@ def log_print(ctn: Any):
     print(f"[{current_time}-{file_name}:{line_number}:{function_name}]: {ctn}")
 
 
-@contextmanager
 def _timer(name: str, timing_raw: Dict[str, float]):
-    """Context manager for timing code execution.
+    """Inner function that handles the core timing logic.
+
+    Args:
+        name (str): The name/identifier for this timing measurement.
+        timing_raw (Dict[str, float]): Dictionary to store timing information.
+    """
+    with Timer(name=name, logger=None) as timer:
+        yield
+    if name not in timing_raw:
+        timing_raw[name] = 0
+    timing_raw[name] += timer.last
+
+
+@contextmanager
+def simple_timer(name: str, timing_raw: Dict[str, float]):
+    """Context manager for basic timing without NVTX markers.
 
     This utility function measures the execution time of code within its context
     and accumulates the timing information in the provided dictionary.
@@ -118,11 +132,28 @@ def _timer(name: str, timing_raw: Dict[str, float]):
     Yields:
         None: This is a context manager that yields control back to the code block.
     """
-    with Timer(name=name, logger=None) as timer:
-        yield
-    if name not in timing_raw:
-        timing_raw[name] = 0
-    timing_raw[name] += timer.last
+    yield from _timer(name, timing_raw)
+
+
+@contextmanager
+def marked_timer(name: str, timing_raw: Dict[str, float], color: str = None, domain: Optional[str] = None, category: Optional[str] = None):
+    """Context manager for timing with platform markers.
+
+    This utility function measures the execution time of code within its context,
+    accumulates the timing information, and adds platform markers for profiling.
+    This function is a default implementation when hardware profiler is not available.
+
+    Args:
+        name (str): The name/identifier for this timing measurement.
+        timing_raw (Dict[str, float]): Dictionary to store timing information.
+        color (Optional[str]): Color for the marker. Defaults to None.
+        domain (Optional[str]): Domain for the marker. Defaults to None.
+        category (Optional[str]): Category for the marker. Defaults to None.
+
+    Yields:
+        None: This is a context manager that yields control back to the code block.
+    """
+    yield from _timer(name, timing_raw)
 
 
 def reduce_timing(timing_raw: Dict[str, float]) -> Dict[str, float]:
@@ -144,7 +175,7 @@ def reduce_timing(timing_raw: Dict[str, float]) -> Dict[str, float]:
     for key in sorted(timing_raw.keys()):
         key_list.append(key)
         timing_list.append(timing_raw[key])
-    timing_list = torch.tensor(timing_list, dtype=torch.float32, device=get_torch_device().current_device())
+    timing_list = torch.tensor(timing_list, dtype=torch.float32, device=get_device_id())
     torch.distributed.all_reduce(timing_list, op=torch.distributed.ReduceOp.AVG)
     timing_list = [tensor.item() for tensor in timing_list.to("cpu")]
     timing_generate = {key_list[i]: timing_list[i] for i in range(len(key_list))}

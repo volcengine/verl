@@ -19,10 +19,7 @@ Preprocess the Retool dataset to parquet format
 import argparse
 import os
 
-import pandas as pd
 import datasets
-
-from verl.utils.hdfs_io import copy, makedirs
 
 
 def main():
@@ -33,9 +30,8 @@ def main():
     parser.add_argument("--seed", default=42, type=int)
     args = parser.parse_args()
 
-    data_source = "/user/longxiang1/data/swordfaith/ReTool-SFT-multi-turn"
-    dataset = datasets.load_dataset(data_source, "default")
     data_source = "swordfaith/ReTool-SFT-multi-turn"
+    dataset = datasets.load_dataset(data_source, "default")
 
     train_dataset = dataset["train"]
     shuffled_train_dataset = train_dataset.shuffle(seed=args.seed)

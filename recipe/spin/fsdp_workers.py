@@ -32,6 +32,7 @@ from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import get_fsdp_wrap_policy, get_init_weight_context_manager, init_fn, load_fsdp_model_to_gpu, load_fsdp_optimizer, offload_fsdp_model_to_cpu, offload_fsdp_optimizer
@@ -46,9 +47,9 @@ logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
 
 def create_device_mesh(world_size, fsdp_size):
     if fsdp_size < 0 or fsdp_size >= world_size:
-        device_mesh = init_device_mesh("cuda", mesh_shape=(world_size,), mesh_dim_names=["fsdp"])
+        device_mesh = init_device_mesh(get_device_name(), mesh_shape=(world_size,), mesh_dim_names=["fsdp"])
     else:
-        device_mesh = init_device_mesh("cuda", mesh_shape=(world_size // fsdp_size, fsdp_size), mesh_dim_names=["ddp", "fsdp"])
+        device_mesh = init_device_mesh(get_device_name(), mesh_shape=(world_size // fsdp_size, fsdp_size), mesh_dim_names=["ddp", "fsdp"])
     return device_mesh
 
 
@@ -77,7 +78,7 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
 
         use_remove_padding = self.config.model.get("use_remove_padding", False)
-        use_fused_kernels = self.config.model.get('use_fused_kernels', False)
+        use_fused_kernels = self.config.model.get("use_fused_kernels", False)
 
         if self._is_actor or self._is_rollout or self._is_ref:
             # we need the model for actor and rollout
@@ -112,24 +113,23 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
             with open_dict(self.config.actor):
                 self.config.actor.use_remove_padding = use_remove_padding
                 self.config.actor.use_fused_kernels = use_fused_kernels
-            self.actor = DataParallelPPOActor(config=self.config.actor,
-                                              actor_module=self.actor_module_fsdp,
-                                              actor_optimizer=self.actor_optimizer)
+            self.actor = DataParallelPPOActor(config=self.config.actor, actor_module=self.actor_module_fsdp, actor_optimizer=self.actor_optimizer)
 
         if self._is_rollout:
             self.rollout, self.rollout_sharding_manager = self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
 
         if self._is_ref:
-            self.ref_module_fsdp = self._build_model_optimizer(model_path=self.config.model.path,
-                                                               fsdp_config=self.config.ref.fsdp_config,
-                                                               optim_config=None,
-                                                               override_model_config=override_model_config,
-                                                               use_remove_padding=use_remove_padding,
-                                                               use_fused_kernels=use_fused_kernels,
-                                                               trust_remote_code=self.config.model.get(
-                                                                   'trust_remote_code', False),
-                                                               use_liger=self.config.model.get('use_liger', False),
-                                                               role='ref')[0]
+            self.ref_module_fsdp = self._build_model_optimizer(
+                model_path=self.config.model.path,
+                fsdp_config=self.config.ref.fsdp_config,
+                optim_config=None,
+                override_model_config=override_model_config,
+                use_remove_padding=use_remove_padding,
+                use_fused_kernels=use_fused_kernels,
+                trust_remote_code=self.config.model.get("trust_remote_code", False),
+                use_liger=self.config.model.get("use_liger", False),
+                role="ref",
+            )[0]
             OmegaConf.set_struct(self.config.ref, True)
             with open_dict(self.config.ref):
                 self.config.ref.use_remove_padding = use_remove_padding
@@ -146,7 +146,7 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
         assert self._is_ref
 
         # Support all hardwares
-        data = data.to(torch.cuda.current_device())
+        data = data.to(get_device_id())
 
         micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
@@ -175,7 +175,7 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
         # Support all hardwares
-        data = data.to(torch.cuda.current_device())
+        data = data.to(get_device_id())
         # we should always recompute old_log_probs when it is HybridEngine
         data.meta_info["micro_batch_size"] = self.config.rollout.log_prob_micro_batch_size_per_gpu
         data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
@@ -209,7 +209,7 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
         on pre-calculated log probabilities.
         """
         # Support all hardwares
-        data = data.to(torch.cuda.current_device())
+        data = data.to(get_device_id())
 
         assert self._is_actor  # Make sure this worker has the actor role
         if self.actor is None:
@@ -219,7 +219,7 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
         if self._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.cuda.current_device())
+            load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=get_device_id())
 
         log_gpu_memory_usage("Before update policy (DPO via PPO path)", logger=logger)
 
@@ -236,8 +236,8 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
             # --- Add Performance Metrics ---
             # MFU calculation might be less accurate/meaningful here for DPO
             metrics["perf/approx_tokens_processed"] = torch.sum(data.batch.get("attention_mask", torch.tensor(0))).item()  # Approx tokens
-            metrics["perf/max_memory_allocated_gb"] = torch.cuda.max_memory_allocated() / (1024**3)
-            metrics["perf/max_memory_reserved_gb"] = torch.cuda.max_memory_reserved() / (1024**3)
+            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
+            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
             metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
             global_num_tokens = data.meta_info["global_token_num"]
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
@@ -275,7 +275,7 @@ class RewardModelWorker(Worker):
         import torch.distributed
 
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend="nccl")
+            torch.distributed.init_process_group(backend=get_nccl_backend())
         self.config = config
 
         # build device mesh for Ulysses Sequence Parallel
@@ -289,7 +289,7 @@ class RewardModelWorker(Worker):
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
         dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
-            self.ulysses_device_mesh = init_device_mesh("cuda", mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"])
+            self.ulysses_device_mesh = init_device_mesh(get_device_name(), mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"])
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
 
@@ -346,7 +346,7 @@ class RewardModelWorker(Worker):
             param_init_fn=init_fn,
             use_orig_params=False,
             auto_wrap_policy=auto_wrap_policy,
-            device_id=torch.cuda.current_device(),
+            device_id=get_device_id(),
             sharding_strategy=sharding_strategy,  # zero3
             sync_module_states=True,
             cpu_offload=CPUOffload(offload_params=True),
@@ -367,7 +367,7 @@ class RewardModelWorker(Worker):
 
         from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 
-        with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        with torch.no_grad(), torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
@@ -488,7 +488,7 @@ class RewardModelWorker(Worker):
         from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 
         # Support all hardwares
-        data = data.to(torch.cuda.current_device())
+        data = data.to(get_device_id())
         if self._do_switch_chat_template:
             rm_data = self._switch_chat_template(data)
         else:
@@ -499,7 +499,7 @@ class RewardModelWorker(Worker):
             rm_data = DataProto.from_dict(rm_inputs)
 
         # Support all hardwares
-        rm_data.batch = rm_data.batch.to(torch.cuda.current_device())
+        rm_data.batch = rm_data.batch.to(get_device_id())
 
         # perform forward computation
         with self.ulysses_sharding_manager:
