@@ -156,7 +156,7 @@ class AsyncRolloutRequest(BaseModel):
         return_dict: bool = False,
     ):
         if isinstance(processing_class, PreTrainedTokenizer) or isinstance(processing_class, PreTrainedTokenizerFast):
-            if multi_modal_data:
+            if any(len(values) > 0 for values in multi_modal_data.values()):
                 logger.warning("There is multi_modal_data but you are not using a processor. Multi-modal data will be ignored.")
             return processing_class.apply_chat_template(messages, tools=tools, add_generation_prompt=add_generation_prompt, tokenize=tokenize, return_dict=return_dict)
         elif isinstance(processing_class, ProcessorMixin):
