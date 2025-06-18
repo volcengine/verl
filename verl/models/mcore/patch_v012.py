@@ -1,5 +1,6 @@
 # Copyright 2025 Bytedance Ltd. and/or its affiliates
 # Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -198,3 +199,189 @@ def apply_patch():
         return query, key, value
 
     MLASelfAttention.get_query_key_value_tensors = patch_get_query_key_value_tensors
+
+
+def apply_optimizer_sharded_save_load_patches():
+    """
+    Apply patch to ChainedOptimizer and DistributedOptimizer in mcore 0.12.0 to enable
+    saving sharded optimizer state from GPU to disk directly without DP gathering to CPU memory.
+    """
+    from pathlib import Path
+
+    import torch
+    from megatron.core.optimizer.distrib_optimizer import DistributedOptimizer
+    from megatron.core.optimizer.optimizer import ChainedOptimizer
+
+    def get_parameter_state_local(self):
+        """
+        Get parameter state (i.e., parameter & optimizer tensors).
+
+        Each rank returns its own sharded state directly from GPU.
+        The state is already sharded in the buffer.
+        """
+        if self.ddp_config.use_custom_fsdp:
+            state = {"buckets_coalesced": True}
+            for model_chunk in self.model_chunks:
+                pg_buffer = model_chunk.param_and_grad_buffer
+                for group_id, group in enumerate(pg_buffer.parameter_groups):
+                    this_group_state = {}
+                    mbuf = group.master_weight_buffer
+                    for item_id, _ in enumerate(group.params):
+                        main_param = mbuf.get_item(item_id)
+                        optim_state = self.optimizer.state[main_param]
+                        # Keep tensors on GPU
+                        for name, value in optim_state.items():
+                            assert torch.is_tensor(value), f"Expected tensor, got {type(value)}"
+                            this_group_state.setdefault(name, []).append(value)
+
+                    state[f"group_{group_id}"] = this_group_state
+            return state
+
+        state = {"buckets_coalesced": True}
+        for gbuf_idx, gbuf_range_maps in enumerate(self.gbuf_ranges):
+            dtype_state = {}
+            assert len(gbuf_range_maps) == 1, "single dtype supported, for now."
+            for dtype, gbuf_range_map_for_all_buckets in gbuf_range_maps.items():
+                local_tensors = {}
+                for key in ("param", "exp_avg", "exp_avg_sq"):
+                    local_tensors[key] = []
+
+                for gbuf_range_map in gbuf_range_map_for_all_buckets:
+                    # Build contiguous DP rank shards (for param + optim states)
+                    for model_param, param_range_map in gbuf_range_map["param_map"].items():
+                        tensors = self._get_main_param_and_optimizer_states(model_param)
+
+                        # Store references to existing tensors
+                        gbuf_local_start = param_range_map["gbuf_local"].start
+                        gbuf_local_end = param_range_map["gbuf_local"].end
+                        for key in local_tensors:
+                            local_tensors[key].append({"tensor": tensors[key], "start": gbuf_local_start, "end": gbuf_local_end})
+
+                dtype_state[dtype] = local_tensors
+            state[gbuf_idx] = dtype_state
+        return state
+
+    def load_parameter_state_local(self, state_dict):
+        """
+        Load local parameter state.
+        """
+        if self.ddp_config.use_custom_fsdp:
+            for model_chunk in self.model_chunks:
+                pg_buffer = model_chunk.param_and_grad_buffer
+                for group_id, group in enumerate(pg_buffer.parameter_groups):
+                    if f"group_{group_id}" not in state_dict:
+                        continue
+                    this_group_state = state_dict[f"group_{group_id}"]
+                    mbuf = group.master_weight_buffer
+                    for item_id, _ in enumerate(group.params):
+                        main_param = mbuf.get_item(item_id)
+                        optim_state = self.optimizer.state[main_param]
+                        for name, value in this_group_state.items():
+                            if name in optim_state:
+                                optim_state[name].copy_(value)
+            return
+
+        for gbuf_idx, gbuf_range_maps in enumerate(self.gbuf_ranges):
+            assert len(gbuf_range_maps) == 1, "single dtype supported, for now."
+            for dtype, gbuf_range_map_for_all_buckets in gbuf_range_maps.items():
+                if gbuf_idx not in state_dict or dtype not in state_dict[gbuf_idx]:
+                    continue
+
+                local_tensors = state_dict[gbuf_idx][dtype]
+
+                for gbuf_range_map in gbuf_range_map_for_all_buckets:
+                    for model_param, param_range_map in gbuf_range_map["param_map"].items():
+                        gbuf_local_start = param_range_map["gbuf_local"].start
+                        gbuf_local_end = param_range_map["gbuf_local"].end
+
+                        tensors = self._get_main_param_and_optimizer_states(model_param)
+
+                        for key in tensors:
+                            # Find the matching tensor reference in the loaded state
+                            for tensor_ref in local_tensors[key]:
+                                if tensor_ref["start"] == gbuf_local_start and tensor_ref["end"] == gbuf_local_end:
+                                    tensors[key].copy_(tensor_ref["tensor"])
+                                    # Exit early to avoid unnecessary iteration
+                                    break
+
+    def save_sharded_parameter_state(self, filename: str):
+        """Save the distributed parameter state directly from GPU to disk in a sharded format.
+
+        Args:
+            filename (str): path to save parameter state to.
+        """
+        if self.is_stub_optimizer:
+            return
+
+        state_dict = self.get_parameter_state_local()
+        torch.save(state_dict, filename)
+
+    def load_sharded_parameter_state(self, filename: str):
+        """Load the distributed parameter state from sharded checkpoints.
+
+        Args:
+            filename (str): path to load parameter state from.
+        """
+        if self.is_stub_optimizer:
+            return
+
+        try:
+            state_dict = torch.load(filename)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Could not find checkpoint file {filename}.")
+
+        self.load_parameter_state_local(state_dict)
+
+    def save_chained_sharded_parameter_state(self, filename: str):
+        """
+        Save the distributed parameter states of all optimizers in a sharded format.
+
+        Each optimizer's state is saved directly to disk without gathering to DP 0.
+        The checkpoint files are saved in separate folders for each optimizer.
+
+        Args:
+            filename (str): path to save parameter state to.
+        """
+        if len(self.chained_optimizers) == 1:
+            self.chained_optimizers[0].save_sharded_parameter_state(filename)
+            return
+
+        for idx, optimizer in enumerate(self.chained_optimizers):
+            if hasattr(optimizer, "save_sharded_parameter_state"):
+                optimizer_dir = Path(filename).parent / f"optimizer_{idx}"
+                if torch.distributed.get_rank() == 0:
+                    optimizer_dir.mkdir(exist_ok=True)
+
+                # Ensure directory exists before saving
+                torch.distributed.barrier()
+
+                optimizer_filename = optimizer_dir / Path(filename).name
+                optimizer.save_sharded_parameter_state(str(optimizer_filename))
+
+    def load_chained_sharded_parameter_state(self, filename: str):
+        """Load the distributed parameter states of all optimizers from sharded checkpoints.
+
+        Each optimizer's state is loaded directly without gathering to DP 0.
+        The checkpoint files are expected to be in optimizer-specific folders.
+
+        Args:
+            filename (str): Base filename for the checkpoint. The actual filename will include
+                          the rank information and be loaded from optimizer-specific folders.
+        """
+        if len(self.chained_optimizers) == 1:
+            self.chained_optimizers[0].load_sharded_parameter_state(filename)
+            return
+
+        for idx, optimizer in enumerate(self.chained_optimizers):
+            if not hasattr(optimizer, "load_sharded_parameter_state"):
+                continue
+            optimizer_dir = Path(filename).parent / f"optimizer_{idx}"
+            optimizer_filename = optimizer_dir / Path(filename).name
+            optimizer.load_sharded_parameter_state(str(optimizer_filename))
+
+    DistributedOptimizer.get_parameter_state_local = get_parameter_state_local
+    DistributedOptimizer.load_parameter_state_local = load_parameter_state_local
+    DistributedOptimizer.save_sharded_parameter_state = save_sharded_parameter_state
+    DistributedOptimizer.load_sharded_parameter_state = load_sharded_parameter_state
+    ChainedOptimizer.save_sharded_parameter_state = save_chained_sharded_parameter_state
+    ChainedOptimizer.load_sharded_parameter_state = load_chained_sharded_parameter_state
