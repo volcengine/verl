@@ -14,9 +14,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 from verl.utils.megatron_utils import unwrap_model
 
-from .util import postprocess_packed_seqs, preprocess_packed_seqs, recover_left_padding, remove_left_padding
+from .util import (
+    AllGatherLanguageOutputs,
+    postprocess_packed_seqs,
+    preprocess_packed_seqs,
+    recover_left_padding,
+    remove_left_padding,
+)
 
 
 def gptmodel_forward(
@@ -74,15 +81,12 @@ def gptmodel_forward_qwen2_5_vl(
     logits_processor_args: dict = None,
     **kwargs,
 ):
-    from megatron.core import parallel_state as mpu
-
-    assert mpu.get_context_parallel_world_size() == 1, "qwen2_5_vl's context parallel is not accurate yet"
     pre_process = unwrap_model(model).pre_process
     post_process = unwrap_model(model).post_process
     if pack_seqs:
         batch_size, seq_len = attention_mask.shape[:2]
-        input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask, pre_process=True)
-        input_ids_rmpad = input_ids_rmpad.contiguous()
+        input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask, pre_process=True, bypass_cp_shard=True)
+        input_ids_rmpad = input_ids_rmpad.contiguous()  # S, 1, H
         output_orig = model(
             input_ids=input_ids_rmpad,
             attention_mask=None,
@@ -93,11 +97,16 @@ def gptmodel_forward_qwen2_5_vl(
         )
 
         if post_process and logits_processor is not None:
+            # process the labels and loss mask
             args = {k: preprocess_packed_seqs(v, attention_mask, pre_process=True)[0] for k, v in logits_processor_args.items()}
             output_dict = logits_processor(output_orig, **args)
-            output = {k: postprocess_packed_seqs(v, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process) for k, v in output_dict.items()}
+            if unwrap_model(model).llm_cp_size > 1:
+                output_dict = {k: AllGatherLanguageOutputs.apply(v, packed_seq_params) for k, v in output_dict.items()}
+            output = {k: postprocess_packed_seqs(v, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process, bypass_cp_allgather=True) for k, v in output_dict.items()}
         else:
-            output = postprocess_packed_seqs(output_orig, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
+            if unwrap_model(model).llm_cp_size > 1 and post_process:
+                output_orig = AllGatherLanguageOutputs.apply(output_orig, packed_seq_params)
+            output = postprocess_packed_seqs(output_orig, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process, bypass_cp_allgather=True)
     else:
         batch_size, sequence_length = attention_mask.shape
         new_input_ids, new_attention_mask, new_position_ids = remove_left_padding(input_ids, attention_mask, position_ids, sequence_parallel, pre_process=pre_process)
