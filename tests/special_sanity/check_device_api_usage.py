@@ -52,7 +52,7 @@ NCCL_KEYWORD_CHECK_WHITELIST = [
 
 SEARCH_WHITELIST = CUDA_KEYWORD_CHECK_WHITELIST + NCCL_KEYWORD_CHECK_WHITELIST
 
-SEARCH_KEYWORDS = [".cuda", "\"cuda\"", "\"nccl\""]
+SEARCH_KEYWORDS = [".cuda", '"cuda"', '"nccl"']
 
 
 if __name__ == "__main__":
@@ -91,4 +91,4 @@ if __name__ == "__main__":
 
             print(f"[CHECK] File {path_in_str} is detected for device api usage check, check result: {'success' if not find_invalid_device_management else 'failed'}.")
 
-            assert not find_invalid_device_management, f"file {path_in_str} contains .cuda/\"cuda\"/\"nccl\" usage, please use api in verl/utils/device.py directly."
+            assert not find_invalid_device_management, f'file {path_in_str} contains .cuda/"cuda"/"nccl" usage, please use api in verl/utils/device.py directly.'
