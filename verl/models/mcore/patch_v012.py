@@ -206,8 +206,9 @@ def apply_optimizer_sharded_save_load_patches():
     Apply patch to ChainedOptimizer and DistributedOptimizer in mcore 0.12.0 to enable
     saving sharded optimizer state from GPU to disk directly without DP gathering to CPU memory.
     """
-    import torch
     from pathlib import Path
+
+    import torch
     from megatron.core.optimizer.distrib_optimizer import DistributedOptimizer
     from megatron.core.optimizer.optimizer import ChainedOptimizer
 
@@ -254,11 +255,7 @@ def apply_optimizer_sharded_save_load_patches():
                         gbuf_local_start = param_range_map["gbuf_local"].start
                         gbuf_local_end = param_range_map["gbuf_local"].end
                         for key in local_tensors:
-                            local_tensors[key].append({
-                                "tensor": tensors[key],
-                                "start": gbuf_local_start,
-                                "end": gbuf_local_end
-                            })
+                            local_tensors[key].append({"tensor": tensors[key], "start": gbuf_local_start, "end": gbuf_local_end})
 
                 dtype_state[dtype] = local_tensors
             state[gbuf_idx] = dtype_state
@@ -302,8 +299,7 @@ def apply_optimizer_sharded_save_load_patches():
                         for key in tensors:
                             # Find the matching tensor reference in the loaded state
                             for tensor_ref in local_tensors[key]:
-                                if (tensor_ref["start"] == gbuf_local_start and
-                                    tensor_ref["end"] == gbuf_local_end):
+                                if tensor_ref["start"] == gbuf_local_start and tensor_ref["end"] == gbuf_local_end:
                                     tensors[key].copy_(tensor_ref["tensor"])
                                     # Exit early to avoid unnecessary iteration
                                     break
@@ -332,9 +328,7 @@ def apply_optimizer_sharded_save_load_patches():
         try:
             state_dict = torch.load(filename)
         except FileNotFoundError:
-            raise FileNotFoundError(
-                f"Could not find checkpoint file {filename}. "
-            )
+            raise FileNotFoundError(f"Could not find checkpoint file {filename}.")
 
         self.load_parameter_state_local(state_dict)
 
@@ -353,7 +347,7 @@ def apply_optimizer_sharded_save_load_patches():
             return
 
         for idx, optimizer in enumerate(self.chained_optimizers):
-            if hasattr(optimizer, 'save_sharded_parameter_state'):
+            if hasattr(optimizer, "save_sharded_parameter_state"):
                 optimizer_dir = Path(filename).parent / f"optimizer_{idx}"
                 if torch.distributed.get_rank() == 0:
                     optimizer_dir.mkdir(exist_ok=True)
@@ -379,7 +373,7 @@ def apply_optimizer_sharded_save_load_patches():
             return
 
         for idx, optimizer in enumerate(self.chained_optimizers):
-            if not hasattr(optimizer, 'load_sharded_parameter_state'):
+            if not hasattr(optimizer, "load_sharded_parameter_state"):
                 continue
             optimizer_dir = Path(filename).parent / f"optimizer_{idx}"
             optimizer_filename = optimizer_dir / Path(filename).name
