@@ -25,6 +25,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
+from verl.utils.device import get_device_name
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
@@ -77,6 +78,7 @@ class DataParallelPRIMERewardModel:
                 attention_mask=None,
                 position_ids=position_ids_rmpad,
                 use_cache=False,
+                return_dict=self.use_fused_kernels,
             )
 
             if self.use_fused_kernels:
@@ -100,6 +102,7 @@ class DataParallelPRIMERewardModel:
                 attention_mask=micro_batch["attention_mask"],
                 position_ids=micro_batch["position_ids"],
                 use_cache=False,
+                return_dict=self.use_fused_kernels,
             )
 
             if self.use_fused_kernels:
@@ -113,7 +116,7 @@ class DataParallelPRIMERewardModel:
 
         if self.ref_module is not None:
             # do not have to pad again
-            with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.no_grad(), torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):
                 if self.ulysses_sequence_parallel_size > 1 and self.use_remove_padding:
                     ref_output = self.ref_module(
                         input_ids=input_ids_rmpad,
@@ -289,7 +292,7 @@ class DataParallelPRIMERewardModel:
             self.reward_optimizer.zero_grad()
 
             for data in micro_batches:
-                data = data.cuda()
+                data = data.to(get_device_name())
                 attention_mask = data["attention_mask"]
                 acc = data["acc"]
 

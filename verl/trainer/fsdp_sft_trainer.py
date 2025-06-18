@@ -44,7 +44,7 @@ import verl.utils.hdfs_io as hdfs_io
 from verl.utils.dataset import SFTDataset
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.debug import log_gpu_memory_usage
-from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
+from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
 from verl.utils.distributed import destroy_global_process_group, initialize_global_process_group
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import CPUOffloadPolicy, MixedPrecisionPolicy, apply_fsdp2, fsdp2_clip_grad_norm_, fsdp2_load_full_state_dict, get_fsdp_wrap_policy, get_init_weight_context_manager, init_fn
@@ -199,6 +199,8 @@ class FSDPSFTTrainer:
         # load config first
         config = AutoConfig.from_pretrained(local_model_path, trust_remote_code=trust_remote_code)
         self.model_config = config
+        if hasattr(self.model_config, "max_position_embeddings"):
+            self.model_config.max_position_embeddings = max(self.model_config.max_position_embeddings, self.config.data.max_length)
         if self.config.ulysses_sequence_parallel_size > 1:
             assert self.use_remove_padding, "Sequence parallel is only supported when remove_padding is enabled"
 
@@ -271,7 +273,7 @@ class FSDPSFTTrainer:
                 param_init_fn=init_fn,
                 use_orig_params=False,
                 auto_wrap_policy=auto_wrap_policy,
-                device_id=get_torch_device().current_device(),
+                device_id=get_device_id(),
                 sharding_strategy=ShardingStrategy.FULL_SHARD,
                 mixed_precision=mixed_precision,
                 sync_module_states=True,
@@ -454,7 +456,7 @@ class FSDPSFTTrainer:
             torch.distributed.all_reduce(step_loss, op=torch.distributed.ReduceOp.AVG)
         elif is_npu_available:
             torch.distributed.all_reduce(step_loss)
-            step_loss /= self.ulysses_device_mesh.size(0)
+            step_loss /= self.device_mesh.size(0)
         return {"train/loss": step_loss.detach().item(), "train/lr(1e-3)": lr * 1e3}
 
     def validation_step(self, batch: TensorDict):
@@ -465,7 +467,7 @@ class FSDPSFTTrainer:
                 torch.distributed.all_reduce(loss, op=torch.distributed.ReduceOp.AVG)
             elif is_npu_available:
                 torch.distributed.all_reduce(loss)
-                loss /= self.ulysses_device_mesh.size(0)
+                loss /= self.device_mesh.size(0)
         return loss
 
     def save_checkpoint(self, step):

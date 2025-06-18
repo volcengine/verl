@@ -422,15 +422,13 @@ def pad_packed_inputs(unpad_tokens: torch.Tensor, cu_seqlens, max_seqlen_in_batc
 def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=False):
     from megatron.core import dist_checkpointing
     from megatron.core.dist_checkpointing.serialization import StrictHandling
-    from megatron.core.models.gpt.gpt_model import GPTModel
+
+    from verl.utils.megatron_utils import unwrap_model
 
     # strict = StrictHandling.IGNORE_ALL if is_value_model else StrictHandling.ASSUME_OK_UNEXPECTED
     strict = StrictHandling.ASSUME_OK_UNEXPECTED
     for model in parallel_model:
-        if isinstance(model.module, GPTModel):
-            ssd = model.module.sharded_state_dict()
-        else:
-            ssd = model.module.module.sharded_state_dict()
+        ssd = unwrap_model(model).sharded_state_dict()
         if is_value_model:
             for k in list(ssd.keys()):
                 if "output_layer" in k:
@@ -476,7 +474,6 @@ def patch_valuehead_model(model) -> None:
     from types import MethodType
 
     from transformers import PreTrainedModel
-
     from trl import AutoModelForCausalLMWithValueHead
 
     def tie_weights(self: "AutoModelForCausalLMWithValueHead") -> None:
@@ -495,16 +492,16 @@ def patch_valuehead_model(model) -> None:
         return False
 
     ignore_modules = [name for name, _ in model.named_parameters() if "pretrained_model" in name]
-    setattr(model, "_keys_to_ignore_on_save", ignore_modules)
-    setattr(model, "tie_weights", MethodType(tie_weights, model))
-    setattr(model, "get_input_embeddings", MethodType(get_input_embeddings, model))
-    setattr(model, "get_output_embeddings", MethodType(get_output_embeddings, model))
-    setattr(model, "can_generate", MethodType(can_generate, model))
-    setattr(model, "_no_split_modules", getattr(model.pretrained_model, "_no_split_modules", []))
+    model._keys_to_ignore_on_save = ignore_modules
+    model.tie_weights = MethodType(tie_weights, model)
+    model.get_input_embeddings = MethodType(get_input_embeddings, model)
+    model.get_output_embeddings = MethodType(get_output_embeddings, model)
+    model.can_generate = MethodType(can_generate, model)
+    model._no_split_modules = getattr(model.pretrained_model, "_no_split_modules", [])
 
 
 def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_code):
-    from transformers import AutoModelForTokenClassification, AutoModelForCausalLM, AutoModelForVision2Seq
+    from transformers import AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq
 
     try:
         model = AutoModelForTokenClassification.from_pretrained(

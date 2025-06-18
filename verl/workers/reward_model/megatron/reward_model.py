@@ -24,6 +24,7 @@ from megatron.core.pipeline_parallel import get_forward_backward_func
 from tensordict import TensorDict
 
 from verl import DataProto
+from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import broadcast_dict_tensor, pad_sequence_to_length
@@ -85,8 +86,8 @@ class MegatronRewardModel(BasePPORewardModel):
             if print_decode and torch.distributed.get_rank() == 0:
                 # only print first decode result
                 print(
-                    f"device {torch.cuda.current_device()}: sft decode result:\n{decode_result}\n \
-                        \ndevice {torch.cuda.current_device()}: sft decode result with \
+                    f"device {get_device_id()}: sft decode result:\n{decode_result}\n \
+                        \ndevice {get_device_id()}: sft decode result with \
                         rm chat template:\n{decode_with_rm_chat}\n\n"
                 )
                 print_decode = False
@@ -183,6 +184,8 @@ class MegatronRewardModel(BasePPORewardModel):
         token_level_rewards = rewards.expand(attention_mask.shape[0], attention_mask.shape[1])  # (bs, ori_seqlen)
 
         # assign last valid token reward to ori position
+        if position_ids.dim() == 3:  # qwen2vl mrope [bs, 3, seq_len]
+            position_ids = position_ids[:, 0, :]
         eos_mask_idx = torch.argmax(position_ids * attention_mask, dim=-1)  # (bs,)
         eos_mask = torch.zeros_like(attention_mask)
         eos_mask[torch.arange(batch_size), eos_mask_idx] = 1.0
@@ -194,7 +197,7 @@ class MegatronRewardModel(BasePPORewardModel):
             self.offload_params_to_cpu()
         else:
             # add empty cache after each compute
-            torch.cuda.empty_cache()
+            get_torch_device().empty_cache()
 
         batch = TensorDict({"rm_scores": token_level_rewards}, batch_size=input_ids.shape[0])
 
@@ -213,6 +216,11 @@ class MegatronRewardModel(BasePPORewardModel):
         broadcast_dict_tensor(mini_batch.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
 
         mini_batch.batch["attention_mask"] = mini_batch.batch["attention_mask"].to(bool)
+
+        self.has_multi_modal_inputs = "multi_modal_inputs" in mini_batch.non_tensor_batch.keys()
+        if self.has_multi_modal_inputs:
+            mini_batch.batch["multi_modal_inputs"] = mini_batch.non_tensor_batch["multi_modal_inputs"]
+            mini_batch.batch["multi_modal_inputs_idx"] = torch.Tensor(list(range(len(mini_batch.non_tensor_batch["multi_modal_inputs"])))).to(torch.int64)
 
         indices = None
         if use_dynamic_bsz:
@@ -247,6 +255,11 @@ class MegatronRewardModel(BasePPORewardModel):
 
             forward_fn = get_mcore_forward_fn(self.hf_config)
 
+            multi_modal_inputs = {}
+            if "multi_modal_inputs" in batch:
+                for key in batch["multi_modal_inputs"][0].keys():
+                    multi_modal_inputs[key] = torch.cat([batch["multi_modal_inputs"][i][key] for i in batch["multi_modal_inputs_idx"]], dim=0)
+
             output = forward_fn(
                 model,
                 input_ids,
@@ -254,6 +267,7 @@ class MegatronRewardModel(BasePPORewardModel):
                 position_ids,
                 sequence_parallel=self.tf_config.sequence_parallel,
                 value_model=True,
+                multi_modal_inputs=multi_modal_inputs,
             )
 
             return output, loss_func
@@ -283,6 +297,11 @@ class MegatronRewardModel(BasePPORewardModel):
                 micro_batch_size=1,  # in use for pp = 1
                 forward_only=True,
             )
+
+        if self.has_multi_modal_inputs:
+            data.batch.pop("multi_modal_inputs")
+            data.batch.pop("multi_modal_inputs_idx")
+            data.non_tensor_batch.pop("multi_modal_inputs")
         # loss_reduces contains the stats returned from loss_func
         losses_reduced = {"output": losses_reduced}
         if use_dynamic_bsz:
@@ -290,16 +309,16 @@ class MegatronRewardModel(BasePPORewardModel):
         return losses_reduced
 
     def offload_params_to_cpu(self):
-        if self.device == "cuda":
+        if self.device in ["cuda", "npu"]:
             for reward_model_module in self.reward_model_module:
                 for name, param in reward_model_module.named_parameters():
                     param.data = param.data.to("cpu", non_blocking=True)
             self.device = "cpu"
-            torch.cuda.empty_cache()
+            get_torch_device().empty_cache()
 
     def load_params_to_cuda(self):
         if self.device == "cpu":
             for reward_model_module in self.reward_model_module:
                 for name, param in reward_model_module.named_parameters():
-                    param.data = param.data.to(torch.cuda.current_device(), non_blocking=True)
-            self.device = "cuda"
+                    param.data = param.data.to(get_device_id(), non_blocking=True)
+            self.device = get_device_name()
