@@ -73,7 +73,7 @@ class AsyncRolloutRequest(BaseModel):
     request_id: str
     state: AsyncRolloutRequestStateEnum
     messages: List[Message]
-    multi_modal_data: Optional[Dict[str, Any]] = None
+    multi_modal_data: Dict[str, Any] = {}
     tool_schemas: Optional[List[OpenAIFunctionToolSchema]] = None
     tools_kwargs: Dict[str, Any] = {}
     input_ids: List[int]
@@ -113,10 +113,10 @@ class AsyncRolloutRequest(BaseModel):
         values["messages"] = [Message.model_validate(msg) for msg in messages]
 
         tools = [tool.model_dump() for tool in tool_schemas] if (tool_schemas := values.get("tool_schemas", [])) else None
-        multi_modal_data = multi_modal_data if (multi_modal_data := values.get("multi_modal_data", {})) else None
-        tokens_without_prompt = cls._handle_apply_chat_template(processing_class, messages, tools=tools, multi_modal_data=multi_modal_data, add_generation_prompt=False, tokenize=True)
+        multi_modal_data = values.get("multi_modal_data", {})
+        tokens_without_prompt = cls._handle_apply_chat_template(processing_class, messages, multi_modal_data=multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True)
         if not values.get("input_ids") or not values.get("attention_mask"):
-            tokenization_dict_with_prompt = cls._handle_apply_chat_template(processing_class, messages, tools=tools, multi_modal_data=multi_modal_data, add_generation_prompt=True, tokenize=True, return_dict=True)
+            tokenization_dict_with_prompt = cls._handle_apply_chat_template(processing_class, messages, multi_modal_data=multi_modal_data, tools=tools, add_generation_prompt=True, tokenize=True, return_dict=True)
 
             values["input_ids"], values["attention_mask"] = tokenization_dict_with_prompt["input_ids"], tokenization_dict_with_prompt["attention_mask"]
             if len(values["input_ids"]) > max_prompt_len:
@@ -127,8 +127,8 @@ class AsyncRolloutRequest(BaseModel):
         values["position_ids"] = values["prompt_position_ids"] = compute_position_id_with_mask(torch.tensor(values["attention_mask"])).tolist()
         values["loss_mask"] = values["prompt_loss_mask"] = [0] * len(values["input_ids"])
         values["generation_prompt_ids"] = values["input_ids"][len(tokens_without_prompt) :]
-        values["base_conv_wo_gen_prompt_end_pos"] = len(cls._handle_apply_chat_template(processing_class, BASE_CHAT_HISTORY, tools=tools, multi_modal_data=multi_modal_data, add_generation_prompt=False, tokenize=True))
-        values["base_conv_with_gen_prompt_end_pos"] = len(cls._handle_apply_chat_template(processing_class, BASE_CHAT_HISTORY, tools=tools, multi_modal_data=multi_modal_data, add_generation_prompt=True, tokenize=True))
+        values["base_conv_wo_gen_prompt_end_pos"] = len(cls._handle_apply_chat_template(processing_class, BASE_CHAT_HISTORY, multi_modal_data=multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True))
+        values["base_conv_with_gen_prompt_end_pos"] = len(cls._handle_apply_chat_template(processing_class, BASE_CHAT_HISTORY, multi_modal_data=multi_modal_data, tools=tools, add_generation_prompt=True, tokenize=True))
 
         return values
 
@@ -136,14 +136,14 @@ class AsyncRolloutRequest(BaseModel):
     def _handle_apply_chat_template(
         processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
         messages: List[Message],
-        tools: Optional[List[OpenAIFunctionToolSchema]] = None,
         multi_modal_data: Optional[Dict[str, Any]] = None,
+        tools: Optional[List[OpenAIFunctionToolSchema]] = None,
         add_generation_prompt: bool = False,
         tokenize: bool = False,
         return_dict: bool = False,
     ):
         if isinstance(processing_class, PreTrainedTokenizer) or isinstance(processing_class, PreTrainedTokenizerFast):
-            if multi_modal_data is not None:
+            if multi_modal_data:
                 logger.warning("There is multi_modal_data but you are not using a processor. Multi-modal data will be ignored.")
             return processing_class.apply_chat_template(messages, tools=tools, add_generation_prompt=add_generation_prompt, tokenize=tokenize, return_dict=return_dict)
         elif isinstance(processing_class, ProcessorMixin):
@@ -184,7 +184,7 @@ class AsyncRolloutRequest(BaseModel):
         if self.use_inference_chat_template:
             messages = [msg.model_dump() for msg in self.messages]
             tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
-            generation_prompt_ids = self._handle_apply_chat_template(processing_class, messages, tools=tools, multi_modal_data=self.multi_modal_data, add_generation_prompt=True, tokenize=True)[self.base_conv_with_gen_prompt_end_pos :]
+            generation_prompt_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=True, tokenize=True)[self.base_conv_with_gen_prompt_end_pos :]
             return generation_prompt_ids
         else:
             return self.input_ids
@@ -199,17 +199,33 @@ class AsyncRolloutRequest(BaseModel):
 
         messages = [*BASE_CHAT_HISTORY, self.messages[-1]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
-        content_ids = self._handle_apply_chat_template(processing_class, messages, tools=tools, multi_modal_data=self.multi_modal_data, add_generation_prompt=False, tokenize=True)[self.base_conv_with_gen_prompt_end_pos :]
+        content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_with_gen_prompt_end_pos :]
         self._update_input_ids(content_ids, attention_mask=True, loss_mask=True)
 
     def add_tool_response_messages(self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin], contents: list[str]) -> None:
         if not contents:
             return
-        self.messages.extend([Message(role="tool", content=content) for content in contents])
+
+        # We also handle the case when tool returns image
+        # We require the processing of the image and video to be done at tool.execute() level
+        for content in contents:
+            content_list = []
+            if isinstance(content, dict):
+                if "image" in content:
+                    content_list.append({"type": "image"})
+                    self.multi_modal_data["image"].append(content["image"])
+                elif "video" in content:
+                    content_list.append({"type": "video"})
+                    self.multi_modal_data["video"].append(content["video"])
+                else:
+                    content_list.append({"type": "text", "text": content["text"]})
+            else:
+                content_list.append({"type": "text", "text": content})
+            self.messages.append(Message(role="tool", content=content_list))
 
         messages = [*BASE_CHAT_HISTORY, *self.messages[-len(contents) :]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
-        content_ids = self._handle_apply_chat_template(processing_class, messages, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_wo_gen_prompt_end_pos :]
+        content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_wo_gen_prompt_end_pos :]
         self._update_input_ids(content_ids, attention_mask=True, loss_mask=False)
 
     def update_metrics(self, metrics: Any, tool_id: str) -> None:
@@ -229,7 +245,9 @@ class AsyncRolloutRequest(BaseModel):
         self.state = AsyncRolloutRequestStateEnum.COMPLETED
         self.reward_scores = reward_scores
         if self.enable_tokenization_sanity_check:
-            full_tokens = self._handle_apply_chat_template(processing_class, [msg.model_dump() for msg in self.messages], tools=([tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None), multi_modal_data=self.multi_modal_data, add_generation_prompt=False, tokenize=True)
+            messages = [msg.model_dump() for msg in self.messages]
+            tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
+            full_tokens = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True)
 
             if self.input_ids != full_tokens:
                 logger.warning("Inconsistent training and inference tokenization detected. This may lead to unexpected behavior during training. Please review your chat template to determine if this is intentional. For more information, refer to the multiturn README.md.")
