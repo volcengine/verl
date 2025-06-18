@@ -285,27 +285,19 @@ class DataParallelPPOActor(BasePPOActor):
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
 
-        select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
-        batch = data.select(batch_keys=select_keys).batch
-        has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
-
         def _get_micro_batches(data: DataProto) -> Tuple[list, list | None]:
-            micro_batch_size_config = data.meta_info.get("micro_batch_size")  # Used for non-dynamic
-            use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
-
-            batch_tensordict = data.batch  # This is a TensorDict
+            select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
+            batch = data.select(batch_keys=select_keys).batch
             has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch
 
             if has_multi_modal_inputs:
                 all_multi_modal_inputs_list = data.non_tensor_batch["multi_modal_inputs"]
                 if use_dynamic_bsz:
                     max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
-                    rearranged_text_micro_batches_tds, textual_indices = rearrange_micro_batches(
-                        batch=batch_tensordict, max_token_len=max_token_len
-                    )
+                    rearranged_text_micro_batches, textual_indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
 
                     final_micro_batches_list = []
-                    for i, text_mb_td in enumerate(rearranged_text_micro_batches_tds):
+                    for i, text_mb_td in enumerate(rearranged_text_micro_batches):
                         current_original_indices = textual_indices[i]
                         current_mm_inputs_list = [all_multi_modal_inputs_list[idx] for idx in current_original_indices]
 
@@ -314,16 +306,16 @@ class DataParallelPPOActor(BasePPOActor):
                         final_micro_batches_list.append(mb_dict)
                     return final_micro_batches_list, textual_indices
                 else:
-                    num_micro_batches = batch_tensordict.batch_size[0] // micro_batch_size_config
-                    micro_batches_dp = data.chunk(num_micro_batches)  # Returns List[DataProto]
+                    num_micro_batches = batch.batch_size[0] // micro_batch_size
+                    micro_batches_dp = data.chunk(num_micro_batches)
                     return micro_batches_dp, None
             elif use_dynamic_bsz:
                 max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
-                micro_batches_tds, indices = rearrange_micro_batches(batch=batch_tensordict, max_token_len=max_token_len)
-                return micro_batches_tds, indices
+                micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
+                return micro_batches, indices
             else:
-                micro_batches_tds = batch_tensordict.split(micro_batch_size_config)
-                return micro_batches_tds, None
+                micro_batches = batch.split(micro_batch_size)
+                return micro_batches, None
 
         micro_batches, indices = _get_micro_batches(data)
 
@@ -389,9 +381,7 @@ class DataParallelPPOActor(BasePPOActor):
                         batch_tensordict_for_rearrange = data.batch
 
                         max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-                        rearranged_text_micro_batches_tds, textual_indices = rearrange_micro_batches(
-                            batch=batch_tensordict_for_rearrange, max_token_len=max_token_len
-                        )
+                        rearranged_text_micro_batches_tds, textual_indices = rearrange_micro_batches(batch=batch_tensordict_for_rearrange, max_token_len=max_token_len)
 
                         for current_original_indices, text_mb_td in zip(textual_indices, rearranged_text_micro_batches_tds):
                             current_mm_inputs_list = [all_multi_modal_inputs_list[idx] for idx in current_original_indices]
@@ -421,10 +411,7 @@ class DataParallelPPOActor(BasePPOActor):
                             if isinstance(v, torch.Tensor):
                                 data[k] = v.to(get_device_id())
                             elif k == "multi_modal_inputs" and v is not None:
-                                data[k] = [
-                                    {kk: vv.to(get_device_id()) for kk, vv in item_dict.items()}
-                                    for item_dict in v
-                                ]
+                                data[k] = [{kk: vv.to(get_device_id()) for kk, vv in item_dict.items()} for item_dict in v]
                             else:
                                 data[k] = v
                     else:
