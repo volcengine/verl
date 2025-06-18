@@ -64,14 +64,12 @@ class AsyncSglangServer(AsyncServerBase):
         [outputs] = await asyncio.gather(output_future)
         return JSONResponse(outputs)
 
-    def wake_up(self):
-        futures = []
-        for worker in self.workers:
-            futures.append(worker.wake_up.remote())
-        ray.get(futures)
+    async def wake_up(self):
+        tasks = [worker.wake_up.remote() for worker in self.workers]
+        if tasks:
+            await asyncio.gather(*tasks)
 
-    def sleep(self):
-        futures = []
-        for worker in self.workers:
-            futures.append(worker.sleep.remote())
-        ray.get(futures)
+    async def sleep(self):
+        tasks = [worker.sleep.remote() for worker in self.workers]
+        if tasks:
+            await asyncio.gather(*tasks)
