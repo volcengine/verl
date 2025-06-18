@@ -126,7 +126,6 @@ jobs:
           rm -rf "${OUTPUT_PATH}"
       - name: Running multi-turn rollout tests on 8 L20 GPUs
         run: |
-          ray stop --force
           pip3 install --upgrade vllm==0.8.3 tensordict==0.7.2
           pytest -svvv tests/workers/rollout/rollout_vllm/test_vllm_chat_scheduler.py
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests

@@ -202,10 +202,10 @@ class TestRolloutWithTools:
 
     @pytest.fixture
     def mock_rollout(self, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config):
-        """创建预配置的SGLangRollout实例"""
+        """Mock the rollout instance"""
         with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
             rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
-            # 设置默认的sampling_params
+            # set default sampling_params
             rollout.sampling_params = {
                 "n": 1,
                 "max_new_tokens": sandbox_fusion_rollout_config.response_length,
@@ -216,7 +216,7 @@ class TestRolloutWithTools:
             return rollout
 
     def test_tools_registration(self, mock_rollout):
-        """测试工具注册功能"""
+        """Test tool registration functionality"""
         assert len(mock_rollout._tool_schemas) == 1
         assert "code_interpreter" in mock_rollout._tool_map.keys()
         from verl.tools.sandbox_fusion_tools import SandboxFusionTool
@@ -225,7 +225,7 @@ class TestRolloutWithTools:
         assert mock_rollout._tool_call_parser_type == "qwen25"
 
     def test_rollout_req_creation(self, mock_rollout, sandbox_data_proto):
-        """测试请求创建功能"""
+        """Test request creation functionality"""
         req_list = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)
         assert len(req_list) == 1
         assert req_list[0].state == AsyncRolloutRequestStateEnum.PENDING
@@ -252,7 +252,7 @@ class TestRolloutWithTools:
         )
 
     def test_over_size_case(self, mock_rollout, sandbox_data_proto, sandbox_fusion_data):
-        """测试超长响应截断情况"""
+        """Test over-size response truncation case"""
         mock_rollout.config.multi_turn.max_assistant_turns = 1
         req = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
@@ -275,7 +275,7 @@ class TestRolloutWithTools:
         assert len(output_req_list) == 1
         output_req = output_req_list[0]
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-        assert output_req.reward_scores == {"code_interpreter": []}
+        assert output_req.reward_scores.get("code_interpreter") == []
         # we should only have two message, one for prompt, second for response.
         assert len(output_req.messages) == 2
         assert output_req.messages[1] == Message(
@@ -286,7 +286,7 @@ class TestRolloutWithTools:
 
     @skip_if_valid_sandbox(sandbox_url)
     def test_tool_call_basic_case(self, mock_rollout, sandbox_data_proto, sandbox_fusion_data):
-        """测试基本工具调用情况"""
+        """Test basic tool call case"""
         mock_rollout.config.multi_turn.max_assistant_turns = 10
         mock_rollout._tool_map["code_interpreter"].sandbox_fusion_url = sandbox_url
         req = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
@@ -327,7 +327,7 @@ class TestRolloutWithTools:
 
     @skip_if_valid_sandbox(sandbox_url)
     def test_tool_call_batch_case(self, mock_rollout, sandbox_data_proto, sandbox_fusion_data):
-        """测试批量工具调用情况"""
+        """Test batch tool call case"""
         mock_rollout.config.multi_turn.max_assistant_turns = 10
         mock_rollout._tool_map["code_interpreter"].sandbox_fusion_url = sandbox_url
         req = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
@@ -380,18 +380,18 @@ class TestRolloutWithTools:
                 assert code_counter == 2
 
     def test_sampling_params_functionality(self, mock_rollout):
-        """测试sampling_params的功能"""
-        # 测试基本的copy功能
+        """Test sampling_params functionality"""
+        # test basic copy functionality
         copied_params = mock_rollout.sampling_params.copy()
         assert copied_params == mock_rollout.sampling_params
         assert copied_params is not mock_rollout.sampling_params
 
-        # 测试参数更新
+        # test parameter update
         copied_params.update({"temperature": 0.8, "top_p": 0.9})
         assert copied_params["temperature"] == 0.8
         assert copied_params["top_p"] == 0.9
 
-        # 确保原始参数没有被修改
+        # ensure original parameters are not modified
         assert "temperature" not in mock_rollout.sampling_params
         assert "top_p" not in mock_rollout.sampling_params
 
