@@ -1,0 +1,123 @@
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Atropos Trainer Configuration
+# This configuration file defines all parameters for Atropos-VERL integration
+
+# Atropos API Configuration
+atropos:
+  api_url: "http://localhost:9001"  # Atropos API server URL
+  timeout: 30                       # API request timeout in seconds
+
+# Training Configuration
+trainer:
+  project_name: "verl_atropos_integration"
+  experiment_name: "advantage_weighted_sft"
+  device: "cuda"
+  total_epochs: 1
+  total_training_steps: 1000
+  val_before_train: true
+  val_only: false
+  logger: "wandb"
+  
+  # Distributed training settings
+  n_gpus_per_node: 8
+  nnodes: 1
+  
+  # Profile settings (optional)
+  profile_steps: []  # List of steps to profile, e.g., [1, 10, 100]
+  controller_nsight_options:
+    nsight_systems: false
+    nsight_compute: false
+
+# Model Configuration
+model:
+  path: "microsoft/DialoGPT-medium"  # Model path or checkpoint
+  partial_pretrain: "microsoft/DialoGPT-medium"
+  trust_remote_code: false
+  external_lib: null
+  
+  # FSDP Configuration
+  fsdp_config:
+    model_dtype: "bf16"
+    use_meta_tensor: true
+    cpu_offload: false
+    mixed_precision: true
+    sharding_strategy: "FULL_SHARD"
+    activation_checkpointing: true
+
+# Data Configuration
+data:
+  train_batch_size: 32
+  micro_batch_size_per_gpu: 4
+  max_length: 512
+  max_response_length: 256
+  balance_dp_token: true
+  
+  # Dataset paths
+  train_data_paths: ["path/to/train/data.jsonl"]
+  val_data_paths: ["path/to/val/data.jsonl"]
+  
+  # Chat template (optional)
+  chat_template: null
+
+# Atropos-specific Configuration
+use_advantage_weighting: true
+advantage_normalization: "batch"  # "none", "batch", "global"
+advantage_clipping: [-3.0, 3.0]   # [min_val, max_val] or null
+
+# Batch retrieval settings
+batch_size: 4
+batch_retry_attempts: 8
+batch_retry_delay: 0.3
+batch_max_wait_time: 12.0
+
+# Ulysses Sequence Parallel Configuration
+ulysses_sequence_parallel_size: 1
+use_remove_padding: false
+
+# Optimizer Configuration
+optimizer:
+  name: "adamw"
+  lr: 1e-5
+  weight_decay: 0.01
+  beta1: 0.9
+  beta2: 0.999
+  eps: 1e-8
+
+# Learning Rate Schedule
+lr_scheduler:
+  name: "cosine"
+  warmup_steps: 100
+  warmup_ratio: 0.1
+
+# Checkpoint Configuration
+checkpoint:
+  save_steps: 100
+  save_total_limit: 3
+  save_dir: "./checkpoints/atropos"
+
+# Logging Configuration
+logging:
+  log_steps: 10
+  eval_steps: 100
+  save_steps: 100
+  logging_steps: 10
+
+# Environment Configuration
+env:
+  TOKENIZERS_PARALLELISM: "true"
+  NCCL_DEBUG: "WARN"
+  VLLM_LOGGING_LEVEL: "WARN"
+  VERL_ATROPOS_LOGGING_LEVEL: "INFO" 
