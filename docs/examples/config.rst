@@ -179,6 +179,7 @@ Actor/Rollout/Reference Policy
       engine_kwargs: # inference engine parameters
         vllm:
           swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+          disable_mm_preprocessor_cache: False # disable preprocessor cache for multimodel models
         sglang:
           attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
 
@@ -337,6 +338,7 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
 - ``actor_rollout_ref.rollout.engine_kwargs.vllm``: extra vllm engine args
 
   - ``swap_space``: swap space in GB used by the inference engine. Positive integer, e.g., ``32`` means 32 GB. ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
+  - ``disable_mm_preprocessor_cache``: Whether to disable preprocessor cache for multimodel models. 
 
 - ``actor_rollout_ref.rollout.engine_kwargs.sglang``: extra sglang engine args
 
@@ -538,7 +540,7 @@ Trainer
 - ``trainer.resume_mode``: The mode of resuming training. Support
   ``disable``, ``auto`` and ``resume_path``. If set to ``auto`` as default, the
   program will automatically resume from the latest checkpoint in the
-  default_hdfs_dir. If set to ``resume_path``, the program will resume
+  ``default_local_dir``. If set to ``resume_path``, the program will resume
   from the path specified in ``resume_from_path``.
 - ``trainer.resume_from_path``: The path to resume training from. Only
   effective when ``resume_mode`` is set to ``resume_path``.

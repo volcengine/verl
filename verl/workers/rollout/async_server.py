@@ -155,6 +155,7 @@ class AsyncLLMServerManager:
 
         # Init user provided chat scheduler in sperate thread.
         self.chat_scheduler: ChatCompletionScheduler = None
+        self.chat_scheduler_exception: Exception = None
         self.chat_scheduler_loop = None
         self.chat_scheduler_ready = threading.Event()
         self.chat_scheduler_thread = threading.Thread(target=self._init_chat_scheduler, daemon=True)
@@ -165,12 +166,16 @@ class AsyncLLMServerManager:
         self.chat_scheduler_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.chat_scheduler_loop)
 
-        self.chat_scheduler = ChatCompletionScheduler(
-            config=self.full_config,
-            server_addresses=self.server_addresses,
-        )
-
-        self.chat_scheduler_ready.set()
+        try:
+            self.chat_scheduler = ChatCompletionScheduler(
+                config=self.full_config,
+                server_addresses=self.server_addresses,
+            )
+        except Exception as e:
+            logger.exception(f"chat_scheduler init error: {e}")
+            self.chat_scheduler_exception = e
+        finally:
+            self.chat_scheduler_ready.set()
         self.chat_scheduler_loop.run_forever()
 
     def wake_up(self):
