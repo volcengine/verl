@@ -935,6 +935,9 @@ trainer:
   # Whether to run validation before training begins
   val_before_train: True
 
+  # Whether to run validation only
+  val_only: False
+
   # Validation frequency (in training iterations)
   test_freq: -1
 
