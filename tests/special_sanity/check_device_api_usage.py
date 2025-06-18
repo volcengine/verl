@@ -19,26 +19,24 @@ Some files that must contain ".cuda", "cuda" or "nccl" keyword is pre-defined in
 """
 
 import os
-
 from argparse import ArgumentParser
 from pathlib import Path
-
 
 # directory or file path must contain keyword ".cuda" or "cuda"
 CUDA_KEYWORD_CHECK_WHITELIST = [
     "verl/utils/device.py",
     "verl/third_party/vllm/vllm_v_0_5_4",
     "verl/third_party/vllm/vllm_v_0_6_3",
-    "recipe/prime/prime_ray_trainer.py", # appear in default device_name
-    "recipe/spin/spin_trainer.py", # appear in default device_name
-    "recipe/sppo/sppo_ray_trainer.py", # appear in default device_name
-    "verl/utils/debug/nvtx_profile.py", # appear in NsightSystemsProfiler
-    "verl/utils/kernel/linear_cross_entropy.py", # appear in nvidia nvtx
-    "verl/utils/rendezvous/ray_backend.py", # appear in cupy importance
-    "verl/single_controller/ray/base.py", # appear in default device_name
-    "verl/trainer/ppo/ray_trainer.py", # appear in default device_name
-    "verl/utils/reward_score/sandbox_fusion/utils.py", # appear in sandbox language type
-    "verl/workers/reward_model/megatron/reward_model.py", # appear in default device_name
+    "recipe/prime/prime_ray_trainer.py",  # appear in default device_name
+    "recipe/spin/spin_trainer.py",  # appear in default device_name
+    "recipe/sppo/sppo_ray_trainer.py",  # appear in default device_name
+    "verl/utils/debug/nvtx_profile.py",  # appear in NsightSystemsProfiler
+    "verl/utils/kernel/linear_cross_entropy.py",  # appear in nvidia nvtx
+    "verl/utils/rendezvous/ray_backend.py",  # appear in cupy importance
+    "verl/single_controller/ray/base.py",  # appear in default device_name
+    "verl/trainer/ppo/ray_trainer.py",  # appear in default device_name
+    "verl/utils/reward_score/sandbox_fusion/utils.py",  # appear in sandbox language type
+    "verl/workers/reward_model/megatron/reward_model.py",  # appear in default device_name
 ]
 
 # directory or file path must contain keyword "nccl"
@@ -46,7 +44,7 @@ NCCL_KEYWORD_CHECK_WHITELIST = [
     "verl/utils/device.py",
     "verl/third_party/vllm/vllm_v_0_5_4",
     "verl/third_party/vllm/vllm_v_0_6_3",
-    "verl/third_party/sglang/parallel_state.py", # appear in default backend
+    "verl/third_party/sglang/parallel_state.py",  # appear in default backend
 ]
 
 SEARCH_WHITELIST = CUDA_KEYWORD_CHECK_WHITELIST + NCCL_KEYWORD_CHECK_WHITELIST
