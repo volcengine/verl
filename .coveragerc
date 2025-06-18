@@ -1,0 +1,16 @@
+
+[run]
+source = verl/
+parallel = True
+
+# 排除特定文件/目录
+omit =
+    */tests/*
+    */.venv/*
+
+[report]
+# 报告中排除的文件
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
