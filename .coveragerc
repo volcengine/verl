@@ -1,6 +1,9 @@
 [run]
 branch = True
-parallel = True          # one .coverage.* file per process
+# one .coverage.* file per process
+parallel = True
 concurrency = multiprocessing
-source = verl            # restrict measurement
-sigterm = True           # let workers flush data on SIGTERM
+# restrict measurement
+source = verl
+# let workers flush data on SIGTERM
+sigterm = True
