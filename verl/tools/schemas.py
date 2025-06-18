@@ -15,7 +15,7 @@
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 
 class OpenAIFunctionPropertySchema(BaseModel):
@@ -62,21 +62,30 @@ class OpenAIFunctionCallSchema(BaseModel):
 
     name: str
     arguments: dict[str, Any]
+    has_decode_error: bool = Field(default=False, init=False, exclude=True)
 
-    @staticmethod
-    def from_openai_function_parsed_schema(parsed_schema: OpenAIFunctionParsedSchema) -> tuple["OpenAIFunctionCallSchema", bool]:
+    @model_validator(mode="wrap")
+    @classmethod
+    def parse_arguments(cls, values, handler):
+        """Parse arguments if it is a JSON string and set decode error flag."""
         has_decode_error = False
-        try:
-            arguments = json.loads(parsed_schema.arguments)
-        except json.JSONDecodeError:
-            arguments = {}
-            has_decode_error = True
-        # If the arguments is not a dict, it means the arguments is not a valid JSON string
-        if not isinstance(arguments, dict):
-            arguments = {}
-            has_decode_error = True
 
-        return OpenAIFunctionCallSchema(name=parsed_schema.name, arguments=arguments), has_decode_error
+        if isinstance(values, dict) and "arguments" in values:
+            arguments = values["arguments"]
+            if isinstance(arguments, str):
+                try:
+                    parsed = json.loads(arguments)
+                    if not isinstance(parsed, dict):
+                        parsed = {}
+                        has_decode_error = True
+                    values["arguments"] = parsed
+                except json.JSONDecodeError:
+                    values["arguments"] = {}
+                    has_decode_error = True
+
+        instance = handler(values)
+        object.__setattr__(instance, "has_decode_error", has_decode_error)
+        return instance
 
 
 class OpenAIFunctionToolCall(BaseModel):

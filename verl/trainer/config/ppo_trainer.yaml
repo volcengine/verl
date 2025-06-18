@@ -484,11 +484,26 @@ actor_rollout_ref:
       # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
       enable: False
 
+      # Chat template kwargs that will be passed to chat template renderer. Example: {"enable_thinking": False}
+      chat_template_kwargs: null
+
       # null for no limit (default max_length // 3)
       max_turns: null
 
       # null for no tool
       tool_config_path: null
+
+      # LangGraph script for multiturn rollout.
+      langgraph:
+
+        # Path to the LangGraph script file.
+        path: null
+
+        # The name of the graph object. Default is 'graph'.
+        name: graph
+
+        # Runnable config for LangGraph.
+        graph_config: {}
 
       # null for default callback
       completion_callback: null
