@@ -95,7 +95,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install hf_transfer
+          pip3 install hf_transfer fastmcp
           pip3 install -e .[test,gpu,sglang] --no-deps
       - name: Download Model to Use
         run: |
