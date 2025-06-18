@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import logging
 import os
 import time
@@ -41,22 +42,24 @@ def get_random_string(length: int) -> str:
 
 
 def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, blocking):
-    def func(*args, **kwargs):
-        args, kwargs = dispatch_fn(self, *args, **kwargs)
-        padding_count = kwargs.pop(_padding_size_key, 0)
-        output = execute_fn(method_name, *args, **kwargs)
-        if blocking:
-            output = ray.get(output)
-        output = collect_fn(self, output)
-        if padding_count > 0:
-            if isinstance(output, DataProto):
-                indices = [i for i in range(len(output))][:-padding_count]
-                output = output.select_idxs(indices)
-            elif isinstance(output, list):
-                output = output[:-padding_count]
-        return output
+    class Functor:
+        def __call__(this, *args, **kwargs):
+            args, kwargs = dispatch_fn(self, *args, **kwargs)
+            padding_count = kwargs.pop(_padding_size_key, 0)
+            output = execute_fn(method_name, *args, **kwargs)
+            if blocking:
+                output = ray.get(output)
+            output = collect_fn(self, output)
+            if padding_count > 0:
+                if isinstance(output, DataProto):
+                    indices = [i for i in range(len(output))][:-padding_count]
+                    output = output.select_idxs(indices)
+                elif isinstance(output, list):
+                    output = output[:-padding_count]
+            return output
 
-    return func
+    # use class type to pass the method_name to get a better observability
+    return type(method_name, (Functor,), {})()
 
 
 def sort_placement_group_by_node_ip(pgs: List[PlacementGroup]) -> List[PlacementGroup]:
@@ -84,16 +87,18 @@ class RayResourcePool(ResourcePool):
         self,
         process_on_nodes: Optional[List[int]] = None,
         use_gpu: bool = True,
-        name_prefix: str = "",
+        name_prefix: str = None,
         max_colocate_count: int = 10,
         detached=False,
+        accelerator_type: Optional[str] = None,
     ) -> None:
         super().__init__(process_on_nodes, max_colocate_count)
         self.use_gpu = use_gpu
         # print(f"in RayProcessDispatchConfiguration: name_prefix = {name_prefix}")
-        self.name_prefix = name_prefix
+        self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
         self.pgs = None
         self.detached = detached
+        self.accelerator_type = accelerator_type
 
     def get_placement_groups(self, strategy="STRICT_PACK", name=None, device_name="cuda"):
         if self.pgs is not None:
@@ -105,7 +110,13 @@ class RayResourcePool(ResourcePool):
             device_name = "NPU"
         elif device_name == "cuda":
             device_name = "GPU"
-        pg_scheme = [[{"CPU": self.max_colocate_count, device_name: 1} if self.use_gpu else {"CPU": self.max_colocate_count} for _ in range(process_count)] for process_count in self._store]
+
+        bundle = {"CPU": self.max_colocate_count}
+        if self.use_gpu:
+            bundle[device_name] = 1
+            if self.accelerator_type is not None:
+                bundle[self.accelerator_type] = 1e-4
+        pg_scheme = [[bundle.copy() for _ in range(process_count)] for process_count in self._store]
 
         lifetime = "detached" if self.detached else None
 
@@ -258,6 +269,10 @@ class RayWorkerGroup(WorkerGroup):
         # if a WorkerGroup is spawned from Colocate WorkerGroup, this indicates which sub-class is binded to this WorkerGroup.
         self.sub_cls_name = ""
         self.device_name = device_name
+        self.profile_steps = kwargs.get("profile_steps", None)
+        self.worker_nsight_options = kwargs.get("worker_nsight_options", None)
+        if self.worker_nsight_options is not None and self.worker_nsight_options["capture-range-end"] is None:
+            self.worker_nsight_options["capture-range-end"] = f"repeat-shutdown:{6 * len(self.profile_steps)}"
 
         if worker_names is not None and (not self.fused_worker_used):
             assert self._is_init_with_detached_workers
@@ -342,7 +357,18 @@ class RayWorkerGroup(WorkerGroup):
                 cia_name = match.group(1) if match else cia_name  # "ActorClass(Obj)" -> "Obj"
                 name = f"{self.name_prefix}{cia_name}_{pg_idx}:{local_rank}"  # e.g. Worker_2:5
 
-                ray_cls_with_init.update_options({"runtime_env": {"env_vars": env_vars}, "name": name})
+                if self.profile_steps:
+                    ray_cls_with_init.update_options(
+                        {
+                            "runtime_env": {
+                                "env_vars": env_vars,
+                                "nsight": self.worker_nsight_options,
+                            },
+                            "name": name,
+                        }
+                    )
+                else:
+                    ray_cls_with_init.update_options({"runtime_env": {"env_vars": env_vars}, "name": name})
 
                 if detached:
                     ray_cls_with_init.update_options({"lifetime": "detached"})
@@ -395,10 +421,11 @@ class RayWorkerGroup(WorkerGroup):
     @classmethod
     def from_detached(
         cls,
-        name_prefix,
+        name_prefix=None,
         worker_names=None,
         worker_handles=None,
         ray_cls_with_init=None,
+        **kwargs,
     ):
         """Create a worker group from existing detached workers.
 
@@ -410,7 +437,7 @@ class RayWorkerGroup(WorkerGroup):
         Returns:
             A new RayWorkerGroup instance
         """
-        worker_group = cls(resource_pool=None, ray_cls_with_init=ray_cls_with_init, name_prefix=name_prefix, worker_names=worker_names, worker_handles=worker_handles)
+        worker_group = cls(resource_pool=None, ray_cls_with_init=ray_cls_with_init, name_prefix=name_prefix, worker_names=worker_names, worker_handles=worker_handles, **kwargs)
         return worker_group
 
     def spawn(self, prefix_set):
@@ -441,6 +468,8 @@ class RayWorkerGroup(WorkerGroup):
                 worker_names=self._worker_names,
                 worker_handles=self._workers,
                 ray_cls_with_init=self.ray_cls_with_init,
+                profile_steps=self.profile_steps,
+                worker_nsight_options=self.worker_nsight_options,
             )
 
             _rebind_actor_methods(new_worker_group, prefix)
@@ -606,7 +635,7 @@ class RayWorkerGroup(WorkerGroup):
 
 
 """
-Utilities that enables creating workers inside the same ray.Actor, 
+Utilities that enables creating workers inside the same ray.Actor,
 with code written in separate ray.Actors.
 """
 
@@ -633,7 +662,13 @@ def _bind_workers_method_to_parent(cls, key, user_defined_cls):
                     # dispatch to the actual worker
                     return getattr(self.worker_dict[key], name)(*args, **kwargs)
 
-                return func  # noqa: B023
+                async def async_func(self, *args, **kwargs):
+                    # dispatch to the actual worker
+                    return await getattr(self.worker_dict[key], name)(*args, **kwargs)
+
+                wrapper = async_func if inspect.iscoroutinefunction(method) else func  # noqa: B023
+
+                return wrapper
 
             func = generate_function(method_name)
             # pass MAGIC_ATTR for outer worker group

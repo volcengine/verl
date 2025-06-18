@@ -14,13 +14,14 @@
 
 import logging
 import os
-import pkg_resources
 
-from pkg_resources import DistributionNotFound
+import pkg_resources
 from packaging.version import parse as parse_version
+from pkg_resources import DistributionNotFound
+
 from .protocol import DataProto
-from .utils.logging_utils import set_basic_config
 from .utils.device import is_npu_available
+from .utils.logging_utils import set_basic_config
 
 version_folder = os.path.dirname(os.path.join(os.path.abspath(__file__)))
 
@@ -44,8 +45,10 @@ if os.getenv("VERL_USE_MODELSCOPE", "False").lower() == "true":
     patch_hub()
 
 if is_npu_available:
-    package_name = 'transformers'
-    required_version_spec = '4.51.0'
+    from .models.transformers import npu_patch as npu_patch
+
+    package_name = "transformers"
+    required_version_spec = "4.52.4"
     try:
         installed_version = pkg_resources.get_distribution(package_name).version
         installed = parse_version(installed_version)
@@ -53,6 +56,5 @@ if is_npu_available:
 
         if not installed >= required:
             raise ValueError(f"{package_name} version >= {required_version_spec} is required on ASCEND NPU, current version is {installed}.")
-    except DistributionNotFound:
-        raise ImportError(
-            f"package {package_name} is not installed, please run pip install {package_name}=={required_version_spec}")
+    except DistributionNotFound as e:
+        raise ImportError(f"package {package_name} is not installed, please run pip install {package_name}=={required_version_spec}") from e

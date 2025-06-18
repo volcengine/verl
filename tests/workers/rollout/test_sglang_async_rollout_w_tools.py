@@ -35,8 +35,8 @@ from utils_sglang import (
 )
 
 from verl import DataProto
-from verl.workers.rollout.sglang_rollout.async_sglang_rollout import AsyncSGLangRollout
-from verl.workers.sharding_manager.fsdp_sglang import FSDPAsyncSGLangShardingManager
+from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
+from verl.workers.sharding_manager.fsdp_sglang import FSDPSGLangShardingManager
 
 
 def test_async_sglang_rollout_w_tool():
@@ -77,10 +77,10 @@ def test_async_sglang_rollout_w_tool():
         device_mesh=fsdp_device_mesh,
     )
 
-    rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size)
-    rollout = AsyncSGLangRollout(actor_module=local_model_path, config=rollout_config, tokenizer=tokenizer, model_hf_config=actor_model.config)
+    rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, "./resource/tool_configs/sandbox_fusion_tool_config")
+    rollout = SGLangRollout(actor_module=local_model_path, config=rollout_config, tokenizer=tokenizer, model_hf_config=actor_model.config)
 
-    rollout_sharding_manager = FSDPAsyncSGLangShardingManager(
+    rollout_sharding_manager = FSDPSGLangShardingManager(
         module=fsdp_model,
         inference_engine=rollout._engine,
         model_config=actor_model.config,
@@ -100,7 +100,7 @@ def test_async_sglang_rollout_w_tool():
         print(f"preprocessed {input_ids.shape=}")
 
         messages = np.asarray(preencode_prompts)
-        prompts = DataProto(batch=prompt_dict, non_tensor_batch={"raw_prompt": messages})
+        prompts = DataProto(batch=prompt_dict, non_tensor_batch={"raw_prompt": messages, "tools_kwargs": np.array([{}] * input_ids.shape[0], dtype=object)})
 
         prompts.meta_info.update(
             {
@@ -111,7 +111,7 @@ def test_async_sglang_rollout_w_tool():
 
         prompts = rollout_sharding_manager.preprocess_data(prompts)
         # log_gpu_memory_usage("Before generating sequences", logger=None)
-        output = rollout.generate_sequences_with_tools(prompts=prompts)
+        output = rollout.generate_sequences(prompts=prompts)
         print(f"generated {output.batch['responses'].shape=}")
         # log_gpu_memory_usage("After generating sequences", logger=None)
         output = rollout_sharding_manager.postprocess_data(output)

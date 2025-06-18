@@ -16,40 +16,15 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 """
 
 import os
+import socket
 
 import hydra
 import ray
+from omegaconf import OmegaConf
+
+from verl.trainer.ppo.reward import get_custom_reward_fn
 
 from .dapo_ray_trainer import RayDAPOTrainer
-from verl.utils.device import is_cuda_available
-
-
-def get_custom_reward_fn(config):
-    import importlib.util
-
-    reward_fn_config = config.get("custom_reward_function") or {}
-    file_path = reward_fn_config.get("path")
-    if not file_path:
-        return None
-
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Reward function file '{file_path}' not found.")
-
-    spec = importlib.util.spec_from_file_location("custom_module", file_path)
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
-    except Exception as e:
-        raise RuntimeError(f"Error loading module from '{file_path}'") from e
-
-    function_name = reward_fn_config.get("name")
-
-    if not hasattr(module, function_name):
-        raise AttributeError(f"Reward function '{function_name}' not found in '{file_path}'.")
-
-    print(f"using customized reward function '{function_name}' from '{file_path}'")
-
-    return getattr(module, function_name)
 
 
 @hydra.main(config_path="config", config_name="dapo_trainer", version_base=None)
@@ -65,7 +40,11 @@ def run_ppo(config) -> None:
             num_cpus=config.ray_init.num_cpus,
         )
 
-    runner = TaskRunner.remote()
+    if OmegaConf.select(config.trainer, "profile_steps") is not None and len(OmegaConf.select(config.trainer, "profile_steps")) > 0:
+        nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
+        runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
+    else:
+        runner = TaskRunner.remote()
     ray.get(runner.run.remote(config))
 
 
@@ -78,6 +57,8 @@ class TaskRunner:
         from omegaconf import OmegaConf
 
         from verl.utils.fs import copy_to_local
+
+        print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
 
         pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
         OmegaConf.resolve(config)
@@ -146,21 +127,12 @@ class TaskRunner:
             role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
 
+        from verl.workers.reward_manager import get_reward_manager_cls
+
+        # Note(haibin.lin): please make sure custom reward managers are imported and
+        # registered via `verl.workers.reward_manager.register`
         reward_manager_name = config.reward_model.get("reward_manager", "naive")
-        if reward_manager_name == "naive":
-            from verl.workers.reward_manager import NaiveRewardManager
-
-            reward_manager_cls = NaiveRewardManager
-        elif reward_manager_name == "prime":
-            from verl.workers.reward_manager import PrimeRewardManager
-
-            reward_manager_cls = PrimeRewardManager
-        elif reward_manager_name == "dapo":
-            from verl.workers.reward_manager import DAPORewardManager
-
-            reward_manager_cls = DAPORewardManager
-        else:
-            raise NotImplementedError
+        reward_manager_cls = get_reward_manager_cls(reward_manager_name)
 
         compute_score = get_custom_reward_fn(config)
         reward_fn = reward_manager_cls(
@@ -192,6 +164,7 @@ class TaskRunner:
             ray_worker_group_cls=ray_worker_group_cls,
             reward_fn=reward_fn,
             val_reward_fn=val_reward_fn,
+            device_name=config.trainer.device,
         )
         trainer.init_workers()
         trainer.fit()
