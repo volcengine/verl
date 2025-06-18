@@ -465,7 +465,6 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @GPUMemoryLogger(role="generate_sequences", logger=logger)
     @WorkerProfiler.annotate(color="red")
     def generate_sequences(self, prompts: DataProto):
         assert self._is_rollout
@@ -486,6 +485,16 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
             if self._is_offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
             log_gpu_memory_usage("After entering sharding manager", logger=logger)
+
+            # (zhangchi.usc1992) wake up kv cache here. Currently only support vllm.
+            # Will support sglang once separate wakeup of model weights and kv cache is supported
+            # This API should be exposed by the rollout. Will rewrite this part when we refactor after v0.4 release.
+            # Currently, we hack here to support running large models (QWen3-236b and DeepSeek-671b)
+            if self.config.rollout.name == "vllm":
+                import inspect
+
+                if "tags" in inspect.signature(self.rollout.inference_engine.wake_up).parameters:
+                    self.rollout.inference_engine.wake_up(tags=["kv_cache"])
 
             prompts = self.sharding_manager.preprocess_data(prompts)
             with simple_timer("generate_sequences", timing_generate):
