@@ -86,7 +86,8 @@ class RayResourcePool(ResourcePool):
     def __init__(
         self,
         process_on_nodes: Optional[List[int]] = None,
-        use_gpu: bool = True,
+        use_gpu: bool = False,
+        use_tpu: bool = True,
         name_prefix: str = None,
         max_colocate_count: int = 10,
         detached=False,
@@ -94,13 +95,14 @@ class RayResourcePool(ResourcePool):
     ) -> None:
         super().__init__(process_on_nodes, max_colocate_count)
         self.use_gpu = use_gpu
+        self.use_tpu = use_tpu
         # print(f"in RayProcessDispatchConfiguration: name_prefix = {name_prefix}")
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
         self.pgs = None
         self.detached = detached
         self.accelerator_type = accelerator_type
 
-    def get_placement_groups(self, strategy="STRICT_PACK", name=None, device_name="cuda"):
+    def get_placement_groups(self, strategy="STRICT_PACK", name=None, device_name="tpu"):
         if self.pgs is not None:
             return self.pgs
 
@@ -110,12 +112,17 @@ class RayResourcePool(ResourcePool):
             device_name = "NPU"
         elif device_name == "cuda":
             device_name = "GPU"
+        elif device_name == "tpu":
+            device_name = "TPU"
 
         bundle = {"CPU": self.max_colocate_count}
         if self.use_gpu:
             bundle[device_name] = 1
             if self.accelerator_type is not None:
                 bundle[self.accelerator_type] = 1e-4
+        if self.use_tpu:
+            bundle[device_name] = 1
+
         pg_scheme = [[bundle.copy() for _ in range(process_count)] for process_count in self._store]
 
         lifetime = "detached" if self.detached else None
@@ -189,7 +196,7 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         """
         self._options.update(options)
 
-    def __call__(self, placement_group, placement_group_bundle_idx, use_gpu: bool = True, num_gpus=1, sharing_with=None, device_name="cuda") -> Any:
+    def __call__(self, placement_group, placement_group_bundle_idx, use_gpu: bool = False, use_tpu: bool = True, num_gpus=1, num_tpus=1,sharing_with=None, device_name="tpu") -> Any:
         """Create and return a Ray actor with the configured options.
 
         Args:
@@ -216,6 +223,8 @@ class RayClassWithInitArgs(ClassWithInitArgs):
             options["num_gpus"] = num_gpus
         if use_gpu and device_name == "npu":
             options["resources"] = {"NPU": num_gpus}
+        if use_tpu and device_name == "tpu":
+            options["resources"] = {"TPU": num_tpus}
 
         if len(self._additional_resource) > 1:
             for k, v in self._additional_resource.items():
@@ -341,6 +350,7 @@ class RayWorkerGroup(WorkerGroup):
                     "WG_BACKEND": "ray",
                     "RAY_LOCAL_WORLD_SIZE": str(local_world_size),
                     "RAY_LOCAL_RANK": str(local_rank),
+                    "TORCH_TPU_AVAILABLE": os.environ.get("TORCH_TPU_AVAILABLE", "0")
                 }
                 if rank != 0:
                     env_vars["MASTER_ADDR"] = self._master_addr

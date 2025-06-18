@@ -11,6 +11,7 @@
 import logging
 
 import torch
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -27,18 +28,36 @@ def is_torch_npu_available() -> bool:
 
 is_cuda_available = torch.cuda.is_available()
 is_npu_available = is_torch_npu_available()
+_is_tpu_available_cached = None
 
+def check_tpu_via_env() -> bool:
+    """Checks TPU availability."""
+    global _is_tpu_available_cached
+    if _is_tpu_available_cached is not None:
+        return _is_tpu_available_cached
+
+    tpu_env_var = os.environ.get("VERL_TORCH_TPU_AVAILABLE")
+    if tpu_env_var == "1":
+        _is_tpu_available_cached = True
+    else:
+        _is_tpu_available_cached = False
+
+    return _is_tpu_available_cached
 
 def get_device_name() -> str:
     """Function that gets the torch.device based on the current machine.
-    This currently only supports CPU, CUDA, NPU.
+    This currently only supports CPU, CUDA, NPU, TPU.
     Returns:
         device
     """
+    is_tpu_available = check_tpu_via_env()
+
     if is_cuda_available:
         device = "cuda"
     elif is_npu_available:
         device = "npu"
+    elif is_tpu_available:
+        device = "tpu"
     else:
         device = "cpu"
     return device

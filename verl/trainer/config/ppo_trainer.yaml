@@ -817,6 +817,9 @@ trainer:
   # Number of GPUs per node
   n_gpus_per_node: 8
 
+  # Number of TPUs per node
+  n_tpus_per_node: 4
+
   # Save frequency (by iteration) for model checkpoints
   save_freq: -1
 
@@ -856,8 +859,8 @@ trainer:
   # Timeout (in seconds) for Ray worker to wait for registration
   ray_wait_register_center_timeout: 300
 
-  # Device to run training on (e.g., "cuda", "cpu")
-  device: cuda
+  # Device to run training on (e.g., "cuda", "cpu", "tpu")
+  device: tpu
 
 # configs related to ray initialization
 ray_init:
