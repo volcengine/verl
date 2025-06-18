@@ -94,7 +94,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test]
-          pip3 install vllm==0.5.4
+          pip3 install vllm==0.5.4 coverage
       - name: Download Model to Use
         run: |
           huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct
@@ -106,12 +106,12 @@ jobs:
       - name: Running vllm tests on 8 L20 GPUs
         run: |
           cd tests/workers/rollout/rollout_vllm
-          torchrun --standalone --nnodes=1 --nproc_per_node=8 $(which pytest) -s test_vllm_hf_loader.py
+          coverage run --parallel-mode -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=8 $(which pytest) -s test_vllm_hf_loader.py
       - name: Test the latest vLLM
         run: |
           pip3 install --upgrade vllm==0.7.3
           cd tests/workers/rollout/rollout_vllm
-          torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_vllm_spmd.py
+          coverage run --parallel-mode -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_vllm_spmd.py
       - name: Run Qwen 0.5B generation test
         run: |
           cd tests/special_e2e/generation
@@ -127,5 +127,16 @@ jobs:
       - name: Running multi-turn rollout tests on 8 L20 GPUs
         run: |
           pip3 install --upgrade vllm==0.8.3 tensordict==0.7.2
-          pytest -svvv tests/workers/rollout/rollout_vllm/test_vllm_chat_scheduler.py
+          coverage run --parallel-mode -m pytest -svvv tests/workers/rollout/rollout_vllm/test_vllm_chat_scheduler.py
+      - name: Inspect coverage report
+        run: |
+          coverage combine
+          coverage report --fail-under=10
+          coverage xml
+          coverage html
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: html-report
+          path: htmlcov
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests
