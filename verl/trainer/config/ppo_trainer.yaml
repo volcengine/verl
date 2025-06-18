@@ -364,6 +364,9 @@ actor_rollout_ref:
     # Fraction of GPU memory used by vLLM/SGLang for KV cache.
     gpu_memory_utilization: 0.5
 
+    # Whether to disable the memory preprocessor cache.
+    disable_mm_preprocessor_cache: False
+
     # Whether to ignore EOS and continue generating after EOS is hit.
     ignore_eos: False
 
