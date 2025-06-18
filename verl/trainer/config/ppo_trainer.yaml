@@ -286,6 +286,7 @@ actor_rollout_ref:
     # Potential use case involves on policy distillation where we calculate KL divergence between student actor
     # and teacher ref
     model: null
+
     # actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it’s recommended to turn on offload for ref by default
     strategy: fsdp
 
