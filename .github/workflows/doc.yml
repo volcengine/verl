@@ -86,3 +86,7 @@ jobs:
             echo "🚨 Sphinx doc build contained ERRORs - see _build/sphinx.log"
             exit 1
           fi
+          if grep -q "WARNING: document isn't included in any toctree" _build/sphinx.log; then
+            echo "🚨 Sphinx doc build contained WARNING. Please include newly added docs in index.rst. See _build/sphinx.log for details"
+            exit 1
+          fi
