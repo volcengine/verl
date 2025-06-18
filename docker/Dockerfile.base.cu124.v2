@@ -60,7 +60,7 @@ RUN aria2c --always-resume=true --max-tries=99999 https://developer.download.nvi
 
 RUN pip install --resume-retries 999 --no-cache-dir torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0
 
-RUN pip install --resume-retries 999 --no-cache-dir torchdata "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
+RUN pip install --resume-retries 999 --no-cache-dir "tensordict==0.6.2" torchdata "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
     "numpy<2.0.0" "pyarrow>=19.0.1" pandas \
     ray[default] codetiming hydra-core pylatexenc qwen-vl-utils wandb dill pybind11 liger-kernel mathruler blobfile xgrammar \
     pytest py-spy pyext pre-commit ruff

@@ -32,7 +32,7 @@ RUN apt-get update && \
 
 # Install tini
 RUN apt-get update && \
-    apt-get install -y tini aria2 && \
+    apt-get install -y tini aria2 libfreeimage3 libfreeimage-dev zlib1g htop && \
     apt-get clean
 
 # Change pip source
@@ -46,11 +46,6 @@ RUN pip uninstall -y torch torchvision torchaudio \
     xgboost transformer_engine flash_attn apex megatron-core grpcio
 
 RUN pip install --resume-retries 999 --no-cache-dir torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu126
-
-RUN pip install --resume-retries 999 --no-cache-dir torchdata "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
-    "numpy<2.0.0" "pyarrow>=19.0.1" pandas \
-    ray[default] codetiming hydra-core pylatexenc qwen-vl-utils wandb dill pybind11 liger-kernel mathruler blobfile xgrammar \
-    pytest py-spy pyext pre-commit ruff
 
 # Install flash-attn-2.8.0.post2 (cxx11abi=True)
 RUN wget -nv https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.6cxx11abiTRUE-cp310-cp310-linux_x86_64.whl && \
@@ -87,18 +82,12 @@ RUN apt-get install -y ./nsight-systems-2025.3.1_2025.3.1.90-1_amd64.deb && \
     ln -s /opt/nvidia/nsight-systems/2025.3.1/target-linux-x64/nsys-ui /usr/local/cuda/bin/nsys-ui && \
     rm nsight-systems-2025.3.1_2025.3.1.90-1_amd64.deb
 
-# Fix opencv
-RUN pip install opencv-python
-
-RUN pip install opencv-fixer && \
-    python -c "from opencv_fixer import AutoFix; AutoFix()"
-
-RUN pip install cuda-bindings
+RUN pip install --resume-retries 999 --no-cache-dir "tensordict==0.6.2" torchdata "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
+    "numpy<2.0.0" "pyarrow>=19.0.1" pandas cuda-bindings \
+    ray[default] codetiming hydra-core pylatexenc qwen-vl-utils wandb dill pybind11 liger-kernel mathruler blobfile xgrammar \
+    pytest py-spy pyext pre-commit ruff
 
 # Reset pip config
 RUN pip config unset global.index-url && \
     pip config unset global.extra-index-url
-
-RUN apt-get update && \
-    apt-get install -y libfreeimage3 libfreeimage-dev zlib1g htop
 
