@@ -163,7 +163,6 @@ Actor/Rollout/Reference Policy
       # for vllm rollout
       dtype: bfloat16 # should align with FSDP
       gpu_memory_utilization: 0.5
-      disable_mm_preprocessor_cache: False
       ignore_eos: False
       enforce_eager: True
       free_cache_engine: True
@@ -180,6 +179,7 @@ Actor/Rollout/Reference Policy
       engine_kwargs: # inference engine parameters
         vllm:
           swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+          disable_mm_preprocessor_cache: False # disable preprocessor cache for multimodel models
         sglang:
           attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
 
@@ -312,8 +312,6 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
     vLLM.
   - For vLLM v0.7.0 and later: The fraction of **total** GPU memory to be used for the vLLM instance.
   - For SGLang: Corresponding to ``mem_fraction_static``, the fraction of the free GPU memory used for **static** memory like model weights and KV cache. 
-
-- ``actor_rollout_ref.rollout.disable_mm_preprocessor_cache``: Whether to disable preprocessor cache for multimodel models.
 
 - ``actor_rollout_ref.rollout.tensor_model_parallel_size``: TP size for rollout. Only effective
   for vllm.
