@@ -28,6 +28,7 @@ from verl.models.weight_loader_registry import get_weight_saver
 from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.fs import is_non_local
 from verl.utils.logger import log_with_rank
+from verl.utils.megatron.dist_checkpointing import async_save_dist_checkpointing
 from verl.utils.megatron_utils import (
     get_hf_config_and_tokenizer_checkpoint_path,
     get_hf_model_checkpoint_path,
@@ -255,23 +256,33 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         local_path = self.local_mkdir(local_path)
 
-        # Save Model
-        if self.should_save_model and mpu.get_data_parallel_rank() == 0:
-            state_dicts = []
+        # For async saving dist checkpointing
+        async_save_requests = []
 
+        # All ranks Save Model to reduce memory pressure
+        if self.should_save_model:
+            sharded_state_dicts = {}
+
+            # Get sharded state dict, notice that state_dict will collect among dp groups, causing memory pressure
             for vpp_rank, model in enumerate(self.model):
-                state_dict = model.state_dict()
-                state_dicts.append(state_dict)
+                sharded_state_dicts[f"model{vpp_rank}"] = model.sharded_state_dict()
 
-            log_with_rank(f"Saving sharded model checkpoint to {local_path}", rank=self.rank, logger=logger)
+            # Get checkpoint path and file name
+            log_with_rank(f"Saving fully sharded model checkpoint to {local_path}", rank=self.rank, logger=logger)
             model_ckpt_path = get_model_checkpoint_path(local_path)
             hf_config_and_tokenizer_path = get_hf_config_and_tokenizer_checkpoint_path(local_path)
             ckpt_name = self.get_checkpoint_name(model_ckpt_path, return_base_dir=False)
-            torch.save(state_dicts, os.path.join(ckpt_name))
 
-            log_with_rank(f"Saved checkpoint to {model_ckpt_path}", rank=self.rank, logger=logger)
+            # Get checkpointing strategies
+            async_save_requests = async_save_dist_checkpointing(async_save_requests, sharded_state_dicts, ckpt_name)
+
+            log_with_rank(f"Saving checkpoint to {model_ckpt_path}", rank=self.rank, logger=logger)
+
+            # Only rank 0 saves the hf config and tokenizer
             if self.rank == 0:
+                # Save tokenizer
                 self.processing_class.save_pretrained(hf_config_and_tokenizer_path)
+                # Save huggingface config
                 self.hf_config.save_pretrained(hf_config_and_tokenizer_path)
                 if hasattr(self.hf_config, "name_or_path") and self.hf_config.name_or_path:
                     try:
@@ -280,6 +291,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     except Exception:
                         # if the generation config isn't available, we don't save it
                         pass
+                # Rank 0 uploads checkpoint to HDFS if hdfs_path is provided
                 if hdfs_path is not None:
                     log_with_rank(f"Uploading checkpoint to {hdfs_path}", rank=self.rank, logger=logger)
                     from verl.utils import hdfs_io
@@ -333,8 +345,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             torch.distributed.barrier()
 
             optimizer_path = get_optimizer_checkpoint_path(local_path)
-            self.optimizer.save_parameter_state(optimizer_path)
-            log_with_rank(f"Saved optimizer state to {optimizer_path}", rank=self.rank, logger=logger)
+            optimizer_sharded_states = self.optimizer.sharded_state_dict()
+            async_save_requests = async_save_dist_checkpointing(async_save_requests, optimizer_sharded_states, optimizer_path)
+            log_with_rank(f"Saving optimizer state to {optimizer_path}", rank=self.rank, logger=logger)
 
         # Save RNG States
         if self.should_save_extra:
@@ -351,5 +364,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     state_dict = self.lr_scheduler.state_dict()
                     torch.save(state_dict, optimizer_scheduler_path)
                     log_with_rank(f"Saved optimizer scheduler state to {optimizer_scheduler_path}", rank=self.rank, logger=logger, log_only_rank_0=True)
+
+        # Synchronize all async save requests
 
         self.previous_saved_paths.append(local_path)
