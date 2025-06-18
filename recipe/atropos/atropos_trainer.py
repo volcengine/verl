@@ -23,26 +23,26 @@ Based on VERL's recipe pattern, similar to DAPO.
 
 import logging
 import os
+from contextlib import nullcontext
+
 import torch
 import torch.nn as nn
-from contextlib import nullcontext
 from torch.distributed.device_mesh import DeviceMesh
 from torch.utils.data import Dataset
-from tensordict import TensorDict
 from transformers import PreTrainedTokenizer
 
 from verl.trainer.fsdp_sft_trainer import FSDPSFTTrainer
+from verl.utils.device import is_cuda_available, is_npu_available
 from verl.utils.ulysses import (
     gather_outpus_and_unpad,
     get_ulysses_sequence_parallel_world_size,
     ulysses_pad_and_slice_inputs,
 )
-from verl.utils.device import get_device_name, is_cuda_available, is_npu_available
 
 if is_cuda_available:
-    from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
+    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import pad_input, unpad_input, rearrange, index_first_axis
+    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_ATROPOS_LOGGING_LEVEL", "WARN"))
@@ -51,7 +51,7 @@ logger.setLevel(os.getenv("VERL_ATROPOS_LOGGING_LEVEL", "WARN"))
 class AtroposTrainer(FSDPSFTTrainer):
     """
     Atropos Recipe Trainer with advantage-weighted SFT support.
-    
+
     This trainer provides the complete interface needed for Atropos integration:
     - Token-level advantage weighting
     - Policy weight synchronization (via sharding managers)
@@ -75,7 +75,7 @@ class AtroposTrainer(FSDPSFTTrainer):
         self.advantage_clipping = getattr(config, "advantage_clipping", None)  # None or (min_val, max_val)
 
         if self.device_mesh.get_rank() == 0:
-            print(f"Atropos Trainer initialized:")
+            print("Atropos Trainer initialized:")
             print(f"  - Advantage weighting: {self.use_advantage_weighting}")
             print(f"  - Advantage normalization: {self.advantage_normalization}")
             print(f"  - Advantage clipping: {self.advantage_clipping}")
@@ -123,14 +123,14 @@ class AtroposTrainer(FSDPSFTTrainer):
     ) -> torch.Tensor:
         """
         Core interface for Atropos integration: advantage-weighted SFT loss.
-        
+
         Args:
             input_ids: Batch of tokens, shape (batch_size, seq_len)
             advantages: Batch of advantages, same shape as input_ids
             loss_mask: Batch of loss masks, same shape as input_ids
             attention_mask: Optional attention mask
             position_ids: Optional position IDs
-            
+
         Returns:
             Scalar loss tensor
         """
@@ -153,11 +153,7 @@ class AtroposTrainer(FSDPSFTTrainer):
 
         return self._compute_advantage_weighted_loss(batch, do_backward=False)
 
-    def _compute_advantage_weighted_loss(
-        self,
-        batch: dict,
-        do_backward: bool = True
-    ) -> torch.Tensor:
+    def _compute_advantage_weighted_loss(self, batch: dict, do_backward: bool = True) -> torch.Tensor:
         """Compute advantage-weighted cross-entropy loss."""
         use_sp = self.use_remove_padding and self.config.ulysses_sequence_parallel_size > 1
 
@@ -187,12 +183,7 @@ class AtroposTrainer(FSDPSFTTrainer):
             if not use_sp:
                 # Standard forward pass without sequence parallel
                 labels = input_ids[:, 1:].contiguous()
-                output = self.fsdp_model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    position_ids=position_ids,
-                    use_cache=False
-                )
+                output = self.fsdp_model(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids, use_cache=False)
                 logits = output.logits
 
                 shift_logits = logits[..., :-1, :].contiguous()
@@ -215,20 +206,14 @@ class AtroposTrainer(FSDPSFTTrainer):
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
                 # Unpad position_ids to align rotary
-                position_ids_rmpad = index_first_axis(
-                    rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
-                ).transpose(0, 1)
+                position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(0, 1)
 
                 # Pad and slice inputs for sequence parallelism
-                input_ids_rmpad_sliced, position_ids_rmpad_padded, pad_size = ulysses_pad_and_slice_inputs(
-                    input_ids_rmpad, position_ids_rmpad, sp_size=get_ulysses_sequence_parallel_world_size()
-                )
+                input_ids_rmpad_sliced, position_ids_rmpad_padded, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, position_ids_rmpad, sp_size=get_ulysses_sequence_parallel_world_size())
 
                 # For computing loss
                 input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
-                input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(
-                    input_ids_rmpad_rolled, None, get_ulysses_sequence_parallel_world_size()
-                )
+                input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(input_ids_rmpad_rolled, None, get_ulysses_sequence_parallel_world_size())
                 input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
 
                 # Forward pass
@@ -248,12 +233,7 @@ class AtroposTrainer(FSDPSFTTrainer):
                 loss = gather_outpus_and_unpad(loss, gather_dim=0, unpad_dim=0, padding_size=pad_size)
 
                 # This is the loss collected from all ulysses ranks
-                full_loss = pad_input(
-                    hidden_states=loss.unsqueeze(-1),
-                    indices=indices,
-                    batch=batch_size,
-                    seqlen=seqlen
-                )
+                full_loss = pad_input(hidden_states=loss.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen)
                 full_loss = full_loss.squeeze(-1)[:, :-1]  # Remove last token's loss
                 full_loss = full_loss.reshape(-1)
                 loss_mask = loss_mask.to(full_loss.device)
@@ -283,4 +263,4 @@ class AtroposTrainer(FSDPSFTTrainer):
             return self._compute_advantage_weighted_loss(batch, do_backward)
         else:
             # Fall back to standard SFT loss
-            return super()._compute_loss_and_backward(batch, do_backward) 
+            return super()._compute_loss_and_backward(batch, do_backward)

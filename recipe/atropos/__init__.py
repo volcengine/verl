@@ -20,4 +20,4 @@ Integration with Atropos RL environments for online RL training.
 from .atropos_trainer import AtroposTrainer
 from .main_atropos import AtroposRLTrainer
 
-__all__ = ["AtroposTrainer", "AtroposRLTrainer"] 
+__all__ = ["AtroposTrainer", "AtroposRLTrainer"]
