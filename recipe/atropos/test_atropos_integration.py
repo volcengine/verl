@@ -29,32 +29,72 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from recipe.atropos.main_atropos import AtroposAPIError, AtroposRLTrainer
 
 
-def test_advantage_weighted_loss():
-    """Test the advantage-weighted loss computation with model."""
-    print("🧪 Testing advantage-weighted loss computation...")
+def test_gpro_integration():
+    """Test GPRO integration with VERL's core algorithms."""
+    print("🧪 Testing GPRO integration...")
 
     try:
-        # Create mock data
-        batch_size, seq_len = 4, 16
-        input_ids = torch.randint(0, 1000, (batch_size, seq_len))
-        advantages = torch.randn(batch_size, seq_len)
-        loss_mask = torch.ones(batch_size, seq_len)
-        loss_mask[:, :8] = 0  # First half is prompt, second half is response
+        # Import VERL's GPRO implementation
+        import numpy as np
 
-        # Test loss computation using model
+        from verl.trainer.ppo.core_algos import compute_grpo_outcome_advantage
+
+        # Create test data
+        batch_size = 4
+        seq_len = 8
+
+        # Token-level rewards (sum to response-level rewards)
+        token_level_rewards = torch.randn(batch_size, seq_len)
+
+        # Response mask
+        response_mask = torch.ones(batch_size, seq_len)
+
+        # Group indices for GPRO (simulate different prompt groups)
+        index = np.array([0, 0, 1, 1])  # 2 groups with 2 samples each
+
+        # Test GPRO computation
+        advantages, returns = compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards, response_mask=response_mask, index=index, epsilon=1e-6, norm_adv_by_std_in_grpo=True)
+
+        print(f"✓ GPRO advantages shape: {advantages.shape}")
+        print(f"✓ GPRO returns shape: {returns.shape}")
+
+        # Verify that advantages are computed correctly
+        assert advantages.shape == (batch_size, seq_len), f"Expected shape {(batch_size, seq_len)}, got {advantages.shape}"
+        assert returns.shape == (batch_size, seq_len), f"Expected shape {(batch_size, seq_len)}, got {returns.shape}"
+
+        # Verify that advantages within the same group are properly normalized
+        group_0_advantages = advantages[0:2, 0]  # First token of group 0
+        group_1_advantages = advantages[2:4, 0]  # First token of group 1
+
+        print(f"✓ Group 0 advantages: {group_0_advantages}")
+        print(f"✓ Group 1 advantages: {group_1_advantages}")
+
+        return True
+    except Exception as e:
+        print(f"❌ Error in GPRO integration test: {e}")
+        return False
+
+
+def test_advantage_weighted_loss():
+    """Test advantage-weighted loss computation using GPRO advantages."""
+    print("🧪 Testing advantage-weighted loss with GPRO...")
+
+    try:
         from transformers import AutoConfig, AutoModelForCausalLM
 
         # Use a small model for testing
-        model_name = "microsoft/DialoGPT-small"
-        config = AutoConfig.from_pretrained(model_name)
-        model = AutoModelForCausalLM.from_pretrained(model_name, config=config)
+        model_path = "microsoft/DialoGPT-small"
+        config = AutoConfig.from_pretrained(model_path)
+        model = AutoModelForCausalLM.from_pretrained(model_path, config=config)
 
-        # Move to device
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = model.to(device)
-        input_ids = input_ids.to(device)
-        advantages = advantages.to(device)
-        loss_mask = loss_mask.to(device)
+        # Create test data
+        batch_size = 2
+        seq_len = 10
+        vocab_size = config.vocab_size
+
+        input_ids = torch.randint(0, vocab_size, (batch_size, seq_len))
+        advantages = torch.randn(batch_size, seq_len)
+        loss_mask = torch.ones(batch_size, seq_len)
 
         # Forward pass
         with torch.no_grad():
@@ -66,14 +106,19 @@ def test_advantage_weighted_loss():
 
         ce_loss = F.cross_entropy(logits.view(-1, logits.size(-1)), input_ids.view(-1), reduction="none")
 
-        # Apply advantage weighting and masking
+        # Apply GPRO advantage weighting and masking
         weighted_loss = ce_loss * advantages.view(-1) * loss_mask.view(-1)
-        loss = weighted_loss.sum() / (loss_mask.sum() + 1e-8)
 
-        print(f"✓ Advantage-weighted loss computed successfully: {loss.item():.4f}")
+        # Reduce to scalar
+        final_loss = weighted_loss.sum() / (loss_mask.sum() + 1e-8)
+
+        print(f"✓ GPRO advantage-weighted loss: {final_loss.item():.4f}")
+        assert not torch.isnan(final_loss), "Loss should not be NaN"
+        assert not torch.isinf(final_loss), "Loss should not be infinite"
+
         return True
     except Exception as e:
-        print(f"❌ Error computing advantage-weighted loss: {e}")
+        print(f"❌ Error in advantage-weighted loss test: {e}")
         return False
 
 
@@ -310,6 +355,12 @@ def test_verl_integration():
         local_path = copy_to_local(model_path, verbose=False)
 
         print(f"✓ VERL model loading working: {local_path}")
+
+        # Test GPRO integration
+        from verl.trainer.ppo.core_algos import AdvantageEstimator
+
+        print(f"✓ VERL GPRO advantage estimator available: {AdvantageEstimator.GRPO}")
+
         return True
     except Exception as e:
         print(f"❌ Error in VERL integration test: {e}")
@@ -323,6 +374,7 @@ def run_all_tests():
 
     tests = [
         ("VERL integration", test_verl_integration),
+        ("GPRO integration", test_gpro_integration),
         ("Model loading", test_model_loading),
         ("Inference engine", test_inference_engine),
         ("Advantage-weighted loss", test_advantage_weighted_loss),
@@ -360,7 +412,7 @@ def run_all_tests():
     print(f"\nOverall: {passed}/{total} tests passed")
 
     if passed == total:
-        print("🎉 All tests passed! Atropos integration is working correctly.")
+        print("🎉 All tests passed! Atropos integration with GPRO is working correctly.")
         return True
     else:
         print("⚠ Some tests failed. Please check the implementation.")

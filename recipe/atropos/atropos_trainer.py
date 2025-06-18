@@ -16,7 +16,7 @@
 Atropos Recipe Trainer
 This module provides an Atropos-compatible RL trainer that handles:
 - Policy weight synchronization via VERL's sharding managers
-- Advantage-weighted SFT loss computation
+- GPRO advantage-weighted SFT loss computation
 - Integration with Atropos environments for RL training
 Based on VERL's recipe pattern, similar to DAPO.
 """
@@ -25,6 +25,7 @@ import logging
 import os
 from contextlib import nullcontext
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.distributed.device_mesh import DeviceMesh
@@ -32,6 +33,7 @@ from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer
 
 from verl.trainer.fsdp_sft_trainer import FSDPSFTTrainer
+from verl.trainer.ppo.core_algos import compute_grpo_outcome_advantage
 from verl.utils.device import is_cuda_available, is_npu_available
 from verl.utils.ulysses import (
     gather_outpus_and_unpad,
@@ -50,10 +52,10 @@ logger.setLevel(os.getenv("VERL_ATROPOS_LOGGING_LEVEL", "WARN"))
 
 class AtroposTrainer(FSDPSFTTrainer):
     """
-    Atropos Recipe Trainer with advantage-weighted SFT support.
+    Atropos Recipe Trainer with GPRO advantage-weighted SFT support.
 
     This trainer provides the complete interface needed for Atropos integration:
-    - Token-level advantage weighting
+    - GPRO token-level advantage weighting
     - Policy weight synchronization (via sharding managers)
     - Compatible with VERL's distributed training infrastructure
     """
@@ -74,11 +76,51 @@ class AtroposTrainer(FSDPSFTTrainer):
         self.advantage_normalization = getattr(config, "advantage_normalization", "batch")  # "none", "batch", "global"
         self.advantage_clipping = getattr(config, "advantage_clipping", None)  # None or (min_val, max_val)
 
+        # GPRO-specific configuration
+        self.use_gpro = getattr(config, "use_gpro", True)
+        self.gpro_epsilon = getattr(config, "gpro_epsilon", 1e-6)
+        self.gpro_norm_by_std = getattr(config, "gpro_norm_by_std", True)
+
         if self.device_mesh.get_rank() == 0:
             print("Atropos Trainer initialized:")
             print(f"  - Advantage weighting: {self.use_advantage_weighting}")
+            print(f"  - GPRO enabled: {self.use_gpro}")
             print(f"  - Advantage normalization: {self.advantage_normalization}")
             print(f"  - Advantage clipping: {self.advantage_clipping}")
+
+    def compute_gpro_advantages(
+        self,
+        token_level_rewards: torch.Tensor,
+        response_mask: torch.Tensor,
+        index: np.ndarray,
+    ) -> torch.Tensor:
+        """
+        Compute advantages using VERL's GPRO implementation.
+
+        Args:
+            token_level_rewards: Token-level rewards, shape (batch_size, seq_len)
+            response_mask: Response mask, shape (batch_size, seq_len)
+            index: Group indices for GPRO, shape (batch_size,)
+
+        Returns:
+            Advantages tensor, shape (batch_size, seq_len)
+        """
+        if not self.use_gpro:
+            # Fallback to simple advantage computation
+            return self._compute_simple_advantages(token_level_rewards, response_mask)
+
+        # Use VERL's GPRO implementation
+        advantages, _ = compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards, response_mask=response_mask, index=index, epsilon=self.gpro_epsilon, norm_adv_by_std_in_grpo=self.gpro_norm_by_std)
+
+        return advantages
+
+    def _compute_simple_advantages(self, token_level_rewards: torch.Tensor, response_mask: torch.Tensor) -> torch.Tensor:
+        """Fallback advantage computation when GPRO is disabled."""
+        # Simple mean-based advantage computation
+        scores = token_level_rewards.sum(dim=-1)  # (batch_size,)
+        mean_score = scores.mean()
+        advantages = (scores - mean_score).unsqueeze(-1) * response_mask
+        return advantages
 
     def _normalize_advantages(self, advantages: torch.Tensor, loss_mask: torch.Tensor) -> torch.Tensor:
         """Normalize advantages according to the configured method."""
@@ -122,11 +164,11 @@ class AtroposTrainer(FSDPSFTTrainer):
         position_ids: torch.Tensor = None,
     ) -> torch.Tensor:
         """
-        Core interface for Atropos integration: advantage-weighted SFT loss.
+        Core interface for Atropos integration: GPRO advantage-weighted SFT loss.
 
         Args:
             input_ids: Batch of tokens, shape (batch_size, seq_len)
-            advantages: Batch of advantages, same shape as input_ids
+            advantages: Batch of GPRO advantages, same shape as input_ids
             loss_mask: Batch of loss masks, same shape as input_ids
             attention_mask: Optional attention mask
             position_ids: Optional position IDs
@@ -154,7 +196,7 @@ class AtroposTrainer(FSDPSFTTrainer):
         return self._compute_advantage_weighted_loss(batch, do_backward=False)
 
     def _compute_advantage_weighted_loss(self, batch: dict, do_backward: bool = True) -> torch.Tensor:
-        """Compute advantage-weighted cross-entropy loss."""
+        """Compute GPRO advantage-weighted cross-entropy loss."""
         use_sp = self.use_remove_padding and self.config.ulysses_sequence_parallel_size > 1
 
         # Move inputs to GPU and prepare tensors
@@ -195,7 +237,7 @@ class AtroposTrainer(FSDPSFTTrainer):
                 shift_labels = shift_labels.to(shift_logits.device)
                 loss = loss_fct(shift_logits, shift_labels)
 
-                # Apply loss mask and advantage weighting
+                # Apply GPRO advantage weighting and loss mask
                 loss = loss * loss_mask.to(loss.device) * advantages.to(loss.device)
 
             else:

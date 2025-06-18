@@ -22,13 +22,12 @@ Features:
 - Production inference engines (vLLM/SGLang)
 - Complete Atropos API integration
 - Automatic weight synchronization
-- Advantage-weighted SFT training
+- GPRO advantage-weighted SFT training
 """
 
 import argparse
 import logging
 import os
-import sys
 from typing import Any, Dict
 
 import torch
@@ -208,6 +207,11 @@ def main():
     parser.add_argument("--max_response_length", type=int, default=32, help="Maximum response length")
     parser.add_argument("--use_distributed", action="store_true", help="Use distributed training")
 
+    # GPRO-specific arguments
+    parser.add_argument("--use_gpro", action="store_true", default=True, help="Use GPRO for advantage computation")
+    parser.add_argument("--gpro_epsilon", type=float, default=1e-6, help="GPRO epsilon for numerical stability")
+    parser.add_argument("--gpro_norm_by_std", action="store_true", default=True, help="Normalize GPRO advantages by standard deviation")
+
     args = parser.parse_args()
 
     # Load configuration
@@ -215,10 +219,13 @@ def main():
         config = OmegaConf.load(args.config)
         config = OmegaConf.to_container(config, resolve=True)
     else:
-        # Default configuration
+        # Default configuration with GPRO
         config = {
             "atropos": {"api_url": args.atropos_url, "timeout": 30},
             "use_advantage_weighting": True,
+            "use_gpro": args.use_gpro,  # GPRO integration
+            "gpro_epsilon": args.gpro_epsilon,
+            "gpro_norm_by_std": args.gpro_norm_by_std,
             "advantage_normalization": "batch",
             "advantage_clipping": [-3.0, 3.0],
             "max_response_length": args.max_response_length,
@@ -228,7 +235,7 @@ def main():
             "batch_max_wait_time": 12.0,
             "model_path": args.model_path,
             "device": "cuda",
-            "trainer": {"project_name": "verl_atropos_integration", "experiment_name": "advantage_weighted_sft", "device": "cuda", "total_epochs": 1, "total_training_steps": 100, "val_before_train": True, "val_only": False, "logger": "wandb", "n_gpus_per_node": 1, "nnodes": 1},
+            "trainer": {"project_name": "verl_atropos_integration", "experiment_name": "gpro_advantage_weighted_sft", "device": "cuda", "total_epochs": 1, "total_training_steps": 100, "val_before_train": True, "val_only": False, "logger": "wandb", "n_gpus_per_node": 1, "nnodes": 1},
             "data": {"train_batch_size": args.batch_size * 8, "micro_batch_size_per_gpu": args.batch_size, "max_length": 512, "max_response_length": args.max_response_length, "balance_dp_token": True},
             "model": {"path": args.model_path, "partial_pretrain": args.model_path, "trust_remote_code": False, "fsdp_config": {"model_dtype": "bf16", "use_meta_tensor": True, "cpu_offload": False, "mixed_precision": True, "sharding_strategy": "FULL_SHARD", "activation_checkpointing": True}},
             "ulysses_sequence_parallel_size": 1,
@@ -241,25 +248,46 @@ def main():
     os.environ["VLLM_LOGGING_LEVEL"] = "WARN"
     os.environ["VERL_ATROPOS_LOGGING_LEVEL"] = "INFO"
 
-    if args.mode == "demo":
-        # Run demo mode
-        success = run_atropos_demo(config)
-        sys.exit(0 if success else 1)
-
-    elif args.mode == "training":
-        # Run training mode
-        if args.use_distributed:
-            # Setup distributed training
-            local_rank, world_size, device = setup_distributed_training()
-            device_mesh, ulysses_device_mesh = create_device_meshes(world_size, local_rank)
-
-            # Run distributed training
-            run_atropos_training(config, device_mesh, ulysses_device_mesh)
+    if args.use_distributed:
+        # Initialize distributed training
+        if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+            rank = int(os.environ["RANK"])
+            world_size = int(os.environ["WORLD_SIZE"])
+            local_rank = int(os.environ["LOCAL_RANK"])
         else:
-            # Run single-GPU training
-            device_mesh = init_device_mesh("cuda", (1,))
-            ulysses_device_mesh = None
-            run_atropos_training(config, device_mesh, ulysses_device_mesh)
+            rank = 0
+            world_size = 1
+            local_rank = 0
+
+        # Initialize process group
+        torch.distributed.init_process_group(backend="nccl", rank=rank, world_size=world_size)
+        torch.cuda.set_device(local_rank)
+
+        # Create device meshes
+        device_mesh = init_device_mesh("cuda", (world_size,))
+        ulysses_device_mesh = init_device_mesh("cuda", (world_size,))
+
+        if rank == 0:
+            print("🚀 Starting distributed Atropos-VERL training with GPRO")
+            print(f"  - World size: {world_size}")
+            print(f"  - GPRO enabled: {args.use_gpro}")
+            print(f"  - Model: {args.model_path}")
+
+        # Run distributed training
+        run_atropos_training(config, device_mesh, ulysses_device_mesh)
+
+        # Cleanup
+        torch.distributed.destroy_process_group()
+    else:
+        # Run demo mode
+        if args.mode == "demo":
+            success = run_atropos_demo(config)
+            if success:
+                print("✅ Demo completed successfully!")
+            else:
+                print("❌ Demo failed")
+        else:
+            print("❌ Training mode requires --use_distributed flag")
 
 
 if __name__ == "__main__":

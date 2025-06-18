@@ -20,7 +20,7 @@ using VERL infrastructure for inference and training.
 Key Features:
 - VERL inference engines (vLLM/SGLang) with weight synchronization
 - Production AtroposTrainer with advantage-weighted SFT
-- Complete RL training loop with policy updates
+- Complete RL training loop with policy updates using GPRO
 - Distributed training support via FSDP and Ulysses
 """
 
@@ -29,9 +29,12 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import requests
 import torch
 from transformers import AutoTokenizer
+
+from verl.trainer.ppo.core_algos import compute_grpo_outcome_advantage
 
 from .data_loader import AtroposDataLoader
 
@@ -333,65 +336,65 @@ class AtroposRLTrainer:
         return rollout_data
 
     def compute_advantages_from_atropos(self, rollout_data: Dict[str, Any]) -> torch.Tensor:
-        """Phase 2: Compute advantages using Atropos API."""
+        """Phase 2: Compute advantages using Atropos API with GPRO fallback."""
         print(f"🔄 ADVANTAGE COMPUTATION PHASE (Step {self.step})")
 
-        # Prepare token data for Atropos
+        prompts = rollout_data["prompts"]
+        responses = rollout_data["responses"]
+
+        # Prepare data for Atropos API
         token_data = []
         mask_data = []
-
-        for prompt, response in zip(rollout_data["prompts"], rollout_data["responses"]):
-            # Tokenize prompt and response
-            prompt_tokens = self.inference_engine.tokenizer.encode(prompt)
-            response_tokens = self.inference_engine.tokenizer.encode(response)
-
-            # Combine tokens
-            combined_tokens = prompt_tokens + response_tokens
-            token_data.append(combined_tokens)
-
-            # Create mask (0 for prompt tokens, 1 for response tokens)
-            prompt_mask = [False] * len(prompt_tokens)
-            response_mask = [True] * len(response_tokens)
-            mask_data.append(prompt_mask + response_mask)
-
-        # Get real scores from Atropos environments
-        # In production, these would come from actual environment evaluation
         scores = []
-        for tokens in token_data:
-            # For now, we'll use a simple scoring function
-            # In production, this would be replaced with actual environment evaluation
-            seq_scores = self._compute_environment_scores(tokens)
-            scores.append(seq_scores)
 
-        # Submit scored data to Atropos
-        success = self._submit_scored_data(token_data, mask_data, scores)
-        if not success:
-            print("⚠ Failed to submit scored data to Atropos")
+        for prompt, response in zip(prompts, responses):
+            # Tokenize response
+            response_tokens = self.inference_engine.tokenizer.encode(response)
+            token_data.append(response_tokens)
 
-        # Retrieve processed batch with advantages
-        batch = self._retrieve_batch_with_retry()
+            # Create mask (all tokens are valid)
+            mask_data.append([True] * len(response_tokens))
 
-        if batch is None:
-            # Fallback: compute advantages locally
-            print("⚠ Using fallback advantage computation")
-            advantages = self._compute_fallback_advantages(token_data, scores)
-        else:
-            # Extract advantages from Atropos response
-            advantages = []
-            for sample in batch:
-                sample_advantages = sample.get("advantages", [0.0] * len(sample.get("tokens", [])))
-                advantages.append(sample_advantages)
+            # Compute environment scores
+            token_scores = self._compute_environment_scores(response_tokens)
+            scores.append(token_scores)
 
-            # Pad to same length
-            max_len = max(len(adv) for adv in advantages)
-            padded_advantages = []
-            for adv in advantages:
-                padded = adv + [0.0] * (max_len - len(adv))
-                padded_advantages.append(padded)
+        # Try to get advantages from Atropos API
+        try:
+            # Submit scored data to Atropos API
+            success = self._submit_scored_data(token_data, mask_data, scores)
 
-            advantages = torch.tensor(padded_advantages, dtype=torch.float32)
+            if success:
+                # Retrieve batch with advantages from Atropos API
+                batch_data = self._retrieve_batch_with_retry()
 
-        print(f"✓ Computed advantages with shape: {advantages.shape}")
+                if batch_data and len(batch_data) > 0:
+                    # Extract advantages from Atropos API response
+                    advantages_list = []
+                    for item in batch_data:
+                        if "advantages" in item:
+                            advantages_list.append(item["advantages"])
+
+                    if advantages_list:
+                        # Convert to tensor
+                        max_len = max(len(adv) for adv in advantages_list)
+                        padded_advantages = []
+                        for adv in advantages_list:
+                            padded = adv + [0.0] * (max_len - len(adv))
+                            padded_advantages.append(padded)
+
+                        advantages = torch.tensor(padded_advantages, dtype=torch.float32)
+                        print(f"✓ Retrieved advantages from Atropos API: {advantages.shape}")
+                        return advantages
+
+        except Exception as e:
+            logger.warning(f"Atropos API advantage computation failed: {e}")
+
+        # Fallback to GPRO computation
+        print("⚠ Using GPRO fallback for advantage computation")
+        advantages = self._compute_fallback_advantages(token_data, scores)
+        print(f"✓ Computed advantages using GPRO: {advantages.shape}")
+
         return advantages
 
     def _compute_environment_scores(self, tokens: List[int]) -> List[float]:
@@ -407,26 +410,43 @@ class AtroposRLTrainer:
         return scores
 
     def _compute_fallback_advantages(self, token_data: List[List[int]], scores: List[List[float]]) -> torch.Tensor:
-        """Compute advantages locally when Atropos API is unavailable."""
-        # Simple advantage computation based on score differences
-        advantages = []
-        for tokens, token_scores in zip(token_data, scores):
-            if len(token_scores) > 1:
-                # Compute advantages as differences from mean
-                mean_score = sum(token_scores) / len(token_scores)
-                token_advantages = [score - mean_score for score in token_scores]
-            else:
-                token_advantages = [0.0] * len(tokens)
-            advantages.append(token_advantages)
+        """Compute advantages using GPRO when Atropos API is unavailable."""
+        # Convert to GPRO format
+        token_level_rewards = []
+        response_mask = []
+        index = []
 
-        # Pad to same length
-        max_len = max(len(adv) for adv in advantages)
-        padded_advantages = []
-        for adv in advantages:
-            padded = adv + [0.0] * (max_len - len(adv))
-            padded_advantages.append(padded)
+        for i, (tokens, token_scores) in enumerate(zip(token_data, scores)):
+            # Create token-level rewards (sum to get response-level reward)
+            response_reward = sum(token_scores) if token_scores else 0.0
+            token_rewards = [response_reward / len(tokens)] * len(tokens) if tokens else [0.0]
+            token_level_rewards.append(token_rewards)
 
-        return torch.tensor(padded_advantages, dtype=torch.float32)
+            # Create response mask (all tokens are part of response)
+            response_mask.append([1.0] * len(tokens))
+
+            # Create index for grouping (use prompt hash for grouping)
+            prompt_hash = hash(str(tokens[:10]))  # Use first 10 tokens as prompt identifier
+            index.append(prompt_hash)
+
+        # Pad sequences to same length
+        max_len = max(len(rewards) for rewards in token_level_rewards)
+        padded_rewards = []
+        padded_masks = []
+
+        for rewards, mask in zip(token_level_rewards, response_mask):
+            padded_rewards.append(rewards + [0.0] * (max_len - len(rewards)))
+            padded_masks.append(mask + [0.0] * (max_len - len(mask)))
+
+        # Convert to tensors
+        token_level_rewards_tensor = torch.tensor(padded_rewards, dtype=torch.float32)
+        response_mask_tensor = torch.tensor(padded_masks, dtype=torch.float32)
+        index_array = np.array(index)
+
+        # Use VERL's GPRO implementation
+        advantages, _ = compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards_tensor, response_mask=response_mask_tensor, index=index_array, epsilon=1e-6, norm_adv_by_std_in_grpo=True)
+
+        return advantages
 
     def training_phase(self, rollout_data: Dict[str, Any], advantages: torch.Tensor) -> float:
         """Phase 3: Train with advantage-weighted loss using AtroposTrainer."""
@@ -486,7 +506,7 @@ class AtroposRLTrainer:
         return loss.item()
 
     def _compute_advantage_weighted_loss(self, input_ids: torch.Tensor, advantages: torch.Tensor, loss_mask: torch.Tensor) -> torch.Tensor:
-        """Compute advantage-weighted loss using the model."""
+        """Compute advantage-weighted loss using the model with GPRO advantages."""
         # Move to device
         device = next(self.training_model.parameters()).device
         input_ids = input_ids.to(device)
@@ -503,7 +523,7 @@ class AtroposRLTrainer:
 
         ce_loss = F.cross_entropy(logits.view(-1, logits.size(-1)), input_ids.view(-1), reduction="none")
 
-        # Apply advantage weighting and masking
+        # Apply GPRO advantage weighting and masking
         weighted_loss = ce_loss * advantages.view(-1) * loss_mask.view(-1)
 
         # Reduce to scalar
