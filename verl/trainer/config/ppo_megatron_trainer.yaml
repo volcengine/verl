@@ -204,7 +204,7 @@ actor_rollout_ref:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
       enable_tokenization_sanity_check: True
     # support logging rollout prob for debugging purpose
-    rollout_log_probs: False
+    calculate_log_probs: False
     # Nsight system profiler configs
     profiler:
       discrete: False

@@ -299,14 +299,14 @@ class vLLMRollout(BaseRollout):
                 for sample_id in range(len(output.outputs)):
                     response_ids = output.outputs[sample_id].token_ids
                     response.append(response_ids)
-                    if self.config.rollout_log_probs:
+                    if self.config.calculate_log_probs:
                         curr_log_prob = []
                         for i, logprob in enumerate(output.outputs[sample_id].logprobs):
                             curr_log_prob.append(logprob[response_ids[i]].logprob)
                         rollout_log_probs.append(curr_log_prob)
 
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(idx.device)
-            if self.config.rollout_log_probs:
+            if self.config.calculate_log_probs:
                 rollout_log_probs = pad_2d_list_to_length(rollout_log_probs, -1, max_length=self.config.response_length).to(idx.device)
                 rollout_log_probs = rollout_log_probs.to(torch.float32)
 
@@ -347,7 +347,7 @@ class vLLMRollout(BaseRollout):
             },
             batch_size=batch_size,
         )
-        if self.config.rollout_log_probs:
+        if self.config.calculate_log_probs:
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
 

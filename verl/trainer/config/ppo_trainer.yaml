@@ -503,7 +503,7 @@ actor_rollout_ref:
       enable_tokenization_sanity_check: True
 
     # support logging rollout prob for debugging purpose
-    rollout_log_probs: False
+    calculate_log_probs: False
 
     # profiler configs
     profiler:

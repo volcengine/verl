@@ -241,12 +241,12 @@ class vLLMRollout(BaseRollout):
             # TODO(sgm): disable logprob when recompute_log_prob is enable
             # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
             response = output[0].to(idx.device)
-            if self.config.rollout_log_probs:
+            if self.config.calculate_log_probs:
                 rollout_log_probs = output[1].to(idx.device)
 
             if response.shape[1] < self.config.response_length:
                 response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-                if self.config.rollout_log_probs:
+                if self.config.calculate_log_probs:
                     rollout_log_probs = pad_sequence_to_length(rollout_log_probs, self.config.response_length, self.pad_token_id)
 
             # utilize current sampling params
@@ -283,7 +283,7 @@ class vLLMRollout(BaseRollout):
             },
             batch_size=batch_size,
         )
-        if self.config.rollout_log_probs:
+        if self.config.calculate_log_probs:
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
 

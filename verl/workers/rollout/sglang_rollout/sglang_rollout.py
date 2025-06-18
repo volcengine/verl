@@ -666,12 +666,12 @@ class SGLangRollout(BaseRollout):
             out = _post_process_outputs(self.tokenizer, output)
 
             response = out[0].to(idx.device)
-            if self.config.rollout_log_probs:
+            if self.config.calculate_log_probs:
                 rollout_log_probs = out[1].to(idx.device)
 
             if response.shape[1] < self.config.response_length:
                 response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-                if self.config.rollout_log_probs:
+                if self.config.calculate_log_probs:
                     rollout_log_probs = pad_sequence_to_length(rollout_log_probs, self.config.response_length, self.pad_token_id)
 
             # utilize current sampling params
@@ -713,7 +713,7 @@ class SGLangRollout(BaseRollout):
             },
             batch_size=batch_size,
         )
-        if self.config.rollout_log_probs:
+        if self.config.calculate_log_probs:
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
 
