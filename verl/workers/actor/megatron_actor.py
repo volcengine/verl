@@ -41,6 +41,7 @@ from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.debug.profile import Profiler
+from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import get_model_config
@@ -166,7 +167,7 @@ class MegatronPPOActor(BasePPOActor):
         Returns:
             DataProto: torch.Tensor: the log_prob tensor
         """
-        data.to(torch.cuda.current_device())
+        data.to(get_device_id())
         data.batch = data.batch.contiguous()
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
         micro_batch_size = data.meta_info.get("micro_batch_size", None)
@@ -241,7 +242,7 @@ class MegatronPPOActor(BasePPOActor):
                     )
 
         # add empty cache after each compute
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
 
         return log_probs, entropys
 
@@ -298,6 +299,9 @@ class MegatronPPOActor(BasePPOActor):
         if self.has_multi_modal_inputs:
             mini_batch.batch["multi_modal_inputs"] = mini_batch.non_tensor_batch["multi_modal_inputs"]
             mini_batch.batch["multi_modal_inputs_idx"] = torch.Tensor(list(range(len(mini_batch.non_tensor_batch["multi_modal_inputs"])))).to(torch.int64)
+
+        if mini_batch.batch["position_ids"].dim() == 3:  # qwen2vl mrope [bs, 3, seq_len]
+            mini_batch.batch["position_ids"] = mini_batch.batch["position_ids"][:, 0]  # mcore patch recompute qwen2vl's pos ids during forward
 
         indices = None
         if use_dynamic_bsz:
@@ -505,7 +509,7 @@ class MegatronPPOActor(BasePPOActor):
         metrics = {}
         self.prof.start()
         for data in dataloader:
-            data.to(torch.cuda.current_device())
+            data.to(get_device_id())
             self.actor_optimizer.zero_grad()
             # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
             for chunk in self.actor_module:
@@ -539,5 +543,5 @@ class MegatronPPOActor(BasePPOActor):
         # add empty cache after each compute
         self.prof.stop_and_save()
         self.prof.stop_trace()
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
         return metrics

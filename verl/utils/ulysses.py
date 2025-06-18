@@ -268,12 +268,11 @@ def gather_outpus_and_unpad(
         x = _unpad_tensor(x, unpad_dim, padding_size)
     return x
 
-def ulysses_pad(
-    input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor] = None, sp_size: int = 1
-):
+
+def ulysses_pad(input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor] = None, sp_size: int = 1):
     if position_ids_rmpad is not None:
-        assert position_ids_rmpad.size(0) == 1
-        assert input_ids_rmpad.size(1) == position_ids_rmpad.size(1)
+        assert position_ids_rmpad.size(-2) == 1
+        assert input_ids_rmpad.size(-1) == position_ids_rmpad.size(-1)
     if sp_size <= 1:
         return input_ids_rmpad, position_ids_rmpad, 0
     _, total_seq_len = input_ids_rmpad.shape
@@ -282,8 +281,11 @@ def ulysses_pad(
         input_ids_rmpad = torch.nn.functional.pad(input_ids_rmpad, (0, pad_size), value=0)
         if position_ids_rmpad is not None:
             pad_pos_ids = torch.arange(pad_size, device=position_ids_rmpad.device).unsqueeze(0)
+            if position_ids_rmpad.dim() == 3:
+                pad_pos_ids = pad_pos_ids.unsqueeze(0).repeat(3, 1, 1)
             position_ids_rmpad = torch.cat((position_ids_rmpad, pad_pos_ids), dim=-1)
     return input_ids_rmpad, position_ids_rmpad, pad_size
+
 
 def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor] = None, sp_size: int = 1):
     """
@@ -304,9 +306,7 @@ def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor, position_ids_rmp
         torch.Tensor: padded and sliced position_ids
         int: pad size
     """
-    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
-        input_ids_rmpad, position_ids_rmpad, sp_size
-    )
+    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(input_ids_rmpad, position_ids_rmpad, sp_size)
     input_ids_rmpad = slice_input_tensor(input_ids_rmpad, dim=1, padding=False)
     if position_ids_rmpad is not None:
         position_ids_rmpad = slice_input_tensor(position_ids_rmpad, dim=1, padding=False)

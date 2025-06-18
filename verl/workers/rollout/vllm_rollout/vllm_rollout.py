@@ -37,6 +37,7 @@ from omegaconf import DictConfig, OmegaConf
 from tensordict import TensorDict
 from torch import nn
 from vllm import SamplingParams
+from vllm.lora.request import LoRARequest
 
 from verl import DataProto
 from verl.third_party.vllm import LLM, vllm_version
@@ -47,7 +48,6 @@ from verl.workers.rollout.base import BaseRollout
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-from vllm.lora.request import LoRARequest
 
 # TODO
 # 1. support pp in vllm
@@ -117,7 +117,7 @@ class vLLMRollout(BaseRollout):
         #    (which can vary across different vLLM versions);
         # - Otherwise it's the desired value we want to explicitly set.
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
-        lora_kwargs = kwargs.pop('lora_kwargs', {})
+        lora_kwargs = kwargs.pop("lora_kwargs", {})
         self.lora_kwargs = lora_kwargs
         self.inference_engine = LLM(
             actor_module,
@@ -226,8 +226,8 @@ class vLLMRollout(BaseRollout):
             # self.inference_engine.llm_engine.list_loras
             lora_int_ids = list(self.inference_engine.llm_engine.list_loras())
             if len(lora_int_ids) > 0:
-                lora_int_id=lora_int_ids[0]
-                lora_requests = [LoRARequest(lora_name=f"{lora_int_id}",lora_int_id=lora_int_id,lora_path="/simon-stub-path")] * batch_size
+                lora_int_id = lora_int_ids[0]
+                lora_requests = [LoRARequest(lora_name=f"{lora_int_id}", lora_int_id=lora_int_id, lora_path="/simon-stub-path")] * batch_size
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
             output = self.inference_engine.generate(
@@ -258,6 +258,8 @@ class vLLMRollout(BaseRollout):
         response_length = response.size(1)
         delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
         delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
+        if position_ids.dim() == 3:  # qwen2vl mrope [bs, 3, seq_len]
+            delta_position_id = delta_position_id.view(batch_size, 1, -1).expand(batch_size, 3, -1)
 
         # TODO(sgm): fix position_ids on right_pad
         # prompt: left pad + response: right pad
@@ -274,7 +276,7 @@ class vLLMRollout(BaseRollout):
                 "prompts": idx,
                 "responses": response,
                 "input_ids": seq,  # here input_ids become the whole sentences
-                'rollout_log_probs': log_probs, # we will recompute old log prob with actor
+                "rollout_log_probs": log_probs,  # we will recompute old log prob with actor
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
             },

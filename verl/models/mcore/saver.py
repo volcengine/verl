@@ -22,6 +22,7 @@ from megatron.core.distributed import DistributedDataParallel as LocalDDP
 from megatron.core.transformer.module import Float16Module
 from torch.nn.parallel import DistributedDataParallel as torchDDP
 
+from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.logger import print_rank_0
 from verl.utils.megatron_utils import unwrap_model
 
@@ -157,7 +158,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
             weight = torch.empty(
                 tensor_shape,
                 dtype=dtype,
-                device=torch.cuda.current_device(),
+                device=get_device_id(),
                 requires_grad=False,
             )
 
@@ -187,7 +188,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
         buffer_tensor = torch.empty(
             chunk_shape,
             dtype=dtype,
-            device=torch.cuda.current_device(),
+            device=get_device_id(),
             requires_grad=False,
         )
 
@@ -228,7 +229,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
         buffer_tensor = torch.empty(
             chunk_shape,
             dtype=dtype,
-            device=torch.cuda.current_device(),
+            device=get_device_id(),
             requires_grad=False,
         )
 
@@ -278,7 +279,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
         buffer_tensor = torch.empty(
             chunk_shape,
             dtype=dtype,
-            device=torch.cuda.current_device(),
+            device=get_device_id(),
             requires_grad=False,
         )
 
@@ -338,7 +339,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
             state_dict[v_name] = torch.cat(v_weight_list, dim=0)
 
     # empty cache before collecting weights
-    torch.cuda.empty_cache()
+    get_torch_device().empty_cache()
     # Embeddings
     # -------------------
     if dp_rank == 0 and cp_rank == 0:  # models are identical across cp ranks
@@ -454,7 +455,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
                 )
 
     dist.barrier()
-    torch.cuda.empty_cache()
+    get_torch_device().empty_cache()
     if torch.distributed.get_rank() == 0:
         for k, v in state_dict.items():
             if dtype != v.dtype:

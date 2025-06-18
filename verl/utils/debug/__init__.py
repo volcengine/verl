@@ -12,6 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .performance import GPUMemoryLogger, log_gpu_memory_usage, log_print
+from .performance import GPUMemoryLogger, log_gpu_memory_usage
 
 __all__ = ["GPUMemoryLogger", "log_gpu_memory_usage"]

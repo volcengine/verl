@@ -38,7 +38,7 @@ def process_item(reward_fn, data_source, response_lst, reward_data):
 
 @hydra.main(config_path="config", config_name="evaluation", version_base=None)
 def main(config):
-    local_path = copy_to_local(config.data.path, use_shm=config.data.get('use_shm', False))
+    local_path = copy_to_local(config.data.path, use_shm=config.data.get("use_shm", False))
     dataset = pd.read_parquet(local_path)
     responses = dataset[config.data.response_key]
     data_sources = dataset[config.data.data_source_key]

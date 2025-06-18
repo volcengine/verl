@@ -188,7 +188,7 @@ class TestLinearCrossEntropy_TensorParallel:
 
     def generate_hyper(self):
         global LOW_MEMORY, LOW_MEMORY_DIV_FACTOR, MAX_TEST_CASES
-        
+
         self.dtype = torch.bfloat16
         if self.test_case_idx == 0:
             self.batch_size = 1

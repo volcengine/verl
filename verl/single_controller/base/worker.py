@@ -22,6 +22,8 @@ from typing import Dict
 
 import ray
 
+from verl.utils.device import get_torch_device
+
 from .decorator import Dispatch, Execute, register
 
 
@@ -183,8 +185,6 @@ class Worker(WorkerHelper):
         return self.fused_worker_dict.get(worker_name, None)
 
     def _setup_env_cuda_visible_devices(self):
-        import torch
-
         from verl.utils.ray_utils import ray_noset_visible_devices
 
         is_ray_noset_visible_devices = ray_noset_visible_devices()
@@ -229,7 +229,7 @@ class Worker(WorkerHelper):
             # so we need to set local rank when the flag is set.
             local_rank = os.environ.get("RAY_LOCAL_RANK")
             os.environ["LOCAL_RANK"] = local_rank
-            torch.cuda.set_device(int(local_rank))
+            get_torch_device().set_device(int(local_rank))
 
     def _configure_with_store(self, store: Dict):
         """

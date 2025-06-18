@@ -25,6 +25,7 @@ from omegaconf import DictConfig
 from transformers import GenerationConfig
 
 from verl.models.weight_loader_registry import get_weight_saver
+from verl.utils.device import is_cuda_available, is_npu_available
 from verl.utils.fs import is_non_local
 from verl.utils.logger import log_with_rank
 from verl.utils.megatron_utils import (
@@ -107,9 +108,13 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             "random_rng_state": random.getstate(),
             "np_rng_state": np.random.get_state(),
             "torch_rng_state": torch.get_rng_state(),
-            "cuda_rng_state": torch.cuda.get_rng_state(),
             "rng_tracker_states": tensor_parallel.get_cuda_rng_tracker().get_states(),
         }
+
+        if is_cuda_available:
+            rng_state["cuda_rng_state"] = torch.cuda.get_rng_state()
+        elif is_npu_available:
+            rng_state["npu_rng_state"] = torch.npu.get_rng_state()
 
         rng_state_list = None
         if torch.distributed.is_initialized() and mpu.get_data_parallel_world_size() > 1 and data_parallel_random_init:
@@ -197,7 +202,12 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         random.setstate(rng_state["random_rng_state"])
         np.random.set_state(rng_state["np_rng_state"])
         torch.set_rng_state(rng_state["torch_rng_state"])
-        torch.cuda.set_rng_state(rng_state["cuda_rng_state"])
+
+        if is_cuda_available:
+            torch.cuda.set_rng_state(rng_state["cuda_rng_state"])
+        elif is_npu_available:
+            torch.npu.set_rng_state(rng_state["npu_rng_state"])
+
         # Check for empty states array
         if not rng_state["rng_tracker_states"]:
             raise KeyError

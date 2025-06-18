@@ -74,7 +74,7 @@ jobs:
     runs-on: [self-hosted, npu-0]
     timeout-minutes: 30 # Increase this timeout value as needed
     container:
-      image: crispig/verl_npu:cann8.1rc1-py3.10-torch2.5.1-vllm0.7.3-250603
+      image: crispig/verl_npu:cann8.1rc1-py3.10-torch2.5.1-vllm-ascend0.7.3.post1-250616
       volumes:
         - /usr/local/dcmi:/usr/local/dcmi
         - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
@@ -90,7 +90,7 @@ jobs:
         --device /dev/hisi_hdc
         --network host
         --privileged
-        --shm-size 2g
+        --shm-size 16g
     env: 
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -109,10 +109,17 @@ jobs:
           pip3 install hf_transfer peft
           pip3 install -r requirements-npu.txt
           pip install -e .
+      - name: Install torchviison
+        run: |
+          pip install torchvision==0.20.1+cpu --index-url https://download.pytorch.org/whl/cpu
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
           python3 examples/data_preprocess/gsm8k.py
+      - name: Prepare geo3k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/geo3k.py
       - name: Running gsm8k e2e training tests with LoRA on ASCEND NPU
         run: |
           ray stop --force
@@ -122,6 +129,11 @@ jobs:
         run: |
           ray stop --force
           bash tests/special_npu/run_qwen2_5_05b_grpo.sh
+          rm -rf $HOME/ckpts
+      - name: Running geo3k e2e training tests with GRPO on ASCEND NPU
+        run: |
+          ray stop --force
+          bash tests/special_npu/run_qwen2_5_vl_3b_npu.sh
           rm -rf $HOME/ckpts
       - name: Running gsm8k e2e training tests with DAPO on ASCEND NPU
         run: |
