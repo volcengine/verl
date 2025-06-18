@@ -303,6 +303,15 @@ class TestLinearCrossEntropy:
         self.check_storage("Kernel", linear_cross_entropy)
 
 
+def test_linear_cross_entropy_all():
+    for test_case_idx in range(MAX_TEST_CASES):
+        print(f"[INFO] Running test case {test_case_idx}")
+        test = TestLinearCrossEntropy(test_case_idx)
+
+        test.verify_correctness()
+        test.check_storage_all()
+
+
 if __name__ == "__main__":
     # torch.cuda.memory._record_memory_history()
 
