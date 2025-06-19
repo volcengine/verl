@@ -318,6 +318,7 @@ reward_model:
   sandbox_fusion:
     url: null # faas url to run code in cloud sandbox
     max_concurrent: 64 # max concurrent requests to sandbox
+    memory_limit_mb: 1024 # Max memory limit for each sandbox process in MB
   # Nsight system profiler configs
   profiler:
     discrete: False
