@@ -96,7 +96,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
     @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
     def __enter__(self):
         self.timing = {}
-        with _timer("reshard", self.timing):
+        with simple_timer("reshard", self.timing):
             torch.cuda.empty_cache()
             loop = asyncio.get_event_loop()
             
