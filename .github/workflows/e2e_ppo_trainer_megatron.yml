@@ -56,8 +56,10 @@ on:
     paths:
       - "**/*.py"
       # Other entrypoints
-      - "!*.md"
       - "!docker/**"
+      # Docs
+      - "!*.md"
+      - "!docs/**"
       - "!examples/**"
       - "!tests/**"
       - "!verl/trainer/main_*.py"
