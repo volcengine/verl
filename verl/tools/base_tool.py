@@ -111,6 +111,7 @@ def initialize_tools_from_config(tools_config_file) -> List[BaseTool]:
 
         if module_name not in sys.modules:
             spec = importlib.util.find_spec(module_name)
+            assert spec is not None, f"unable to find {cls_name}"
             module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = module
             spec.loader.exec_module(module)

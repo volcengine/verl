@@ -115,7 +115,7 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # pad and slice the inputs if sp > 1
                 if self.use_ulysses_sp:
-                    is_vlm_model = "multi_modal_inputs" in micro_batch
+                    is_vlm_model = "multi_modal_inputs" in micro_batch.keys()
                     if is_vlm_model:
                         # vlm model's inputs will be sliced after embedding
                         input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
