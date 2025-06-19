@@ -1,4 +1,6 @@
-export CUDA_VISIBLE_DEVICES=4,5,6,7
+# vllm serve Qwen/Qwen2.5-3B-Instruct
+
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 
 set -x
 

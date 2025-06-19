@@ -22,9 +22,8 @@ Please put your final answer (i.e., 'True' or 'False') in \\boxed{{}}.
 
 client = OpenAI(
     base_url="http://localhost:8000/v1",
-    api_key="no-api-key-required",
+    api_key="EMPTY",
 )
-
 
 def compute_score(data_source, solution_str, ground_truth, extra_info=None):
     problem = extra_info["question"]
@@ -32,13 +31,18 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None):
     messages = [
         {"role": "user", "content": prompt}
     ]
-    output = client.chat.completions.create(
-        model="qwen2-5b",
-        messages=messages,
-        max_tokens=4096,
-        temperature=0.0,
-    )
-    response = output.choices[0].message.content
-    result = last_boxed_only_string(response)
-    reward_score = float(result == "True")
+    reward_score = 0.0
+    try:
+        output = client.chat.completions.create(
+            model="qwen2-5b",
+            messages=messages,
+            max_tokens=4096,
+            temperature=0.0,
+        )
+        response = output.choices[0].message.content
+        result = last_boxed_only_string(response)
+        reward_score = float(result == "True")
+    except Exception as e:
+        print("Error:", e)
+
     return reward_score
