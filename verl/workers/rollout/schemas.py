@@ -222,34 +222,13 @@ class AsyncRolloutRequest(BaseModel):
         if not contents:
             return
 
-        # We also handle the case when tool returns image
-        # We require the processing of the image and video to be done at tool.execute() level
-        delta_multi_modal_data = {key: [] for key in self.multi_modal_keys}
-        for content in contents:
-            content_list = []
-            if isinstance(content, dict):
-                # When we update multi_model_keys, we also need to update this logic
-                if "image" in content:
-                    content_list.append({"type": "image"})
-                    delta_multi_modal_data["image"].append(content["image"])
-                elif "video" in content:
-                    content_list.append({"type": "video"})
-                    delta_multi_modal_data["video"].append(content["video"])
-                else:
-                    content_list.append({"type": "text", "text": content["text"].strip()})
-            else:
-                content_list.append({"type": "text", "text": content.strip()})
-            self.messages.append(Message(role="tool", content=content_list))
+        self.messages.extend([Message(role="tool", content=content.strip()) for content in contents])
 
         messages = [*BASE_CHAT_HISTORY, *self.messages[-len(contents) :]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
 
-        for key in self.multi_modal_keys:
-            if len(delta_multi_modal_data[key]) > 0:
-                self.multi_modal_data[key].extend(delta_multi_modal_data[key])
-
-        # We just passed the new multi-modal data to the chat template to update the input_ids.
-        content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=delta_multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_wo_gen_prompt_end_pos :]
+        # Currently we don't support tool creates multi-modal data
+        content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_wo_gen_prompt_end_pos :]
         self._update_input_ids(content_ids, attention_mask=True, loss_mask=False)
 
     def update_metrics(self, metrics: Any, tool_id: str) -> None:
