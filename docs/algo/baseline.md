@@ -2,6 +2,8 @@
 
 ## Math related datasets
 
+### GSM8k
+
 Assuming GSM8k/math dataset is preprocessed via:
 
 ```bash
@@ -38,6 +40,17 @@ Refer to the table below to reproduce RL training from different pre-trained che
 | NVIDIA GPU  | Qwen/Qwen2.5-14B-Instruct         | GRPO-LoRA         | 94.6         | [command and logs](https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/Qwen2.5-14B-bsz64_8-prompt512-resp1024-lorarank32-score0.946.log)|
 | NVIDIA GPU  | Qwen/Qwen2.5-32B-Instruct         | GRPO-LoRA         | 95.8         | [command and logs](https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/Qwen2.5-32B-bsz64_8-prompt512-resp1024-lorarank32-score0.958.log)|
 | NVIDIA GPU  | Qwen/Qwen2.5-72B-Instruct         | GRPO-LoRA         | 96.0         | [command and logs](https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/Qwen2.5-72B-bs64_8-prompt512-resp1024-lorarank32-score0.960.log)|
+
+### DAPO math-17k
+
+- Training DAPO math-17k dataset: https://huggingface.co/datasets/BytedTsinghua-SIA/DAPO-Math-17k
+- Testing: AIME'24: https://huggingface.co/datasets/BytedTsinghua-SIA/AIME-2024
+
+| Hardware    | Model                            | Method            | Test score   | Details |
+|-------------|----------------------------------|-------------------|--------------|---------|
+| NVIDIA GPU  | Qwen/Qwen2.5-Math-7B             | DAPO              | 36.3         | [command](https://github.com/volcengine/verl/blob/main/recipe/dapo/test_dapo_7b_math.sh), [logs](https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl/runs/ow47vvon?nw=nwusertongyuxuan361)|
+
+
 
 ## Coding related datasets
 
