@@ -120,6 +120,7 @@ class MegatronPPOActor(BasePPOActor):
         self.actor_module = actor_module
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
         self.prof = Profiler(self.config.profile)
+        self.use_fused_kernels = self.config.get("use_fused_kernels", False)
         self.optimizer_step_args = OmegaConf.create(
             {
                 "skip_grad": None,
@@ -427,15 +428,15 @@ class MegatronPPOActor(BasePPOActor):
                     multi_modal_inputs[key] = torch.cat([mmi[idx].get(key) for idx in idxs if mmi[idx].get(key) is not None], dim=0)
             responses = batch["responses"]
             response_length = responses.size(1)
-            label = copy.deepcopy(position_ids)
-            label[:, -response_length - 1 : -1] = responses
-            label_mask = copy.deepcopy(attention_mask)
-            label_mask[:, : -response_length - 1] = False
-            label_mask[:, -1] = False
+            labels = copy.deepcopy(position_ids)
+            labels[:, -response_length - 1 : -1] = responses
+            labels_mask = copy.deepcopy(attention_mask)
+            labels_mask[:, : -response_length - 1] = False
+            labels_mask[:, -1] = False
 
-            def logits_processor(logits, label, label_mask):
-                assert logits.shape[:2] == label.shape[:2]
-                assert label.shape == label_mask.shape
+            def logits_processor(logits, labels, labels_mask):
+                assert logits.shape[:2] == labels.shape[:2]
+                assert labels.shape == labels_mask.shape
 
                 ret = {}
 
@@ -443,18 +444,26 @@ class MegatronPPOActor(BasePPOActor):
                     entropy = vocab_parallel_entropy(logits)
                     ret["entropy"] = entropy
 
-                log_probs = vocab_parallel_log_probs_from_logits(logits, label)
-                log_probs = log_probs.masked_fill(~label_mask, 0.0)
+                log_probs = vocab_parallel_log_probs_from_logits(logits, labels)
+                log_probs = log_probs.masked_fill(~labels_mask, 0.0)
                 ret["log_probs"] = log_probs
+                print(f"labels.shape: {labels.shape}, logits.shape: {logits.shape}, log_probs.shape: {log_probs.shape}")
                 return ret
 
-            logits_processor_args = {"label": label, "label_mask": label_mask}
+            logits_processor_args = {"labels": labels, "labels_mask": labels_mask}
 
             from verl.models.mcore import get_mcore_forward_fn
 
             forward_fn = get_mcore_forward_fn(self.hf_config)
 
-            output = forward_fn(model, input_ids, attention_mask, position_ids, sequence_parallel=self.tf_config.sequence_parallel, multi_modal_inputs=multi_modal_inputs, logits_processor=logits_processor, logits_processor_args=logits_processor_args)
+            fused_kernel_kwargs = {}
+            if self.use_fused_kernels:
+                fused_kernel_kwargs["labels"] = labels
+                fused_kernel_kwargs["labels_mask"] = labels_mask
+
+            output = forward_fn(
+                model, input_ids, attention_mask, position_ids, sequence_parallel=self.tf_config.sequence_parallel, multi_modal_inputs=multi_modal_inputs, logits_processor=logits_processor, logits_processor_args=logits_processor_args, use_fused_kernels=self.use_fused_kernels, **fused_kernel_kwargs
+            )
 
             if forward_only:
                 meta_info = None

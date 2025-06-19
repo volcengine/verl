@@ -14,9 +14,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from verl.utils.megatron_utils import unwrap_model
+import warnings
+from typing import Union
 
-from .util import postprocess_packed_seqs, preprocess_packed_seqs, recover_left_padding, remove_left_padding
+import torch
+
+from verl.utils.megatron_utils import unwrap_model
+from verl.utils.model import CausalLMOutputForPPO
+
+from .util import postprocess_packed_seqs, postprocess_packed_seqs_for_dict_output, preprocess_packed_seqs, recover_left_padding, remove_left_padding
 
 
 def gptmodel_forward(
@@ -29,33 +35,84 @@ def gptmodel_forward(
     pack_seqs=True,
     logits_processor=None,
     logits_processor_args: dict = None,
+    use_fused_kernels=False,
+    labels=None,
+    labels_mask=None,
     **kwargs,
 ):
-    """Default forward pass for GPT models with optional sequence packing."""
-    pre_process = unwrap_model(model).pre_process
-    post_process = unwrap_model(model).post_process
+    """
+    Default forward pass for GPT models with optional sequence packing.
+
+    Args:
+        model: The model to run the forward pass on.
+        input_ids (torch.Tensor): Input token IDs.
+        attention_mask (torch.Tensor): Attention mask for the input.
+        position_ids (torch.Tensor): Position IDs for the input tokens.
+        sequence_parallel (bool): Whether to use sequence parallelism.
+        labels (torch.Tensor, optional): Labels for the input, required if `use_fused_kernels` is True, and shall be None if we do not use fused_kernels.
+        value_model (bool): Whether the model is a value model.
+        pack_seqs (bool): Whether to pack sequences for efficiency.
+        logits_processor (callable, optional): A function to process logits.
+        logits_processor_args (dict, optional): Arguments for the logits processor.
+        use_fused_kernels (bool): Whether to use fused kernels for performance.
+    Returns:
+        output: The output of the model after processing.
+    """
+    if use_fused_kernels:
+        assert labels is not None and labels_mask is not None, "labels and labels_mask must be provided when use_fused_kernels is True"
+    else:
+        assert labels is None and labels_mask is None, "labels and labels_mask should not be provided when use_fused_kernels is False, as we will not use GPTModel loss calculation"
+    pre_process: bool = unwrap_model(model).pre_process
+    post_process: bool = unwrap_model(model).post_process
+
     if pack_seqs:
+        # Preprocess packed sequences
         batch_size, seq_len = attention_mask.shape[:2]
         input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask, pre_process=pre_process)
         input_ids_rmpad = input_ids_rmpad.contiguous()
-        output_orig = model(
-            input_ids=input_ids_rmpad,
-            attention_mask=None,
-            position_ids=position_ids,
-            packed_seq_params=packed_seq_params,
-        )
+        labels_rmpad = None
+        if labels is not None:
+            # Fused kernels requirements
+            labels_rmpad, _ = preprocess_packed_seqs(labels, attention_mask, pre_process=True)
+            labels_mask_rmpad, _ = preprocess_packed_seqs(labels_mask, attention_mask, pre_process=True)
+            labels_rmpad = labels_rmpad.contiguous()
+            labels_mask_rmpad = labels_mask_rmpad.contiguous()
+
+        # Main forward pass
+        output_orig: Union[torch.Tensor, CausalLMOutputForPPO] = model(input_ids=input_ids_rmpad, attention_mask=None, position_ids=position_ids, labels=labels_rmpad, packed_seq_params=packed_seq_params)
+        # output_orig is CausalLMOutputForPPO, hidden_states or directly a logits tensor
+
+        # Post-processing
+        if post_process and use_fused_kernels:
+            # output_orig is in type of CausalLMOutputForPPO
+            output = postprocess_packed_seqs_for_dict_output(labels_mask_rmpad, output_orig, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
+            return output
         if post_process and logits_processor is not None:
+            # use logits_processor to calculate smaller data, output_orig is a logits tensor
             args = {k: preprocess_packed_seqs(v, attention_mask, pre_process=True)[0] for k, v in logits_processor_args.items()}
             output_dict = logits_processor(output_orig, **args)
             output = {k: postprocess_packed_seqs(v, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process) for k, v in output_dict.items()}
-        else:
-            output = postprocess_packed_seqs(output_orig, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
+            return output
+        # default, without any optimization, output_orig is a logits tensor
+        output = postprocess_packed_seqs(output_orig, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
     else:
+        """_summary_
+        
+        Non-packed sequence forward pass. This is less efficient and should be avoided if possible.
+        """
+        warnings.warn("Non-packed sequence can have a severe performance penalty, consider using pack_seqs=True.", stacklevel=2)
         assert logits_processor is None, "logits_processor is not supported for non-packed sequence"
+
+        # preprocess, remove left padding
         batch_size, sequence_length = attention_mask.shape
         new_input_ids, new_attention_mask, new_position_ids = remove_left_padding(input_ids, attention_mask, position_ids, sequence_parallel, pre_process=pre_process)
+
+        # Main forward pass
         output = model(input_ids=new_input_ids, attention_mask=new_attention_mask, position_ids=new_position_ids)
+
+        # Post-process, recover left padding
         output = recover_left_padding(output, new_attention_mask, attention_mask, sequence_length, post_process=post_process)
+
     if value_model and post_process:
         output = output[..., 0]
     return output
@@ -67,13 +124,36 @@ def gptmodel_forward_qwen2_5_vl(
     attention_mask,
     position_ids,
     sequence_parallel,
+    labels=None,
+    labels_mask=None,
     value_model=False,
     pack_seqs=True,
     multi_modal_inputs=None,
     logits_processor=None,
     logits_processor_args: dict = None,
+    use_fused_kernels=False,
     **kwargs,
 ):
+    """_summary_
+    Forward pass for Qwen2.5 VL models with optional sequence packing and multi-modal inputs.
+    Reuse gptmodel_forward
+
+    Args:
+        model: The model to run the forward pass on.
+        input_ids (torch.Tensor): Input token IDs.
+        attention_mask (torch.Tensor): Attention mask for the input.
+        position_ids (torch.Tensor): Position IDs for the input tokens.
+        sequence_parallel (bool): Whether to use sequence parallelism.
+        labels (torch.Tensor, optional): Labels for the input, required if `use_fused_kernels` is True.
+        value_model (bool): Whether the model is a value model.
+        pack_seqs (bool): Whether to pack sequences for efficiency.
+        multi_modal_inputs (dict, optional): Multi-modal inputs for the model, such as pixel values and image grid dimensions.
+        logits_processor (callable, optional): A function to process logits.
+        logits_processor_args (dict, optional): Arguments for the logits processor.
+        use_fused_kernels (bool): Whether to use fused kernels for performance.
+    Returns:
+        output: The output of the model after processing.
+    """
     from megatron.core import parallel_state as mpu
 
     assert mpu.get_context_parallel_world_size() == 1, "qwen2_5_vl's context parallel is not accurate yet"
