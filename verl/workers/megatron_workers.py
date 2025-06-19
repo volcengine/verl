@@ -26,7 +26,7 @@ import torch
 import torch.distributed
 from codetiming import Timer
 from megatron.core import parallel_state as mpu
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 
 from verl import DataProto
 from verl.single_controller.base.decorator import Dispatch, register
@@ -161,7 +161,16 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         def megatron_actor_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
 
-            parallel_model = init_mcore_model(self.tf_config, self.hf_config, pre_process, post_process, share_embeddings_and_output_weights=self.share_embeddings_and_output_weights, value=False, freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False))
+            parallel_model = init_mcore_model(
+                tf_config=self.tf_config,
+                hf_config=self.hf_config,
+                use_fused_kernels=self.config.model.get("use_fused_kernels", False),
+                pre_process=pre_process,
+                post_process=post_process,
+                share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
+                value=False,
+                freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False),
+            )
             parallel_model.to(get_device_name())
             return parallel_model
 
@@ -361,6 +370,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 log_gpu_memory_usage("After offload actor optimizer during init", logger=logger)
 
         if self._is_actor:
+            OmegaConf.set_struct(self.config.actor, True)
+            with open_dict(self.config.actor):
+                self.config.actor.use_fused_kernels = self.config.model.get("use_fused_kernels", False)
             self.actor = MegatronPPOActor(
                 config=self.config.actor,
                 model_config=self.actor_model_config,
@@ -378,6 +390,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("After rollout init", logger=logger)
 
         if self._is_ref:
+            OmegaConf.set_struct(self.config.ref, True)
+            with open_dict(self.config.ref):
+                self.config.ref.use_fused_kernels = self.config.model.get("use_fused_kernels", False)
             self.ref_module, self.ref_model_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
                 optim_config=None,
@@ -674,7 +689,17 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         def megatron_critic_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
 
-            parallel_model = init_mcore_model(self.tf_config, self.hf_config, pre_process, post_process, share_embeddings_and_output_weights=False, value=True, freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False))
+            parallel_model = init_mcore_model(
+                tf_config=self.tf_config,
+                hf_config=self.hf_config,
+                use_fused_kernels=False,
+                pre_process=pre_process,
+                post_process=post_process,
+                share_embeddings_and_output_weights=False,
+                value=True,
+                freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False),
+            )
+
             parallel_model.to(get_device_name())
             return parallel_model
 
@@ -885,10 +910,11 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             from verl.models.mcore import init_mcore_model
 
             parallel_model = init_mcore_model(
-                self.tf_config,
-                self.hf_config,
-                pre_process,
-                post_process,
+                tf_config=self.tf_config,
+                hf_config=self.hf_config,
+                use_fused_kernels=False,
+                pre_process=pre_process,
+                post_process=post_process,
                 share_embeddings_and_output_weights=False,
                 value=True,
             )

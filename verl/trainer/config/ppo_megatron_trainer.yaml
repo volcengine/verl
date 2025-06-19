@@ -40,6 +40,7 @@ actor_rollout_ref:
       activations_checkpoint_granularity: null # 'selective' or 'full'
       # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
       activations_checkpoint_num_layers: null # not used with 'selective'
+    use_fused_kernels: False # Whether to use custom fused kernels (PostProcessing, for memory efficiency)
     trust_remote_code: False
   actor:
     strategy: megatron  # This is for backward-compatibility

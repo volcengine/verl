@@ -149,8 +149,9 @@ def hf_to_mcore_config(hf_config: PretrainedConfig, dtype: torch.dtype, **overri
 
 
 def init_mcore_model(
-    tfconfig: TransformerConfig,
+    tf_config: TransformerConfig,
     hf_config: PretrainedConfig,
+    use_fused_kernels: bool = False,
     pre_process: bool = True,
     post_process: bool = None,
     *,
@@ -162,7 +163,7 @@ def init_mcore_model(
     Initialize a Mcore model.
 
     Args:
-        tfconfig: The transformer config.
+        tf_config: The transformer config.
         hf_config: The HuggingFace config.
         pre_process: Optional pre-processing function.
         post_process: Optional post-processing function.
@@ -176,8 +177,8 @@ def init_mcore_model(
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     model = get_supported_model(hf_config.architectures[0])
     initializer_cls = MODEL_INITIALIZER_REGISTRY[model]
-    initializer = initializer_cls(tfconfig, hf_config)
-    return initializer.initialize(pre_process=pre_process, post_process=post_process, share_embeddings_and_output_weights=share_embeddings_and_output_weights, value=value, **extra_kwargs)
+    initializer = initializer_cls(tf_config, hf_config)
+    return initializer.initialize(use_fused_kernels=use_fused_kernels, pre_process=pre_process, post_process=post_process, share_embeddings_and_output_weights=share_embeddings_and_output_weights, value=value, **extra_kwargs)
 
 
 def get_mcore_forward_fn(hf_config: PretrainedConfig) -> Callable:
@@ -195,5 +196,5 @@ def get_mcore_weight_converter(hf_config: PretrainedConfig, dtype: torch.dtype) 
     """
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     model = get_supported_model(hf_config.architectures[0])
-    tfconfig = hf_to_mcore_config(hf_config, dtype)
-    return MODEL_WEIGHT_CONVERTER_REGISTRY[model](hf_config, tfconfig)
+    tf_config = hf_to_mcore_config(hf_config, dtype)
+    return MODEL_WEIGHT_CONVERTER_REGISTRY[model](hf_config, tf_config)

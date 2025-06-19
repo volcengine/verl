@@ -12,18 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
 import torch
 from transformers.cache_utils import Cache
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-
-@dataclass
-class CausalLMOutputForPPO(CausalLMOutputWithPast):
-    log_probs: Optional[torch.FloatTensor] = None
-    entropy: Optional[torch.FloatTensor] = None
+from verl.utils.model import CausalLMOutputForPPO
 
 
 def forward_base_model(

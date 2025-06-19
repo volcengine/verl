@@ -104,6 +104,10 @@ Actor/Rollout/Reference Policy
       enable_gradient_checkpointing: False
       enable_activation_offload: False
       trust_remote_code: False
+      use_fused_kernels: True
+      fused_kernel_options: # Options for fused kernels. If use_fused_kernels is true, this will be used.
+        # Implementation backend for fused kernels. Options: "triton" or "torch".
+        impl_backend: torch
       use_remove_padding: False
     actor:
       strategy: fsdp  # This is for backward-compatibility
@@ -212,6 +216,18 @@ Actor/Rollout/Reference Policy
   activation offloading for the actor
 - ``actor_rollout_ref.model.trust_remote_code``: Whether to enable loading
   a remote code model
+- ``actor_rollout_ref.model.use_fused_kernels``: Whether to use fused
+  kernels in the model. If set to True, the following parameters will be
+  used.
+  - ``actor_rollout_ref.model.fused_kernel_options.impl_backend``: The
+    implementation backend for fused kernels. Options: "triton" or
+    "torch". Default is "torch".
+    While in megatron, we only support "triton" as the
+    implementation backend,
+    so there is no need for this option.
+- ``actor_rollout_ref.model.use_remove_padding``: Whether to use remove
+  padding in the model. If set to True, the model will remove padding
+  tokens in the input_ids and response_ids. This helps a lot in improving model running efficiency.
 
 **Actor model**
 

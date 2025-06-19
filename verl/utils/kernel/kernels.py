@@ -438,7 +438,7 @@ def efficient_entropy_forward(hidden: torch.Tensor, weight: torch.Tensor, labels
     assert hidden.dim() == 2 and weight.dim() == 2 and labels.dim() == 1
     assert hidden.is_contiguous() and weight.is_contiguous() and labels.is_contiguous()
 
-    assert hidden.shape[0] == labels.shape[0] and hidden.shape[1] == weight.shape[1]
+    assert hidden.shape[0] == labels.shape[0] and hidden.shape[1] == weight.shape[1], f"hidden shape: {hidden.shape}, weight shape: {weight.shape}, labels shape: {labels.shape}"
 
     _rank = 0 if dist_process_group is None else dist.get_rank(dist_process_group)
     _world_size = 1 if dist_process_group is None else dist.get_world_size(dist_process_group)
