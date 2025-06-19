@@ -189,7 +189,7 @@ class TestRolloutWithMCPSearchTools:
         # Mock mcp registered tool as a predefined schema for avoiding ci timeout
         mock_fetch.return_value = tool_schema
 
-        rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=search_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
         assert len(rollout._tool_schemas) != 0
         assert "tavily_search_tool" in rollout._tool_map.keys()
         from verl.tools.mcp_search_tool import MCPSearchTool
@@ -235,7 +235,7 @@ class TestRolloutWithMCPSearchTools:
         ]
         # Mock mcp registered tool as a predefined schema for avoiding ci timeout
         mock_fetch.return_value = tool_schema
-        rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=search_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
         req_list = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)
         assert len(req_list) == 1
         assert req_list[0].state == AsyncRolloutRequestStateEnum.PENDING
@@ -279,7 +279,7 @@ class TestRolloutWithMCPSearchTools:
         # Mock mcp registered tool as a predefined schema for avoiding ci timeout
         mock_fetch.return_value = tool_schema
         search_rollout_config.multi_turn.max_turns = 1
-        rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=search_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
         req = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
         req.finalize = MagicMock()
@@ -353,7 +353,7 @@ class TestRolloutWithMCPSearchTools:
         mock_execute.side_effect = [(msg, 0.0, {"status": "success"}) for msg in tool_return_array]
 
         search_rollout_config.multi_turn.max_turns = 10
-        rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=search_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
 
         req = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
@@ -438,7 +438,7 @@ class TestRolloutWithMCPSearchTools:
         rollout = SGLangRollout(
             actor_module="",
             config=search_rollout_config,
-            tokenizer=qwen_tokenizer,
+            processing_class=qwen_tokenizer,
             model_hf_config=qwen_model_config,
         )
 
