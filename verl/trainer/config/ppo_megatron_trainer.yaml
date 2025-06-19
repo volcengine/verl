@@ -57,6 +57,7 @@ actor_rollout_ref:
     # NOTE: "token-mean" is the default behavior
     entropy_coeff: 0
     use_kl_loss: False # True for GRPO
+    use_gpg_loss: False # True for GPG
     kl_loss_coef: 0.001 # for grpo
     kl_loss_type: low_var_kl # for grpo
     ppo_epochs: 1

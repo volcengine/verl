@@ -72,6 +72,7 @@ verl is fast with:
    algo/sppo.md
    algo/opo.md
    algo/baseline.md
+   algo/gpg.md
 
 .. toctree:: 
    :maxdepth: 1
