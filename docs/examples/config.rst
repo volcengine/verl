@@ -220,11 +220,10 @@ Actor/Rollout/Reference Policy
   kernels in the model. If set to True, the following parameters will be
   used.
   - ``actor_rollout_ref.model.fused_kernel_options.impl_backend``: The
-    implementation backend for fused kernels. Options: "triton" or
-    "torch". Default is "torch".
-    While in megatron, we only support "triton" as the
-    implementation backend,
-    so there is no need for this option.
+  implementation backend for fused kernels. Options: "triton" or
+  "torch". Default is "torch".
+  While in megatron, we only support "triton" as the
+  implementation backend, so there is no need for this option.
 - ``actor_rollout_ref.model.use_remove_padding``: Whether to use remove
   padding in the model. If set to True, the model will remove padding
   tokens in the input_ids and response_ids. This helps a lot in improving model running efficiency.
