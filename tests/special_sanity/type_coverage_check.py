@@ -118,7 +118,7 @@ def main() -> None:
 
     target_files = [args.target_file] if args.target_file is not None else get_changed_files()
     for fpath in target_files:
-        if 'tests/' in str(fpath):
+        if "tests/" in str(fpath):
             continue
         if args.all_lines:
             changed_lines = [i + 1 for i in range(len(open(fpath).readlines()))]
