@@ -75,34 +75,22 @@ class BaseModelInitializer(ABC):
         transformer_layer_spec = self.get_transformer_layer_spec()
         rope_scaling_args = self.get_rope_scaling_args()
         mtp_block_spec = extra_kwargs.get("mtp_block_spec", None)
-        if not use_fused_kernels:
-            model = GPTModel(
-                config=self.tf_config,
-                transformer_layer_spec=transformer_layer_spec,
-                vocab_size=self.hf_config.vocab_size,
-                max_sequence_length=self.hf_config.max_position_embeddings,
-                pre_process=pre_process,
-                post_process=post_process,
-                share_embeddings_and_output_weights=share_embeddings_and_output_weights,
-                position_embedding_type="rope",
-                rotary_base=self.hf_config.rope_theta,
-                **rope_scaling_args,
-                mtp_block_spec=mtp_block_spec,
-            )
-        else:
-            model = GPTModelWithFusedLayer(
-                config=self.tf_config,
-                transformer_layer_spec=transformer_layer_spec,
-                vocab_size=self.hf_config.vocab_size,
-                max_sequence_length=self.hf_config.max_position_embeddings,
-                pre_process=pre_process,
-                post_process=post_process,
-                share_embeddings_and_output_weights=share_embeddings_and_output_weights,
-                position_embedding_type="rope",
-                rotary_base=self.hf_config.rope_theta,
-                **rope_scaling_args,
-                mtp_block_spec=mtp_block_spec,
-            )
+        MODEL_CLASS = GPTModel
+        if use_fused_kernels:
+            MODEL_CLASS = GPTModelWithFusedLayer
+        model = MODEL_CLASS(
+            config=self.tf_config,
+            transformer_layer_spec=transformer_layer_spec,
+            vocab_size=self.hf_config.vocab_size,
+            max_sequence_length=self.hf_config.max_position_embeddings,
+            pre_process=pre_process,
+            post_process=post_process,
+            share_embeddings_and_output_weights=share_embeddings_and_output_weights,
+            position_embedding_type="rope",
+            rotary_base=self.hf_config.rope_theta,
+            **rope_scaling_args,
+            mtp_block_spec=mtp_block_spec,
+        )
 
         if post_process and value:
             from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
