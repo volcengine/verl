@@ -24,6 +24,7 @@ Usage
   # Check an entire source tree (all top-level packages under cwd)
   python check_docstrings.py
 """
+
 from __future__ import annotations
 
 import argparse
