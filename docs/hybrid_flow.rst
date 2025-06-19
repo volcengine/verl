@@ -79,7 +79,7 @@ In verl, the latter strategy with separate control flow and computation flow is 
 Overall Execution Diagram
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Below is a simplified diagram denoting the execution of a reinforcement learning job. In the diagram, the controller runs on a single process, while the generator/actor workers, critic workers run on multiple processes, placed with specific resource groups. For rollout, the controller passes the data to the generator to perform sample generation. When the rollout is done, the data is passed back to controller for the next step of the algorithm. Similar execution is done for other workers. With the hybrid controller design, the data flow and computation is decoupled to provide both efficiency in computation and flexiblity in defining algorithm training loops.
+Below is a simplified diagram denoting the execution of a reinforcement learning job. In the diagram, the controller runs on a single process, while the generator/actor workers, critic workers run on multiple processes, placed with specific resource groups. For rollout, the controller passes the data to the generator to perform sample generation. When the rollout is done, the data is passed back to controller for the next step of the algorithm. Similar execution is done for other workers. With the hybrid controller design, the data flow and computation is decoupled to provide both efficiency in computation and flexibility in defining algorithm training loops.
 
 .. figure:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/driver_worker.png?raw=true
    :alt: The execution diagram
@@ -110,7 +110,7 @@ Note that, the fit function of RayPPOTrainer **runs as a single process**.
 Worker and WorkerGroup construction
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Each workerGroup manages a list of workers that runs remotely. Note that the worker group runs in the process of its construtor.
+Each workerGroup manages a list of workers that runs remotely. Note that the worker group runs in the process of its constructor.
 Each worker inside the WorkerGroup runs on a GPU. The worker group serves as a proxy for the controller process to interact with a list of workers, in order to perform certain computations. **In order to do so, we have to bind the methods of the worker into the method of the WorkerGroup and define the data dispatch and data collection**. This is done via simple decoration that will be introduced in the Worker definition section.
 
 For example, in PPO, we define 3 worker groups:
@@ -155,7 +155,7 @@ If the controller process wants to generate sequences, it has to call
        output_dp_lst.append(output_future)
    output = torch.cat(ray.get(output_dp_lst), dim=0)
 
-We observe that controll process calling worker group methods in general can be divided into 3 parts:
+We observe that controller process calling worker group methods in general can be divided into 3 parts:
 
 - Split the data into data parallel sizes
 - Dispatch the corresponding data into each worker
@@ -172,7 +172,7 @@ In verl, we design a syntax sugar to encapsulate the 3 processes into a single c
    # on the driver
    output = actor_rollout_ref_wg.generate_sequences(data)
 
-We decorate the method of the worker with a ``register`` that explicitly defines how the input data should be splitted and dispatch to each worker, and how the output data should be collected and concatenated by the controller. For example, ``Dispatch.DP_COMPUTE_PROTO`` splits the input data into dp chunks, dispatch each data to each worker, collect the output and concatenate the results. Note that this function requires the input and output to be a DataProto defined here (https://github.com/volcengine/verl/blob/main/verl/protocol.py).
+We decorate the method of the worker with a ``register`` that explicitly defines how the input data should be split and dispatched to each worker, and how the output data should be collected and concatenated by the controller. For example, ``Dispatch.DP_COMPUTE_PROTO`` splits the input data into dp chunks, dispatch each data to each worker, collect the output and concatenate the results. Note that this function requires the input and output to be a DataProto defined here (https://github.com/volcengine/verl/blob/main/verl/protocol.py).
 
 
 PPO main loop

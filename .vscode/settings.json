@@ -1,9 +1,15 @@
 {
-    "pylint.enabled": true,
     "[python]": {
-        "editor.defaultFormatter": "eeyore.yapf",
+        "editor.defaultFormatter": "charliermarsh.ruff",
         "editor.codeActionsOnSave": {
-            "source.organizeImports": "never",
+            "source.organizeImports": "always",
         }
-    }
+    },
+    "files.associations": {
+        "array": "cpp",
+        "string_view": "cpp",
+        "initializer_list": "cpp",
+        "utility": "cpp"
+    },
+    "iis.configDir": ""
 }

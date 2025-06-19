@@ -24,9 +24,16 @@ verl currently supports two rollout backends: vLLM and TGI (with SGLang support 
 
 Below are key factors for tuning vLLM-based rollout. Before tuning, we recommend setting ``actor_rollout_ref.rollout.disable_log_stats=False`` so that rollout statistics are logged.
 
-- Increase ``gpu_memory_utilization``. The vLLM pre-allocates GPU KVCache by using gpu_memory_utilization% of the remaining memory. 
+- Increase ``gpu_memory_utilization``.
+
+  - For vLLM v0.5.4 and v0.6.3, the vLLM pre-allocates GPU KVCache by using gpu_memory_utilization of the **remaining** memory. 
+  - For vLLM v0.7.0 and later, the vLLM instance will only use gpu_memory_utilization of the **total** memory.
+  - For SGLang, it's the fraction of the free GPU memory used for **static** memory like model weights and KV cache. However, the remaining (1-gpu_memory_utilization) will also be used during inference.
+
   However, if model parameters and optimizer states are not offloaded, using too high a fraction can lead to OOM. 
   A value between 0.5 and 0.7 often strikes a good balance between high throughput and avoiding OOM.
+
+  Note: since the definition of ``gpu_memory_utilization`` varies across inference engines, a value that works well for one engine may cause OOM for another.
 
 - Adjust ``max_num_seqs`` or ``max_num_batched_tokens``.
   If the GPU cache utilization is relatively low in the log, increase ``max_num_seqs`` or ``max_num_batched_tokens`` 
@@ -51,12 +58,12 @@ Currently, for llama, mistral, gemma1 and qwen based models, users can enable `u
 sequence packing implementation provided by transformers library.
 
 For other models, transformers library may also support it but we haven't tested it yet.
-Users can add the desired model config to the  `test_transformer.py <https://github.com/volcengine/verl/blob/main/tests/model/test_transformer.py#L24>`_ file.
+Users can add the desired model config to the  `test_transformer.py <https://github.com/volcengine/verl/blob/main/tests/models/test_transformer.py#L24>`_ file.
 And test its functionaility by running the following command:
 
 .. code-block:: bash
 
-  pytest -s tests/model/test_transformer.py
+  pytest -s tests/models/test_transformer.py
 
 If the test passes, you can add your desired model into the model `registry.py <https://github.com/volcengine/verl/blob/main/verl/models/registry.py#L24>`_ file.
 Then, you can enjoy the performance boost of sequence packing
@@ -99,6 +106,9 @@ Therefore, users may need to tune the ``*micro_batch_size_per_gpu`` to accelerat
 4. **Allow larger micro-batch sizes for Critic and Reward models**:
    micro batch size of Critic and Reward model could be larger than Actor model. This is because the actor model has much larger vocab size in the final layer.
 
+5. **Enable activation offloading**:
+   Set ``actor_rollout_ref.model.enable_activation_offload=True`` and ``critic.model.enable_activation_offload=True``.
+   This often works together with gradient checkpointing to get larger micro-batch sizes and it's only available in FSDP backend now.
 
 Tuning for Dynamic Batch Size
 -----------------------------

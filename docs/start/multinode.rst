@@ -67,8 +67,197 @@ Slurm
 -----
 TBD
 
+dstack
+------
+`dstackai/dstack <https://github.com/dstackai/dstack>`_ is an open-source container orchestrator that simplifies distributed training across cloud providers and on-premises environments
+without the need to use K8S or Slurm.
+
+Prerequisite
+~~~~~~~~~~~~
+Once dstack is `installed <https://dstack.ai/docs/installation>`_, initialize the directory as a repo with ``dstack init``. 
+
+.. code-block:: bash
+
+    mkdir myproject && cd myproject
+    dstack init
+
+**Create a fleet**
+
+Before submitting distributed training jobs, create a `dstack` `fleet <https://dstack.ai/docs/concepts/fleets>`_.
+
+Run a Ray cluster task
+~~~~~~~~~~~~~~~~~~~~~~
+
+Once the fleet is created, define a Ray cluster task, e.g. in ``ray-cluster.dstack.yml``:
+
+.. code-block:: yaml
+
+    type: task
+    name: ray-verl-cluster
+
+    nodes: 2
+
+    env:
+        - WANDB_API_KEY
+        - PYTHONUNBUFFERED=1
+        - CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    
+    image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.2
+    commands:
+        - git clone https://github.com/volcengine/verl
+        - cd verl
+        - pip install --no-deps -e .
+        - pip install hf_transfer hf_xet
+        - |
+        if [ $DSTACK_NODE_RANK = 0 ]; then
+            python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+            python3 -c "import transformers; transformers.pipeline('text-generation', model='Qwen/Qwen2.5-7B-Instruct')" 
+            ray start --head --port=6379;
+        else
+            ray start --address=$DSTACK_MASTER_NODE_IP:6379
+        fi
+
+    # Expose Ray dashboard port
+    ports:
+        - 8265
+
+    resources:
+        gpu: 80GB:8
+        shm_size: 128GB
+
+    # Save checkpoints on the instance
+    volumes:
+        - /checkpoints:/checkpoints
+
+Now, if you run this task via `dstack apply`, it will automatically forward the Ray's dashboard port to `localhost:8265`.
+
+.. code-block:: bash
+
+    dstack apply -f ray-cluster.dstack.yml
+
+As long as the `dstack apply` is attached, you can use `localhost:8265` to submit Ray jobs for execution
+
+Submit Ray jobs
+~~~~~~~~~~~~~~~
+
+Before you can submit Ray jobs, ensure to install `ray` locally:
+   
+.. code-block:: shell
+
+    pip install ray
+
+Now you can submit the training job to the Ray cluster which is available at ``localhost:8265``:
+   
+.. code-block:: shell
+
+    $ RAY_ADDRESS=http://localhost:8265
+    $ ray job submit \
+        -- python3 -m verl.trainer.main_ppo \
+        data.train_files=/root/data/gsm8k/train.parquet \
+        data.val_files=/root/data/gsm8k/test.parquet \
+        data.train_batch_size=256 \
+        data.max_prompt_length=512 \
+        data.max_response_length=256 \
+        actor_rollout_ref.model.path=Qwen/Qwen2.5-7B-Instruct \
+        actor_rollout_ref.actor.optim.lr=1e-6 \
+        actor_rollout_ref.actor.ppo_mini_batch_size=64 \
+        actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+        actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
+        actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+        actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
+        actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
+        critic.optim.lr=1e-5 \
+        critic.model.path=Qwen/Qwen2.5-7B-Instruct \
+        critic.ppo_micro_batch_size_per_gpu=4 \
+        algorithm.kl_ctrl.kl_coef=0.001 \
+        trainer.project_name=ppo_training \
+        trainer.experiment_name=qwen-2.5-7B \
+        trainer.val_before_train=False \
+        trainer.default_hdfs_dir=null \
+        trainer.n_gpus_per_node=8 \
+        trainer.nnodes=2 \
+        trainer.default_local_dir=/checkpoints \
+        trainer.save_freq=10 \
+        trainer.test_freq=10 \
+        trainer.total_epochs=15 2>&1 | tee verl_demo.log \
+        trainer.resume_mode=disable
+
+
+For more details on how `dstack` works, check out its `documentation <https://dstack.ai/docs>`_.
+
 How to debug?
 ---------------------
+
+
+Ray Distributed Debugger VSCode Extension (Recommended)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. Starting with Ray 2.39, Anyscale has introduced the `Ray Distributed Debugger <https://docs.ray.io/en/latest/ray-observability/ray-distributed-debugger.html>`_ VSCode extension. Follow the extension’s installation instructions, then add your cluster using the dashboard URL you obtained earlier.
+
+   .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/debugger.png?raw=true
+      :alt: Ray Distributed Debugger VSCode extension screenshot
+
+2. Prerequisites.
+
+   Ensure the following are installed (see the extension README for more detail):
+
+   - Visual Studio Code  
+   - `ray[default]` >= 2.9.1  
+   - `debugpy` >= 1.8.0  
+
+   .. image:: https://github.com/aoshen524/verl/blob/main/docs/start/c7098b755ff689859837773a916c857.png?raw=true
+      :alt: VSCode with Ray prerequisites
+
+3. Environment Variables.
+
+   To enable post‑mortem debugging, set:
+
+   .. code-block:: bash
+
+      export RAY_DEBUG_POST_MORTEM=1
+
+   .. admonition:: Note
+      :class: important
+
+      Be sure to remove any legacy flags before starting Ray:
+
+      - `RAY_DEBUG=legacy`  
+      - `--ray-debugger-external`
+
+4. Configuring BreakpointsSet up breakpoint() in your code, and submit job to cluster. Then the extension will show the breakpoint information.
+
+
+   1. Insert `breakpoint()` calls into your remote functions.  
+   2. Submit your job to the cluster.  
+
+   The extension will detect active breakpoints and display them in VSCode.
+
+   .. image:: https://github.com/aoshen524/verl/blob/main/docs/start/4ddad74395c79a1402331c0ce73316f.png?raw=true
+      :alt: Detected breakpoint in VSCode
+
+   **Note:** Breakpoints are only supported inside functions decorated with `@ray.remote`.
+
+5. Launching the Debugger.
+
+   Run your job directly from the command line (do not use a `launch.json`):
+
+   .. code-block:: bash
+
+      python job.py
+
+6. Attaching to a Breakpoint.
+
+ Once the process hits the first `breakpoint()`, click the Ray Distributed Debugger icon in the VSCode sidebar to attach the debugger.
+
+   .. image:: https://github.com/aoshen524/verl/blob/main/docs/start/4ddad74395c79a1402331c0ce73316f.png?raw=true
+      :alt: Attaching VSCode debugger to Ray process
+
+7. Debugging With Multiple breakpoint().
+
+   For each subsequent task, first disconnect the current debugger session, then click the extension icon again to attach to the next breakpoint.
+
+   .. image:: https://github.com/aoshen524/verl/blob/main/docs/start/6e83c910a62c82fecb89c6619e001cd.png?raw=true
+      :alt: Disconnecting and reconnecting the debugger
 
 Legacy Ray Debugger
 ~~~~~~~~~~~~~~~~~~~
@@ -84,26 +273,6 @@ Legacy Ray Debugger
 2. Set up breakpoint in your code, and submit job to cluster. Then run ``ray debug`` to wait breakpoint:
 
 .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/legacy.png?raw=true
-
-Ray Distributed Debugger VSCode Extension
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-1. Starting with Ray 2.39, Anyscale introduce a new `Ray Distributed Debugger <https://docs.ray.io/en/latest/ray-observability/ray-distributed-debugger.html>`_ VSCode extension. Please follow the instruction to install the extension, and then add cluster with the dashboard address you get above.
-
-*NOTE: Don't forget remove RAY_DEBUG=legacy and --ray-debugger-external in ray start*
-
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/debugger.png?raw=true
-
-2. Set up breakpoint in your code, and submit job to cluster. Then the extension will show the breakpoint information.
-
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/breakpoint.png?raw=true
-
-
-
-
-
-
-
 
 
 Multi-node training on AMD clusters
@@ -283,7 +452,8 @@ slurm_script.sh
     echo "IP Head: $ip_head"
 
     # make sure we set environment variables before Ray initialization
-    export VLLM_ATTENTION_BACKEND=XFORMERS
+    # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
+    # export VLLM_ATTENTION_BACKEND=XFORMERS
 
     # Print out all env variables
     printenv
@@ -317,7 +487,7 @@ slurm_script.sh
 
 
 
-    # Ray initlization test (See whether any error in the above excution)
+    # Ray initlization test (See whether any error in the above execution)
     echo "Testing Ray initialization in the slurm nodes..."
     docker exec "${CONTAINER_NAME}" python3 -c '
     import ray

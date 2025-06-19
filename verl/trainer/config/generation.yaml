@@ -1,6 +1,7 @@
 trainer:
   nnodes: 1
   n_gpus_per_node: 8
+  device: cuda
 
 data:
   path: ~/data/rlhf/math/test.parquet
@@ -14,6 +15,7 @@ model:
   external_lib: null
 rollout:
   name: vllm
+  mode: sync # sync: LLM, async: AsyncLLM
   temperature: 1.0
   top_k: 50 # 0 for hf rollout, -1 for vllm rollout
   top_p: 0.7
@@ -39,8 +41,17 @@ rollout:
   disable_log_stats: True
   enable_chunked_prefill: True
   n: 1
+  # support logging rollout prob for debugging purpose
+  calculate_log_probs: False
 actor:
   strategy: fsdp  # This is for backward-compatibility
   ulysses_sequence_parallel_size: 1 # sp size
+  entropy_from_logits_with_chunking: False  # calculate entropy with chunking to reduce memory peak
+  entropy_checkpointing: False  # recompute entropy
   fsdp_config:
     fsdp_size: -1
+    forward_prefetch: False  # FSDP1 forward_prefetch configuration
+
+ray_init:
+  num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
+  timeline_json_file: null

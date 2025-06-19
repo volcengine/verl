@@ -1,9 +1,0 @@
-FROM verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3
-
-RUN pip install git+https://github.com/NVIDIA/TransformerEngine.git@stable
-
-RUN cd /opt/nvidia && git clone --single-branch --branch core_r0.11.0 https://github.com/NVIDIA/Megatron-LM.git Megatron-LM
-
-# only config pip index with https://pypi.tuna.tsinghua.edu.cn/simple if needed
-# unset for now
-RUN cd /opt/nvidia/Megatron-LM && pip3 install --no-deps -e .

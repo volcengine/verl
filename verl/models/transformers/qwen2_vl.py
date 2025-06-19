@@ -12,17 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional, Tuple
 import inspect
-import torch
 import os
-from transformers.utils import is_flash_attn_greater_or_equal
+from dataclasses import dataclass
+from typing import List, Optional, Tuple, Union
+
+import torch
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
-from verl.utils.ulysses import gather_heads_scatter_seq, gather_seq_scatter_heads, \
-    get_ulysses_sequence_parallel_world_size, validate_ulysses_config
+from transformers.models.qwen2_vl.modeling_qwen2_vl import (
+    Qwen2VLCausalLMOutputWithPast,
+    Qwen2VLForConditionalGeneration,
+)
+from transformers.utils import is_flash_attn_greater_or_equal
+
+from verl.utils.ulysses import (
+    gather_heads_scatter_seq,
+    gather_seq_scatter_heads,
+    get_ulysses_sequence_parallel_world_size,
+    validate_ulysses_config,
+)
 
 try:
-    from flash_attn import flash_attn_func, flash_attn_varlen_func
+    from transformers.modeling_flash_attention_utils import flash_attn_func, flash_attn_varlen_func
 
     _flash_supports_window_size = "window_size" in list(inspect.signature(flash_attn_func).parameters)
 except ImportError:
@@ -88,10 +99,7 @@ def get_rope_index(
                     video_grid_thw[video_index][1],
                     video_grid_thw[video_index][2],
                 )
-                if second_per_grid_ts is not None:
-                    second_per_grid_t = second_per_grid_ts[video_index]
-                else:
-                    second_per_grid_t = 1.0
+                second_per_grid_t = second_per_grid_ts[video_index] if second_per_grid_ts is not None else 1.0
 
                 video_index += 1
                 remain_videos -= 1
@@ -132,17 +140,18 @@ def get_rope_index(
     return position_ids
 
 
-def prepare_fa2_from_position_ids(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor,
-                                  position_ids: torch.Tensor):
+def prepare_fa2_from_position_ids(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, position_ids: torch.Tensor):
     query = query.view(-1, query.size(-2), query.size(-1))
     key = key.view(-1, key.size(-2), key.size(-1))
     value = value.view(-1, value.size(-2), value.size(-1))
     position_ids = position_ids.flatten()
     indices_q = torch.arange(position_ids.size(0), device=position_ids.device, dtype=torch.int32)
-    cu_seqlens = torch.cat((
-        indices_q[position_ids == 0],
-        torch.tensor(position_ids.size(), device=position_ids.device, dtype=torch.int32),
-    ))
+    cu_seqlens = torch.cat(
+        (
+            indices_q[position_ids == 0],
+            torch.tensor(position_ids.size(), device=position_ids.device, dtype=torch.int32),
+        )
+    )
     max_length = cu_seqlens.diff().max()  # use cu_seqlens to infer max_length for qwen2vl mrope
     return (query, key, value, indices_q, (cu_seqlens, cu_seqlens), (max_length, max_length))
 
@@ -163,14 +172,10 @@ def flash_attention_forward(
     """
     Patches flash attention forward to handle 3D position ids in mrope. (3, batch_size, seq_length)
     """
-    if not use_top_left_mask:
-        causal = is_causal
-    else:
-        causal = is_causal and query_length != 1
+    causal = is_causal if not use_top_left_mask else is_causal and query_length != 1
 
     # Assuming 4D tensors, key_states.shape[1] is the key/value sequence length (source length).
-    use_sliding_windows = (_flash_supports_window_size and sliding_window is not None and
-                           key_states.shape[1] > sliding_window)
+    use_sliding_windows = _flash_supports_window_size and sliding_window is not None and key_states.shape[1] > sliding_window
     flash_kwargs = {"window_size": (sliding_window, sliding_window)} if use_sliding_windows else {}
 
     if is_flash_attn_greater_or_equal("2.4.1"):
@@ -180,8 +185,7 @@ def flash_attention_forward(
 
     if position_ids is not None and query_length != 1 and not (torch.diff(position_ids[0], dim=-1) >= 0).all():
         batch_size = query_states.size(0)
-        query_states, key_states, value_states, _, cu_seq_lens, max_seq_lens = prepare_fa2_from_position_ids(
-            query_states, key_states, value_states, position_ids[0])  # remove channel dimension
+        query_states, key_states, value_states, _, cu_seq_lens, max_seq_lens = prepare_fa2_from_position_ids(query_states, key_states, value_states, position_ids[0])  # remove channel dimension
         cu_seqlens_q, cu_seqlens_k = cu_seq_lens
         max_seqlen_in_batch_q, max_seqlen_in_batch_k = max_seq_lens
         attn_output = flash_attn_varlen_func(
@@ -223,7 +227,7 @@ def ulysses_flash_attn_forward(
     position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
     **kwargs,
 ) -> Tuple[torch.Tensor, None, None]:
-    from transformers.models.qwen2_vl.modeling_qwen2_vl import repeat_kv, apply_multimodal_rotary_pos_emb
+    from transformers.models.qwen2_vl.modeling_qwen2_vl import apply_multimodal_rotary_pos_emb, repeat_kv
 
     bsz, q_len, _ = hidden_states.size()  # q_len = seq_length / sp_size
     query_states = self.q_proj(hidden_states)  # (batch_size, seq_length / sp_size, num_heads * head_size)
@@ -255,8 +259,7 @@ def ulysses_flash_attn_forward(
     else:
         cos, sin = position_embeddings
 
-    query_states, key_states = apply_multimodal_rotary_pos_emb(query_states, key_states, cos, sin,
-                                                               self.rope_scaling["mrope_section"])
+    query_states, key_states = apply_multimodal_rotary_pos_emb(query_states, key_states, cos, sin, self.rope_scaling["mrope_section"])
     dropout_rate = 0.0 if not self.training else self.attention_dropout
 
     # Reashape to the expected shape for Flash Attention
@@ -264,8 +267,7 @@ def ulysses_flash_attn_forward(
     key_states = key_states.transpose(1, 2)
     value_states = value_states.transpose(1, 2)
 
-    if (self.config.use_sliding_window and getattr(self.config, "sliding_window", None) is not None and
-            self.layer_idx >= self.config.max_window_layers):
+    if self.config.use_sliding_window and getattr(self.config, "sliding_window", None) is not None and self.layer_idx >= self.config.max_window_layers:
         sliding_window = self.config.sliding_window
     else:
         sliding_window = None
@@ -288,3 +290,240 @@ def ulysses_flash_attn_forward(
     attn_output = attn_output.reshape(bsz, q_len, self.hidden_size).contiguous()
     attn_output = self.o_proj(attn_output)
     return attn_output, None, None
+
+
+@dataclass
+class Qwen2VLCausalLMOutputForPPO(Qwen2VLCausalLMOutputWithPast):
+    log_probs: Optional[torch.FloatTensor] = None
+    entropy: Optional[torch.FloatTensor] = None
+
+
+def forward_base_model(
+    self: Qwen2VLForConditionalGeneration,
+    input_ids: torch.LongTensor = None,
+    attention_mask: Optional[torch.Tensor] = None,
+    position_ids: Optional[torch.LongTensor] = None,
+    past_key_values: Optional[List[torch.FloatTensor]] = None,
+    inputs_embeds: Optional[torch.FloatTensor] = None,
+    use_cache: Optional[bool] = None,
+    output_attentions: Optional[bool] = None,
+    output_hidden_states: Optional[bool] = None,
+    return_dict: Optional[bool] = None,
+    pixel_values: Optional[torch.Tensor] = None,
+    pixel_values_videos: Optional[torch.FloatTensor] = None,
+    image_grid_thw: Optional[torch.LongTensor] = None,
+    video_grid_thw: Optional[torch.LongTensor] = None,
+    rope_deltas: Optional[torch.LongTensor] = None,
+    cache_position: Optional[torch.LongTensor] = None,
+) -> Union[Tuple, Qwen2VLCausalLMOutputWithPast]:
+    r"""
+    Copy paste Qwen2VL's forward
+    https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/transformers/model/qwen2_vl.py
+    ```"""
+    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+    output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+    if inputs_embeds is None:
+        inputs_embeds = self.model.embed_tokens(input_ids)
+        if pixel_values is not None:
+            pixel_values = pixel_values.type(self.visual.get_dtype())
+            image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
+            n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
+            n_image_features = image_embeds.shape[0]
+            if n_image_tokens != n_image_features:
+                raise ValueError(f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}")
+            image_mask = (input_ids == self.config.image_token_id).unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+            image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
+            inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+
+        if pixel_values_videos is not None:
+            pixel_values_videos = pixel_values_videos.type(self.visual.get_dtype())
+            video_embeds = self.visual(pixel_values_videos, grid_thw=video_grid_thw)
+            n_video_tokens = (input_ids == self.config.video_token_id).sum().item()
+            n_video_features = video_embeds.shape[0]
+            if n_video_tokens != n_video_features:
+                raise ValueError(f"Video features and video tokens do not match: tokens: {n_video_tokens}, features {n_video_features}")
+            video_mask = (input_ids == self.config.video_token_id).unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+            video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
+            inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
+
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(inputs_embeds.device)
+
+    if position_ids is None and (attention_mask is None or attention_mask.ndim == 2):
+        # calculate RoPE index once per generation in the pre-fill stage only
+        if (cache_position is not None and cache_position[0] == 0) or self.rope_deltas is None:
+            position_ids, rope_deltas = self.get_rope_index(input_ids, image_grid_thw, video_grid_thw, attention_mask)
+            self.rope_deltas = rope_deltas
+        # then use the prev pre-calculated rope-deltas to get the correct position ids
+        else:
+            batch_size, seq_length, _ = inputs_embeds.shape
+            delta = cache_position[0] + self.rope_deltas if cache_position is not None else 0
+            position_ids = torch.arange(seq_length, device=inputs_embeds.device)
+            position_ids = position_ids.view(1, -1).expand(batch_size, -1)
+            if cache_position is not None:  # otherwise `deltas` is an int `0`
+                delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=0)
+            position_ids = position_ids.add(delta)
+            position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
+
+    outputs = self.model(
+        input_ids=None,
+        position_ids=position_ids,
+        attention_mask=attention_mask,
+        past_key_values=past_key_values,
+        inputs_embeds=inputs_embeds,
+        use_cache=use_cache,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
+        return_dict=return_dict,
+        cache_position=cache_position,
+    )
+
+    return outputs
+
+
+def forward_with_torch_backend(
+    self: Qwen2VLForConditionalGeneration,
+    input_ids: torch.LongTensor = None,
+    attention_mask: Optional[torch.Tensor] = None,
+    position_ids: Optional[torch.LongTensor] = None,
+    past_key_values: Optional[List[torch.FloatTensor]] = None,
+    inputs_embeds: Optional[torch.FloatTensor] = None,
+    labels: Optional[torch.LongTensor] = None,
+    use_cache: Optional[bool] = None,
+    output_attentions: Optional[bool] = None,
+    output_hidden_states: Optional[bool] = None,
+    return_dict: Optional[bool] = None,
+    pixel_values: Optional[torch.Tensor] = None,
+    pixel_values_videos: Optional[torch.FloatTensor] = None,
+    image_grid_thw: Optional[torch.LongTensor] = None,
+    video_grid_thw: Optional[torch.LongTensor] = None,
+    rope_deltas: Optional[torch.LongTensor] = None,
+    cache_position: Optional[torch.LongTensor] = None,
+    temperature: float = 1.0,
+    **loss_kwargs,
+) -> Union[Tuple, Qwen2VLCausalLMOutputForPPO]:
+    from verl.utils.experimental.torch_functional import FusedLinearForPPO
+
+    outputs = forward_base_model(
+        self,
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        past_key_values=past_key_values,
+        inputs_embeds=inputs_embeds,
+        use_cache=use_cache,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
+        return_dict=return_dict,
+        pixel_values=pixel_values,
+        pixel_values_videos=pixel_values_videos,
+        image_grid_thw=image_grid_thw,
+        video_grid_thw=video_grid_thw,
+        rope_deltas=rope_deltas,
+        cache_position=cache_position,
+    )
+
+    hidden_states = outputs[0]
+
+    if not return_dict:
+        raise NotImplementedError("forward_with_torch_backend has to return_dict")
+
+    # Loss calculations
+    if labels is not None:
+        rolled_labels = torch.roll(labels, shifts=-1, dims=-1)
+    elif input_ids is not None:
+        rolled_labels = torch.roll(input_ids, shifts=-1, dims=-1)
+    else:
+        raise RuntimeError("To use forward_with_torch_backend, either labels or input_ids must be provided.")
+
+    fused_linear_for_ppo = FusedLinearForPPO()
+    log_probs, entropy = fused_linear_for_ppo.forward(
+        hidden_states=hidden_states,
+        vocab_weights=self.lm_head.weight,
+        input_ids=rolled_labels,
+        temperature=temperature,
+    )
+
+    return Qwen2VLCausalLMOutputForPPO(
+        log_probs=log_probs,
+        entropy=entropy,
+        past_key_values=outputs.past_key_values,
+        hidden_states=outputs.hidden_states,
+        attentions=outputs.attentions,
+        rope_deltas=rope_deltas,
+    )
+
+
+def forward_with_triton_backend(
+    self: Qwen2VLForConditionalGeneration,
+    input_ids: torch.LongTensor = None,
+    attention_mask: Optional[torch.Tensor] = None,
+    position_ids: Optional[torch.LongTensor] = None,
+    past_key_values: Optional[List[torch.FloatTensor]] = None,
+    inputs_embeds: Optional[torch.FloatTensor] = None,
+    labels: Optional[torch.LongTensor] = None,
+    use_cache: Optional[bool] = None,
+    output_attentions: Optional[bool] = None,
+    output_hidden_states: Optional[bool] = None,
+    return_dict: Optional[bool] = None,
+    pixel_values: Optional[torch.Tensor] = None,
+    pixel_values_videos: Optional[torch.FloatTensor] = None,
+    image_grid_thw: Optional[torch.LongTensor] = None,
+    video_grid_thw: Optional[torch.LongTensor] = None,
+    rope_deltas: Optional[torch.LongTensor] = None,
+    cache_position: Optional[torch.LongTensor] = None,
+    temperature: float = 1.0,
+    **loss_kwargs,
+) -> Union[Tuple, Qwen2VLCausalLMOutputForPPO]:
+    from verl.utils.kernel import linear_cross_entropy
+
+    outputs = forward_base_model(
+        self,
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        past_key_values=past_key_values,
+        inputs_embeds=inputs_embeds,
+        use_cache=use_cache,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
+        return_dict=return_dict,
+        pixel_values=pixel_values,
+        pixel_values_videos=pixel_values_videos,
+        image_grid_thw=image_grid_thw,
+        video_grid_thw=video_grid_thw,
+        rope_deltas=rope_deltas,
+        cache_position=cache_position,
+    )
+
+    hidden_states = outputs[0]
+
+    if not return_dict:
+        raise NotImplementedError("forward_with_triton_backend has to return_dict")
+
+    # Loss calculations
+    if labels is not None:
+        rolled_labels = torch.roll(labels, shifts=-1, dims=-1)
+    elif input_ids is not None:
+        rolled_labels = torch.roll(input_ids, shifts=-1, dims=-1)
+    else:
+        raise RuntimeError("To use forward_with_triton_backend, either labels or input_ids must be provided.")
+
+    log_probs, entropy = linear_cross_entropy(
+        hidden_states,
+        self.lm_head.weight,
+        rolled_labels,
+        temperature,
+        "none",
+    )
+
+    return Qwen2VLCausalLMOutputForPPO(
+        log_probs=log_probs,
+        entropy=entropy,
+        past_key_values=outputs.past_key_values,
+        hidden_states=outputs.hidden_states,
+        attentions=outputs.attentions,
+        rope_deltas=rope_deltas,
+    )
