@@ -113,6 +113,8 @@ actor_rollout_ref:
       temperature: 0
       n: 1
       do_sample: False # default eager for validation
+    multi_turn: # multi_turn used for tool use masking
+      enable: True
 
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}

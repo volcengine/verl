@@ -19,7 +19,15 @@ import requests
 from transformers import PreTrainedTokenizer
 from typing import List, Union, Optional, Literal
 import verl.utils.torch_functional as verl_F
-from .utils import convert_assistant_message_to_openai, get_task_prompt, convert_chat_message_from_openai, get_tools_schema, get_agent_system_prompt, get_allow_parallel_tool_call
+from .utils import (
+    convert_assistant_message_to_openai,
+    get_task_prompt,
+    convert_chat_message_from_openai,
+    get_tools_schema,
+    get_agent_system_prompt,
+    get_allow_parallel_tool_call,
+    get_model_generated_mask_and_tokenwise_reward
+)
 from verl.utils.model import compute_position_id_with_mask
 
 def initialize_env(environment_endpoint: str, env_name: str, seed: int, env_kwargs: Union[dict, str]):

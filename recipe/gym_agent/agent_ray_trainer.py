@@ -40,7 +40,7 @@ from .rl_agent_dataset import RLAgentDataset
 from .agent_env import AgentEnv
 from .utils import collate_fn
 from verl.trainer.ppo import core_algos
-from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics, bootstrap_metric, calc_maj_val, process_validation_metrics
+from .metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics, bootstrap_metric, calc_maj_val, process_validation_metrics
 from verl.trainer.ppo.ray_trainer import (RayPPOTrainer, ResourcePoolManager, Role, WorkerType, AdvantageEstimator,
                                           compute_advantage, _timer)
 

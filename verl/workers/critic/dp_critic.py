@@ -175,10 +175,6 @@ class DataParallelPPOCritic(BasePPOCritic):
         metrics = {}
 
         select_keys = ['input_ids', 'responses', 'attention_mask', 'position_ids', 'values', 'returns']
-        if 'response_mask' in data.batch.keys():
-            select_keys.append('response_mask')  # this allows multi-turn control
-            assert data.batch['responses'].shape == data.batch[
-                'input_ids'][:, 1:].shape, "need to preset the responses the same as input_ids"
         batch = data.select(batch_keys=select_keys).batch
         has_multi_modal_inputs = 'multi_modal_inputs' in data.non_tensor_batch.keys()
 
@@ -214,17 +210,14 @@ class DataParallelPPOCritic(BasePPOCritic):
                     else:
                         data = data.to(torch.cuda.current_device())  # critic device is cpu when using offload
                     input_ids = data['input_ids']
+                    responses = data['responses']
                     attention_mask = data['attention_mask']
                     position_ids = data['position_ids']
                     values = data['values']
                     returns = data['returns']
+                    response_length = responses.size(1)
 
-                    if 'response_mask' in data.keys():
-                        response_mask = data['response_mask']
-                    else:
-                        responses = data['responses']
-                        response_length = responses.size(1)
-                        response_mask = attention_mask[:, -response_length - 1:-1]
+                    response_mask = attention_mask[:, -response_length - 1:-1]
 
                     vpreds = self._forward_micro_batch(data)
 

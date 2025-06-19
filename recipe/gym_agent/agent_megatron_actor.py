@@ -223,6 +223,12 @@ class MegatronPPOActor(BasePPOActor):
 
         """
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
+
+        # TODO: (ycl) change to multi-turn setting 
+        # if multi-turn:
+        #     select_keys.append('loss_mask')
+        if 'response_mask' in data.batch.keys():
+            select_keys.append('response_mask')
         if self.config.use_kl_loss:
             select_keys.append('ref_log_prob')
         data = data.select(batch_keys=select_keys)
@@ -271,7 +277,12 @@ class MegatronPPOActor(BasePPOActor):
             responses = data['responses']
             response_length = responses.size(1)
             attention_mask = data['attention_mask']
-            response_mask = attention_mask[:, -response_length:]
+
+            # TODO: (ycl) change to loss_mask in latest megatron_actor
+            if 'response_mask' in data.keys():
+                response_mask = data['response_mask'].to(bool)
+            else:
+                response_mask = attention_mask[:, -response_length:]
             old_log_prob = data['old_log_probs']
             advantages = data['advantages']
 

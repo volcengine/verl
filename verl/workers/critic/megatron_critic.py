@@ -101,8 +101,6 @@ class MegatronPPOCritic(BasePPOCritic):
 
     def make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
         select_keys = ['input_ids', 'responses', 'attention_mask', 'position_ids', 'values', 'returns']
-        if 'response_mask' in data.batch.keys():
-            select_keys.append('response_mask')
         data = data.select(batch_keys=select_keys)
         return data.make_iterator(mini_batch_size=self.config.ppo_mini_batch_size,
                                   epochs=self.config.ppo_epochs,
@@ -140,10 +138,7 @@ class MegatronPPOCritic(BasePPOCritic):
             returns = data['returns']
             response_length = responses.size(1)
 
-            if 'response_mask' in data.keys():
-                response_mask = data['response_mask']
-            else:
-                response_mask = attention_mask[:, -response_length:]
+            response_mask = attention_mask[:, -response_length:]
 
             cliprange_value = self.config.cliprange_value
 
