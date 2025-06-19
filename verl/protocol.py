@@ -996,7 +996,11 @@ class SequentialPrefetchPostponeOffPolicyDataProto(LinkedDataProto):
         return True
 
 
-def get_data_proto(rollout_policy: str, dataloader: DataLoader) -> DataProto:
+def get_data_proto(rollout_policy: str, dataloader: DataLoader) -> LinkedDataProto:
+    """
+    factory method to create LinkedDataProto that can be subclassed
+    to extend with different prefetch/postpone/stop_generate policy
+    """
     if rollout_policy == "SequentialPrefetchOnPolicyDataProto":
         return SequentialPrefetchOnPolicyDataProto(dataloader=dataloader)
     elif rollout_policy == "SequentialPrefetchPostponeOffPolicyDataProto":

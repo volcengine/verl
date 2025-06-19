@@ -924,10 +924,11 @@ class RayPPOTrainer:
         for epoch in range(self.config.trainer.total_epochs):
             # Create a DataProto instance that will handle on-demand loading
             dataproto_policy = self.config.actor_rollout_ref.rollout.get("dataproto_policy", None)
-            batch = get_data_proto(dataproto_policy, self.train_dataloader)
+            linked_batch = get_data_proto(dataproto_policy, self.train_dataloader)
             while True:
-                batch = batch.next()
-                if batch is None:
+                linked_batch = linked_batch.next()
+                batch = linked_batch
+                if linked_batch is None:
                     break  # End of epoch
 
                 do_profile = self.global_steps in self.config.trainer.profile_steps if self.config.trainer.profile_steps is not None else False
@@ -952,10 +953,6 @@ class RayPPOTrainer:
                     non_tensor_batch_keys_to_pop.append("raw_prompt")
                 if "tools_kwargs" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("tools_kwargs")
-                gen_batch = batch.pop(
-                    batch_keys=batch_keys_to_pop,
-                    non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
-                )
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
@@ -963,11 +960,20 @@ class RayPPOTrainer:
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
                         if not self.async_rollout_mode:
+                            gen_batch = batch.pop(
+                                batch_keys=batch_keys_to_pop,
+                                non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
+                            )
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
                             self.async_rollout_manager.wake_up()
                             # async rollout may dynamicly change data in batch
                             gen_batch_output = self.async_rollout_manager.generate_sequences(batch)
+                            # pop those keys to align with the keys in sync batch
+                            batch.pop(
+                                batch_keys=batch_keys_to_pop,
+                                non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
+                            )
                             self.async_rollout_manager.sleep()
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
@@ -990,7 +996,6 @@ class RayPPOTrainer:
 
                     batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
                     # repeat to align with repeated responses in rollout
-                    # TODO: replace with sample.n
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
