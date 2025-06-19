@@ -13,24 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from omegaconf import ListConfig, DictConfig
-import os
-from typing import List, Union, Optional, Literal
 import copy
-import requests
-import json
-import pandas as pd
-import textwrap
+import os
+from typing import List, Optional, Union
 
+import pandas as pd
+import requests
 import torch
+from omegaconf import DictConfig, ListConfig
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
+
 
 class RLAgentDataset(Dataset):
     """
     We assume the dataset contains a column that contains prompts and other information
 
-    The dataset is designed for RL training with the LLM as the agent. 
+    The dataset is designed for RL training with the LLM as the agent.
     It is built on top of the design in https://github.com/HMJiangGatech/verl_agent_env_examples.
 
     The dataset is organized as follows:
@@ -44,7 +43,7 @@ class RLAgentDataset(Dataset):
     `env_name`: the name of the environment.
     `seed`: the seed for the environment.
     `env_kwargs`: the kwargs for the environment.
-    They are used to initialize the environment, `initialize_env` in 
+    They are used to initialize the environment, `initialize_env` in
     `https://github.com/HMJiangGatech/verl_agent_env_examples/blob/master/src/verl_agent_env/app.py`.
     """
 
@@ -60,7 +59,7 @@ class RLAgentDataset(Dataset):
         try:
             response = requests.get(config.environment_endpoint)
             response.raise_for_status()
-        except Exception as e:
+        except Exception:
             raise ValueError(f"Invalid environment endpoint: {config.environment_endpoint}")
 
         if not isinstance(data_files, (List, ListConfig)):
@@ -74,7 +73,7 @@ class RLAgentDataset(Dataset):
 
         self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
         self.max_prompt_length = config.get("max_prompt_length", 1024)
-        self.truncation = config.get('truncation', 'error')
+        self.truncation = config.get("truncation", "error")
         # TODO: implement the resume feature
         # whether to store the dataset in state_dict()
         # default not store
@@ -84,6 +83,7 @@ class RLAgentDataset(Dataset):
 
     def _download(self, use_origin_parquet=False):
         from verl.utils.fs import copy_to_local
+
         data_files = self.data_files if not use_origin_parquet else self.original_data_files
         for i, parquet_file in enumerate(data_files):
             self.data_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir)
@@ -96,7 +96,7 @@ class RLAgentDataset(Dataset):
             dataframes.append(dataframe)
         self.dataframe = pd.concat(dataframes)
 
-        print(f'dataset len: {len(self.dataframe)}')
+        print(f"dataset len: {len(self.dataframe)}")
 
     def resume_dataset_state(self):
         raise NotImplementedError("Resume dataset state is not implemented for RLAgentDataset")
@@ -116,7 +116,7 @@ class RLAgentDataset(Dataset):
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
         row_dict: dict = self.dataframe.iloc[item].to_dict()
-        row_dict['index'] = torch.tensor(item, dtype=torch.int64)
+        row_dict["index"] = torch.tensor(item, dtype=torch.int64)
         return row_dict
 
     def __getstate__(self):

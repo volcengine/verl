@@ -24,6 +24,7 @@ from typing import List, Optional
 def is_megatron_core_available():
     try:
         from megatron.core import parallel_state as mpu
+
         return True
     except ImportError:
         return False
@@ -33,6 +34,7 @@ def is_megatron_core_available():
 def is_vllm_available():
     try:
         import vllm
+
         return True
     except ImportError:
         return False
@@ -42,6 +44,7 @@ def is_vllm_available():
 def is_sglang_available():
     try:
         import sglang
+
         return True
     except ImportError:
         return False
@@ -53,13 +56,15 @@ def import_external_libs(external_libs=None):
     if not isinstance(external_libs, List):
         external_libs = [external_libs]
     import importlib
+
     for external_lib in external_libs:
         importlib.import_module(external_lib)
 
 
 def load_extern_type(file_path: Optional[str], type_name: Optional[str]):
     """Load a external data type based on the file path and type name"""
-    import importlib.util, os
+    import importlib.util
+    import os
 
     if not file_path:
         return None
@@ -76,7 +81,7 @@ def load_extern_type(file_path: Optional[str], type_name: Optional[str]):
     try:
         spec.loader.exec_module(module)
     except Exception as e:
-        raise RuntimeError(f"Error loading module from '{file_path}': {e}")
+        raise RuntimeError(f"Error loading module from '{file_path}': {e}") from e
 
     if not hasattr(module, type_name):
         raise AttributeError(f"Custom type '{type_name}' not found in '{file_path}'.")
