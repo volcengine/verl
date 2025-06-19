@@ -1,3 +1,4 @@
+(algo-baseline-page)=
 # Algorithm Baselines
 
 Last updated: 06/18/2025.

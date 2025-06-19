@@ -338,10 +338,11 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
         from verl.models.mcore import init_mcore_model
 
         parallel_model = init_mcore_model(
-            tfconfig,
-            hf_config,
-            pre_process,
-            post_process,
+            tf_config=tfconfig,
+            hf_config=hf_config,
+            use_fused_kernels=False,
+            pre_process=pre_process,
+            post_process=post_process,
             share_embeddings_and_output_weights=tie_word_embeddings,
             value=False,
         )
