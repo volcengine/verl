@@ -209,7 +209,7 @@ class AsyncRolloutRequest(BaseModel):
         content: str,
         tool_calls: Optional[List[OpenAIFunctionToolCall]] = None,
     ) -> None:
-        self.messages.append(Message(role="assistant", content=content, tool_calls=tool_calls))
+        self.messages.append(Message(role="assistant", content=content.strip(), tool_calls=tool_calls))
 
         messages = [*BASE_CHAT_HISTORY, self.messages[-1]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
@@ -236,9 +236,9 @@ class AsyncRolloutRequest(BaseModel):
                     content_list.append({"type": "video"})
                     delta_multi_modal_data["video"].append(content["video"])
                 else:
-                    content_list.append({"type": "text", "text": content["text"]})
+                    content_list.append({"type": "text", "text": content["text"].strip()})
             else:
-                content_list.append({"type": "text", "text": content})
+                content_list.append({"type": "text", "text": content.strip()})
             self.messages.append(Message(role="tool", content=content_list))
 
         messages = [*BASE_CHAT_HISTORY, *self.messages[-len(contents) :]]
