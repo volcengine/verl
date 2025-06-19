@@ -32,6 +32,7 @@ class BatchRewardManager:
         reward_fn_key (str): The key to use for the reward function.
         reward_kwargs (dict): The keyword arguments to pass to the reward function.
     """
+
     def __init__(self, tokenizer, num_examine, compute_score, reward_fn_key="data_source", **reward_kwargs):
         self.tokenizer = tokenizer
         self.num_examine = num_examine

@@ -25,4 +25,4 @@ jobs:
           python3 tests/special_sanity/type_coverage_check.py
       - name: Run docstring coverage check
         run: |
-          pythpython3 tests/special_sanity/check_api_docs.py verl
+          python3 tests/special_sanity/check_api_docs.py verl

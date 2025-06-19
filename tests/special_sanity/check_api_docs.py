@@ -35,16 +35,19 @@ from pathlib import Path
 from types import ModuleType
 from typing import Iterable
 
-_ALLOW_LIST = ['verl.third_party.vllm.LLMEngine',
-  'verl.utils.debug.WorkerProfiler',
-  'verl.utils.debug.WorkerProfilerExtension',
-  'verl.utils.debug.log_gpu_memory_usage',
-  'verl.utils.debug.log_print',
-  'verl.utils.debug.mark_annotate',
-  'verl.utils.debug.mark_end_range',
-  'verl.utils.debug.mark_start_range',
-  'verl.models.mcore.qwen2_5_vl.get_vision_model_config',
-  'verl.models.mcore.qwen2_5_vl.get_vision_projection_config']
+_ALLOW_LIST = [
+    "verl.third_party.vllm.LLMEngine",
+    "verl.utils.debug.WorkerProfiler",
+    "verl.utils.debug.WorkerProfilerExtension",
+    "verl.utils.debug.log_gpu_memory_usage",
+    "verl.utils.debug.log_print",
+    "verl.utils.debug.mark_annotate",
+    "verl.utils.debug.mark_end_range",
+    "verl.utils.debug.mark_start_range",
+    "verl.models.mcore.qwen2_5_vl.get_vision_model_config",
+    "verl.models.mcore.qwen2_5_vl.get_vision_projection_config",
+]
+
 
 def iter_submodules(root: ModuleType) -> Iterable[ModuleType]:
     """Yield *root* and every sub-module inside it."""
@@ -63,7 +66,7 @@ def names_missing_doc(mod: ModuleType) -> list[str]:
     public = getattr(mod, "__all__", [])
     for name in public:
         obj = getattr(mod, name, None)
-        if f'{mod.__name__}.{name}' in _ALLOW_LIST:
+        if f"{mod.__name__}.{name}" in _ALLOW_LIST:
             continue
         if obj is None:
             # Exported but not found in the module: flag it anyway.

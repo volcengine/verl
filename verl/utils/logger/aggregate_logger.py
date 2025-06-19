@@ -39,6 +39,7 @@ class LocalLogger:
     Args:
         print_to_console (bool): Whether to print to the console.
     """
+
     def __init__(self, print_to_console=True):
         self.print_to_console = print_to_console
 
