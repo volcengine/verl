@@ -390,6 +390,9 @@ class DataParallelPPOActor(BasePPOActor):
                     clip_ratio_low = self.config.clip_ratio_low if self.config.clip_ratio_low is not None else clip_ratio
                     clip_ratio_high = self.config.clip_ratio_high if self.config.clip_ratio_high is not None else clip_ratio
                     clip_ratio_c = self.config.get("clip_ratio_c", 3.0)
+                    use_cispo = self.config.get("use_cispo", False)
+                    cispo_ratio_high = self.config.get("cispo_ratio_high", 0.45)
+                    cispo_ratio_low = self.config.get("cispo_ratio_low", 0.45)
                     entropy_coeff = self.config.entropy_coeff
                     loss_agg_mode = self.config.loss_agg_mode
 
@@ -409,6 +412,9 @@ class DataParallelPPOActor(BasePPOActor):
                         cliprange_high=clip_ratio_high,
                         clip_ratio_c=clip_ratio_c,
                         loss_agg_mode=loss_agg_mode,
+                        use_cispo=use_cispo,
+                        cispo_ratio_high=cispo_ratio_high,
+                        cispo_ratio_low=cispo_ratio_low,
                     )
 
                     if entropy_coeff != 0:
