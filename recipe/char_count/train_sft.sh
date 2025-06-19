@@ -13,7 +13,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     data.max_length=256 \
     data.train_batch_size=256 \
     use_remove_padding=True \
-    model.partial_pretrain=$HOME/models/SmolLM2-135M-Instruct \
+    model.partial_pretrain=HuggingFaceTB/SmolLM2-135M-Instruct \
     trainer.default_local_dir=$save_path \
     trainer.project_name=char_count-sft \
     trainer.experiment_name=char_count-sft-SmolLM2-135M-Instruct \

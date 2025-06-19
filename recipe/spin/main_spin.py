@@ -113,25 +113,12 @@ class TaskRunner:
         role_worker_mapping[Role.RefPolicy] = ray.remote(SPINRolloutRefWorker)
         mapping[Role.RefPolicy] = global_pool_id
 
+        from verl.workers.reward_manager import get_reward_manager_cls
+
+        # Note(haibin.lin): please make sure custom reward managers are imported and
+        # registered via `verl.workers.reward_manager.register`
         reward_manager_name = config.reward_model.get("reward_manager", "naive")
-        if reward_manager_name == "naive":
-            from verl.workers.reward_manager import NaiveRewardManager
-
-            reward_manager_cls = NaiveRewardManager
-        elif reward_manager_name == "prime":
-            from verl.workers.reward_manager import PrimeRewardManager
-
-            reward_manager_cls = PrimeRewardManager
-        elif reward_manager_name == "batch":
-            from verl.workers.reward_manager import BatchRewardManager
-
-            reward_manager_cls = BatchRewardManager
-        elif reward_manager_name == "dapo":
-            from verl.workers.reward_manager import DAPORewardManager
-
-            reward_manager_cls = DAPORewardManager
-        else:
-            raise NotImplementedError
+        reward_manager_cls = get_reward_manager_cls(reward_manager_name)
 
         compute_score = get_custom_reward_fn(config)
         reward_kwargs = dict(config.reward_model.get("reward_kwargs", {}))
@@ -141,7 +128,17 @@ class TaskRunner:
         val_reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=1, compute_score=compute_score, reward_fn_key=config.data.reward_fn_key)
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
-        trainer = RaySPINTrainer(config=config, tokenizer=tokenizer, processor=processor, role_worker_mapping=role_worker_mapping, resource_pool_manager=resource_pool_manager, ray_worker_group_cls=ray_worker_group_cls, reward_fn=reward_fn, val_reward_fn=val_reward_fn)
+        trainer = RaySPINTrainer(
+            config=config,
+            tokenizer=tokenizer,
+            processor=processor,
+            role_worker_mapping=role_worker_mapping,
+            resource_pool_manager=resource_pool_manager,
+            ray_worker_group_cls=ray_worker_group_cls,
+            reward_fn=reward_fn,
+            val_reward_fn=val_reward_fn,
+            device_name=config.trainer.device,
+        )
         trainer.init_workers()
         trainer.fit_dpo()
 

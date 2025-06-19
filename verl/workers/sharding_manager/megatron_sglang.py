@@ -21,14 +21,13 @@ import asyncio
 import logging
 import os
 
-import torch
 from sglang.srt.entrypoints.engine import Engine
 from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.protocol import DataProto, all_gather_data_proto
-from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
-from verl.utils.debug.performance import _timer
+from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
+from verl.utils.device import get_torch_device
 from verl.utils.megatron_utils import per_tensor_generator
 
 from .base import BaseShardingManager
@@ -72,20 +71,20 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             self.infer_tp_size = self.inference_engine._tp_size
 
         # Note that torch_random_states may be different on each dp rank
-        self.torch_random_states = torch.cuda.get_rng_state()
+        self.torch_random_states = get_torch_device().get_rng_state()
         # get a random rng states
         if self.device_mesh is not None:
             gen_dp_rank = self.device_mesh["dp"].get_local_rank()
-            torch.cuda.manual_seed(gen_dp_rank + 1000)  # make sure all tp ranks have the same random states
-            self.gen_random_states = torch.cuda.get_rng_state()
-            torch.cuda.set_rng_state(self.torch_random_states)
+            get_torch_device().manual_seed(gen_dp_rank + 1000)  # make sure all tp ranks have the same random states
+            self.gen_random_states = get_torch_device().get_rng_state()
+            get_torch_device().set_rng_state(self.torch_random_states)
         else:
             self.gen_random_states = None
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     def __enter__(self):
         self.timing = {}
-        with _timer("reshard", self.timing):
+        with simple_timer("reshard", self.timing):
             per_tensor_param = per_tensor_generator(
                 self.actor_module,
                 self.model_config,
@@ -97,8 +96,8 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             loop.run_until_complete(self.update_weights(per_tensor_param))
             # important: need to manually set the random states of each tp to be identical.
             if self.device_mesh is not None:
-                self.torch_random_states = torch.cuda.get_rng_state()
-                torch.cuda.set_rng_state(self.gen_random_states)
+                self.torch_random_states = get_torch_device().get_rng_state()
+                get_torch_device().set_rng_state(self.gen_random_states)
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager exit", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
@@ -110,12 +109,12 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         for model in self.actor_module:
             model.train()
         # add empty cache after each compute
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
 
         # restore random states
         if self.device_mesh is not None:
-            self.gen_random_states = torch.cuda.get_rng_state()
-            torch.cuda.set_rng_state(self.torch_random_states)
+            self.gen_random_states = get_torch_device().get_rng_state()
+            get_torch_device().set_rng_state(self.torch_random_states)
 
     async def update_weights(self, params):
         if self.device_mesh["tp"].get_local_rank() == 0:
@@ -157,8 +156,8 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         await self.update_weights(per_tensor_param)
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:
-            self.torch_random_states = torch.cuda.get_rng_state()
-            torch.cuda.set_rng_state(self.gen_random_states)
+            self.torch_random_states = get_torch_device().get_rng_state()
+            get_torch_device().set_rng_state(self.gen_random_states)
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager exit", logger=logger)
     async def sleep(self):
@@ -169,12 +168,12 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         for model in self.actor_module:
             model.train()
         # add empty cache after each compute
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
 
         # restore random states
         if self.device_mesh is not None:
-            self.gen_random_states = torch.cuda.get_rng_state()
-            torch.cuda.set_rng_state(self.torch_random_states)
+            self.gen_random_states = get_torch_device().get_rng_state()
+            get_torch_device().set_rng_state(self.torch_random_states)
 
     @GPUMemoryLogger(role="megatron sglang sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:

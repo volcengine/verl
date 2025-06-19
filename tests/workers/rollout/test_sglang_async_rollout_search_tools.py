@@ -23,10 +23,7 @@ import numpy as np
 import pytest
 from tensordict import TensorDict
 from transformers import AutoConfig, AutoTokenizer
-from utils_sglang import (
-    get_rollout_config,
-    prepare_inputs,
-)
+from utils_sglang import get_rollout_config, prepare_inputs
 
 from verl.protocol import DataProto
 from verl.tools.schemas import OpenAIFunctionParametersSchema, OpenAIFunctionPropertySchema, OpenAIFunctionSchema, OpenAIFunctionToolSchema
@@ -164,9 +161,9 @@ class TestRolloutWithSearchTools:
         req_list = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)
         assert len(req_list) == 1
         assert req_list[0].state == AsyncRolloutRequestStateEnum.PENDING
-        assert len(req_list[0].tools) == 1
-        print(type(req_list[0].tools[0]))
-        assert req_list[0].tools[0] == OpenAIFunctionToolSchema(
+        assert len(req_list[0].tool_schemas) == 1
+        print(type(req_list[0].tool_schemas[0]))
+        assert req_list[0].tool_schemas[0] == OpenAIFunctionToolSchema(
             type="function",
             function=OpenAIFunctionSchema(
                 name="search",
