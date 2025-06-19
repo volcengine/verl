@@ -184,11 +184,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     async def release_memory(self):
         if self.device_mesh["infer_tp"].get_local_rank() == 0:
-            if self.multi_stage_wake_up:
-                await self.inference_engine.release_memory_occupation(tags=["kv_cache"])
-                await self.inference_engine.release_memory_occupation(tags=["weights"])
-            else:
-                await self.inference_engine.release_memory_occupation()
+            await self.inference_engine.release_memory_occupation()
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
     async def wake_up(self):
