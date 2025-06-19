@@ -124,14 +124,14 @@ def gptmodel_forward_qwen2_5_vl(
     attention_mask,
     position_ids,
     sequence_parallel,
-    labels=None,
-    labels_mask=None,
     value_model=False,
     pack_seqs=True,
     multi_modal_inputs=None,
     logits_processor=None,
     logits_processor_args: dict = None,
     use_fused_kernels=False,
+    labels=None,
+    labels_mask=None,
     **kwargs,
 ):
     """_summary_
