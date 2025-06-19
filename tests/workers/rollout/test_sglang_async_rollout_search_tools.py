@@ -26,8 +26,8 @@ from transformers import AutoConfig, AutoTokenizer
 from utils_sglang import get_rollout_config, prepare_inputs
 
 from verl.protocol import DataProto
-from verl.tools.mcp_search_tool import MCPSearchTool
-from verl.tools.utils.mcp_clients.McpClientManager import MCPClientManager
+from verl.tools.schemas import OpenAIFunctionParametersSchema, OpenAIFunctionPropertySchema, OpenAIFunctionSchema, OpenAIFunctionToolSchema
+from verl.tools.search_tool import SearchTool
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
 
@@ -53,24 +53,13 @@ def get_search_messages():
     expect_turn_0_msg = {
         "role": "assistant",
         "content": "Let me search the web.",
-        "tool_calls": [
-            {
-                "id": "10",
-                "type": "function",
-                "function": {"name": "tavily_search_tool", "arguments": {"what_is_your_intent": "Search for the weather lately", "query": "the weather in Beijing today", "search_depth": "basic", "time_range": "day", "include_domains": ["google.com", "baidu.com"], "max_results": 2}},
-            }
-        ],
+        "tool_calls": [{"type": "function", "function": {"name": "search", "arguments": {"query": "today's weather"}}}],
     }
 
     expect_turn_1_msg = {
         "role": "assistant",
         "content": "Let me search again.",
-        "tool_calls": [
-            {
-                "type": "function",
-                "function": {"name": "tavily_search_tool", "arguments": {"what_is_your_intent": "Search for the weather lately", "query": "the weather in Beijing tomorrow", "search_depth": "basic", "time_range": "day", "include_domains": ["google.com", "baidu.com"], "max_results": 2}},
-            }
-        ],
+        "tool_calls": [{"type": "function", "function": {"name": "search", "arguments": {"query": "tomorrow's weather"}}}],
     }
 
     expect_turn_2_msg = {
@@ -79,8 +68,8 @@ def get_search_messages():
     }
 
     # Mock search tool responses
-    tool_return_0_msg = {"role": "tool", "content": [{"type": "text", "text": "Today's weather in Beijing is sunny."}]}
-    tool_return_1_msg = {"role": "tool", "content": [{"type": "text", "text": "Tomorrow's weather in Beijing is cloudy."}]}
+    tool_return_0_msg = {"role": "tool", "content": "Today's weather in Beijing is sunny."}
+    tool_return_1_msg = {"role": "tool", "content": "Tomorrow's weather in Beijing is cloudy."}
 
     user_prompts = [user_prompt]
     expect_turn_array = [expect_turn_0_msg, expect_turn_1_msg, expect_turn_2_msg]
@@ -89,7 +78,7 @@ def get_search_messages():
     return user_prompts, expect_turn_array, tool_return_array
 
 
-class TestRolloutWithMCPSearchTools:
+class TestRolloutWithSearchTools:
     @pytest.fixture
     def qwen_tokenizer(self):
         local_model_path = "Qwen/Qwen2.5-0.5B"
@@ -118,7 +107,7 @@ class TestRolloutWithMCPSearchTools:
         max_response_length = 3000
         dtype = "bfloat16"
         tensor_parallel_size = 1
-        tool_path = "./resource/tool_configs/mcp_tool_config"
+        tool_path = "./resource/tool_configs/search_tool_config"
         rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_path)
         return rollout_config
 
@@ -140,8 +129,8 @@ class TestRolloutWithMCPSearchTools:
         tools_kwargs = np.array(
             [
                 {
-                    "tavily_search_tool": {
-                        "create_kwargs": {"ground_truth": "Today is sunny and tomorrow will be cloudy in Beijing."},
+                    "search": {
+                        "create_kwargs": {"ground_truth": "Today is sunny and tomorrow will be cloudy in Beijing.", "data_source": "searchR1_nq"},
                     },
                 }
             ],
@@ -151,133 +140,53 @@ class TestRolloutWithMCPSearchTools:
         prompts = DataProto(batch=prompt_dict, non_tensor_batch={"raw_prompt": messages, "tools_kwargs": tools_kwargs, "index": index})
         return prompts
 
-    @patch.object(MCPClientManager, "fetch_tool_schemas", return_value=None)
     @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
-    def test_tools_registration(self, mock_env, mock_engine, mock_sampling, mock_fetch, search_rollout_config, qwen_tokenizer, qwen_model_config):
-        tool_schema = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "tavily_search_tool",
-                    "description": "A powerful web search tool...",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "what_is_your_intent": {"type": "string", "description": "Describe your intent for using Tavily"},
-                            "query": {"type": "string", "description": "Search query"},
-                            "search_depth": {"type": "string", "description": "The depth of the search ('basic' or 'advanced')"},
-                            "topic": {"type": "string", "description": "The category of the search ('general' or 'news')"},
-                            "days": {"type": "integer", "description": "Number of days back to include in search results (only for 'news' topic)"},
-                            "time_range": {"type": "string", "description": "Time range for results ('day', 'week', 'month', 'year', 'd', 'w', 'm', 'y')"},
-                            "include_domains": {"type": "array", "description": "List of domains to specifically include in search results"},
-                            "exclude_domains": {"type": "array", "description": "List of domains to specifically exclude from search results"},
-                            "include_answer": {"type": "boolean", "description": "Whether to include an answer summary generated by an LLM"},
-                            "include_raw_content": {"type": "boolean", "description": "Whether to include the cleaned and parsed HTML content of each result"},
-                            "include_images": {"type": "boolean", "description": "Whether to include images from search results"},
-                            "include_image_descriptions": {"type": "boolean", "description": "Whether to include descriptions with images"},
-                            "max_results": {"type": "integer", "description": "Maximum number of results to return (5-20)"},
-                            "async_search": {"type": "boolean", "description": "Whether to perform the search asynchronously"},
-                        },
-                        "required": ["what_is_your_intent", "query"],
-                    },
-                    "strict": False,
-                },
-            }
-        ]
-        # Mock mcp registered tool as a predefined schema for avoiding ci timeout
-        mock_fetch.return_value = tool_schema
-
+    def test_tools_registration(self, mock_env, mock_engine, mock_sampling, search_rollout_config, qwen_tokenizer, qwen_model_config):
         rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
-        assert len(rollout._tool_schemas) != 0
-        assert "tavily_search_tool" in rollout._tool_map.keys()
-        from verl.tools.mcp_search_tool import MCPSearchTool
+        assert len(rollout._tool_schemas) == 1
+        assert "search" in rollout._tool_map.keys()
+        from verl.tools.search_tool import SearchTool
 
-        assert isinstance(rollout._tool_map["tavily_search_tool"], MCPSearchTool)
+        assert isinstance(rollout._tool_map["search"], SearchTool)
         # depend on the tokenizer
         assert rollout._tool_call_parser_type == "qwen25"
 
-    @patch.object(MCPClientManager, "fetch_tool_schemas", return_value=None)
     @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
-    def test_rollout_req_creation(self, mock_env, mock_engine, mock_sampling, mock_fetch, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto):
-        tool_schema = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "tavily_search_tool",
-                    "description": "A powerful web search tool...",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "what_is_your_intent": {"type": "string", "description": "Describe your intent for using Tavily"},
-                            "query": {"type": "string", "description": "Search query"},
-                            "search_depth": {"type": "string", "description": "The depth of the search ('basic' or 'advanced')"},
-                            "topic": {"type": "string", "description": "The category of the search ('general' or 'news')"},
-                            "days": {"type": "integer", "description": "Number of days back to include in search results (only for 'news' topic)"},
-                            "time_range": {"type": "string", "description": "Time range for results ('day', 'week', 'month', 'year', 'd', 'w', 'm', 'y')"},
-                            "include_domains": {"type": "array", "description": "List of domains to specifically include in search results"},
-                            "exclude_domains": {"type": "array", "description": "List of domains to specifically exclude from search results"},
-                            "include_answer": {"type": "boolean", "description": "Whether to include an answer summary generated by an LLM"},
-                            "include_raw_content": {"type": "boolean", "description": "Whether to include the cleaned and parsed HTML content of each result"},
-                            "include_images": {"type": "boolean", "description": "Whether to include images from search results"},
-                            "include_image_descriptions": {"type": "boolean", "description": "Whether to include descriptions with images"},
-                            "max_results": {"type": "integer", "description": "Maximum number of results to return (5-20)"},
-                            "async_search": {"type": "boolean", "description": "Whether to perform the search asynchronously"},
-                        },
-                        "required": ["what_is_your_intent", "query"],
-                    },
-                    "strict": False,
-                },
-            }
-        ]
-        # Mock mcp registered tool as a predefined schema for avoiding ci timeout
-        mock_fetch.return_value = tool_schema
+    def test_rollout_req_creation(self, mock_env, mock_engine, mock_sampling, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto):
         rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
         req_list = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)
         assert len(req_list) == 1
         assert req_list[0].state == AsyncRolloutRequestStateEnum.PENDING
         assert len(req_list[0].tool_schemas) == 1
+        print(type(req_list[0].tool_schemas[0]))
+        assert req_list[0].tool_schemas[0] == OpenAIFunctionToolSchema(
+            type="function",
+            function=OpenAIFunctionSchema(
+                name="search",
+                description="Searches the web for relevant information based on the given query.",
+                parameters=OpenAIFunctionParametersSchema(
+                    type="object",
+                    properties={
+                        "query_list": OpenAIFunctionPropertySchema(
+                            type="array",
+                            description="A list of fully-formed semantic queries. The tool will return search results for each query.",
+                            items={"type": "string"},
+                        )
+                    },
+                    required=["query_list"],
+                ),
+                strict=False,
+            ),
+        )
 
-    @patch.object(MCPClientManager, "fetch_tool_schemas", return_value=None)
     @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
-    def test_over_size_case(self, mock_env, mock_engine, mock_sampling, mock_fetch, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto, search_data):
-        tool_schema = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "tavily_search_tool",
-                    "description": "A powerful web search tool...",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "what_is_your_intent": {"type": "string", "description": "Describe your intent for using Tavily"},
-                            "query": {"type": "string", "description": "Search query"},
-                            "search_depth": {"type": "string", "description": "The depth of the search ('basic' or 'advanced')"},
-                            "topic": {"type": "string", "description": "The category of the search ('general' or 'news')"},
-                            "days": {"type": "integer", "description": "Number of days back to include in search results (only for 'news' topic)"},
-                            "time_range": {"type": "string", "description": "Time range for results ('day', 'week', 'month', 'year', 'd', 'w', 'm', 'y')"},
-                            "include_domains": {"type": "array", "description": "List of domains to specifically include in search results"},
-                            "exclude_domains": {"type": "array", "description": "List of domains to specifically exclude from search results"},
-                            "include_answer": {"type": "boolean", "description": "Whether to include an answer summary generated by an LLM"},
-                            "include_raw_content": {"type": "boolean", "description": "Whether to include the cleaned and parsed HTML content of each result"},
-                            "include_images": {"type": "boolean", "description": "Whether to include images from search results"},
-                            "include_image_descriptions": {"type": "boolean", "description": "Whether to include descriptions with images"},
-                            "max_results": {"type": "integer", "description": "Maximum number of results to return (5-20)"},
-                            "async_search": {"type": "boolean", "description": "Whether to perform the search asynchronously"},
-                        },
-                        "required": ["what_is_your_intent", "query"],
-                    },
-                    "strict": False,
-                },
-            }
-        ]
-        # Mock mcp registered tool as a predefined schema for avoiding ci timeout
-        mock_fetch.return_value = tool_schema
+    def test_over_size_case(self, mock_env, mock_engine, mock_sampling, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto, search_data):
         search_rollout_config.multi_turn.max_turns = 1
         rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
         req = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)[0]
@@ -301,7 +210,7 @@ class TestRolloutWithMCPSearchTools:
         assert len(output_req_list) == 1
         output_req = output_req_list[0]
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-        assert output_req.reward_scores == {"tavily_search_tool": []}, f"output_req.reward_scores: {output_req.reward_scores}"
+        assert output_req.reward_scores == {"search": []}, f"output_req.reward_scores: {output_req.reward_scores}"
         # we should only have two message, one for prompt, second for response.
         assert len(output_req.messages) == 2
         assert output_req.messages[1] == Message(
@@ -310,50 +219,20 @@ class TestRolloutWithMCPSearchTools:
             tool_calls=None,
         )
 
-    @patch.object(MCPClientManager, "fetch_tool_schemas", return_value=None)
-    @patch.object(MCPSearchTool, "execute", new_callable=AsyncMock)
+    @patch.object(SearchTool, "execute", new_callable=AsyncMock)
     @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
-    def test_tool_call_basic_case(self, mock_sampling, mock_engine, mock_env, mock_execute, mock_fetch, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto, search_data):
+    def test_tool_call_basic_case(self, mock_sampling, mock_engine, mock_env, mock_execute, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto, search_data):
         _, expect_turn_array, tool_return_array = search_data
-        tool_schema = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "tavily_search_tool",
-                    "description": "A powerful web search tool...",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "what_is_your_intent": {"type": "string", "description": "Describe your intent for using Tavily"},
-                            "query": {"type": "string", "description": "Search query"},
-                            "search_depth": {"type": "string", "description": "The depth of the search ('basic' or 'advanced')"},
-                            "topic": {"type": "string", "description": "The category of the search ('general' or 'news')"},
-                            "days": {"type": "integer", "description": "Number of days back to include in search results (only for 'news' topic)"},
-                            "time_range": {"type": "string", "description": "Time range for results ('day', 'week', 'month', 'year', 'd', 'w', 'm', 'y')"},
-                            "include_domains": {"type": "array", "description": "List of domains to specifically include in search results"},
-                            "exclude_domains": {"type": "array", "description": "List of domains to specifically exclude from search results"},
-                            "include_answer": {"type": "boolean", "description": "Whether to include an answer summary generated by an LLM"},
-                            "include_raw_content": {"type": "boolean", "description": "Whether to include the cleaned and parsed HTML content of each result"},
-                            "include_images": {"type": "boolean", "description": "Whether to include images from search results"},
-                            "include_image_descriptions": {"type": "boolean", "description": "Whether to include descriptions with images"},
-                            "max_results": {"type": "integer", "description": "Maximum number of results to return (5-20)"},
-                            "async_search": {"type": "boolean", "description": "Whether to perform the search asynchronously"},
-                        },
-                        "required": ["what_is_your_intent", "query"],
-                    },
-                    "strict": False,
-                },
-            }
-        ]
-        # Mock mcp registered tool as a predefined schema for avoiding ci timeout
-        mock_fetch.return_value = tool_schema
+
         # Mock search tool execution to return predefined responses
         mock_execute.side_effect = [(msg, 0.0, {"status": "success"}) for msg in tool_return_array]
 
         search_rollout_config.multi_turn.max_turns = 10
         rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+
+        rollout._tool_map["search"].retrieval_service_url = "mock://dummy"
 
         req = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
@@ -377,10 +256,10 @@ class TestRolloutWithMCPSearchTools:
         # Verify conversation completed successfully with proper tool usage
         output_req = output_req_list[0]
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-        assert "tavily_search_tool" in output_req.metrics
-        assert output_req.metrics["tavily_search_tool"][0]["status"] == "success"
+        assert "search" in output_req.metrics
+        assert output_req.metrics["search"][0]["status"] == "success"
         assert mock_execute.await_count == 2
-        assert len(output_req.messages) == 6
+        assert len(output_req.messages) == 6  # user + 3*assistant + 2*tool_call
         # Verify tool response messages contain expected content
         search_counter = 0
         for msg in output_req.messages:
@@ -389,45 +268,13 @@ class TestRolloutWithMCPSearchTools:
                 search_counter += 1
         assert search_counter == 2
 
-    @patch.object(MCPClientManager, "fetch_tool_schemas", return_value=None)
-    @patch.object(MCPSearchTool, "execute", new_callable=AsyncMock)
+    @patch.object(SearchTool, "execute", new_callable=AsyncMock)
     @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
-    def test_tool_call_batch_case(self, mock_sampling, mock_engine, mock_env, mock_execute, mock_fetch, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto, search_data):
+    def test_tool_call_batch_case(self, mock_sampling, mock_engine, mock_env, mock_execute, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto, search_data):
         _, expect_turn_array, tool_return_array = search_data
-        tool_schema = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "tavily_search_tool",
-                    "description": "A powerful web search tool...",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "what_is_your_intent": {"type": "string", "description": "Describe your intent for using Tavily"},
-                            "query": {"type": "string", "description": "Search query"},
-                            "search_depth": {"type": "string", "description": "The depth of the search ('basic' or 'advanced')"},
-                            "topic": {"type": "string", "description": "The category of the search ('general' or 'news')"},
-                            "days": {"type": "integer", "description": "Number of days back to include in search results (only for 'news' topic)"},
-                            "time_range": {"type": "string", "description": "Time range for results ('day', 'week', 'month', 'year', 'd', 'w', 'm', 'y')"},
-                            "include_domains": {"type": "array", "description": "List of domains to specifically include in search results"},
-                            "exclude_domains": {"type": "array", "description": "List of domains to specifically exclude from search results"},
-                            "include_answer": {"type": "boolean", "description": "Whether to include an answer summary generated by an LLM"},
-                            "include_raw_content": {"type": "boolean", "description": "Whether to include the cleaned and parsed HTML content of each result"},
-                            "include_images": {"type": "boolean", "description": "Whether to include images from search results"},
-                            "include_image_descriptions": {"type": "boolean", "description": "Whether to include descriptions with images"},
-                            "max_results": {"type": "integer", "description": "Maximum number of results to return (5-20)"},
-                            "async_search": {"type": "boolean", "description": "Whether to perform the search asynchronously"},
-                        },
-                        "required": ["what_is_your_intent", "query"],
-                    },
-                    "strict": False,
-                },
-            }
-        ]
-        # Mock mcp registered tool as a predefined schema for avoiding ci timeout
-        mock_fetch.return_value = tool_schema
+
         # Mock tool execution for large batch (100 requests * 2 calls each)
         mock_execute.side_effect = [
             (tool_return_array[0], 0.0, {"status": "success"}),
@@ -441,6 +288,7 @@ class TestRolloutWithMCPSearchTools:
             tokenizer=qwen_tokenizer,
             model_hf_config=qwen_model_config,
         )
+        rollout._tool_map["search"].retrieval_service_url = "mock://dummy"
 
         base_req = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)[0]
 
@@ -485,10 +333,10 @@ class TestRolloutWithMCPSearchTools:
         assert len(output_req_list) == req_nums
         for out_req in output_req_list:
             assert out_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-            assert "tavily_search_tool" in out_req.metrics
-            for metric in out_req.metrics["tavily_search_tool"]:
+            assert "search" in out_req.metrics
+            for metric in out_req.metrics["search"]:
                 assert metric["status"] == "success"
-            assert len(out_req.messages) == 6
+            assert len(out_req.messages) == 6  # user + 3 assistant + 2 tool
             assert sum(1 for m in out_req.messages if m.role == "tool") == 2
 
         assert mock_execute.await_count == 2 * req_nums
