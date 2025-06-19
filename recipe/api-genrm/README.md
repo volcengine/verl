@@ -23,7 +23,6 @@ For convenience, we run both the RL training and server on the same machine. To 
 
 ## Advanced: Customizing Your GenRM
 
-<!-- You can also customize your own GenRM by 实现你自己的custom reward function，以下是一些给予`reward_function.py`的修改的tips： -->
 You can create your own customized GenRM by implementing a custom reward function. Here are some tips for customizing your own GenRM based on `reward_function.py`:
 
 - Design appropriate prompts for your GenRM
