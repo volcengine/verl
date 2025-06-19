@@ -47,18 +47,10 @@ While **Megatron** current checkpoint structure is:
     ├── global_steps_${i}
     │   ├── actor
     │   │   ├── huggingface     # default save tokenizer, save huggingface model if include ``hf_mode`` in checkpoint.contents
-    │   │   ├── model           # save sharded model, naming the same as Megatron
-    │   │   │   ├── mp_rank_xx_yyy          # xx is tp_rank in 2 digits, yyy is pp_rank in 3 digits
-    │   │   │   │   └── model_states.pt
-    │   │   │   └── mp_rank_xx_xxx
-    │   │   ├── optim
-    │   │   │   └── distrib_optim_pp{a}_tp{b}_cp{c}_dp{d}.pt
-    │   │   └── rng_states
+    │   │   └── dist_ckpt       # save sharded model/optimizer/rng_states, naming the same as Megatron
     │   └── critic
     │   │   ├── huggingface
-    │   │   ├── model
-    │   │   ├── optim
-    │   │   └── rng_states
+    │   │   └── dist_ckpt
     └── latest_checkpointed_iteration.txt
 
 Convert FSDP and Megatron Checkpoints to HuggingFace Format Model
