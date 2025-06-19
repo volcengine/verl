@@ -33,7 +33,7 @@ import pkgutil
 import sys
 from pathlib import Path
 from types import ModuleType
-from typing import Iterable, list
+from typing import Iterable
 
 _ALLOW_LIST = ['verl.third_party.vllm.LLMEngine',
   'verl.utils.debug.WorkerProfiler',
@@ -42,7 +42,9 @@ _ALLOW_LIST = ['verl.third_party.vllm.LLMEngine',
   'verl.utils.debug.log_print',
   'verl.utils.debug.mark_annotate',
   'verl.utils.debug.mark_end_range',
-  'verl.utils.debug.mark_start_range']
+  'verl.utils.debug.mark_start_range',
+  'verl.models.mcore.qwen2_5_vl.get_vision_model_config',
+  'verl.models.mcore.qwen2_5_vl.get_vision_projection_config']
 
 def iter_submodules(root: ModuleType) -> Iterable[ModuleType]:
     """Yield *root* and every sub-module inside it."""
