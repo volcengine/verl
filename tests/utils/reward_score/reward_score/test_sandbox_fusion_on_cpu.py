@@ -358,7 +358,9 @@ def _mock_api_call_for_concurrency_tracking(
 # This function runs in each child process of ProcessPoolExecutor
 def _process_pool_worker_for_concurrency_test(sandbox_url, in_outs, generation, memory_limit_mb, language, timeout, mp_semaphore_for_check_correctness, active_calls_counter, max_calls_tracker, call_lock):
     # Corrected lambda to accept keyword arguments matching call_sandbox_api's usage
-    curried_mock_api_call = lambda sandbox_fusion_url, code, stdin, compile_timeout, run_timeout, memory_limit_mb, language: _mock_api_call_for_concurrency_tracking(active_calls_counter, max_calls_tracker, call_lock, sandbox_fusion_url, code, stdin, compile_timeout, run_timeout, memory_limit_mb ,language)
+    curried_mock_api_call = lambda sandbox_fusion_url, code, stdin, compile_timeout, run_timeout, memory_limit_mb, language: (
+        _mock_api_call_for_concurrency_tracking(active_calls_counter, max_calls_tracker, call_lock, sandbox_fusion_url, code, stdin, compile_timeout, run_timeout, memory_limit_mb, language)
+    )
 
     # ---- START DEBUG PRINTS ----
     import os

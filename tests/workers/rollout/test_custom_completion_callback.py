@@ -137,7 +137,7 @@ class CustomCompletionCallback(ToolCompletionCallback):
             self.sandbox_fusion_url,  # sandbox_fusion_url
             code,  # generation
             self.default_timeout,  # timeout
-            self.memory_limit_mb, # memory limit
+            self.memory_limit_mb,  # memory limit
             "python",  # language
         )
 

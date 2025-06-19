@@ -241,7 +241,7 @@ if __name__ == '__main__':
                 api_response, error_msg = call_sandbox_api(sandbox_fusion_url=sandbox_fusion_url, code=current_generation_code, stdin=str(stdin_data), compile_timeout=timeout, run_timeout=timeout, memory_limit_mb=memory_limit_mb, language=language)
             # logger.debug(f"Case {case_index + 1}: Semaphore released.")
         else:
-            api_response, error_msg = call_sandbox_api(sandbox_fusion_url=sandbox_fusion_url, code=current_generation_code, stdin=str(stdin_data), compile_timeout=timeout, run_timeout=timeout,memory_limit_mb=memory_limit_mb, language=language)
+            api_response, error_msg = call_sandbox_api(sandbox_fusion_url=sandbox_fusion_url, code=current_generation_code, stdin=str(stdin_data), compile_timeout=timeout, run_timeout=timeout, memory_limit_mb=memory_limit_mb, language=language)
     except Exception as e:
         error_msg = f"API Request Exception during check_correctness for case {case_index + 1}: {e}"
         logger.error(f"Case {case_index + 1}: {error_msg}")
