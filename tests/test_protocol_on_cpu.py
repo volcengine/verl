@@ -12,15 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import random
 
+import datasets
 import numpy as np
 import pytest
 import torch
 from tensordict import TensorDict
+from torchdata.stateful_dataloader import StatefulDataLoader
 
 from verl import DataProto
-from verl.protocol import union_numpy_dict, union_tensor_dict
+from verl.protocol import LinkedDataProto, SequentialPrefetchOnPolicyDataProto, SequentialPrefetchPostponeOffPolicyDataProto, union_numpy_dict, union_tensor_dict
 
 
 def test_union_tensor_dict():
@@ -499,3 +502,147 @@ def test_dataproto_chunk_after_index():
     selected = data[torch_int_mask]
     assert isinstance(selected.batch.batch_size, torch.Size)
     assert all(isinstance(d, int) for d in selected.batch.batch_size)
+
+
+def get_dataloader(batch_size):
+    def collate_fn(batch):
+        flattened_data = [item["data"] for item in batch]
+        flattened_text = [item["text"] for item in batch]
+        flattened_index = [item["index"] for item in batch]
+        return {"data": torch.tensor(flattened_data), "text": np.array(flattened_text), "index": np.array(flattened_index)}
+
+    train_dataset = datasets.load_dataset("json", data_files=[os.path.join(os.path.dirname(__file__), "test_data.jsonl")])
+    dataloader = StatefulDataLoader(
+        dataset=train_dataset["train"],
+        batch_size=batch_size,
+        num_workers=0,
+        drop_last=True,
+        collate_fn=collate_fn,
+    )
+    return dataloader
+
+
+def test_linked_data_proto_next():
+    """Test the next() method of LinkedDataProto with real DataLoader."""
+
+    batch_size = 2
+    num_total_batches = 3
+    dataloader = get_dataloader(batch_size)
+
+    assert dataloader is not None, "DataLoader creation failed"
+
+    assert len(dataloader) > 0, "DataLoader is empty, check test_data.jsonl and batch_size"
+
+    # Initialize LinkedDataProto
+    batch = LinkedDataProto(dataloader=dataloader)
+
+    # Test normal iteration
+    count = 0
+    while True:
+        next_batch = batch.next()
+        if next_batch is None:
+            assert batch._dataloader_exhausted, "dataloader exhausted should be True"
+            break  # End of epoch
+        batch = next_batch
+        popped_data = batch.pop(batch_keys=["data"], non_tensor_batch_keys=["text"])
+        expected_data = torch.tensor([[count * batch_size + 1], [count * batch_size + 2]])
+        assert torch.equal(popped_data.batch["data"], expected_data)
+
+        expected_text = np.array([[count * batch_size + 1, count * batch_size + 1], [count * batch_size + 2, count * batch_size + 2]])
+        assert np.array_equal(popped_data.non_tensor_batch["text"], expected_text)
+
+        # fetch data from next batch
+        next_batch = batch.next()
+        if count < num_total_batches - 1:
+            popped_data = next_batch.select(batch_keys=["data"], non_tensor_batch_keys=["text"])
+            expected_data = torch.tensor([[count * batch_size + 3], [count * batch_size + 4]])
+            assert torch.equal(popped_data.batch["data"], expected_data)
+
+            expected_text = np.array([[count * batch_size + 3, count * batch_size + 3], [count * batch_size + 4, count * batch_size + 4]])
+            assert np.array_equal(popped_data.non_tensor_batch["text"], expected_text)
+        else:
+            assert next_batch is None, "next batch should be None"
+
+        count += 1
+
+    assert count == num_total_batches, f"Iterated {count} times, expected {num_total_batches}"
+
+
+def test_prefetch_samples():
+    batch_size = 2
+    dataloader = get_dataloader(batch_size)
+
+    assert dataloader is not None, "DataLoader creation failed"
+
+    assert len(dataloader) > 0, "DataLoader is empty, check test_data.jsonl and batch_size"
+
+    # Initialize SequentialPrefetchOnPolicyDataProto
+    batch = SequentialPrefetchOnPolicyDataProto(dataloader=dataloader)
+
+    # Test normal iteration
+    count = 0
+    batch = batch.next()
+
+    prefetch_sample = batch.prefetch_samples(count=1)
+
+    # verify prefetch data
+    prefetched = prefetch_sample.select(batch_keys=["data"], non_tensor_batch_keys=["text"])
+    expected_data = torch.tensor([[count * batch_size + 3]])
+    assert torch.equal(prefetched.batch["data"], expected_data)
+
+    expected_text = np.array([[count * batch_size + 3, count * batch_size + 3]])
+    assert np.array_equal(prefetched.non_tensor_batch["text"], expected_text)
+
+    # verify prefetch data are joined to current batch
+    batch_data = batch.select(batch_keys=["data"], non_tensor_batch_keys=["text"])
+    expected_data = torch.tensor([[count * batch_size + 1], [count * batch_size + 2], [count * batch_size + 3]])
+    assert torch.equal(batch_data.batch["data"], expected_data)
+
+    expected_text = np.array([[count * batch_size + 1, count * batch_size + 1], [count * batch_size + 2, count * batch_size + 2], [count * batch_size + 3, count * batch_size + 3]])
+    assert np.array_equal(batch_data.non_tensor_batch["text"], expected_text)
+
+    # verify fetched data are removed from next batch
+    next_batch = batch.next()
+    next_batch_data = next_batch.select(batch_keys=["data"], non_tensor_batch_keys=["text"])
+    expected_data = torch.tensor([[count * batch_size + 4]])
+    assert torch.equal(next_batch_data.batch["data"], expected_data)
+
+    expected_text = np.array([[count * batch_size + 4, count * batch_size + 4]])
+    assert np.array_equal(next_batch_data.non_tensor_batch["text"], expected_text)
+
+
+def test_postpone_samples():
+    batch_size = 2
+    dataloader = get_dataloader(batch_size)
+
+    assert dataloader is not None, "DataLoader creation failed"
+
+    assert len(dataloader) > 0, "DataLoader is empty, check test_data.jsonl and batch_size"
+
+    # Initialize SequentialPrefetchOnPolicyDataProto
+    batch = SequentialPrefetchPostponeOffPolicyDataProto(dataloader=dataloader)
+
+    # Test normal iteration
+    count = 0
+    batch = batch.next()
+
+    samples = batch.select_idxs([1])
+
+    assert batch.postpone_samples(samples)
+
+    # verify prefetch data are removed from current batch
+    batch_data = batch.select(batch_keys=["data"], non_tensor_batch_keys=["text"])
+    expected_data = torch.tensor([[count * batch_size + 1]])
+    assert torch.equal(batch_data.batch["data"], expected_data)
+
+    expected_text = np.array([[count * batch_size + 1, count * batch_size + 1]])
+    assert np.array_equal(batch_data.non_tensor_batch["text"], expected_text)
+
+    # verify postponed data are joined to next batch
+    next_batch = batch.next()
+    next_batch_data = next_batch.select(batch_keys=["data"], non_tensor_batch_keys=["text"])
+    expected_data = torch.tensor([[count * batch_size + 3], [count * batch_size + 4], [count * batch_size + 2]])
+    assert torch.equal(next_batch_data.batch["data"], expected_data)
+
+    expected_text = np.array([[count * batch_size + 3, count * batch_size + 3], [count * batch_size + 4, count * batch_size + 4], [count * batch_size + 2, count * batch_size + 2]])
+    assert np.array_equal(next_batch_data.non_tensor_batch["text"], expected_text)
