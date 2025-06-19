@@ -15,6 +15,7 @@
 To inspect the type annotation for functions in the entire codebase, please run:
 find verl -type f -name "*.py" | xargs -n 1 python3 tests/special_sanity/type_coverage_check.py --all-lines --debug --target-file
 """
+
 import argparse
 import ast
 import linecache
@@ -54,12 +55,14 @@ CHECK_SUCCESS = 0
 CHECK_WARNING = 1
 CHECK_FAILURE = -1
 
+
 def should_check_type(arg_name: str) -> bool:
     if arg_name in ("self", "cls"):
         return False
     if arg_name.startswith("*"):
         return False
     return True
+
 
 def has_type_annotations(node: ast.AST, debug: bool = False) -> int:
     if isinstance(node, ast.FunctionDef):
