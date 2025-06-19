@@ -21,6 +21,15 @@ import ray
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 
+@ray.remote(resources={'TPU': 1})
+def is_torch_tpu_available() -> bool:
+    """Check the availability of TPUs"""
+    try:
+        import torch_xla.core.xla_model as xm
+        return xm.get_xla_supported_devices("TPU") is not None
+    except:
+        return False
+    
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
 def main(config):
@@ -39,10 +48,16 @@ def run_ppo(config) -> None:
             runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN", "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "true"}},
             num_cpus=config.ray_init.num_cpus,
         )
+    
+    # check for TPU availability and set environment variable
+    tpu_available = ray.get(is_torch_tpu_available.remote())
+    task_runner_env_vars = {
+        "TORCH_TPU_AVAILABLE": "1" if tpu_available else "0"
+    }
 
     # Create a remote instance of the TaskRunner class, and
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
-    runner = TaskRunner.remote()
+    runner = TaskRunner.options(runtime_env={"env_vars": task_runner_env_vars}).remote()
     ray.get(runner.run.remote(config))
 
     # [Optional] get the path of the timeline trace file from the configuration, default to None
@@ -117,7 +132,7 @@ class TaskRunner:
         # Map roles to the resource pool.
         global_pool_id = "global_pool"
         resource_pool_spec = {
-            global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
+            global_pool_id: [config.trainer.n_gpus_per_node if config.trainer.device == "cuda" else config.trainer.n_tpus_per_node] * config.trainer.nnodes,
         }
         mapping = {
             Role.ActorRollout: global_pool_id,
@@ -148,7 +163,7 @@ class TaskRunner:
         # Load the reward manager for training and validation.
         reward_fn = load_reward_manager(config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {}))
         val_reward_fn = load_reward_manager(config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {}))
-        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
+        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping, device=config.trainer.device)
 
         from verl.utils.dataset.rl_dataset import collate_fn
 
@@ -176,7 +191,7 @@ class TaskRunner:
         # Initialize the workers of the trainer.
         trainer.init_workers()
         # Start the training process.
-        trainer.fit()
+        # trainer.fit()
 
 
 def create_rl_dataset(data_paths, data_config, tokenizer, processor):
