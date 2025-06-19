@@ -165,7 +165,9 @@ class AsyncRolloutRequest(BaseModel):
                 return raw_prompt
 
             # When we update multi_model_keys, we also need to update this logic
-            model_inputs = processing_class(text=[raw_prompt], images=multi_modal_data.get("image", None), videos=multi_modal_data.get("video", None), return_tensors="pt")
+            images = images if len(images := multi_modal_data.get("image", [])) > 0 else None
+            videos = videos if len(videos := multi_modal_data.get("video", [])) > 0 else None
+            model_inputs = processing_class(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
             assert model_inputs["input_ids"].shape[0] == 1, "input_ids should be a 1D array"
             model_inputs = {k: v[0].tolist() if hasattr(v, "tolist") else v for k, v in model_inputs.items()}
             if return_dict:
@@ -213,7 +215,7 @@ class AsyncRolloutRequest(BaseModel):
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
 
         # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine Inference, it is pure text.
-        content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=None, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_with_gen_prompt_end_pos :]
+        content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_with_gen_prompt_end_pos :]
         self._update_input_ids(content_ids, attention_mask=True, loss_mask=True)
 
     def add_tool_response_messages(self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin], contents: list[str]) -> None:
