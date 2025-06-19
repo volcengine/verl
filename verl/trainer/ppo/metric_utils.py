@@ -30,18 +30,13 @@ def reduce_metrics(metrics: Dict[str, List[Any]]) -> Dict[str, Any]:
 
 
 def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
-    if 'model_generated_mask' in batch.batch.keys():
-        response_mask = batch.batch['model_generated_mask'].bool()[:, 1:]
-        response_length = response_mask.sum(-1).float()
-        prompt_length = (batch.batch['attention_mask'] & (1 - batch.batch['model_generated_mask'])).sum(-1).float()
-    else:
-        response_length = batch.batch['responses'].shape[-1]
+    response_length = batch.batch['responses'].shape[-1]
 
-        prompt_mask = batch.batch['attention_mask'][:, :-response_length]
-        response_mask = batch.batch['attention_mask'][:, -response_length:]
+    prompt_mask = batch.batch['attention_mask'][:, :-response_length]
+    response_mask = batch.batch['attention_mask'][:, -response_length:]
 
-        prompt_length = prompt_mask.sum(-1).float()
-        response_length = response_mask.sum(-1).float()  # (batch_size,)
+    prompt_length = prompt_mask.sum(-1).float()
+    response_length = response_mask.sum(-1).float()  # (batch_size,)
 
     return dict(
         response_mask=response_mask,
@@ -58,17 +53,12 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
     advantages = batch.batch['advantages']
     returns = batch.batch['returns']
 
-    if 'model_generated_mask' in batch.batch.keys():
-        response_mask = batch.batch['model_generated_mask'].bool()[:, 1:]
-        max_response_length = response_mask.sum(-1).max().item()
-        max_prompt_length = (1 - batch.batch['model_generated_mask']).sum(-1).max().item()
-    else:
-        max_response_length = batch.batch['responses'].shape[-1]
+    max_response_length = batch.batch['responses'].shape[-1]
 
-        prompt_mask = batch.batch['attention_mask'][:, :-max_response_length].bool()
-        response_mask = batch.batch['attention_mask'][:, -max_response_length:].bool()
+    prompt_mask = batch.batch['attention_mask'][:, :-max_response_length].bool()
+    response_mask = batch.batch['attention_mask'][:, -max_response_length:].bool()
 
-        max_prompt_length = prompt_mask.size(-1)
+    max_prompt_length = prompt_mask.size(-1)
 
     response_info = _compute_response_info(batch)
     prompt_length = response_info['prompt_length']
