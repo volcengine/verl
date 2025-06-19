@@ -46,9 +46,12 @@ Refer to the table below to reproduce RL training from different pre-trained che
 - Training DAPO math-17k dataset: https://huggingface.co/datasets/BytedTsinghua-SIA/DAPO-Math-17k
 - Testing: AIME'24: https://huggingface.co/datasets/BytedTsinghua-SIA/AIME-2024
 
+Note:
+- For Qwen/Qwen2.5-Math-7B, we directly modify the max_position_embeddings to 32768 without observing performance degradation in order to train longer response length.
+
 | Hardware    | Model                            | Method            | Test score   | Details |
 |-------------|----------------------------------|-------------------|--------------|---------|
-| NVIDIA GPU  | Qwen/Qwen2.5-Math-7B             | DAPO              | 36.3         | [command](https://github.com/volcengine/verl/blob/main/recipe/dapo/test_dapo_7b_math.sh), [logs](https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl/runs/ow47vvon?nw=nwusertongyuxuan361)|
+| NVIDIA GPU  | Qwen/Qwen2.5-Math-7B (32k)       | DAPO              | 36.3         | [command](https://github.com/volcengine/verl/blob/main/recipe/dapo/test_dapo_7b_math.sh), [logs](https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl/runs/ow47vvon?nw=nwusertongyuxuan361)|
 
 
 
