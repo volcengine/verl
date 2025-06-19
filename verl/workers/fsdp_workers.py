@@ -1146,6 +1146,7 @@ class RewardModelWorker(Worker):
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend="nccl" if is_cuda_available else "hccl")
         self.config = config
+        self.device_name = get_device_name()
 
         # build device mesh for Ulysses Sequence Parallel
         world_size = torch.distributed.get_world_size()
@@ -1259,7 +1260,7 @@ class RewardModelWorker(Worker):
 
         from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 
-        with torch.no_grad(), torch.autocast(device_type=device_name, dtype=torch.bfloat16):
+        with torch.no_grad(), torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]

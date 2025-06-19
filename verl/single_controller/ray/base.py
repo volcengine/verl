@@ -86,16 +86,14 @@ class RayResourcePool(ResourcePool):
     def __init__(
         self,
         process_on_nodes: Optional[List[int]] = None,
-        use_gpu: bool = False,
-        use_tpu: bool = True,
+        use_accelerator: bool = True,
         name_prefix: str = None,
         max_colocate_count: int = 10,
         detached=False,
         accelerator_type: Optional[str] = None,
     ) -> None:
         super().__init__(process_on_nodes, max_colocate_count)
-        self.use_gpu = use_gpu
-        self.use_tpu = use_tpu
+        self.use_accelerator = use_accelerator
         # print(f"in RayProcessDispatchConfiguration: name_prefix = {name_prefix}")
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
         self.pgs = None
@@ -116,12 +114,10 @@ class RayResourcePool(ResourcePool):
             device_name = "TPU"
 
         bundle = {"CPU": self.max_colocate_count}
-        if self.use_gpu:
+        if self.use_accelerator:
             bundle[device_name] = 1
             if self.accelerator_type is not None:
                 bundle[self.accelerator_type] = 1e-4
-        if self.use_tpu:
-            bundle[device_name] = 1
 
         pg_scheme = [[bundle.copy() for _ in range(process_count)] for process_count in self._store]
 
@@ -153,14 +149,14 @@ def extract_pg_from_exist(resource_pools: Dict[str, RayResourcePool], src_role_n
 
 
 def merge_resource_pool(rp1: RayResourcePool, rp2: RayResourcePool) -> RayResourcePool:
-    assert rp1.use_gpu == rp2.use_gpu, "Both RayResourcePool must either use_gpu or not"
+    assert rp1.use_accelerator == rp2.use_accelerator, "Both RayResourcePool must either use_accelerator or not"
     assert rp1.max_colocate_count == rp2.max_colocate_count, "Both RayResourcePool must has the same max_colocate_count"
     assert rp1.n_gpus_per_node == rp2.n_gpus_per_node, "Both RayResourcePool must has the same n_gpus_per_node"
     assert rp1.detached == rp2.detached, "Detached ResourcePool cannot be merged with non-detached ResourcePool"
 
     new_store = rp1.store + rp2.store
 
-    merged = type(rp1)(new_store, rp1.use_gpu, f"{rp1.name_prefix}_{rp2.name_prefix}")
+    merged = type(rp1)(new_store, rp1.use_accelerator, f"{rp1.name_prefix}_{rp2.name_prefix}")
     merged.pgs = rp1.get_placement_groups() + rp2.get_placement_groups()
 
     return merged
@@ -196,14 +192,14 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         """
         self._options.update(options)
 
-    def __call__(self, placement_group, placement_group_bundle_idx, use_gpu: bool = False, use_tpu: bool = True, num_gpus=1, num_tpus=1,sharing_with=None, device_name="tpu") -> Any:
+    def __call__(self, placement_group, placement_group_bundle_idx, use_accelerator: bool = True, num_accelerators=1, sharing_with=None, device_name="tpu") -> Any:
         """Create and return a Ray actor with the configured options.
 
         Args:
             placement_group: Ray placement group for scheduling
             placement_group_bundle_idx: Index of the bundle in the placement group
-            use_gpu: Whether to use GPU resources
-            num_gpus: Number of GPUs to allocate
+            use_accelerator: Whether to use accelerator resources
+            num_accelerators: Number of accelerator resources to allocate
             sharing_with: Actor to share resources with
             device_name: Device for training
 
@@ -219,12 +215,12 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         options = {"scheduling_strategy": PlacementGroupSchedulingStrategy(placement_group=placement_group, placement_group_bundle_index=placement_group_bundle_idx)}
         options.update(self._options)
 
-        if use_gpu and device_name == "cuda":
-            options["num_gpus"] = num_gpus
-        if use_gpu and device_name == "npu":
-            options["resources"] = {"NPU": num_gpus}
-        if use_tpu and device_name == "tpu":
-            options["resources"] = {"TPU": num_tpus}
+        if use_accelerator and device_name == "cuda":
+            options["num_gpus"] = num_accelerators
+        if use_accelerator and device_name == "npu":
+            options["resources"] = {"NPU": num_accelerators}
+        if use_accelerator and device_name == "tpu":
+            options["resources"] = {"TPU": num_accelerators}
 
         if len(self._additional_resource) > 1:
             for k, v in self._additional_resource.items():
@@ -324,7 +320,7 @@ class RayWorkerGroup(WorkerGroup):
             bin_pack: Whether to use strict bin packing for resource allocation
             detached: Whether workers should be detached
         """
-        use_gpu = resource_pool.use_gpu
+        use_accelerator = resource_pool.use_accelerator
 
         strategy = "PACK"
         if bin_pack:
@@ -333,7 +329,7 @@ class RayWorkerGroup(WorkerGroup):
         world_size = resource_pool.world_size
         self._world_size = world_size
         # cia.add_kwarg("_world_size", world_size)
-        num_gpus = 1 / resource_pool.max_colocate_count
+        num_accelerators = 1 / resource_pool.max_colocate_count
 
         rank = -1
         local_world_size = resource_pool.store[0]
@@ -369,7 +365,7 @@ class RayWorkerGroup(WorkerGroup):
                     ray_cls_with_init.update_options({"lifetime": "detached"})
 
                 # create a worker
-                worker = ray_cls_with_init(placement_group=pg, placement_group_bundle_idx=local_rank, use_gpu=use_gpu, num_gpus=num_gpus, device_name=self.device_name)
+                worker = ray_cls_with_init(placement_group=pg, placement_group_bundle_idx=local_rank, use_accelerator=use_accelerator, num_accelerators=num_accelerators, device_name=self.device_name)
                 self._workers.append(worker)
                 self._worker_names.append(name)
 
