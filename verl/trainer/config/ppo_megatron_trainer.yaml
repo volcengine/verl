@@ -62,6 +62,13 @@ actor_rollout_ref:
     ppo_epochs: 1
     data_loader_seed: null
     shuffle: False
+    policy_loss:   # policy loss config
+      loss_mode: "vanilla" # Loss function mode: vanilla / clip-cov / kl-cov from https://arxiv.org/abs/2505.22617
+      clip_cov_ratio: 0.0002 # Ratio of tokens to be clipped for clip-cov loss
+      clip_cov_lb: 1.0 # Lower bound for clip-cov loss
+      clip_cov_ub: 5.0 # Upper bound for clip-cov loss
+      kl_cov_ratio: 0.0002 # Ratio of tokens to be applied kl penalty for kl-cov loss
+      ppo_kl_coef: 0.1 # KL divergence penalty coefficient
     optim:
       optimizer: adam
       lr: 1e-6
