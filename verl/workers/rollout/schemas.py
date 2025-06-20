@@ -190,6 +190,18 @@ class AsyncRolloutRequest(BaseModel):
         assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
             {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
 
+    def _undo_update_input_ids(self, new_input_ids: List[int]) -> None:
+        """
+        Undo the update_input_ids method.
+        """
+        self.input_ids = self.input_ids[: -len(new_input_ids)]
+        self.attention_mask = self.attention_mask[: -len(new_input_ids)]
+        self.loss_mask = self.loss_mask[: -len(new_input_ids)]
+        self.position_ids = self.position_ids[: -len(new_input_ids)]
+
+        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Request {self.request_id} has different length of {len(self.input_ids)=},
+            {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
+
     def get_generation_prompt_ids(self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin]) -> list[int]:
         generation_prompt_ids = [] if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids else self.generation_prompt_ids
         if generation_prompt_ids:
@@ -209,20 +221,22 @@ class AsyncRolloutRequest(BaseModel):
         content: str,
         tool_calls: Optional[List[OpenAIFunctionToolCall]] = None,
     ) -> None:
-        self.messages.append(Message(role="assistant", content=content.strip(), tool_calls=tool_calls))
+        self.messages.append(Message(role="assistant", content=content, tool_calls=tool_calls))
 
         messages = [*BASE_CHAT_HISTORY, self.messages[-1]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
 
         # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine Inference, it is pure text.
-        content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_with_gen_prompt_end_pos :]
+        content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_wo_gen_prompt_end_pos :]
+        if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids:
+            self._undo_update_input_ids(self.generation_prompt_ids)
         self._update_input_ids(content_ids, attention_mask=True, loss_mask=True)
 
     def add_tool_response_messages(self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin], contents: list[str]) -> None:
         if not contents:
             return
 
-        self.messages.extend([Message(role="tool", content=content.strip()) for content in contents])
+        self.messages.extend([Message(role="tool", content=content) for content in contents])
 
         messages = [*BASE_CHAT_HISTORY, *self.messages[-len(contents) :]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None

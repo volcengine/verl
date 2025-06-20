@@ -317,7 +317,7 @@ class TestRolloutWithMCPSearchTools:
         assert len(output_req.messages) == 2
         assert output_req.messages[1] == Message(
             role="assistant",
-            content=expect_turn_array[0].strip(),
+            content=expect_turn_array[0],
             tool_calls=None,
         )
 
@@ -391,7 +391,7 @@ class TestRolloutWithMCPSearchTools:
         search_counter = 0
         for msg in output_req.messages:
             if msg.role == "tool":
-                assert msg.content == tool_return_array[search_counter].strip()
+                assert msg.content == tool_return_array[search_counter]
                 search_counter += 1
         assert search_counter == 2
 
