@@ -69,6 +69,7 @@ class ModelMergerConfig:
     is_value_model: bool = False
     hf_model_path: Optional[str] = None
     hf_upload: bool = field(init=False)
+    use_cpu_initialization: bool = False
 
     def __post_init__(self):
         self.hf_upload = self.operation == "merge" and bool(self.hf_upload_path)

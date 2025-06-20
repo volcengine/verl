@@ -14,8 +14,9 @@
 
 import os
 import warnings
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, ContextManager, Dict
+from typing import Any, Callable, ContextManager, Dict, List
 
 import torch
 from accelerate import init_empty_weights
@@ -33,6 +34,11 @@ from verl.utils.megatron.dist_checkpointing import load_dist_checkpointing
 from verl.utils.megatron_utils import get_model
 
 from .base_model_merger import BaseModelMerger, ModelMergerConfig
+
+
+@contextmanager
+def noop_context() -> Any:
+    yield
 
 
 class MegatronModelMerger(BaseModelMerger):
@@ -53,6 +59,8 @@ class MegatronModelMerger(BaseModelMerger):
             expert_model_parallel_size=1,
         )
         model_parallel_cuda_manual_seed(0)
+        self.hf_config = AutoConfig.from_pretrained(self.config.hf_model_config_path)
+        print(self.hf_config, flush=True)
 
         self.params_mapping = {
             # megatron core gpt model name, huggingface model name
@@ -102,15 +110,10 @@ class MegatronModelMerger(BaseModelMerger):
             State dict containing the model parameters.
         """
 
-        def noop_context() -> Any:
-            yield
-
         # init hf config
-        hf_config = AutoConfig.from_pretrained(self.config.hf_model_path)
-        print(hf_config, flush=True)
-        tf_config = hf_to_mcore_config(hf_config, torch.bfloat16)
+        tf_config = hf_to_mcore_config(self.hf_config, torch.bfloat16)
         tf_config.use_cpu_initialization = self.config.use_cpu_initialization
-        tie_word_embeddings = getattr(hf_config, "tie_word_embeddings", False)
+        tie_word_embeddings = getattr(self.hf_config, "tie_word_embeddings", False)
 
         # init megatron model
         def megatron_model_provider(pre_process, post_process):
@@ -118,7 +121,7 @@ class MegatronModelMerger(BaseModelMerger):
 
             parallel_model = init_mcore_model(
                 tf_config,
-                hf_config,
+                self.hf_config,
                 pre_process,
                 post_process,
                 share_embeddings_and_output_weights=tie_word_embeddings,
@@ -128,7 +131,7 @@ class MegatronModelMerger(BaseModelMerger):
 
         context: Callable[..., ContextManager] = init_empty_weights if self.config.use_cpu_initialization else noop_context
         with context():
-            model = get_model(
+            whole_model = get_model(
                 model_provider_func=megatron_model_provider,
                 model_type=ModelType.encoder_or_decoder,
                 wrap_with_ddp=False,
@@ -137,16 +140,22 @@ class MegatronModelMerger(BaseModelMerger):
 
         if self.config.use_cpu_initialization:
             # convert meta device to empty tensor so it can use `copy_` function
-            model[0].module = model[0].module.to_empty(device="cpu")
+            whole_model[0].module = whole_model[0].module.to_empty(device="cpu")
 
         # load state dicts
         sharded_state_dict = {}
-        for vpp_rank, model in enumerate(self.model):
-            key = f"model{vpp_rank}" if len(self.model) > 1 else "model"
+        for vpp_rank, model in enumerate(whole_model):
+            key = f"model{vpp_rank}" if len(whole_model) > 1 else "model"
+            mpu.set_virtual_pipeline_model_parallel_rank(vpp_rank)
             sharded_state_dict[key] = model.sharded_state_dict()
         model_state_dict = load_dist_checkpointing(sharded_state_dict, model_ckpt_path)
+        model_state_dict_list = []
+        for vpp_rank, model in enumerate(whole_model):
+            key = f"model{vpp_rank}" if len(whole_model) > 1 else "model"
+            mpu.set_virtual_pipeline_model_parallel_rank(vpp_rank)
+            model_state_dict_list.append(model_state_dict[key])
 
-        return model_state_dict
+        return model_state_dict_list
 
     def _check_megatron_state_key(self, key: str) -> bool:
         """
@@ -214,48 +223,49 @@ class MegatronModelMerger(BaseModelMerger):
         else:
             return tensor
 
-    def _merge_state_dicts(self, model_state_dict: Dict[str, Any]) -> dict[str, torch.Tensor]:
+    def _merge_state_dicts(self, model_state_dict_list: List[Dict[str, Any]]) -> dict[str, torch.Tensor]:
         state_dict = {}
         layers_cum = 0
-        layers_handled = 0
 
-        keys = model_state_dict.keys()
-        for key in keys:
-            if "extra_state" in key:
-                continue
-            if self.config.tie_word_embedding and ("output_layer" in key):
-                print("skip lm_head and reward_head loading because of tie_word_embeddings")
-                continue
+        for model_state_dict in model_state_dict_list:
+            layers_handled = 0
+            keys = model_state_dict.keys()
+            for key in keys:
+                if "extra_state" in key:
+                    continue
+                if self.config.tie_word_embedding and ("output_layer" in key):
+                    print("skip lm_head and reward_head loading because of tie_word_embeddings")
+                    continue
 
-            self._check_megatron_state_key(key)
-            hf_name = self._replace_name(key, self.params_mapping)
-            assert hf_name is not None, f"Failed to convert layer name [{key}] from megatron to huggingface."
-            if "model.layers." in hf_name:
-                local_layer_no = int(hf_name.split(".")[2])
-                layers_handled = max(local_layer_no, layers_handled)
-                global_layer_no = local_layer_no + layers_cum
-                new_key_list = hf_name.split(".")
-                new_key_list[2] = str(global_layer_no)
-                hf_name = ".".join(new_key_list)
-            else:
-                warnings.warn(f"hf_name {hf_name} will not be fixed with layer number", stacklevel=2)
+                self._check_megatron_state_key(key)
+                hf_name = self._replace_name(key, self.params_mapping)
+                assert hf_name is not None, f"Failed to convert layer name [{key}] from megatron to huggingface."
+                if "model.layers." in hf_name:
+                    local_layer_no = int(hf_name.split(".")[2])
+                    layers_handled = max(local_layer_no, layers_handled)
+                    global_layer_no = local_layer_no + layers_cum
+                    new_key_list = hf_name.split(".")
+                    new_key_list[2] = str(global_layer_no)
+                    hf_name = ".".join(new_key_list)
+                else:
+                    warnings.warn(f"hf_name {hf_name} will not be fixed with layer number", stacklevel=2)
 
-            tensor = model_state_dict[key]
-            split_tensor = self._split_tensors(key, tensor, self.config.hf_model_config, is_value_model=self.config.is_value_model)
+                tensor = model_state_dict[key]
+                split_tensor = self._split_tensors(key, tensor, self.hf_config, is_value_model=self.config.is_value_model)
 
-            if not isinstance(split_tensor, list):
-                state_dict[hf_name] = split_tensor
-            elif len(split_tensor) == 3:
-                # split qkv
-                for n, d in zip(["q", "k", "v"], split_tensor):
-                    state_dict[hf_name.replace("qkv", n)] = d
-            elif len(split_tensor) == 2:
-                # split gate up
-                state_dict[hf_name.replace("gate_up", "gate")] = split_tensor[0]
-                state_dict[hf_name.replace("gate_up", "up")] = split_tensor[1]
-            print(f"converted {key} to {hf_name} with shape {split_tensor.shape if isinstance(split_tensor, torch.Tensor) else [t.shape for t in split_tensor]}")
+                if not isinstance(split_tensor, list):
+                    state_dict[hf_name] = split_tensor
+                elif len(split_tensor) == 3:
+                    # split qkv
+                    for n, d in zip(["q", "k", "v"], split_tensor):
+                        state_dict[hf_name.replace("qkv", n)] = d
+                elif len(split_tensor) == 2:
+                    # split gate up
+                    state_dict[hf_name.replace("gate_up", "gate")] = split_tensor[0]
+                    state_dict[hf_name.replace("gate_up", "up")] = split_tensor[1]
+                print(f"converted {key} to {hf_name} with shape {split_tensor.shape if isinstance(split_tensor, torch.Tensor) else [t.shape for t in split_tensor]}")
 
-        layers_cum += layers_handled + 1  # zero based
+            layers_cum += layers_handled + 1  # zero based
 
         return state_dict
 
@@ -298,7 +308,7 @@ class MegatronModelMerger(BaseModelMerger):
                 raise RuntimeError(f"key: {name} not exist in state_dict")
             param = ref_state_dict[name]
             assert loaded_weight.dtype == param.dtype
-            torch.testing.assert_close(loaded_weight, param, atol=1e-2, rtol=5e-2)
+            torch.testing.assert_close(loaded_weight.to("cpu"), param, atol=1e-2, rtol=5e-2)
 
     def _replace_name(self, megatron_name: str, name_mapping: dict[str, str]) -> str:
         for m_name, v_name in name_mapping.items():

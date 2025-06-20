@@ -44,6 +44,7 @@ from .megatron_model_merger import MegatronModelMerger
 def main():
     args = parse_args()
     config = generate_config_from_args(args)
+    print(f"config: {config}")
 
     if config.backend == "fsdp":
         merger = FSDPModelMerger(config)
