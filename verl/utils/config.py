@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, Type, Any, Union
+from dataclasses import is_dataclass
+from typing import Any, Dict, Type, Union
 
 from omegaconf import DictConfig, OmegaConf
-from dataclasses import is_dataclass
 
 
 def omega_conf_to_dataclass(config: Union[DictConfig, dict], dataclass_type: Type[Any]) -> Any:

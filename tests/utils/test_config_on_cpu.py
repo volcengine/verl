@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import unittest
-import os
 from dataclasses import dataclass
 
 from omegaconf import OmegaConf

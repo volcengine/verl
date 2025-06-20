@@ -14,7 +14,7 @@
 
 from ..import_utils import is_nvtx_available
 from .performance import GPUMemoryLogger, log_gpu_memory_usage, log_print, simple_timer
-from .profile import ProfilerConfig, DistProfilerExtension
+from .profile import DistProfilerExtension, ProfilerConfig
 
 if is_nvtx_available():
     from .nvtx_profile import NsightSystemsProfiler as DistProfiler

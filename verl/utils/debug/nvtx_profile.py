@@ -20,7 +20,7 @@ from typing import Callable, Dict, Optional
 import nvtx
 import torch
 
-from .profile import ProfilerConfig, DistProfiler
+from .profile import DistProfiler, ProfilerConfig
 
 
 def mark_start_range(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> None:

@@ -154,7 +154,7 @@ class ProfilerConfig:
         )
 
 
-class DistProfiler(ABC):
+class DistProfiler:
     """A distributed profiler class for collecting performance metrics across multiple ranks.
 
     This profiler is designed to work in distributed training environments, allowing selective

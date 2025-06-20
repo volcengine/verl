@@ -14,11 +14,14 @@
 # limitations under the License.
 
 import unittest
+from unittest.mock import MagicMock, patch
+
 from omegaconf import OmegaConf
-from unittest.mock import patch, MagicMock
+
+from verl.utils import omega_conf_to_dataclass
 from verl.utils.debug import ProfilerConfig
 from verl.utils.debug.nvtx_profile import NsightSystemsProfiler
-from verl.utils import omega_conf_to_dataclass
+
 
 class TestNsightSystemsProfiler(unittest.TestCase):
     def setUp(self):
