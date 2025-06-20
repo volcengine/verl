@@ -28,6 +28,33 @@ import torch
 
 import verl.utils.torch_functional as verl_F
 
+POLICY_LOSS_REGISTRY = {}
+
+
+def register_policy_loss(name):
+    def decorator(func):
+        POLICY_LOSS_REGISTRY[name] = func
+        return func
+
+    return decorator
+
+
+def get_policy_loss_fn(name):
+    """Get the policy loss with a given name.
+
+    Args:
+        name: `(str)`
+            The name of the policy loss.
+
+    Returns:
+        `(callable)`: The policy loss function.
+    """
+    loss_name = name
+    if loss_name not in POLICY_LOSS_REGISTRY:
+        raise ValueError(f"Unsupported loss mode: {loss_name}. Supported modes are: {list(POLICY_LOSS_REGISTRY.keys())}")
+    return POLICY_LOSS_REGISTRY[loss_name]
+
+
 ADV_ESTIMATOR_REGISTRY = {}
 
 
@@ -676,6 +703,159 @@ def compute_policy_loss(
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
+
+
+@register_policy_loss("clip_cov")
+def compute_policy_loss_clip_cov(
+    old_log_prob,
+    log_prob,
+    advantages,
+    response_mask,
+    loss_agg_mode="token-mean",
+    config=None,
+):
+    """
+    Compute the clipped policy objective and related metrics for Clip-Cov.
+
+    Adapted from
+    https://github.com/PRIME-RL/Entropy-Mechanism-of-RL/blob/main/verl/trainer/ppo/core_algos.py
+
+    Args:
+        old_log_prob (torch.Tensor):
+            Log-probabilities of actions under the old policy, shape (batch_size, response_length).
+        log_prob (torch.Tensor):
+            Log-probabilities of actions under the current policy, shape (batch_size, response_length).
+        advantages (torch.Tensor):
+            Advantage estimates for each action, shape (batch_size, response_length).
+        response_mask (torch.Tensor):
+            Mask indicating which tokens to include in the loss, shape (batch_size, response_length).
+        cliprange (float, optional):
+            Clipping parameter ε for standard PPO. See https://arxiv.org/abs/1707.06347.
+            Defaults to None (must be provided).
+        cliprange_low (float, optional):
+            Lower clip range for dual-clip PPO. Defaults to same as `cliprange`.
+        cliprange_high (float, optional):
+            Upper clip range for dual-clip PPO. Defaults to same as `cliprange`.
+        loss_agg_mode (str, optional):
+            Aggregation mode for `agg_loss`. Defaults to "token-mean".
+        clip_cvo_ratio (float, optional):
+            Ratio for clipping the covariance. Defaults to 0.0002.
+        clip_cov_lb (float, optional):
+            Lower bound for clipping covariance. Defaults to 1.0.
+        clip_cov_ub (float, optional):
+            Upper bound for clipping covariance. Defaults to 5.0.
+    """
+    clip_cov_ratio = config.policy_loss.clip_cov_ratio if config.policy_loss.clip_cov_ratio is not None else 0.0002
+    cliprange = config.clip_ratio
+    cliprange_low = config.clip_ratio_low if config.clip_ratio_low is not None else cliprange
+    cliprange_high = config.clip_ratio_high if config.clip_ratio_high is not None else cliprange
+    clip_cov_ub = config.policy_loss.clip_cov_ub if config.policy_loss.clip_cov_ub is not None else 5.0
+    clip_cov_lb = config.policy_loss.clip_cov_lb if config.policy_loss.clip_cov_lb is not None else 1.0
+
+    assert clip_cov_ratio > 0, "clip_ratio should be larger than 0."
+
+    negative_approx_kl = log_prob - old_log_prob
+    ratio = torch.exp(negative_approx_kl)
+    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+    pg_losses1 = -advantages * ratio
+
+    if cliprange_low is None:
+        cliprange_low = cliprange
+    if cliprange_high is None:
+        cliprange_high = cliprange
+
+    corr = torch.ones_like(advantages)
+    pg_losses2 = -advantages * torch.clamp(ratio, 1 - cliprange_low, 1 + cliprange_high)
+    clip_by_origin = (pg_losses2 > pg_losses1) & (response_mask > 0)
+
+    cov_all = (advantages - verl_F.masked_mean(advantages, response_mask)) * (log_prob - verl_F.masked_mean(log_prob.detach(), response_mask))
+    cov_all[response_mask == 0] = -torch.inf
+    cov_all[clip_by_origin] = -torch.inf
+
+    clip_num = max(int(clip_cov_ratio * response_mask.sum().item()), 1)
+    top_k_idx = (cov_all < clip_cov_ub) & (cov_all > clip_cov_lb) & (response_mask > 0)
+    top_k_idx = torch.nonzero(top_k_idx)
+
+    if len(top_k_idx) > 0:
+        perm = torch.randperm(len(top_k_idx))
+        top_k_idx = top_k_idx[perm[: min(clip_num, len(top_k_idx))]]
+    else:
+        top_k_idx = torch.empty((0, 2), device=cov_all.device, dtype=torch.long)
+
+    corr[top_k_idx[:, 0], top_k_idx[:, 1]] = 0
+
+    pg_clipfrac = verl_F.masked_mean((corr == 0).float(), response_mask)
+
+    pg_losses = torch.maximum(pg_losses1, pg_losses2) * corr
+    pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+
+    return pg_loss, pg_clipfrac, ppo_kl, torch.tensor(0.0)
+
+
+@register_policy_loss("kl_cov")
+def compute_policy_loss_kl_cov(
+    old_log_prob,
+    log_prob,
+    advantages,
+    response_mask,
+    loss_agg_mode="token-mean",
+    config=None,
+):
+    """
+    Compute the clipped policy objective and related metrics for Clip-Cov.
+
+    Adapted from
+    https://github.com/PRIME-RL/Entropy-Mechanism-of-RL/blob/main/verl/trainer/ppo/core_algos.py
+
+    Args:
+        old_log_prob (torch.Tensor):
+            Log-probabilities of actions under the old policy, shape (batch_size, response_length).
+        log_prob (torch.Tensor):
+            Log-probabilities of actions under the current policy, shape (batch_size, response_length).
+        advantages (torch.Tensor):
+            Advantage estimates for each action, shape (batch_size, response_length).
+        response_mask (torch.Tensor):
+            Mask indicating which tokens to include in the loss, shape (batch_size, response_length).
+        loss_agg_mode (str, optional):
+            Aggregation mode for `agg_loss`. Defaults to "token-mean".
+        kl_cov_ratio (float, optional):
+            Ratio for selecting the top-k covariance values. Defaults to 0.0002.
+        ppo_kl_coef (float, optional):
+            Coefficient for the KL penalty term in the loss. Defaults to 1.
+    """
+    kl_cov_ratio = config.policy_loss.kl_cov_ratio if config.policy_loss.kl_cov_ratio is not None else 0.0002
+    ppo_kl_coef = config.policy_loss.ppo_kl_coef if config.policy_loss.ppo_kl_coef is not None else 1.0
+
+    assert kl_cov_ratio > 0, "kl_cov_ratio should be larger than 0."
+
+    negative_approx_kl = log_prob - old_log_prob
+    abs_kl = negative_approx_kl.abs()
+    ratio = torch.exp(negative_approx_kl)
+    ppo_kl_abs = verl_F.masked_mean(negative_approx_kl.abs(), response_mask)
+    pg_losses1 = -advantages * ratio
+    pg_losses_kl = -advantages * ratio + ppo_kl_coef * abs_kl
+    pg_losses = pg_losses1
+
+    all_valid = response_mask > 0
+    all_valid_idx = torch.nonzero(all_valid.reshape(-1), as_tuple=True)[0]
+    all_valid_adv = advantages[all_valid].detach().reshape(-1).cpu()
+    all_valid_logp = log_prob[all_valid].detach().reshape(-1).cpu()
+
+    k = min(kl_cov_ratio, len(all_valid_adv))
+
+    if k != 0:
+        cov_lst_all = (all_valid_adv - all_valid_adv.mean()) * (all_valid_logp - all_valid_logp.mean())
+        k_percent_nums = max(1, int(len(cov_lst_all) * kl_cov_ratio))
+        large_cov_idxs = torch.topk(cov_lst_all, k_percent_nums, largest=True).indices
+
+        if len(large_cov_idxs) != 0:
+            large_cov_idxs = all_valid_idx[large_cov_idxs]
+            pg_losses[large_cov_idxs // advantages.shape[1], large_cov_idxs % advantages.shape[1]] = pg_losses_kl[large_cov_idxs // advantages.shape[1], large_cov_idxs % advantages.shape[1]]
+
+    pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+
+    return pg_loss, torch.tensor(0.0), ppo_kl_abs, torch.tensor(0.0)
 
 
 def compute_entropy_loss(logits, response_mask, loss_agg_mode: str = "token-mean"):

@@ -28,7 +28,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss, compute_gpg_loss, compute_policy_loss, kl_penalty
+from verl.trainer.ppo.core_algos import agg_loss, compute_gpg_loss, compute_policy_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
@@ -409,17 +409,25 @@ class DataParallelPPOActor(BasePPOActor):
                             }
                         )
                     else:
-                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
-                            old_log_prob=old_log_prob,
-                            log_prob=log_prob,
-                            advantages=advantages,
-                            response_mask=response_mask,
-                            cliprange=clip_ratio,
-                            cliprange_low=clip_ratio_low,
-                            cliprange_high=clip_ratio_high,
-                            clip_ratio_c=clip_ratio_c,
-                            loss_agg_mode=loss_agg_mode,
-                        )
+                        loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
+
+                        if self.config.policy_loss.loss_mode == "vanilla":
+                            pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
+                                old_log_prob=old_log_prob,
+                                log_prob=log_prob,
+                                advantages=advantages,
+                                response_mask=response_mask,
+                                cliprange=clip_ratio,
+                                cliprange_low=clip_ratio_low,
+                                cliprange_high=clip_ratio_high,
+                                clip_ratio_c=clip_ratio_c,
+                                loss_agg_mode=loss_agg_mode,
+                            )
+
+                        else:
+                            policy_loss_fn = get_policy_loss_fn(loss_mode)
+                            pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(old_log_prob, log_prob, advantages, response_mask, loss_agg_mode, self.config)
+
                         stats.update(
                             {
                                 "actor/pg_loss": pg_loss.detach().item(),
