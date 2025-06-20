@@ -532,6 +532,9 @@ actor_rollout_ref:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
       enable_tokenization_sanity_check: True
 
+      # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
+      format: hermes
+
     # support logging rollout prob for debugging purpose
     calculate_log_probs: False
 
@@ -697,6 +700,7 @@ critic:
     load_contents: ${critic.checkpoint.save_contents}
 
   # profiler configs
+  # the corresponding dataclass is verl.utils.debug.ProfilerConfig.
   profiler:
 
     # True for each task has its own database, False for all tasks in one training step share one database.
