@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install gitpython
-          pip install -e .
+          pip install -e .[sglang]
       - name: Run type annotation coverage check
         run: |
           python3 tests/special_sanity/type_coverage_check.py
