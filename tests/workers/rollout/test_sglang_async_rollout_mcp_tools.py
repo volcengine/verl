@@ -1,5 +1,6 @@
 # Copyright 2025 Bytedance Ltd. and/or its affiliates
 # Copyright 2023-2024 SGLang Team
+# Copyright 2025 ModelBest Inc. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -184,7 +185,9 @@ class TestRolloutWithMCPSearchTools:
                 },
             }
         ]
-        with patch.object(MCPClientManager, "fetch_tool_schemas", return_value=tool_schema), patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
+        with patch.object(MCPClientManager, "fetch_tool_schemas", return_value=tool_schema), patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(
+            SGLangRollout, "_init_sampling_params", return_value=None
+        ):
             rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
             rollout.sampling_params = {
                 "n": 1,
