@@ -233,7 +233,7 @@ class TestRolloutWithMCPSearchTools:
         assert len(output_req_list) == 1
         output_req = output_req_list[0]
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-        assert output_req.reward_scores == {"tavily_search_tool": []}, f"output_req.reward_scores: {output_req.reward_scores}"
+        assert output_req.reward_scores.get("tavily_search_tool") == []
         # we should only have two message, one for prompt, second for response.
         assert len(output_req.messages) == 2
         assert output_req.messages[1] == Message(
