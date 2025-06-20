@@ -12,6 +12,10 @@
 
 > Add **concise** overview of what this PR aims to achieve or accomplish. Reference related github issues and PRs if that help review.
 
+### Test
+
+> For changes that can not be tested by CI (e.g., algorithm implementation, new model support), validate by experiment(s) and show results like training curve plots, evaluation results, etc.
+
 ### API
 
 > Demonstrate how the API changes if any.
@@ -31,10 +35,6 @@
 ### Specific Changes
 
 > List the specific changes.
-
-### Test
-
-> For changes that can not be tested by CI (e.g., algorithm implementation, new model support), validate by experiment(s) and show results like training curve plots, evaluation results, etc.
 
 ### Checklist Before Submitting
 
