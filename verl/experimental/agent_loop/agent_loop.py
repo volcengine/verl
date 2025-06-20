@@ -225,7 +225,7 @@ class AgentLoopWorker:
 
     def get_agent_loop_class(self, agent_name: str) -> Type[AgentLoopBase]:
         # TODO: add tool agent registrary
-        from verl.experimental.agent_loop.single_agent_loop import SingleTurnAgentLoop
+        from verl.experimental.agent_loop.single_turn_agent_loop import SingleTurnAgentLoop
         from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop
 
         if agent_name == "single_turn_agent":
@@ -390,24 +390,33 @@ class AgentLoopManager:
             self.sleep()
 
         # calculate performance metrics
-        timing = {}
         metrics = [output.meta_info["metrics"] for output in outputs]  # List[List[Dict[str, str]]]
-        t_generate_sequences = np.array([metric["generate_sequences"] for chunk in metrics for metric in chunk])
-        t_tool_calls = np.array([metric["tool_calls"] for chunk in metrics for metric in chunk])
-        timing["generate_sequences/min"] = t_generate_sequences.min()
-        timing["generate_sequences/max"] = t_generate_sequences.max()
-        timing["generate_sequences/mean"] = t_generate_sequences.mean()
-        timing["tool_calls/min"] = t_tool_calls.min()
-        timing["tool_calls/max"] = t_tool_calls.max()
-        timing["tool_calls/mean"] = t_tool_calls.mean()
-
-        # batch sequence generation is bounded by the slowest sample
-        slowest = np.argmax(t_generate_sequences + t_tool_calls)
-        timing["slowest/generate_sequences"] = t_generate_sequences[slowest]
-        timing["slowest/tool_calls"] = t_tool_calls[slowest]
+        timing = self._performance_metrics(metrics, output)
 
         output.meta_info = {"timing": timing}
         return output
+
+    def _performance_metrics(self, metrics: List[List[Dict[str, str]]], output: DataProto) -> Dict[str, float]:
+        timing = {}
+        t_generate_sequences = np.array([metric["generate_sequences"] for chunk in metrics for metric in chunk])
+        t_tool_calls = np.array([metric["tool_calls"] for chunk in metrics for metric in chunk])
+        timing["agent_loop/generate_sequences/min"] = t_generate_sequences.min()
+        timing["agent_loop/generate_sequences/max"] = t_generate_sequences.max()
+        timing["agent_loop/generate_sequences/mean"] = t_generate_sequences.mean()
+        timing["agent_loop/tool_calls/min"] = t_tool_calls.min()
+        timing["agent_loop/tool_calls/max"] = t_tool_calls.max()
+        timing["agent_loop/tool_calls/mean"] = t_tool_calls.mean()
+
+        # batch sequence generation is bounded by the slowest sample
+        slowest = np.argmax(t_generate_sequences + t_tool_calls)
+        attention_mask = output.batch["attention_mask"][slowest]
+        prompt_length = output.batch["prompts"].shape[1]
+        timing["agent_loop/slowest/generate_sequences"] = t_generate_sequences[slowest]
+        timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
+        timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
+        timing["agent_loop/slowest/response_length"] = attention_mask[prompt_length:].sum().item()
+
+        return timing
 
     def wake_up(self):
         """Wake up all rollout server instances."""

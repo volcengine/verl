@@ -42,7 +42,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 
 import verl.utils.hdfs_io as hdfs_io
 from verl.utils.dataset import SFTDataset
-from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
+from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDatasetV2
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
 from verl.utils.distributed import destroy_global_process_group, initialize_global_process_group
@@ -651,7 +651,7 @@ def create_sft_dataset(data_paths, data_config, tokenizer):
         dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
     # Then check if multi-turn dataset should be used
     elif data_config.get("multiturn", {}).get("enable", False):
-        dataset_cls = MultiTurnSFTDataset
+        dataset_cls = MultiTurnSFTDatasetV2
     # Default to single-turn dataset
     else:
         dataset_cls = SFTDataset

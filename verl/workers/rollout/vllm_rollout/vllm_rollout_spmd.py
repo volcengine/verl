@@ -33,6 +33,7 @@ import socket
 import threading
 from contextlib import contextmanager
 from copy import deepcopy
+from types import MethodType
 from typing import Any, Dict, List, Union
 
 import numpy as np
@@ -46,6 +47,7 @@ from tensordict import TensorDict
 from vllm import LLM, SamplingParams
 from vllm.distributed import parallel_state as vllm_ps
 from vllm.lora.request import LoRARequest
+from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
@@ -375,12 +377,30 @@ class vLLMRollout(BaseRollout):
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
 
+# https://github.com/vllm-project/vllm/issues/13175
+def _monkey_patch_compute_logits(model, vocab_size: int):
+    original_compute_logits = model.compute_logits
+
+    def compute_logits(
+        self,
+        hidden_states: torch.Tensor,
+        sampling_metadata: SamplingMetadata,
+    ) -> torch.Tensor:
+        logits = original_compute_logits(hidden_states, sampling_metadata)
+        logits[..., vocab_size:] = float("-inf")
+        return logits
+
+    model.compute_logits = MethodType(compute_logits, model)
+
+
 class vLLMAsyncRollout:
     """vLLMAsyncRollout is a thin wrapper of WorkerWrapperBase,
     which is engine in single worker process.
     """
 
     def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
+        self.tokenizer = tokenizer
+
         # Engine is deferred to be initialized in init_worker
         self.config = config
         self.inference_engine: WorkerWrapperBase = None
@@ -444,6 +464,8 @@ class vLLMAsyncRollout:
         # inference engine is initialized now, update sharding manager
         self.sharding_manager.inference_engine = self.inference_engine
         self.sharding_manager.model_runner = self.inference_engine.worker.model_runner
+
+        _monkey_patch_compute_logits(self.inference_engine.worker.model_runner.model, len(self.tokenizer))
 
     def sleep(self, *args, **kwargs):
         """Offload model weights and discard kv cache."""
