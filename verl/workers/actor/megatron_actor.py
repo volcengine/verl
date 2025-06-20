@@ -38,7 +38,7 @@ from omegaconf import OmegaConf
 from torch import nn
 
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss, compute_gpg_loss, compute_policy_loss, get_policy_loss_fn, kl_penalty
+from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.debug.profile import Profiler
 from verl.utils.device import get_device_id, get_torch_device
@@ -356,47 +356,45 @@ class MegatronPPOActor(BasePPOActor):
                 clip_ratio = self.config.clip_ratio
                 clip_ratio_low = self.config.clip_ratio_low if self.config.clip_ratio_low is not None else clip_ratio
                 clip_ratio_high = self.config.clip_ratio_high if self.config.clip_ratio_high is not None else clip_ratio
-                clip_ratio_c = meta_info["clip_ratio_c"]
 
-                if self.config.use_gpg_loss:
-                    pg_loss = compute_gpg_loss(log_prob=log_prob, advantages=advantages, response_mask=response_mask, loss_agg_mode=loss_agg_mode)
-                    stats.update(
-                        {
-                            "actor/pg_loss": pg_loss.detach().item(),
-                        }
+                clip_ratio_c = self.config.get("clip_ratio_c", 3.0)
+                entropy_coeff = self.config.entropy_coeff
+                loss_agg_mode = self.config.loss_agg_mode
+
+                loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
+
+                if self.config.policy_loss.loss_mode == "vanilla":
+                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
+                        old_log_prob=old_log_prob,
+                        log_prob=log_prob,
+                        advantages=advantages,
+                        response_mask=response_mask,
+                        cliprange=clip_ratio,
+                        cliprange_low=clip_ratio_low,
+                        cliprange_high=clip_ratio_high,
+                        clip_ratio_c=clip_ratio_c,
+                        loss_agg_mode=loss_agg_mode,
                     )
+
                 else:
-                    clip_ratio_c = self.config.get("clip_ratio_c", 3.0)
-                    entropy_coeff = self.config.entropy_coeff
-                    loss_agg_mode = self.config.loss_agg_mode
-
-                    loss_mode = self.config.get("loss_mode", "vanilla")
-
-                    if self.config.policy_loss.loss_mode == "vanilla":
-                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
-                            old_log_prob=old_log_prob,
-                            log_prob=log_prob,
-                            advantages=advantages,
-                            response_mask=response_mask,
-                            cliprange=clip_ratio,
-                            cliprange_low=clip_ratio_low,
-                            cliprange_high=clip_ratio_high,
-                            clip_ratio_c=clip_ratio_c,
-                            loss_agg_mode=loss_agg_mode,
-                        )
-
-                    else:
-                        policy_loss_fn = get_policy_loss_fn(loss_mode)
-                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(old_log_prob, log_prob, advantages, response_mask, loss_agg_mode, self.config)
-
-                    stats.update(
-                        {
-                            "actor/pg_loss": pg_loss.detach().item(),
-                            "actor/pg_clipfrac": pg_clipfrac.detach().item(),
-                            "actor/ppo_kl": ppo_kl.detach().item(),
-                            "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
-                        }
+                    policy_loss_fn = get_policy_loss_fn(loss_mode)
+                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
+                        old_log_prob=old_log_prob,
+                        log_prob=log_prob,
+                        advantages=advantages,
+                        response_mask=response_mask,
+                        loss_agg_mode=loss_agg_mode,
+                        config=self.config,
                     )
+
+                stats.update(
+                    {
+                        "actor/pg_loss": pg_loss.detach().item(),
+                        "actor/pg_clipfrac": pg_clipfrac.detach().item(),
+                        "actor/ppo_kl": ppo_kl.detach().item(),
+                        "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+                    }
+                )
                 policy_loss = pg_loss
 
             if calculate_entropy:

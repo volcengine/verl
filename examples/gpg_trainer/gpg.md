@@ -1,4 +1,4 @@
-# GPG: A Simple and Strong Reinforcement Learning Baseline for Model Reasoning
+# GPG: Group Policy Gradient
 
 Group Policy Gradient (GPG) is a minimalist reinforcement learning (RL) method that enhances the reasoning ability of large language models without relying on supervised fine-tuning or complex tricks. GPG revisits traditional policy gradients and directly optimizes the RL objective—no surrogate losses, no KL penalties, no critic, and no reference model. Compared to GRPO, GPG is simpler, more efficient, and achieves better results on many tasks. For more details, please refer to the original paper [GPG: A Simple and Strong Reinforcement Learning Baseline for Model Reasoning
 ](https://arxiv.org/abs/2504.02546).
@@ -15,9 +15,8 @@ algorithm:
   adv_estimator: gpg 
 actor_rollout_ref:
   actor:
-    use_kl_loss: False # disable kl regularization
-    kl_loss_coef: 0 
-    use_gpg_loss: True # enable gpg loss
+    policy_loss:
+      loss_mode: "gpg"
 ```
 
 ## Advanced Extensions
@@ -30,5 +29,6 @@ actor_rollout_ref:
   actor:
     use_kl_loss: True # enable kl regularization
     kl_loss_coef: 0.01
-    use_gpg_loss: True
+    policy_loss:
+      loss_mode: "gpg"
 ```

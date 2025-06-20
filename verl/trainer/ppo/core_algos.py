@@ -620,25 +620,6 @@ def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str
     return loss
 
 
-def compute_gpg_loss(log_prob, advantages, response_mask, loss_agg_mode="token-mean"):
-    """Adapted from https://github.com/AMAP-ML/GPG/blob/main/VisualThinker-R1-Zero/src/open-r1-multimodal/src/open_r1/trainer/grpo_trainer.py#L495 "
-    Args:
-        log_prob: `(torch.Tensor)`
-            shape: (bs, response_length)
-        advantages: `(torch.Tensor)`
-            shape: (bs, response_length)
-        response_mask: `(torch.Tensor)`
-            shape: (bs, response_length)
-    return:
-        pg_loss: `a scalar torch.Tensor`
-            policy gradient loss computed via GPG
-    """
-    pg_losses = -log_prob * advantages
-
-    pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-    return pg_loss
-
-
 def compute_policy_loss(
     old_log_prob,
     log_prob,
@@ -703,6 +684,26 @@ def compute_policy_loss(
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
+
+
+@register_policy_loss("gpg")
+def compute_policy_loss_gpg(old_log_prob, log_prob, advantages, response_mask, loss_agg_mode="token-mean", config=None):
+    """Adapted from https://github.com/AMAP-ML/GPG/blob/main/VisualThinker-R1-Zero/src/open-r1-multimodal/src/open_r1/trainer/grpo_trainer.py#L495 "
+    Args:
+        log_prob: `(torch.Tensor)`
+            shape: (bs, response_length)
+        advantages: `(torch.Tensor)`
+            shape: (bs, response_length)
+        response_mask: `(torch.Tensor)`
+            shape: (bs, response_length)
+    return:
+        pg_loss: `a scalar torch.Tensor`
+            policy gradient loss computed via GPG
+    """
+    pg_losses = -log_prob * advantages
+
+    pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+    return pg_loss, torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0)
 
 
 @register_policy_loss("clip_cov")
