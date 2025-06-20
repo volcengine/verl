@@ -201,6 +201,8 @@ actor_rollout_ref:
       enable: False  # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
       max_turns: null  # null for no limit (default max_length // 3)
       tool_config_path: null  # null for no tool
+      # null for default callback
+      completion_callback: null
       # - When set to True, the model's default chat template is used for multi-turn rollout, which typically matches production behavior.
       # - When set to False, the token ids recorded for training are used instead; unlike the default chat template, these always include the model's full output,
       #   which may contain additional content such as reasoning content. And this will lead to longer prompts.
@@ -211,6 +213,8 @@ actor_rollout_ref:
       # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
       enable_tokenization_sanity_check: True
+      # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
+      format: hermes
     # support logging rollout prob for debugging purpose
     calculate_log_probs: False
     # Nsight system profiler configs

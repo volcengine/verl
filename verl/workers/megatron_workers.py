@@ -252,7 +252,10 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
                     model_hf_config=self.actor_model_config,
                 )
             elif vllm_mode == "spmd":
-                rollout = vLLMRollout(
+                from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
+
+                vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
+                rollout = vllm_rollout_cls(
                     model_path=local_path,
                     config=self.config.rollout,
                     tokenizer=self.tokenizer,
@@ -273,6 +276,8 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
                 layer_name_mapping=layer_name_mapping,
                 actor_module=self.actor.actor_module,
                 weight_converter=weight_converter,
+                device_mesh=rollout_device_mesh,
+                offload_param=self._is_offload_param,
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
@@ -320,6 +325,7 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
                 layer_name_mapping=layer_name_mapping,
                 weight_converter=weight_converter,
                 device_mesh=rollout_device_mesh,
+                offload_param=self._is_offload_param,
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
         else:
@@ -469,9 +475,6 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
     @WorkerProfiler.annotate(color="red")
     def generate_sequences(self, prompts: DataProto):
         assert self._is_rollout
-        if self._is_offload_param:
-            load_megatron_model_to_gpu(self.actor_module)
-            log_gpu_memory_usage("After load actor params during generate_sequences", logger=logger)
         prompts.batch = prompts.batch.to(get_device_name())
         meta_info = {
             "eos_token_id": self.generation_config.eos_token_id if self.generation_config is not None else self.tokenizer.eos_token_id,
@@ -483,24 +486,12 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
 
         timing_generate = {}
         with self.sharding_manager:
-            if self._is_offload_param:
-                offload_megatron_model_to_cpu(self.actor_module)
             log_gpu_memory_usage("After entering sharding manager", logger=logger)
-
-            # (zhangchi.usc1992) wake up kv cache here. Currently only support vllm.
-            # Will support sglang once separate wakeup of model weights and kv cache is supported
-            # This API should be exposed by the rollout. Will rewrite this part when we refactor after v0.4 release.
-            # Currently, we hack here to support running large models (QWen3-236b and DeepSeek-671b)
-            if self.config.rollout.name == "vllm":
-                import inspect
-
-                if "tags" in inspect.signature(self.rollout.inference_engine.wake_up).parameters:
-                    self.rollout.inference_engine.wake_up(tags=["kv_cache"])
-
             prompts = self.sharding_manager.preprocess_data(prompts)
             with simple_timer("generate_sequences", timing_generate):
                 output = self.rollout.generate_sequences(prompts=prompts)
             output = self.sharding_manager.postprocess_data(output)
+            log_gpu_memory_usage("After rollout generation", logger=logger)
 
         timing_generate.update(self.sharding_manager.timing)
         # We calculate the average timing across all ranks
