@@ -31,6 +31,3 @@ You can create your own customized GenRM by implementing a custom reward functio
 - ...
 
 Since these aspects are highly flexible, we only provide a demo implementation. The actual design and implementation of GenRM is left to the user's discretion.
-
-## Results
-
