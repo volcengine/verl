@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-from abc import ABC
 from dataclasses import dataclass
 from typing import Callable, Optional
 

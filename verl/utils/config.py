@@ -17,6 +17,7 @@ from typing import Any, Dict, Type, Union
 
 from omegaconf import DictConfig, OmegaConf
 
+__all__ = ['omega_conf_to_dataclass']
 
 def omega_conf_to_dataclass(config: Union[DictConfig, dict], dataclass_type: Type[Any]) -> Any:
     """
