@@ -38,6 +38,13 @@ _cfg_str = """train_config:
     activation: relu"""
 
 class TestConfigOnCPU(unittest.TestCase):
+    """Test cases for configuration utilities on CPU.
+
+    Test Plan:
+    1. Test basic OmegaConf to dataclass conversion for simple nested structures
+    2. Test nested OmegaConf to dataclass conversion for complex hierarchical configurations
+    3. Verify all configuration values are correctly converted and accessible
+    """
     def setUp(self):
         self.config = OmegaConf.create(_cfg_str)
 

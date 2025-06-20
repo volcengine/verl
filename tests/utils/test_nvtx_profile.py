@@ -24,6 +24,15 @@ from verl.utils.debug.nvtx_profile import NsightSystemsProfiler
 
 
 class TestNsightSystemsProfiler(unittest.TestCase):
+    """Test suite for NsightSystemsProfiler functionality.
+
+    Test Plan:
+    1. Initialization: Verify profiler state after creation
+    2. Basic Profiling: Test start/stop functionality
+    3. Discrete Mode: Test discrete profiling behavior
+    4. Annotation: Test the annotate decorator in both normal and discrete modes
+    5. Config Validation: Verify proper config initialization from OmegaConf
+    """
     def setUp(self):
         self.config = ProfilerConfig(all_ranks=True)
         self.rank = 0
