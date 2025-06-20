@@ -3,7 +3,7 @@
 - [ ] Searched for similar PR(s).
 - [ ] Checked PR Title format
   - In format of: [modules] type: Title
-  - modules are in `fsdp, megatron, sglang, vllm, rollout, trainer, ci, training_utils, recipe, hardware, deployment, ray, worker, single_controller, misc, perf, model, algo, env, tool, ckpt, doc, data`
+  - modules are in `fsdp, megatron, sglang, vllm, rollout, trainer, ci, training_utils, recipe, hardware, deployment, ray, worker, single_controller, misc, perf, model, algo, env, tool, ckpt, doc, data, cfg`
   - type is in `feat, fix, refactor, chore, test`
   - can involve multiple modules, seperated by `,` or space, like `[megatron, fsdp, doc] feat: xxx`
 
