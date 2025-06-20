@@ -508,6 +508,9 @@ actor_rollout_ref:
       # null for no limit (default max_length // 3)
       max_turns: null
 
+      # max parallel call for tools in single turn
+      max_parallel_calls: 1
+
       # null for no tool
       tool_config_path: null
 

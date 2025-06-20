@@ -27,8 +27,8 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class ToolAgentLoop(AgentLoopBase):
-    def __init__(self, config: DictConfig, server_manager: AsyncLLMServerManager):
-        super().__init__(config, server_manager)
+    def __init__(self, config: DictConfig, server_manager: AsyncLLMServerManager, tokenizer):
+        super().__init__(config, server_manager, tokenizer)
 
         # Initialize tools from config file
         self.max_turns = config.actor_rollout_ref.rollout.multi_turn.max_turns
@@ -36,7 +36,7 @@ class ToolAgentLoop(AgentLoopBase):
         tool_config_path = config.actor_rollout_ref.rollout.multi_turn.tool_config_path
         tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
         self.tools = {tool.name: tool for tool in tool_list}
-        self._tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
+        self.tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
         print(f"Initialized tools: {self.tools}", flush=True)
 
         self.prompt_length = config.actor_rollout_ref.rollout.prompt_length
@@ -47,7 +47,7 @@ class ToolAgentLoop(AgentLoopBase):
         request_id = None
 
         while True:
-            completions = await self.server_manager.chat_completions(request_id=request_id, messages=messages, sampling_params=sampling_params)
+            completions = await self.server_manager.chat_completions(request_id=request_id, messages=messages, tools=self.tool_schemas, sampling_params=sampling_params)
             choice, request_id = completions.choices[0], completions.id
             message, finish_reason = choice.message, choice.finish_reason
             if message.content is None:
@@ -95,7 +95,7 @@ class ToolAgentLoop(AgentLoopBase):
             "tool_call_id": tool_call.id,
         }
 
-    def tokenize(self, messages: List[Dict[str, str]]) -> Dict[str, List]:
+    async def tokenize(self, messages: List[Dict[str, str]]) -> Dict[str, List]:
         prompt_ids = self.tokenizer.apply_chat_template(messages[:1], tools=self.tool_schemas, add_generation_prompt=False, tokenize=True)
 
         # last message should not be tool calling
