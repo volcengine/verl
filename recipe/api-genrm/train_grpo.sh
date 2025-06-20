@@ -1,8 +1,8 @@
 set -x
 
-vllm serve dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --served-model-name genrm-demo
+# vllm serve dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --served-model-name genrm-demo
 
-CUDA_VISIBLE_DEVICES=0,1,2,3 python3 -m verl.trainer.main_ppo \
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/mnt/hdfs/resources/datasets/GSM8K-Processed/train.parquet \
     data.val_files=/mnt/hdfs/resources/datasets/GSM8K-Processed/test.parquet \
@@ -31,11 +31,11 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='verl_func_rm_example_gsm8k' \
-    trainer.experiment_name='qwen2_5_3b_function_rm' \
-    trainer.n_gpus_per_node=4 \
+    trainer.experiment_name='qwen2_5_3b_gen_rm' \
+    trainer.n_gpus_per_node=6 \
     trainer.val_before_train=True \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
     trainer.test_freq=5 \
-    trainer.total_epochs=0 \
+    trainer.total_epochs=10 \
     trainer.resume_mode='disable'
