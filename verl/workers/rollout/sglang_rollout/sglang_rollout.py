@@ -23,7 +23,7 @@ import time
 from contextlib import contextmanager
 from copy import deepcopy
 from json import JSONDecodeError
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 from uuid import uuid4
 
 import numpy as np
@@ -57,14 +57,17 @@ from transformers import PreTrainedTokenizer
 from verl import DataProto
 from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.tools.base_tool import BaseTool
-from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
+from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionToolCall
 from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.net_utils import is_ipv6
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
-from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, FinishReasonTypeEnum, Message
+from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, FinishReasonTypeEnum
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
+
+if TYPE_CHECKING:
+    from verl.workers.rollout.sglang_rollout.sglang_langchain import SGLangChatModel
 
 try:
     from sglang.srt.function_call.function_call_parser import FunctionCallParser
@@ -257,6 +260,8 @@ class SGLangRollout(BaseRollout):
 
         logger.info(f"tool_schemas: {self._tool_schemas}, tool_map: {self._tool_map}, tool_call_parser_type: {self._tool_call_parser_type}, sgl_tools: {self._sgl_tools}, function_call_parser: {self._function_call_parser}")
 
+        self._langgraph, self._langgraph_config, self._tool_call_parser_type = self._init_langgraph(config, tokenizer)
+
         self._init_distributed_env(device_mesh_cpu=device_mesh, **kwargs)
 
         self._verify_config(model_hf_config=model_hf_config)
@@ -435,6 +440,36 @@ class SGLangRollout(BaseRollout):
             sgl_tools,
             function_call_parser,
         )
+
+    def _init_langgraph(self, config, tokenizer):
+        if (langgraph_script := config.multi_turn.langgraph.path) is None:
+            return None, None, None
+
+        if not os.path.exists(langgraph_script):
+            raise FileNotFoundError(f"LangGraph script '{langgraph_script}' not found.")
+
+        import importlib.util
+        import sys
+
+        spec = importlib.util.spec_from_file_location("custom_module", langgraph_script)
+        module = importlib.util.module_from_spec(spec)
+        try:
+            sys.modules["custom_module"] = module
+            spec.loader.exec_module(module)
+        except Exception as e:
+            raise RuntimeError(f"Error loading module from '{langgraph_script}': {e}") from e
+
+        graph_name = config.multi_turn.langgraph.name
+        if not hasattr(module, graph_name):
+            raise AttributeError(f"Graph '{graph_name}' not found in '{langgraph_script}'.")
+
+        graph = getattr(module, graph_name)
+        state_fields = graph.get_input_schema().model_fields
+        assert "actor" in state_fields, f"Graph '{graph_name}' must be a compiled state graph with 'actor' state field."
+        assert "messages" in state_fields, f"Graph '{graph_name}' must be a compiled state graph with 'messages' state field."
+
+        print(f"Rollout using graph '{graph_name}' from '{langgraph_script}'")
+        return graph, config.multi_turn.langgraph.graph_config, get_tool_call_parser_type(tokenizer)
 
     @contextmanager
     def update_sampling_params(self, **kwargs):
@@ -678,13 +713,7 @@ class SGLangRollout(BaseRollout):
 
         return DataProto(batch=batch, non_tensor_batch=_non_tensor_batch)
 
-    async def _async_rollout_a_request(
-        self,
-        req: AsyncRolloutRequest,
-        do_sample: bool = True,
-        is_validate: bool = False,
-        **kwargs,
-    ) -> AsyncRolloutRequest:
+    async def _async_rollout_a_request(self, req: AsyncRolloutRequest, sampling_param_overrides: dict) -> AsyncRolloutRequest:
         assert self._tp_rank == 0, "only the master process can call this function"
         _req = deepcopy(req)
         finish_reason_type = None
@@ -723,7 +752,7 @@ class SGLangRollout(BaseRollout):
                 if len(_req.get_generation_prompt_ids(self.tokenizer)) + 1 >= self.config.max_model_len:
                     finish_reason_type = FinishReasonTypeEnum.LENGTH
                     break
-                output = await self._handle_engine_call(_req, do_sample, is_validate, **kwargs)
+                output = await self._handle_engine_call(_req, sampling_param_overrides)
                 content = output["text"]
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
@@ -744,14 +773,9 @@ class SGLangRollout(BaseRollout):
                             tool_calls = []
                         parsed_tool_calls = []
                         for tool_call in tool_calls:
-                            function, has_decode_error = OpenAIFunctionCallSchema.from_openai_function_parsed_schema(
-                                OpenAIFunctionParsedSchema(
-                                    name=tool_call.name,
-                                    arguments=tool_call.parameters,
-                                )
-                            )
+                            function = OpenAIFunctionCallSchema(name=tool_call.name, arguments=tool_call.parameters)
                             # Drop the tool call if its arguments has decode error
-                            if has_decode_error:
+                            if function.has_decode_error:
                                 continue
                             parsed_tool_calls.append(
                                 OpenAIFunctionToolCall(
@@ -789,11 +813,31 @@ class SGLangRollout(BaseRollout):
 
         return _req
 
-    async def _handle_engine_call(self, _req: AsyncRolloutRequest, do_sample: bool, is_validate: bool, override_n: bool = True, **kwargs) -> dict:
-        generation_prompt_ids = _req.get_generation_prompt_ids(self.tokenizer)
+    async def _handle_engine_call(self, req: AsyncRolloutRequest, sampling_param_overrides: dict) -> dict:
+        generation_prompt_ids = req.get_generation_prompt_ids(self.tokenizer)
         # Adjust max_new_tokens to ensure it is not greater than max_model_len - 1
         # SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra token accounts for the EOS token).
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
+        sampling_param_overrides["max_new_tokens"] = max_new_tokens
+        # users can customize different sampling_params at different run
+        with self.update_sampling_params(**sampling_param_overrides):
+            output = await self._engine.async_generate(
+                input_ids=generation_prompt_ids,
+                sampling_params=self.sampling_params,
+                return_logprob=False,
+            )
+        return output
+
+    async def _handle_pending_state(self, _req: AsyncRolloutRequest) -> AsyncRolloutRequest:
+        if _req.tool_schemas is not None:
+            tool_creation_coroutines = []
+            for tool_schema in _req.tool_schemas:
+                tool = self._tool_map[tool_schema.function.name]
+                create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
+                tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
+            await asyncio.gather(*tool_creation_coroutines)
+
+    def _get_sampling_param_overrides(self, do_sample: bool, is_validate: bool, override_n: bool = True, **kwargs) -> dict:
         if not do_sample:
             kwargs = dict(
                 n=1,
@@ -817,26 +861,32 @@ class SGLangRollout(BaseRollout):
                 "temperature": self.config.val_kwargs.temperature,
                 "n": 1,  # if validate, already repeat in ray_trainer
             }
-        kwargs["max_new_tokens"] = max_new_tokens
+
         if "n" not in kwargs or (kwargs["n"] > 1 and override_n):  # group size is supported in preprocess
             kwargs["n"] = 1
-        # users can customize different sampling_params at different run
-        with self.update_sampling_params(**kwargs):
-            output = await self._engine.async_generate(
-                input_ids=generation_prompt_ids,
-                sampling_params=self.sampling_params,
-                return_logprob=False,
-            )
-        return output
+        return kwargs
 
-    async def _handle_pending_state(self, _req: AsyncRolloutRequest) -> AsyncRolloutRequest:
-        if _req.tool_schemas is not None:
-            tool_creation_coroutines = []
-            for tool_schema in _req.tool_schemas:
-                tool = self._tool_map[tool_schema.function.name]
-                create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
-                tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
-            await asyncio.gather(*tool_creation_coroutines)
+    async def _async_rollout_a_request_with_langgraph(self, req: AsyncRolloutRequest, sglang_model: SGLangChatModel) -> AsyncRolloutRequest:
+        from langchain_core.messages import convert_to_messages, convert_to_openai_messages
+
+        from verl.workers.rollout.sglang_rollout.sglang_langchain import SGLangChatModel
+
+        assert self._tp_rank == 0, "only the master process can call this function"
+
+        prompt_messages = convert_to_messages([msg.model_dump() for msg in req.messages])
+        output = await self._langgraph.ainvoke(
+            input={"actor": sglang_model, "messages": prompt_messages, **req.langgraph_input_kwargs},
+            config=self._langgraph_config,
+        )
+        actor, messages = output["actor"], output["messages"]
+        assert isinstance(actor, SGLangChatModel) or isinstance(getattr(actor, "bound", None), SGLangChatModel), f"Actor must be a SGLangChatModel or a RunnableBinding of SGLangChatModel. Got {type(actor)}"
+        assert isinstance(messages, list), f"LangGraph must return a list of messages. Got {type(messages)}"
+        assert prompt_messages == messages[: len(prompt_messages)], "Detected modified prompt messages in LangGraph output. Please keep prompt messages unchanged after LangGraph invocation."
+
+        open_ai_messages = [{**message, "metadata": getattr(messages[i], "response_metadata", {})} for i, message in enumerate(convert_to_openai_messages(messages))]
+        _req = req.add_full_conversation(self.tokenizer, len(prompt_messages), open_ai_messages, getattr(actor, "kwargs", {}).get("tools"))
+        _req.finalize(self.tokenizer, {})
+        return _req
 
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
@@ -854,6 +904,7 @@ class SGLangRollout(BaseRollout):
         # Async rollout with tools support
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
+        sampling_param_overrides = self._get_sampling_param_overrides(do_sample, is_validate, **kwargs)
         tgt_device = prompts.batch["input_ids"].device
         if self._tp_rank == 0:
             req_list = self._preprocess_prompt_to_async_rollout_requests(
@@ -861,11 +912,28 @@ class SGLangRollout(BaseRollout):
                 n=1 if is_validate else self.config.n,
             )
             loop = asyncio.get_event_loop()
-            output_req_list = loop.run_until_complete(
-                asyncio.gather(
-                    *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
+            if self._langgraph is not None:
+                from verl.workers.rollout.sglang_rollout.sglang_langchain import SGLangChatModel
+
+                sglang_model = SGLangChatModel(
+                    engine=self._engine,
+                    sampling_params={**self.sampling_params, **sampling_param_overrides},
+                    chat_template_kwargs=self.config.multi_turn.chat_template_kwargs or {},
+                    tokenizer=self.tokenizer,
+                    tool_call_parser_type=self._tool_call_parser_type,
+                    rollout_config=self.config,
                 )
-            )
+                output_req_list = loop.run_until_complete(
+                    asyncio.gather(
+                        *[self._async_rollout_a_request_with_langgraph(req, sglang_model) for req in req_list],
+                    )
+                )
+            else:
+                output_req_list = loop.run_until_complete(
+                    asyncio.gather(
+                        *[self._async_rollout_a_request(req, sampling_param_overrides) for req in req_list],
+                    )
+                )
             sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
         else:
             sorted_output_req_list = None
@@ -989,16 +1057,16 @@ class SGLangRollout(BaseRollout):
         req_list = []
         for data_idx, raw_prompt in enumerate(prompts.non_tensor_batch["raw_prompt"]):
             for rollout_offset in range(n):
+                _input_ids = _attention_mask = _tool_schemas = None
+                _tools_kwargs = _langgraph_input_kwargs = {}
                 if self._tool_schemas:
                     _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
                     _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in _tools_kwargs.keys()]
-                    _input_ids = None
-                    _attention_mask = None
+                elif self._langgraph:
+                    _langgraph_input_kwargs = prompts.non_tensor_batch["langgraph_input_kwargs"][data_idx]
                 else:
                     _input_ids = _pre_process_inputs(self.pad_token_id, prompts.batch["input_ids"][data_idx])
                     _attention_mask = _pre_process_inputs(0, prompts.batch["attention_mask"][data_idx])
-                    _tools_kwargs = {}
-                    _tool_schemas = None
 
                 req = AsyncRolloutRequest(
                     batch_data_id=data_idx,
@@ -1008,6 +1076,8 @@ class SGLangRollout(BaseRollout):
                     messages=raw_prompt.tolist(),
                     tool_schemas=_tool_schemas,
                     tools_kwargs=_tools_kwargs,
+                    langgraph_input_kwargs=_langgraph_input_kwargs,
+                    chat_template_kwargs=self.config.multi_turn.chat_template_kwargs or {},
                     input_ids=_input_ids,
                     response_ids=[],
                     attention_mask=_attention_mask,
@@ -1041,28 +1111,28 @@ class SGLangRollout(BaseRollout):
         req = AsyncRolloutRequest(
             request_id=str(uuid4()),
             state=AsyncRolloutRequestStateEnum.PENDING,
-            messages=[Message.model_validate(msg) for msg in json_request["messages"]],
-            tools=_tool_schemas,
+            messages=json_request["messages"],
+            tool_schemas=_tool_schemas,
             tools_kwargs=_tools_kwargs,
+            chat_template_kwargs=self.config.multi_turn.chat_template_kwargs or {},
             input_ids=_input_ids,
-            prompt_ids=_input_ids,
             response_ids=[],
             attention_mask=_attention_mask,
-            prompt_attention_mask=_attention_mask,
             response_attention_mask=[],
-            position_ids=_position_ids,
-            prompt_position_ids=_position_ids,
             response_position_ids=[],
-            loss_mask=[0] * len(_input_ids),
-            prompt_loss_mask=[0] * len(_input_ids),
             response_loss_mask=[],
             reward_scores={},
+            max_prompt_len=self.config.prompt_length,
             max_response_len=self.config.response_length,
             max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
+            use_inference_chat_template=self.config.multi_turn.use_inference_chat_template,
+            enable_tokenization_sanity_check=self.config.multi_turn.enable_tokenization_sanity_check,
+            tokenizer=self.tokenizer,
         )
 
         # json_request already contains sampling_params
-        output = await self._handle_engine_call(req, True, False, False, **json_request)
+        sampling_param_overrides = self._get_sampling_param_overrides(True, False, False, **json_request)
+        output = await self._handle_engine_call(req, sampling_param_overrides)
         # it can be Dict or AsyncIterator[Dict]
         if isinstance(output, dict):
             outputs = [output]
