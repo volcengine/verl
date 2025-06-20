@@ -29,9 +29,8 @@ logger = logging.getLogger(__file__)
 class AsyncSglangServer(AsyncServerBase):
     def __init__(self, config: DictConfig, dp_size: int, dp_rank: int, wg_prefix: str):
         super().__init__()
-        self.config = config
-        rollout_config = config.get("rollout", {})
-        self._tp_size = rollout_config.get("tensor_model_parallel_size", 1)
+        self.config = config.actor_rollout_ref
+        self._tp_size = self.config.rollout.get("tensor_model_parallel_size", 1)
         self._dp_size = dp_size
         self._dp_rank = dp_rank
         self.wg_prefix = wg_prefix
