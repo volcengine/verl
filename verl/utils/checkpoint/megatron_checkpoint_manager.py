@@ -194,7 +194,13 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if self.should_save_model or self.should_load_model:
             # Get sharded state dict, notice that state_dict will collect among dp groups, causing memory pressure
             for vpp_rank, model in enumerate(self.model):
-                key = f"model{vpp_rank}" if len(self.model) > 1 else "model"
+                if len(self.model) > 1:
+                    mpu.set_virtual_pipeline_model_parallel_rank(vpp_rank)
+                    key = f"model{vpp_rank}" if len(self.model) > 1 else "model"
+                else:
+                    key = "model"
+                if hasattr(model, "module"):
+                    model = model.module
                 state_dict[key] = model.sharded_state_dict()
 
         # Optimizer State Dict
@@ -217,8 +223,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
     def load_rng_states(self, rng_states, data_parallel_random_init=False, use_dist_ckpt=True):
         # access rng_state for data parallel rank
-        if not use_dist_ckpt:
-            rng_states = rng_states[mpu.get_data_parallel_rank()] if data_parallel_random_init else rng_states[0]
+        if data_parallel_random_init:
+            rng_states = rng_states[mpu.get_data_parallel_rank()]
+        else:
+            rng_states = rng_states[0]
         random.setstate(rng_states["random_rng_state"])
         np.random.set_state(rng_states["np_rng_state"])
         torch.set_rng_state(rng_states["torch_rng_state"])
@@ -261,6 +269,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 else:
                     assert f"model{vpp_rank}" in state_dict, f"model{vpp_rank} not found in state_dict"
                     model_state_dict = state_dict[f"model{vpp_rank}"]
+                mpu.set_virtual_pipeline_model_parallel_rank(vpp_rank)
                 self.model[vpp_rank].load_state_dict(model_state_dict)
             log_with_rank(f"Loaded sharded model checkpoint from {local_path}", rank=self.rank, logger=logger)
 
