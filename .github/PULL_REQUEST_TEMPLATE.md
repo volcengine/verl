@@ -1,15 +1,14 @@
-### Checklist Before Starting
-
-- [ ] Searched for similar PR(s).
-- [ ] Checked PR Title format
-  - In format of: [modules] type: Title
-  - modules are in `fsdp, megatron, sglang, vllm, rollout, trainer, ci, training_utils, recipe, hardware, deployment, ray, worker, single_controller, misc, perf, model, algo, env, tool, ckpt, doc, data, cfg`
-  - type is in `feat, fix, refactor, chore, test`
-  - can involve multiple modules, seperated by `,` or space, like `[megatron, fsdp, doc] feat: xxx`
-
 ### What does this PR do?
 
 > Add one-line overview of what this PR aims to achieve or accomplish. Reference related github issues and PRs if that help review.
+
+### Checklist Before Describing the Details
+
+- [ ] Searched for similar PR(s).
+- [ ] PR title is in the format of: `[modules] type: Title`
+  - modules are in `fsdp, megatron, sglang, vllm, rollout, trainer, ci, training_utils, recipe, hardware, deployment, ray, worker, single_controller, misc, perf, model, algo, env, tool, ckpt, doc, data, cfg`
+  - type is in `feat, fix, refactor, chore, test`
+  - multiple modules are seperated by `,` or space, such as `[megatron, fsdp, doc] feat: xxx`
 
 ### Test
 
@@ -23,13 +22,9 @@
 
 > List the specific changes.
 
-### API
+### API and Usage Example
 
-> Demonstrate how the API changes if any.
-
-### Usage Example
-
-> Provide usage example(s) for easier usage.
+> Demonstrate how the API changes if any, and provide usage example(s) if possible.
 
 ```python
 # Add code snippet or script demonstrating how to use this 
