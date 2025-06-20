@@ -694,6 +694,7 @@ critic:
     load_contents: ${critic.checkpoint.save_contents}
 
   # profiler configs
+  # the corresponding dataclass is verl.utils.debug.ProfilerConfig.
   profiler:
 
     # True for each task has its own database, False for all tasks in one training step share one database.
