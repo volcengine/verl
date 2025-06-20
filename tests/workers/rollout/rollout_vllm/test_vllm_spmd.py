@@ -141,7 +141,6 @@ def test_vllm_spmd():
         enforce_eager=True,
         gpu_memory_utilization=0.8,
         disable_custom_all_reduce=True,
-        disable_mm_preprocessor_cache=True,
         skip_tokenizer_init=False,
         enable_prefix_caching=True,
         trust_remote_code=True,

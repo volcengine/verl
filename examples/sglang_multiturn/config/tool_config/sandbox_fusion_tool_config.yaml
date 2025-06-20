@@ -8,6 +8,7 @@ tools:
       default_timeout: 30
       default_language: "python"
       memory_limit_mb: 1024
+      type: native
 
     tool_schema:
       type: "function"
