@@ -144,27 +144,8 @@ class SFTDataset(Dataset):
         input_ids = torch.cat((prompt_ids, response_ids), dim=-1)
         attention_mask = torch.cat((prompt_attention_mask, response_attention_mask), dim=-1)
 
-        # padding to max length
-        sequence_length = input_ids.shape[0]
-        if sequence_length < self.max_length:
-            padded_input_ids = torch.ones(size=(self.max_length - sequence_length,), dtype=input_ids.dtype) * self.tokenizer.pad_token_id
-            padded_attention_mask = torch.zeros(size=(self.max_length - sequence_length,), dtype=attention_mask.dtype)
-
-            input_ids = torch.cat((input_ids, padded_input_ids))
-            attention_mask = torch.cat((attention_mask, padded_attention_mask))
-        elif sequence_length > self.max_length:
-            if self.truncation == "left":
-                # actually, left truncation may not be reasonable
-                input_ids = input_ids[-self.max_length :]
-                attention_mask = attention_mask[-self.max_length :]
-            elif self.truncation == "right":
-                input_ids = input_ids[: self.max_length]
-                attention_mask = attention_mask[: self.max_length]
-            elif self.truncation == "error":
-                raise NotImplementedError(f"{sequence_length=} is larger than {self.max_length=}")
-            else:
-                raise NotImplementedError(f"Unknown truncation method {self.truncation}")
-
+        input_ids = self._pad_or_truncate(input_ids, self.tokenizer.pad_token_id)
+        attention_mask = self._pad_or_truncate(attention_mask, 0)
         position_ids = compute_position_id_with_mask(attention_mask)
 
         loss_mask = attention_mask.clone()
@@ -180,3 +161,21 @@ class SFTDataset(Dataset):
             "position_ids": position_ids,
             "loss_mask": loss_mask,
         }
+
+    def _pad_or_truncate(self, input_ids: torch.Tensor, pad_token_id: int):
+        sequence_length = input_ids.shape[0]
+        if sequence_length < self.max_length:
+            padded_input_ids = torch.full(size=(self.max_length - sequence_length,), fill_value=pad_token_id, dtype=input_ids.dtype)
+            input_ids = torch.cat((input_ids, padded_input_ids))
+        elif sequence_length > self.max_length:
+            if self.truncation == "left":
+                # actually, left truncation may not be reasonable
+                input_ids = input_ids[-self.max_length :]
+            elif self.truncation == "right":
+                input_ids = input_ids[: self.max_length]
+            elif self.truncation == "error":
+                raise NotImplementedError(f"{sequence_length=} is larger than {self.max_length=}")
+            else:
+                raise NotImplementedError(f"Unknown truncation method {self.truncation}")
+
+        return input_ids

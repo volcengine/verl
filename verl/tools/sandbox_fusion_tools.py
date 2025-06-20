@@ -167,7 +167,7 @@ class SandboxFusionTool(BaseTool):
         result_status, metadata = _process_single_case(0, None, None, self.sandbox_fusion_url, code, timeout, self.memory_limit_mb, language)
         # we should always expect this since we don't have correct answer
         if metadata["run_status"] == "Finished":
-            actual_output = metadata["stdout"] if metadata["stdout"] is not None else ""
+            actual_output = metadata["stdout"] + metadata["stderr"]
             logger.debug(f"actual_output from sandbox fusion: {actual_output},{instance_id}")
             return actual_output
         else:
