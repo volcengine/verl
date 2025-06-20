@@ -18,9 +18,9 @@ from functools import partial
 import ray
 
 from verl import DataProto
-from verl.trainer.ppo.reward import get_custom_reward_fn
+from verl.trainer.ppo.reward import get_custom_reward_fn, compute_reward
 
-from .reward_score import default_compute_score
+from .reward_score import _default_compute_score
 
 
 def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
@@ -60,9 +60,9 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
             sandbox_manager = multiprocessing.Manager()
             # Create a semaphore to control concurrent access to the sandbox
             _concurrent_semaphore = sandbox_manager.Semaphore(sandbox_config.get("max_concurrent", 64))
-            final_compute_score = partial(default_compute_score, sandbox_fusion_url=sandbox_url, concurrent_semaphore=_concurrent_semaphore)
+            final_compute_score = partial(_default_compute_score, sandbox_fusion_url=sandbox_url, concurrent_semaphore=_concurrent_semaphore)
         else:
-            final_compute_score = default_compute_score
+            final_compute_score = _default_compute_score
 
     # Instantiate and return the reward manager with the specified parameters
     return reward_manager_cls(
@@ -73,26 +73,6 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
         **reward_kwargs,
     )
 
-
-def compute_reward(data: DataProto, reward_fn):
-    """
-    Compute reward for a batch of data.
-    Args:
-        data: DataProto object containing the input data.
-        reward_fn: Reward function to compute the reward.
-    Returns:
-        Tuple of reward tensor and extra info dictionary.
-    """
-    try:
-        reward_result = reward_fn(data, return_dict=True)
-        reward_tensor = reward_result["reward_tensor"]
-        reward_extra_infos_dict = reward_result["reward_extra_info"]
-    except Exception as e:
-        print(f"Error in reward_fn: {e}")
-        reward_tensor = reward_fn(data)
-        reward_extra_infos_dict = {}
-
-    return reward_tensor, reward_extra_infos_dict
 
 
 @ray.remote(num_cpus=1)
