@@ -18,7 +18,7 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 import hydra
 import ray
 
-from verl.trainer.ppo.reward import load_reward_manager
+from .reward import load_reward_manager
 
 from .entropy_ray_trainer import RayEntropyTrainer
 
