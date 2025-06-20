@@ -26,7 +26,7 @@ from megatron.core.config_logger import has_config_logger_enabled, log_config_to
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.gpt.gpt_model import GPTModel
 from megatron.core.packed_seq_params import PackedSeqParams
-from megatron.core.tensor_parallel.mappings import gather_from_tensor_model_parallel_region, scatter_to_tensor_model_parallel_region
+from megatron.core.tensor_parallel.mappings import gather_from_sequence_parallel_region
 from torch import Tensor
 
 from verl.utils.kernel import linear_cross_entropy
@@ -165,7 +165,8 @@ class GPTModelWithFusedLayer(GPTModel):
             attentions=None,
         )
 
-        labels = scatter_to_tensor_model_parallel_region(labels)
+        if self.config.sequence_parallel:
+            hidden_states = gather_from_sequence_parallel_region(hidden_states)
         logprobs, entropy = linear_cross_entropy(
             hidden_states,
             self.output_layer.weight,
@@ -174,8 +175,6 @@ class GPTModelWithFusedLayer(GPTModel):
             "none",
             parallel_state.get_tensor_model_parallel_group(),
         )
-        logprobs = gather_from_tensor_model_parallel_region(logprobs)
-        entropy = gather_from_tensor_model_parallel_region(entropy)
 
         if has_config_logger_enabled(self.config):
             payload = OrderedDict(
