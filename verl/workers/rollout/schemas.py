@@ -265,7 +265,7 @@ class AsyncRolloutRequest(BaseModel):
                 {
                     "full_prompt_chunk": full_prompt[start_i:end_i],
                     "current_prompt_chunk": current_prompt[start_j:end_j],
-                    "indices": (i1, i2, j1, j2),
+                    "indices": (start_i, end_i, start_j, end_j),
                 }
             )
         return diffs

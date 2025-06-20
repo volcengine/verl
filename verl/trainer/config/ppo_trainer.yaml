@@ -524,8 +524,8 @@ actor_rollout_ref:
       # Some models are known to produce different tokenization results when tokenizing turn by turn vs. all at once. aThis behavior has already been validated for them.
       # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
-      # - strict: enable tokenization sanity check
       # - off: disable tokenization sanity check
+      # - strict: enable strict tokenization sanity check (default)
       # - ignore_strippable: ignore strippable tokens when checking tokenization sanity
       tokenization_sanity_check_mode: strict
 
