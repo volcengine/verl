@@ -1,6 +1,6 @@
 set -x
 
-# vllm serve dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --served-model-name genrm-demo
+# CUDA_VISIBLE_DEVICES=5 vllm serve dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --served-model-name genrm-demo
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
