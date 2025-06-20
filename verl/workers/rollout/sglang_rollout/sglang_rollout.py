@@ -57,24 +57,13 @@ from transformers import PreTrainedTokenizer
 from verl import DataProto
 from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.tools.base_tool import BaseTool
-from verl.tools.schemas import (
-    OpenAIFunctionCallSchema,
-    OpenAIFunctionParsedSchema,
-    OpenAIFunctionToolCall,
-)
+from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
+from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.net_utils import is_ipv6
-from verl.utils.torch_functional import (
-    get_response_mask,
-    pad_sequence_to_length,
-)
+from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
-from verl.workers.rollout.schemas import (
-    AsyncRolloutRequest,
-    AsyncRolloutRequestStateEnum,
-    FinishReasonTypeEnum,
-    Message,
-)
+from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, FinishReasonTypeEnum, Message
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
 
 try:
@@ -426,44 +415,9 @@ class SGLangRollout(BaseRollout):
         if config.multi_turn.tool_config_path is None:
             return [], {}, None, [], None
 
-        import importlib.util
-        import sys
-
-        from omegaconf import OmegaConf
-
-        from verl.tools.schemas import OpenAIFunctionToolSchema
-
-        def initialize_tools_from_config(tools_config) -> list:
-            tool_list = []
-
-            for tool_config in tools_config.tools:
-                cls_name = tool_config.class_name
-                module_name, class_name = cls_name.rsplit(".", 1)
-
-                if module_name not in sys.modules:
-                    spec = importlib.util.find_spec(module_name)
-                    module = importlib.util.module_from_spec(spec)
-                    sys.modules[module_name] = module
-                    spec.loader.exec_module(module)
-                else:
-                    module = sys.modules[module_name]
-
-                tool_cls = getattr(module, class_name)
-
-                tool_schema_dict = OmegaConf.to_container(tool_config.tool_schema, resolve=True)
-                tool_schema = OpenAIFunctionToolSchema.model_validate(tool_schema_dict)
-
-                tool = tool_cls(
-                    config=OmegaConf.to_container(tool_config.config, resolve=True),
-                    tool_schema=tool_schema,
-                )
-                tool_list.append(tool)
-
-            return tool_list
-
         tools_config_file = config.multi_turn.tool_config_path
-        tools_config = OmegaConf.load(tools_config_file)
-        tool_list = initialize_tools_from_config(tools_config)
+        tool_list = initialize_tools_from_config(tools_config_file)
+
         logger.info(f"Initialize tools from configuration.: tool_list: {tool_list}")
         tool_schemas = [tool.get_openai_tool_schema().model_dump() for tool in tool_list]
         tool_map = {tool.name: tool for tool in tool_list}
@@ -666,11 +620,13 @@ class SGLangRollout(BaseRollout):
             out = _post_process_outputs(self.tokenizer, output)
 
             response = out[0].to(idx.device)
-            rollout_log_probs = out[1].to(idx.device)
+            if self.config.calculate_log_probs:
+                rollout_log_probs = out[1].to(idx.device)
 
             if response.shape[1] < self.config.response_length:
                 response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-                rollout_log_probs = pad_sequence_to_length(rollout_log_probs, self.config.response_length, self.pad_token_id)
+                if self.config.calculate_log_probs:
+                    rollout_log_probs = pad_sequence_to_length(rollout_log_probs, self.config.response_length, self.pad_token_id)
 
             # utilize current sampling params
             if self.sampling_params.get("n", 1) > 1 and do_sample:
@@ -688,12 +644,14 @@ class SGLangRollout(BaseRollout):
         response_length = response.size(1)
         delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
         delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
+        if position_ids.dim() == 3:  # qwen2vl mrope
+            delta_position_id = delta_position_id.view(batch_size, 1, -1).expand(batch_size, 3, -1)
 
         # TODO(sgm): fix position_ids on right_pad
         # prompt: left pad + response: right pad
         # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
-        response_position_ids = position_ids[:, -1:] + delta_position_id
+        response_position_ids = position_ids[..., -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
         response_attention_mask = get_response_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
@@ -704,12 +662,14 @@ class SGLangRollout(BaseRollout):
                 "prompts": idx,
                 "responses": response,
                 "input_ids": seq,  # here input_ids become the whole sentences
-                "rollout_log_probs": rollout_log_probs,  # we will recompute old log prob with actor
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
             },
             batch_size=batch_size,
         )
+        if self.config.calculate_log_probs:
+            # we will recompute old log prob with actor
+            batch["rollout_log_probs"] = rollout_log_probs
 
         # free cache engine
         if self.config.free_cache_engine and self._engine is not None:
@@ -1082,7 +1042,7 @@ class SGLangRollout(BaseRollout):
             request_id=str(uuid4()),
             state=AsyncRolloutRequestStateEnum.PENDING,
             messages=[Message.model_validate(msg) for msg in json_request["messages"]],
-            tools=_tool_schemas,
+            tool_schemas=_tool_schemas,
             tools_kwargs=_tools_kwargs,
             input_ids=_input_ids,
             prompt_ids=_input_ids,
@@ -1097,8 +1057,12 @@ class SGLangRollout(BaseRollout):
             prompt_loss_mask=[0] * len(_input_ids),
             response_loss_mask=[],
             reward_scores={},
+            max_prompt_len=self.config.prompt_length,
             max_response_len=self.config.response_length,
             max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
+            use_inference_chat_template=self.config.multi_turn.use_inference_chat_template,
+            enable_tokenization_sanity_check=self.config.multi_turn.enable_tokenization_sanity_check,
+            tokenizer=self.tokenizer,
         )
 
         # json_request already contains sampling_params

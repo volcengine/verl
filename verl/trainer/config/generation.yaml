@@ -1,6 +1,7 @@
 trainer:
   nnodes: 1
   n_gpus_per_node: 8
+  device: cuda
 
 data:
   path: ~/data/rlhf/math/test.parquet
@@ -40,6 +41,8 @@ rollout:
   disable_log_stats: True
   enable_chunked_prefill: True
   n: 1
+  # support logging rollout prob for debugging purpose
+  calculate_log_probs: False
 actor:
   strategy: fsdp  # This is for backward-compatibility
   ulysses_sequence_parallel_size: 1 # sp size

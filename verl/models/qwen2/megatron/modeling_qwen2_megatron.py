@@ -29,6 +29,7 @@ from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 from transformers.models.qwen2.modeling_qwen2 import CausalLMOutputWithPast
 
+from verl.utils.device import get_device_name
 from verl.utils.megatron import sequence_parallel as sp_utils
 from verl.utils.megatron import tensor_parallel as tp_utils
 from verl.utils.megatron_utils import TransformerConfig, convert_config
@@ -595,7 +596,7 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
 
         if torch.distributed.is_initialized() and parallel_state.is_rank_in_embedding_group():
             weight = self.shared_embedding_or_output_weight()
-            weight.data = weight.data.cuda()
+            weight.data = weight.data.to(get_device_name())
             torch.distributed.all_reduce(weight.data, group=parallel_state.get_embedding_group())
 
     def shared_embedding_or_output_weight(self) -> torch.Tensor:

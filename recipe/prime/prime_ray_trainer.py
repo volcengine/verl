@@ -30,9 +30,10 @@ from verl import DataProto
 from verl.single_controller.ray import RayWorkerGroup
 from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import _compute_response_info
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType, _timer
+from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+from verl.utils.debug.performance import simple_timer
 from verl.utils.metric import reduce_metrics
 
 from . import prime_core_algos
@@ -151,8 +152,9 @@ class RayPRIMETrainer(RayPPOTrainer):
         ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
         reward_fn=None,
         val_reward_fn=None,
+        device_name="cuda",
     ):
-        # assert torch.cuda.is_available(), 'cuda must be available on driver'
+        # assert get_torch_device().is_available(), 'cuda must be available on driver'
 
         super().__init__(
             config,
@@ -162,6 +164,7 @@ class RayPRIMETrainer(RayPPOTrainer):
             ray_worker_group_cls,
             reward_fn,
             val_reward_fn,
+            device_name=device_name,
         )
 
         self.use_critic = False
@@ -347,15 +350,15 @@ class RayPRIMETrainer(RayPPOTrainer):
                 # pop those keys for generation
                 gen_batch = batch.pop(batch_keys=["input_ids", "attention_mask", "position_ids"])
 
-                with _timer("step", timing_raw):
+                with simple_timer("step", timing_raw):
                     # generate a batch
-                    with _timer("gen", timing_raw):
+                    with simple_timer("gen", timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
                     if self.config.algorithm.adv_estimator == "remax":
-                        with _timer("gen_max", timing_raw):
+                        with simple_timer("gen_max", timing_raw):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info["do_sample"] = False
                             gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
@@ -387,7 +390,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
                     # verify
-                    with _timer("verify", timing_raw):
+                    with simple_timer("verify", timing_raw):
                         scores = self.reward_fn.verify(batch)
                         metrics["acc"] = statistics.mean(scores)
 
@@ -399,7 +402,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                     n_samples = self.config.actor_rollout_ref.rollout.n
 
                     # recompute old_log_probs
-                    with _timer("old_log_prob", timing_raw):
+                    with simple_timer("old_log_prob", timing_raw):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                         entropys = old_log_prob.batch["entropys"]
                         response_masks = compute_response_mask(batch)
@@ -412,11 +415,11 @@ class RayPRIMETrainer(RayPPOTrainer):
 
                     if self.use_reference_policy:
                         # compute reference log_prob
-                        with _timer("ref", timing_raw):
+                        with simple_timer("ref", timing_raw):
                             ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
                             batch = batch.union(ref_log_prob)
 
-                    with _timer("adv", timing_raw):
+                    with simple_timer("adv", timing_raw):
                         if self.use_rm:
                             update_style = self.config.reward_model.model.get("update", "none")
                             if update_style == "none":  # only run forward
@@ -452,19 +455,19 @@ class RayPRIMETrainer(RayPPOTrainer):
                         batch = compute_advantage(batch, adv_estimator=self.config.algorithm.adv_estimator, config=self.config)
 
                     # update actor
-                    with _timer("update_actor", timing_raw):
+                    with simple_timer("update_actor", timing_raw):
                         actor_output = self.actor_rollout_wg.update_actor(batch)
                     actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                     metrics.update(actor_output_metrics)
 
                     # validate
                     if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and self.global_steps % self.config.trainer.test_freq == 0:
-                        with _timer("testing", timing_raw):
+                        with simple_timer("testing", timing_raw):
                             val_metrics: dict = self._validate()
                         metrics.update(val_metrics)
 
                     if self.config.trainer.save_freq > 0 and self.global_steps % self.config.trainer.save_freq == 0:
-                        with _timer("save_checkpoint", timing_raw):
+                        with simple_timer("save_checkpoint", timing_raw):
                             self._save_checkpoint()
 
                 # collect metrics
@@ -483,7 +486,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                         pprint(f"Final validation metrics: {val_metrics}")
                         logger.log(data=val_metrics, step=self.global_steps)
                     if self.config.trainer.save_freq > 0 and (self.global_steps - 1) % self.config.trainer.save_freq != 0:
-                        with _timer("save_checkpoint", timing_raw):
+                        with simple_timer("save_checkpoint", timing_raw):
                             self._save_checkpoint()
                     return
 

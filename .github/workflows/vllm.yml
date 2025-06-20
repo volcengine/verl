@@ -105,12 +105,12 @@ jobs:
         # Disable requests to avoid network errors
       - name: Running vllm tests on 8 L20 GPUs
         run: |
-          cd tests/workers/rollout
+          cd tests/workers/rollout/rollout_vllm
           torchrun --standalone --nnodes=1 --nproc_per_node=8 $(which pytest) -s test_vllm_hf_loader.py
       - name: Test the latest vLLM
         run: |
           pip3 install --upgrade vllm==0.7.3
-          cd tests/workers/rollout
+          cd tests/workers/rollout/rollout_vllm
           torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_vllm_spmd.py
       - name: Run Qwen 0.5B generation test
         run: |
@@ -127,5 +127,5 @@ jobs:
       - name: Running multi-turn rollout tests on 8 L20 GPUs
         run: |
           pip3 install --upgrade vllm==0.8.3 tensordict==0.7.2
-          pytest -svvv tests/workers/rollout/test_vllm_chat_scheduler.py
+          pytest -svvv tests/workers/rollout/rollout_vllm/test_vllm_chat_scheduler.py
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests

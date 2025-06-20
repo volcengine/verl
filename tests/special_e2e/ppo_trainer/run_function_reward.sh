@@ -14,6 +14,12 @@ MAX_RESPONSE_LEN=${MAX_RESPONSE_LEN:-512}
 
 ENGINE=${ENGINE:-vllm}
 ROLLOUT_MODE=${ROLLOUT_MODE:-sync}
+
+RETURN_RAW_CHAT="False"
+if [ "$ROLLOUT_MODE" = "async" ]; then
+    RETURN_RAW_CHAT="True"
+fi
+
 GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.8}
 ACTOR_FSDP_PARAM_OFFLOAD=${ACTOR_FSDP_PARAM_OFFLOAD:-False}
 ACTOR_FSDP_OPTIMIZER_OFFLOAD=${ACTOR_FSDP_OPTIMIZER_OFFLOAD:-False}
@@ -84,6 +90,7 @@ python3 -m verl.trainer.main_ppo \
     data.train_batch_size="${train_prompt_bsz}" \
     data.max_prompt_length="${MAX_PROMPT_LEN}" \
     data.max_response_length="${MAX_RESPONSE_LEN}" \
+    data.return_raw_chat=${RETURN_RAW_CHAT} \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.model.use_shm=${USE_SHM} \
     actor_rollout_ref.model.lora_rank=${LORA_RANK} \
@@ -134,6 +141,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq="${SAVE_FREQ}" \
     trainer.resume_mode="${RESUME_MODE}" \
     trainer.total_epochs=2 \
+    trainer.device=cuda \
     trainer.total_training_steps="${TOTAL_TRAIN_STEPS}" $@ \
     | tee "${output_file}"
 

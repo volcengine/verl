@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-__all__ = ['register', "get_reward_manager_cls"]
+__all__ = ["register", "get_reward_manager_cls"]
 
 REWARD_MANAGER_REGISTRY = {}
+
 
 def register(name):
     """Decorator to register a reward manager class with a given name.
@@ -23,16 +24,19 @@ def register(name):
         name: `(str)`
             The name of the reward manager.
     """
+
     def decorator(cls):
         if name in REWARD_MANAGER_REGISTRY and REWARD_MANAGER_REGISTRY[name] != cls:
             raise ValueError(f"Reward manager {name} has already been registered: {REWARD_MANAGER_REGISTRY[name]} vs {cls}")
         REWARD_MANAGER_REGISTRY[name] = cls
         return cls
+
     return decorator
+
 
 def get_reward_manager_cls(name):
     """Get the reward manager class with a given name.
-    
+
     Args:
         name: `(str)`
             The name of the reward manager.
