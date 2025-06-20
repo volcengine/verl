@@ -152,14 +152,14 @@ class TestRolloutWithMCPSearchTools:
         return prompts
 
     @pytest.fixture
-    def mock_rollout(self, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config):
+    def mock_rollout(self, search_rollout_config, qwen_tokenizer, qwen_model_config):
         """Mock the rollout instance"""
         with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
-            rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+            rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
             # set default sampling_params
             rollout.sampling_params = {
                 "n": 1,
-                "max_new_tokens": sandbox_fusion_rollout_config.response_length,
+                "max_new_tokens": search_rollout_config.response_length,
                 "presence_penalty": 0.0,
                 "frequency_penalty": 0.0,
                 "repetition_penalty": 1.0,
@@ -170,7 +170,7 @@ class TestRolloutWithMCPSearchTools:
     @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
-    def test_tools_registration(self, mock_env, mock_engine, mock_sampling, mock_fetch, search_rollout_config, qwen_tokenizer, qwen_model_config):
+    def test_tools_registration(self, mock_fetch, mock_rollout):
         tool_schema = [
             {
                 "type": "function",
@@ -204,20 +204,16 @@ class TestRolloutWithMCPSearchTools:
         # Mock mcp registered tool as a predefined schema for avoiding ci timeout
         mock_fetch.return_value = tool_schema
 
-        rollout = SGLangRollout(actor_module="", config=search_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
-        assert len(rollout._tool_schemas) != 0
-        assert "tavily_search_tool" in rollout._tool_map.keys()
+        assert len(mock_rollout._tool_schemas) != 0
+        assert "tavily_search_tool" in mock_rollout._tool_map.keys()
         from verl.tools.mcp_search_tool import MCPSearchTool
 
-        assert isinstance(rollout._tool_map["tavily_search_tool"], MCPSearchTool)
+        assert isinstance(mock_rollout._tool_map["tavily_search_tool"], MCPSearchTool)
         # depend on the tokenizer
-        assert rollout._tool_call_parser_type == "qwen25"
+        assert mock_rollout._tool_call_parser_type == "qwen25"
 
     @patch.object(MCPClientManager, "fetch_tool_schemas", return_value=None)
-    @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
-    @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
-    @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
-    def test_rollout_req_creation(self, mock_env, mock_engine, mock_sampling, mock_fetch, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto):
+    def test_rollout_req_creation(self, mock_fetch, mock_rollout, search_data_proto):
         tool_schema = [
             {
                 "type": "function",
@@ -250,8 +246,7 @@ class TestRolloutWithMCPSearchTools:
         ]
         # Mock mcp registered tool as a predefined schema for avoiding ci timeout
         mock_fetch.return_value = tool_schema
-        rollout = SGLangRollout(actor_module="", config=search_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
-        req_list = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)
+        req_list = mock_rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)
         assert len(req_list) == 1
         assert req_list[0].state == AsyncRolloutRequestStateEnum.PENDING
         assert len(req_list[0].tool_schemas) == 1
