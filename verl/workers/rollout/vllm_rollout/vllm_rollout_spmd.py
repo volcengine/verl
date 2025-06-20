@@ -109,8 +109,7 @@ class vLLMRollout(BaseRollout):
             else:
                 vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
 
-        rope_scaling_config = getattr(model_hf_config, "rope_scaling", None)
-        if not rope_scaling_config:
+        if not model_hf_config.rope_scaling:
             max_position_embeddings = None
             if hasattr(model_hf_config, "max_position_embeddings"):
                 max_position_embeddings = model_hf_config.max_position_embeddings
@@ -120,8 +119,15 @@ class vLLMRollout(BaseRollout):
                 max_position_embeddings = model_hf_config.text_config.max_position_embeddings
             if max_position_embeddings is None:
                 raise ValueError("max_position_embeddings not found in model_hf_config")
-
             assert max_position_embeddings >= config.prompt_length + config.response_length, "model context length should be greater than total sequence length"
+        else:
+            # handle type where there's a length extend factor
+            # see https://qwen.readthedocs.io/en/latest/deployment/vllm.html#extended-context-support for using yarn as an example
+            rope_scaling_factor = model_hf_config.rope_scaling.get("factor", 1.0)
+
+            assert model_hf_config.max_position_embeddings * rope_scaling_factor >= config.prompt_length + config.response_length, (
+                f"model context length should be greater than total sequence length, got rope_scaling_factor={rope_scaling_factor} and max_position_embeddings={model_hf_config.max_position_embeddings}"
+            )
 
         max_model_len = int(config.max_model_len or config.prompt_length + config.response_length)
 
