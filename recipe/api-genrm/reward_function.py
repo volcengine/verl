@@ -19,39 +19,47 @@ Your task is to review and critique the solution step by step, and output whethe
 Please put your final answer (i.e., 'True' or 'False') in \\boxed{{}}.
 """.strip()
 
-BASE_URL = "http://localhost:8000/v1"
+BASE_URL = "http://26.29.160.50:8000/v1"
 API_KEY = "EMPTY"
 
 
-client = AsyncOpenAI(
-    base_url=BASE_URL,
-    api_key=API_KEY,
-    timeout=300,
-)
-
 async def compute_score(data_source, solution_str, ground_truth, extra_info=None):
-    problem = extra_info["question"]
-    prompt = GENRM_PROMPT_TEMPLATE.format(problem=problem, solution=solution_str)
-    messages = [
-        {"role": "user", "content": prompt}
-    ]
-    reward_score = 0.0
-    try:
-        output = await client.chat.completions.create(
-            model="genrm-demo",
-            messages=messages,
-            max_tokens=4096,
-            temperature=0.0,
+    split = extra_info["split"]
+    from verl.utils.reward_score.gsm8k import compute_score
+    func_rm_score = compute_score(solution_str, ground_truth)
+    if split == "test":
+        return func_rm_score
+    else:  # split = "train"
+        if func_rm_score == 0.0:
+            return func_rm_score
+        # detect false positives
+        client = AsyncOpenAI(
+            base_url=BASE_URL,
+            api_key=API_KEY,
+            timeout=300,
         )
-        response = output.choices[0].message.content
-        boxed_result = last_boxed_only_string(response)
-        if boxed_result is not None:
-            result = remove_boxed(boxed_result)
-        reward_score = float(result == "True")
-    except Exception as e:
-        print("Error:", e)
+        problem = extra_info["question"]
+        prompt = GENRM_PROMPT_TEMPLATE.format(problem=problem, solution=solution_str)
+        messages = [
+            {"role": "user", "content": prompt}
+        ]
+        reward_score = 0.0
+        try:
+            output = await client.chat.completions.create(
+                model="genrm-demo",
+                messages=messages,
+                max_tokens=4096,
+                temperature=0.0,
+            )
+            response = output.choices[0].message.content
+            boxed_result = last_boxed_only_string(response)
+            if boxed_result is not None:
+                result = remove_boxed(boxed_result)
+            reward_score = float(result == "True")
+        except Exception as e:
+            print("Error:", e)
 
-    return reward_score
+        return reward_score
 
 def compute_score_batch(data_sources, solution_strs, ground_truths, extra_infos=None):
     loop = asyncio.new_event_loop()

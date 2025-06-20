@@ -2,7 +2,7 @@ set -x
 
 # vllm serve dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --served-model-name genrm-demo
 
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 python3 -m verl.trainer.main_ppo \
+python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/mnt/hdfs/resources/datasets/GSM8K-Processed/train.parquet \
     data.val_files=/mnt/hdfs/resources/datasets/GSM8K-Processed/test.parquet \
@@ -26,13 +26,13 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.n=8 \
     algorithm.use_kl_in_reward=False \
     reward_model.reward_manager=batch \
-    custom_reward_function.path=recipe/external_genrm/reward_function.py \
+    custom_reward_function.path=recipe/api-genrm/reward_function.py \
     custom_reward_function.name=compute_score_batch \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='verl_func_rm_example_gsm8k' \
     trainer.experiment_name='qwen2_5_3b_gen_rm' \
-    trainer.n_gpus_per_node=6 \
+    trainer.n_gpus_per_node=8 \
     trainer.val_before_train=True \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
