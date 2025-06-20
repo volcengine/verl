@@ -5,11 +5,14 @@ USE_SGLANG=${USE_SGLANG:-1}
 
 export MAX_JOBS=32
 
+echo "0. install torch"
+pip install --no-cache-dir "torch==2.6.0" "torchvision==0.21.0" "torchaudio==2.6.0" "tensordict==0.6.2" --index-url https://download.pytorch.org/whl/cu126
+
 echo "1. install inference frameworks and pytorch they need"
 if [ $USE_SGLANG -eq 1 ]; then
-    pip install "sglang[all]==0.4.6.post1" --no-cache-dir --find-links https://flashinfer.ai/whl/cu124/torch2.6/flashinfer-python && pip install torch-memory-saver --no-cache-dir
+    pip install "sglang[all]==0.4.6.post5" --no-cache-dir --find-links https://flashinfer.ai/whl/cu126/torch2.6/flashinfer-python && pip install torch-memory-saver --no-cache-dir
 fi
-pip install --no-cache-dir "vllm==0.8.5.post1" "torch==2.6.0" "torchvision==0.21.0" "torchaudio==2.6.0" "tensordict==0.6.2" torchdata
+pip install --no-cache-dir "vllm==0.8.5.post1" torchdata
 
 echo "2. install basic packages"
 pip install "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
@@ -22,21 +25,26 @@ pip install "nvidia-ml-py>=12.560.30" "fastapi[standard]>=0.115.0" "optree>=0.13
 
 echo "3. install FlashAttention and FlashInfer"
 # Install flash-attn-2.7.4.post1 (cxx11abi=False)
-wget -nv https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl && \
-    pip install --no-cache-dir flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+wget -nv https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.6cxx11abiTRUE-cp310-cp310-linux_x86_64.whl && \
+    pip install --no-cache-dir flash_attn-2.8.0.post2+cu12torch2.6cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
 
 # Install flashinfer-0.2.2.post1+cu124 (cxx11abi=False)
 # vllm-0.8.3 does not support flashinfer>=0.2.3
 # see https://github.com/vllm-project/vllm/pull/15777
-wget -nv https://github.com/flashinfer-ai/flashinfer/releases/download/v0.2.2.post1/flashinfer_python-0.2.2.post1+cu124torch2.6-cp38-abi3-linux_x86_64.whl && \
-    pip install --no-cache-dir flashinfer_python-0.2.2.post1+cu124torch2.6-cp38-abi3-linux_x86_64.whl
+if [ $USE_SGLANG -ne 1 ]; then
+    git clone https://github.com/flashinfer-ai/flashinfer.git --recursive && \
+    cd flashinfer && \
+    git checkout v0.2.2.post1 && \
+    pip install ninja && \
+    pip install --no-cache-dir --no-build-isolation .
+fi
 
 
 if [ $USE_MEGATRON -eq 1 ]; then
     echo "4. install TransformerEngine and Megatron"
     echo "Notice that TransformerEngine installation can take very long time, please be patient"
-    NVTE_FRAMEWORK=pytorch pip3 install --no-deps git+https://github.com/NVIDIA/TransformerEngine.git@v2.2
-    pip3 install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.0rc3
+    NVTE_FRAMEWORK=pytorch pip3 install --no-deps git+https://github.com/NVIDIA/TransformerEngine.git@v2.3
+    pip3 install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.1
 fi
 
 
