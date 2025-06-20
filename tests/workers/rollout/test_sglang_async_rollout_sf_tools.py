@@ -322,7 +322,7 @@ class TestRolloutWithTools:
         for msg in output_req.messages:
             if msg.role == "tool":
                 code_counter += 1
-                assert msg.content == tool_return_array[code_counter]
+                assert msg.content == tool_return_array[code_counter].strip()
         assert code_counter == 2
 
     @skip_if_valid_sandbox(sandbox_url)

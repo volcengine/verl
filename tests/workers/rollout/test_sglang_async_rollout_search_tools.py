@@ -223,7 +223,7 @@ class TestRolloutWithSearchTools:
         assert len(output_req.messages) == 2
         assert output_req.messages[1] == Message(
             role="assistant",
-            content=expect_turn_array[0],
+            content=expect_turn_array[0].strip(),
             tool_calls=None,
         )
 
@@ -267,7 +267,7 @@ class TestRolloutWithSearchTools:
         search_counter = 0
         for msg in output_req.messages:
             if msg.role == "tool":
-                assert msg.content == tool_return_array[search_counter]
+                assert msg.content == tool_return_array[search_counter].strip()
                 search_counter += 1
         assert search_counter == 2
 
