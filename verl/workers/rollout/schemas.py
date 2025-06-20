@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import difflib
 import logging
 import os
 from enum import Enum
@@ -65,6 +66,14 @@ class AsyncRolloutRequestStateEnum(str, Enum):
     TOOL_CALLING = "tool_calling"
 
 
+class TokenizationSanityCheckModeEnum(str, Enum):
+    """The enum for tokenization sanity check mode."""
+
+    OFF = "off"
+    STRICT = "strict"
+    IGNORE_STRIPPABLE = "ignore_strippable"
+
+
 class AsyncRolloutRequest(BaseModel):
     """The data model for async rollout."""
 
@@ -96,7 +105,7 @@ class AsyncRolloutRequest(BaseModel):
     metrics: Dict[str, List[Any]] = {}
 
     use_inference_chat_template: bool
-    enable_tokenization_sanity_check: bool
+    tokenization_sanity_check_mode: TokenizationSanityCheckModeEnum
     generation_prompt_ids: List[int]
     base_conv_wo_gen_prompt_end_pos: int
     base_conv_with_gen_prompt_end_pos: int
@@ -190,18 +199,6 @@ class AsyncRolloutRequest(BaseModel):
         assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
             {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
 
-    def _undo_update_input_ids(self, new_input_ids: List[int]) -> None:
-        """
-        Undo the update_input_ids method.
-        """
-        self.input_ids = self.input_ids[: -len(new_input_ids)]
-        self.attention_mask = self.attention_mask[: -len(new_input_ids)]
-        self.loss_mask = self.loss_mask[: -len(new_input_ids)]
-        self.position_ids = self.position_ids[: -len(new_input_ids)]
-
-        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Request {self.request_id} has different length of {len(self.input_ids)=},
-            {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
-
     def get_generation_prompt_ids(self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin]) -> list[int]:
         generation_prompt_ids = [] if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids else self.generation_prompt_ids
         if generation_prompt_ids:
@@ -227,9 +224,7 @@ class AsyncRolloutRequest(BaseModel):
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
 
         # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine Inference, it is pure text.
-        content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_wo_gen_prompt_end_pos :]
-        if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids:
-            self._undo_update_input_ids(self.generation_prompt_ids)
+        content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_with_gen_prompt_end_pos :]
         self._update_input_ids(content_ids, attention_mask=True, loss_mask=True)
 
     def add_tool_response_messages(self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin], contents: list[str]) -> None:
@@ -253,6 +248,20 @@ class AsyncRolloutRequest(BaseModel):
             self.metrics[tool_id] = []
         self.metrics[tool_id].append(metrics)
 
+    def _check_tokenization_diff(self, full_prompt: str, current_prompt: str) -> List[str]:
+        s = difflib.SequenceMatcher(None, full_prompt, current_prompt, autojunk=False)
+        diffs = []
+        for tag, i1, i2, j1, j2 in s.get_opcodes():
+            if tag == "equal":
+                continue
+
+            full_prompt_chunk = full_prompt[i1:i2]
+            current_prompt_chunk = current_prompt[j1:j2]
+
+            if full_prompt_chunk.strip() or current_prompt_chunk.strip():
+                diffs.append(f"idx {i1}:{i2} -> {j1}:{j2} | full_prompt_chunk: {repr(full_prompt_chunk)} | current_prompt_chunk: {repr(current_prompt_chunk)}")
+        return diffs
+
     def finalize(
         self,
         processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
@@ -261,15 +270,22 @@ class AsyncRolloutRequest(BaseModel):
     ) -> None:
         self.state = AsyncRolloutRequestStateEnum.COMPLETED
         self.reward_scores = reward_scores
-        if self.enable_tokenization_sanity_check:
+        if self.tokenization_sanity_check_mode != TokenizationSanityCheckModeEnum.OFF:
             messages = [msg.model_dump() for msg in self.messages]
             tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
-            full_tokens = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True)
+            full_prompt = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=False)
+            current_prompt = processing_class.decode(self.input_ids, skip_special_tokens=False)
 
-            if self.input_ids != full_tokens:
-                logger.warning("Inconsistent training and inference tokenization detected. This may lead to unexpected behavior during training. Please review your chat template to determine if this is intentional. For more information, refer to the multiturn README.md.")
+            if self.tokenization_sanity_check_mode == TokenizationSanityCheckModeEnum.STRICT:
+                if full_prompt != current_prompt:
+                    logger.warning("Inconsistent training and inference tokenization detected. This may lead to unexpected behavior during training. Please review your chat template to determine if this is intentional. For more information, refer to the multiturn README.md.")
 
-                logger.info(f"Inference tokenization result:\n{processing_class.decode(full_tokens, skip_special_tokens=False)}\ntraining content:\n{processing_class.decode(self.input_ids, skip_special_tokens=False)}")
+                    logger.info(f"Inference prompt:\n{full_prompt}\nTraining prompt:\n{current_prompt}")
+            elif self.tokenization_sanity_check_mode == TokenizationSanityCheckModeEnum.IGNORE_STRIPPABLE:
+                if diffs := self._check_tokenization_diff(full_prompt, current_prompt):
+                    logger.warning("Inconsistent training and inference tokenization detected (ignoring strippable). This may lead to unexpected behavior during training. Please review your chat template to determine if this is intentional. For more information, refer to the multiturn README.md.")
+                    diff_details = "\n".join(diffs)
+                    logger.info(f"Found non-strippable differences:\n{diff_details}")
 
         # In case we failed to generate the assistant message and the generation prompt ids were already added to input_ids, remove them from the end of input_ids
         if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids:

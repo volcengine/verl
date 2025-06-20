@@ -1052,7 +1052,7 @@ class SGLangRollout(BaseRollout):
                     max_response_len=self.config.response_length,
                     max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
                     use_inference_chat_template=self.config.multi_turn.use_inference_chat_template,
-                    enable_tokenization_sanity_check=self.config.multi_turn.enable_tokenization_sanity_check,
+                    tokenization_sanity_check_mode=self.config.multi_turn.tokenization_sanity_check_mode,
                     processing_class=self.processing_class,
                 )
 
@@ -1097,7 +1097,7 @@ class SGLangRollout(BaseRollout):
             max_response_len=self.config.response_length,
             max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
             use_inference_chat_template=self.config.multi_turn.use_inference_chat_template,
-            enable_tokenization_sanity_check=self.config.multi_turn.enable_tokenization_sanity_check,
+            tokenization_sanity_check_mode=self.config.multi_turn.tokenization_sanity_check_mode,
             processing_class=self.processing_class,
         )
 

@@ -83,7 +83,7 @@ If you see the following warning, enable `INFO` log level to inspect the mismatc
 
 If the discrepancy is expected, you can disable the sanity check via:
 
-``actor_rollout_ref.rollout.multi_turn.enable_tokenization_sanity_check=False``
+``actor_rollout_ref.rollout.multi_turn.tokenization_sanity_check_mode="off"``
 
 Special Cases
 ^^^^^^^^^^^^^
