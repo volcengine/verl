@@ -135,7 +135,7 @@ class ProfilerConfig:
         )
 
 
-class WorkerProfiler:
+class DistProfiler:
     def __init__(self, rank: int, config: Optional[ProfilerConfig] = None):
         pass
 
@@ -153,8 +153,8 @@ class WorkerProfiler:
         return decorator
 
 
-class WorkerProfilerExtension:
-    def __init__(self, profiler: WorkerProfiler):
+class DistProfilerExtension:
+    def __init__(self, profiler: DistProfiler):
         self.profiler = profiler
 
     from verl.single_controller.base.decorator import Dispatch, register

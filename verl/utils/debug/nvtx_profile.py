@@ -20,7 +20,7 @@ from typing import Callable, Dict, Optional
 import nvtx
 import torch
 
-from .profile import ProfilerConfig, WorkerProfiler
+from .profile import ProfilerConfig, DistProfiler
 
 
 def mark_start_range(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> None:
@@ -94,7 +94,7 @@ def marked_timer(name: str, timing_raw: Dict[str, float], color: str = None, dom
     mark_end_range(mark_range)
 
 
-class NsightSystemsProfiler(WorkerProfiler):
+class NsightSystemsProfiler(DistProfiler):
     """
     Nsight system profiler. Installed in a worker to control the Nsight system profiler.
     """
