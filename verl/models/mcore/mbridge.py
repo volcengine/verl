@@ -21,11 +21,11 @@ except ImportError:
     import sys
 
     print("mbridge package not found. This package is required for model bridging functionality.")
-    print("Install mbridge with `pip install git+https://github.com/ISEEKYAN/mbridge.git --no-deps`")
+    print("Install mbridge with `pip install mbridge`")
 
     def install_mbridge():
         try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "git+https://github.com/ISEEKYAN/mbridge.git", "--no-deps"])
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "mbridge"])
         except subprocess.CalledProcessError:
             print("Failed to install mbridge")
             raise
