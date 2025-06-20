@@ -526,6 +526,9 @@ actor_rollout_ref:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
       enable_tokenization_sanity_check: True
 
+      # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
+      format: hermes
+
     # support logging rollout prob for debugging purpose
     calculate_log_probs: False
 
