@@ -275,7 +275,9 @@ class AsyncRolloutRequest(BaseModel):
         if self.tokenization_sanity_check_mode != TokenizationSanityCheckModeEnum.OFF:
             messages = [msg.model_dump() for msg in self.messages]
             tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
-            full_prompt = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=False)
+            full_prompt_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True)
+
+            full_prompt = processing_class.decode(full_prompt_ids, skip_special_tokens=False)
             current_prompt = processing_class.decode(self.input_ids, skip_special_tokens=False)
 
             if diffs := self._get_tokenization_diffs(full_prompt, current_prompt):
@@ -295,8 +297,8 @@ class AsyncRolloutRequest(BaseModel):
                     for d in diffs:
                         i1, i2, j1, j2 = d["indices"]
                         diff_details_list.append(f"idx {i1}:{i2} -> {j1}:{j2} | full_prompt_chunk: {repr(d['full_prompt_chunk'])} | current_prompt_chunk: {repr(d['current_prompt_chunk'])}")
-                    diff_details = "\\n".join(diff_details_list)
-                    logger.info(f"Found differences:\\n{diff_details}")
+                    diff_details = "\n".join(diff_details_list)
+                    logger.warning(f"Found differences:\n{diff_details}")
 
         # In case we failed to generate the assistant message and the generation prompt ids were already added to input_ids, remove them from the end of input_ids
         if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids:
