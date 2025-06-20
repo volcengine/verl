@@ -17,13 +17,12 @@ import unittest
 from omegaconf import OmegaConf
 from unittest.mock import patch, MagicMock
 from verl.utils.debug import ProfilerConfig
+from verl.utils.debug.nvtx_profile import NsightSystemsProfiler
 from verl.utils import omega_conf_to_dataclass
 
 class TestNsightSystemsProfiler(unittest.TestCase):
     def setUp(self):
-        from verl.utils.debug.nvtx_profile import NsightSystemsProfiler
-
-        self.config = ProfilerConfig()
+        self.config = ProfilerConfig(all_ranks=True)
         self.rank = 0
         self.profiler = NsightSystemsProfiler(self.rank, self.config)
 
@@ -46,7 +45,7 @@ class TestNsightSystemsProfiler(unittest.TestCase):
             mock_stop.assert_called_once()
 
     def test_discrete_profiling(self):
-        discrete_config = ProfilerConfig(discrete=True)
+        discrete_config = ProfilerConfig(discrete=True, all_ranks=True)
         profiler = NsightSystemsProfiler(self.rank, discrete_config)
         
         with patch('torch.cuda.profiler.start') as mock_start, \
@@ -81,7 +80,7 @@ class TestNsightSystemsProfiler(unittest.TestCase):
             mock_stop.assert_not_called()   # Not discrete mode
 
     def test_annotate_discrete_mode(self):
-        discrete_config = ProfilerConfig(discrete=True)
+        discrete_config = ProfilerConfig(discrete=True, all_ranks=True)
         profiler = NsightSystemsProfiler(self.rank, discrete_config)
         mock_self = MagicMock()
         mock_self.profiler = profiler
@@ -105,7 +104,8 @@ class TestNsightSystemsProfiler(unittest.TestCase):
 
     def test_config_init(self):
         cfg = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
-        for config in [cfg.critic.profiler, cfg.actor_rollout_ref.actor.profiler, cfg.reward_model.profiler, cfg.actor_rollout_ref.ref.profiler, cfg.actor_rollout_ref.rollout.profiler]:
+        arr = cfg.actor_rollout_ref
+        for config in [cfg.critic.profiler, arr.actor.profiler, cfg.reward_model.profiler, arr.ref.profiler, arr.rollout.profiler]:
             profiler_config = omega_conf_to_dataclass(config, ProfilerConfig)
             self.assertEqual(profiler_config.discrete, False)
             self.assertEqual(profiler_config.all_ranks, False)

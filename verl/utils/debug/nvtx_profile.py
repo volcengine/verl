@@ -103,7 +103,11 @@ class NsightSystemsProfiler(DistProfiler):
         config = config
         self.this_step: bool = False
         self.discrete: bool = config.discrete
-        self.this_rank: bool = rank in (config.ranks or []) or config.all_ranks
+        self.this_rank: bool = False
+        if config.all_ranks:
+            self.this_rank = True
+        elif config.ranks is not None:
+            self.this_rank = rank in config.ranks
 
     def start(self):
         if self.this_rank:
