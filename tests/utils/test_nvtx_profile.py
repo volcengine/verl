@@ -112,7 +112,7 @@ class TestNsightSystemsProfiler(unittest.TestCase):
             profiler_config = omega_conf_to_dataclass(config, ProfilerConfig)
             self.assertEqual(profiler_config.discrete, False)
             self.assertEqual(profiler_config.all_ranks, False)
-            self.assertEqual(profiler_config.ranks, None)
+            self.assertEqual(profiler_config.ranks, [])
 
 
 if __name__ == "__main__":

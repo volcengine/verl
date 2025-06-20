@@ -153,6 +153,12 @@ class ProfilerConfig:
             discrete=self.discrete and other.discrete,
         )
 
+    def __post_init__(self) -> None:
+        """config validation logics go here"""
+        if self.ranks is None:
+            self.ranks = []
+        assert isinstance(self.ranks, (set, list, tuple))
+
 
 class DistProfiler:
     """A distributed profiler class for collecting performance metrics across multiple ranks.
