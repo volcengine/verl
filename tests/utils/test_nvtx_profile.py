@@ -14,11 +14,15 @@
 # limitations under the License.
 
 import unittest
+from omegaconf import OmegaConf
 from unittest.mock import patch, MagicMock
-from verl.utils.debug.nvtx_profile import NsightSystemsProfiler, ProfilerConfig
+from verl.utils.debug import ProfilerConfig
+from verl.utils import omega_conf_to_dataclass
 
 class TestNsightSystemsProfiler(unittest.TestCase):
     def setUp(self):
+        from verl.utils.debug.nvtx_profile import NsightSystemsProfiler
+
         self.config = ProfilerConfig()
         self.rank = 0
         self.profiler = NsightSystemsProfiler(self.rank, self.config)
@@ -98,6 +102,15 @@ class TestNsightSystemsProfiler(unittest.TestCase):
             mock_end_range.assert_called_once()
             mock_start.assert_called_once()  # Should start in discrete mode
             mock_stop.assert_called_once()   # Should stop in discrete mode
+
+    def test_config_init(self):
+        cfg = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
+        for config in [cfg.critic.profiler, cfg.actor_rollout_ref.actor.profiler, cfg.reward_model.profiler, cfg.actor_rollout_ref.ref.profiler, cfg.actor_rollout_ref.rollout.profiler]:
+            profiler_config = omega_conf_to_dataclass(config, ProfilerConfig)
+            self.assertEqual(profiler_config.discrete, False)
+            self.assertEqual(profiler_config.all_ranks, False)
+            self.assertEqual(profiler_config.ranks, None)
+
 
 if __name__ == '__main__':
     unittest.main()
