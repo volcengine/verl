@@ -53,6 +53,9 @@ reward_manager: naive
 # custom reward function executed async on CPU, during log_prob
 launch_reward_fn_async: False
 
+# The number of CPUs used by the ray worker when launching an asynchronous custom reward function.
+num_cpus_for_compute_score: 1
+
 # Cloud/local sandbox fusion configuration for custom reward logic
 sandbox_fusion:
 
