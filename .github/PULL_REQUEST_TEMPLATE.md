@@ -38,7 +38,8 @@
 
 ### Checklist Before Submitting
 
-NOTE: Please check all the following items before requesting a review, otherwise the reviewer might deprioritize this PR for review.
+> [!IMPORTANT]
+> Please check all the following items before requesting a review, otherwise the reviewer might deprioritize this PR for review.
 
 - [ ] Read the [Contribute Guide](https://github.com/volcengine/verl?tab=readme-ov-file#contribution-guide).
 - [ ] Apply [pre-commit checks](https://github.com/volcengine/verl?tab=readme-ov-file#code-linting-and-formatting).
