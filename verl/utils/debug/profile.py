@@ -130,9 +130,14 @@ def mark_annotate(message: Optional[str] = None, color: Optional[str] = None, do
 class ProfilerConfig:
     """Worker profiler config. Currently only support Nsight system profiler."""
 
-    all_ranks: bool = False
-    ranks: Optional[list[int]] = None
+    # True for each task has its own database, False for all tasks in one training step share one database.
     discrete: bool = False
+
+    # Whether to profile all ranks.
+    all_ranks: bool = False
+
+    # The ranks that will be profiled. None or [0,1,...]
+    ranks: Optional[list[int]] = None
 
     def union(self, other: "ProfilerConfig") -> "ProfilerConfig":
         return ProfilerConfig(
