@@ -95,7 +95,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install hf_transfer
+          pip3 install hf_transfer fastmcp
           pip3 install -e .[test,gpu,sglang] --no-deps
       - name: Download Model to Use
         run: |
@@ -117,4 +117,8 @@ jobs:
         run: |
           cd tests/workers/rollout
           pytest -s test_sglang_async_rollout_search_tools.py
+      - name: Test the latest SGLang Rollout async with mcp search tool
+        run: |
+          cd tests/workers/rollout
+          pytest -s test_sglang_async_rollout_mcp_tools.py
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests

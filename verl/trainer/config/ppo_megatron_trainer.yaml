@@ -187,6 +187,7 @@ actor_rollout_ref:
     engine_kwargs: # inference engine parameters
       vllm:
         swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+        disable_mm_preprocessor_cache: False # whether to disable the preprocessor cache for multimodel models.
       sglang:
         attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
     val_kwargs:
@@ -210,6 +211,8 @@ actor_rollout_ref:
       # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
       enable_tokenization_sanity_check: True
+    # support logging rollout prob for debugging purpose
+    calculate_log_probs: False
     # Nsight system profiler configs
     profiler:
       discrete: False
