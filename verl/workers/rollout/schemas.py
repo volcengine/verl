@@ -248,18 +248,20 @@ class AsyncRolloutRequest(BaseModel):
             self.metrics[tool_id] = []
         self.metrics[tool_id].append(metrics)
 
-    def _check_tokenization_diff(self, full_prompt: str, current_prompt: str) -> List[str]:
+    def _get_tokenization_diffs(self, full_prompt: str, current_prompt: str) -> List[Dict[str, Any]]:
         s = difflib.SequenceMatcher(None, full_prompt, current_prompt, autojunk=False)
         diffs = []
         for tag, i1, i2, j1, j2 in s.get_opcodes():
             if tag == "equal":
                 continue
 
-            full_prompt_chunk = full_prompt[i1:i2]
-            current_prompt_chunk = current_prompt[j1:j2]
-
-            if full_prompt_chunk.strip() or current_prompt_chunk.strip():
-                diffs.append(f"idx {i1}:{i2} -> {j1}:{j2} | full_prompt_chunk: {repr(full_prompt_chunk)} | current_prompt_chunk: {repr(current_prompt_chunk)}")
+            diffs.append(
+                {
+                    "full_prompt_chunk": full_prompt[i1:i2],
+                    "current_prompt_chunk": current_prompt[j1:j2],
+                    "indices": (i1, i2, j1, j2),
+                }
+            )
         return diffs
 
     def finalize(
@@ -276,16 +278,25 @@ class AsyncRolloutRequest(BaseModel):
             full_prompt = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=False)
             current_prompt = processing_class.decode(self.input_ids, skip_special_tokens=False)
 
-            if self.tokenization_sanity_check_mode == TokenizationSanityCheckModeEnum.STRICT:
-                if full_prompt != current_prompt:
-                    logger.warning("Inconsistent training and inference tokenization detected. This may lead to unexpected behavior during training. Please review your chat template to determine if this is intentional. For more information, refer to the multiturn README.md.")
+            if diffs := self._get_tokenization_diffs(full_prompt, current_prompt):
+                log_warning = False
+                if self.tokenization_sanity_check_mode == TokenizationSanityCheckModeEnum.STRICT:
+                    log_warning = True
+                elif self.tokenization_sanity_check_mode == TokenizationSanityCheckModeEnum.IGNORE_STRIPPABLE:
+                    non_strippable_diffs_exist = any(d["full_prompt_chunk"].strip() or d["current_prompt_chunk"].strip() for d in diffs)
+                    if non_strippable_diffs_exist:
+                        log_warning = True
 
-                    logger.info(f"Inference prompt:\n{full_prompt}\nTraining prompt:\n{current_prompt}")
-            elif self.tokenization_sanity_check_mode == TokenizationSanityCheckModeEnum.IGNORE_STRIPPABLE:
-                if diffs := self._check_tokenization_diff(full_prompt, current_prompt):
-                    logger.warning("Inconsistent training and inference tokenization detected (ignoring strippable). This may lead to unexpected behavior during training. Please review your chat template to determine if this is intentional. For more information, refer to the multiturn README.md.")
-                    diff_details = "\n".join(diffs)
-                    logger.info(f"Found non-strippable differences:\n{diff_details}")
+                if log_warning:
+                    mode_str = f" ({self.tokenization_sanity_check_mode.value})"
+                    logger.warning(f"Inconsistent training and inference tokenization detected{mode_str}. This may lead to unexpected behavior during training. Please review your chat template to determine if this is intentional. For more information, refer to the multiturn README.md.")
+
+                    diff_details_list = []
+                    for d in diffs:
+                        i1, i2, j1, j2 = d["indices"]
+                        diff_details_list.append(f"idx {i1}:{i2} -> {j1}:{j2} | full_prompt_chunk: {repr(d['full_prompt_chunk'])} | current_prompt_chunk: {repr(d['current_prompt_chunk'])}")
+                    diff_details = "\\n".join(diff_details_list)
+                    logger.info(f"Found differences:\\n{diff_details}")
 
         # In case we failed to generate the assistant message and the generation prompt ids were already added to input_ids, remove them from the end of input_ids
         if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids:
