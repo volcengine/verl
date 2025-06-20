@@ -38,6 +38,8 @@ from typing import Iterable
 
 _ALLOW_LIST = [
     "verl.third_party.vllm.LLMEngine",
+    "verl.third_party.vllm.LLM",
+    "verl.third_party.vllm.parallel_state",
     "verl.utils.debug.WorkerProfiler",
     "verl.utils.debug.WorkerProfilerExtension",
     "verl.utils.debug.log_gpu_memory_usage",
