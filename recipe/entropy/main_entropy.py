@@ -18,9 +18,8 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 import hydra
 import ray
 
-from verl.trainer.ppo.reward import load_reward_manager
-
 from .entropy_ray_trainer import RayEntropyTrainer
+from .reward import load_reward_manager
 
 
 @hydra.main(config_path="config", config_name="entropy_trainer", version_base=None)
