@@ -167,9 +167,6 @@ class TestRolloutWithMCPSearchTools:
             return rollout
 
     @patch.object(MCPClientManager, "fetch_tool_schemas", return_value=None)
-    @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
-    @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
-    @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_tools_registration(self, mock_fetch, mock_rollout):
         tool_schema = [
             {
