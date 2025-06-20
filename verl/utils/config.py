@@ -34,9 +34,12 @@ def omega_conf_to_dataclass(config: Union[DictConfig, dict], dataclass_type: Typ
     if not is_dataclass(dataclass_type):
         raise ValueError(f"{dataclass_type} must be a dataclass")
     cfg = OmegaConf.create(config)  # in case it's a dict
-    dataclass_without_val = OmegaConf.structured(dataclass_type)
-    # let cfg override the existing vals in `dataclass_without_val`
-    return OmegaConf.merge(dataclass_without_val, cfg)
+    cfg_from_dataclass = OmegaConf.structured(dataclass_type)
+    # let cfg override the existing vals in `cfg_from_dataclass`
+    cfg_merged = OmegaConf.merge(cfg_from_dataclass, cfg)
+    # now convert to `dataclass_type`
+    config_object = OmegaConf.to_object(cfg_merged)
+    return config_object
 
 
 def update_dict_with_config(dictionary: Dict, config: DictConfig):

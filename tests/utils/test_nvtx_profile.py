@@ -113,6 +113,7 @@ class TestNsightSystemsProfiler(unittest.TestCase):
             self.assertEqual(profiler_config.discrete, False)
             self.assertEqual(profiler_config.all_ranks, False)
             self.assertEqual(profiler_config.ranks, [])
+            assert isinstance(profiler_config, ProfilerConfig)
 
 
 if __name__ == "__main__":

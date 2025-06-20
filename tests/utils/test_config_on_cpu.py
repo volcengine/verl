@@ -56,12 +56,15 @@ class TestConfigOnCPU(unittest.TestCase):
         cfg = omega_conf_to_dataclass(sub_cfg, TestDataclass)
         self.assertEqual(cfg.hidden_size, 768)
         self.assertEqual(cfg.activation, "relu")
+        assert isinstance(cfg, TestDataclass)
 
     def test_nested_omega_conf_to_dataclass(self):
         cfg = omega_conf_to_dataclass(self.config.train_config, TestTrainConfig)
         self.assertEqual(cfg.batch_size, 32)
         self.assertEqual(cfg.model.hidden_size, 768)
         self.assertEqual(cfg.model.activation, "relu")
+        assert isinstance(cfg, TestTrainConfig)
+        assert isinstance(cfg.model, TestDataclass)
 
 
 if __name__ == "__main__":
