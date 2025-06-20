@@ -58,7 +58,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
     from megatron.core.transformer.module import Float16Module
     from torch.nn.parallel import DistributedDataParallel as torchDDP
 
-    from verl.utils.logger import print_rank_0
+    from verl.utils.logger import print_rank_0, print_with_rank
     from verl.utils.megatron_utils import unwrap_model
 
     start_time = time.time()
@@ -374,11 +374,12 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
         layer_map = _megatron_calc_layer_map(config)
 
         for layer in range(config.num_hidden_layers):
-            print_rank_0(f"loading layer #{layer}...")
             layer_name = f"model.layers.{layer}"
+            print_rank_0(f"loading layer #{layer}, with layer_name model.layers.{layer}...")
             dst_pp_rank, dst_virtual_pp_rank, dst_layer_idx = layer_map[layer]
 
             gpt_model_module = _get_gpt_model(models[dst_virtual_pp_rank])
+            print_with_rank(f"gpt_model_module.sharded_state_dict().keys: {gpt_model_module.sharded_state_dict().keys()}", rank=torch.distributed.get_rank())
             sync_layer = gpt_model_module.decoder.layers[dst_layer_idx]
 
             _broadcast_tensor(

@@ -16,12 +16,15 @@ import json
 import logging
 import os
 import random
+from collections.abc import Callable
+from dataclasses import asdict
 
 import numpy as np
 import torch
 import torch.distributed
 from megatron.core import mpu, tensor_parallel
 from megatron.core.dist_checkpointing.mapping import ShardedObject
+from megatron.core.transformer.enums import AttnBackend
 from transformers import GenerationConfig
 
 from verl.models.weight_loader_registry import get_weight_saver
@@ -197,7 +200,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         # Optimizer State Dict
         if self.should_save_optimizer or self.should_load_optimizer:
             torch.distributed.barrier()
-            optimizer_sharded_states = self.optimizer.sharded_state_dict()
+            optimizer_sharded_states = self.optimizer.sharded_state_dict(state_dict)
             state_dict["optimizer"] = optimizer_sharded_states
 
             if self.lr_scheduler is not None:
@@ -236,6 +239,13 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         # Get State Dict for loading
         sharded_state_dict = self.generate_state_dict()
+        log_with_rank(f"Generated state dict for saving: {sharded_state_dict.keys()}", rank=self.rank, logger=logger)
+        for vpp_rank, model in enumerate(self.model):
+            if len(self.model) > 1:
+                model_i_keys = sharded_state_dict[f"model{vpp_rank}"].keys()
+                log_with_rank(f"Generated state dict for saving: {model_i_keys}", rank=self.rank, logger=logger)
+            else:
+                log_with_rank(f"Generated state dict for saving: {sharded_state_dict['model'].keys()}", rank=self.rank, logger=logger)
 
         # Load Dist Checkpointing
         state_dict = load_dist_checkpointing(
@@ -293,10 +303,17 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         # Generate state dict for saving
         state_dict = self.generate_state_dict()
+        log_with_rank(f"Generated state dict for saving: {state_dict.keys()}", rank=self.rank, logger=logger)
+        for vpp_rank, model in enumerate(self.model):
+            if len(self.model) > 1:
+                model_i_keys = state_dict[f"model{vpp_rank}"].keys()
+                log_with_rank(f"Generated state dict for saving: {model_i_keys}", rank=self.rank, logger=logger)
+            else:
+                log_with_rank(f"Generated state dict for saving: {state_dict['model'].keys()}", rank=self.rank, logger=logger)
 
         # Start Async save if enabled
         async_save_request = save_dist_checkpointing(
-            state_dict=state_dict,
+            sharded_state_dict=state_dict,
             ckpt_path=dist_checkpoint_path,
             async_save=self.checkpoint_config.async_save,
         )
@@ -344,7 +361,20 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if self.should_save_extra:
             if self.rank == 0:
                 # Save transformer config
-                transformer_config_dict = self.transformer_config.to_dict()
+                print(self.transformer_config)
+                transformer_config_dict = asdict(self.transformer_config)
+                to_convert_types = {torch.dtype: str, AttnBackend: str}
+                ignore_types = [Callable]
+                pop_keys = []
+                for key, value in transformer_config_dict.items():
+                    if type(value) in to_convert_types:
+                        transformer_config_dict[key] = to_convert_types[type(value)](value)
+                    if type(value) in ignore_types:
+                        pop_keys.append(key)
+                    if callable(value):
+                        pop_keys.append(key)
+                for key in pop_keys:
+                    transformer_config_dict.pop(key)
                 transformer_config_path = get_transformer_config_checkpoint_path(local_path)
                 with open(transformer_config_path, "w") as f:
                     json.dump(transformer_config_dict, f, indent=2)

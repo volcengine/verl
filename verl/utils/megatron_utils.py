@@ -63,6 +63,7 @@ def get_model(
             this_model = model_provider_func(pre_process=pre_process, post_process=post_process)
             this_model.model_type = model_type
             model.append(this_model)
+        mpu.set_virtual_pipeline_model_parallel_rank(0)
     else:
         pre_process = mpu.is_pipeline_first_stage()
         post_process = mpu.is_pipeline_last_stage()
@@ -423,16 +424,19 @@ def load_megatron_optimizer(optimizers):
 
 def get_dist_checkpoint_path(checkpoint_path):
     os.makedirs(checkpoint_path, exist_ok=True)
+    os.makedirs(os.path.join(checkpoint_path, "dist_ckpt"), exist_ok=True)
     return os.path.join(checkpoint_path, "dist_ckpt")
 
 
 def get_hf_model_checkpoint_path(checkpoint_path):
     os.makedirs(checkpoint_path, exist_ok=True)
+    os.makedirs(os.path.join(checkpoint_path, "huggingface"), exist_ok=True)
     return os.path.join(checkpoint_path, "huggingface")
 
 
 def get_hf_config_and_tokenizer_checkpoint_path(checkpoint_path):
     os.makedirs(checkpoint_path, exist_ok=True)
+    os.makedirs(os.path.join(checkpoint_path, "hf_config_and_tokenizer"), exist_ok=True)
     return os.path.join(checkpoint_path, "hf_config_and_tokenizer")
 
 

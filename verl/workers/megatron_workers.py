@@ -757,7 +757,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         self.flops_counter = FlopsCounter(self.critic_model_config)
         self.checkpoint_mananager = MegatronCheckpointManager(
             config=self.config,
-            checkpoint_config=self.config.critic.checkpoint,
+            checkpoint_config=self.config.checkpoint,
             model_config=self.critic_model_config,
             transformer_config=self.tf_config,
             role="critic",
