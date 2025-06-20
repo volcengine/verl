@@ -29,10 +29,6 @@ vllm_package_version = get_version(vllm_package_name)
 if vllm_package_version is None:
     raise PackageNotFoundError("To use vllm rollout, please ensure the 'vllm' package is properly installed. See https://verl.readthedocs.io/en/latest/start/install.html for more details")
 
-###
-# package_version = get_version(package_name)
-# [SUPPORT AMD:]
-# Do not call any torch.cuda* API here, or ray actor creation import class will fail.
 if "ROCM_PATH" in os.environ:
     import re
 

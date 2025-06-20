@@ -177,6 +177,27 @@ actor_rollout_ref:
     # Upper bound for asymmetric clipping (used in dual-clip PPO)
     clip_ratio_high: 0.2
 
+    # policy loss config
+    policy_loss:
+    
+      # Loss function mode: vanilla / clip-cov / kl-cov from https://arxiv.org/abs/2505.22617
+      loss_mode: "vanilla"
+      
+      # Ratio of tokens to be clipped for clip-cov loss
+      clip_cov_ratio: 0.0002
+
+      # Lower bound for clip-cov loss
+      clip_cov_lb: 1.0
+
+      # Upper bound for clip-cov loss
+      clip_cov_ub: 5.0
+
+      # Ratio of tokens to be applied kl penalty for kl-cov loss
+      kl_cov_ratio: 0.0002
+
+      # KL divergence penalty coefficient
+      ppo_kl_coef: 0.1
+
     # Constant C in Dual-clip PPO; clips when advantage < -C
     clip_ratio_c: 3.0
 
@@ -450,6 +471,9 @@ actor_rollout_ref:
         # Swap space (in GB) used by inference engine. null uses default (e.g., 4 GB).
         swap_space: null
 
+        # Whether to disable the preprocessor cache for multimodel models.
+        disable_mm_preprocessor_cache: False
+
       # for sglang
       sglang:
 
@@ -507,6 +531,9 @@ actor_rollout_ref:
       # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
       enable_tokenization_sanity_check: True
+
+    # support logging rollout prob for debugging purpose
+    calculate_log_probs: False
 
     # profiler configs
     profiler:
@@ -940,6 +967,9 @@ trainer:
 
   # Whether to run validation before training begins
   val_before_train: True
+
+  # Whether to run validation only
+  val_only: False
 
   # Validation frequency (in training iterations)
   test_freq: -1
