@@ -70,6 +70,7 @@ verl is fast with:
    algo/dapo.md
    algo/spin.md
    algo/sppo.md
+   algo/entropy.md
    algo/opo.md
    algo/baseline.md
 
