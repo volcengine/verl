@@ -78,7 +78,7 @@ async def compute_score(data_source, solution_str, ground_truth, extra_info=None
     from verl.utils.reward_score.gsm8k import compute_score
 
     func_rm_score = compute_score(solution_str, ground_truth)
-    if split == "train":
+    if split == "test":
         return func_rm_score
     else:  # split = "train"
         if func_rm_score == 0.0:
