@@ -98,7 +98,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         self.timing = {}
         with simple_timer("reshard", self.timing):
             loop = asyncio.get_event_loop()
-            
+
             if self.device_mesh["infer_tp"].get_local_rank() == 0:
                 if self.multi_stage_wake_up:
                     loop.run_until_complete(self.inference_engine.resume_memory_occupation(tags=["weights"]))
