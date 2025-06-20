@@ -392,7 +392,7 @@ class ChatCompletionScheduler:
 
             tasks.append(
                 asyncio.create_task(
-                    self._submit_chat_completions_semaphore(
+                    self.submit_chat_completions_semaphore(
                         messages=batch_conversations[batch_index],
                         request_id=None,
                         sampling_params=kwargs,
@@ -406,7 +406,7 @@ class ChatCompletionScheduler:
         print("[ChatCompletionScheduler] generate_sequences done")
         return output_batch
 
-    async def _submit_chat_completions_semaphore(self, messages: List[Dict[str, str]], request_id: str, sampling_params: Dict[str, Any]):
+    async def submit_chat_completions_semaphore(self, messages: List[Dict[str, str]], request_id: str, sampling_params: Dict[str, Any]):
         done = asyncio.Event()
 
         info = {
