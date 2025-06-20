@@ -1,30 +1,30 @@
 set -x
 
-CUDA_VISIBLE_DEVICES=4,5,6,7 vllm serve \
-    dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly \
-    --served-model-name genrm-demo \
-    --tensor-parallel-size 4 &
+# CUDA_VISIBLE_DEVICES=4,5,6,7 vllm serve \
+#     dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly \
+#     --served-model-name genrm-demo \
+#     --tensor-parallel-size 4 &
 
-# wait for vllm serve to start
-MAX_RETRIES=60
-RETRY_INTERVAL=5
-for ((i=0; i<MAX_RETRIES; i++)); do
-    if curl -s http://localhost:8000/v1/chat/completions > /dev/null 2>&1; then
-        echo "vllm server 已启动"
-        break
-    fi
-    if ! ps -p $VLLM_PID > /dev/null 2>&1; then
-        echo "vllm server 启动失败"
-        exit 1
-    fi
-    sleep $RETRY_INTERVAL
-done
+# # wait for vllm serve to start
+# MAX_RETRIES=60
+# RETRY_INTERVAL=5
+# for ((i=0; i<MAX_RETRIES; i++)); do
+#     if curl -s http://localhost:8000/v1/chat/completions > /dev/null 2>&1; then
+#         echo "vllm server 已启动"
+#         break
+#     fi
+#     if ! ps -p $VLLM_PID > /dev/null 2>&1; then
+#         echo "vllm server 启动失败"
+#         exit 1
+#     fi
+#     sleep $RETRY_INTERVAL
+# done
 
-if [ $i -eq $MAX_RETRIES ]; then
-    echo "等待 vllm server 启动超时"
-    kill $VLLM_PID
-    exit 1
-fi
+# if [ $i -eq $MAX_RETRIES ]; then
+#     echo "等待 vllm server 启动超时"
+#     kill $VLLM_PID
+#     exit 1
+# fi
 
 CUDA_VISIBLE_DEVICES=0,1,2,3 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
