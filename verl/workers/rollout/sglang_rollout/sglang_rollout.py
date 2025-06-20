@@ -1071,6 +1071,9 @@ class SGLangRollout(BaseRollout):
         _tool_schemas = []
         _tools_kwargs = {}
 
+        # Create request-level sampling parameters
+        request_sampling_params = self.sampling_params.copy()
+
         req = AsyncRolloutRequest(
             request_id=str(uuid4()),
             state=AsyncRolloutRequestStateEnum.PENDING,
@@ -1095,11 +1098,11 @@ class SGLangRollout(BaseRollout):
             max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
             use_inference_chat_template=self.config.multi_turn.use_inference_chat_template,
             enable_tokenization_sanity_check=self.config.multi_turn.enable_tokenization_sanity_check,
-            tokenizer=self.tokenizer,
+            processing_class=self.processing_class,
         )
 
         # json_request already contains sampling_params
-        output = await self._handle_engine_call(req, do_sample=True, is_validate=False, override_n=False, **json_request)
+        output = await self._handle_engine_call(req, request_sampling_params)
         # it can be Dict or AsyncIterator[Dict]
         if isinstance(output, dict):
             outputs = [output]
