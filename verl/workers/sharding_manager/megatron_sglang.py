@@ -26,8 +26,7 @@ from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.protocol import DataProto, all_gather_data_proto
-from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
-from verl.utils.debug.performance import _timer
+from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.device import get_torch_device
 from verl.utils.megatron_utils import per_tensor_generator
 
@@ -85,7 +84,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     def __enter__(self):
         self.timing = {}
-        with _timer("reshard", self.timing):
+        with simple_timer("reshard", self.timing):
             per_tensor_param = per_tensor_generator(
                 self.actor_module,
                 self.model_config,
