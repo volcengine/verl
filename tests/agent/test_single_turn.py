@@ -17,9 +17,8 @@ import pytest
 import ray
 from omegaconf import DictConfig, OmegaConf
 
+from tests.agent.agent_utils import init_agent_loop_manager
 from verl.protocol import DataProto
-
-from .agent_utils import init_agent_loop_manager
 
 
 @pytest.fixture
@@ -72,10 +71,10 @@ def test_single_turn(init_config):
         },
     )
     result = agent_loop_manager.generate_sequences(prompts=batch)
+    assert len(result) == len(raw_prompts) * init_config.actor_rollout_ref.rollout.n
 
     # check result
     seq_len = result.batch["prompts"].size(1) + result.batch["responses"].size(1)
-    assert len(result) == 2
     assert result.batch["input_ids"].size(1) == seq_len
     assert result.batch["attention_mask"].size(1) == seq_len
     assert result.batch["position_ids"].size(1) == seq_len

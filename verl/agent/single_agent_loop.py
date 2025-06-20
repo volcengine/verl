@@ -13,10 +13,9 @@
 # limitations under the License.
 import logging
 import os
-from copy import deepcopy
 from typing import Any, Dict, List
 
-from verl.agent.agent_loop import AgentLoopBase
+from verl.agent.agent_loop import AgentLoopBase, AgentLoopOutput
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -30,15 +29,11 @@ class SingleTurnAgentLoop(AgentLoopBase):
         self.prompt_length = config.actor_rollout_ref.rollout.prompt_length
         self.response_length = config.actor_rollout_ref.rollout.response_length
 
-    async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> List[List[Dict[str, Any]]]:
-        choices = []
-        completions = await self.server_manager.chat_completions(messages, sampling_params=sampling_params)
-        for choice in completions.choices:
-            message = choice.message
-            choice_messages = deepcopy(messages)
-            choice_messages.append(message.model_dump(exclude_unset=True, exclude_none=True))
-            choices.append(choice_messages)
-        return choices
+    async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        completions = await self.server_manager.chat_completions(request_id=None, messages=messages, sampling_params=sampling_params)
+        message = completions.choices[0].message
+        messages.append(message.model_dump(exclude_unset=True, exclude_none=True))
+        return messages
 
     async def tokenize(self, messages: List[Dict[str, str]]) -> Dict[str, List]:
         prompt = self.tokenizer.apply_chat_template(messages[:1], add_generation_prompt=True, tokenize=False)
@@ -49,9 +44,10 @@ class SingleTurnAgentLoop(AgentLoopBase):
         response_ids = self.tokenizer.encode(response)
         response_mask = [1] * len(response_ids)
 
-        output = dict(
+        output = AgentLoopOutput(
             prompt_ids=prompt_ids[: self.prompt_length],
             response_ids=response_ids[: self.response_length],
             response_mask=response_mask[: self.response_length],
+            num_turns=len(messages),
         )
         return output

@@ -26,6 +26,7 @@ import torch
 from cachetools import LRUCache
 from omegaconf import DictConfig
 from openai.types.chat.chat_completion import ChatCompletion
+from pydantic import BaseModel
 from tensordict import TensorDict
 from transformers import AutoTokenizer
 
@@ -117,6 +118,15 @@ class AsyncLLMServerManager:
             await session.close()
 
 
+class AgentLoopOutput(BaseModel):
+    """Agent loop output."""
+
+    prompt_ids: List[int]
+    response_ids: List[int]
+    response_mask: List[int]
+    num_turns: int
+
+
 class AgentLoopBase(ABC):
     """An agent loop takes a input message, chat with OpenAI compatible LLM server and interact with various environments."""
 
@@ -133,7 +143,7 @@ class AgentLoopBase(ABC):
         self.tokenizer = tokenizer
 
     @abstractmethod
-    async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> List[List[Dict[str, Any]]]:
+    async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Run agent loop to interact with LLM server and environment.
 
         Args:
@@ -141,21 +151,18 @@ class AgentLoopBase(ABC):
             sampling_params (Dict[str, Any]): LLM sampling params.
 
         Returns:
-            List[List[Dict[str, Any]]]: List of `n` choices messages.
+            List[Dict[str, Any]]]: List of multi-turn messages.
         """
         raise NotImplementedError
 
-    async def tokenize(self, messages: List[Dict[str, str]]) -> Dict[str, List]:
+    async def tokenize(self, messages: List[Dict[str, str]]) -> AgentLoopOutput:
         """Tokenize messages to ids.
 
         Args:
             messages: multi-turn messages
 
         Returns:
-            Dict[str, List[int]]:
-            - prompt_ids: prompt ids
-            - response_ids: response ids
-            - response_mask: response mask
+            AgentLoopOutput: tokenized output
         """
         raise NotImplementedError
 
@@ -199,26 +206,23 @@ class AgentLoopWorker:
         if batch.meta_info.get("validate", False):
             sampling_params["top_p"] = config.val_kwargs.top_p
             sampling_params["temperature"] = config.val_kwargs.temperature
-            sampling_params["n"] = 1
 
+        n = 1 if batch.meta_info.get("validate", False) else config.n
         tasks = []
-        for agent_name, messages in zip(batch.non_tensor_batch["agent_name"], batch.non_tensor_batch["raw_prompt"]):
-            tasks.append(asyncio.create_task(self._run_agent_loop(agent_name, messages, sampling_params)))
-        result = await asyncio.gather(*tasks)
-        outputs = [choice for choices in result for choice in choices]
+        agent_names = batch.non_tensor_batch["agent_name"].repeat(n, axis=0)
+        raw_prompts = batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0)
+        for agent_name, messages in zip(agent_names, raw_prompts):
+            tasks.append(asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params)))
+        outputs = await asyncio.gather(*tasks)
 
         output = self._postprocess(outputs)
         return output
 
-    async def _run_agent_loop(self, agent_name: str, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> List[Dict[str, List[int]]]:
+    async def _run_agent_loop(self, agent_name: str, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> List[AgentLoopOutput]:
         agent_loop_class = self.get_agent_loop_class(agent_name)
         agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer)
-        choices = await agent_loop.run(messages, sampling_params)
-        tasks = []
-        for choice in choices:
-            tasks.append(asyncio.create_task(agent_loop.tokenize(choice)))
-        outputs = await asyncio.gather(*tasks)
-        return outputs
+        messages = await agent_loop.run(messages, sampling_params)
+        return await agent_loop.tokenize(messages)
 
     def get_agent_loop_class(self, agent_name: str) -> Type[AgentLoopBase]:
         # TODO: add tool agent registrary
@@ -231,7 +235,7 @@ class AgentLoopWorker:
             return ToolAgentLoop
         raise ValueError(f"Unknown agent_name: {agent_name}")
 
-    def _postprocess(self, inputs: List[Dict[str, List]]) -> DataProto:
+    def _postprocess(self, inputs: List[AgentLoopOutput]) -> DataProto:
         # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
         # prompts: left pad
         # responses: right pad
@@ -242,7 +246,7 @@ class AgentLoopWorker:
         # prompts
         self.tokenizer.padding_side = "left"
         outputs = self.tokenizer.pad(
-            [{"input_ids": input["prompt_ids"]} for input in inputs],
+            [{"input_ids": input.prompt_ids} for input in inputs],
             padding="max_length",
             max_length=self.config.actor_rollout_ref.rollout.prompt_length,
             return_tensors="pt",
@@ -253,7 +257,7 @@ class AgentLoopWorker:
         # responses
         self.tokenizer.padding_side = "right"
         outputs = self.tokenizer.pad(
-            [{"input_ids": input["response_ids"]} for input in inputs],
+            [{"input_ids": input.response_ids} for input in inputs],
             padding="max_length",
             max_length=self.config.actor_rollout_ref.rollout.response_length,
             return_tensors="pt",
@@ -263,7 +267,7 @@ class AgentLoopWorker:
 
         # response_mask
         outputs = self.tokenizer.pad(
-            [{"input_ids": input["response_mask"]} for input in inputs],
+            [{"input_ids": input.response_mask} for input in inputs],
             padding="max_length",
             max_length=self.config.actor_rollout_ref.rollout.response_length,
             return_tensors="pt",
@@ -289,7 +293,7 @@ class AgentLoopWorker:
             batch_size=len(input_ids),
         )
 
-        num_turns = np.array([input["num_turns"] for input in inputs], dtype=np.int32)
+        num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
         return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns})
 
 
@@ -361,17 +365,17 @@ class AgentLoopManager:
                 ).remote(self.config, self.server_addresses)
             )
 
-    def generate_sequences(self, batch: DataProto) -> DataProto:
+    def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Split input batch and dispatch to agent loop workers.
 
         Args:
-            batch (DataProto): Input batch.
+            prompts (DataProto): Input batch.
 
         Returns:
             DataProto: Output batch.
         """
         self.wake_up()
-        chunkes = batch.chunk(len(self.agent_loop_workers))
+        chunkes = prompts.chunk(len(self.agent_loop_workers))
         outputs = ray.get([worker.generate_sequences.remote(chunk) for worker, chunk in zip(self.agent_loop_workers, chunkes)])
         output = DataProto.concat(outputs)
         self.sleep()

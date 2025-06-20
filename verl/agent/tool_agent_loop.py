@@ -15,13 +15,11 @@ import asyncio
 import json
 import logging
 import os
-from copy import deepcopy
 from typing import Any, Dict, List
 
 from omegaconf import DictConfig
-from openai.types.chat.chat_completion import Choice
 
-from verl.agent.agent_loop import AgentLoopBase, AsyncLLMServerManager
+from verl.agent.agent_loop import AgentLoopBase, AgentLoopOutput, AsyncLLMServerManager
 from verl.tools.base_tool import initialize_tools_from_config
 
 logger = logging.getLogger(__file__)
@@ -45,19 +43,12 @@ class ToolAgentLoop(AgentLoopBase):
         self.response_length = config.actor_rollout_ref.rollout.response_length
         self.system_prompt = self.tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=False)
 
-    async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> List[List[Dict[str, Any]]]:
-        # For multi-turn rollout, do first turn with n>=1 and then run each choice in parallel.
-        completions = await self.server_manager.chat_completions(messages=messages, sampling_params=sampling_params, request_id=None)
-        sampling_params["n"] = 1
+    async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        request_id = None
 
-        tasks = []
-        for choice in completions.choices:
-            tasks.append(self._run_choice(deepcopy(messages), sampling_params, choice, completions.id))
-        choices = await asyncio.gather(*tasks)
-        return choices
-
-    async def _run_choice(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any], choice: Choice, request_id: str) -> List[Dict[str, Any]]:
         while True:
+            completions = await self.server_manager.chat_completions(request_id=request_id, messages=messages, sampling_params=sampling_params)
+            choice, request_id = completions.choices[0], completions.id
             message, finish_reason = choice.message, choice.finish_reason
             if message.content is None:
                 message.content = ""
@@ -82,10 +73,6 @@ class ToolAgentLoop(AgentLoopBase):
             if any(isinstance(item, Exception) for item in tool_responses):
                 return messages
             messages.extend(tool_responses)
-
-            # resubmit completion request with tool responses
-            completions = await self.server_manager.chat_completions(messages, sampling_params, request_id)
-            choice, request_id = completions.choices[0], completions.id
 
     async def _call_tool(self, tool_call) -> Dict[str, str]:
         """Call tool and return tool response."""
@@ -129,9 +116,10 @@ class ToolAgentLoop(AgentLoopBase):
 
             last = i
 
-        output = dict(
+        output = AgentLoopOutput(
             prompt_ids=prompt_ids[: self.prompt_length],
             response_ids=response_ids[: self.response_length],
             response_mask=response_mask[: self.response_length],
+            num_turns=len(messages),
         )
         return output
