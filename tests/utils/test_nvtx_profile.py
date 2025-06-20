@@ -33,6 +33,7 @@ class TestNsightSystemsProfiler(unittest.TestCase):
     4. Annotation: Test the annotate decorator in both normal and discrete modes
     5. Config Validation: Verify proper config initialization from OmegaConf
     """
+
     def setUp(self):
         self.config = ProfilerConfig(all_ranks=True)
         self.rank = 0
@@ -44,8 +45,7 @@ class TestNsightSystemsProfiler(unittest.TestCase):
         self.assertEqual(self.profiler.discrete, False)
 
     def test_start_stop_profiling(self):
-        with patch('torch.cuda.profiler.start') as mock_start, \
-             patch('torch.cuda.profiler.stop') as mock_stop:
+        with patch("torch.cuda.profiler.start") as mock_start, patch("torch.cuda.profiler.stop") as mock_stop:
             # Test start
             self.profiler.start()
             self.assertTrue(self.profiler.this_step)
@@ -59,9 +59,8 @@ class TestNsightSystemsProfiler(unittest.TestCase):
     def test_discrete_profiling(self):
         discrete_config = ProfilerConfig(discrete=True, all_ranks=True)
         profiler = NsightSystemsProfiler(self.rank, discrete_config)
-        
-        with patch('torch.cuda.profiler.start') as mock_start, \
-             patch('torch.cuda.profiler.stop') as mock_stop:
+
+        with patch("torch.cuda.profiler.start") as mock_start, patch("torch.cuda.profiler.stop") as mock_stop:
             profiler.start()
             self.assertTrue(profiler.this_step)
             mock_start.assert_not_called()  # Shouldn't start immediately in discrete mode
@@ -74,22 +73,18 @@ class TestNsightSystemsProfiler(unittest.TestCase):
         mock_self = MagicMock()
         mock_self.profiler = self.profiler
         mock_self.profiler.this_step = True
-        
+
         @NsightSystemsProfiler.annotate(message="test")
         def test_func(self, *args, **kwargs):
             return "result"
 
-        with patch('torch.cuda.profiler.start') as mock_start, \
-             patch('torch.cuda.profiler.stop') as mock_stop, \
-             patch('verl.utils.debug.nvtx_profile.mark_start_range') as mock_start_range, \
-             patch('verl.utils.debug.nvtx_profile.mark_end_range') as mock_end_range:
- 
+        with patch("torch.cuda.profiler.start") as mock_start, patch("torch.cuda.profiler.stop") as mock_stop, patch("verl.utils.debug.nvtx_profile.mark_start_range") as mock_start_range, patch("verl.utils.debug.nvtx_profile.mark_end_range") as mock_end_range:
             result = test_func(mock_self)
             self.assertEqual(result, "result")
             mock_start_range.assert_called_once()
             mock_end_range.assert_called_once()
             mock_start.assert_not_called()  # Not discrete mode
-            mock_stop.assert_not_called()   # Not discrete mode
+            mock_stop.assert_not_called()  # Not discrete mode
 
     def test_annotate_discrete_mode(self):
         discrete_config = ProfilerConfig(discrete=True, all_ranks=True)
@@ -97,22 +92,18 @@ class TestNsightSystemsProfiler(unittest.TestCase):
         mock_self = MagicMock()
         mock_self.profiler = profiler
         mock_self.profiler.this_step = True
- 
+
         @NsightSystemsProfiler.annotate(message="test")
         def test_func(self, *args, **kwargs):
             return "result"
 
-        with patch('torch.cuda.profiler.start') as mock_start, \
-             patch('torch.cuda.profiler.stop') as mock_stop, \
-             patch('verl.utils.debug.nvtx_profile.mark_start_range') as mock_start_range, \
-             patch('verl.utils.debug.nvtx_profile.mark_end_range') as mock_end_range:
- 
+        with patch("torch.cuda.profiler.start") as mock_start, patch("torch.cuda.profiler.stop") as mock_stop, patch("verl.utils.debug.nvtx_profile.mark_start_range") as mock_start_range, patch("verl.utils.debug.nvtx_profile.mark_end_range") as mock_end_range:
             result = test_func(mock_self)
             self.assertEqual(result, "result")
             mock_start_range.assert_called_once()
             mock_end_range.assert_called_once()
             mock_start.assert_called_once()  # Should start in discrete mode
-            mock_stop.assert_called_once()   # Should stop in discrete mode
+            mock_stop.assert_called_once()  # Should stop in discrete mode
 
     def test_config_init(self):
         cfg = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
@@ -124,5 +115,5 @@ class TestNsightSystemsProfiler(unittest.TestCase):
             self.assertEqual(profiler_config.ranks, None)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

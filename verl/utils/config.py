@@ -17,7 +17,8 @@ from typing import Any, Dict, Type, Union
 
 from omegaconf import DictConfig, OmegaConf
 
-__all__ = ['omega_conf_to_dataclass']
+__all__ = ["omega_conf_to_dataclass"]
+
 
 def omega_conf_to_dataclass(config: Union[DictConfig, dict], dataclass_type: Type[Any]) -> Any:
     """
@@ -36,6 +37,7 @@ def omega_conf_to_dataclass(config: Union[DictConfig, dict], dataclass_type: Typ
     dataclass_without_val = OmegaConf.structured(dataclass_type)
     # let cfg override the existing vals in `dataclass_without_val`
     return OmegaConf.merge(dataclass_without_val, cfg)
+
 
 def update_dict_with_config(dictionary: Dict, config: DictConfig):
     for key in dictionary:

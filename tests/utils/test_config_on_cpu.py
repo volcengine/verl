@@ -31,11 +31,13 @@ class TestTrainConfig:
     batch_size: int
     model: TestDataclass
 
+
 _cfg_str = """train_config:
   batch_size: 32
   model:
     hidden_size: 768
     activation: relu"""
+
 
 class TestConfigOnCPU(unittest.TestCase):
     """Test cases for configuration utilities on CPU.
@@ -45,6 +47,7 @@ class TestConfigOnCPU(unittest.TestCase):
     2. Test nested OmegaConf to dataclass conversion for complex hierarchical configurations
     3. Verify all configuration values are correctly converted and accessible
     """
+
     def setUp(self):
         self.config = OmegaConf.create(_cfg_str)
 
@@ -52,13 +55,14 @@ class TestConfigOnCPU(unittest.TestCase):
         sub_cfg = self.config.train_config.model
         cfg = omega_conf_to_dataclass(sub_cfg, TestDataclass)
         self.assertEqual(cfg.hidden_size, 768)
-        self.assertEqual(cfg.activation, 'relu')
+        self.assertEqual(cfg.activation, "relu")
 
     def test_nested_omega_conf_to_dataclass(self):
         cfg = omega_conf_to_dataclass(self.config.train_config, TestTrainConfig)
         self.assertEqual(cfg.batch_size, 32)
         self.assertEqual(cfg.model.hidden_size, 768)
-        self.assertEqual(cfg.model.activation, 'relu')
+        self.assertEqual(cfg.model.activation, "relu")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

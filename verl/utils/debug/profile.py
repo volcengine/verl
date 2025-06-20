@@ -36,6 +36,7 @@ class Profiler:
     Args:
         config: Configuration object containing profiling parameters
     """
+
     def __init__(self, config):
         # note : if we do not set use_profile, it will be set as None, so that all function will be skip
         self.config = config
@@ -164,6 +165,7 @@ class DistProfiler:
         rank (int): The rank of the current process
         config (ProfilerConfig, optional): Configuration for the profiler.
     """
+
     def __init__(self, rank: int, config: Optional[ProfilerConfig] = None):
         pass
 
@@ -192,6 +194,7 @@ class DistProfilerExtension:
     Args:
         profiler (DistProfiler): The base distributed profiler instance to extend
     """
+
     def __init__(self, profiler: DistProfiler):
         self.profiler = profiler
 

@@ -33,7 +33,7 @@
 ### Checklist Before Submitting
 
 - [ ] Read the [Contribute Guide](https://github.com/volcengine/verl?tab=readme-ov-file#contribution-guide).
-- [ ] Apply [pre-commit checks](https://github.com/volcengine/verl?tab=readme-ov-file#code-linting-and-formatting).
+- [ ] Apply [pre-commit checks](https://github.com/volcengine/verl?tab=readme-ov-file#code-linting-and-formatting): `pre-commit run --show-diff-on-failure --color=always --all-files`
 - [ ] Add `[BREAKING]` to the PR title `description` if it breaks any API.
 - [ ] Update the documentation about your changes in the [docs](https://github.com/volcengine/verl/tree/main/docs).
 - [ ] New CI unit test(s) are added to cover the code path.
