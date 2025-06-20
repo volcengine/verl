@@ -21,7 +21,6 @@ import ray
 from .entropy_ray_trainer import RayEntropyTrainer
 from .reward import load_reward_manager
 
-
 @hydra.main(config_path="config", config_name="entropy_trainer", version_base=None)
 def main(config):
     run_ppo(config)
