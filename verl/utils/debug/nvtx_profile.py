@@ -99,8 +99,8 @@ class NsightSystemsProfiler(DistProfiler):
     Nsight system profiler. Installed in a worker to control the Nsight system profiler.
     """
 
-    def __init__(self, rank: int, config: Optional[ProfilerConfig] = None):
-        config = config or ProfilerConfig()
+    def __init__(self, rank: int, config: ProfilerConfig):
+        config = config
         self.this_step: bool = False
         self.discrete: bool = config.discrete
         self.this_rank: bool = rank in (config.ranks or []) or config.all_ranks
