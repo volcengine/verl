@@ -18,7 +18,7 @@ from functools import partial
 import ray
 
 from verl import DataProto
-from verl.trainer.ppo.reward import get_custom_reward_fn, compute_reward
+from verl.trainer.ppo.reward import compute_reward, get_custom_reward_fn
 
 from .reward_score import _default_compute_score
 
@@ -72,7 +72,6 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
         reward_fn_key=config.data.reward_fn_key,
         **reward_kwargs,
     )
-
 
 
 @ray.remote(num_cpus=1)
