@@ -249,7 +249,7 @@ class SGLangRollout(BaseRollout):
             config: A DictConfig object containing SGLang-specific operational
                 parameters and rollout settings.
                 Refer to https://docs.sglang.ai/backend/server_arguments.html
-            tokenizer: The tokenizer instance compatible with the actor_module.
+            processing_class: The tokenizer or processor instance compatible with the actor_module.
             model_hf_config: The Hugging Face model's configuration (e.g.,
                 `transformers.PretrainedConfig`). It provides architectural
                 details and hyperparameters like `max_position_embeddings`,
