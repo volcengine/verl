@@ -4,7 +4,7 @@ Interaction System for Multi-turn RL Training
 Overview
 --------
 
-The VERL interaction system enables dynamic, multi-turn conversational feedback during reinforcement learning training. This system allows models to engage in iterative problem-solving scenarios where an interaction agent can provide corrective feedback, guidance, or evaluation based on the model's responses.
+The verl interaction system enables dynamic, multi-turn conversational feedback during reinforcement learning training. This system allows models to engage in iterative problem-solving scenarios where an interaction agent can provide corrective feedback, guidance, or evaluation based on the model's responses.
 
 Key features:
 
@@ -12,7 +12,7 @@ Key features:
 - **Instance Management**: Stateful session handling with unique instance IDs for concurrent interactions
 - **SGLang Integration**: Seamless integration with SGLang rollout system for multi-turn conversations
 - **Configuration-driven**: Dynamic agent loading via YAML configuration files
-- **Reward Integration**: Turn-level scoring mechanism integrated with VERL's reward system
+- **Reward Integration**: Turn-level scoring mechanism integrated with verl's reward system
 
 Architecture
 ------------
