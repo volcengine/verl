@@ -209,6 +209,16 @@ See the training performance of multi-turn rollout on the GSM8K task HERE_.
 
 .. _gsm8k_tool.py: https://github.com/volcengine/verl/blob/main/verl/tools/gsm8k_tool.py
 
+Interaction System
+~~~~~~~~~~~~~~~~~~
+
+For dynamic conversational feedback during RL training, see:
+
+.. toctree::
+   :maxdepth: 1
+
+   interaction_system
+
 Search Tool Integration
 ~~~~~~~~~~~~~~~~~~~~~~~
 
