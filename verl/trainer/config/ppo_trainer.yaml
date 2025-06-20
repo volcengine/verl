@@ -543,6 +543,15 @@ actor_rollout_ref:
 
       # The ranks that will be profiled. null or [0,1,...]
       ranks: null
+    
+    # [Experimental] agent loop based rollout configs
+    agent:
+
+      # Enable agent loop
+      enable: False
+
+      # Number of agent loop workers
+      num_workers: 1
 
 # configs for the critic
 critic:
