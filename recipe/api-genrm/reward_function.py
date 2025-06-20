@@ -19,7 +19,7 @@ Your task is to review and critique the solution step by step, and output whethe
 Please put your final answer (i.e., 'True' or 'False') in \\boxed{{}}.
 """.strip()
 
-BASE_URL = "http://26.29.160.50:8000/v1"
+BASE_URL = "http://localhost:8000/v1"
 API_KEY = "EMPTY"
 
 
