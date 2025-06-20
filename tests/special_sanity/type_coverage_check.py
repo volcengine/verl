@@ -11,6 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Custom type annotation check tool.
+To inspect the type annotation for functions in the entire codebase, please run:
+find verl -type f -name "*.py" | xargs -n 1 python3 tests/special_sanity/type_coverage_check.py --all-lines --debug --target-file
+"""
 
 import argparse
 import ast
@@ -52,21 +56,31 @@ CHECK_WARNING = 1
 CHECK_FAILURE = -1
 
 
-def has_type_annotations(node: ast.AST) -> int:
+def should_check_type(arg_name: str) -> bool:
+    if arg_name in ("self", "cls"):
+        return False
+    if arg_name.startswith("*"):
+        return False
+    return True
+
+
+def has_type_annotations(node: ast.AST, debug: bool = False) -> int:
     if isinstance(node, ast.FunctionDef):
-        has_ann = all(arg.annotation is not None for arg in node.args.args if arg.arg != "self") and node.returns is not None
-        return has_ann
-    elif isinstance(node, ast.Assign):
-        if not isinstance(node.value, ast.Constant):
-            return CHECK_WARNING
+        is_private = node.name.startswith("_")
+        has_ann = all(arg.annotation is not None for arg in node.args.args if should_check_type(arg.arg)) and node.returns is not None
+        if has_ann or is_private:
+            return CHECK_SUCCESS
+        else:
+            if debug:
+                print(node, [(arg.annotation, arg.arg) for arg in node.args.args if should_check_type(arg.arg)])
+            return CHECK_FAILURE
     return CHECK_SUCCESS
 
 
-def check_file(file_path: Path, changed_lines: Set[int]) -> Tuple[int, int, List[Tuple[Path, int, str]], List[Tuple[Path, int, str]]]:
+def check_file(file_path: Path, changed_lines: Set[int], debug: bool = False) -> Tuple[int, int, List[Tuple[Path, int, str]], List[Tuple[Path, int, str]]]:
     with open(file_path) as f:
         source: str = f.read()
     tree = ast.parse(source, filename=str(file_path))
-
     annotated = 0
     total = 0
     warning_lines: List[Tuple[Path, int, str]] = []
@@ -76,7 +90,7 @@ def check_file(file_path: Path, changed_lines: Set[int]) -> Tuple[int, int, List
         if hasattr(node, "lineno") and node.lineno in changed_lines:
             if isinstance(node, (ast.FunctionDef, ast.Assign, ast.AnnAssign)):
                 total += 1
-                result = has_type_annotations(node)
+                result = has_type_annotations(node, debug)
                 if result == CHECK_SUCCESS or result == CHECK_WARNING:
                     annotated += 1
                     if result == CHECK_WARNING:
@@ -90,7 +104,14 @@ def check_file(file_path: Path, changed_lines: Set[int]) -> Tuple[int, int, List
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--threshold", type=float, default=0.2, help="Minimum ratio of annotated lines required (0.0 - 1.0)")
+    parser.add_argument("--threshold", type=float, default=0.3, help="Minimum ratio of annotated lines required (0.0 - 1.0)")
+    parser.add_argument("--target-file", type=str, default=None, help="Path to the Python source file to analyse")
+    parser.add_argument(
+        "--all-lines",
+        action="store_true",
+        help="Check all lines in the file instead of only changed lines based on git",
+    )
+    parser.add_argument("--debug", action="store_true", help="Add debugging logs")
     args = parser.parse_args()
 
     total_changed = 0
@@ -98,9 +119,15 @@ def main() -> None:
     all_warnings: List[Tuple[Path, int, str]] = []
     all_failures: List[Tuple[Path, int, str]] = []
 
-    for fpath in get_changed_files():
-        changed_lines = get_changed_lines(fpath)
-        annotated, total, warning_lines, failure_lines = check_file(fpath, changed_lines)
+    target_files = [args.target_file] if args.target_file is not None else get_changed_files()
+    for fpath in target_files:
+        if "tests/" in str(fpath):
+            continue
+        if args.all_lines:
+            changed_lines = [i + 1 for i in range(len(open(fpath).readlines()))]
+        else:
+            changed_lines = get_changed_lines(fpath)
+        annotated, total, warning_lines, failure_lines = check_file(fpath, changed_lines, args.debug)
         total_annotated += annotated
         total_changed += total
         all_warnings.extend(warning_lines)
@@ -108,22 +135,28 @@ def main() -> None:
 
     ratio = (total_annotated / total_changed) if total_changed else 1.0
 
-    print(f"🔍 Type coverage on changed lines: {total_annotated}/{total_changed} = {ratio:.2%}")
+    print(f"🔍 Type coverage on {'all' if args.all_lines else 'changed'} lines: {total_annotated}/{total_changed} = {ratio:.2%}. Files inspected: {target_files}")
 
     if all_warnings:
-        print("\n⚠️ Suggest Improve: Lines missing type annotations:\n")
-        for fname, lineno, line in all_failures:
+        print("\n⚠️ Suggest Improve: Lines missing type annotations for inputs and outputs:\n")
+        for fname, lineno, line in all_warnings:
             print(f"{fname}:{lineno}: {line}")
 
     if all_failures:
-        print("\n⚠️ [ERROR] Lines missing type annotations:\n")
+        print("⚠️ [ERROR] Lines missing type annotations for inputs and outputs:\n")
         for fname, lineno, line in all_failures:
             print(f"{fname}:{lineno}: {line}")
 
     if ratio < args.threshold:
+        print(f"Please add type annotations for inputs and outputs to meet threshold {args.threshold}. Cases exempt from checking:")
+        print("1. Private methods.")
+        print("2. Args with name in ('self', 'cls'), or *args / **kwargs")
+        print("3. Files under tests/")
         raise Exception(f"\n❌ Type coverage below threshold ({args.threshold:.0%}).")
     else:
-        print("\n✅ Type annotation coverage acceptable.")
+        if all_warnings or all_failures:
+            print("")
+        print("✅ Type annotation coverage acceptable.\n")
 
 
 if __name__ == "__main__":
