@@ -117,5 +117,5 @@ class SPPOActorRolloutRefWorker(ActorRolloutRefWorker):
                 optimizer=self.actor.actor_optimizer,
                 lr_scheduler=self.actor_lr_scheduler,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
-                checkpoint_contents=self.config.actor.checkpoint,
+                checkpoint_config=self.config.actor.checkpoint,
             )

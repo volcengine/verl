@@ -62,7 +62,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         optimizer: Optional[torch.optim.Optimizer] = None,
         lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
-        checkpoint_contents: DictConfig = None,
+        checkpoint_config: DictConfig = None,
         **kwargs,
     ):
         if processing_class is None:
@@ -75,7 +75,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             optimizer,
             lr_scheduler=lr_scheduler,
             processing_class=processing_class,
-            checkpoint_contents=checkpoint_contents,
+            checkpoint_config=checkpoint_config,
         )
 
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load=False):

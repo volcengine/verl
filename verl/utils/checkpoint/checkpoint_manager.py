@@ -49,10 +49,11 @@ class BaseCheckpointManager:
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler = None,
         processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
-        checkpoint_contents: DictConfig = None,
+        checkpoint_config: DictConfig = None,
     ):
-        checkpoint_load_contents = checkpoint_contents.get("load_contents", None) if checkpoint_contents else None
-        checkpoint_save_contents = checkpoint_contents.get("save_contents", None) if checkpoint_contents else None
+        self.checkpoint_config = checkpoint_config
+        checkpoint_load_contents = checkpoint_config.get("load_contents", None) if checkpoint_config else None
+        checkpoint_save_contents = checkpoint_config.get("save_contents", None) if checkpoint_config else None
         if checkpoint_load_contents is None:
             checkpoint_load_contents = ["model", "optimizer", "extra"]
         if checkpoint_save_contents is None:
