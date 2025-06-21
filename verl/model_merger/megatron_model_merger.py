@@ -22,7 +22,6 @@ import torch
 from accelerate import init_empty_weights
 from megatron.core import mpu
 from megatron.core.models.gpt.gpt_model import ModelType
-from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
 from safetensors.torch import load_file
 from transformers import (
     AutoConfig,
@@ -99,7 +98,6 @@ class MegatronModelMerger(BaseModelMerger):
             context_parallel_size=1,
             expert_model_parallel_size=1,
         )
-        model_parallel_cuda_manual_seed(0)
         self.hf_config = AutoConfig.from_pretrained(self.config.hf_model_config_path)
         print(self.hf_config, flush=True)
 
@@ -343,8 +341,9 @@ class MegatronModelMerger(BaseModelMerger):
                 continue
             if "rotary_emb.inv_freq" in name:
                 continue
-            if self.config.tie_word_embedding and "lm_head.weight" in name:
-                continue
+            if "lm_head.weight" in name:
+                if self.config.is_value_model or self.config.tie_word_embedding:
+                    continue
             if name not in ref_state_dict:
                 raise RuntimeError(f"key: {name} not exist in state_dict")
             param = ref_state_dict[name]
@@ -361,3 +360,7 @@ class MegatronModelMerger(BaseModelMerger):
             return param_name
 
         return None  # Return None if no mapping found
+
+    def cleanup(self):
+        torch.distributed.destroy_process_group()
+        return super().cleanup()

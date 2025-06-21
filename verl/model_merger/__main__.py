@@ -54,6 +54,7 @@ def main():
         raise NotImplementedError(f"Unknown backend: {config.backend}")
 
     merger.merge_and_save()
+    merger.cleanup()
 
 
 if __name__ == "__main__":

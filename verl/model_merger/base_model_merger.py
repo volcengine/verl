@@ -258,3 +258,10 @@ class BaseModelMerger(ABC):
     @abstractmethod
     def merge_and_save(self):
         raise NotImplementedError("Subclasses should implement this method")
+
+    def cleanup(self):
+        """
+        Clean up any temporary files or directories created during the merge process.
+        This is a placeholder method and can be overridden by subclasses if needed.
+        """
+        torch.cuda.empty_cache()
