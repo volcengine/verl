@@ -49,12 +49,12 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))
 class MegatronCheckpointManager(BaseCheckpointManager):
     """
     Checkpoint manager for Megatron-LM distributed training.
-    
+
     This class manages the saving and loading of model checkpoints in a Megatron-LM
     distributed training environment. It handles various aspects of checkpointing
     including model states, optimizer states, learning rate schedulers, and random
     number generator states, ensuring compatibility with HuggingFace formats.
-    
+
     Key features:
     - Distributed checkpoint saving and loading using Megatron's dist_checkpointing
     - Support for tensor parallel, pipeline parallel, and data parallel configurations
@@ -62,25 +62,25 @@ class MegatronCheckpointManager(BaseCheckpointManager):
     - Integration with HuggingFace model configurations and tokenizers
     - Random number generator state management for reproducibility
     - Support for both synchronous and asynchronous checkpoint operations
-    
+
     The manager automatically handles:
     - Directory structure creation based on global steps and process ranks
     - Model configuration and tokenizer saving in HuggingFace format
     - Optimizer and scheduler state persistence
     - CUDA RNG state management for deterministic training
     - Checkpoint cleanup and retention policies
-    
+
     Args:
         model: The Megatron model instance to checkpoint
         optimizer: The optimizer instance (optional)
         lr_scheduler: The learning rate scheduler instance (optional)
-        
+
     Attributes:
         model: Reference to the Megatron model being checkpointed
         optimizer: Reference to the optimizer (if provided)
         lr_scheduler: Reference to the learning rate scheduler (if provided)
         rank: Current process rank in the distributed setup
-        
+
     Example:
         ```python
         checkpoint_manager = MegatronCheckpointManager(
@@ -88,28 +88,16 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             optimizer=optimizer,
             lr_scheduler=scheduler
         )
-        
+
         checkpoint_manager.save_checkpoint(
             local_path="checkpoints/step_1000",
             global_step=1000
         )
-        
+
         checkpoint_manager.load_checkpoint(
             local_path="checkpoints/step_1000"
         )
         ```
-    """
-    A checkpoint manager that saves and loads
-    - model
-    - optimizer
-    - lr_scheduler
-    - extra_states
-    in a SPMD way.
-
-    We save
-    - sharded model states and optimizer states
-    - full lr_scheduler states
-    - huggingface tokenizer/processor and config for ckpt merge
     """
 
     def __init__(
