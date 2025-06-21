@@ -69,7 +69,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         hf_config,
         param_dtype: torch.dtype,
         share_embeddings_and_output_weights: bool,
-        tokenizer,
+        processing_class,
         optimizer,
         optimizer_scheduler,
         use_distributed_optimizer: bool,
@@ -81,7 +81,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             model,
             optimizer=optimizer,
             lr_scheduler=optimizer_scheduler,
-            processing_class=tokenizer,
+            processing_class=processing_class,
             checkpoint_contents=checkpoint_contents,
         )
         self.arch = arch
