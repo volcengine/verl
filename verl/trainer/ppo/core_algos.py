@@ -162,7 +162,7 @@ def compute_gae_advantage_return(
     """This implementation is efficient but not that easy to understand.
     For easier understanding, please refer to a simpler equivalent implementation in
     https://github.com/huggingface/trl/blob/559a99f053e5bda892dd19e9283831be5b90c46b/trl/trainer/ppo_trainer.py#L524-L532
-    
+
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape is (bs, response_length)
