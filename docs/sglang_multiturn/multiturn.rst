@@ -81,13 +81,22 @@ If you see the following warning, you can check the mismatched substring in the 
 
     Inconsistent training and inference tokenization detected. This may lead to unexpected behavior during training. Please review your chat template to determine if this is intentional. For more information, refer to the multiturn README.md.
 
-Sometimes there are some "\n" mismatching in tokenization(very rare). This is triggered by the model's chat template. you can ignore them by via:
+The tokenization sanity check mode can be configured using the ``actor_rollout_ref.rollout.multi_turn.tokenization_sanity_check_mode`` parameter, which accepts the following values:
 
-``actor_rollout_ref.rollout.multi_turn.tokenization_sanity_check_mode="ignore_strippable"``
+- ``strict`` (default): Performs strict comparison between delta-based and full tokenization results, raising warnings for any differences.
 
-If the discrepancy is expected, you can disable the sanity check via:
+- ``ignore_strippable``: Ignores differences in whitespace characters (``\n``, ``\t``, ``\r``, spaces) while still checking for meaningful text mismatches. This is useful when debugging chat template issues where whitespace variations are expected and acceptable.
 
-``actor_rollout_ref.rollout.multi_turn.tokenization_sanity_check_mode="off"``
+- ``off``: Completely disables the tokenization sanity check. Only use this if you have thoroughly validated that tokenization discrepancies are expected and won't impact training.
+
+Example configuration:
+
+.. code-block:: yaml
+
+    actor_rollout_ref:
+        rollout:
+            multi_turn:
+                tokenization_sanity_check_mode: "ignore_strippable"  # Choose from: "strict", "ignore_strippable", "off"
 
 Special Cases
 ^^^^^^^^^^^^^

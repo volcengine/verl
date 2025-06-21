@@ -68,7 +68,7 @@ from verl.workers.rollout.schemas import (
     FinishReasonTypeEnum,
     Message,
 )
-from verl.workers.rollout.sglang_rollout.utils import VLM_CHAT_TEMPLATE, broadcast_pyobj
+from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
 
 try:
     from sglang.srt.function_call.function_call_parser import FunctionCallParser
@@ -298,9 +298,6 @@ class SGLangRollout(BaseRollout):
             try:
                 # This is when processing_class is a processor
                 self.pad_token_id = self.processing_class.tokenizer.pad_token_id
-
-                # Will remove this in the future when ProcessorMixin model supports tool as an input in chattemplate
-                self.processing_class.chat_template = VLM_CHAT_TEMPLATE
             except AttributeError as e:
                 raise ValueError(f"Cannot get pad_token_id from processing_class {self.processing_class}") from e
 

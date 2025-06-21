@@ -51,7 +51,7 @@ class MegatronWorker(Worker):
         from transformers import AutoConfig
 
         from verl.models.mcore import hf_to_mcore_config
-        from verl.utils import hf_tokenizer
+        from verl.utils import hf_processor, hf_tokenizer
         from verl.utils.fs import copy_to_local
         from verl.utils.model import update_model_config
 
@@ -59,10 +59,13 @@ class MegatronWorker(Worker):
         self.local_path = copy_to_local(model_path)
         if tokenizer_or_path is None:
             self.tokenizer = hf_tokenizer(self.local_path, trust_remote_code=trust_remote_code)
+            self.processor = hf_processor(self.local_path, trust_remote_code=trust_remote_code)
         elif isinstance(tokenizer_or_path, str):
             self.tokenizer = hf_tokenizer(copy_to_local(tokenizer_or_path), trust_remote_code=trust_remote_code)
+            self.processor = hf_processor(copy_to_local(tokenizer_or_path), trust_remote_code=trust_remote_code)
         else:
             self.tokenizer = tokenizer_or_path
+            self.processor = tokenizer_or_path
 
         # Step 2: get the hf
         hf_config = AutoConfig.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)

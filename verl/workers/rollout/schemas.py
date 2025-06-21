@@ -248,7 +248,33 @@ class AsyncRolloutRequest(BaseModel):
             self.metrics[tool_id] = []
         self.metrics[tool_id].append(metrics)
 
-    def _get_prompt_diffs(self, full_prompt: str, current_prompt: str, display_range: int = 10) -> List[Dict[str, Any]]:
+    def _get_prompt_diffs(self, full_prompt_ids: List[int], current_prompt_ids: List[int], display_range: int = 10) -> List[Dict[str, Any]]:
+        """Get differences between full prompt and current prompt with surrounding context.
+
+        This function helps debug tokenization mismatches by showing the differences between
+        full prompt and current prompt with surrounding context. Instead of just showing
+        the exact diff, it includes additional tokens before and after to help locate
+        the issue in the chat template.
+
+        For example, if the actual diff is a newline change from "\n\n" to "\n", with
+        display_range the output might look like:
+
+        full_prompt_chunk:    "<|im_start|>assistant\n\nI think..."
+        current_prompt_chunk: "<|im_start|>assistant\nI think..."
+
+        This context makes it much easier to identify where in the chat template the
+        mismatch occurs.
+
+        Args:
+            full_prompt_ids: Token IDs from applying chat template to all messages at once
+            current_prompt_ids: Token IDs from incremental chat template application
+            display_range: Number of surrounding tokens to include for context (default: 10)
+
+        Returns:
+            List of dicts containing the differing chunks with context and their indices
+        """
+        full_prompt = self.processing_class.decode(full_prompt_ids, skip_special_tokens=False)
+        current_prompt = self.processing_class.decode(current_prompt_ids, skip_special_tokens=False)
         s = difflib.SequenceMatcher(None, full_prompt, current_prompt, autojunk=False)
         diffs = []
         for tag, i1, i2, j1, j2 in s.get_opcodes():
@@ -286,10 +312,7 @@ class AsyncRolloutRequest(BaseModel):
             tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
             full_prompt_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True)
 
-            full_prompt = processing_class.decode(full_prompt_ids, skip_special_tokens=False)
-            current_prompt = processing_class.decode(self.input_ids, skip_special_tokens=False)
-
-            if diffs := self._get_prompt_diffs(full_prompt, current_prompt, display_range=display_range):
+            if diffs := self._get_prompt_diffs(full_prompt_ids, self.input_ids, display_range=display_range):
                 log_warning = False
                 if self.tokenization_sanity_check_mode == TokenizationSanityCheckModeEnum.STRICT:
                     log_warning = True
