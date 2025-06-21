@@ -89,6 +89,7 @@ class MegatronModelMerger(BaseModelMerger):
 
         config.hf_model_config_path = get_hf_config_and_tokenizer_checkpoint_path(config.local_dir)
         super().__init__(config)
+        # Currently we use only 1 rank to merge the dist_ckpt, we will move to multi-process save shortly afterwards
         os.environ["RANK"] = "0"
         os.environ["WORLD_SIZE"] = "1"
         os.environ["MASTER_ADDR"] = "localhost"
@@ -237,9 +238,7 @@ class MegatronModelMerger(BaseModelMerger):
         elif "self_attention.linear_qkv." in key and "layer_norm" not in key:
             # if the tensor is qkv, for each param on tp, split into q, k, v
             # concat q, k, v separately.
-            q_lst = []
-            k_lst = []
-            v_lst = []
+            q_lst, k_lst, v_lst = [], [], []
             assert config.num_attention_heads % config.num_key_value_heads == 0
             num_q_per_kv = config.num_attention_heads // config.num_key_value_heads
             assert tensor.shape[0] % (num_q_per_kv + 2) == 0, f"Tensor shape {tensor.shape} is not divisible by {num_q_per_kv + 2}"
@@ -258,12 +257,9 @@ class MegatronModelMerger(BaseModelMerger):
                 k_lst.append(k)
                 v_lst.append(v)
 
-            q = torch.cat(q_lst, dim=0)
-            k = torch.cat(k_lst, dim=0)
-            v = torch.cat(v_lst, dim=0)
-            return [q, k, v]
+            return [torch.cat(q_lst, dim=0), torch.cat(k_lst, dim=0), torch.cat(v_lst, dim=0)]
         else:
-            return tensor
+            return [tensor]
 
     def _merge_state_dicts(self, model_state_dict_list: List[Dict[str, Any]]) -> dict[str, torch.Tensor]:
         state_dict = {}
@@ -295,7 +291,7 @@ class MegatronModelMerger(BaseModelMerger):
                 tensor = model_state_dict[key]
                 split_tensor = self._split_tensors(key, tensor, self.hf_config, is_value_model=self.config.is_value_model)
 
-                if not isinstance(split_tensor, list):
+                if len(split_tensor) == 1:
                     state_dict[hf_name] = split_tensor
                 elif len(split_tensor) == 3:
                     # split qkv
@@ -366,4 +362,3 @@ class MegatronModelMerger(BaseModelMerger):
 
     def cleanup(self):
         torch.distributed.destroy_process_group()
-        return super().cleanup()
