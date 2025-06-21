@@ -249,11 +249,39 @@ class BaseModelMerger(ABC):
             tokenizer.save_pretrained(self.config.target_dir)
 
     def upload_to_huggingface(self):
+        import requests
         from huggingface_hub import HfApi
+        from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
 
         api = HfApi()
-        api.create_repo(repo_id=self.config.hf_upload_path, private=self.config.private, exist_ok=True)
-        api.upload_folder(folder_path=self.config.target_dir, repo_id=self.config.hf_upload_path, repo_type="model")
+        try:
+            # Attempt to create repository
+            api.create_repo(repo_id=self.config.hf_upload_path, private=self.config.private, exist_ok=True)
+        except HfHubHTTPError as e:
+            # Handle authentication/API errors
+            if e.response.status_code == 401:
+                raise PermissionError("Hugging Face authentication failed. Verify your token is valid and has write permissions.") from e
+            elif e.response.status_code == 404:
+                raise RepositoryNotFoundError(f"Repository path not found: {self.config.hf_upload_path}") from e
+            else:
+                raise ConnectionError(f"Failed to create repository ({e.response.status_code}): {e}") from e
+        except requests.exceptions.ConnectionError as e:
+            raise ConnectionError("Network connection failed. Check your internet connection.") from e
+
+        try:
+            # Attempt folder upload
+            api.upload_folder(folder_path=self.config.target_dir, repo_id=self.config.hf_upload_path, repo_type="model")
+        except HfHubHTTPError as e:
+            if e.response.status_code == 401:
+                raise PermissionError("Authentication failed during upload. Token may have expired.") from e
+            else:
+                raise RuntimeError(f"Upload failed ({e.response.status_code}): {e}") from e
+        except requests.exceptions.ConnectionError as e:
+            raise ConnectionError("Network interruption during upload. Try again with stable connection.") from e
+        except OSError as e:
+            raise FileNotFoundError(f"Local folder error: {self.config.target_dir} - {str(e)}") from e
+        except Exception as e:
+            raise RuntimeError(f"Unexpected error during upload: {str(e)}") from e
 
     @abstractmethod
     def merge_and_save(self):
