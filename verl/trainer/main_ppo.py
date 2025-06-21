@@ -22,9 +22,9 @@ import hydra
 import ray
 from omegaconf import OmegaConf
 
+from verl.trainer.config.algo_config import AlgoConfig
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
-from verl.trainer.config.algo_config import AlgoConfig
 from verl.utils.config import omega_conf_to_dataclass
 
 

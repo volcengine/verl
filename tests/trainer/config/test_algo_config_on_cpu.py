@@ -13,19 +13,14 @@
 # limitations under the License.
 
 import unittest
+
 import numpy as np
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 
 from verl.trainer.config.algo_config import AlgoConfig, KLControlConfig, PFPPOConfig
+from verl.trainer.ppo.core_algos import compute_gae_advantage_return, compute_grpo_outcome_advantage, get_adv_estimator_fn, get_kl_controller
 from verl.utils.config import omega_conf_to_dataclass
-from verl.trainer.ppo.core_algos import (
-    get_kl_controller, 
-    get_adv_estimator_fn, 
-    AdvantageEstimator,
-    compute_gae_advantage_return,
-    compute_grpo_outcome_advantage
-)
 
 
 class TestAlgoConfig(unittest.TestCase):
@@ -41,24 +36,16 @@ class TestAlgoConfig(unittest.TestCase):
             "norm_adv_by_std_in_grpo": True,
             "use_kl_in_reward": True,
             "kl_penalty": "kl",
-            "kl_ctrl": {
-                "type": "adaptive",
-                "kl_coef": 0.002,
-                "horizon": 5000,
-                "target_kl": 0.05
-            },
+            "kl_ctrl": {"type": "adaptive", "kl_coef": 0.002, "horizon": 5000, "target_kl": 0.05},
             "use_pf_ppo": True,
-            "pf_ppo": {
-                "reweight_method": "max_min",
-                "weight_pow": 3.0
-            }
+            "pf_ppo": {"reweight_method": "max_min", "weight_pow": 3.0},
         }
         self.omega_config = OmegaConf.create(self.config_dict)
 
     def test_dataclass_creation_from_dict(self):
         """Test creating AlgoConfig from dictionary."""
         config = omega_conf_to_dataclass(self.config_dict, AlgoConfig)
-        
+
         self.assertIsInstance(config, AlgoConfig)
         self.assertEqual(config.gamma, 0.99)
         self.assertEqual(config.lam, 0.95)
@@ -71,7 +58,7 @@ class TestAlgoConfig(unittest.TestCase):
     def test_dataclass_creation_from_omega_config(self):
         """Test creating AlgoConfig from OmegaConf DictConfig."""
         config = omega_conf_to_dataclass(self.omega_config, AlgoConfig)
-        
+
         self.assertIsInstance(config, AlgoConfig)
         self.assertEqual(config.gamma, 0.99)
         self.assertEqual(config.lam, 0.95)
@@ -79,14 +66,14 @@ class TestAlgoConfig(unittest.TestCase):
     def test_nested_configs(self):
         """Test that nested configurations are properly converted."""
         config = omega_conf_to_dataclass(self.omega_config, AlgoConfig)
-        
+
         # Test KL control config
         self.assertIsInstance(config.kl_ctrl, KLControlConfig)
         self.assertEqual(config.kl_ctrl.type, "adaptive")
         self.assertEqual(config.kl_ctrl.kl_coef, 0.002)
         self.assertEqual(config.kl_ctrl.horizon, 5000)
         self.assertEqual(config.kl_ctrl.target_kl, 0.05)
-        
+
         # Test PF PPO config
         self.assertIsInstance(config.pf_ppo, PFPPOConfig)
         self.assertEqual(config.pf_ppo.reweight_method, "max_min")
@@ -96,7 +83,7 @@ class TestAlgoConfig(unittest.TestCase):
         """Test that default values are properly set."""
         minimal_config = {"gamma": 0.8}
         config = omega_conf_to_dataclass(minimal_config, AlgoConfig)
-        
+
         self.assertEqual(config.gamma, 0.8)
         self.assertEqual(config.lam, 1.0)  # default value
         self.assertEqual(config.adv_estimator, "gae")  # default value
@@ -108,11 +95,11 @@ class TestAlgoConfig(unittest.TestCase):
     def test_get_method_backward_compatibility(self):
         """Test the get method for backward compatibility."""
         config = omega_conf_to_dataclass(self.omega_config, AlgoConfig)
-        
+
         # Test existing attribute
         self.assertEqual(config.get("gamma"), 0.99)
         self.assertEqual(config.get("gamma", 1.0), 0.99)
-        
+
         # Test non-existing attribute
         self.assertIsNone(config.get("non_existing"))
         self.assertEqual(config.get("non_existing", "default"), "default")
@@ -120,66 +107,49 @@ class TestAlgoConfig(unittest.TestCase):
     def test_kl_controller_integration(self):
         """Test integration with KL controller from core_algos."""
         config = omega_conf_to_dataclass(self.omega_config, AlgoConfig)
-        
+
         # Test adaptive KL controller
         kl_controller = get_kl_controller(config.kl_ctrl)
         self.assertEqual(kl_controller.value, 0.002)
         self.assertEqual(kl_controller.target, 0.05)
         self.assertEqual(kl_controller.horizon, 5000)
-        
+
         # Test fixed KL controller
-        fixed_config = omega_conf_to_dataclass({
-            "kl_ctrl": {"type": "fixed", "kl_coef": 0.001}
-        }, AlgoConfig)
+        fixed_config = omega_conf_to_dataclass({"kl_ctrl": {"type": "fixed", "kl_coef": 0.001}}, AlgoConfig)
         fixed_controller = get_kl_controller(fixed_config.kl_ctrl)
         self.assertEqual(fixed_controller.value, 0.001)
 
     def test_advantage_estimator_integration(self):
         """Test integration with advantage estimators from core_algos."""
         config = omega_conf_to_dataclass(self.omega_config, AlgoConfig)
-        
+
         # Test GAE advantage estimator
         adv_fn = get_adv_estimator_fn(config.adv_estimator)
         self.assertIsNotNone(adv_fn)
-        
+
         # Test with actual GAE computation
         batch_size, seq_len = 2, 5
         token_level_rewards = torch.randn(batch_size, seq_len)
         values = torch.randn(batch_size, seq_len)
         response_mask = torch.ones(batch_size, seq_len)
-        
-        advantages, returns = compute_gae_advantage_return(
-            token_level_rewards=token_level_rewards,
-            values=values,
-            response_mask=response_mask,
-            gamma=config.gamma,
-            lam=config.lam
-        )
-        
+
+        advantages, returns = compute_gae_advantage_return(token_level_rewards=token_level_rewards, values=values, response_mask=response_mask, gamma=config.gamma, lam=config.lam)
+
         self.assertEqual(advantages.shape, (batch_size, seq_len))
         self.assertEqual(returns.shape, (batch_size, seq_len))
 
     def test_grpo_advantage_estimator_integration(self):
         """Test integration with GRPO advantage estimator."""
-        grpo_config = omega_conf_to_dataclass({
-            "adv_estimator": "grpo",
-            "norm_adv_by_std_in_grpo": True
-        }, AlgoConfig)
-        
+        grpo_config = omega_conf_to_dataclass({"adv_estimator": "grpo", "norm_adv_by_std_in_grpo": True}, AlgoConfig)
+
         # Test GRPO advantage computation
         batch_size, seq_len = 4, 3
-        token_level_rewards = torch.tensor([[1.0, 0.5, 0.0], [2.0, 1.0, 0.0], 
-                                          [0.5, 0.2, 0.0], [1.5, 0.8, 0.0]])
+        token_level_rewards = torch.tensor([[1.0, 0.5, 0.0], [2.0, 1.0, 0.0], [0.5, 0.2, 0.0], [1.5, 0.8, 0.0]])
         response_mask = torch.ones(batch_size, seq_len)
         index = np.array([0, 0, 1, 1])  # Two groups
-        
-        advantages, returns = compute_grpo_outcome_advantage(
-            token_level_rewards=token_level_rewards,
-            response_mask=response_mask,
-            index=index,
-            norm_adv_by_std_in_grpo=grpo_config.norm_adv_by_std_in_grpo
-        )
-        
+
+        advantages, returns = compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards, response_mask=response_mask, index=index, norm_adv_by_std_in_grpo=grpo_config.norm_adv_by_std_in_grpo)
+
         self.assertEqual(advantages.shape, (batch_size, seq_len))
         self.assertEqual(returns.shape, (batch_size, seq_len))
 
@@ -193,21 +163,13 @@ class TestAlgoConfig(unittest.TestCase):
             "norm_adv_by_std_in_grpo": True,
             "use_kl_in_reward": False,
             "kl_penalty": "kl",
-            "kl_ctrl": {
-                "type": "fixed",
-                "kl_coef": 0.001,
-                "horizon": 10000,
-                "target_kl": 0.1
-            },
+            "kl_ctrl": {"type": "fixed", "kl_coef": 0.001, "horizon": 10000, "target_kl": 0.1},
             "use_pf_ppo": False,
-            "pf_ppo": {
-                "reweight_method": "pow",
-                "weight_pow": 2.0
-            }
+            "pf_ppo": {"reweight_method": "pow", "weight_pow": 2.0},
         }
-        
+
         config = omega_conf_to_dataclass(yaml_like_config, AlgoConfig)
-        
+
         # Verify all fields match the YAML structure
         self.assertEqual(config.gamma, 1.0)
         self.assertEqual(config.lam, 1.0)
@@ -215,12 +177,12 @@ class TestAlgoConfig(unittest.TestCase):
         self.assertTrue(config.norm_adv_by_std_in_grpo)
         self.assertFalse(config.use_kl_in_reward)
         self.assertEqual(config.kl_penalty, "kl")
-        
+
         self.assertEqual(config.kl_ctrl.type, "fixed")
         self.assertEqual(config.kl_ctrl.kl_coef, 0.001)
         self.assertEqual(config.kl_ctrl.horizon, 10000)
         self.assertEqual(config.kl_ctrl.target_kl, 0.1)
-        
+
         self.assertFalse(config.use_pf_ppo)
         self.assertEqual(config.pf_ppo.reweight_method, "pow")
         self.assertEqual(config.pf_ppo.weight_pow, 2.0)
@@ -229,7 +191,7 @@ class TestAlgoConfig(unittest.TestCase):
         """Test that __post_init__ properly initializes nested configs when None."""
         # Create config without nested configs
         minimal_config = AlgoConfig(gamma=0.9)
-        
+
         # Check that nested configs are initialized
         self.assertIsNotNone(minimal_config.kl_ctrl)
         self.assertIsInstance(minimal_config.kl_ctrl, KLControlConfig)

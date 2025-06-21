@@ -19,6 +19,7 @@ from typing import Optional
 @dataclass
 class KLControlConfig:
     """Configuration for KL control."""
+
     type: str = "fixed"  # "fixed" or "adaptive"
     kl_coef: float = 0.001  # Initial coefficient for KL penalty
     horizon: int = 10000  # Horizon value for adaptive controller
@@ -28,6 +29,7 @@ class KLControlConfig:
 @dataclass
 class PFPPOConfig:
     """Configuration for preference feedback PPO."""
+
     reweight_method: str = "pow"  # "pow", "max_min", or "max_random"
     weight_pow: float = 2.0  # Power used for weight scaling in "pow" method
 
@@ -35,6 +37,7 @@ class PFPPOConfig:
 @dataclass
 class FilterGroupsConfig:
     """Configuration for filter groups (used in DAPO and Entropy)."""
+
     enable: bool = False  # Whether to enable filter groups
     metric: Optional[str] = None  # Metric to use for filtering: "acc", "score", "seq_reward", "seq_final_reward", etc.
     max_num_gen_batches: int = 0  # Non-positive values mean no upper limit
@@ -43,6 +46,7 @@ class FilterGroupsConfig:
 @dataclass
 class AlgoConfig:
     """Configuration for the algorithm."""
+
     gamma: float = 1.0  # Discount factor for future rewards
     lam: float = 1.0  # Trade-off between bias and variance in the GAE estimator
     adv_estimator: str = "gae"  # Advantage estimator type: "gae", "grpo", "reinforce_plus_plus", etc.
@@ -52,10 +56,10 @@ class AlgoConfig:
     kl_ctrl: Optional[KLControlConfig] = None  # KL control configuration
     use_pf_ppo: bool = False  # Whether to enable preference feedback PPO
     pf_ppo: Optional[PFPPOConfig] = None  # Preference feedback PPO settings
-    
+
     # Filter groups parameters (used in DAPO and Entropy)
     filter_groups: Optional[FilterGroupsConfig] = None  # Filter groups configuration
-    
+
     # SPPO parameters
     sppo_eta: Optional[float] = None  # SPPO eta parameter
 
