@@ -7,11 +7,11 @@ StepSample = namedtuple("StepSample", ["observation", "action", "reward", "done"
 
 
 class RegularPrompt(TaskInterface):
-    def __init__(self, system_prompt, origin_prompt, client: OpenAIClient):
-        self.system_prompt = system_prompt
+    def __init__(self, item, agent_access):
+        self.system_prompt = ""
         self._trajectory = []
-        self.origin_prompt = origin_prompt
-        self.client = client
+        self.origin_prompt = item["prompt"][0]
+        self.client = OpenAIClient(llmserver_manager=agent_access)
 
     def _preprocess_prompt(self, prompt):
         messages = [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": prompt}]

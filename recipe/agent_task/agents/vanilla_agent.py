@@ -14,6 +14,6 @@ class VanillaAgent(AgentInterface):
         messages = []
         return messages
 
-    def __call__(self, *, prompt, **kwargs):
+    def __call__(self, *, prompt, system_prompt=None, **kwargs):
         messages = self._preprocess_prompt(prompt=prompt)
         return self.client.response.create(model=None, messages=messages, **kwargs)

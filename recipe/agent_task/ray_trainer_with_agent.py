@@ -69,6 +69,7 @@ class PPOTrainerForTask(RayPPOTrainer):
 
                 metrics = {}
                 timing_raw = {}
+                batch: DataProto = DataProto.from_single_dict(batch_dict)
 
                 def run_task(item, *args, **kwargs):
                     task_cls = get_task_cls(item["data_source"])
@@ -89,14 +90,13 @@ class PPOTrainerForTask(RayPPOTrainer):
                         self.async_rollout_manager.sleep()
                         gen_output_list = replay_buffer.get(batch_size=task_batch_size)
                         gen_batch_output = DataProto.from_single_list(gen_output_list)
-                        # timing_raw.update(gen_batch_output.meta_info["timing"])
-                        # gen_batch_output.meta_info.pop("timing", None)
+                        timing_raw.update(gen_batch_output.meta_info["timing"])
+                        gen_batch_output.meta_info.pop("timing", None)
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         raise RuntimeError("AdvantageEstimator.REMAX not supported in agent task mode")
 
                     # Attention: From this line below, nothing changes from the RayPPOTrainer
-
                     batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
