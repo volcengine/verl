@@ -467,7 +467,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @GPUMemoryLogger(role="generate_sequences", logger=logger)
     @DistProfiler.annotate(color="red")
-    @WorkerProfiler.annotate(color="red")
     def generate_sequences(self, prompts: DataProto):
         assert self._is_rollout
         if self._is_offload_param:

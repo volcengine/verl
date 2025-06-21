@@ -1113,7 +1113,8 @@ class SGLangRollout(BaseRollout):
         )
 
         # json_request already contains sampling_params
-        output = await self._handle_engine_call(req, True, False, False, **json_request)
+        sampling_params = {k: v for k, v in json_request.items() if k not in ["messages", "model"]}
+        output = await self._handle_engine_call(req, sampling_params)
         # it can be Dict or AsyncIterator[Dict]
         if isinstance(output, dict):
             outputs = [output]
