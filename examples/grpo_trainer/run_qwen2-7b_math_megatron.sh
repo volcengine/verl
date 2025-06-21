@@ -4,6 +4,12 @@ set -x
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation overlapping
 
+rollout_mode="sync"
+if [ "$rollout_mode" = "async" ]; then
+    export VLLM_USE_V1=1
+    return_raw_chat="True"
+fi
+
 gsm8k_train_path=$HOME/data/gsm8k/train.parquet
 gsm8k_test_path=$HOME/data/gsm8k/test.parquet
 math_train_path=$HOME/data/math/train.parquet
@@ -17,6 +23,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     algorithm.adv_estimator=grpo \
     data.train_files="$train_files" \
     data.val_files="$test_files" \
+    data.return_raw_chat=$return_raw_chat \
     data.train_batch_size=1024 \
     data.max_prompt_length=1024 \
     data.max_response_length=1024 \
@@ -36,6 +43,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
+    actor_rollout_ref.rollout.mode=$rollout_mode \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=5 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
