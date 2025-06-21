@@ -29,6 +29,7 @@ from transformers import (
 )
 
 from verl.models.mcore import hf_to_mcore_config
+from verl.utils.device import get_nccl_backend
 from verl.utils.megatron.dist_checkpointing import load_dist_checkpointing
 from verl.utils.megatron_utils import get_model
 
@@ -91,7 +92,7 @@ class MegatronModelMerger(BaseModelMerger):
         os.environ["WORLD_SIZE"] = "1"
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = "12355"
-        torch.distributed.init_process_group("nccl")
+        torch.distributed.init_process_group(get_nccl_backend())
         mpu.initialize_model_parallel(
             tensor_model_parallel_size=1,
             virtual_pipeline_model_parallel_size=None,
