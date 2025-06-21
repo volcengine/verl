@@ -35,7 +35,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
         messages.append(message.model_dump(exclude_unset=True, exclude_none=True))
         return messages
 
-    async def tokenize(self, messages: List[Dict[str, str]]) -> Dict[str, List]:
+    def tokenize(self, messages: List[Dict[str, str]]) -> Dict[str, List]:
         prompt = self.tokenizer.apply_chat_template(messages[:1], add_generation_prompt=True, tokenize=False)
         sequence = self.tokenizer.apply_chat_template(messages, add_generation_prompt=False, tokenize=False)
         response = sequence[len(prompt) :]

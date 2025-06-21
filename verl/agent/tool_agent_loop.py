@@ -95,7 +95,7 @@ class ToolAgentLoop(AgentLoopBase):
             "tool_call_id": tool_call.id,
         }
 
-    async def tokenize(self, messages: List[Dict[str, str]]) -> Dict[str, List]:
+    def tokenize(self, messages: List[Dict[str, str]]) -> Dict[str, List]:
         prompt_ids = self.tokenizer.apply_chat_template(messages[:1], tools=self.tool_schemas, add_generation_prompt=False, tokenize=True)
 
         # last message should not be tool calling

@@ -16,6 +16,7 @@ import heapq
 import logging
 import os
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Type
 from uuid import uuid4
 
@@ -155,7 +156,7 @@ class AgentLoopBase(ABC):
         """
         raise NotImplementedError
 
-    async def tokenize(self, messages: List[Dict[str, str]]) -> AgentLoopOutput:
+    def tokenize(self, messages: List[Dict[str, str]]) -> AgentLoopOutput:
         """Tokenize messages to ids.
 
         Args:
@@ -185,6 +186,9 @@ class AgentLoopWorker:
         self.model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
+
+        # Thread pool for tokenize to avoid blocking asyncio loop
+        self.tokenize_pool = ThreadPoolExecutor(max_workers=16)
 
     async def generate_sequences(self, batch: DataProto) -> DataProto:
         """Generate sequences from agent loop.
@@ -218,11 +222,14 @@ class AgentLoopWorker:
         output = self._postprocess(outputs)
         return output
 
-    async def _run_agent_loop(self, agent_name: str, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> List[AgentLoopOutput]:
+    async def _run_agent_loop(self, agent_name: str, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> AgentLoopOutput:
         agent_loop_class = self.get_agent_loop_class(agent_name)
         agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer)
         messages = await agent_loop.run(messages, sampling_params)
-        return await agent_loop.tokenize(messages)
+
+        loop = asyncio.get_running_loop()
+        output = await loop.run_in_executor(self.tokenize_pool, agent_loop.tokenize, messages)
+        return output
 
     def get_agent_loop_class(self, agent_name: str) -> Type[AgentLoopBase]:
         # TODO: add tool agent registrary

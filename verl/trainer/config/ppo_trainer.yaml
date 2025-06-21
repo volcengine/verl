@@ -554,7 +554,7 @@ actor_rollout_ref:
       enable: False
 
       # Number of agent loop workers
-      num_workers: 1
+      num_workers: 4
 
 # configs for the critic
 critic:
