@@ -13,9 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Dict
+
 import torch
 from megatron.core import parallel_state as mpu
 from megatron.core.packed_seq_params import PackedSeqParams
+
+from verl.utils.model import CausalLMOutputForPPO
 
 
 def preprocess_packed_seqs(input_ids: torch.Tensor, attention_mask: torch.Tensor, pre_process: bool = True) -> tuple[torch.Tensor, PackedSeqParams]:
@@ -91,7 +95,7 @@ def postprocess_packed_seqs(
     """
     if not post_process:
         return output
-    shape = [batch_size, seq_len] + list(output.shape[2:])  # 1,packed, dim -> batch_size, seq_len, dim
+    shape = [batch_size, seq_len] + list(output.shape[2:])  # 1, packed, dim -> batch_size, seq_len, dim
     output_new = torch.zeros(shape, dtype=output.dtype, device=output.device)
 
     cp_size = mpu.get_context_parallel_world_size()
@@ -127,6 +131,39 @@ def postprocess_packed_seqs(
         output_new[i, attention_mask[i]] = tmp[:s_len]
 
     return output_new
+
+
+def postprocess_packed_seqs_for_dict_output(
+    labels_mask: torch.Tensor,
+    output: CausalLMOutputForPPO,
+    packed_seq_params: PackedSeqParams,
+    attention_mask: torch.Tensor,
+    batch_size: int,
+    seq_len: int,
+    post_process: bool = True,
+) -> Dict[str, torch.Tensor]:
+    """_summary_
+    For fused kernels, the output is a dictionary with keys like 'log_probs', 'entropy', etc.
+    This function post-processes each tensor in the output dictionary.
+
+    Args:
+        output (CausalLMOutputForPPO): _description_
+        packed_seq_params (PackedSeqParams): _description_
+        attention_mask (torch.Tensor): _description_
+        batch_size (int): _description_
+        seq_len (int): _description_
+        post_process (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        CausalLMOutputForPPO: _description_
+    """
+    ret = {}
+    output.entropy = output.entropy.view(1, -1)
+    output.log_probs = output.log_probs.view(1, -1)
+    output.log_probs = output.log_probs.masked_fill(~labels_mask, 0.0)
+    ret["entropy"] = postprocess_packed_seqs(output.entropy, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
+    ret["log_probs"] = postprocess_packed_seqs(output.log_probs, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
+    return ret
 
 
 def remove_left_padding(

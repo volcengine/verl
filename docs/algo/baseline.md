@@ -1,3 +1,4 @@
+(algo-baseline-page)=
 # Algorithm Baselines
 
 ## Math related datasets

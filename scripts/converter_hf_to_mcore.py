@@ -59,14 +59,14 @@ class Config:
         self.model = ModelConfig()
 
 
-def test_conversion(megatron_model_provider, tfconfig, output_path, model):
+def test_conversion(megatron_model_provider, tf_config, output_path, model):
     ########### test ###########
     # load model
     model_test = get_model(
         model_provider_func=megatron_model_provider,
         model_type=ModelType.encoder_or_decoder,
         wrap_with_ddp=True,
-        transformer_config=tfconfig,
+        transformer_config=tf_config,
     )
     ref_state_dict = model_test[0].module.sharded_state_dict()
     dist_checkpointing.load(ref_state_dict, output_path, strict=StrictHandling.ASSUME_OK_UNEXPECTED)
@@ -258,7 +258,7 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
 
 
 @torch.no_grad()
-def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_config, tfconfig):
+def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_config, tf_config):
     warnings.warn("MTP model is not supported yet", stacklevel=2)
     numel: int = 0
     numel += safe_copy(hf_model.model.embed_tokens.weight, model.embedding.word_embeddings.weight)
@@ -288,7 +288,7 @@ def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_
             # NOTE: the e_score_correction_bias in mcore model will be initialized with bfloat16 and \
             # recover to fp32 in the first forward. There is always a diff in the bias between two models (~0.3%)
             numel += safe_copy(hf_layer.mlp.gate.e_score_correction_bias, layer.mlp.router.expert_bias, skip_dtype_assert=True)
-            if tfconfig.moe_grouped_gemm:
+            if tf_config.moe_grouped_gemm:
                 for i, hf_expert in enumerate(hf_layer.mlp.experts):
                     fc1_weight = torch.cat([hf_expert.gate_proj.weight, hf_expert.up_proj.weight])
                     linear_fc1_weighti = getattr(layer.mlp.experts.linear_fc1, "weight" + str(i))
@@ -346,8 +346,8 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
 
     cfg = Config()
     cfg.model.path = hf_model_path
-    tfconfig = hf_to_mcore_config(hf_config, torch.bfloat16)
-    tfconfig.use_cpu_initialization = use_cpu_initialization
+    tf_config = hf_to_mcore_config(hf_config, torch.bfloat16)
+    tf_config.use_cpu_initialization = use_cpu_initialization
     tie_word_embeddings = getattr(hf_config, "tie_word_embeddings", False)
 
     # init megatron model
@@ -355,10 +355,11 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
         from verl.models.mcore import init_mcore_model
 
         parallel_model = init_mcore_model(
-            tfconfig,
-            hf_config,
-            pre_process,
-            post_process,
+            tf_config=tf_config,
+            hf_config=hf_config,
+            use_fused_kernels=False,
+            pre_process=pre_process,
+            post_process=post_process,
             share_embeddings_and_output_weights=tie_word_embeddings,
             value=False,
         )
@@ -370,7 +371,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
             model_provider_func=megatron_model_provider,
             model_type=ModelType.encoder_or_decoder,
             wrap_with_ddp=False,
-            transformer_config=tfconfig,
+            transformer_config=tf_config,
         )
 
     if use_cpu_initialization:
@@ -394,7 +395,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
     elif "Qwen2_5_VLForConditionalGeneration" in hf_config.architectures:
         convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hf_model, model[0].module, hf_config)
     elif "DeepseekV3ForCausalLM" in hf_config.architectures:
-        numel: int = convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model[0].module, hf_config, tfconfig=tfconfig)
+        numel: int = convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model[0].module, hf_config, tf_config=tf_config)
         if numel != hf_model.num_parameters():
             warnings.warn(f"numel mismatch: {numel=} != {hf_model.num_parameters()=}", stacklevel=1)
     elif "Qwen3MoeForCausalLM" in hf_config.architectures:
@@ -418,7 +419,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
     if len(os.listdir(output_path)) == 0:
         dist_checkpointing.save(megatron_state_dict, output_path, sharded_strategy=None, async_sharded_save=False)
     if test:
-        test_conversion(megatron_model_provider, tfconfig, output_path, model)
+        test_conversion(megatron_model_provider, tf_config, output_path, model)
 
 
 if __name__ == "__main__":
