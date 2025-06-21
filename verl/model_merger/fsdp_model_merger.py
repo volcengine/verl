@@ -59,22 +59,22 @@ from .base_model_merger import BaseModelMerger
 class FSDPModelMerger(BaseModelMerger):
     """
     Model merger for FSDP (Fully Sharded Data Parallel) checkpoints.
-    
+
     This class handles the conversion of FSDP distributed checkpoints into HuggingFace format.
     FSDP shards model parameters across multiple processes, and this merger reconstructs
     the full model by loading and concatenating the sharded parameters from all ranks.
-    
+
     The merger supports various FSDP configurations including:
     - Pure FSDP (single dimension sharding)
     - FSDP + DDP (data parallel + fully sharded data parallel)
     - DTensor-based sharding with custom device meshes
-    
+
     Key features:
     - Automatic detection of world size from checkpoint filenames
     - Support for DTensor and non-DTensor checkpoints
     - Parallel loading of checkpoint shards for efficiency
     - Validation against reference HuggingFace models
-    
+
     Example:
         To merge FSDP checkpoints:
         ```python
@@ -88,6 +88,7 @@ class FSDPModelMerger(BaseModelMerger):
         merger.merge_and_save()
         ```
     """
+
     def _get_world_size(self) -> int:
         """Extracts the FSDP world_size from checkpoint filenames (e.g., 'model_world_size_8_rank_0.pt')."""
         for filename in os.listdir(self.config.local_dir):

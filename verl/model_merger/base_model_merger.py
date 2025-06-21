@@ -117,24 +117,25 @@ def generate_config_from_args(args: argparse.Namespace) -> ModelMergerConfig:
 class BaseModelMerger(ABC):
     """
     Abstract base class for merging distributed model checkpoints into HuggingFace format.
-    
+
     This class provides common functionality for converting model checkpoints from different
     distributed training backends (FSDP, Megatron) into standard HuggingFace format that
     can be easily loaded and used for inference or further training.
-    
+
     The merger supports two main operations:
     - merge: Convert and save checkpoints to HuggingFace format
     - test: Validate merged checkpoints against a reference model
-    
+
     Args:
         config (ModelMergerConfig): Configuration object containing paths, backend type,
             and operation parameters.
-    
+
     Attributes:
         config (ModelMergerConfig): The configuration object passed during initialization.
         hf_model_config_path (str): Path to the HuggingFace model configuration files.
         model_config (PretrainedConfig): Loaded HuggingFace model configuration.
     """
+
     def __init__(self, config: ModelMergerConfig):
         self.config = config
         self.hf_model_config_path = config.hf_model_config_path

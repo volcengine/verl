@@ -44,30 +44,30 @@ def noop_context() -> Any:
 class MegatronModelMerger(BaseModelMerger):
     """
     Model merger for Megatron-LM distributed checkpoints.
-    
+
     This class handles the conversion of Megatron-LM distributed checkpoints into HuggingFace format.
     Megatron-LM uses tensor parallelism, pipeline parallelism, and data parallelism to distribute
     large language models across multiple GPUs. This merger reconstructs the full model by
     loading distributed checkpoints and applying the necessary transformations.
-    
+
     Key features:
     - Support for tensor parallel, pipeline parallel, and data parallel configurations
     - Automatic parameter name mapping from Megatron to HuggingFace conventions
     - Handling of QKV and gate-up tensor splitting/merging
     - Support for tied word embeddings and value models
     - Integration with Megatron's distributed checkpointing system
-    
+
     The merger handles various model architectures and configurations:
     - Standard transformer models (GPT-style)
     - Models with tied word embeddings
     - Value models for reinforcement learning
     - Multi-layer attention (MLA) architectures
     - Mixture of Experts (MoE) models
-    
+
     Args:
         config (ModelMergerConfig): Configuration object with Megatron-specific settings
             including tie_word_embedding and is_value_model flags.
-    
+
     Example:
         To merge Megatron checkpoints:
         ```python
@@ -82,6 +82,7 @@ class MegatronModelMerger(BaseModelMerger):
         merger.merge_and_save()
         ```
     """
+
     def __init__(self, config: ModelMergerConfig):
         from verl.utils.megatron_utils import get_hf_config_and_tokenizer_checkpoint_path
 
