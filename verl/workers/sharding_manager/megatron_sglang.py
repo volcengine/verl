@@ -55,6 +55,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         transformer_config,
         layer_name_mapping,
         weight_converter,
+        bridge=None,
         device_mesh: DeviceMesh | None = None,
     ):
         self.actor_module = actor_module
@@ -64,7 +65,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
         self.device_mesh = device_mesh
-
+        self.bridge = bridge
         if self.device_mesh is not None:
             self.infer_tp_size = self.device_mesh["tp"].mesh.size()[0]
         else:
@@ -85,13 +86,16 @@ class MegatronSGLangShardingManager(BaseShardingManager):
     def __enter__(self):
         self.timing = {}
         with simple_timer("reshard", self.timing):
-            per_tensor_param = per_tensor_generator(
-                self.actor_module,
-                self.model_config,
-                self.weight_converter,
-                self.transformer_config,
-                self.layer_name_mapping,
-            )
+            if self.bridge is not None:
+                per_tensor_param = self.bridge.export_weights(self.actor_module)
+            else:
+                per_tensor_param = per_tensor_generator(
+                    self.actor_module,
+                    self.model_config,
+                    self.weight_converter,
+                    self.transformer_config,
+                    self.layer_name_mapping,
+                )
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self.update_weights(per_tensor_param))
             # important: need to manually set the random states of each tp to be identical.
@@ -146,13 +150,16 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
     async def wake_up(self):
-        per_tensor_param = per_tensor_generator(
-            self.actor_module,
-            self.model_config,
-            self.weight_converter,
-            self.transformer_config,
-            self.layer_name_mapping,
-        )
+        if self.bridge is not None:
+            per_tensor_param = self.bridge.export_weights(self.actor_module)
+        else:
+            per_tensor_param = per_tensor_generator(
+                self.actor_module,
+                self.model_config,
+                self.weight_converter,
+                self.transformer_config,
+                self.layer_name_mapping,
+            )
         await self.update_weights(per_tensor_param)
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:
