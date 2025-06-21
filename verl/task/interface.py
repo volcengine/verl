@@ -9,7 +9,7 @@ class TaskInterface(ABC):
     """
 
     @abstractmethod
-    def run(self, *args, **kwargs):
+    def run(self):
         # run Task Loop here
         ...
 

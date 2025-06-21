@@ -781,10 +781,7 @@ class RayPPOTrainer:
             from verl.workers.rollout.async_server import AsyncLLMServerManager
 
             self.async_rollout_mode = True
-            self.async_rollout_manager = AsyncLLMServerManager(
-                config=self.config,
-                worker_group=self.actor_rollout_wg,
-            )
+            self.async_rollout_manager = AsyncLLMServerManager(config=self.config, worker_group=self.actor_rollout_wg, remote_scheduler=self.config.actor_rollout_ref.rollout.remote_scheduler)
 
     def _save_checkpoint(self):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
