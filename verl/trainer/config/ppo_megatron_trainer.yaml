@@ -121,7 +121,7 @@ actor_rollout_ref:
       all_ranks: False
       ranks: null
   ref:
-    strategy: megatron
+    strategy: ${actor_rollout_ref.actor.strategy}
     use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
     megatron:
       param_offload: False
@@ -225,7 +225,7 @@ actor_rollout_ref:
       ranks: null
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
-  strategy: megatron
+  strategy: ${actor_rollout_ref.actor.strategy}
   nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
   optim:
     optimizer: adam
@@ -301,7 +301,7 @@ critic:
     ranks: null
 reward_model:
   enable: False
-  strategy: megatron
+  strategy: ${actor_rollout_ref.actor.strategy}
   nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
   megatron:
     param_offload: False
