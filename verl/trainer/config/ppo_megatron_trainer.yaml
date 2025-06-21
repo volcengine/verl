@@ -153,7 +153,7 @@ actor_rollout_ref:
       all_ranks: False
       ranks: null
   rollout:
-    name: vllm
+    name: vllm  # vllm, sglang
     mode: sync # sync: LLM, async: AsyncLLM
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
