@@ -129,13 +129,14 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
 
     async def release_memory_occupation(self, tags: Optional[list[str]] = None):
         """Release GPU occupation temporarily."""
-        print(f"release_memory_occupation with tags: {tags}")
-        obj = ReleaseMemoryOccupationReqInput(tags=tags)
+        if tags is None:
+            obj = ReleaseMemoryOccupationReqInput()
+        else:
+            obj = ReleaseMemoryOccupationReqInput(tags=tags)
         return await self.tokenizer_manager.release_memory_occupation(obj, None)
 
     async def resume_memory_occupation(self, tags: Optional[list[str]] = None):
         """Resume GPU occupation."""
-        print(f"resume_memory_occupation with tags: {tags}")
         # because __init__ is a sync method, it can not call the async release_memory_occupation
         # have to move release_memory_occupation from __init__ to here
         # For multi-stage awake, we run release weight and kv_cache when we resume weights for the first time.
@@ -143,7 +144,10 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
             await self.release_memory_occupation()
             self._need_reload = False
 
-        obj = ResumeMemoryOccupationReqInput(tags=tags)
+        if tags is None:
+            obj = ResumeMemoryOccupationReqInput()
+        else:
+            obj = ResumeMemoryOccupationReqInput(tags=tags)
         return await self.tokenizer_manager.resume_memory_occupation(obj, None)
 
     async def update_weights_from_tensor(
