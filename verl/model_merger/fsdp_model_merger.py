@@ -257,3 +257,8 @@ class FSDPModelMerger(BaseModelMerger):
             torch.testing.assert_close(hf_state_dict[key], state_dict[key], atol=1e-6, rtol=1e-6)
 
         print("FSDP checks passed: The merged state_dict matches the hf model saved by FSDPCheckpointManager.")
+
+    def cleanup(self):
+        """Cleanup temporary files if needed."""
+        # FSDP merger does not create temporary files, so no cleanup is needed.
+        pass

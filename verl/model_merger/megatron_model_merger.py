@@ -22,6 +22,7 @@ import torch
 from accelerate import init_empty_weights
 from megatron.core import mpu
 from megatron.core.models.gpt.gpt_model import ModelType
+from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
 from safetensors.torch import load_file
 from transformers import (
     AutoConfig,
@@ -99,6 +100,7 @@ class MegatronModelMerger(BaseModelMerger):
             context_parallel_size=1,
             expert_model_parallel_size=1,
         )
+        model_parallel_cuda_manual_seed(0)
         self.hf_config = AutoConfig.from_pretrained(self.config.hf_model_config_path)
         print(self.hf_config, flush=True)
 
