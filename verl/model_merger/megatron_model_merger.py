@@ -292,7 +292,7 @@ class MegatronModelMerger(BaseModelMerger):
                 split_tensor = self._split_tensors(key, tensor, self.hf_config, is_value_model=self.config.is_value_model)
 
                 if len(split_tensor) == 1:
-                    state_dict[hf_name] = split_tensor
+                    state_dict[hf_name] = split_tensor[0]
                 elif len(split_tensor) == 3:
                     # split qkv
                     for n, d in zip(["q", "k", "v"], split_tensor):
