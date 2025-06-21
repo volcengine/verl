@@ -127,6 +127,10 @@ actor_rollout_ref:
     # Target modules to apply LoRA. Options: "all-linear" or
     # [q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]
     target_modules: all-linear
+    
+    # Exclude modules from applying Lora. Similar usage to target_modules and Peft.
+    # Example: '.*visual.*' for excluding ViT part in VL model, as vllm does not support ViT Lora.
+    exclude_modules: null
 
     # Whether to use Liger for linear layer fusion
     use_liger: false
@@ -198,7 +202,7 @@ actor_rollout_ref:
       # KL divergence penalty coefficient
       ppo_kl_coef: 0.1
 
-    # Constant C in Dual-clip PPO; clips when advantage < -C
+    # Constant C in Dual-clip PPO; clips when ratio > C and advantage < 0
     clip_ratio_c: 3.0
 
     # Loss aggregation mode: "token-mean", "seq-mean-token-sum", or "seq-mean-token-mean"
