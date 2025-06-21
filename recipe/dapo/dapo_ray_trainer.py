@@ -120,7 +120,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                     # generate a batch
                     with marked_timer("gen", timing_raw, "red"):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                        timing_raw.update(gen_batch_output.meta_info["timing"])
+                        timing_raw.update(gen_batch_output.meta_info.get("timing", {}))
                         gen_batch_output.meta_info.pop("timing", None)
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:

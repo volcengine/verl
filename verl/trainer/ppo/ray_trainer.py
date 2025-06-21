@@ -976,10 +976,11 @@ class RayPPOTrainer:
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
-                            self.async_rollout_manager.wake_up()
+                            with _timer("wake_up", timing_raw):
+                                self.async_rollout_manager.wake_up()
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
                             self.async_rollout_manager.sleep()
-                        timing_raw.update(gen_batch_output.meta_info["timing"])
+                        timing_raw.update(gen_batch_output.meta_info.get("timing", {}))
                         gen_batch_output.meta_info.pop("timing", None)
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
