@@ -31,7 +31,9 @@ from verl.single_controller.ray import RayWorkerGroup
 from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import _compute_response_info
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
+from verl.trainer.config.algorithm_config import AlgorithmConfig
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
+from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.utils.debug.performance import simple_timer
 from verl.utils.metric import reduce_metrics
@@ -357,7 +359,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
-                    if self.config.algorithm.adv_estimator == "remax":
+                    if self.algorithm_config.adv_estimator == "remax":
                         with simple_timer("gen_max", timing_raw):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info["do_sample"] = False
@@ -452,7 +454,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                                 metrics.update(reward_output_metrics)
 
                         # compute advantages, executed on the driver process
-                        batch = compute_advantage(batch, adv_estimator=self.config.algorithm.adv_estimator, config=self.config)
+                        batch = compute_advantage(batch, adv_estimator=self.algorithm_config.adv_estimator, config=self.config)
 
                     # update actor
                     with simple_timer("update_actor", timing_raw):

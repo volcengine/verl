@@ -31,6 +31,8 @@ from verl.trainer.ppo.ray_trainer import (
     compute_data_metrics,
     compute_timing_metrics,
 )
+from verl.trainer.config.algorithm_config import AlgorithmConfig
+from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.metric import reduce_metrics
 
 
@@ -88,7 +90,7 @@ def fit(self):
                     timing_raw.update(gen_batch_output.meta_info["timing"])
                     gen_batch_output.meta_info.pop("timing", None)
 
-                if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
+                if self.algorithm_config.adv_estimator == AdvantageEstimator.REMAX:
                     with _timer("gen_max", timing_raw):
                         gen_baseline_batch = deepcopy(gen_batch)
                         gen_baseline_batch.meta_info["do_sample"] = False
@@ -150,19 +152,19 @@ def fit(self):
                     batch.batch["token_level_scores"] = reward_tensor
 
                     # compute rewards. apply_kl_penalty if available
-                    if self.config.algorithm.use_kl_in_reward:
-                        batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty)
+                    if self.algorithm_config.use_kl_in_reward:
+                        batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.algorithm_config.kl_penalty)
                         metrics.update(kl_metrics)
                     else:
                         batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
                     # compute advantages, executed on the driver process
-                    norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)
+                    norm_adv_by_std_in_grpo = self.algorithm_config.norm_adv_by_std_in_grpo
                     batch = compute_advantage(
                         batch,
-                        adv_estimator=self.config.algorithm.adv_estimator,
-                        gamma=self.config.algorithm.gamma,
-                        lam=self.config.algorithm.lam,
+                        adv_estimator=self.algorithm_config.adv_estimator,
+                        gamma=self.algorithm_config.gamma,
+                        lam=self.algorithm_config.lam,
                         num_repeat=self.config.actor_rollout_ref.rollout.n,
                         norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                     )

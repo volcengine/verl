@@ -33,6 +33,8 @@ import hydra
 import ray
 
 from .prime_ray_trainer import RayPRIMETrainer
+from verl.trainer.config.algorithm_config import AlgorithmConfig
+from verl.utils.config import omega_conf_to_dataclass
 
 
 @hydra.main(config_path="config", config_name="prime_trainer", version_base=None)
@@ -103,8 +105,11 @@ def main_task(config, compute_score=None):
         Role.ActorRollout: global_pool_id,
     }
 
+    # Convert algorithm config to dataclass
+    algorithm_config = omega_conf_to_dataclass(config.algorithm, AlgorithmConfig)
+    
     # use reference model
-    if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+    if algorithm_config.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
         role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
         mapping[Role.RefPolicy] = global_pool_id
 

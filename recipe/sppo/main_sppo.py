@@ -23,6 +23,8 @@ import hydra
 import ray
 
 from verl.trainer.ppo.reward import load_reward_manager
+from verl.trainer.config.algorithm_config import AlgorithmConfig
+from verl.utils.config import omega_conf_to_dataclass
 
 from .sppo_ray_trainer import RaySPPOTrainer
 
@@ -122,8 +124,11 @@ class TaskRunner:
             role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
             mapping[Role.RewardModel] = global_pool_id
 
+        # Convert algorithm config to dataclass
+        algorithm_config = omega_conf_to_dataclass(config.algorithm, AlgorithmConfig)
+        
         # use reference model
-        if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+        if algorithm_config.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
             role_worker_mapping[Role.RefPolicy] = ray.remote(SPPOActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
 

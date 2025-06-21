@@ -33,6 +33,14 @@ class PFPPOConfig:
 
 
 @dataclass
+class FilterGroupsConfig:
+    """Configuration for filter groups (used in DAPO and Entropy)."""
+    enable: bool = False  # Whether to enable filter groups
+    metric: Optional[str] = None  # Metric to use for filtering: "acc", "score", "seq_reward", "seq_final_reward", etc.
+    max_num_gen_batches: int = 0  # Non-positive values mean no upper limit
+
+
+@dataclass
 class AlgorithmConfig:
     """Configuration for the algorithm."""
     gamma: float = 1.0  # Discount factor for future rewards
@@ -44,6 +52,12 @@ class AlgorithmConfig:
     kl_ctrl: Optional[KLControlConfig] = None  # KL control configuration
     use_pf_ppo: bool = False  # Whether to enable preference feedback PPO
     pf_ppo: Optional[PFPPOConfig] = None  # Preference feedback PPO settings
+    
+    # Filter groups parameters (used in DAPO and Entropy)
+    filter_groups: Optional[FilterGroupsConfig] = None  # Filter groups configuration
+    
+    # SPPO parameters
+    sppo_eta: Optional[float] = None  # SPPO eta parameter
 
     def __post_init__(self):
         """Initialize nested configs if they are None."""
@@ -51,6 +65,8 @@ class AlgorithmConfig:
             self.kl_ctrl = KLControlConfig()
         if self.pf_ppo is None:
             self.pf_ppo = PFPPOConfig()
+        if self.filter_groups is None:
+            self.filter_groups = FilterGroupsConfig()
 
     def get(self, key: str, default=None):
         """Get attribute with default value for backward compatibility."""
