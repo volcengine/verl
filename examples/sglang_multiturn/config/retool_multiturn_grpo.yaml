@@ -18,5 +18,5 @@ actor_rollout_ref:
     name: sglang_async
     multi_turn:
       enable: True
-      max_turns: 5
+      max_assistant_turns: 5
       tool_config_path: "./config/tool_config/sandbox_fusion_tool_config.yaml"
