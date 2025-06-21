@@ -186,7 +186,7 @@ def compute_gae_advantage_return(
         device = values.device
         values_pad = pad(values, (0, 1), mode="constant", value=0.0)
         delta = token_level_rewards + gamma * values_pad[:, 1:] - values
-        delta_padded = pad(delta, (0, delta.shape[-1] - 1)).unsqueeze(1)    # (batch, 1, gen_len)
+        delta_padded = pad(delta, (0, delta.shape[-1] - 1)).unsqueeze(1)  # (batch, 1, gen_len)
         decay = (lam * gamma) ** torch.arange(gen_len, device=device)[None, None, :]  # (1, 1, gen_len)
 
         advantages = torch.conv1d(delta_padded, decay).squeeze(1)
