@@ -17,7 +17,7 @@ This script is used to merge huggingface model and test verl checkpoints from FS
 
 To merge FSDP checkpoints:
 ```sh
-python -m scripts.model_merger merge \
+python -m verl.model_merger merge \
     --backend fsdp \
     --local_dir checkpoints/verl_fsdp_gsm8k_examples/qwen2_5_0b5_fsdp_saveload/global_step_1/actor \
     --target_dir /path/to/merged_hf_model
@@ -25,7 +25,7 @@ python -m scripts.model_merger merge \
 
 To merge Megatron checkpoints:
 ```sh
-python -m scripts.model_merger merge \
+python -m verl.model_merger merge \
     --backend megatron \
     --tie-word-embedding \
     --local_dir checkpoints/verl_megatron_gsm8k_examples/qwen2_5_0b5_megatron_saveload/global_step_1/actor \
@@ -57,13 +57,44 @@ from .base_model_merger import BaseModelMerger
 
 
 class FSDPModelMerger(BaseModelMerger):
+    """
+    Model merger for FSDP (Fully Sharded Data Parallel) checkpoints.
+    
+    This class handles the conversion of FSDP distributed checkpoints into HuggingFace format.
+    FSDP shards model parameters across multiple processes, and this merger reconstructs
+    the full model by loading and concatenating the sharded parameters from all ranks.
+    
+    The merger supports various FSDP configurations including:
+    - Pure FSDP (single dimension sharding)
+    - FSDP + DDP (data parallel + fully sharded data parallel)
+    - DTensor-based sharding with custom device meshes
+    
+    Key features:
+    - Automatic detection of world size from checkpoint filenames
+    - Support for DTensor and non-DTensor checkpoints
+    - Parallel loading of checkpoint shards for efficiency
+    - Validation against reference HuggingFace models
+    
+    Example:
+        To merge FSDP checkpoints:
+        ```python
+        config = ModelMergerConfig(
+            operation="merge",
+            backend="fsdp",
+            local_dir="path/to/fsdp/checkpoints",
+            target_dir="path/to/output"
+        )
+        merger = FSDPModelMerger(config)
+        merger.merge_and_save()
+        ```
+    """
     def _get_world_size(self) -> int:
         """Extracts the FSDP world_size from checkpoint filenames (e.g., 'model_world_size_8_rank_0.pt')."""
         for filename in os.listdir(self.config.local_dir):
             match = re.match(r"model_world_size_(\d+)_rank_0\.pt", filename)
             if match:
                 return int(match.group(1))
-        raise FileNotFoundError(f"Could not determine world size. No file matching 'model_world_size_(\d+)_rank_0.pt' found in {self.config.local_dir}")
+        raise FileNotFoundError(f"Could not determine world size. No file matching 'model_world_size_(\\d+)_rank_0.pt' found in {self.config.local_dir}")
 
     def _load_rank_zero_state_dict(self, world_size: int) -> dict:
         return torch.load(Path(self.config.local_dir) / f"model_world_size_{world_size}_rank_0.pt", map_location="cpu", weights_only=False)
