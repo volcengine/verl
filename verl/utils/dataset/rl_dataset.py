@@ -215,12 +215,12 @@ class RLHFDataset(Dataset):
             multi_modal_data = {}
 
             images = None
-            if self.image_key in row_dict:
+            if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None:
                 images = [process_image(image) for image in row_dict.pop(self.image_key)]
                 multi_modal_data["image"] = images
 
             videos = None
-            if self.video_key in row_dict:
+            if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None:
                 videos = [process_video(video) for video in row_dict.pop(self.video_key)]
                 multi_modal_data["video"] = [video.numpy() for video in videos]
 
