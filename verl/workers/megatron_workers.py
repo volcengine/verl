@@ -163,6 +163,12 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         self._init_hf_config_and_tf_config(model_path, model_path, self.dtype, override_model_config, override_transformer_config, self.config.model.get("trust_remote_code", False))
         self.generation_config = get_generation_config(self.local_path)
 
+        if self.config.model.get("chat_template", None) is not None:
+            if self.processor is not None:
+                self.processor.chat_template = self.config.model.chat_template
+            else:
+                self.tokenizer.chat_template = self.config.model.chat_template
+
         def megatron_actor_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
 
