@@ -266,6 +266,7 @@ class AsyncRolloutRequest(BaseModel):
         mismatch occurs.
 
         Args:
+            processing_class: The processing class to use for decoding the token IDs
             full_prompt_ids: Token IDs from applying chat template to all messages at once
             current_prompt_ids: Token IDs from incremental chat template application
             display_range: Number of surrounding tokens to include for context (default: 10)
