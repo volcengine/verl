@@ -384,6 +384,9 @@ actor_rollout_ref:
     # sync: LLM, async: AsyncLLM
     mode: sync
 
+    # False: chat_scheduler on AsyncLLMServer; True: chat_scheduler as ray actor
+    remote_scheduler: False
+
     # Sampling temperature for rollout.
     temperature: 1.0
 

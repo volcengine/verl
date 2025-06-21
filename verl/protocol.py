@@ -344,6 +344,24 @@ class DataProto:
         return cls.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info, auto_padding=auto_padding)
 
     @classmethod
+    def from_single_list(cls, batch_list: List[Dict[str, Union[torch.Tensor, np.ndarray]]], meta_info=None, auto_padding=False):
+        """Create a DataProto from a list of dict of tensors and non_tensors"""
+        tensors = {}
+        non_tensors = {}
+
+        assert len(batch_list) > 0, "batch_list cannot be empty"
+        sample_dict = batch_list[0]
+        for key, value in sample_dict.items():
+            if isinstance(value, torch.Tensor):
+                tensors[key] = torch.stack([item[key] for item in batch_list], dim=0)
+            elif isinstance(value, np.ndarray):
+                non_tensors[key] = np.stack([item[key] for item in batch_list], axis=0)
+            else:
+                non_tensors[key] = np.array([item[key] for item in batch_list])
+
+        return cls.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info, auto_padding=auto_padding)
+
+    @classmethod
     def from_dict(cls, tensors: Optional[Dict[str, torch.Tensor]] = None, non_tensors=None, meta_info=None, num_batch_dims=1, auto_padding=False):
         """Create a DataProto from a dict of tensors. This assumes that
         1. All the tensor in tensors have the same dim0

@@ -100,7 +100,7 @@ class AsyncServerBase(ABC):
 class AsyncLLMServerManager:
     """AsyncLLMServerManager manage a group of vllm instances, i.e AsyncvLLMServer."""
 
-    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup):
+    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup, remote_scheduler=False):
         """Initialize AsyncLLMServerManager.
 
         Args:
@@ -110,6 +110,7 @@ class AsyncLLMServerManager:
         self.full_config = config
         self.config = config.actor_rollout_ref
         self.worker_group = worker_group
+        self.remote_scheduler = remote_scheduler
 
         self.rollout_tp_size = self.config.rollout.tensor_model_parallel_size
         self.rollout_dp_size = self.worker_group.world_size // self.rollout_tp_size
@@ -167,10 +168,18 @@ class AsyncLLMServerManager:
         asyncio.set_event_loop(self.chat_scheduler_loop)
 
         try:
-            self.chat_scheduler = ChatCompletionScheduler(
-                config=self.full_config,
-                server_addresses=self.server_addresses,
-            )
+            if self.remote_scheduler:
+                RemoteChatCompletionScheduler = ray.remote(ChatCompletionScheduler)
+                # since ChatCompletionScheduler is defined with async method, no need to set max_concurrency
+                self.chat_scheduler = RemoteChatCompletionScheduler.remote(
+                    config=self.full_config,
+                    server_addresses=self.server_addresses,
+                )
+            else:
+                self.chat_scheduler = ChatCompletionScheduler(
+                    config=self.full_config,
+                    server_addresses=self.server_addresses,
+                )
         except Exception as e:
             logger.exception(f"chat_scheduler init error: {e}")
             self.chat_scheduler_exception = e
@@ -197,8 +206,9 @@ class AsyncLLMServerManager:
         Args: same as ChatCompletionScheduler.submit_chat_completions.
         """
         assert self.chat_scheduler is not None, "chat scheduler is not initialized."
+        assert not self.remote_scheduler, "remote chat scheduler cannot be used in AsyncLLMServerManager"
         future = asyncio.run_coroutine_threadsafe(
-            self.chat_scheduler._submit_chat_completions_semaphore(
+            self.chat_scheduler.submit_chat_completions_semaphore(
                 messages=messages,
                 request_id=None,
                 sampling_params=sampling_params,
@@ -210,7 +220,7 @@ class AsyncLLMServerManager:
     def generate_sequences(self, prompts: DataProto, **sampling_params) -> DataProto:
         """Generate multiple sequences in parallel via chat scheduler."""
         assert self.chat_scheduler is not None, "chat scheduler is not initialized."
-
+        assert not self.remote_scheduler, "remote chat scheduler cannot be used in AsyncLLMServerManager"
         future = asyncio.run_coroutine_threadsafe(self.chat_scheduler.generate_sequences(prompts, **sampling_params), self.chat_scheduler_loop)
         return future.result()
 
