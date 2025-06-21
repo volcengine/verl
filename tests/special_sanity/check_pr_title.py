@@ -17,7 +17,6 @@ import re
 
 # Get PR title from environment
 pr_title = os.environ.get("PR_TITLE", "").strip()
-BREAKING_FORMAT = "[BREAKING]"
 
 # Define rules
 allowed_modules = ["fsdp", "megatron", "sglang", "vllm", "rollout", "trainer"]
@@ -40,7 +39,7 @@ re_modules_pattern = re.compile(r"^\[([a-z_,\s]+)\]", re.IGNORECASE)
 re_modules = re_modules_pattern.match(core_pr_title)
 if not re_modules:
     print(f"❌ Invalid PR title: '{pr_title}'")
-    print(f"Expected format: {BREAKING_FORMAT}[module] type: description")
+    print("Expected format: [BREAKING][module] type: description")
     print(f"Allowed modules: {', '.join(allowed_modules)}")
     raise Exception("Invalid PR title")
 else:
@@ -57,7 +56,7 @@ match = re_types_pattern.match(core_pr_title)
 
 if not match:
     print(f"❌ Invalid PR title: '{pr_title}'")
-    print(f"Expected format: {BREAKING_FORMAT}[module] type: description")
+    print("Expected format: [BREAKING][module] type: description")
     print(f"Allowed types: {', '.join(allowed_types)}")
     raise Exception("Invalid PR title")
 
