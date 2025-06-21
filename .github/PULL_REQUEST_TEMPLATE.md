@@ -1,6 +1,6 @@
 ### What does this PR do?
 
-> Add **concise** overview of what this PR aims to achieve or accomplish. Reference related github issues and PRs if that help review.
+> Add **concise** overview of what this PR aims to achieve or accomplish. Reference related GitHub issues and PRs if that help review.
 
 ### Checklist Before Starting
 
