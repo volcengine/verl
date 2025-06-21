@@ -177,14 +177,14 @@ To extend to other RLHF algorithms, such as DPO, GRPO, please refer to
                    # compute rewards. apply_kl_penalty if available
                    batch, kl_metrics = apply_kl_penalty(batch,
                                                            kl_ctrl=self.kl_ctrl_in_reward,
-                                                           kl_penalty=self.algorithm_config.kl_penalty)
+                                                           kl_penalty=self.algo_config.kl_penalty)
                    metrics.update(kl_metrics)
 
                    # compute advantages, executed on the driver process
                    batch = compute_advantage(batch,
-                                               self.algorithm_config.gamma,
-                                               self.algorithm_config.lam,
-                                               adv_estimator=self.algorithm_config.adv_estimator)
+                                               self.algo_config.gamma,
+                                               self.algo_config.lam,
+                                               adv_estimator=self.algo_config.adv_estimator)
                metrics['timing/adv'] = timer.last
 
                # update critic

@@ -23,7 +23,7 @@ import ray
 from omegaconf import OmegaConf
 
 from verl.trainer.ppo.reward import get_custom_reward_fn
-from verl.trainer.config.algorithm_config import AlgorithmConfig
+from verl.trainer.config.algo_config import AlgoConfig
 from verl.utils.config import omega_conf_to_dataclass
 
 from .dapo_ray_trainer import RayDAPOTrainer
@@ -125,10 +125,10 @@ class TaskRunner:
             mapping[Role.RewardModel] = global_pool_id
 
         # Convert algorithm config to dataclass
-        algorithm_config = omega_conf_to_dataclass(config.algorithm, AlgorithmConfig)
+        algo_config = omega_conf_to_dataclass(config.algorithm, AlgoConfig)
         
         # reference model
-        if algorithm_config.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+        if algo_config.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
             role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
 

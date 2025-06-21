@@ -33,8 +33,6 @@ from verl.trainer.ppo.metric_utils import (
     reduce_metrics,
 )
 from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, apply_kl_penalty, compute_advantage, compute_response_mask
-from verl.trainer.config.algorithm_config import AlgorithmConfig
-from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import simple_timer
 
 
@@ -119,7 +117,7 @@ class RayEntropyTrainer(RayPPOTrainer):
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
                             self.async_rollout_manager.sleep()
 
-                    if self.algorithm_config.adv_estimator == AdvantageEstimator.REMAX:
+                    if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with simple_timer("gen_max", timing_raw):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info["do_sample"] = False
@@ -167,17 +165,17 @@ class RayEntropyTrainer(RayPPOTrainer):
                             new_batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
                         # compute rewards. apply_kl_penalty if available
-                        if self.algorithm_config.use_kl_in_reward:
-                            new_batch, kl_metrics = apply_kl_penalty(new_batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.algorithm_config.kl_penalty)
+                        if self.config.algorithm.use_kl_in_reward:
+                            new_batch, kl_metrics = apply_kl_penalty(new_batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty)
                             metrics.update(kl_metrics)  # TODO: This will be cleared if we use multiple genenration batches
                         else:
                             new_batch.batch["token_level_rewards"] = new_batch.batch["token_level_scores"]
 
-                    if not self.algorithm_config.filter_groups.enable:
+                    if not self.config.algorithm.filter_groups.enable:
                         batch = new_batch
                     else:  # NOTE: When prompts after filtering is less than train batch size,
                         # we skip to the next generation batch
-                        metric_name = self.algorithm_config.filter_groups.metric
+                        metric_name = self.config.algorithm.filter_groups.metric
                         if metric_name == "seq_final_reward":
                             # Turn to numpy for easier filtering
                             new_batch.non_tensor_batch["seq_final_reward"] = new_batch.batch["token_level_rewards"].sum(dim=-1).numpy()
@@ -207,7 +205,7 @@ class RayEntropyTrainer(RayPPOTrainer):
                         prompt_bsz = self.config.data.train_batch_size
                         if num_prompt_in_batch < prompt_bsz:
                             print(f"{num_prompt_in_batch=} < {prompt_bsz=}")
-                            max_num_gen_batches = self.algorithm_config.filter_groups.max_num_gen_batches
+                            max_num_gen_batches = self.config.algorithm.filter_groups.max_num_gen_batches
                             if max_num_gen_batches <= 0 or num_gen_batches < max_num_gen_batches:
                                 print(f"{num_gen_batches=}. Keep generating...")
                                 continue
@@ -251,12 +249,12 @@ class RayEntropyTrainer(RayPPOTrainer):
 
                     with simple_timer("adv", timing_raw):
                         # compute advantages, executed on the driver process
-                        norm_adv_by_std_in_grpo = self.algorithm_config.norm_adv_by_std_in_grpo
+                        norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)
                         batch = compute_advantage(
                             batch,
-                            adv_estimator=self.algorithm_config.adv_estimator,
-                            gamma=self.algorithm_config.gamma,
-                            lam=self.algorithm_config.lam,
+                            adv_estimator=self.config.algorithm.adv_estimator,
+                            gamma=self.config.algorithm.gamma,
+                            lam=self.config.algorithm.lam,
                             num_repeat=self.config.actor_rollout_ref.rollout.n,
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                         )

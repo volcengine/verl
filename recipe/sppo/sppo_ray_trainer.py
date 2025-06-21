@@ -36,8 +36,6 @@ from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import reduce_metrics
 from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, ResourcePoolManager, Role, WorkerType, apply_kl_penalty, compute_response_mask
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.trainer.config.algorithm_config import AlgorithmConfig
-from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug.performance import simple_timer
 from verl.utils.tracking import ValidationGenerationsLogger
 
@@ -111,13 +109,10 @@ class RaySPPOTrainer(RayPPOTrainer):
         self.validation_generations_logger = ValidationGenerationsLogger()
         self.device_name = device_name
 
-        # Convert algorithm config to dataclass
-        self.algorithm_config = omega_conf_to_dataclass(config.algorithm, AlgorithmConfig)
-        
         # define in-reward KL control
         # kl loss control currently not supported
-        if self.algorithm_config.use_kl_in_reward:
-            self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.algorithm_config.kl_ctrl)
+        if config.algorithm.use_kl_in_reward:
+            self.kl_ctrl_in_reward = core_algos.get_kl_controller(config.algorithm.kl_ctrl)
 
         self.use_critic = False
 
@@ -197,7 +192,7 @@ class RaySPPOTrainer(RayPPOTrainer):
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
-                    if self.algorithm_config.adv_estimator == AdvantageEstimator.REMAX:
+                    if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with simple_timer("gen_max", timing_raw):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info["do_sample"] = False
@@ -276,14 +271,14 @@ class RaySPPOTrainer(RayPPOTrainer):
                         batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
                     # compute rewards. apply_kl_penalty if available
-                    if self.algorithm_config.use_kl_in_reward:
-                        batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.algorithm_config.kl_penalty)
+                    if self.config.algorithm.use_kl_in_reward:
+                        batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty)
                         metrics.update(kl_metrics)
                     else:
                         batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
                         batch.batch["seq_level_rewards"] = batch.batch["token_level_scores"]
 
-                    beta = self.algorithm_config.sppo_eta
+                    beta = self.config.algorithm.sppo_eta
                     batch = compute_advantage(batch, beta=beta)
 
                 # update critic

@@ -41,7 +41,7 @@ class FilterGroupsConfig:
 
 
 @dataclass
-class AlgorithmConfig:
+class AlgoConfig:
     """Configuration for the algorithm."""
     gamma: float = 1.0  # Discount factor for future rewards
     lam: float = 1.0  # Trade-off between bias and variance in the GAE estimator
