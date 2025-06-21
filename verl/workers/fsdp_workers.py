@@ -727,6 +727,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             data = DataProto.from_dict(tensors={"ref_log_prob": data.batch["old_log_probs"]})
             return data
         assert self._is_ref
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.ref_module_fsdp)
+            
         # else:
         # otherwise, the class have a standalone ref model
         # Support all hardwares
@@ -750,6 +753,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if self.world_size > 1 and fsdp_version(self.ref_policy.actor_module) == 1:
             self.ref_policy.actor_module._handle.reshard(True)
 
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.ref_module_fsdp)
+            log_gpu_memory_usage("After offload ref model during compute_log_prob", logger=logger)
+            
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
