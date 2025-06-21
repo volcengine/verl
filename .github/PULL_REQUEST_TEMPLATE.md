@@ -1,3 +1,7 @@
+### What does this PR do?
+
+> Add **concise** overview of what this PR aims to achieve or accomplish. Reference related github issues and PRs if that help review.
+
 ### Checklist Before Starting
 
 - [ ] Search for similar PRs. Paste at least one query link here: ...
@@ -8,21 +12,13 @@
   - If this PR breaks any API (CLI arguments, config, function signature, etc.), add `[BREAKING]` to the beginning of the title.
   - Example: `[BREAKING][fsdp, megatron] feat: dynamic batching`
 
-### What does this PR do?
-
-> Add **concise** overview of what this PR aims to achieve or accomplish. Reference related github issues and PRs if that help review.
-
 ### Test
 
 > For changes that can not be tested by CI (e.g., algorithm implementation, new model support), validate by experiment(s) and show results like training curve plots, evaluation results, etc.
 
-### API
+### API and Usage Example
 
-> Demonstrate how the API changes if any.
-
-### Usage Example
-
-> Provide usage example(s) for easier usage.
+> Demonstrate how the API changes if any, and provide usage example(s) if possible.
 
 ```python
 # Add code snippet or script demonstrating how to use this
@@ -42,7 +38,7 @@
 > Please check all the following items before requesting a review, otherwise the reviewer might deprioritize this PR for review.
 
 - [ ] Read the [Contribute Guide](https://github.com/volcengine/verl?tab=readme-ov-file#contribution-guide).
-- [ ] Apply [pre-commit checks](https://github.com/volcengine/verl?tab=readme-ov-file#code-linting-and-formatting).
+- [ ] Apply [pre-commit checks](https://github.com/volcengine/verl?tab=readme-ov-file#code-linting-and-formatting). Use `pre-commit install` or `pre-commit run --show-diff-on-failure --color=always --all-files`.
 - [ ] Add / Update [the documentation](https://github.com/volcengine/verl/tree/main/docs).
 - [ ] Add unit or end-to-end test(s) to [the CI workflow](https://github.com/volcengine/verl/tree/main/.github/workflows) to cover all the code. If not feasible, explain why: ...
 - [ ] Once your PR is ready for CI, send a message in [the `ci-request` channel](https://verl-project.slack.com/archives/C091TCESWB1) in [the `verl` Slack workspace](https://join.slack.com/t/verl-project/shared_invite/zt-3855yhg8g-CTkqXu~hKojPCmo7k_yXTQ).

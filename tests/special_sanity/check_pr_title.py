@@ -23,7 +23,7 @@ BREAKING_FORMAT = "[BREAKING]"
 allowed_modules = ["fsdp", "megatron", "sglang", "vllm", "rollout", "trainer"]
 allowed_modules += ["tests", "training_utils", "recipe", "hardware", "deployment"]
 allowed_modules += ["ray", "worker", "single_controller", "misc", "docker", "ci"]
-allowed_modules += ["perf", "model", "algo", "env", "tool", "ckpt", "doc", "data"]
+allowed_modules += ["perf", "model", "algo", "env", "tool", "ckpt", "doc", "data", "cfg"]
 allowed_types = ["feat", "fix", "refactor", "chore", "test"]
 
 # Check for [BREAKING] prefix and extract the rest of the title
