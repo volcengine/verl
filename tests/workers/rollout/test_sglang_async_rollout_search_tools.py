@@ -144,7 +144,7 @@ class TestRolloutWithSearchTools:
     def mock_rollout(self, search_rollout_config, qwen_tokenizer, qwen_model_config):
         """Mock the rollout instance with sampling_params initialized."""
         with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
-            rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+            rollout = SGLangRollout(actor_module="", config=search_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
             rollout.sampling_params = {
                 "n": 1,
                 "max_new_tokens": search_rollout_config.response_length,
@@ -158,7 +158,7 @@ class TestRolloutWithSearchTools:
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_tools_registration(self, mock_env, mock_engine, mock_sampling, search_rollout_config, qwen_tokenizer, qwen_model_config):
-        rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=search_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
         assert len(rollout._tool_schemas) == 1
         assert "search" in rollout._tool_map.keys()
         from verl.tools.search_tool import SearchTool
@@ -171,7 +171,7 @@ class TestRolloutWithSearchTools:
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_rollout_req_creation(self, mock_env, mock_engine, mock_sampling, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto):
-        rollout = SGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        rollout = SGLangRollout(actor_module="", config=search_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
         req_list = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)
         assert len(req_list) == 1
         assert req_list[0].state == AsyncRolloutRequestStateEnum.PENDING

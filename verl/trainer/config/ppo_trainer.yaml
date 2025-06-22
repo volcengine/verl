@@ -100,6 +100,9 @@ actor_rollout_ref:
     # Huggingface model path. This can be either local path or HDFS path.
     path: ~/models/deepseek-llm-7b-chat
 
+    # Custom chat template for the model.
+    custom_chat_template: null
+
     # Whether to use shared memory (SHM) for accelerating the loading of model weights
     use_shm: false
 
@@ -530,7 +533,10 @@ actor_rollout_ref:
       # Some models are known to produce different tokenization results when tokenizing turn by turn vs. all at once. aThis behavior has already been validated for them.
       # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
-      enable_tokenization_sanity_check: True
+      # - off: disable tokenization sanity check
+      # - strict: enable strict tokenization sanity check (default)
+      # - ignore_strippable: ignore strippable tokens when checking tokenization sanity
+      tokenization_sanity_check_mode: strict
 
       # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
       format: hermes
