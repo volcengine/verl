@@ -35,7 +35,7 @@ from tensordict import TensorDict
 from torch.utils.data import DataLoader
 
 from verl.utils.device import get_device_id, get_torch_device
-from verl.utils.py_functional import union_two_dict
+from verl.utils.py_functional import union_two_dict, append_to_dict_recursion
 from verl.utils.torch_functional import allgather_dict_tensors
 
 __all__ = ["DataProto", "union_tensor_dict"]
@@ -699,8 +699,19 @@ class DataProto:
             DataProto: concatenated DataProto
         """
         batch_lst = []
-        for batch in data:
+        meta_info = data[0].meta_info
+        if "metrics" in batch.meta_info:
+            meta_info["metrics"] = {}
+        for i, batch in enumerate(data):
             batch_lst.append(batch.batch)
+            if batch.meta_info is not None:
+                if "metrics" in batch.meta_info:
+                    for key ,val in batch.meta_info["metrics"]:
+                        if isinstance(val, List):
+                            append_to_dict_recursion(meta_info["metrics"][key], batch.meta_info["metrics"][key])
+                        else:
+                            meta_info["metrics"][key][i] = batch.meta_info["metrics"][key]
+
         new_batch = torch.cat(batch_lst, dim=0) if batch_lst[0] is not None else None
 
         non_tensor_batch = list_of_dict_to_dict_of_list(list_of_dict=[d.non_tensor_batch for d in data])
@@ -708,7 +719,7 @@ class DataProto:
             non_tensor_batch[key] = np.concatenate(val, axis=0)
 
         cls = type(data[0]) if len(data) > 0 else DataProto
-        return cls(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=data[0].meta_info)
+        return cls(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=meta_info)
 
     def reorder(self, indices):
         """

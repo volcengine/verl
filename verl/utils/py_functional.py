@@ -22,7 +22,7 @@ import queue  # Import the queue module for exception type hint
 import signal
 from functools import wraps
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, Optional, Tuple, List
 
 
 # --- Top-level helper for multiprocessing timeout ---
@@ -174,6 +174,38 @@ def append_to_dict(data: Dict, new_data: Dict):
             data[key] = []
         data[key].append(val)
 
+def _flatten_and_append(data: List[Any], value: Any):
+    """Flatten and append values from value to lists in data.
+
+    Args:
+        data (List): The target list.
+        value: The source values to append.
+
+    Returns:
+        None: The function modifies data in-place.
+    """
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _flatten_and_append(data, item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            _flatten_and_append(data, item)
+    else:
+        data.append(value)
+
+def append_to_dict_recursion(data: Dict, new_data: Dict):
+    """Recursively append values from new_data to a list in the data.
+    Args:
+        data (Dict): The target dictionary containing lists as values.
+        new_data (Dict): The source dictionary with values to append.
+
+    Returns:
+        None: The function modifies data in-place.
+    """
+    for key, val in new_data.items():
+        if key not in data:
+            data[key] = []
+        _flatten_and_append(data[key], val)
 
 class NestedNamespace(SimpleNamespace):
     """A nested version of SimpleNamespace that recursively converts dictionaries to namespaces.
