@@ -871,7 +871,7 @@ class SGLangRollout(BaseRollout):
                     _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                     break
                 else:
-                    _req.add_user_message(self.tokenizer, content)
+                    _req.add_user_message(self.processing_class, content)
                     if len(_req.input_ids) >= self.config.max_model_len:
                         finish_reason_type = FinishReasonTypeEnum.STOP
                         break
@@ -894,7 +894,7 @@ class SGLangRollout(BaseRollout):
         tool_reward_scores = await asyncio.gather(*tool_reward_tasks)
         tool_reward_scores = dict(tool_reward_scores)
         all_rewards = {**tool_reward_scores, **{"user_turn_rewards": user_turn_rewards}}
-        _req.finalize(self.tokenizer, all_rewards, finish_reason_type)
+        _req.finalize(self.processing_class, all_rewards, finish_reason_type)
 
         return _req
 

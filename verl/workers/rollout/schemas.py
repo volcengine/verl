@@ -216,13 +216,16 @@ class AsyncRolloutRequest(BaseModel):
 
     def add_user_message(
         self,
-        tokenizer: PreTrainedTokenizer,
+        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
         content: str,
     ) -> None:
         self.messages.append(Message(role="user", content=content))
-        content = tokenizer.apply_chat_template([*BASE_CHAT_HISTORY, self.messages[-1]], tools=([tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None), add_generation_prompt=False, tokenize=False)
-        content_ids = tokenizer.encode(content[self.base_conv_wo_gen_prompt_end_pos :], add_special_tokens=False)
-        self._update_input_ids(content_ids, attention_mask=True, loss_mask=False)
+        messages = [*BASE_CHAT_HISTORY, self.messages[-1]]
+        tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
+
+        # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine Inference, it is pure text.
+        content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_wo_gen_prompt_end_pos :]
+        self._update_input_ids(content_ids, attention_mask=True, loss_mask=True)
 
     def add_assistant_message(
         self,
