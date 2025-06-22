@@ -25,6 +25,7 @@ actor_rollout_ref:
   nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
   model:
     path: ~/models/deepseek-llm-7b-chat
+    custom_chat_template: null
     external_lib: null
     override_config:
       model_config: {}
