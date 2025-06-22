@@ -25,12 +25,21 @@ allowed_modules += ["ray", "worker", "single_controller", "misc", "docker", "ci"
 allowed_modules += ["perf", "model", "algo", "env", "tool", "ckpt", "doc", "data", "cfg"]
 allowed_types = ["feat", "fix", "refactor", "chore", "test"]
 
-# Build dynamic regex pattern
+# Check for [BREAKING] prefix and extract the rest of the title
+breaking_match = re.match(r"^\[BREAKING\]\s*(.+)$", pr_title, re.IGNORECASE)
+if breaking_match:
+    core_pr_title = breaking_match.group(1).strip()
+    is_breaking = True
+else:
+    core_pr_title = pr_title
+    is_breaking = False
+
+# Build dynamic regex pattern for modules (now working on core_pr_title)
 re_modules_pattern = re.compile(r"^\[([a-z_,\s]+)\]", re.IGNORECASE)
-re_modules = re_modules_pattern.match(pr_title)
+re_modules = re_modules_pattern.match(core_pr_title)
 if not re_modules:
     print(f"❌ Invalid PR title: '{pr_title}'")
-    print("Expected format: [module] type: description")
+    print("Expected format: [BREAKING][module] type: description")
     print(f"Allowed modules: {', '.join(allowed_modules)}")
     raise Exception("Invalid PR title")
 else:
@@ -43,14 +52,16 @@ else:
 
 types_pattern = "|".join(re.escape(t) for t in allowed_types)
 re_types_pattern = re.compile(rf"^\[[a-z_,\s]+\]\s+({types_pattern}):\s+.+$", re.IGNORECASE)
-match = re_types_pattern.match(pr_title)
+match = re_types_pattern.match(core_pr_title)
 
 if not match:
     print(f"❌ Invalid PR title: '{pr_title}'")
-    print("Expected format: [module] type: description")
+    print("Expected format: [BREAKING][module] type: description")
     print(f"Allowed types: {', '.join(allowed_types)}")
     raise Exception("Invalid PR title")
 
 change_type = match.group(1).lower()
 
-print(f"✅ PR title is valid: {pr_title}, modules: {modules}, type: {change_type}")
+# Build the success message
+breaking_info = " (BREAKING CHANGE)" if is_breaking else ""
+print(f"✅ PR title is valid: {pr_title}, modules: {modules}, type: {change_type}{breaking_info}")
