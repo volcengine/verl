@@ -260,7 +260,7 @@ class AsyncRolloutRequest(BaseModel):
             self.metrics[tool_id] = []
         self.metrics[tool_id].append(metrics)
 
-    def _get_prompt_diffs(self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin], full_prompt_ids: List[int], current_prompt_ids: List[int], display_range: int = 10) -> List[Dict[str, Any]]:
+    def _get_prompt_diffs(self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin], full_prompt_ids: List[int], current_prompt_ids: List[int], diff_surrounding_chars: int = 10) -> List[Dict[str, Any]]:
         """Get differences between full prompt and current prompt with surrounding context.
 
         This function helps debug tokenization mismatches by showing the differences between
@@ -269,7 +269,7 @@ class AsyncRolloutRequest(BaseModel):
         the issue in the chat template.
 
         For example, if the actual diff is a newline change from "\n\n" to "\n", with
-        display_range the output might look like:
+        diff_surrounding_chars the output might look like:
 
         full_prompt_chunk:    "<|im_start|>assistant\n\nI think..."
         current_prompt_chunk: "<|im_start|>assistant\nI think..."
@@ -281,7 +281,7 @@ class AsyncRolloutRequest(BaseModel):
             processing_class: The processing class to use for decoding the token IDs
             full_prompt_ids: Token IDs from applying chat template to all messages at once
             current_prompt_ids: Token IDs from incremental chat template application
-            display_range: Number of surrounding tokens to include for context (default: 10)
+            diff_surrounding_chars: Number of surrounding characters to include for context (default: 10)
 
         Returns:
             List of dicts containing the differing chunks with context and their indices
@@ -295,10 +295,10 @@ class AsyncRolloutRequest(BaseModel):
                 continue
 
             # Get the surrounding context for better readability
-            start_i = max(0, i1 - display_range)
-            end_i = min(len(full_prompt), i2 + display_range)
-            start_j = max(0, j1 - display_range)
-            end_j = min(len(current_prompt), j2 + display_range)
+            start_i = max(0, i1 - diff_surrounding_chars)
+            end_i = min(len(full_prompt), i2 + diff_surrounding_chars)
+            start_j = max(0, j1 - diff_surrounding_chars)
+            end_j = min(len(current_prompt), j2 + diff_surrounding_chars)
 
             diffs.append(
                 {
@@ -318,14 +318,14 @@ class AsyncRolloutRequest(BaseModel):
         self.state = AsyncRolloutRequestStateEnum.COMPLETED
         self.reward_scores = reward_scores
         if self.tokenization_sanity_check_mode != TokenizationSanityCheckModeEnum.OFF:
-            # When there is a diff, we log the diffs with display_range context
-            display_range = 10
+            # When there is a diff, we log the diffs with diff_surrounding_chars context
+            diff_surrounding_chars = 10
 
             messages = [msg.model_dump() for msg in self.messages]
             tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
             full_prompt_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True)
 
-            if diffs := self._get_prompt_diffs(processing_class, full_prompt_ids, self.input_ids, display_range=display_range):
+            if diffs := self._get_prompt_diffs(processing_class, full_prompt_ids, self.input_ids, diff_surrounding_chars=diff_surrounding_chars):
                 log_warning = False
                 if self.tokenization_sanity_check_mode == TokenizationSanityCheckModeEnum.STRICT:
                     log_warning = True
@@ -337,7 +337,7 @@ class AsyncRolloutRequest(BaseModel):
                 if log_warning:
                     mode_str = f" ({self.tokenization_sanity_check_mode.value})"
                     logger.warning(f"Inconsistent training and inference tokenization detected{mode_str}. This may lead to unexpected behavior during training. Please review your chat template to determine if this is intentional. For more information, refer to the multiturn README.md.")
-                    logger.warning(f"Showing {display_range} characters before and after the diffs for context and better readability.")
+                    logger.warning(f"Showing {diff_surrounding_chars} characters before and after the diffs for context and better readability.")
                     diff_details_list = []
                     for d in diffs:
                         i1, i2, j1, j2 = d["indices"]
