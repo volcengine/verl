@@ -116,7 +116,7 @@ class CustomCompletionCallback(ToolCompletionCallback):
     def __init__(self, config: DictConfig, scheduler: ChatCompletionScheduler):
         super().__init__(config, scheduler)
 
-        self.max_turns = 16
+        self.max_assistant_turns = 16
         self.answer_pattern = re.compile(r"<answer>(.*?)</answer>", re.DOTALL)
         self.code_pattern = re.compile(r"<code>\s*```python(.*?)```\s*</code>", re.DOTALL)
 
@@ -155,7 +155,7 @@ class CustomCompletionCallback(ToolCompletionCallback):
         turn = len(messages)
 
         # STEP 0: check if we reach max turns
-        if len(messages) >= self.max_turns:
+        if len(messages) >= self.max_assistant_turns:
             print(f"[id={completions.id},turn={turn},finish_reason={finish_reason}] Reach max turns, done!")
             return
 
