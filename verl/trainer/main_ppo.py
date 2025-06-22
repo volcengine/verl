@@ -24,6 +24,7 @@ from omegaconf import OmegaConf
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
+from torch.utils.data import ConcatDataset, WeightedRandomSampler
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
@@ -251,6 +252,23 @@ def create_rl_sampler(data_config, dataset):
         train_dataloader_generator = torch.Generator()
         train_dataloader_generator.manual_seed(data_config.get("seed", 1))
         sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
+    elif data_config.train_weights:
+        assert type(data_config.train_files) == list, "`train_files` must be a list while `train_weights` is set."
+        assert type(data_config.train_weights) == list, "`train_weights` must be a list while `train_weights` is set."
+        assert (len(data_config.train_weights) == len(data_config.train_files), 
+                "The size of `train_weight` must be the same as the size of `train_files`.")
+        
+        # Normalize train weights
+        total_weight = sum(data_config.train_weights)
+        sample_weight = [w / total_weight for w in data_config.train_weights]
+
+        # Compute per-sample weights
+        weights = [
+            prob / length
+            for prob, length in zip(sample_weight, dataset.data_len_list)
+            for _ in range(length)
+        ]
+        sampler = WeightedRandomSampler(weights, num_samples=len(dataset), replacement=True)
     else:
         # If shuffling is disabled, use a sequential sampler to iterate through the dataset in order.
         sampler = SequentialSampler(data_source=dataset)

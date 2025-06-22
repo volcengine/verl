@@ -15,6 +15,7 @@ Data
      tokenizer: null
      train_files: ~/data/rlhf/gsm8k/train.parquet
      val_files: ~/data/rlhf/gsm8k/test.parquet
+     train_weights: null
      prompt_key: prompt
      max_prompt_length: 512
      max_response_length: 512
@@ -39,6 +40,11 @@ Data
   HDFS path to local path.
 - ``data.val_files``: Validation parquet. Can be a list or a single
   file.
+- ``data.train_weights``: Sampling weights for each dataset listed in ``data.train_files``.
+  Must be a list when set, and ``data.train_files`` must also be a list of the same length.
+  The ``i``-th element of ``data.train_weights`` corresponds to the sampling weight of the
+  ``i``-th dataset in ``data.train_files``. All weights will be automatically normalized
+  during training.
 - ``data.prompt_key``: The field in the dataset where the prompt is
   located. Default is 'prompt'.
 - ``data.max_prompt_length``: Maximum prompt length. All prompts will be
