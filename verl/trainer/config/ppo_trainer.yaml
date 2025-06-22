@@ -509,10 +509,16 @@ actor_rollout_ref:
       enable: False
 
       # null for no limit (default max_length // 3)
-      max_turns: null
+      max_assistant_turns: null
 
       # null for no tool
       tool_config_path: null
+
+      # null for no limit (default max_length // 3)
+      max_user_turns: null
+
+      # null for no interaction
+      interaction_config_path: null
 
       # null for default callback
       completion_callback: null

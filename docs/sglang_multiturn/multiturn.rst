@@ -40,6 +40,19 @@ Finally, set the ``tools_config_file`` in your rollout config:
 
 This allows integration of customized tool behaviors during actor rollout steps. 
 
+If you want rollout with simulated interaction, you can set the ``interaction_config_file`` in your rollout config:
+.. code-block:: yaml
+
+    interaction:
+      - class_name: ""
+        config: {}
+
+.. code-block:: yaml
+
+    actor_rollout_ref:
+        rollout:
+            interaction_config_file: <path_to_interaction_yaml_file>
+
 Multi-turn Tokenization
 ~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -220,6 +233,16 @@ See the training performance of multi-turn rollout on the GSM8K task HERE_.
 .. _GSM8KTool_example_configuration: https://github.com/volcengine/verl/blob/main/examples/sglang_multiturn/config/tool_config/gsm8k_tool_config.yaml
 
 .. _gsm8k_tool.py: https://github.com/volcengine/verl/blob/main/verl/tools/gsm8k_tool.py
+
+Interaction System
+~~~~~~~~~~~~~~~~~~
+
+For dynamic conversational feedback during RL training, see:
+
+.. toctree::
+   :maxdepth: 1
+
+   interaction_system
 
 Search Tool Integration
 ~~~~~~~~~~~~~~~~~~~~~~~

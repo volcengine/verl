@@ -54,6 +54,7 @@ from torch.nn.utils.rnn import pad_sequence
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin
 
 from verl import DataProto
+from verl.interactions.base import BaseInteraction
 from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.tools.base_tool import BaseTool
 from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
@@ -275,6 +276,7 @@ class SGLangRollout(BaseRollout):
             self._sgl_tools,
             self._function_call_parser,
         ) = self._initialize_tools(config, processing_class)
+        self.interaction: dict[str, BaseInteraction] = self._intitalize_interaction(config)
         # If turn on `free_cache_engine`, SGLang engine's KV cache
         # will be freed after each `generate_sequences` call.
         assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
@@ -348,9 +350,11 @@ class SGLangRollout(BaseRollout):
         assert self.config.max_model_len >= self.config.prompt_length + self.config.response_length, f"""max_model_len should be greater than total sequence length (prompt_length + response_length): 
             {self.config.max_model_len} >= {self.config.prompt_length} + {self.config.response_length}"""
         assert model_hf_config.max_position_embeddings >= self.config.max_model_len, "model context length should be greater than total sequence length"
-        # currently max_turns stand for max number of tool calls
-        if self.config.multi_turn.max_turns is None:
-            self.config.multi_turn.max_turns = self.config.max_model_len // 3
+        # currently max_assistant_turns stand for max number of tool calls
+        if self.config.multi_turn.max_assistant_turns is None:
+            self.config.multi_turn.max_assistant_turns = self.config.max_model_len // 3
+        if self.config.multi_turn.max_user_turns is None:
+            self.config.multi_turn.max_user_turns = self.config.max_model_len // 3
 
     def _init_inference_engine(self, trust_remote_code, actor_module, port):
         # initialize the inference engine
@@ -469,6 +473,31 @@ class SGLangRollout(BaseRollout):
             sgl_tools,
             function_call_parser,
         )
+
+    def _intitalize_interaction(self, config):
+        import importlib.util
+        import sys
+
+        from omegaconf import OmegaConf
+
+        if config.multi_turn.interaction_config_path is None:
+            return None
+        interaction_config_file = config.multi_turn.interaction_config_path
+        interaction_config = OmegaConf.load(interaction_config_file).interaction[0]
+        cls_name = interaction_config.class_name
+        module_name, class_name = cls_name.rsplit(".", 1)
+        if module_name not in sys.modules:
+            spec = importlib.util.find_spec(module_name)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+        else:
+            module = sys.modules[module_name]
+
+        interaction_cls = getattr(module, class_name)
+
+        interaction = interaction_cls(config=OmegaConf.to_container(interaction_config.config, resolve=True))
+        return interaction
 
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
@@ -632,6 +661,7 @@ class SGLangRollout(BaseRollout):
         out = _post_process_outputs(self.processing_class, output)
 
         response = out[0].to(idx.device)
+        rollout_log_probs = None
         if self.config.calculate_log_probs:
             rollout_log_probs = out[1].to(idx.device)
 
@@ -711,6 +741,8 @@ class SGLangRollout(BaseRollout):
                 logger.warning("video support is not implemented yet, current length of video data is %d", len(video_data))
 
         current_turns = 0
+        user_turns = 0
+        user_turn_rewards = []
 
         # Create request-level sampling parameters
         request_sampling_params = self.sampling_params.copy()
@@ -744,7 +776,7 @@ class SGLangRollout(BaseRollout):
         # Update with any additional kwargs
         request_sampling_params.update(kwargs)
 
-        while current_turns < self.config.multi_turn.max_turns:
+        while current_turns < self.config.multi_turn.max_assistant_turns:
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
                 await self._handle_pending_state(_req)
                 _req.state = AsyncRolloutRequestStateEnum.RUNNING
@@ -821,10 +853,32 @@ class SGLangRollout(BaseRollout):
                             _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                             break
                     else:
-                        _req.add_assistant_message(self.processing_class, content)
+                        _req.add_assistant_message(
+                            self.processing_class,
+                            content,
+                        )
+                        if _req.interaction_kwargs and user_turns < self.config.multi_turn.max_user_turns and current_turns < self.config.multi_turn.max_assistant_turns:
+                            _req.state = AsyncRolloutRequestStateEnum.INTERACTING
+                        else:
+                            break
+            elif _req.state == AsyncRolloutRequestStateEnum.INTERACTING:
+                user_turns += 1
+                messages = [{"role": x.role, "content": x.content} for x in _req.messages]
+                should_terminate_sequence, content, reward, metrics = await self.interaction.generate_response(_req.request_id, messages, **_req.interaction_kwargs)
+                user_turn_rewards.append(reward)
+                if should_terminate_sequence:
+                    finish_reason_type = FinishReasonTypeEnum.STOP
+                    _req.state = AsyncRolloutRequestStateEnum.COMPLETED
+                    break
+                else:
+                    _req.add_user_message(self.tokenizer, content)
+                    if len(_req.input_ids) >= self.config.max_model_len:
+                        finish_reason_type = FinishReasonTypeEnum.STOP
                         break
+                    else:
+                        _req.state = AsyncRolloutRequestStateEnum.RUNNING
 
-        if current_turns >= self.config.multi_turn.max_turns:
+        if current_turns >= self.config.multi_turn.max_assistant_turns:
             finish_reason_type = FinishReasonTypeEnum.STOP
 
         # Calculate the reward for each tool
@@ -839,7 +893,8 @@ class SGLangRollout(BaseRollout):
             tool_reward_tasks.append(calc_reward_and_release_fn(name, tool))
         tool_reward_scores = await asyncio.gather(*tool_reward_tasks)
         tool_reward_scores = dict(tool_reward_scores)
-        _req.finalize(self.processing_class, tool_reward_scores, finish_reason_type)
+        all_rewards = {**tool_reward_scores, **{"user_turn_rewards": user_turn_rewards}}
+        _req.finalize(self.tokenizer, all_rewards, finish_reason_type)
 
         return _req
 
@@ -865,6 +920,9 @@ class SGLangRollout(BaseRollout):
                 create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
                 tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
             await asyncio.gather(*tool_creation_coroutines)
+        if _req.interaction_kwargs:
+            interaction_kwargs = _req.interaction_kwargs
+            await self.interaction.start_interaction(_req.request_id, **interaction_kwargs)
 
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
@@ -1029,6 +1087,11 @@ class SGLangRollout(BaseRollout):
                     _tools_kwargs = {}
                     _tool_schemas = None
 
+                if self.interaction is not None:
+                    _interaction_kwargs = prompts.non_tensor_batch["interaction_kwargs"][data_idx]
+                else:
+                    _interaction_kwargs = {}
+
                 req = AsyncRolloutRequest(
                     batch_data_id=data_idx,
                     rollout_offset=rollout_offset,
@@ -1038,6 +1101,7 @@ class SGLangRollout(BaseRollout):
                     multi_modal_data=multi_modal_data,
                     tool_schemas=_tool_schemas,
                     tools_kwargs=_tools_kwargs,
+                    interaction_kwargs=_interaction_kwargs,
                     input_ids=_input_ids,
                     response_ids=[],
                     attention_mask=_attention_mask,
@@ -1068,9 +1132,6 @@ class SGLangRollout(BaseRollout):
         _tool_schemas = []
         _tools_kwargs = {}
 
-        # Create request-level sampling parameters
-        request_sampling_params = self.sampling_params.copy()
-
         req = AsyncRolloutRequest(
             request_id=str(uuid4()),
             state=AsyncRolloutRequestStateEnum.PENDING,
@@ -1099,7 +1160,13 @@ class SGLangRollout(BaseRollout):
         )
 
         # json_request already contains sampling_params
-        output = await self._handle_engine_call(req, request_sampling_params)
+        # Filter only valid SamplingParams arguments
+        valid_sampling_params = {}
+        temp_sampling_params = SamplingParams()  # Create temporary instance to check valid attributes
+        for k, v in json_request.items():
+            if k not in ["messages", "model", "tools"] and hasattr(temp_sampling_params, k):
+                valid_sampling_params[k] = v
+        output = await self._handle_engine_call(req, valid_sampling_params)
         # it can be Dict or AsyncIterator[Dict]
         if isinstance(output, dict):
             outputs = [output]
