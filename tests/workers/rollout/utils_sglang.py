@@ -155,7 +155,7 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
                 "tool_config_path": tool_config_path,
                 "interaction_config_path": interaction_config_path,
                 "use_inference_chat_template": False,
-                "enable_tokenization_sanity_check": True,
+                "tokenization_sanity_check_mode": "strict",
             },
             "max_model_len": None,
             **sampling_params,

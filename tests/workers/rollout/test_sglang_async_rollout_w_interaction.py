@@ -83,7 +83,7 @@ def test_async_sglang_rollout_w_interaction():
     )
 
     rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, None, None)
-    rollout = SGLangRollout(actor_module=local_model_path, config=rollout_config, tokenizer=tokenizer, model_hf_config=actor_model.config)
+    rollout = SGLangRollout(actor_module=local_model_path, config=rollout_config, processing_class=tokenizer, model_hf_config=actor_model.config)
 
     rollout_sharding_manager = FSDPSGLangShardingManager(
         module=fsdp_model,
