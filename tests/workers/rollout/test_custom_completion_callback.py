@@ -122,6 +122,7 @@ class CustomCompletionCallback(ToolCompletionCallback):
 
         self.sandbox_fusion_url = config.reward_model.sandbox_fusion.url
         self.default_timeout = 10
+        self.memory_limit_mb = config.reward_model.sandbox_fusion.memory_limit_mb
         # TODO: support asyncio executor
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max(32, os.cpu_count() * 5))
 
@@ -136,6 +137,7 @@ class CustomCompletionCallback(ToolCompletionCallback):
             self.sandbox_fusion_url,  # sandbox_fusion_url
             code,  # generation
             self.default_timeout,  # timeout
+            self.memory_limit_mb,  # memory limit
             "python",  # language
         )
 

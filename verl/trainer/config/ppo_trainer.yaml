@@ -808,6 +808,9 @@ reward_model:
     # Max concurrent requests allowed to sandbox
     max_concurrent: 64
 
+    # Max memory limit for each sandbox process in MB
+    memory_limit_mb: 1024
+
   # profiler configs
   profiler:
 
