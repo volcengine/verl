@@ -2,8 +2,8 @@ set -x
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/mnt/hdfs/resources/datasets/GSM8K-Processed/train.parquet \
-    data.val_files=/mnt/hdfs/resources/datasets/GSM8K-Processed/test.parquet \
+    data.train_files=/mnt/hdfs/resources/datasets/MATH-Processed/train.parquet \
+    data.val_files=/mnt/hdfs/resources/datasets/MATH-Processed/test.parquet \
     data.train_batch_size=1024 \
     data.max_prompt_length=1024 \
     data.max_response_length=2048 \
@@ -25,7 +25,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
-    trainer.project_name='verl_func_rm_example_gsm8k' \
+    trainer.project_name='verl_func_rm_example_math' \
     trainer.experiment_name='qwen2_5_3b_function_rm' \
     trainer.n_gpus_per_node=8 \
     trainer.val_before_train=True \
