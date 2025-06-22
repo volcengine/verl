@@ -331,6 +331,7 @@ def _mock_api_call_for_concurrency_tracking(
     stdin,
     compile_timeout,
     run_timeout,
+    memory_limit_mb,
     language,
 ):
     # entry_time = time.time() # For detailed logging
@@ -355,9 +356,11 @@ def _mock_api_call_for_concurrency_tracking(
 
 # --- Worker function for ProcessPoolExecutor ---
 # This function runs in each child process of ProcessPoolExecutor
-def _process_pool_worker_for_concurrency_test(sandbox_url, in_outs, generation, language, timeout, mp_semaphore_for_check_correctness, active_calls_counter, max_calls_tracker, call_lock):
+def _process_pool_worker_for_concurrency_test(sandbox_url, in_outs, generation, memory_limit_mb, language, timeout, mp_semaphore_for_check_correctness, active_calls_counter, max_calls_tracker, call_lock):
     # Corrected lambda to accept keyword arguments matching call_sandbox_api's usage
-    curried_mock_api_call = lambda sandbox_fusion_url, code, stdin, compile_timeout, run_timeout, language: _mock_api_call_for_concurrency_tracking(active_calls_counter, max_calls_tracker, call_lock, sandbox_fusion_url, code, stdin, compile_timeout, run_timeout, language)
+    curried_mock_api_call = lambda sandbox_fusion_url, code, stdin, compile_timeout, run_timeout, memory_limit_mb, language: (
+        _mock_api_call_for_concurrency_tracking(active_calls_counter, max_calls_tracker, call_lock, sandbox_fusion_url, code, stdin, compile_timeout, run_timeout, memory_limit_mb, language)
+    )
 
     # ---- START DEBUG PRINTS ----
     import os
@@ -377,6 +380,7 @@ def _process_pool_worker_for_concurrency_test(sandbox_url, in_outs, generation, 
             in_outs=in_outs,
             generation=generation,
             timeout=timeout,
+            memory_limit_mb=memory_limit_mb,
             language=language,
             concurrent_semaphore=mp_semaphore_for_check_correctness,  # Pass multiprocessing.Semaphore
         )
@@ -403,6 +407,7 @@ def test_multiprocess_global_concurrency_limit_with_semaphore():
 
     mock_sandbox_url = "mock_url_for_concurrency_test"
     mock_generation = "pass"  # Specific code content is not important as API call is mocked
+    mock_memory_limit_mb = 1024
     mock_language = "python"
     mock_timeout = 5  # Timeout setting, not critical for mock calls
 
@@ -422,6 +427,7 @@ def test_multiprocess_global_concurrency_limit_with_semaphore():
                 mock_sandbox_url,
                 process_in_outs,
                 mock_generation,
+                mock_memory_limit_mb,
                 mock_language,
                 mock_timeout,
                 global_mp_semaphore,  # Global semaphore to test
