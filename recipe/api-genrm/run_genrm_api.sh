@@ -1,5 +1,6 @@
 # vllm server
 # CUDA_VISIBLE_DEVICES=0,1,2,3 python -m sglang_router.launch_server --model-path dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --dp 4
+
 # sglang server
 # CUDA_VISIBLE_DEVICES=0,1,2,3 vllm serve dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --served_model_name genrm-demo
 
@@ -42,6 +43,3 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 python3 -m verl.trainer.main_ppo \
     trainer.test_freq=5 \
     trainer.total_epochs=10 \
     trainer.resume_mode='disable'
-
-kill $VLLM_PID
-wait $VLLM_PID 2>/dev/null
