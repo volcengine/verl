@@ -6,11 +6,11 @@ from verl.task.interface import TaskInterface
 
 class GSM8K(TaskInterface):
     def __init__(self, item, agent_access):
+        super().__init__()
         self.agent = AgentWithCalculator(access=agent_access, max_round_per_prompt=5)
         self.system_prompt = item["prompt"][0]["content"]
         self.prompt = item["prompt"][1]["content"]
         self.ground_truth = item["reward_model"]["ground_truth"]
-        self._trajectory = []
 
     def run(self):
         st = time.time()

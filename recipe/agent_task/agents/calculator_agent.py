@@ -1,7 +1,8 @@
 import logging
 from copy import deepcopy
 
-from recipe.agent_task.agents.vanilla_agent import VanillaAgent
+from verl.task.interface import AgentInterface
+from verl.workers.rollout.client import OpenAIClient
 
 
 class Calculator:
@@ -16,9 +17,10 @@ class Calculator:
             return result
 
 
-class AgentWithCalculator(VanillaAgent):
+class AgentWithCalculator(AgentInterface):
     def __init__(self, access, max_round_per_prompt=5):
-        super().__init__(access)
+        super().__init__()
+        self.client = OpenAIClient(rollout_access=access)
         self.messages = []
         self.max_round_per_prompt = max_round_per_prompt
 

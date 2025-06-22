@@ -8,6 +8,9 @@ class TaskInterface(ABC):
     a top-down paradigm to write the process of a task, rather than code it recursively through Callbacks.
     """
 
+    def __init__(self):
+        self._trajectory = []
+
     @abstractmethod
     def run(self):
         # run Task Loop here
@@ -15,7 +18,7 @@ class TaskInterface(ABC):
 
     @property
     def trajectory(self):
-        return None
+        return self._trajectory
 
 
 class AgentInterface(ABC):

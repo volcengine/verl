@@ -4,8 +4,8 @@ from verl.workers.rollout.client import OpenAIClient
 
 class RegularPrompt(TaskInterface):
     def __init__(self, item, agent_access):
+        super().__init__()
         self.system_prompt = ""
-        self._trajectory = []
         self.origin_prompt = item["prompt"][0]
         self.client = OpenAIClient(llmserver_manager=agent_access)
 

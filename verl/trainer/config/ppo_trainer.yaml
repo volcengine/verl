@@ -387,6 +387,9 @@ actor_rollout_ref:
     # False: chat_scheduler on AsyncLLMServer; True: chat_scheduler as ray actor
     remote_scheduler: False
 
+    # thread: concurrent.futures.ThreadPoolExecutor; ray: ray.util.multiprocessing.Pool
+    task_executor: thread
+
     # Sampling temperature for rollout.
     temperature: 1.0
 

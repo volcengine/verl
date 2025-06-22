@@ -6,6 +6,19 @@ from .tasks import get_task_cls
 
 
 class PPOTrainerForTask(RayPPOTrainer):
+    def _create_task_executor(self, max_workers=128):
+        match self.config.rollout.task_executor:
+            case "thread":
+                from concurrent.futures import ThreadPoolExecutor
+
+                return ThreadPoolExecutor(max_workers=max_workers)
+            case "ray":
+                from verl.utils.ray_executor import RayActorExecutor
+
+                return RayActorExecutor(max_workers=max_workers)
+            case _:
+                raise ValueError(f"rollout.task_executor = {self.config.rollout.task_executor} not supported")
+
     def fit(self):
         """
         The training loop of PPO.
@@ -52,8 +65,8 @@ class PPOTrainerForTask(RayPPOTrainer):
         from verl.workers.replay_buffer.list_mocked import ReplayBuffer
 
         replay_buffer = ReplayBuffer()
-        # initialize ThreadPoolExecutor for Tasks, change the `max_workers` accordingly
-        task_executor = futures.ThreadPoolExecutor(max_workers=128)
+        # initialize ThreadPoolExecutor or Ray ActorPool for Tasks, change the `max_workers` accordingly
+        task_executor = self._create_task_executor()
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:

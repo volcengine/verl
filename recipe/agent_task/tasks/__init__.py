@@ -7,10 +7,10 @@ def get_task_cls(task_type):
             from .gsm8k_calculator import GSM8K
 
             return GSM8K
-        case "sobokan":
-            from .sobokan import Sobokan
+        case "sokoban":
+            from .sokoban import Sokoban
 
-            return Sobokan
+            return Sokoban
         case _:
             from .regular_prompt import RegularPrompt
 
