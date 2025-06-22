@@ -320,7 +320,7 @@ actor_rollout_ref:
   ref:
 
     # actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it’s recommended to turn on offload for ref by default
-    strategy: fsdp
+    strategy: ${actor_rollout_ref.actor.strategy}
 
     # config for FSDP strategy
     fsdp_config:
@@ -555,7 +555,7 @@ critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
 
   # fsdp or fsdp2 strategy used for critic model training
-  strategy: fsdp
+  strategy: ${actor_rollout_ref.actor.strategy}
 
   # optimizer configs
   optim:
@@ -698,6 +698,7 @@ critic:
     load_contents: ${critic.checkpoint.save_contents}
 
   # profiler configs
+  # the corresponding dataclass is verl.utils.debug.ProfilerConfig.
   profiler:
 
     # True for each task has its own database, False for all tasks in one training step share one database.
@@ -719,7 +720,7 @@ reward_model:
   enable: False
 
   # FSDP strategy: "fsdp" or "fsdp2"
-  strategy: fsdp
+  strategy: ${actor_rollout_ref.actor.strategy}
 
   # model config for reward scoring
   model:
