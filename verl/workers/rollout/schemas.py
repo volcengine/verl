@@ -209,7 +209,7 @@ class AsyncRolloutRequest(BaseModel):
         if self.use_inference_chat_template:
             messages = [msg.model_dump() for msg in self.messages]
             tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
-            generation_prompt_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=True, tokenize=True)[self.base_conv_with_gen_prompt_end_pos :]
+            generation_prompt_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=True, tokenize=True)
             return generation_prompt_ids
         else:
             return self.input_ids
