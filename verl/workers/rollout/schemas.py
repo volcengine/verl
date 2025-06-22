@@ -225,7 +225,7 @@ class AsyncRolloutRequest(BaseModel):
 
         # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine Inference, it is pure text.
         content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_wo_gen_prompt_end_pos :]
-        self._update_input_ids(content_ids, attention_mask=True, loss_mask=True)
+        self._update_input_ids(content_ids, attention_mask=True, loss_mask=False)
 
     def add_assistant_message(
         self,
