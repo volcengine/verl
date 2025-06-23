@@ -205,6 +205,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
         self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
 
+        if self.config.model.get("custom_chat_template", None) is not None:
+            if self.processor is not None:
+                self.processor.chat_template = self.config.model.custom_chat_template
+            else:
+                self.tokenizer.chat_template = self.config.model.custom_chat_template
+
         torch_dtype = fsdp_config.get("model_dtype", None)
         if torch_dtype is None:
             torch_dtype = torch.float32 if self._is_actor else torch.bfloat16
@@ -463,7 +469,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             rollout = SGLangRollout(
                 actor_module=local_path,
                 config=self.config.rollout,
-                tokenizer=self.tokenizer,
+                processing_class=self.processor if self.processor is not None else self.tokenizer,
                 model_hf_config=self.actor_model_config,
                 trust_remote_code=trust_remote_code,
             )
@@ -878,6 +884,12 @@ class CriticWorker(Worker, DistProfilerExtension):
         tokenizer_path = copy_to_local(config.model.tokenizer_path, use_shm=use_shm)
         self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
         self.processor = hf_processor(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
+
+        if self.config.model.get("custom_chat_template", None) is not None:
+            if self.processor is not None:
+                self.processor.chat_template = self.config.model.custom_chat_template
+            else:
+                self.tokenizer.chat_template = self.config.model.custom_chat_template
 
         override_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
         override_config_kwargs = {

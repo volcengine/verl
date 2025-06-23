@@ -25,6 +25,7 @@ actor_rollout_ref:
   nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
   model:
     path: ~/models/deepseek-llm-7b-chat
+    custom_chat_template: null
     external_lib: null
     override_config:
       model_config: {}
@@ -197,20 +198,43 @@ actor_rollout_ref:
       temperature: 0
       n: 1
       do_sample: False # default eager for validation
+
+    # Multi-turn interaction config for tools or chat.
     multi_turn:
-      enable: False  # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
-      max_turns: null  # null for no limit (default max_length // 3)
-      tool_config_path: null  # null for no tool
+
+      # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
+      enable: False
+
+      # null for no limit (default max_length // 3)
+      max_assistant_turns: null
+
+      # null for no tool
+      tool_config_path: null
+
+      # null for no limit (default max_length // 3)
+      max_user_turns: null
+
+      # null for no interaction
+      interaction_config_path: null
+
+      # null for default callback
+      completion_callback: null
+
       # - When set to True, the model's default chat template is used for multi-turn rollout, which typically matches production behavior.
       # - When set to False, the token ids recorded for training are used instead; unlike the default chat template, these always include the model's full output,
-      #   which may contain additional content such as reasoning content. And this will lead to longer prompts.
-      use_inference_chat_template: True
+      #   which may contain additional content such as reasoning content. This maintains the consistency between training and rollout, but it will lead to longer prompts.
+      use_inference_chat_template: False
+
       # Tokenization is performed turn by turn and the resulting token ids are concatenated to form the full conversation.
       # To ensure this matches the result of tokenizing the entire conversation at once, a sanity check is run at the end of each multi-turn rollout to compare the two sets of token ids.
       # Some models are known to produce different tokenization results when tokenizing turn by turn vs. all at once. aThis behavior has already been validated for them.
       # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
-      enable_tokenization_sanity_check: True
+      # - off: disable tokenization sanity check
+      # - strict: enable strict tokenization sanity check (default)
+      # - ignore_strippable: ignore strippable tokens when checking tokenization sanity
+      tokenization_sanity_check_mode: strict
+  
     # support logging rollout prob for debugging purpose
     calculate_log_probs: False
     # Nsight system profiler configs
@@ -328,6 +352,7 @@ reward_model:
   sandbox_fusion:
     url: null # faas url to run code in cloud sandbox
     max_concurrent: 64 # max concurrent requests to sandbox
+    memory_limit_mb: 1024 # Max memory limit for each sandbox process in MB
   # Nsight system profiler configs
   profiler:
     discrete: False
