@@ -127,7 +127,7 @@ def fit(self):
                 if self.use_reference_policy:
                     # compute reference log_prob
                     with _timer("ref", timing_raw):
-                        if not self.ref_policy_wg:
+                        if not self.ref_in_actor:
                             ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
                         else:
                             ref_log_prob = self.actor_rollout_wg.compute_ref_log_prob(batch)
