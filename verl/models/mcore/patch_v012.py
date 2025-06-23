@@ -29,7 +29,7 @@ from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.tensor_parallel.mappings import gather_from_sequence_parallel_region
 from torch import Tensor
 
-from verl.utils.kernel import linear_cross_entropy
+from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
 from verl.utils.model import CausalLMOutputForPPO
 
 
