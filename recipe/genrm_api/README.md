@@ -22,7 +22,7 @@ For convenience, we run both the RL training and server on the same machine. To 
 
 ## Advanced: Customizing Your GenRM
 
-You can use sgLang server with data parallel for faster inference:
+You can use sglang server with data parallel for faster inference:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3 python -m sglang_router.launch_server --model-path dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --dp 4
