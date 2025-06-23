@@ -133,6 +133,7 @@ class SandboxFusionTool(BaseTool):
         self.enable_global_rate_limit = config.get("enable_global_rate_limit", True)
         self.execution_pool = init_execution_pool(num_workers=self.num_workers, enable_global_rate_limit=self.enable_global_rate_limit, rate_limit=self.rate_limit, mode=PoolMode.ThreadMode)
         self.sandbox_fusion_url = config.get("sandbox_fusion_url", "")
+        self.memory_limit_mb = config.get("memory_limit_mb", 1024)
         if self.sandbox_fusion_url == "":
             raise ValueError("sandbox_fusion_url is not set")
         log_msg = f"Init SandboxFusionTool with config: {config}"
@@ -163,7 +164,7 @@ class SandboxFusionTool(BaseTool):
         return result, result, result.strip()
 
     def execute_code(self, instance_id, code, timeout=30, language="python"):
-        result_status, metadata = _process_single_case(0, None, None, self.sandbox_fusion_url, code, timeout, language)
+        result_status, metadata = _process_single_case(0, None, None, self.sandbox_fusion_url, code, timeout, self.memory_limit_mb, language)
         # we should always expect this since we don't have correct answer
         if metadata["run_status"] == "Finished":
             actual_output = metadata["stdout"] if metadata["stdout"] is not None else ""

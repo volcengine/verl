@@ -29,7 +29,7 @@ Verl manages mulitiple RL roles, _Actor_, _Ref_, _Rollout_, _Critic_, _Reward_, 
 
 * **`all_ranks` and `ranks`**. When `all_ranks` is set `True` then all ranks will be profiled; when set `False`, `ranks` will be profiled. By default, verl profiles the whole training process in a single ` worker_process_<PID>.<step>.nsys-rep` file for each process rank. Be noted the `<step>` is continuously counted from `1` and not `trainer.profile_steps` itself.
 
-* **`discrete`**. When set `False`, all the roles actions in one training step will be dumped in one database. When set `True`, the actions annotated by `WorkerProfiler.annotate` will be dumped into a discrete database. In this case, each role's action occupies one `<step>`.
+* **`discrete`**. When set `False`, all the roles actions in one training step will be dumped in one database. When set `True`, the actions annotated by `DistProfiler.annotate` will be dumped into a discrete database. In this case, each role's action occupies one `<step>`.
 
 * **`actor_rollout_ref`**. This Worker can be configured to contain at most 3 roles and executes together. The final `profiler` config is a union of the three roles' configs.
 
