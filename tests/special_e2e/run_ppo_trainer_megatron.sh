@@ -129,7 +129,10 @@ exp_name="$(basename "${MODEL_ID,,}")-megatron-gsm8k-minimal"
 for ENGINE in "${ENGINES[@]}"; do
     if [ "$ENGINE" = "vllm" ]; then
         MODE=${MODE:-"sync"}
-        ROLLOUT_MODE_ARG="actor_rollout_ref.rollout.mode=${MODE} data.return_raw_chat=True"
+        ROLLOUT_MODE_ARG="actor_rollout_ref.rollout.mode=${MODE}"
+        if [ "$MODE" = "async" ]; then
+            ROLLOUT_MODE_ARG="${ROLLOUT_MODE_ARG} data.return_raw_chat=True"
+        fi
     else
         ROLLOUT_MODE_ARG=""
     fi
