@@ -38,7 +38,7 @@ Please put your final answer (i.e., 'True' or 'False') in \\boxed{{}}.
 
 BASE_URL = "http://localhost:8000/v1"
 API_KEY = "EMPTY"
-MAX_RETRIES = 1
+MAX_RETRIES = 3
 BASE_DELAY = 2
 MAX_WORKERS = 64
 
@@ -93,9 +93,9 @@ def compute_reward(response):
 
 def compute_score(data_source, solution_str, ground_truth, extra_info):
     split = extra_info["split"]
-    from verl.utils.reward_score.math import compute_score
+    from verl.utils.reward_score import default_compute_score
 
-    func_rm_score = compute_score(solution_str, ground_truth)
+    func_rm_score = default_compute_score(data_source, solution_str, ground_truth, extra_info)
 
     if split == "test":
         return func_rm_score
