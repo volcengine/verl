@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from concurrent.futures import ThreadPoolExecutor
 from time import sleep
 
 import openai
 from openai import OpenAI
-from concurrent.futures import ThreadPoolExecutor
 
 from verl.utils.reward_score.math import last_boxed_only_string, remove_boxed
 
@@ -55,16 +55,7 @@ def get_response(client, problem, solution_str):
                 temperature=0.0,
             )
             return output.choices[0].message.content
-        except (
-            openai.APIError,
-            openai.RateLimitError,
-            openai.InternalServerError,
-            openai.OpenAIError,
-            openai.APIStatusError,
-            openai.APITimeoutError,
-            openai.InternalServerError,
-            openai.APIConnectionError,
-        ) as e:
+        except (openai.APIError, openai.RateLimitError, openai.InternalServerError, openai.OpenAIError, openai.APIStatusError, openai.APITimeoutError, openai.APIConnectionError) as e:
             if attempt < MAX_RETRIES - 1:
                 print("Exception: ", repr(e))
                 delay = BASE_DELAY * (2**attempt)
@@ -118,14 +109,10 @@ def compute_score(data_source, solution_str, ground_truth, extra_info):
 def compute_score_batch(data_sources, solution_strs, ground_truths, extra_infos):
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = []
-        for data_source, solution_str, ground_truth, extra_info in zip(
-            data_sources, solution_strs, ground_truths, extra_infos
-        ):
-            future = executor.submit(
-                compute_score, data_source, solution_str, ground_truth, extra_info
-            )
+        for data_source, solution_str, ground_truth, extra_info in zip(data_sources, solution_strs, ground_truths, extra_infos):
+            future = executor.submit(compute_score, data_source, solution_str, ground_truth, extra_info)
             futures.append(future)
-        
+
         results = [future.result() for future in futures]
 
     return results
