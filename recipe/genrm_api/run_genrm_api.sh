@@ -1,21 +1,21 @@
-# sglang server
-# CUDA_VISIBLE_DEVICES=0,1,2,3 python -m sglang_router.launch_server --model-path dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --dp 4
-
 # vllm server
 # CUDA_VISIBLE_DEVICES=0,1,2,3 vllm serve dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --served_model_name genrm-demo
+
+# sglang server
+# CUDA_VISIBLE_DEVICES=0,1,2,3 python -m sglang_router.launch_server --model-path dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --dp 4
 
 set -x
 
 CUDA_VISIBLE_DEVICES=4,5,6,7 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/mnt/hdfs/resources/datasets/GSM8K-Processed/train.parquet \
-    data.val_files=/mnt/hdfs/resources/datasets/GSM8K-Processed/test.parquet \
+    data.train_files=${HOME}/data/gsm8k/train.parquet \
+    data.val_files=${HOME}/data/gsm8k/test.parquet \
     data.train_batch_size=1024 \
     data.max_prompt_length=1024 \
     data.max_response_length=2048 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    actor_rollout_ref.model.path=/mnt/hdfs/resources/models/Qwen2.5-3B-Instruct \
+    actor_rollout_ref.model.path=Qwen/Qwen2.5-3B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \

@@ -80,7 +80,7 @@ def get_response(client, problem, solution_str):
 
 
 def compute_reward(response):
-    reward_score = 0.5
+    reward_score = 0.0
     try:
         boxed_result = last_boxed_only_string(response)
         if boxed_result is not None:
@@ -99,10 +99,7 @@ def compute_score(data_source, solution_str, ground_truth, extra_info):
 
     if split == "test":
         return func_rm_score
-    else:  # split = "train"
-        if func_rm_score == 0.0:
-            return func_rm_score
-
+    else:
         client = OpenAI(
             base_url=BASE_URL,
             api_key=API_KEY,
@@ -113,7 +110,7 @@ def compute_score(data_source, solution_str, ground_truth, extra_info):
         if response is not None:
             reward_score = compute_reward(response)
         else:
-            reward_score = 0.5
+            reward_score = 0.0
 
         return reward_score
 
