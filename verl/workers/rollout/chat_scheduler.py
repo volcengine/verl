@@ -17,6 +17,7 @@ import importlib
 import itertools
 import json
 import logging
+import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 from uuid import uuid4
@@ -44,7 +45,7 @@ class CompletionCallback(ABC):
         self.scheduler = scheduler
 
         # Initialize tools from config file
-        self.max_turns = config.actor_rollout_ref.rollout.multi_turn.max_turns
+        self.max_assistant_turns = config.actor_rollout_ref.rollout.multi_turn.max_assistant_turns
         tool_config_path = config.actor_rollout_ref.rollout.multi_turn.tool_config_path
         tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
         self.tools = {tool.name: tool for tool in tool_list}
@@ -106,7 +107,7 @@ class ToolCompletionCallback(CompletionCallback):
         finish_reason = completions.choices[0].finish_reason
 
         # STEP 0: check if we reach max turns
-        if self.max_turns and len(messages) >= self.max_turns:
+        if self.max_assistant_turns and len(messages) >= self.max_assistant_turns:
             print(f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] Reach max turns, done!")
             return
 
@@ -367,6 +368,7 @@ class ChatCompletionScheduler:
             await session.close()
 
     async def generate_sequences(self, batch: DataProto) -> DataProto:
+        t_start = time.time()
         kwargs = dict(
             model=self.model_name,
             temperature=self.config.temperature,
@@ -399,9 +401,10 @@ class ChatCompletionScheduler:
             )
 
         await asyncio.gather(*tasks)
+        output_batch = self.completion_callback.postprocess(batch, batch_conversations, n=n)
+        output_batch.meta_info["timing"] = {"generate_sequences": time.time() - t_start}
         print("[ChatCompletionScheduler] generate_sequences done")
-
-        return self.completion_callback.postprocess(batch, batch_conversations, n=n)
+        return output_batch
 
     async def _submit_chat_completions_semaphore(self, messages: List[Dict[str, str]], request_id: str, sampling_params: Dict[str, Any]):
         done = asyncio.Event()

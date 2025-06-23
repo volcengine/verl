@@ -30,8 +30,10 @@ package_name = "vllm"
 package_version = get_version(package_name)
 vllm_version = None
 
-
-if package_version == "0.5.4":
+if package_version is None:
+    if not is_sglang_available():
+        raise ValueError(f"vllm version {package_version} not supported and SGLang also not Found. Currently supported vllm versions are 0.6.3 and 0.7.0+")
+elif package_version == "0.5.4":
     vllm_version = "0.5.4"
     from .vllm_v_0_5_4 import parallel_state
     from .vllm_v_0_5_4.llm import LLM, LLMEngine

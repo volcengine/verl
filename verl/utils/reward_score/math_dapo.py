@@ -62,7 +62,6 @@ def remove_boxed(s: str) -> str:
     return s[len(left) : -1]
 
 
-
 # Constants for normalization
 SUBSTITUTIONS = [
     ("an ", ""),

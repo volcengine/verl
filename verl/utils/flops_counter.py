@@ -47,6 +47,8 @@ def get_device_flops(unit="T"):
         flops = 148e12
     elif "910B" in device_name:
         flops = 354e12
+    elif "RTX 3070 Ti" in device_name:
+        flops = 21.75e12
     flops_unit = unit_convert(flops, unit)
     return flops_unit
 
@@ -165,7 +167,7 @@ class FlopsCounter:
         num_hidden_layers = self.config.num_hidden_layers
         num_key_value_heads = self.config.num_key_value_heads
         num_attention_heads = self.config.num_attention_heads
-        moe_intermediate_size = self.config.moe_intermediate_size       
+        moe_intermediate_size = self.config.moe_intermediate_size
         moe_topk = self.config.num_experts_per_tok
         num_experts = self.config.num_experts
 
@@ -194,7 +196,6 @@ class FlopsCounter:
         flops_all_token = dense_N_flops + attn_qkv_flops
         flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
         return flops_achieved
-
 
     def estimate_flops(self, batch_seqlens, delta_time):
         """

@@ -1,3 +1,13 @@
+# the ppo trainer split config will override default ppo_trainer.yaml
+
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
 data:
   tokenizer: null
   train_files: ~/data/rlhf/gsm8k/train.parquet

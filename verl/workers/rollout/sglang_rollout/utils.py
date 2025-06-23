@@ -20,6 +20,8 @@ import numpy as np
 import torch
 import torch.distributed as dist
 
+from verl.utils.device import get_device_name
+
 
 def broadcast_pyobj(
     data: List[Any],
@@ -34,9 +36,7 @@ def broadcast_pyobj(
     The `rank` here refer to the source rank on global process group (regardless
     of dist_group argument).
     """
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() and not force_cpu_device else "cpu"
-    )
+    device = torch.device(get_device_name() if not force_cpu_device else "cpu")
 
     if rank == src:
         if len(data) == 0:
@@ -46,9 +46,7 @@ def broadcast_pyobj(
             serialized_data = pickle.dumps(data)
             size = len(serialized_data)
 
-            tensor_data = torch.ByteTensor(
-                np.frombuffer(serialized_data, dtype=np.uint8)
-            ).to(device)
+            tensor_data = torch.ByteTensor(np.frombuffer(serialized_data, dtype=np.uint8)).to(device)
             tensor_size = torch.tensor([size], dtype=torch.long, device=device)
 
             dist.broadcast(tensor_size, src=src, group=dist_group)

@@ -147,6 +147,113 @@ class McoreToHFWeightConverterQwen2Moe(McoreToHFWeightConverterDense):
         return convert_names, params
 
 
+class McoreToHFWeightConverterQwen2_5_VL(McoreToHFWeightConverterDense):
+    def convert_param(self, name: str, params_one_group: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
+        direct_name_mapping = {
+            "language_model.embedding.word_embeddings.weight": "model.embed_tokens.weight",
+            "language_model.decoder.final_layernorm.weight": "model.norm.weight",
+            "language_model.output_layer.weight": "lm_head.weight",
+            "vision_model.patch_embed.proj.weight": "visual.patch_embed.proj.weight",
+            "vision_model.decoder.final_layernorm.weight": "visual.merger.ln_q.weight",
+            "vision_model.projection.encoder.linear_fc1.weight": "visual.merger.mlp.0.weight",
+            "vision_model.projection.encoder.linear_fc1.bias": "visual.merger.mlp.0.bias",
+            "vision_model.projection.encoder.linear_fc2.weight": "visual.merger.mlp.2.weight",
+            "vision_model.projection.encoder.linear_fc2.bias": "visual.merger.mlp.2.bias",
+        }
+        if name in direct_name_mapping:
+            return [direct_name_mapping[name]], [params_one_group[0]]
+
+        if "self_attention" in name:
+            return self._convert_attention_param(name, params_one_group)
+        elif "mlp" in name:
+            return self._convert_mlp_param(name, params_one_group)
+        else:
+            raise NotImplementedError(f"Unsupported parameter name: {name}")
+
+    def _convert_attention_param(self, name: str, params: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
+        model_type, _, _, layer_number = name.split(".")[:4]
+
+        convert_names = []
+        if model_type == "language_model":
+            name_map_after_layer = {
+                "self_attention.linear_qkv.bias": ["self_attn.q_proj.bias", "self_attn.k_proj.bias", "self_attn.v_proj.bias"],
+                "self_attention.linear_qkv.weight": ["self_attn.q_proj.weight", "self_attn.k_proj.weight", "self_attn.v_proj.weight"],
+                "self_attention.linear_proj.weight": "self_attn.o_proj.weight",
+                "self_attention.linear_qkv.layer_norm_weight": "input_layernorm.weight",
+            }
+            name_after_layer = ".".join(name.split(".")[-3:])
+            mapped_name = name_map_after_layer.get(name_after_layer)
+            if isinstance(mapped_name, list):
+                assert len(params) == len(mapped_name)
+                for one in mapped_name:
+                    convert_names.append(f"model.layers.{layer_number}.{one}")
+            else:
+                assert len(params) == 1
+                convert_names.append(f"model.layers.{layer_number}.{mapped_name}")
+        elif model_type == "vision_model":
+            name_map_after_layer = {"self_attention.linear_proj.weight": "attn.proj.weight", "self_attention.linear_proj.bias": "attn.proj.bias", "self_attention.linear_qkv.layer_norm_weight": "norm1.weight"}
+            name_after_layer = ".".join(name.split(".")[-3:])
+            mapped_name = name_map_after_layer.get(name_after_layer, None)
+            if mapped_name is None:
+                assert "linear_qkv" in name_after_layer
+                assert len(params) == 3
+                new_param = torch.cat(params, dim=0)
+                params = [new_param]
+                if "bias" in name_after_layer:
+                    convert_names.append(f"visual.blocks.{layer_number}.attn.qkv.bias")
+                else:
+                    convert_names.append(f"visual.blocks.{layer_number}.attn.qkv.weight")
+            else:
+                assert len(params) == 1
+                convert_names.append(f"visual.blocks.{layer_number}.{mapped_name}")
+        else:
+            raise NotImplementedError(f"Unsupported model type: {model_type}")
+        return convert_names, params
+
+    def _convert_mlp_param(self, name: str, params: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
+        model_type, _, _, layer_number = name.split(".")[:4]
+
+        convert_names = []
+        if model_type == "language_model":
+            name_map_after_layer = {
+                "mlp.linear_fc1.weight": ["mlp.gate_proj.weight", "mlp.up_proj.weight"],
+                "mlp.linear_fc1.bias": ["mlp.gate_proj.bias", "mlp.up_proj.bias"],
+                "mlp.linear_fc2.weight": "mlp.down_proj.weight",
+                "mlp.linear_fc2.bias": "mlp.down_proj.bias",
+                "mlp.linear_fc1.layer_norm_weight": "post_attention_layernorm.weight",
+            }
+            name_after_layer = ".".join(name.split(".")[-3:])
+            mapped_name = name_map_after_layer.get(name_after_layer)
+            if isinstance(mapped_name, list):
+                assert len(params) == len(mapped_name)
+                for one in mapped_name:
+                    convert_names.append(f"model.layers.{layer_number}.{one}")
+            else:
+                assert len(params) == 1
+                convert_names.append(f"model.layers.{layer_number}.{mapped_name}")
+
+        elif model_type == "vision_model":
+            name_map_after_layer = {
+                "mlp.linear_fc1.weight": ["mlp.gate_proj.weight", "mlp.up_proj.weight"],
+                "mlp.linear_fc1.bias": ["mlp.gate_proj.bias", "mlp.up_proj.bias"],
+                "mlp.linear_fc2.weight": "mlp.down_proj.weight",
+                "mlp.linear_fc2.bias": "mlp.down_proj.bias",
+                "mlp.linear_fc1.layer_norm_weight": "norm2.weight",
+            }
+            name_after_layer = ".".join(name.split(".")[-3:])
+            mapped_name = name_map_after_layer.get(name_after_layer)
+            if isinstance(mapped_name, list):
+                assert len(params) == len(mapped_name)
+                for one in mapped_name:
+                    convert_names.append(f"visual.blocks.{layer_number}.{one}")
+            else:
+                assert len(params) == 1
+                convert_names.append(f"visual.blocks.{layer_number}.{mapped_name}")
+        else:
+            raise NotImplementedError(f"Unsupported model type: {model_type}")
+        return convert_names, params
+
+
 class McoreToHFWeightConverterDpskv3(McoreToHFWeightConverterBase):
     def _convert_attention_param(self, name: str, params: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
         # mcore
