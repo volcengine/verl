@@ -1011,7 +1011,7 @@ class RayPPOTrainer:
                         can_train_mask = np.zeros(len(staged_batch.batch), dtype=bool)
                         id2count = defaultdict(int)
                         required_rollouts = self.config.actor_rollout_ref.rollout.n
-                        divisor = np.lcm(self.config.actor_rollout_ref.actor.ppo_mini_batch_size, required_rollouts)
+                        divisor = self.config.actor_rollout_ref.actor.ppo_mini_batch_size * required_rollouts
 
                         for uid in staged_batch.non_tensor_batch["uid"]:
                             id2count[uid] += 1
