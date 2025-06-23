@@ -198,8 +198,8 @@ for ENGINE in "${ENGINES[@]}"; do
         reward_model.megatron.virtual_pipeline_model_parallel_size=$RM_VPP \
         reward_model.megatron.context_parallel_size=$RM_CP \
         reward_model.megatron.tensor_model_parallel_size=$RM_TP \
-        reward_model.megatron.expert_model_parallel_size=$RM_TP \
-        reward_model.megatron.expert_tensor_parallel_size=$RM_TP \
+        reward_model.megatron.expert_model_parallel_size=$RM_EP \
+        reward_model.megatron.expert_tensor_parallel_size=$RM_ETP \
         reward_model.megatron.param_offload=${RM_PARAM_OFFLOAD} \
         reward_model.megatron.use_dist_checkpointing=${USE_DIST_CKPT} \
         reward_model.megatron.dist_checkpointing_path=${DIST_CKPT_PATH} \

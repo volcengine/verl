@@ -27,14 +27,14 @@
 </div>
 
 
-# 🎉News
+## 🎉News
 
 - **[2025/05/29]** 🎉 Ranked **#1** of the day on [Huggingface Daily Papers](https://huggingface.co/papers?date=2025-05-29).
 - **[2025/05/29]** Released our Paper on arXiv. See [here](https://arxiv.org/pdf/2505.22617). We provide insights into the entropy mechanism of RL for LLMs and propose two simple yet effective strategies to alleviate the entropy collapse. 
 
 
 
-# ✨Getting started
+## ✨Getting started
 
 After preparing the training data, for training Qwen2.5-7B on a single node, taking the KL-Cov approach as an example, you can simply run:
 
@@ -52,7 +52,7 @@ conda activate your_env
 bash recipe/dapo/32b_kl_cov.sh
 ```
 
-# 📖Introduction
+## 📖Introduction
 
 <div align="left">
   <img src="https://github.com/PRIME-RL/Entropy-Mechanism-of-RL/blob/main/figures/e2a.jpg?raw=true" alt="issue" style="width: 96%; height: auto;">
@@ -90,7 +90,7 @@ Our method is able to maintain a considerably higher level of entropy throughout
 Our two approaches both achieve non-trivial improvements across all benchmarks. Compared to GRPO, our method outperforms it by 2.0% on average for the 7B model and by 6.4% for the 32B model. Moreover, we observe that our method yields more substantial gains on the larger Qwen2.5-32B. Specifically, our method achieves improvements of 15.0% and 14.6% compared to GRPO on the most challenging benchmarks, AIME24 and AIME25, respectively.
 
 
-# 🎈Citation
+## 🎈Citation
 If you find this paper or repo helpful, please cite us.
 
 ```bibtex
@@ -101,10 +101,10 @@ If you find this paper or repo helpful, please cite us.
   year={2025}
 }
 ```
-# 🌻Acknowledgement
+## 🌻Acknowledgement
 We implement our reinforcement learning algorithm extending from [verl](https://github.com/volcengine/verl). We utilize [vLLM](https://github.com/vllm-project/vllm) for inference. Our models are trained primarily on [Qwen2.5 family](https://github.com/QwenLM/Qwen2.5). Our training data is built from [DAPO-MATH](https://huggingface.co/datasets/BytedTsinghua-SIA/DAPO-Math-17k). Thanks for their great contributions!
 
-# 📬 Contact
+## 📬 Contact
 
 For questions, discussion, or collaboration opportunities, feel free to contact:
 - Ganqu Cui: cuiganqu@pjlab.org.cn
