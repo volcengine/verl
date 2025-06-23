@@ -42,8 +42,8 @@ fi
 
 CUDA_VISIBLE_DEVICES=4,5,6,7 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/mnt/hdfs/resources/datasets/GSM8K-Processed/train.parquet \
-    data.val_files=/mnt/hdfs/resources/datasets/GSM8K-Processed/test.parquet \
+    data.train_files=${HOME}/data/gsm8k/train.parquet \
+    data.val_files=${HOME}/data/gsm8k/test.parquet \
     data.train_batch_size=256 \
     data.max_prompt_length=1024 \
     data.max_response_length=2048 \
