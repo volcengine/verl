@@ -61,9 +61,9 @@ def test_async_sglang_rollout_w_interaction():
         ]
     ]
     interaction_kwargs = [
-        {"query": "Who won the Champions League in 2019?", "ground_truth": "Real Madrid"},
-        {"query": "The founder of Apple is", "ground_truth": "Steve Jobs"},
-        {"query": "What's the best way to learn python?", "ground_truth": "Learn python from scratch"},
+        {"name": "gsm8k", "query": "Who won the Champions League in 2019?", "ground_truth": "Real Madrid"},
+        {"name": "gsm8k", "query": "The founder of Apple is", "ground_truth": "Steve Jobs"},
+        {"name": "gsm8k", "query": "What's the best way to learn python?", "ground_truth": "Learn python from scratch"},
     ]
     prompts = [tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True) for message in preencode_prompts]
     input_ids, attention_mask, position_ids = prepare_inputs(tokenizer, prompts, max_prompt_length)
@@ -82,7 +82,18 @@ def test_async_sglang_rollout_w_interaction():
         device_mesh=fsdp_device_mesh,
     )
 
-    rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, None, None)
+    # Create a temporary interaction config file for testing
+    import tempfile
+
+    from omegaconf import OmegaConf
+
+    interaction_config = {"interaction": [{"name": "gsm8k", "class_name": "verl.interactions.gsm8k_interaction.Gsm8kInteraction", "config": {}}]}
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        OmegaConf.save(interaction_config, f.name)
+        interaction_config_path = f.name
+
+    rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, None, interaction_config_path)
     rollout = SGLangRollout(actor_module=local_model_path, config=rollout_config, processing_class=tokenizer, model_hf_config=actor_model.config)
 
     rollout_sharding_manager = FSDPSGLangShardingManager(
@@ -129,6 +140,11 @@ def test_async_sglang_rollout_w_interaction():
     print(f"sglang response: {sglang_response_tokens}")
     assert are_lists_similar(hf_response_tokens, sglang_response_tokens)
     print("SGLang w interaction Test Passed!")
+
+    # Clean up temporary config file
+    import os
+
+    os.unlink(interaction_config_path)
 
     torch.distributed.barrier()
     torch.distributed.destroy_process_group()
