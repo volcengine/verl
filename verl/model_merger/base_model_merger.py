@@ -83,6 +83,7 @@ def generate_config_from_args(args: argparse.Namespace) -> ModelMergerConfig:
         "backend": args.backend,
         "tie_word_embedding": args.tie_word_embedding,
         "is_value_model": args.is_value_model,
+        "local_dir": args.local_dir,
         "hf_model_config_path": os.path.join(args.local_dir, "huggingface"),
         "use_cpu_initialization": args.use_cpu_initialization,
     }
