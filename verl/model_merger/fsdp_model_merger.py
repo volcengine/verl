@@ -234,7 +234,7 @@ class FSDPModelMerger(BaseModelMerger):
         if self.config.operation == "test":
             if not self.config.test_hf_dir:
                 raise ValueError("test_hf_dir must be provided for test operation")
-            self._test_state_dict(merged_state_dict)
+            self._validate_state_dict(merged_state_dict)
         elif self.config.operation == "merge":
             self.save_hf_model_and_tokenizer(merged_state_dict)
             if self.config.hf_upload:
@@ -242,7 +242,7 @@ class FSDPModelMerger(BaseModelMerger):
         else:
             raise ValueError(f"Unknown operation: {self.config.operation}")
 
-    def _test_state_dict(self, state_dict: dict[str, torch.Tensor]):
+    def _validate_state_dict(self, state_dict: dict[str, torch.Tensor]):
         auto_model_class = self.get_transformers_auto_model_class()
 
         hf_model = auto_model_class.from_pretrained(self.config.test_hf_dir, torch_dtype=torch.bfloat16)
