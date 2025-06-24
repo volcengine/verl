@@ -1001,7 +1001,7 @@ class RayPPOTrainer:
                                 # we don't support rollout_log_probs in this feature branch yet
                                 partial_batch.batch.pop(key)
                         else:
-                            partial_batch = DataProto()
+                            partial_batch = None
 
                         # note that we no longer ensure the order of samples in staged_batch
                         staged_batch = DataProto.concat([staged_batch, staged_out]) if staged_batch is not None else staged_out
