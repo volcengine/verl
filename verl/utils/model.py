@@ -232,7 +232,7 @@ def convert_weight_keys(state_dict: Dict[str, torch.Tensor], model: PreTrainedMo
 def check_target_module_exists(config, key: str) -> bool | re.Match[str] | None:
     """
     A helper method to check if the passed module's key name matches any of the target modules in the adapter_config.
-    Adapted from https://github.com/huggingface/peft/blob/main/src/peft/tuners/tuners_utils.py 
+    Adapted from https://github.com/huggingface/peft/blob/main/src/peft/tuners/tuners_utils.py
 
     Args:
         config (`LoraConfig` | `LycorisConfig`): A config to match target modules from
@@ -262,9 +262,7 @@ def check_target_module_exists(config, key: str) -> bool | re.Match[str] | None:
         layer_indexes = getattr(config, "layers_to_transform", None)
         layers_pattern = getattr(config, "layers_pattern", None)
 
-        is_using_layer_indexes = layer_indexes is not None and (
-            len(layer_indexes) != 0 if isinstance(layer_indexes, list) else True
-        )
+        is_using_layer_indexes = layer_indexes is not None and (len(layer_indexes) != 0 if isinstance(layer_indexes, list) else True)
         if is_using_layer_indexes and target_module_found:
             layer_index = None
             # TODO: It's still unclear how empty layers_pattern (None, [], or "") should behave

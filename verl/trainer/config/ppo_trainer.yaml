@@ -205,7 +205,7 @@ actor_rollout_ref:
       # KL divergence penalty coefficient
       ppo_kl_coef: 0.1
 
-    # Constant C in Dual-clip PPO; clips when ratio > C and advantage < 0
+    # Constant C in Dual-clip PPO; clips when advantage < -C
     clip_ratio_c: 3.0
 
     # Loss aggregation mode: "token-mean", "seq-mean-token-sum", or "seq-mean-token-mean"
