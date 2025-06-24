@@ -937,6 +937,7 @@ class RayPPOTrainer:
         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
 
         # we start from step 1
+        per_epoch_steps = len(self.train_dataloader)
         self.global_steps += 1
         last_val_metrics = None
 
@@ -1153,7 +1154,11 @@ class RayPPOTrainer:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
 
-                    if self.config.trainer.save_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0):
+                    is_save_frequency = self.global_steps % self.config.trainer.save_freq == 0
+                    is_save_after_epoch = self.config.trainer.save_after_epochs > 0 and self.global_steps % (per_epoch_steps * self.config.trainer.save_after_epochs) == 0
+
+                    should_save = self.config.trainer.save_freq > 0 and (is_last_step or is_save_frequency or is_save_after_epoch)
+                    if should_save:
                         with marked_timer("save_checkpoint", timing_raw, color="green"):
                             self._save_checkpoint()
 
