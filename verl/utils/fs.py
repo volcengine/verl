@@ -255,6 +255,14 @@ def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock=".file.lock", v
 
 
 def local_mkdir_safe(path):
+    """_summary_
+    Thread-safe directory creation function that ensures the directory is created
+    even if multiple processes attempt to create it simultaneously.
+
+    Args:
+        path (str): The path to create a directory at.
+    """
+
     from filelock import FileLock
 
     if not os.path.isabs(path):
