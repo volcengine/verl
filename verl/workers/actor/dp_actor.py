@@ -116,25 +116,26 @@ class DataParallelPPOActor(BasePPOActor):
                 else:
                     position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(0, 1)
 
-            if "multi_modal_inputs" in micro_batch:
-                # MiniCPM-o specific processing for image bounds and pixel values
-                if "image_bound" in multi_modal_inputs:
-                    # Adjust image bounds based on left padding and cumulative sequence lengths
-                    # This is necessary for MiniCPM-o's vision-language alignment
-                    left_padding_length = torch.argmax(attention_mask, dim=1)
-                    image_bounds = []
-                    for i in range(len(multi_modal_inputs["image_bound"])):
-                        image_bound = multi_modal_inputs["image_bound"][i].to(left_padding_length.device) - left_padding_length[i] + cu_seqlens[i]
-                        image_bounds.append(image_bound)
-                    multi_modal_inputs["image_bound"] = [torch.vstack(image_bounds)]
-                    # Flatten pixel values list for MiniCPM-o processing
-                    pixel_values = []
-                    for i in range(len(multi_modal_inputs["pixel_values"])):
-                        pixel_values.extend([p for p in multi_modal_inputs["pixel_values"][i]])
-                    multi_modal_inputs["pixel_values"] = [pixel_values]
-                # Handle target sizes for MiniCPM-o vision processing
-                if "tgt_sizes" in multi_modal_inputs:
-                    multi_modal_inputs["tgt_sizes"] = [torch.vstack(multi_modal_inputs["tgt_sizes"])]
+                if "multi_modal_inputs" in micro_batch:
+                    # MiniCPM-o specific processing for image bounds and pixel values
+                    if "image_bound" in multi_modal_inputs:
+                        # Adjust image bounds based on left padding and cumulative sequence lengths
+                        # This is necessary for MiniCPM-o's vision-language alignment
+                        left_padding_length = torch.argmax(attention_mask, dim=1)
+                        image_bounds = []
+                        for i in range(len(multi_modal_inputs["image_bound"])):
+                            image_bound = multi_modal_inputs["image_bound"][i].to(left_padding_length.device) - left_padding_length[i] + cu_seqlens[i]
+                            image_bounds.append(image_bound)
+                        multi_modal_inputs["image_bound"] = [torch.vstack(image_bounds)]
+                        # Flatten pixel values list for MiniCPM-o processing
+                        pixel_values = []
+                        for i in range(len(multi_modal_inputs["pixel_values"])):
+                            pixel_values.extend([p for p in multi_modal_inputs["pixel_values"][i]])
+                        multi_modal_inputs["pixel_values"] = [pixel_values]
+                    # Handle target sizes for MiniCPM-o vision processing
+                    if "tgt_sizes" in multi_modal_inputs:
+                        multi_modal_inputs["tgt_sizes"] = [torch.vstack(multi_modal_inputs["tgt_sizes"])]
+
                 # for compute the log_prob
                 input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
 
