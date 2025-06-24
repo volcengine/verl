@@ -25,7 +25,7 @@ on:
       # Entrypoints
       - ".github/workflows/e2e_prime.yml"
       - "examples/data_preprocess/gsm8k.py"
-      - "tests/e2e/run_prime.sh"
+      - "tests/special_e2e/run_prime.sh"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -63,4 +63,4 @@ jobs:
       - name: Running GSM8K E2E with prime alg
         run: |
           ray stop --force
-          bash tests/e2e/run_prime.sh
+          bash tests/special_e2e/run_prime.sh

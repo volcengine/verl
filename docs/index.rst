@@ -70,10 +70,11 @@ verl is fast with:
    algo/dapo.md
    algo/spin.md
    algo/sppo.md
+   algo/entropy.md
    algo/opo.md
    algo/baseline.md
 
-.. toctree:: 
+.. toctree::
    :maxdepth: 1
    :caption: PPO Trainer and Workers
 
@@ -85,10 +86,12 @@ verl is fast with:
 .. toctree::
    :maxdepth: 1
    :caption: Performance Tuning Guide
-   
+
+   perf/dpsk.md
    perf/perf_tuning
    README_vllm0.8.md
    perf/device_tuning
+   perf/nsight_profiling.md
 
 .. toctree::
    :maxdepth: 1
@@ -105,9 +108,18 @@ verl is fast with:
    advance/rope
    advance/ppo_lora.rst
    sglang_multiturn/multiturn.rst
+   sglang_multiturn/interaction_system.rst
    advance/placement
    advance/dpo_extension
    examples/sandbox_fusion_example
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Hardware Support
+
+   amd_tutorial/amd_build_dockerfile_page.rst
+   amd_tutorial/amd_vllm_page.rst
+   ascend_tutorial/ascend_quick_start.rst
 
 .. toctree::
    :maxdepth: 1
@@ -124,6 +136,12 @@ verl is fast with:
    :caption: FAQ
 
    faq/faq
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Development Notes
+
+   sglang_multiturn/sandbox_fusion.rst
 
 Contribution
 -------------

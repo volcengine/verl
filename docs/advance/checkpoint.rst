@@ -37,7 +37,7 @@ So the inner checkpoint structure of **FSDP** is like:
     │   └── critic_huggingface
     └── latest_checkpointed_iteration.txt
 
-All model shards, optimizers and extra states are stored togather, in a sharded and distributed way.
+All model shards, optimizers and extra states are stored together, in a sharded and distributed way.
 
 While **Megatron** current checkpoint structure is:
 

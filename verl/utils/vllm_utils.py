@@ -12,39 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# To support different vLLM versions, we add the model into SUPPORTED_MOE_MODELS separately to avoid triggering unsupported issues.
-SUPPORTED_MOE_MODELS = []
-
-try:
-    from vllm.model_executor.models.deepseek_v2 import DeepseekV2ForCausalLM, DeepseekV3ForCausalLM
-    SUPPORTED_MOE_MODELS.append(DeepseekV2ForCausalLM)
-    SUPPORTED_MOE_MODELS.append(DeepseekV3ForCausalLM)
-except ImportError:
-    pass
-
-try:
-    from vllm.model_executor.models.mixtral import MixtralForCausalLM
-    SUPPORTED_MOE_MODELS.append(MixtralForCausalLM)
-except ImportError:
-    pass
-
-try:
-    from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
-    SUPPORTED_MOE_MODELS.append(Qwen2MoeForCausalLM)
-except ImportError:
-    pass
-
-try:
-    from vllm.model_executor.models.qwen3_moe import Qwen3MoeForCausalLM
-    SUPPORTED_MOE_MODELS.append(Qwen3MoeForCausalLM)
-except ImportError:
-    pass
-
-try:
-    from vllm.model_executor.models.kimi_vl import KimiVLForConditionalGeneration
-    SUPPORTED_MOE_MODELS.append(KimiVLForConditionalGeneration)
-except ImportError:
-    pass
 
 from typing import List
 
@@ -56,6 +23,45 @@ from vllm.lora.utils import get_adapter_absolute_path
 from vllm.lora.worker_manager import LRUCacheWorkerLoRAManager
 
 from verl.third_party.vllm import get_version
+
+# To support different vLLM versions, we add the model into SUPPORTED_MOE_MODELS separately to avoid triggering unsupported issues.
+SUPPORTED_MOE_MODELS = []
+
+try:
+    from vllm.model_executor.models.deepseek_v2 import DeepseekV2ForCausalLM, DeepseekV3ForCausalLM
+
+    SUPPORTED_MOE_MODELS.append(DeepseekV2ForCausalLM)
+    SUPPORTED_MOE_MODELS.append(DeepseekV3ForCausalLM)
+except ImportError:
+    pass
+
+try:
+    from vllm.model_executor.models.mixtral import MixtralForCausalLM
+
+    SUPPORTED_MOE_MODELS.append(MixtralForCausalLM)
+except ImportError:
+    pass
+
+try:
+    from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
+
+    SUPPORTED_MOE_MODELS.append(Qwen2MoeForCausalLM)
+except ImportError:
+    pass
+
+try:
+    from vllm.model_executor.models.qwen3_moe import Qwen3MoeForCausalLM
+
+    SUPPORTED_MOE_MODELS.append(Qwen3MoeForCausalLM)
+except ImportError:
+    pass
+
+try:
+    from vllm.model_executor.models.kimi_vl import KimiVLForConditionalGeneration
+
+    SUPPORTED_MOE_MODELS.append(KimiVLForConditionalGeneration)
+except ImportError:
+    pass
 
 
 def patch_vllm_moe_model_weight_loader(model):
@@ -100,8 +106,8 @@ def patch_vllm_moe_model_weight_loader(model):
 
 
 class TensorLoRARequest(LoRARequest):
-    peft_config:dict = field(default=None)
-    lora_tensors:dict = field(default=None)
+    peft_config: dict = field(default=None)
+    lora_tensors: dict = field(default=None)
 
 
 class VLLMHijack:
@@ -116,15 +122,12 @@ class VLLMHijack:
             To synchronize the LoRA tensors of the actor model, we need to find a workaround to enable VLLM to load memory-based LoRA tensors.
             """
             try:
-                supported_lora_modules = (
-                    self._adapter_manager.supported_lora_modules)
-                packed_modules_mapping = (
-                    self._adapter_manager.packed_modules_mapping)
+                supported_lora_modules = self._adapter_manager.supported_lora_modules
+                packed_modules_mapping = self._adapter_manager.packed_modules_mapping
                 expected_lora_modules: List[str] = []
                 for module in supported_lora_modules:
                     if module in packed_modules_mapping:
-                        expected_lora_modules.extend(
-                            packed_modules_mapping[module])
+                        expected_lora_modules.extend(packed_modules_mapping[module])
                     else:
                         expected_lora_modules.append(module)
 
@@ -132,6 +135,7 @@ class VLLMHijack:
 
                 lora_tensors = None
                 from vllm.lora.peft_helper import PEFTHelper
+
                 if isinstance(lora_request, TensorLoRARequest):
                     peft_config = lora_request.peft_config
                     lora_tensors = lora_request.lora_tensors
@@ -139,8 +143,7 @@ class VLLMHijack:
                 else:
                     lora_path = get_adapter_absolute_path(lora_request.lora_path)
 
-                    peft_helper = PEFTHelper.from_local_dir(
-                        lora_path, self.max_position_embeddings)
+                    peft_helper = PEFTHelper.from_local_dir(lora_path, self.max_position_embeddings)
 
                 # Validates the LoRA configuration against requirements before
                 # loading weights, throwing an exception if validation fails.
@@ -150,8 +153,7 @@ class VLLMHijack:
                 # to ensure correct loading of lora weights.
                 model = self._adapter_manager.model
                 hf_to_vllm_mapper = None
-                if (hasattr(model, "hf_to_vllm_mapper")
-                        and model.hf_to_vllm_mapper is not None):
+                if hasattr(model, "hf_to_vllm_mapper") and model.hf_to_vllm_mapper is not None:
                     hf_to_vllm_mapper = model.hf_to_vllm_mapper
 
                 if isinstance(lora_request, TensorLoRARequest):
@@ -165,7 +167,7 @@ class VLLMHijack:
                         target_embedding_padding=self.vocab_size + self.lora_config.lora_extra_vocab_size,
                         embedding_modules=self.embedding_modules,
                         embedding_padding_modules=self.embedding_padding_modules,
-                        weights_mapper=hf_to_vllm_mapper
+                        weights_mapper=hf_to_vllm_mapper,
                     )
                 else:
                     lora = self._lora_model_cls.from_local_checkpoint(
@@ -175,18 +177,16 @@ class VLLMHijack:
                         lora_model_id=lora_request.lora_int_id,
                         device="cpu",
                         dtype=self.lora_config.lora_dtype,
-                        target_embedding_padding=self.vocab_size +
-                        self.lora_config.lora_extra_vocab_size,
+                        target_embedding_padding=self.vocab_size + self.lora_config.lora_extra_vocab_size,
                         embedding_modules=self.embedding_modules,
                         embedding_padding_modules=self.embedding_padding_modules,
-                        weights_mapper=hf_to_vllm_mapper)
+                        weights_mapper=hf_to_vllm_mapper,
+                    )
             except Exception as e:
                 raise e
 
             if lora.extra_vocab_size > self.lora_config.lora_extra_vocab_size:
-                raise ValueError(f"LoRA added vocab size {lora.extra_vocab_size} "
-                                f"is greater than lora_extra_vocab_size "
-                                f"{self.lora_config.lora_extra_vocab_size}.")
+                raise ValueError(f"LoRA added vocab size {lora.extra_vocab_size} is greater than lora_extra_vocab_size {self.lora_config.lora_extra_vocab_size}.")
             return lora
 
         def do_hijack(target_cls, target_method_name, hooking_method):
@@ -195,6 +195,6 @@ class VLLMHijack:
         do_hijack(LRUCacheWorkerLoRAManager, "_load_adapter", hijack__load_adapter)
 
 
-def is_version_ge(pkg:str='vllm', minver:str="0.7.3"):
-    """ check if the package version is greater than or equal to the minimum version """
+def is_version_ge(pkg: str = "vllm", minver: str = "0.7.3"):
+    """check if the package version is greater than or equal to the minimum version"""
     return vs.parse(get_version(pkg)) >= vs.parse(minver)

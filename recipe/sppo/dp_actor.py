@@ -22,6 +22,7 @@ import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
+from verl.utils.device import get_device_id
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import rearrange_micro_batches
 from verl.workers.actor.dp_actor import DataParallelPPOActor
@@ -104,9 +105,9 @@ class DataParallelSPPOActor(DataParallelPPOActor):
                 for data in micro_batches:
                     # Support all hardwares
                     if isinstance(data, DataProto):
-                        data = {**data.batch.to(torch.cuda.current_device()), **data.non_tensor_batch}
+                        data = {**data.batch.to(get_device_id()), **data.non_tensor_batch}
                     else:
-                        data = data.to(torch.cuda.current_device())  # actor device is cpu when using offload
+                        data = data.to(get_device_id())  # actor device is cpu when using offload
                     responses = data["responses"]
                     response_length = responses.size(1)
                     attention_mask = data["attention_mask"]

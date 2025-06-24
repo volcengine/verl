@@ -34,6 +34,7 @@ from megatron.core.utils import get_attr_wrapped_model
 from transformers import PretrainedConfig
 
 import verl.utils.megatron.tensor_parallel as tp_utils
+from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.model import normalize_model_name
 from verl.utils.torch_dtypes import PrecisionType
 
@@ -107,7 +108,7 @@ def get_model(
     # GPU allocation.
     if transformer_config is None or (not transformer_config.use_cpu_initialization):
         for model_module in model:
-            model_module.cuda(torch.cuda.current_device())
+            model_module.to(f"{get_device_name()}:{get_device_id()}")
 
     # Fp16 conversion.
     config: TransformerConfig = get_model_config(model[0])
@@ -200,10 +201,11 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
 
 def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
     config = OptimizerConfig(
-        optimizer="adam",
+        optimizer=optim_config.get("optimizer", "adam"),
         lr=optim_config.get("lr"),
-        clip_grad=optim_config.get("clip_grad"),
-        weight_decay=optim_config.get("weight_decay"),
+        min_lr=optim_config.get("min_lr", None),
+        clip_grad=optim_config.get("clip_grad", 1.0),
+        weight_decay=optim_config.get("weight_decay", 0.01),
         bf16=True,
         params_dtype=torch.bfloat16,
         use_distributed_optimizer=True,
@@ -269,7 +271,7 @@ def offload_megatron_model_to_cpu(models):
                 if param.grad is not None:
                     param.grad = param.grad.to("cpu", non_blocking=True)
     gc.collect()
-    torch.cuda.empty_cache()
+    get_torch_device().empty_cache()
 
 
 @torch.no_grad()
@@ -290,13 +292,13 @@ def load_megatron_model_to_gpu(models, load_grad=True):
                         buffer.param_data.copy_(buffer.param_data.cpu_data, non_blocking=True)
         else:
             # we need this for ref module
-            device_id = torch.cuda.current_device()
+            device_id = get_device_id()
             for _, param in model_chunk.named_parameters():
                 param.data = param.data.to(device_id, non_blocking=True)
                 if param.grad is not None:
                     param.grad = param.grad.to(device_id, non_blocking=True)
     gc.collect()
-    torch.cuda.empty_cache()
+    get_torch_device().empty_cache()
 
 
 @torch.no_grad()
@@ -357,7 +359,7 @@ def load_megatron_copy_params(optimizers):
     def load_tensor_to_gpu(tensor):
         if tensor is None:
             return
-        device_id = torch.cuda.current_device()
+        device_id = get_device_id()
         tensor.data = tensor.data.to(device_id, non_blocking=True)
 
     def load_group_to_gpu(group):
@@ -397,7 +399,7 @@ def offload_megatron_optimizer(optimizers):
             if "exp_avg_sq" in v:
                 v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
         gc.collect()
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
 
 
 @torch.no_grad()
@@ -412,20 +414,11 @@ def load_megatron_optimizer(optimizers):
         opt_state_dict_values = _opt.optimizer.state.values()
         for v in opt_state_dict_values:
             if "exp_avg" in v:
-                v["exp_avg"] = v["exp_avg"].to(torch.cuda.current_device(), non_blocking=True)
+                v["exp_avg"] = v["exp_avg"].to(get_device_id(), non_blocking=True)
             if "exp_avg_sq" in v:
-                v["exp_avg_sq"] = v["exp_avg_sq"].to(torch.cuda.current_device(), non_blocking=True)
+                v["exp_avg_sq"] = v["exp_avg_sq"].to(get_device_id(), non_blocking=True)
         gc.collect()
-        torch.cuda.empty_cache()
-
-
-def print_rank_0(message):
-    """If distributed is initialized, print only on rank 0."""
-    if torch.distributed.is_initialized():
-        if torch.distributed.get_rank() == 0:
-            print(message, flush=True)
-    else:
-        print(message, flush=True)
+        get_torch_device().empty_cache()
 
 
 def get_model_checkpoint_path(checkpoint_path):
@@ -455,7 +448,7 @@ def get_optimizer_checkpoint_path(checkpoint_path, use_distributed_optimizer=Tru
     return os.path.join(checkpoint_path, "optim", f"distrib_optim_pp{pp_rank}_tp{tp_rank}_cp{cp_rank}_dp{dp_rank}.pt")
 
 
-def get_rng_states_checkpoint_path(checkpoint_path, only_rank0_save=True):
+def get_rng_states_checkpoint_path(checkpoint_path, only_rank0_save=False):
     # save rng states cause interrupts
     os.makedirs(os.path.join(checkpoint_path, "rng_states"), exist_ok=True)
     if only_rank0_save:
@@ -465,6 +458,18 @@ def get_rng_states_checkpoint_path(checkpoint_path, only_rank0_save=True):
     tp_rank = mpu.get_tensor_model_parallel_rank()
     cp_rank = mpu.get_context_parallel_rank()
     return os.path.join(checkpoint_path, "rng_states", f"rng_states_pp{pp_rank}_tp{tp_rank}_cp{cp_rank}_dp{dp_rank}.pt")
+
+
+def get_optimizer_scheduler_checkpoint_path(checkpoint_path, only_rank0_save=False):
+    # save rng states cause interrupts
+    os.makedirs(os.path.join(checkpoint_path, "optimizer_scheduler"), exist_ok=True)
+    if only_rank0_save:
+        return os.path.join(checkpoint_path, "optimizer_scheduler", "optimizer_scheduler.pt")
+    dp_rank = mpu.get_data_parallel_rank()
+    pp_rank = mpu.get_pipeline_model_parallel_rank()
+    tp_rank = mpu.get_tensor_model_parallel_rank()
+    cp_rank = mpu.get_context_parallel_rank()
+    return os.path.join(checkpoint_path, "optimizer_scheduler", f"optimizer_scheduler_pp{pp_rank}_tp{tp_rank}_cp{cp_rank}_dp{dp_rank}.pt")
 
 
 def convert_megatron_model_to_transformers_model(
@@ -631,7 +636,7 @@ def broadcast_from_megatron_pp(tensor: torch.Tensor):
             src_rank = rank
     assert target_tensor_spec is not None
     if tensor is None:
-        tensor = torch.empty(size=target_tensor_spec[0], dtype=target_tensor_spec[1], device=torch.cuda.current_device())
+        tensor = torch.empty(size=target_tensor_spec[0], dtype=target_tensor_spec[1], device=get_device_id())
         if target_tensor_spec[2] is not None:
             tensor.tensor_model_parallel = target_tensor_spec[2]
         if target_tensor_spec[3] is not None:
@@ -666,7 +671,7 @@ def broadcast_str_from_megatron_pp(obj: Any):
     return obj_output[0]
 
 
-def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, model_config, convert_qkv_gate_up_by_simple_split=False):
+def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, model_config, hf_config=None, convert_qkv_gate_up_by_simple_split=False):
     """
     name: name of the parameter
     train_params: training parameters
@@ -678,21 +683,31 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
     """
     from megatron.core import mpu
 
+    train_tp_size = mpu.get_tensor_model_parallel_world_size()
     if layer_name_mapping.get("qkv_layer_name") in name and "layer_norm" not in name:
         # if the tensor is qkv, for each param on tp, split into q, k, v
         # concat q, k, v separately.
         q_lst = []
         k_lst = []
         v_lst = []
-        assert model_config.num_attention_heads % model_config.num_key_value_heads == 0
-        num_q_per_kv = model_config.num_attention_heads // model_config.num_key_value_heads
+        num_attention_heads = model_config.num_attention_heads
+        num_key_value_heads = model_config.num_key_value_heads
+        if "vision_model" in name:
+            num_attention_heads = hf_config.vision_config.num_heads
+            num_key_value_heads = hf_config.vision_config.num_heads
+        assert num_attention_heads % num_key_value_heads == 0
+        num_q_per_kv = num_attention_heads // num_key_value_heads
         assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0, f"param '{name}' shape '{infer_params[0].shape}' dim0 is not divisible by {num_q_per_kv + 2}"
         kv_size_per_tp = infer_params[0].shape[0] // (num_q_per_kv + 2)
         split_size = [kv_size_per_tp * num_q_per_kv, kv_size_per_tp, kv_size_per_tp]
         for infer_param in infer_params:
-            num_query_groups_per_partition = model_config.num_key_value_heads // mpu.get_tensor_model_parallel_world_size()
+            num_query_groups_per_partition = num_key_value_heads // train_tp_size
             for chunk in infer_param.chunk(num_query_groups_per_partition):
-                split_size = [kv_size_per_tp * num_q_per_kv // num_query_groups_per_partition, kv_size_per_tp // num_query_groups_per_partition, kv_size_per_tp // num_query_groups_per_partition]
+                split_size = [
+                    kv_size_per_tp * num_q_per_kv // num_query_groups_per_partition,
+                    kv_size_per_tp // num_query_groups_per_partition,
+                    kv_size_per_tp // num_query_groups_per_partition,
+                ]
                 q, k, v = chunk.split(split_size)
                 q_lst.append(q)
                 k_lst.append(k)
@@ -702,7 +717,7 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
         v = torch.cat(v_lst, dim=0)
         infer_params = torch.cat((q, k, v), dim=0) if not convert_qkv_gate_up_by_simple_split else [q, k, v]
 
-    elif layer_name_mapping.get("gate_proj_layer_name") in name:
+    elif layer_name_mapping.get("gate_proj_layer_name") in name and "layer_norm" not in name and "vision_model.projection" not in name:
         # if the tensor is gate and proj
         gate_lst = []
         up_lst = []
@@ -749,7 +764,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, transform
             # for now we patch it by adding those keys to extra_keys.
             extra_keys = [x for x in model.state_dict().keys() if "_extra_state" not in x and x not in existing_keys]
             for name in extra_keys:
-                yield name, model.state_dict()[name].to(torch.cuda.current_device())
+                yield name, model.state_dict()[name].to(get_device_id())
 
     # we need first make all rank get full model information
     meta_info = []
@@ -815,7 +830,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, transform
                 else:
                     params = [param]
 
-                merge_params = default_tp_concat_fn(layer_name_mapping, name, broad_pp_tensor, params, model_config, convert_qkv_gate_up_by_simple_split)
+                merge_params = default_tp_concat_fn(layer_name_mapping, name, broad_pp_tensor, params, model_config, weight_converter.hf_config, convert_qkv_gate_up_by_simple_split)
                 if not isinstance(merge_params, list):
                     merge_params = [merge_params]
                 converted_names, converted_params = weight_converter.convert_param(name, merge_params)
@@ -831,7 +846,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, transform
             else:
                 infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(all_gather_group_size)]
                 torch.distributed.all_gather(infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group())
-            infer_params = default_tp_concat_fn(layer_name_mapping, cur_name, broad_pp_tensor, infer_params, model_config, convert_qkv_gate_up_by_simple_split)
+            infer_params = default_tp_concat_fn(layer_name_mapping, cur_name, broad_pp_tensor, infer_params, model_config, weight_converter.hf_config, convert_qkv_gate_up_by_simple_split)
         else:
             infer_params = broad_pp_tensor
 

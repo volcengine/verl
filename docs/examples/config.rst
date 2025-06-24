@@ -137,7 +137,11 @@ Actor/Rollout/Reference Policy
         optimizer_offload: False
         fsdp_size: -1
       checkpoint:
-        contents: ['model', 'optimizer', 'extra']
+        # What to include in saved checkpoints
+        # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+        save_contents: ['model', 'optimizer', 'extra']
+        # For more flexibility, you can specify the contents to load from the checkpoint.
+        load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
     ref:
       fsdp_config:
         param_offload: False
@@ -175,6 +179,7 @@ Actor/Rollout/Reference Policy
       engine_kwargs: # inference engine parameters
         vllm:
           swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+          disable_mm_preprocessor_cache: False # disable preprocessor cache for multimodel models
         sglang:
           attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
 
@@ -267,9 +272,11 @@ Actor/Rollout/Reference Policy
 
 - ``actor_rollout_ref.actor.checkpoint``: The configurations of checkpoint function in actor
 
-  - ``contents``: The contents to save in the checkpoint. By default, we save model, optimizer and extra information in the checkpoint.
+  - ``save_contents``: The contents to save in the checkpoint. By default, we save model, optimizer and extra information in the checkpoint.
     The extra information includes Rng states currently, FSDP supported lr_scheduler, and Megatron opt_param_scheduler will coming soon.
-    We do not store hf_model in checkpoint by default, but we provide a tool in `scripts/model_merge.py` to convert checkpoint format to hf format.
+    We do not store hf_model in checkpoint by default, but we provide a tool in ``scripts/model_merge.py`` to convert checkpoint format to hf format.
+
+  - ``load_contents``: The contents to load in the checkpoint, you can specify different checkpoint loading contents. By default, it is the same with ``save_checkpoint``.
 
 **Reference Model**
 
@@ -331,6 +338,7 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
 - ``actor_rollout_ref.rollout.engine_kwargs.vllm``: extra vllm engine args
 
   - ``swap_space``: swap space in GB used by the inference engine. Positive integer, e.g., ``32`` means 32 GB. ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
+  - ``disable_mm_preprocessor_cache``: Whether to disable preprocessor cache for multimodel models. 
 
 - ``actor_rollout_ref.rollout.engine_kwargs.sglang``: extra sglang engine args
 
@@ -373,6 +381,37 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
     initialization.
 
 .. note:: **NOTED**: In this config field, users only need to select from ``dummy_megatron``, ``dummy_dtensor``, ``dummy_hf`` for rollout initialization and our hybrid engine will select the corresponding weight loader (i.e., ``megatron``, ``dtensor``, ``hf``) during actor/rollout weight synchronization.
+
+
+Megatron Optimizer and Optimizer Parameter Scheduler
+____________________________________________________
+
+.. code:: yaml
+
+    optim:
+      optimizer: adam
+      lr: 1e-6
+      clip_grad: 1.0
+      total_training_steps: -1  # must be override by program
+      lr_warmup_init: 0.0  # initial learning rate for warmup, default to 0.0
+      lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
+      lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
+      lr_decay_steps: null
+      lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
+      min_lr: 0.0 # minimum learning rate, default to 0.0
+      weight_decay: 0.01
+      weight_decay_incr_style: constant # select from constant/linear/cosine
+      lr_wsd_decay_style: exponential # select from constant/exponential/cosine
+      lr_wsd_decay_steps: null
+      use_checkpoint_opt_param_scheduler: False # use checkpoint optimizer parameter scheduler
+
+
+Notice that there are some differences in APIs between Megatron optimizer and FSDP optimizer.
+
+- Megatron optimizer scheduler names the period after lr_warmup as lr_decay_steps, so the ``warmup_style`` actually means the style of lr decay after warmup.
+- Megatron optimizer also support weight decay decay mechanism
+- ``use_checkpoint_opt_param_scheduler`` determines whether to use the checkpoint optimizer parameter scheduler. If set to True, the optimizer parameter scheduler will be saved in the checkpoint and loaded from the checkpoint during resuming training.
+
 
 Critic Model
 ~~~~~~~~~~~~
@@ -501,7 +540,7 @@ Trainer
 - ``trainer.resume_mode``: The mode of resuming training. Support
   ``disable``, ``auto`` and ``resume_path``. If set to ``auto`` as default, the
   program will automatically resume from the latest checkpoint in the
-  default_hdfs_dir. If set to ``resume_path``, the program will resume
+  ``default_local_dir``. If set to ``resume_path``, the program will resume
   from the path specified in ``resume_from_path``.
 - ``trainer.resume_from_path``: The path to resume training from. Only
   effective when ``resume_mode`` is set to ``resume_path``.
