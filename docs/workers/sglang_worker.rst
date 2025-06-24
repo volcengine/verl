@@ -21,18 +21,15 @@ Please always follow the following command to install SGLang with verl.
 .. code-block:: bash
     
     pip install --upgrade pip
-    # Currently 0.4.6.post5, subject to updates at any time, please refer to the latest version specified in `setup.py`
+    # Currently 0.4.8, subject to updates at any time, please refer to the latest version specified in `setup.py`
     pip install -e ".[sglang]"
 
 You can check the following dependencies are in your environment:
 
 .. note::
 
-    - **PyTorch**: 2.6.0+cu124
-    - **CUDA**: 12.4
-    - **flashinfer-python**: 0.2.5+cu124torch2.6
-    - **sgLang**: 0.4.6.post5
-    - **sgl-kernel**: 0.1.4
+    - **flashinfer-python**: 0.2.6.post1
+    - **sglang**: 0.4.8
 
 Using SGLang as the Inference Backend for PPO Training on a Single Machine
 -------------------------------------------------------------------------
