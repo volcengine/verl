@@ -30,7 +30,7 @@
 #     - new tests are added to workflow mentioned in 2.
 
 
-name: e2e_genrm_api
+name: e2e_genrm_remote
 
 on:
   # Trigger the workflow on push or pull request,
@@ -55,8 +55,8 @@ on:
       # Megatron
       - "!verl/workers/**/megatron_*.py"
       # Home
-      - "recipe/genrm_api"
-      - "!recipe/genrm_api/README.md"
+      - "recipe/genrm_remote"
+      - "!recipe/genrm_remote/README.md"
       # Entrypoints
       - ".github/workflows/e2e_genrm.yml"
       - "examples/data_preprocess/gsm8k.py"
@@ -72,7 +72,7 @@ permissions:
   contents: read
 
 jobs:
-  e2e_genrm_api:
+  e2e_genrm_remote:
     runs-on: [L20x8]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
@@ -97,4 +97,4 @@ jobs:
       - name: Running the E2E test with the Generative Reward Model
         run: |
           ray stop --force
-          bash tests/special_e2e/run_genrm_api.sh
+          bash tests/special_e2e/run_genrm_remote.sh

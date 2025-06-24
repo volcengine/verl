@@ -13,7 +13,7 @@ vllm serve dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --served-model-name genrm-demo
 ### Step 2: Perform RL using GenRM
 
 ```bash
-bash recipe/api-genrm/run_genrm_api.sh
+bash recipe/api-genrm/run_genrm_remote.sh
 ```
 
 The implementation works by passing a customized reward function (see `reward_function.py`)
