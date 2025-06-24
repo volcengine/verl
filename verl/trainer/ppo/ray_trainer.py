@@ -803,14 +803,15 @@ class RayPPOTrainer:
                 worker_group=self.actor_rollout_wg,
             )
 
-    def _save_checkpoint(self):
+    def _save_checkpoint(self, save_name=None):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
-        local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, f"global_step_{self.global_steps}")
+        save_name = f"global_step_{self.global_steps}" if save_name is None else save_name
+        local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, save_name)
 
         print(f"local_global_step_folder: {local_global_step_folder}")
         actor_local_path = os.path.join(local_global_step_folder, "actor")
 
-        actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "actor")
+        actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(self.config.trainer.default_hdfs_dir, save_name, "actor")
 
         remove_previous_ckpt_in_save = self.config.trainer.get("remove_previous_ckpt_in_save", False)
         if remove_previous_ckpt_in_save:
@@ -822,7 +823,7 @@ class RayPPOTrainer:
 
         if self.use_critic:
             critic_local_path = os.path.join(local_global_step_folder, "critic")
-            critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "critic")
+            critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(self.config.trainer.default_hdfs_dir, save_name, "critic")
             self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps, max_ckpt_to_keep=max_critic_ckpt_to_keep)
 
         # save dataloader
@@ -940,6 +941,7 @@ class RayPPOTrainer:
         per_epoch_steps = len(self.train_dataloader)
         self.global_steps += 1
         last_val_metrics = None
+        best_val_metrics = None
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
@@ -1153,6 +1155,12 @@ class RayPPOTrainer:
                             if is_last_step:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
+                        if self.config.trainer.save_best_val_metric is not None:
+                            current_metric = val_metrics.get(self.config.trainer.save_best_val_metric)
+                            if current_metric is not None and (best_val_metrics is None or current_metric > best_val_metrics):
+                                best_val_metrics = current_metric
+                                with marked_timer("save_checkpoint", timing_raw, color="green"):
+                                    self._save_checkpoint(save_name=f"best_val_step_{self.global_steps}")
 
                     is_save_frequency = self.global_steps % self.config.trainer.save_freq == 0
                     is_save_after_epoch = self.config.trainer.save_after_epochs > 0 and self.global_steps % (per_epoch_steps * self.config.trainer.save_after_epochs) == 0

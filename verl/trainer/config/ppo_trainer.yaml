@@ -975,6 +975,9 @@ trainer:
   # Save frequency (by epoch) for model checkpoints
   save_after_epochs: -1
 
+  # Save model checkpoints only when validation metric improves
+  save_best_val_metric: None
+
   # Resume mode: "auto", "disable", or "resume_path"
   # "auto": resume from last checkpoint if available
   # "disable": start from scratch
