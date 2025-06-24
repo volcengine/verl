@@ -28,7 +28,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
+from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
@@ -115,7 +115,7 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # pad and slice the inputs if sp > 1
                 if self.use_ulysses_sp:
-                    is_vlm_model = "multi_modal_inputs" in micro_batch
+                    is_vlm_model = "multi_modal_inputs" in micro_batch.keys()
                     if is_vlm_model:
                         # vlm model's inputs will be sliced after embedding
                         input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
@@ -217,6 +217,8 @@ class DataParallelPPOActor(BasePPOActor):
                 extra_args = {}
                 if self.use_fused_kernels:
                     extra_args["temperature"] = temperature
+                    extra_args["return_dict"] = True
+
                 output = self.actor_module(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -285,20 +287,39 @@ class DataParallelPPOActor(BasePPOActor):
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
 
-        select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
-        batch = data.select(batch_keys=select_keys).batch
-        has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+        def _get_micro_batches(data: DataProto) -> Tuple[list, list | None]:
+            select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
+            batch = data.select(batch_keys=select_keys).batch
+            has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch
 
-        if has_multi_modal_inputs:
-            num_micro_batches = data.batch.batch_size[0] // micro_batch_size
-            non_tensor_select_keys = ["multi_modal_inputs"]
-            micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
-        elif use_dynamic_bsz:
-            # split using dynamic bsz
-            max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
-            micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
-        else:
-            micro_batches = batch.split(micro_batch_size)
+            if has_multi_modal_inputs:
+                all_multi_modal_inputs_list = data.non_tensor_batch["multi_modal_inputs"]
+                if use_dynamic_bsz:
+                    max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
+                    rearranged_text_micro_batches, textual_indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
+
+                    final_micro_batches_list = []
+                    for i, text_mb_td in enumerate(rearranged_text_micro_batches):
+                        current_original_indices = textual_indices[i]
+                        current_mm_inputs_list = [all_multi_modal_inputs_list[idx] for idx in current_original_indices]
+
+                        mb_dict = {k: v for k, v in text_mb_td.items()}
+                        mb_dict["multi_modal_inputs"] = current_mm_inputs_list
+                        final_micro_batches_list.append(mb_dict)
+                    return final_micro_batches_list, textual_indices
+                else:
+                    num_micro_batches = batch.batch_size[0] // micro_batch_size
+                    micro_batches_dp = data.chunk(num_micro_batches)
+                    return micro_batches_dp, None
+            elif use_dynamic_bsz:
+                max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
+                micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
+                return micro_batches, indices
+            else:
+                micro_batches = batch.split(micro_batch_size)
+                return micro_batches, None
+
+        micro_batches, indices = _get_micro_batches(data)
 
         log_probs_lst = []
         entropy_lst = []
@@ -356,9 +377,23 @@ class DataParallelPPOActor(BasePPOActor):
                 # split batch into micro_batches
                 mini_batch = data
                 if has_multi_modal_inputs:
-                    self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
-                    num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
-                    micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
+                    micro_batches = []
+                    if self.config.use_dynamic_bsz:
+                        all_multi_modal_inputs_list = data.non_tensor_batch["multi_modal_inputs"]
+                        batch_tensordict_for_rearrange = data.batch
+
+                        max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
+                        rearranged_text_micro_batches_tds, textual_indices = rearrange_micro_batches(batch=batch_tensordict_for_rearrange, max_token_len=max_token_len)
+
+                        for current_original_indices, text_mb_td in zip(textual_indices, rearranged_text_micro_batches_tds):
+                            current_mm_inputs_list = [all_multi_modal_inputs_list[idx] for idx in current_original_indices]
+                            mb_dict = {k: v for k, v in text_mb_td.items()}
+                            mb_dict["multi_modal_inputs"] = current_mm_inputs_list
+                            micro_batches.append(mb_dict)
+                    else:
+                        self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                        num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
+                        micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
                 elif self.config.use_dynamic_bsz:
                     max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                     micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
@@ -373,6 +408,14 @@ class DataParallelPPOActor(BasePPOActor):
                     # Support all hardwares
                     if isinstance(data, DataProto):
                         data = {**data.batch.to(get_device_id()), **data.non_tensor_batch}
+                    elif isinstance(data, dict):
+                        for k, v in data.items():
+                            if isinstance(v, torch.Tensor):
+                                data[k] = v.to(get_device_id())
+                            elif k == "multi_modal_inputs" and v is not None:
+                                data[k] = [{kk: vv.to(get_device_id()) for kk, vv in item_dict.items()} for item_dict in v]
+                            else:
+                                data[k] = v
                     else:
                         data = data.to(get_device_id())  # actor device is cpu when using offload
                     responses = data["responses"]
@@ -399,17 +442,23 @@ class DataParallelPPOActor(BasePPOActor):
                         calculate_entropy = True
                     entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature, calculate_entropy=calculate_entropy)
 
-                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
-                        old_log_prob=old_log_prob,
-                        log_prob=log_prob,
-                        advantages=advantages,
-                        response_mask=response_mask,
-                        cliprange=clip_ratio,
-                        cliprange_low=clip_ratio_low,
-                        cliprange_high=clip_ratio_high,
-                        clip_ratio_c=clip_ratio_c,
-                        loss_agg_mode=loss_agg_mode,
-                    )
+                    loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
+
+                    if self.config.policy_loss.loss_mode == "vanilla":
+                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
+                            old_log_prob=old_log_prob,
+                            log_prob=log_prob,
+                            advantages=advantages,
+                            response_mask=response_mask,
+                            cliprange=clip_ratio,
+                            cliprange_low=clip_ratio_low,
+                            cliprange_high=clip_ratio_high,
+                            clip_ratio_c=clip_ratio_c,
+                            loss_agg_mode=loss_agg_mode,
+                        )
+                    else:
+                        policy_loss_fn = get_policy_loss_fn(loss_mode)
+                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(old_log_prob, log_prob, advantages, response_mask, loss_agg_mode, self.config)
 
                     if entropy_coeff != 0:
                         entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
