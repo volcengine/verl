@@ -26,7 +26,7 @@ from transformers import GenerationConfig
 
 from verl.models.mcore.patch_v012 import apply_optimizer_sharded_save_load_patches
 from verl.models.weight_loader_registry import get_weight_saver
-from verl.utils.device import is_cuda_available, is_npu_available
+from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.fs import is_non_local
 from verl.utils.logger import log_with_rank
 from verl.utils.megatron_utils import (
@@ -70,7 +70,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         hf_config,
         param_dtype: torch.dtype,
         share_embeddings_and_output_weights: bool,
-        tokenizer,
+        processing_class,
         optimizer,
         optimizer_scheduler,
         use_distributed_optimizer: bool,
@@ -82,7 +82,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             model,
             optimizer=optimizer,
             lr_scheduler=optimizer_scheduler,
-            processing_class=tokenizer,
+            processing_class=processing_class,
             checkpoint_contents=checkpoint_contents,
         )
         self.arch = arch
@@ -115,10 +115,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             "rng_tracker_states": tensor_parallel.get_cuda_rng_tracker().get_states(),
         }
 
-        if is_cuda_available:
-            rng_state["cuda_rng_state"] = torch.cuda.get_rng_state()
-        elif is_npu_available:
-            rng_state["npu_rng_state"] = torch.npu.get_rng_state()
+        if get_device_name() != "cpu":
+            rng_state[f"{get_device_name()}_rng_state"] = get_torch_device().get_rng_state()
 
         rng_state_list = None
         if torch.distributed.is_initialized() and mpu.get_data_parallel_world_size() > 1 and data_parallel_random_init:
@@ -210,10 +208,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         np.random.set_state(rng_state["np_rng_state"])
         torch.set_rng_state(rng_state["torch_rng_state"])
 
-        if is_cuda_available:
-            torch.cuda.set_rng_state(rng_state["cuda_rng_state"])
-        elif is_npu_available:
-            torch.npu.set_rng_state(rng_state["npu_rng_state"])
+        if get_device_name() != "cpu":
+            get_torch_device().set_rng_state(rng_state[f"{get_device_name()}_rng_state"])
 
         # Check for empty states array
         if not rng_state["rng_tracker_states"]:

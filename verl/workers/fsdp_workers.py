@@ -20,7 +20,7 @@ import logging
 import os
 import warnings
 from dataclasses import asdict
-from typing import Union
+from typing import Optional, Union
 
 import psutil
 import torch
@@ -38,10 +38,10 @@ from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
-from verl.utils import hf_processor, hf_tokenizer
+from verl.utils import hf_processor, hf_tokenizer, omega_conf_to_dataclass
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.debug import ProfilerConfig, WorkerProfiler, WorkerProfilerExtension, log_gpu_memory_usage, simple_timer
+from verl.utils.debug import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
 from verl.utils.debug.performance import reduce_timing
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device, is_cuda_available, is_npu_available
 from verl.utils.flops_counter import FlopsCounter
@@ -92,7 +92,7 @@ def get_sharding_strategy(device_mesh):
     return sharding_strategy
 
 
-class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
+class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     """
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
     or a hybrid engine based on the config.rollout
@@ -107,7 +107,7 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
         if not torch.distributed.is_initialized():
             rank = int(os.environ.get("RANK", 0))
             world_size = int(os.environ.get("WORLD_SIZE", 1))
-            torch.distributed.init_process_group(backend=f"cpu:gloo,{get_device_name()}:{get_nccl_backend()}", rank=rank, world_size=world_size)
+            torch.distributed.init_process_group(backend=f"cpu:gloo,{get_device_name()}:{get_nccl_backend()}", rank=rank, world_size=world_size, init_method=os.environ.get("DIST_INIT_METHOD", None))
 
         # build device mesh for FSDP
         world_size = torch.distributed.get_world_size()
@@ -132,15 +132,15 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
         self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
-        profiler_config = ProfilerConfig()
+        profiler_config: Optional[ProfilerConfig] = None
         if self._is_actor:
-            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.actor.get("profiler", DictConfig({})))))
+            profiler_config = omega_conf_to_dataclass(config.actor.get("profiler", {}), ProfilerConfig)
         if self._is_rollout:
-            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.rollout.get("profiler", DictConfig({})))))
+            profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler", {}), ProfilerConfig)
         if self._is_ref:
-            profiler_config = profiler_config.union(ProfilerConfig(**OmegaConf.to_object(config.ref.get("profiler", DictConfig({})))))
+            profiler_config = omega_conf_to_dataclass(config.ref.get("profiler", {}), ProfilerConfig)
 
-        WorkerProfilerExtension.__init__(self, WorkerProfiler(rank=self.rank, config=profiler_config))
+        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
 
         self._is_offload_param = False
         self._is_offload_optimizer = False
@@ -204,6 +204,12 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
         # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
         self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
+
+        if self.config.model.get("custom_chat_template", None) is not None:
+            if self.processor is not None:
+                self.processor.chat_template = self.config.model.custom_chat_template
+            else:
+                self.tokenizer.chat_template = self.config.model.custom_chat_template
 
         torch_dtype = fsdp_config.get("model_dtype", None)
         if torch_dtype is None:
@@ -463,7 +469,7 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
             rollout = SGLangRollout(
                 actor_module=local_path,
                 config=self.config.rollout,
-                tokenizer=self.tokenizer,
+                processing_class=self.processor if self.processor is not None else self.tokenizer,
                 model_hf_config=self.actor_model_config,
                 trust_remote_code=trust_remote_code,
             )
@@ -478,6 +484,7 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
                 full_params="hf" in self.config.rollout.load_format,
                 device_mesh=rollout_device_mesh,
                 offload_param=self._is_offload_param,
+                multi_stage_wake_up=self.config.rollout.multi_stage_wake_up,
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
@@ -492,8 +499,6 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
 
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
-
-        from omegaconf import OmegaConf
 
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
 
@@ -595,7 +600,7 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
             )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @WorkerProfiler.annotate(color="red")
+    @DistProfiler.annotate(color="red")
     def update_actor(self, data: DataProto):
         # Support all hardwares
         data = data.to("cpu")  # data will to device with each micro batch on actor.update_policy
@@ -639,7 +644,7 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @WorkerProfiler.annotate(color="red")
+    @DistProfiler.annotate(color="red")
     def generate_sequences(self, prompts: DataProto):
         # Support all hardwares
         prompts = prompts.to(get_device_id())
@@ -675,7 +680,7 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @WorkerProfiler.annotate(color="blue")
+    @DistProfiler.annotate(color="blue")
     def compute_log_prob(self, data: DataProto):
         # when is_lora is True, we use the actor without lora applied to calculate the log_prob
         # which is mostly used for ref log_prob calculation
@@ -719,7 +724,7 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @WorkerProfiler.annotate(color="olive")
+    @DistProfiler.annotate(color="olive")
     def compute_ref_log_prob(self, data: DataProto):
         if self._is_lora:
             # if _is_lora, actor without lora applied is the ref
@@ -820,14 +825,15 @@ class ActorRolloutRefWorker(Worker, WorkerProfilerExtension):
         self.profiler.stop()
 
 
-class CriticWorker(Worker, WorkerProfilerExtension):
+class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config):
         Worker.__init__(self)
-        WorkerProfilerExtension.__init__(self, WorkerProfiler(rank=self.rank, config=ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))))
+        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), ProfilerConfig)
+        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
         import torch.distributed
 
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend=get_nccl_backend())
+            torch.distributed.init_process_group(backend=get_nccl_backend(), init_method=os.environ.get("DIST_INIT_METHOD", None))
         self.config = config
 
         # build device mesh for Ulysses Sequence Parallel
@@ -880,7 +886,11 @@ class CriticWorker(Worker, WorkerProfilerExtension):
         self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
         self.processor = hf_processor(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
 
-        from omegaconf import OmegaConf
+        if self.config.model.get("custom_chat_template", None) is not None:
+            if self.processor is not None:
+                self.processor.chat_template = self.config.model.custom_chat_template
+            else:
+                self.tokenizer.chat_template = self.config.model.custom_chat_template
 
         override_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
         override_config_kwargs = {
@@ -1068,7 +1078,7 @@ class CriticWorker(Worker, WorkerProfilerExtension):
         )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @WorkerProfiler.annotate(color="cyan")
+    @DistProfiler.annotate(color="cyan")
     def compute_values(self, data: DataProto):
         # Support all hardwares
         data = data.to(get_device_id())
@@ -1092,7 +1102,7 @@ class CriticWorker(Worker, WorkerProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @WorkerProfiler.annotate(color="pink")
+    @DistProfiler.annotate(color="pink")
     def update_critic(self, data: DataProto):
         # Support all hardwares
         data = data.to(get_device_id())
@@ -1159,19 +1169,20 @@ class CriticWorker(Worker, WorkerProfilerExtension):
 
 
 # TODO(sgm): we may need to extract it to dp_reward_model.py
-class RewardModelWorker(Worker, WorkerProfilerExtension):
+class RewardModelWorker(Worker, DistProfilerExtension):
     """
     Note that we only implement the reward model that is subclass of AutoModelForTokenClassification.
     """
 
     def __init__(self, config):
         Worker.__init__(self)
-        WorkerProfilerExtension.__init__(self, WorkerProfiler(rank=self.rank, config=ProfilerConfig(**OmegaConf.to_object(config.get("profiler", DictConfig({}))))))
+        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), ProfilerConfig)
+        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
 
         import torch.distributed
 
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend=get_nccl_backend())
+            torch.distributed.init_process_group(backend=get_nccl_backend(), init_method=os.environ.get("DIST_INIT_METHOD", None))
         self.config = config
 
         # build device mesh for Ulysses Sequence Parallel
@@ -1408,7 +1419,7 @@ class RewardModelWorker(Worker, WorkerProfilerExtension):
         return DataProto.from_dict(rm_inputs)
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @WorkerProfiler.annotate(color="brown")
+    @DistProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
         import itertools
 

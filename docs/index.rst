@@ -70,6 +70,7 @@ verl is fast with:
    algo/dapo.md
    algo/spin.md
    algo/sppo.md
+   algo/entropy.md
    algo/opo.md
    algo/baseline.md
 
@@ -107,6 +108,7 @@ verl is fast with:
    advance/rope
    advance/ppo_lora.rst
    sglang_multiturn/multiturn.rst
+   sglang_multiturn/interaction_system.rst
    advance/placement
    advance/dpo_extension
    examples/sandbox_fusion_example

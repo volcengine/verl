@@ -36,14 +36,14 @@ import torch
 import torch.distributed as dist
 
 try:
-    from verl.utils.kernel import linear_cross_entropy
+    from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
 except ImportError:
     # FIXME: remove these manually included paths
     import sys
 
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../")))
 finally:
-    from verl.utils.kernel import linear_cross_entropy
+    from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
 
 import verl.utils.torch_functional as verl_F
 

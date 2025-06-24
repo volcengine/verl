@@ -1,0 +1,12 @@
+# Tutorial for setting MCP tool: https://github.com/AlecHenx/ml-recipe/blob/main/Tutorial%20for%20MCP%20Tool%20in%20verl.md
+tools:
+  - class_name: verl.tools.mcp_search_tool.MCPSearchTool
+    config:
+      rate_limit: 120
+      timeout: 120
+      type: mcp
+    mcp:
+      mcp_servers_config_path: ./mcp_server.json
+      # optional
+      tool_selected_list: 
+        - tavily_search_tool
