@@ -36,8 +36,8 @@ For more details, please refer to documentation:
 https://verl.readthedocs.io/en/latest/advance/checkpoint.html#convert-fsdp-and-megatron-checkpoints-to-huggingface-format-model
 """
 
+import json
 import os
-import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -90,12 +90,25 @@ class FSDPModelMerger(BaseModelMerger):
     """
 
     def _get_world_size(self) -> int:
-        """Extracts the FSDP world_size from checkpoint filenames (e.g., 'model_world_size_8_rank_0.pt')."""
-        for filename in os.listdir(self.config.local_dir):
-            match = re.match(r"model_world_size_(\d+)_rank_0\.pt", filename)
-            if match:
-                return int(match.group(1))
-        raise FileNotFoundError(f"Could not determine world size. No file matching 'model_world_size_(\\d+)_rank_0.pt' found in {self.config.local_dir}")
+        """_summary_
+        From FSDP json config file, extract the world size.
+
+        Returns:
+            int: world size
+        """
+        config_path = Path(self.config.local_dir) / "fsdp_config.json"
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config file {config_path} does not exist.")
+
+        with open(config_path) as f:
+            config = json.load(f)
+
+        # Extract world size from the config
+        world_size = config.get("world_size", None)
+        if world_size is None:
+            raise ValueError("World size not found in the config file.")
+
+        return world_size
 
     def _load_rank_zero_state_dict(self, world_size: int) -> dict:
         return torch.load(Path(self.config.local_dir) / f"model_world_size_{world_size}_rank_0.pt", map_location="cpu", weights_only=False)

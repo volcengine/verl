@@ -35,6 +35,7 @@ from transformers import PretrainedConfig
 
 import verl.utils.megatron.tensor_parallel as tp_utils
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
+from verl.utils.fs import local_mkdir_safe
 from verl.utils.model import normalize_model_name
 from verl.utils.torch_dtypes import PrecisionType
 
@@ -423,21 +424,15 @@ def load_megatron_optimizer(optimizers):
 
 
 def get_dist_checkpoint_path(checkpoint_path):
-    os.makedirs(checkpoint_path, exist_ok=True)
-    os.makedirs(os.path.join(checkpoint_path, "dist_ckpt"), exist_ok=True)
+    local_mkdir_safe(checkpoint_path)
+    local_mkdir_safe(os.path.join(checkpoint_path, "dist_ckpt"))
     return os.path.join(checkpoint_path, "dist_ckpt")
 
 
 def get_hf_model_checkpoint_path(checkpoint_path):
-    os.makedirs(checkpoint_path, exist_ok=True)
-    os.makedirs(os.path.join(checkpoint_path, "huggingface"), exist_ok=True)
+    local_mkdir_safe(checkpoint_path)
+    local_mkdir_safe(os.path.join(checkpoint_path, "huggingface"))
     return os.path.join(checkpoint_path, "huggingface")
-
-
-def get_hf_config_and_tokenizer_checkpoint_path(checkpoint_path):
-    os.makedirs(checkpoint_path, exist_ok=True)
-    os.makedirs(os.path.join(checkpoint_path, "hf_config_and_tokenizer"), exist_ok=True)
-    return os.path.join(checkpoint_path, "hf_config_and_tokenizer")
 
 
 def get_transformer_config_checkpoint_path(checkpoint_path):

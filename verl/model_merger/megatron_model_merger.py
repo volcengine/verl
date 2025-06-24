@@ -85,9 +85,9 @@ class MegatronModelMerger(BaseModelMerger):
     """
 
     def __init__(self, config: ModelMergerConfig):
-        from verl.utils.megatron_utils import get_hf_config_and_tokenizer_checkpoint_path
+        from verl.utils.megatron_utils import get_hf_model_checkpoint_path
 
-        config.hf_model_config_path = get_hf_config_and_tokenizer_checkpoint_path(config.local_dir)
+        config.hf_model_path = get_hf_model_checkpoint_path(config.local_dir)
         super().__init__(config)
         # Currently we use only 1 rank to merge the dist_ckpt, we will move to multi-process save shortly afterwards
         os.environ["RANK"] = "0"
@@ -102,7 +102,7 @@ class MegatronModelMerger(BaseModelMerger):
             expert_model_parallel_size=1,
         )
         model_parallel_cuda_manual_seed(0)
-        self.hf_config = AutoConfig.from_pretrained(self.config.hf_model_config_path)
+        self.hf_config = AutoConfig.from_pretrained(self.config.hf_model_path)
         print(self.hf_config, flush=True)
 
         self.params_mapping = {

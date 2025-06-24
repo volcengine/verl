@@ -29,12 +29,11 @@ from transformers import GenerationConfig
 
 from verl.models.weight_loader_registry import get_weight_saver
 from verl.utils.device import get_device_name, get_torch_device
-from verl.utils.fs import is_non_local
+from verl.utils.fs import is_non_local, local_mkdir_safe
 from verl.utils.logger import log_with_rank
 from verl.utils.megatron.dist_checkpointing import load_dist_checkpointing, save_dist_checkpointing
 from verl.utils.megatron_utils import (
     get_dist_checkpoint_path,
-    get_hf_config_and_tokenizer_checkpoint_path,
     get_hf_model_checkpoint_path,
     get_transformer_config_checkpoint_path,
 )
@@ -346,7 +345,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             self.remove_previous_save_local_path(self.previous_saved_paths[:keep_start])
             self.previous_saved_paths = self.previous_saved_paths[keep_start:]
 
-        local_path = self.local_mkdir(local_path)
+        local_path = local_mkdir_safe(local_path)
         dist_checkpoint_path = get_dist_checkpoint_path(local_path)
 
         # Generate state dict for saving
@@ -371,40 +370,23 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             assert async_save_request is None, "Async save request should be None when not using async save."
             torch.distributed.barrier()
 
-        def finalize_save_fn():
-            # Rank 0 uploads checkpoint to HDFS if hdfs_path is provided
-            log_with_rank(f"Dist checkpointing save completed for {dist_checkpoint_path}", rank=self.rank, logger=logger)
-            if self.rank == 0:
-                if hdfs_path is not None:
-                    log_with_rank(f"Uploading checkpoint to {hdfs_path}", rank=self.rank, logger=logger)
-                    from verl.utils import hdfs_io
-
-                    hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                    hdfs_io.copy(src=dist_checkpoint_path, dst=hdfs_path, dirs_exist_ok=True)
-                    hdfs_io.copy(src=hf_config_and_tokenizer_path, dst=hdfs_path, dirs_exist_ok=True)
-
-        if self.checkpoint_config.async_save:
-            assert async_save_request is not None, "Async save request should not be None when using async save."
-            async_save_request.add_finalize_fn(finalize_save_fn)
-        else:
-            finalize_save_fn()
-
         if self.should_save_model:
-            # Only rank 0 saves the hf config, tokenizer and current transformer config
+            # Only rank 0 saves the hf config and tokenizer to huggingface path
+            # No matter whether we save hf model or not
             if self.rank == 0:
                 # Save tokenizer
-                hf_config_and_tokenizer_path = get_hf_config_and_tokenizer_checkpoint_path(local_path)
-                self.processing_class.save_pretrained(hf_config_and_tokenizer_path)
+                hf_config_tokenizer_path = get_hf_model_checkpoint_path(local_path)
+                self.processing_class.save_pretrained(hf_config_tokenizer_path)
                 # Save huggingface config
-                self.hf_config.save_pretrained(hf_config_and_tokenizer_path)
+                self.hf_config.save_pretrained(hf_config_tokenizer_path)
                 if hasattr(self.hf_config, "name_or_path") and self.hf_config.name_or_path:
                     try:
                         generation_config = GenerationConfig.from_pretrained(self.hf_config.name_or_path)
-                        generation_config.save_pretrained(hf_config_and_tokenizer_path)
+                        generation_config.save_pretrained(hf_config_tokenizer_path)
                     except Exception:
                         # if the generation config isn't available, we don't save it
                         pass
-                log_with_rank(f"Saved Huggingface config and tokenizer to {hf_config_and_tokenizer_path}", rank=self.rank, logger=logger, log_only_rank_0=True)
+                log_with_rank(f"Saved Huggingface config and tokenizer to {hf_config_tokenizer_path}", rank=self.rank, logger=logger, log_only_rank_0=True)
 
         if self.should_save_extra:
             if self.rank == 0:
@@ -456,7 +438,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
                         model = AutoModelForCausalLM.from_pretrained(self.config.model.path, torch_dtype="auto")
                 model.save_pretrained(hf_model_ckpt_path, state_dict=state_dict)
-                self.processing_class.save_pretrained(hf_model_ckpt_path)
                 log_with_rank(f"Saved Huggingface config and tokenizer to {hf_model_ckpt_path}", rank=self.rank, logger=logger, log_only_rank_0=True)
 
                 if hdfs_path is not None:
@@ -466,5 +447,23 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     hdfs_io.makedirs(hdfs_path, exist_ok=True)
                     hdfs_io.copy(src=hf_model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
                     log_with_rank(f"HDFS checkpoint uploaded to {hdfs_path}", rank=self.rank, logger=logger, log_only_rank_0=True)
+
+        def finalize_save_fn():
+            # Rank 0 uploads checkpoint to HDFS if hdfs_path is provided
+            log_with_rank(f"Dist checkpointing save completed for {dist_checkpoint_path}", rank=self.rank, logger=logger)
+            if self.rank == 0:
+                if hdfs_path is not None:
+                    log_with_rank(f"Uploading checkpoint to {hdfs_path}", rank=self.rank, logger=logger)
+                    from verl.utils import hdfs_io
+
+                    hdfs_io.makedirs(hdfs_path, exist_ok=True)
+                    hdfs_io.copy(src=dist_checkpoint_path, dst=hdfs_path, dirs_exist_ok=True)
+                    hdfs_io.copy(src=hf_config_tokenizer_path, dst=hdfs_path, dirs_exist_ok=True)
+
+        if self.checkpoint_config.async_save:
+            assert async_save_request is not None, "Async save request should not be None when using async save."
+            async_save_request.add_finalize_fn(finalize_save_fn)
+        else:
+            finalize_save_fn()
 
         self.previous_saved_paths.append(local_path)
