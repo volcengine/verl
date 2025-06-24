@@ -54,7 +54,7 @@ class Gsm8kInteraction(BaseInteraction):
         content = ""
         for i in range(len(messages) - 1, -1, -1):
             item = messages[i]
-            if item.get("role") == "user":
+            if item.get("role") == "assistant":
                 content = item.get("content")
                 break
 
