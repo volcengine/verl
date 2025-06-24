@@ -37,7 +37,7 @@ def parse_args():
 
     base_op_parser = argparse.ArgumentParser(add_help=False)
     base_op_parser.add_argument("--backend", type=str, required=True, choices=["fsdp", "megatron"], help="The backend of the model")
-    base_op_parser.add_argument("--hf_model_path", type=str, default=None, help="Path to the original Hugging Face model for config.")
+    base_op_parser.add_argument("--local_dir", type=str, default=None, help="Path to the original Hugging Face model for config.")
     base_op_parser.add_argument("--tie-word-embedding", action="store_true", help="Whether to tie word embedding weights (currently only Megatron supported)")
     base_op_parser.add_argument("--is-value-model", action="store_true", help="Whether the model is a value model (currently only Megatron supported)")
     base_op_parser.add_argument("--use_cpu_initialization", action="store_true", help="Whether to use CPU initialization for the model. This is useful for large models that cannot fit into GPU memory during initialization.")
@@ -64,7 +64,8 @@ class ModelMergerConfig:
     test_hf_dir: Optional[str] = None
     tie_word_embedding: bool = False
     is_value_model: bool = False
-    hf_model_path: Optional[str] = None
+    local_dir: Optional[str] = None
+    hf_model_config_path: Optional[str] = None
     hf_upload: bool = field(init=False)
     use_cpu_initialization: bool = False
 
@@ -82,7 +83,7 @@ def generate_config_from_args(args: argparse.Namespace) -> ModelMergerConfig:
         "backend": args.backend,
         "tie_word_embedding": args.tie_word_embedding,
         "is_value_model": args.is_value_model,
-        "hf_model_path": args.hf_model_path,
+        "hf_model_config_path": args.local_dir,
         "use_cpu_initialization": args.use_cpu_initialization,
     }
 
