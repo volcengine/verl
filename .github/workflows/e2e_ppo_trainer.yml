@@ -101,22 +101,30 @@ jobs:
       - name: Running GSM8K E2E training tests on 8 L20 GPUs with rmpad using function rm with validation and saving (FSDP_SIZE=8)
         run: |
           ray stop --force
-          VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 SAVE_HF_MODEL=True VERL_EXP_NAME="qwen2.5-0.5b-function-reward-minimal-fsdp8" bash tests/special_e2e/ppo_trainer/run_function_reward.sh
+          VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 SAVE_HF_MODEL=True VERL_EXP_NAME="qwen2.5-0.5b-function-reward-minimal-fsdp-size8" bash tests/special_e2e/ppo_trainer/run_function_reward.sh
       - name: Running GSM8K E2E training tests on 8 L20 GPUs with rmpad using function rm after resuming
         run: |
           ray stop --force
-          RESUME_MODE=auto VERL_EXP_NAME="qwen2.5-0.5b-function-reward-minimal-fsdp8" bash tests/special_e2e/ppo_trainer/run_function_reward.sh
+          RESUME_MODE=auto VERL_EXP_NAME="qwen2.5-0.5b-function-reward-minimal-fsdp-size8" bash tests/special_e2e/ppo_trainer/run_function_reward.sh
       - name: Test merging FSDP checkpoints (Qwen Actor) 
         run: |
-          exp_name="qwen2.5-0.5b-function-reward-minimal-fsdp8"
+          exp_name="qwen2.5-0.5b-function-reward-minimal-fsdp-size8"
           python scripts/model_merger.py test --backend fsdp --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
       - name: Running GSM8K E2E training tests on 8 L20 GPUs with rmpad using function rm with validation and saving (DDP_SIZE=2, FSDP_SIZE=4)
         run: |
           ray stop --force
-          VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 SAVE_HF_MODEL=True FSDP_SIZE=4 VERL_EXP_NAME="qwen2.5-0.5b-function-reward-minimal-ddp2-fsdp4" bash tests/special_e2e/ppo_trainer/run_function_reward.sh
+          VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 SAVE_HF_MODEL=True FSDP_SIZE=4 VERL_EXP_NAME="qwen2.5-0.5b-function-reward-minimal-ddp-size2-fsdp-size4" bash tests/special_e2e/ppo_trainer/run_function_reward.sh
       - name: Test merging DDP+FSDP checkpoints (Qwen Actor) 
         run: |
-          exp_name="qwen2.5-0.5b-function-reward-minimal-ddp2-fsdp4"
+          exp_name="qwen2.5-0.5b-function-reward-minimal-ddp-size2-fsdp-size4"
+          python scripts/model_merger.py test --backend fsdp --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
+      - name: Running GSM8K E2E training tests on 8 L20 GPUs with rmpad using function rm with validation and saving (FSDP2)
+        run: |
+          ray stop --force
+          VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 SAVE_HF_MODEL=True VERL_EXP_NAME="qwen2.5-0.5b-function-reward-minimal-fsdp2-size8" STRATEGY=fsdp2 bash tests/special_e2e/ppo_trainer/run_function_reward.sh
+      - name: Test merging FSDP2 checkpoints (Qwen Actor) 
+        run: |
+          exp_name="qwen2.5-0.5b-function-reward-minimal-fsdp2-size8"
           python scripts/model_merger.py test --backend fsdp --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
       - name: Running GSM8K E2E without rmpad using function rm
         run: |
@@ -212,11 +220,11 @@ jobs:
         run: |
           pip3 install -e .[test,gpu,vllm,geo,trl]
       # Geo3k
-      - name: Prepare Geo3k dataset
+      - name: Prepare GEO3K dataset
         run: |
           ray stop --force
           python3 examples/data_preprocess/geo3k.py
-      - name: Running Geo3k VLM GRPO E2E training tests on 8 L20 GPUs with rmpad using function rm
+      - name: Running GEO3K VLM GRPO E2E training tests on 8 L20 GPUs with rmpad using function rm
         run: |
           ray stop --force
           TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
@@ -226,7 +234,7 @@ jobs:
             SP_SIZE=2 \
             bash tests/special_e2e/ppo_trainer/run_function_reward.sh
 
-      - name: Running Geo3k VLM PPO E2E training tests on 8 L20 GPUs with rmpad using function rm
+      - name: Running GEO3K VLM PPO E2E training tests on 8 L20 GPUs with rmpad using function rm
         run: |
           ray stop --force
           TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
@@ -329,11 +337,11 @@ jobs:
         run: |
           pip3 install -e .[test,geo,gpu,sglang]
       # Geo3k
-      - name: Prepare Geo3k dataset
+      - name: Prepare GEO3K dataset
         run: |
           ray stop --force
           python3 examples/data_preprocess/geo3k.py
-      - name: Running Geo3k VLM E2E training tests on 8 L20 GPUs with rmpad using function rm
+      - name: Running GEO3K VLM E2E training tests on 8 L20 GPUs with rmpad using function rm
         run: |
           ray stop --force
           TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
@@ -343,7 +351,7 @@ jobs:
             ENGINE=sglang GPU_MEMORY_UTILIZATION=0.6 ACTOR_FSDP_PARAM_OFFLOAD=True \
             ACTOR_FSDP_OPTIMIZER_OFFLOAD=True REF_FSDP_PARAM_OFFLOAD=True \
             bash tests/special_e2e/ppo_trainer/run_function_reward.sh
-      - name: Running Geo3k VLM E2E with rmpad using torch fused kernel (Qwen2.5-VL)
+      - name: Running GEO3K VLM E2E with rmpad using torch fused kernel (Qwen2.5-VL)
         run: |
           ray stop --force
           FUSED_KERNELS=True TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
@@ -353,7 +361,7 @@ jobs:
             ENGINE=sglang GPU_MEMORY_UTILIZATION=0.6 ACTOR_FSDP_PARAM_OFFLOAD=True \
             ACTOR_FSDP_OPTIMIZER_OFFLOAD=True REF_FSDP_PARAM_OFFLOAD=True \
             bash tests/special_e2e/ppo_trainer/run_function_reward.sh
-      - name: Running Geo3k VLM E2E with rmpad using triton fused kernel (Qwen2.5-VL)
+      - name: Running GEO3K VLM E2E with rmpad using triton fused kernel (Qwen2.5-VL)
         run: |
           ray stop --force
           FUSED_KERNELS=True FUSED_KERNEL_BACKEND=triton \
@@ -364,3 +372,36 @@ jobs:
             ENGINE=sglang GPU_MEMORY_UTILIZATION=0.6 ACTOR_FSDP_PARAM_OFFLOAD=True \
             ACTOR_FSDP_OPTIMIZER_OFFLOAD=True REF_FSDP_PARAM_OFFLOAD=True \
             bash tests/special_e2e/ppo_trainer/run_function_reward.sh
+
+  e2e_ppo_trainer_sglang_vlm_multiturn_with_tool:
+    runs-on: [L20x8]
+    needs: pre_commit_for_ppo
+    timeout-minutes: 40 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
+      HF_ENDPOINT: "https://hf-mirror.com"
+      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
+    container:
+      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.0-te2.3
+      options: --gpus all --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install -e .[test,geo,gpu,sglang]
+      - name: Prepare geo3k dataset with tool
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/geo3k_multiturn_w_tool.py --local_dir $HOME/data/geo3k_verl_sgl_multi_turn_preprocessed
+      - name: Running GEO3K with tool E2E training tests on 8 L20 GPUs with rmpad using function rm and save ckpt with sglang
+        run: |
+          ray stop --force
+          bash tests/special_e2e/run_geo3k_fsdp_sgl_multiturn_w_tool.sh
+      - name: Running GEO3K with tool E2E training tests with FSDP2
+        run: |
+          ray stop --force
+          FSDP_STRATEGY=fsdp2 bash tests/special_e2e/run_geo3k_fsdp_sgl_multiturn_w_tool.sh
