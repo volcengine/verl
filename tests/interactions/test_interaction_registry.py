@@ -158,7 +158,7 @@ class TestInteractionRegistry:
         config_content = {
             "interaction": [
                 {"class_name": "verl.interactions.base.BaseInteraction", "config": {}},
-                {"class_name": "some.module.CustomAgent", "config": {}},
+                {"class_name": "verl.interactions.gsm8k_interaction.Gsm8kInteraction", "config": {}},
             ]
         }
 
@@ -172,6 +172,6 @@ class TestInteractionRegistry:
             # Check that names were generated correctly
             assert len(interaction_map) == 2
             assert "base" in interaction_map  # BaseInteraction -> base
-            assert "customagent" in interaction_map  # CustomAgent -> customagent
+            assert "gsm8k" in interaction_map  # Gsm8kInteraction -> gsm8k
         finally:
             os.unlink(temp_config_path)
