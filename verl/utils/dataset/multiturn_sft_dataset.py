@@ -106,7 +106,7 @@ class MultiTurnSFTDataset(Dataset):
             end_pos = prefix_tokens[0].shape[0]
 
             # If this is an assistant message, set loss mask
-            if msg["role"] == "assistant" and self.loss_mask[i]:
+            if msg["role"] == "assistant" and self.loss_mask[item][i]:
                 loss_mask[start_pos:end_pos] = 1
 
         # Handle sequence length
@@ -139,7 +139,7 @@ class MultiTurnSFTDataset(Dataset):
         position_ids = torch.arange(len(input_ids), dtype=torch.long)
         # Zero out position IDs for padding
         position_ids = position_ids * attention_mask
-
+        
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
