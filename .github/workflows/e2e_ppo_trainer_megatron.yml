@@ -42,8 +42,8 @@ on:
       - main
       - v0.*
     paths:
+      - "**/*.py"
       # Other entrypoints
-      - "!*.md"
       - "!verl/trainer/fsdp_sft_trainer.py"
       # Recipes
       - "!recipe/**"
@@ -58,7 +58,7 @@ on:
       # Other entrypoints
       - "!docker/**"
       # Docs
-      - "!*.md"
+      - "!**/*.md"
       - "!docs/**"
       - "!examples/**"
       - "!tests/**"

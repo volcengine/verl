@@ -42,6 +42,7 @@ on:
       - main
       - v0.*
     paths:
+      - "**/*.py"
       # Other entrypoints
       - "!*.md"
       - "!docker/**"
