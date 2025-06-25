@@ -13,9 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from megatron.core.optimizer import OptimizerConfig
+from megatron.core.optimizer import ChainedOptimizer, DistributedOptimizer, OptimizerConfig
 from megatron.core.optimizer import get_megatron_optimizer as get_megatron_optimizer_native
 from megatron.core.optimizer_param_scheduler import OptimizerParamScheduler
+
+from verl.models.mcore.patch_v012 import PatchedChainedOptimizer, PatchedDistributedOptimizer
+
+
+def _patch_mcore_v012_optimizers(base_optimizer):
+    """Patch the optimizer to support saving optimizer state without DP gathering to memory."""
+    if type(base_optimizer) is ChainedOptimizer:
+        patch_fn = lambda opt: PatchedDistributedOptimizer(opt) if type(opt) is DistributedOptimizer else opt
+        patched_optimizers = [patch_fn(optimizer) for optimizer in base_optimizer.chained_optimizers]
+        return PatchedChainedOptimizer(patched_optimizers)
+
+    if type(base_optimizer) is DistributedOptimizer:
+        return PatchedDistributedOptimizer(base_optimizer)
+
+    return base_optimizer
 
 
 def get_megatron_optimizer(
@@ -26,13 +41,15 @@ def get_megatron_optimizer(
     lr_mult=1.0,
 ):
     # Base optimizer.
-    return get_megatron_optimizer_native(
+    base_optimizer = get_megatron_optimizer_native(
         config=config,
         model_chunks=model,
         no_weight_decay_cond=no_weight_decay_cond,
         scale_lr_cond=scale_lr_cond,
         lr_mult=lr_mult,
     )
+
+    return _patch_mcore_v012_optimizers(base_optimizer)
 
 
 def get_megatron_optimizer_param_scheduler(

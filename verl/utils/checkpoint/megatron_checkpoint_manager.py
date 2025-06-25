@@ -24,7 +24,6 @@ from megatron.core.dist_checkpointing.mapping import ShardedObject
 from omegaconf import DictConfig
 from transformers import GenerationConfig
 
-from verl.models.mcore.patch_v012 import apply_optimizer_sharded_save_load_patches
 from verl.models.weight_loader_registry import get_weight_saver
 from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.fs import is_non_local
@@ -102,9 +101,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.rank = torch.distributed.get_rank()
 
         self.weight_saver = get_weight_saver(self.arch)
-
-        log_with_rank("Applying mcore 0.12.0 optimizer save / load patches", rank=self.rank, logger=logger)
-        apply_optimizer_sharded_save_load_patches()
 
     def get_rng_state(self, use_dist_ckpt: bool = False, data_parallel_random_init: bool = False):
         """collect rng state across data parallel ranks"""

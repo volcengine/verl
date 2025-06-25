@@ -16,6 +16,13 @@
 
 # there is some bug in mcore 0.12, so we need to patch it
 # 1. `get_query_key_value_tensors` in `multi_latent_attention.py` works wrong when packed_seq_params is not None
+# 2. Add PatchedChainedOptimizer and PatchedDistributedOptimizer class to support saving optimizer state without DP gathering to memory
+
+
+from pathlib import Path
+
+import torch
+from megatron.core.optimizer import ChainedOptimizer, DistributedOptimizer
 
 
 def apply_patch():
@@ -201,16 +208,14 @@ def apply_patch():
     MLASelfAttention.get_query_key_value_tensors = patch_get_query_key_value_tensors
 
 
-def apply_optimizer_sharded_save_load_patches():
+class PatchedDistributedOptimizer(DistributedOptimizer):
     """
-    Apply patch to ChainedOptimizer and DistributedOptimizer in mcore 0.12.0 to enable
+    PatchedDistributedOptimizer inherits from mcore 0.12.0 DistributedOptimizer while apply patches to enable
     saving sharded optimizer state from GPU to disk directly without DP gathering to CPU memory.
     """
-    from pathlib import Path
 
-    import torch
-    from megatron.core.optimizer.distrib_optimizer import DistributedOptimizer
-    from megatron.core.optimizer.optimizer import ChainedOptimizer
+    def __init__(self, base_optimizer: DistributedOptimizer):
+        self.__dict__.update(base_optimizer.__dict__)
 
     def get_parameter_state_local(self):
         """
@@ -343,6 +348,16 @@ def apply_optimizer_sharded_save_load_patches():
 
         self.load_parameter_state_local(state_dict)
 
+
+class PatchedChainedOptimizer(ChainedOptimizer):
+    """
+    PatchedChainedOptimizer inherits from mcore 0.12.0 ChainedOptimizer while apply patches to enable
+    saving sharded optimizer state from GPU to disk directly without DP gathering to CPU memory.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
     def save_chained_sharded_parameter_state(self, filename: str):
         """
         Save the distributed parameter states of all optimizers in a sharded format.
@@ -389,10 +404,3 @@ def apply_optimizer_sharded_save_load_patches():
             optimizer_dir = Path(filename).parent / f"optimizer_{idx}"
             optimizer_filename = optimizer_dir / Path(filename).name
             optimizer.load_sharded_parameter_state(str(optimizer_filename))
-
-    DistributedOptimizer.get_parameter_state_local = get_parameter_state_local
-    DistributedOptimizer.load_parameter_state_local = load_parameter_state_local
-    DistributedOptimizer.save_sharded_parameter_state = save_sharded_parameter_state
-    DistributedOptimizer.load_sharded_parameter_state = load_sharded_parameter_state
-    ChainedOptimizer.save_sharded_parameter_state = save_chained_sharded_parameter_state
-    ChainedOptimizer.load_sharded_parameter_state = load_chained_sharded_parameter_state
