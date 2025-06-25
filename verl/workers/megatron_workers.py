@@ -178,20 +178,19 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 post_model_creation_callbacks.append(freeze_moe_router)
 
         # Step 3: initialize the megatron model
-        if self._is_actor and self._is_rollout:
+        def make_model(wrap_with_ddp=False):
             if self.bridge is not None:
-                actor_module = self.bridge.get_model(post_model_creation_callbacks=post_model_creation_callbacks, wrap_with_ddp=True)
+                return self.bridge.get_model(post_model_creation_callbacks=post_model_creation_callbacks, wrap_with_ddp=wrap_with_ddp)
             else:
-                actor_module = get_model(
+                return get_model(
                     megatron_actor_model_provider,
-                    wrap_with_ddp=True,
+                    wrap_with_ddp=wrap_with_ddp,
                     use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
                 )
+        if self._is_actor and self._is_rollout:
+            actor_module = make_model(wrap_with_ddp=True)
             print(f"actor_module: {len(actor_module)}")
             if self.config.actor.load_weight:
-                import time
-
-                t0 = time.time()
                 if self.config.actor.megatron.use_dist_checkpointing:
                     load_mcore_dist_weights(actor_module, self.config.actor.megatron.dist_checkpointing_path, is_value_model=False)
                 else:
@@ -200,24 +199,13 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                         self.bridge.load_weights(actor_module, local_model_path)
                     else:
                         load_megatron_gptmodel_weights(self.config, self.hf_config, actor_module, params_dtype=self.dtype, is_value_model=False)
-                t1 = time.time()
-                if torch.distributed.get_rank() == 0:
-                    print(f"actor load_weight time: {t1 - t0:.2f}s")
 
             if self.rank == 0:
                 print_model_size(actor_module[0])
             log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
         elif self._is_ref:
             print(f"self.config.ref.load_weight: {self.config.ref.load_weight}")
-            if self.bridge is not None:
-                ref_module = self.bridge.get_model(post_model_creation_callbacks=post_model_creation_callbacks, wrap_with_ddp=False)
-            else:
-                ref_module = get_model(
-                    model_provider_func=megatron_actor_model_provider,
-                    model_type=ModelType.encoder_or_decoder,
-                    wrap_with_ddp=False,
-                    use_distributed_optimizer=self.config.ref.megatron.use_distributed_optimizer,
-                )
+            ref_module = make_model(wrap_with_ddp=False)
             if self.config.ref.load_weight:  # should align with the actor:
                 assert self.config.actor.load_weight == self.config.ref.load_weight
                 print("load ref weight start")

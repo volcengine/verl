@@ -143,7 +143,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.use_checkpoint_opt_param_scheduler = use_checkpoint_opt_param_scheduler
         self.bridge = bridge
         self.rank = torch.distributed.get_rank()
-        self.use_dist_checkpointing = use_dist_checkpointing
+        self.use_dist_checkpointing = use_dist_checkpointing or not self.bridge or self.is_value_model
+        self.use_hf_checkpoint = not self.use_dist_checkpointing
 
         self.weight_saver = get_weight_saver(self.arch)
 
@@ -302,7 +303,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             ckpt_dir=dist_checkpoint_path,
         )
 
-        if self.should_load_model and (not self.bridge or self.is_value_model or self.use_dist_checkpointing):
+        if self.should_load_model and self.use_dist_checkpointing:
             assert "model" in state_dict or any(f"model{vpp_rank}" in state_dict for vpp_rank in range(len(self.model))), f"Model state dict not found in {state_dict.keys()}. Please check the checkpoint file {local_path}."
             for vpp_rank, model in enumerate(self.model):
                 if len(self.model) == 1:
@@ -313,7 +314,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 mpu.set_virtual_pipeline_model_parallel_rank(vpp_rank)
                 self.model[vpp_rank].load_state_dict(model_state_dict)
             log_with_rank(f"Loaded sharded model checkpoint from {local_path}", rank=self.rank, logger=logger)
-        else:
+        elif self.should_load_model and self.use_hf_checkpoint:
             hf_model_path = get_hf_model_checkpoint_path(local_path)
             self.bridge.load_weights(self.model, hf_model_path)
             log_with_rank(f"Loaded HF model checkpoint from {hf_model_path} with bridge", rank=self.rank, logger=logger)
@@ -356,7 +357,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         dist_checkpoint_path = get_dist_checkpoint_path(local_path)
 
 
-        if not self.bridge or self.is_value_model or self.use_dist_checkpointing:
+        if self.use_dist_checkpointing:
             # Generate state dict for saving
             state_dict = self.generate_state_dict()
             log_with_rank(f"Generated state dict for saving: {state_dict.keys()}", rank=self.rank, logger=logger)
@@ -379,6 +380,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 assert async_save_request is None, "Async save request should be None when not using async save."
                 torch.distributed.barrier()
         else:
+            assert self.use_hf_checkpoint, "use_hf_checkpoint should be True when not using dist checkpointing"
             log_with_rank(f"Saving HF model checkpoint to {local_path} with bridge", rank=self.rank, logger=logger)
             hf_ckpt_path = get_hf_model_checkpoint_path(local_path)
             self.bridge.save_weights(self.model, hf_ckpt_path)
