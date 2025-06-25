@@ -635,4 +635,3 @@ def reliability_guard(maximum_memory_bytes=None):
     # Disable some built-in functions that can be destructive
     for mod in ["subprocess", "ctypes"]:
         sys.modules[mod] = None
-    
