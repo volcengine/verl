@@ -58,9 +58,9 @@ on:
       - "recipe/genrm_remote"
       - "!recipe/genrm_remote/README.md"
       # Entrypoints
-      - ".github/workflows/e2e_genrm.yml"
+      - ".github/workflows/e2e_genrm_remote.yml"
       - "examples/data_preprocess/gsm8k.py"
-      - "tests/special_e2e/run_grpo_genrm.sh"
+      - "tests/special_e2e/run_genrm_remote.sh"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
