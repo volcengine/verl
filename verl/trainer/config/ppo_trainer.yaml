@@ -971,9 +971,10 @@ trainer:
 
   # Save frequency (by iteration) for model checkpoints
   save_freq: -1
-  
+
   # ESI redundant time (in seconds) for model checkpointsAdd commentMore actions
   esi_redundant_time: 0
+
   # Resume mode: "auto", "disable", or "resume_path"
   # "auto": resume from last checkpoint if available
   # "disable": start from scratch
