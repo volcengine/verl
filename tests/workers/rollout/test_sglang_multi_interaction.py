@@ -117,8 +117,14 @@ class TestSGLangMultiInteraction:
                 assert len(rollout.interaction_map) == 2
                 assert "mock_agent1" in rollout.interaction_map
                 assert "mock_agent2" in rollout.interaction_map
-                assert isinstance(rollout.interaction_map["mock_agent1"], MockInteraction)
-                assert isinstance(rollout.interaction_map["mock_agent2"], MockInteraction)
+
+                # Use class name comparison instead of isinstance for multi-process compatibility
+                assert rollout.interaction_map["mock_agent1"].__class__.__name__ == "MockInteraction"
+                assert rollout.interaction_map["mock_agent2"].__class__.__name__ == "MockInteraction"
+
+                # Also check that they are instances of BaseInteraction (which should work across processes)
+                assert isinstance(rollout.interaction_map["mock_agent1"], BaseInteraction)
+                assert isinstance(rollout.interaction_map["mock_agent2"], BaseInteraction)
 
                 # Check that names were set correctly
                 assert rollout.interaction_map["mock_agent1"].name == "mock_agent1"
