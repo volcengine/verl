@@ -1,0 +1,143 @@
+# Atropos GSM8K Training Configuration
+# This configuration trains a model using the Atropos GSM8K environment
+
+trainer:
+  project_name: verl_atropos_gsm8k
+  experiment_name: atropos_gsm8k_${model.model_name}_${algorithm.adv_estimator}
+  logger: wandb
+  default_local_dir: /tmp/verl_atropos_checkpoints
+  total_epochs: 3
+  total_training_steps: 1000
+  save_freq: 100
+  eval_freq: 50
+  profile_steps: []
+  
+  # Atropos-specific configuration
+  atropos:
+    api_url: ${oc.env:ATROPOS_API_URL,http://localhost:9001}
+    timeout: 30
+    use_advantages: true
+    fallback_to_grpo: true
+    retry_attempts: 10
+    retry_delay: 0.5
+    max_wait_time: 30.0
+
+algorithm:
+  # PPO hyperparameters
+  gamma: 1.0
+  lam: 0.95
+  adv_estimator: grpo_atropos  # Use our custom Atropos advantage estimator
+  kl_coeff: 0.05
+  clip_range: 0.2
+  value_loss_coeff: 1.0
+  entropy_coeff: 0.01
+  max_grad_norm: 1.0
+  
+  # Training configuration
+  ppo_epochs: 2
+  micro_batch_size: 2
+  
+  # Use reference policy for KL penalty
+  use_reference_policy: true
+  use_critic: false  # GRPO doesn't use critic
+
+model:
+  # Model selection - can be overridden
+  partial_pretrain: ${oc.env:MODEL_NAME,Qwen/Qwen2.5-Math-1.5B-Instruct}
+  model_name: qwen2.5_math_1.5b
+  
+  # Training batch sizes
+  ppo_mini_batch_size: 4
+  ppo_micro_batch_size: 2
+
+actor_rollout_ref:
+  # Actor model configuration
+  actor:
+    model:
+      path: ${model.partial_pretrain}
+      override_config: {}
+    
+    # FSDP configuration
+    strategy: fsdp
+    fsdp:
+      param_offload: false
+      grad_offload: false
+      optimizer_offload: false
+  
+  # Rollout configuration (using vLLM)
+  rollout:
+    name: vllm
+    max_length: 512
+    batch_size: 16
+    
+    # Generation parameters
+    temperature: 0.7
+    top_p: 0.9
+    top_k: 50
+    max_new_tokens: 256
+    
+    # vLLM specific
+    tensor_parallel_size: 1
+    gpu_memory_utilization: 0.4
+    dtype: float16
+    
+  # Reference model configuration
+  ref:
+    model:
+      path: ${model.partial_pretrain}
+      override_config: {}
+    
+    log_prob_micro_batch_size: 8
+    fsdp:
+      param_offload: false
+
+data:
+  # Data configuration
+  train_files: 
+    - /tmp/gsm8k_train_messages.parquet
+  val_files:
+    - /tmp/gsm8k_val_messages.parquet
+  
+  train_batch_size: 128
+  val_batch_size: 64
+  
+  # Sequence length limits
+  max_length: 512
+  max_prompt_length: 256
+  
+  # Data loading
+  num_workers: 4
+  pin_memory: true
+
+# Critic configuration (disabled for GRPO)
+critic:
+  enable: false
+
+# Reward model configuration (using Atropos environments)
+reward_model:
+  enable: false
+
+# Distributed training configuration
+distributed:
+  backend: nccl
+  timeout_s: 1800
+
+# Resource allocation
+resources:
+  num_gpus_per_worker: 1
+  num_cpus_per_worker: 8
+
+# Tracking and logging
+tracking:
+  log_freq: 10
+  track_advantages: true
+  track_rewards: true
+  track_kl: true
+
+# Hydra configuration
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}

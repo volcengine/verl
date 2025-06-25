@@ -314,7 +314,7 @@ def compute_grpo_passk_outcome_advantage(
     advantages = advantages.unsqueeze(-1) * response_mask
     return advantages, advantages
 
-@register_adv_est(AdvantageEstimator.GRPO_ATROPOS) # or simply: @register_adv_est("grpo_atropos")
+@register_adv_est("grpo_atropos")  # Register with string name instead of enum
 def compute_grpo_atropos_advantage(
     token_level_rewards: torch.Tensor,
     response_mask: torch.Tensor,

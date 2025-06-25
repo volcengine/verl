@@ -2,6 +2,16 @@
 The examples under `recipes/` are representative extensions to verl for specific end-to-end RL training recipes.
 The help the community reproduce experiments, verl team provides a snapshot of the codebase when each recipe is initially PR'ed to verl main. You can find them via [github branches](https://github.com/volcengine/verl/branches/all?query=recipe)
 
+## Available Recipes
+
+- **[Atropos](./atropos/)**: Integration with Atropos RL environments for real environment feedback and token-level advantages
+- **[DAPO](./dapo/)**: The fully open source SOTA RL algorithm that beats DeepSeek-R1-zero-32B
+- **[SPIN](./spin/)**: Self-Play Fine-Tuning Converts Weak Language Models to Strong Language Models
+- **[SPPO](./sppo/)**: Self-Play Preference Optimization for Language Model Alignment
+- **[Prime](./prime/)**: Process Reward-based Iterative Multi-turn RL
+- **[Entropy](./entropy/)**: Entropy-regularized RL training
+- **[R1](./r1/)**: Reasoning model training inspired by DeepSeek-R1
+
 # Awesome work using verl
 
 - [Logic-RL](https://github.com/Unakar/Logic-RL): a reproduction of DeepSeek R1 Zero on 2K Tiny Logic Puzzle Dataset. ![GitHub Repo stars](https://img.shields.io/github/stars/Unakar/Logic-RL)
