@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 """
 Test for multi-interaction support in SGLangRollout.
 usage: torchrun --standalone --nnodes=1 \
@@ -89,11 +90,8 @@ class TestSGLangMultiInteraction:
         config, temp_config_path = create_mock_config_with_multi_interactions()
 
         try:
-            # Mock the SGLang engine and other dependencies
-            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist") as mock_dist, patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"), patch.dict(
-                os.environ, {"CUDA_VISIBLE_DEVICES": "0,1"}
-            ):
-                mock_dist.get_world_size.return_value = 1
+            # Mock only the SGLang engine - keep real distributed environment
+            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"):
                 # Create a mock tokenizer
                 mock_tokenizer = MagicMock()
                 mock_tokenizer.pad_token_id = 0
@@ -125,10 +123,7 @@ class TestSGLangMultiInteraction:
         config, temp_config_path = create_mock_config_with_multi_interactions()
 
         try:
-            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist") as mock_dist, patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"), patch.dict(
-                os.environ, {"CUDA_VISIBLE_DEVICES": "0,1"}
-            ):
-                mock_dist.get_world_size.return_value = 1
+            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"):
                 mock_tokenizer = MagicMock()
                 mock_tokenizer.pad_token_id = 0
                 mock_tokenizer.eos_token_id = 2
@@ -207,10 +202,7 @@ class TestSGLangMultiInteraction:
         )
 
         try:
-            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist") as mock_dist, patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"), patch.dict(
-                os.environ, {"CUDA_VISIBLE_DEVICES": "0,1"}
-            ):
-                mock_dist.get_world_size.return_value = 1
+            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"):
                 mock_tokenizer = MagicMock()
                 mock_tokenizer.pad_token_id = 0
                 mock_tokenizer.eos_token_id = 2
@@ -234,10 +226,7 @@ class TestSGLangMultiInteraction:
         config, temp_config_path = create_mock_config_with_multi_interactions()
 
         try:
-            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist") as mock_dist, patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"), patch.dict(
-                os.environ, {"CUDA_VISIBLE_DEVICES": "0,1"}
-            ):
-                mock_dist.get_world_size.return_value = 1
+            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"):
                 mock_tokenizer = MagicMock()
                 mock_tokenizer.pad_token_id = 0
                 mock_tokenizer.eos_token_id = 2
@@ -281,8 +270,7 @@ class TestSGLangMultiInteraction:
             }
         )
 
-        with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist") as mock_dist, patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"), patch.dict(os.environ, {"CUDA_VISIBLE_DEVICES": "0,1"}):
-            mock_dist.get_world_size.return_value = 1
+        with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"):
             mock_tokenizer = MagicMock()
             mock_tokenizer.pad_token_id = 0
             mock_tokenizer.eos_token_id = 2
