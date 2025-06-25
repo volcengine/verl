@@ -90,7 +90,8 @@ class TestSGLangMultiInteraction:
 
         try:
             # Mock the SGLang engine and other dependencies
-            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"):
+            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist") as mock_dist, patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"):
+                mock_dist.get_world_size.return_value = 1
                 # Create a mock tokenizer
                 mock_tokenizer = MagicMock()
                 mock_tokenizer.pad_token_id = 0
@@ -122,7 +123,8 @@ class TestSGLangMultiInteraction:
         config, temp_config_path = create_mock_config_with_multi_interactions()
 
         try:
-            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"):
+            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist") as mock_dist, patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"):
+                mock_dist.get_world_size.return_value = 1
                 mock_tokenizer = MagicMock()
                 mock_tokenizer.pad_token_id = 0
                 mock_tokenizer.eos_token_id = 2
@@ -201,7 +203,8 @@ class TestSGLangMultiInteraction:
         )
 
         try:
-            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"):
+            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist") as mock_dist, patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"):
+                mock_dist.get_world_size.return_value = 1
                 mock_tokenizer = MagicMock()
                 mock_tokenizer.pad_token_id = 0
                 mock_tokenizer.eos_token_id = 2
@@ -225,7 +228,8 @@ class TestSGLangMultiInteraction:
         config, temp_config_path = create_mock_config_with_multi_interactions()
 
         try:
-            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"):
+            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist") as mock_dist, patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"):
+                mock_dist.get_world_size.return_value = 1
                 mock_tokenizer = MagicMock()
                 mock_tokenizer.pad_token_id = 0
                 mock_tokenizer.eos_token_id = 2
@@ -269,7 +273,8 @@ class TestSGLangMultiInteraction:
             }
         )
 
-        with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"):
+        with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"), patch("verl.workers.rollout.sglang_rollout.sglang_rollout.dist") as mock_dist, patch("verl.workers.rollout.sglang_rollout.sglang_rollout.init_device_mesh"):
+            mock_dist.get_world_size.return_value = 1
             mock_tokenizer = MagicMock()
             mock_tokenizer.pad_token_id = 0
             mock_tokenizer.eos_token_id = 2
