@@ -26,6 +26,8 @@ from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ErrorResponse
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from vllm.entrypoints.openai.serving_models import BaseModelPath, OpenAIServingModels
+from vllm.inputs import TokensPrompt
+from vllm.outputs import RequestOutput
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.executor.abstract import Executor
 from vllm.worker.worker_base import WorkerWrapperBase
@@ -147,7 +149,7 @@ class AsyncvLLMServer(AsyncServerBase):
         tensor_parallel_size = config.get("tensor_model_parallel_size", 1)
         max_num_batched_tokens = config.get("max_num_batched_tokens", 8192)
         max_model_len = config.max_model_len if config.max_model_len else config.prompt_length + config.response_length
-        max_model_len = int(max_model_len)
+        self.max_model_len = int(max_model_len)
 
         # Override default generation config from hugging face model config,
         # user can still override them by passing kwargs in each request.
@@ -173,14 +175,14 @@ class AsyncvLLMServer(AsyncServerBase):
             gpu_memory_utilization=config.gpu_memory_utilization,
             disable_custom_all_reduce=True,
             skip_tokenizer_init=False,
-            max_model_len=max_model_len,
+            max_model_len=self.max_model_len,
             load_format="auto",
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
             enable_prefix_caching=True,
             trust_remote_code=trust_remote_code,
-            seed=self.vllm_dp_rank,
+            seed=config.get("seed", 0),
         )
 
         # init async llm engine
@@ -201,7 +203,7 @@ class AsyncvLLMServer(AsyncServerBase):
             request_logger=RequestLogger(max_log_len=4096),
             chat_template=None,
             chat_template_content_format="auto",
-            enable_auto_tools=True,
+            enable_auto_tools=config.multi_turn.tool_config_path is not None,
             tool_parser=config.multi_turn.format,  # hermes, llama3_json, ...
         )
 
@@ -221,6 +223,20 @@ class AsyncvLLMServer(AsyncServerBase):
         else:
             assert isinstance(generator, ChatCompletionResponse)
             return JSONResponse(content=generator.model_dump())
+
+    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+        max_tokens = self.max_model_len - len(prompt_ids)
+        sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
+        prompt = TokensPrompt(prompt_token_ids=prompt_ids)
+        generator = self.engine.generate(prompt=prompt, sampling_params=sampling_params, request_id=request_id)
+
+        # Get final response
+        final_res: Optional[RequestOutput] = None
+        async for output in generator:
+            final_res = output
+        assert final_res is not None
+
+        return final_res.outputs[0].token_ids
 
     async def wake_up(self):
         await self.engine.wake_up()
