@@ -25,6 +25,8 @@ import os
 import tempfile
 from unittest.mock import MagicMock, patch
 
+import torch
+import torch.distributed as dist
 from omegaconf import DictConfig, OmegaConf
 
 from verl.interactions.base import BaseInteraction
@@ -84,9 +86,16 @@ def create_mock_config_with_multi_interactions():
     return config, interaction_config_path
 
 
+def setup_distributed():
+    """Initialize distributed environment if not already initialized."""
+    if not dist.is_initialized():
+        dist.init_process_group(backend="nccl" if torch.cuda.is_available() else "gloo")
+
+
 class TestSGLangMultiInteraction:
     def test_initialize_multiple_interactions(self):
         """Test that SGLangRollout can initialize multiple interactions."""
+        setup_distributed()
         config, temp_config_path = create_mock_config_with_multi_interactions()
 
         try:
@@ -120,6 +129,7 @@ class TestSGLangMultiInteraction:
 
     def test_interaction_selection_by_name(self):
         """Test that interactions are selected by name from interaction_kwargs."""
+        setup_distributed()
         config, temp_config_path = create_mock_config_with_multi_interactions()
 
         try:
@@ -176,6 +186,7 @@ class TestSGLangMultiInteraction:
 
     def test_fallback_to_default_interaction(self):
         """Test fallback to default interaction when name is not specified."""
+        setup_distributed()
         # Create config with gsm8k interaction
         interaction_config = {"interaction": [{"name": "gsm8k", "class_name": "tests.workers.rollout.test_sglang_multi_interaction.MockInteraction", "config": {}}]}
 
@@ -223,6 +234,7 @@ class TestSGLangMultiInteraction:
 
     def test_error_on_missing_interaction(self):
         """Test that error is raised when requested interaction is not found."""
+        setup_distributed()
         config, temp_config_path = create_mock_config_with_multi_interactions()
 
         try:
@@ -251,6 +263,7 @@ class TestSGLangMultiInteraction:
 
     def test_backward_compatibility_no_interaction_config(self):
         """Test backward compatibility when no interaction config is provided."""
+        setup_distributed()
         # Create config without interaction config
         config = DictConfig(
             {
