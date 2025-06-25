@@ -89,7 +89,13 @@ class DataParallelPPOActor(BasePPOActor):
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
             for key in micro_batch["multi_modal_inputs"][0].keys():
-                multi_modal_inputs[key] = torch.cat([inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0)
+                # Special handling for MiniCPM-o model: pixel_values, image_bound, and tgt_sizes
+                # need different concatenation strategies compared to other multimodal inputs
+                if (key == "pixel_values" and isinstance(micro_batch["multi_modal_inputs"][0]["pixel_values"], list)) or key == "image_bound" or key == "tgt_sizes":
+                    # For MiniCPM-o: keep as list structure instead of concatenating tensors
+                    multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"]]
+                else:
+                    multi_modal_inputs[key] = torch.cat([inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0)
 
         with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
@@ -101,7 +107,7 @@ class DataParallelPPOActor(BasePPOActor):
                 position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
 
             if self.use_remove_padding:
-                input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+                input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
                 # unpad the position_ids to align the rotary
@@ -109,6 +115,26 @@ class DataParallelPPOActor(BasePPOActor):
                     position_ids_rmpad = index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
                 else:
                     position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(0, 1)
+
+                if "multi_modal_inputs" in micro_batch:
+                    # MiniCPM-o specific processing for image bounds and pixel values
+                    if "image_bound" in multi_modal_inputs:
+                        # Adjust image bounds based on left padding and cumulative sequence lengths
+                        # This is necessary for MiniCPM-o's vision-language alignment
+                        left_padding_length = torch.argmax(attention_mask, dim=1)
+                        image_bounds = []
+                        for i in range(len(multi_modal_inputs["image_bound"])):
+                            image_bound = multi_modal_inputs["image_bound"][i].to(left_padding_length.device) - left_padding_length[i] + cu_seqlens[i]
+                            image_bounds.append(image_bound)
+                        multi_modal_inputs["image_bound"] = [torch.vstack(image_bounds)]
+                        # Flatten pixel values list for MiniCPM-o processing
+                        pixel_values = []
+                        for i in range(len(multi_modal_inputs["pixel_values"])):
+                            pixel_values.extend([p for p in multi_modal_inputs["pixel_values"][i]])
+                        multi_modal_inputs["pixel_values"] = [pixel_values]
+                    # Handle target sizes for MiniCPM-o vision processing
+                    if "tgt_sizes" in multi_modal_inputs:
+                        multi_modal_inputs["tgt_sizes"] = [torch.vstack(multi_modal_inputs["tgt_sizes"])]
 
                 # for compute the log_prob
                 input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
@@ -217,6 +243,8 @@ class DataParallelPPOActor(BasePPOActor):
                 extra_args = {}
                 if self.use_fused_kernels:
                     extra_args["temperature"] = temperature
+                    extra_args["return_dict"] = True
+
                 output = self.actor_module(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -285,20 +313,39 @@ class DataParallelPPOActor(BasePPOActor):
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
 
-        select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
-        batch = data.select(batch_keys=select_keys).batch
-        has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+        def _get_micro_batches(data: DataProto) -> Tuple[list, list | None]:
+            select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
+            batch = data.select(batch_keys=select_keys).batch
+            has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch
 
-        if has_multi_modal_inputs:
-            num_micro_batches = data.batch.batch_size[0] // micro_batch_size
-            non_tensor_select_keys = ["multi_modal_inputs"]
-            micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
-        elif use_dynamic_bsz:
-            # split using dynamic bsz
-            max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
-            micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
-        else:
-            micro_batches = batch.split(micro_batch_size)
+            if has_multi_modal_inputs:
+                all_multi_modal_inputs_list = data.non_tensor_batch["multi_modal_inputs"]
+                if use_dynamic_bsz:
+                    max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
+                    rearranged_text_micro_batches, textual_indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
+
+                    final_micro_batches_list = []
+                    for i, text_mb_td in enumerate(rearranged_text_micro_batches):
+                        current_original_indices = textual_indices[i]
+                        current_mm_inputs_list = [all_multi_modal_inputs_list[idx] for idx in current_original_indices]
+
+                        mb_dict = {k: v for k, v in text_mb_td.items()}
+                        mb_dict["multi_modal_inputs"] = current_mm_inputs_list
+                        final_micro_batches_list.append(mb_dict)
+                    return final_micro_batches_list, textual_indices
+                else:
+                    num_micro_batches = batch.batch_size[0] // micro_batch_size
+                    micro_batches_dp = data.chunk(num_micro_batches)
+                    return micro_batches_dp, None
+            elif use_dynamic_bsz:
+                max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
+                micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
+                return micro_batches, indices
+            else:
+                micro_batches = batch.split(micro_batch_size)
+                return micro_batches, None
+
+        micro_batches, indices = _get_micro_batches(data)
 
         log_probs_lst = []
         entropy_lst = []
@@ -356,9 +403,23 @@ class DataParallelPPOActor(BasePPOActor):
                 # split batch into micro_batches
                 mini_batch = data
                 if has_multi_modal_inputs:
-                    self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
-                    num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
-                    micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
+                    micro_batches = []
+                    if self.config.use_dynamic_bsz:
+                        all_multi_modal_inputs_list = data.non_tensor_batch["multi_modal_inputs"]
+                        batch_tensordict_for_rearrange = data.batch
+
+                        max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
+                        rearranged_text_micro_batches_tds, textual_indices = rearrange_micro_batches(batch=batch_tensordict_for_rearrange, max_token_len=max_token_len)
+
+                        for current_original_indices, text_mb_td in zip(textual_indices, rearranged_text_micro_batches_tds):
+                            current_mm_inputs_list = [all_multi_modal_inputs_list[idx] for idx in current_original_indices]
+                            mb_dict = {k: v for k, v in text_mb_td.items()}
+                            mb_dict["multi_modal_inputs"] = current_mm_inputs_list
+                            micro_batches.append(mb_dict)
+                    else:
+                        self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                        num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
+                        micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
                 elif self.config.use_dynamic_bsz:
                     max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                     micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
@@ -373,6 +434,14 @@ class DataParallelPPOActor(BasePPOActor):
                     # Support all hardwares
                     if isinstance(data, DataProto):
                         data = {**data.batch.to(get_device_id()), **data.non_tensor_batch}
+                    elif isinstance(data, dict):
+                        for k, v in data.items():
+                            if isinstance(v, torch.Tensor):
+                                data[k] = v.to(get_device_id())
+                            elif k == "multi_modal_inputs" and v is not None:
+                                data[k] = [{kk: vv.to(get_device_id()) for kk, vv in item_dict.items()} for item_dict in v]
+                            else:
+                                data[k] = v
                     else:
                         data = data.to(get_device_id())  # actor device is cpu when using offload
                     responses = data["responses"]
