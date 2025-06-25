@@ -34,6 +34,8 @@ from megatron.core.utils import get_attr_wrapped_model
 from transformers import PretrainedConfig
 
 import verl.utils.megatron.tensor_parallel as tp_utils
+from verl.utils.device import get_device_id, get_device_name, get_torch_device
+from verl.utils.fs import local_mkdir_safe
 from verl.utils.model import normalize_model_name
 from verl.utils.torch_dtypes import PrecisionType
 
@@ -62,6 +64,7 @@ def get_model(
             this_model = model_provider_func(pre_process=pre_process, post_process=post_process)
             this_model.model_type = model_type
             model.append(this_model)
+        mpu.set_virtual_pipeline_model_parallel_rank(0)
     else:
         pre_process = mpu.is_pipeline_first_stage()
         post_process = mpu.is_pipeline_last_stage()
@@ -107,7 +110,7 @@ def get_model(
     # GPU allocation.
     if transformer_config is None or (not transformer_config.use_cpu_initialization):
         for model_module in model:
-            model_module.cuda(torch.cuda.current_device())
+            model_module.to(f"{get_device_name()}:{get_device_id()}")
 
     # Fp16 conversion.
     config: TransformerConfig = get_model_config(model[0])
@@ -270,7 +273,7 @@ def offload_megatron_model_to_cpu(models):
                 if param.grad is not None:
                     param.grad = param.grad.to("cpu", non_blocking=True)
     gc.collect()
-    torch.cuda.empty_cache()
+    get_torch_device().empty_cache()
 
 
 @torch.no_grad()
@@ -291,13 +294,13 @@ def load_megatron_model_to_gpu(models, load_grad=True):
                         buffer.param_data.copy_(buffer.param_data.cpu_data, non_blocking=True)
         else:
             # we need this for ref module
-            device_id = torch.cuda.current_device()
+            device_id = get_device_id()
             for _, param in model_chunk.named_parameters():
                 param.data = param.data.to(device_id, non_blocking=True)
                 if param.grad is not None:
                     param.grad = param.grad.to(device_id, non_blocking=True)
     gc.collect()
-    torch.cuda.empty_cache()
+    get_torch_device().empty_cache()
 
 
 @torch.no_grad()
@@ -358,7 +361,7 @@ def load_megatron_copy_params(optimizers):
     def load_tensor_to_gpu(tensor):
         if tensor is None:
             return
-        device_id = torch.cuda.current_device()
+        device_id = get_device_id()
         tensor.data = tensor.data.to(device_id, non_blocking=True)
 
     def load_group_to_gpu(group):
@@ -398,7 +401,7 @@ def offload_megatron_optimizer(optimizers):
             if "exp_avg_sq" in v:
                 v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
         gc.collect()
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
 
 
 @torch.no_grad()
@@ -413,62 +416,28 @@ def load_megatron_optimizer(optimizers):
         opt_state_dict_values = _opt.optimizer.state.values()
         for v in opt_state_dict_values:
             if "exp_avg" in v:
-                v["exp_avg"] = v["exp_avg"].to(torch.cuda.current_device(), non_blocking=True)
+                v["exp_avg"] = v["exp_avg"].to(get_device_id(), non_blocking=True)
             if "exp_avg_sq" in v:
-                v["exp_avg_sq"] = v["exp_avg_sq"].to(torch.cuda.current_device(), non_blocking=True)
+                v["exp_avg_sq"] = v["exp_avg_sq"].to(get_device_id(), non_blocking=True)
         gc.collect()
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
 
 
-def get_model_checkpoint_path(checkpoint_path):
-    os.makedirs(checkpoint_path, exist_ok=True)
-    return os.path.join(checkpoint_path, "model")
+def get_dist_checkpoint_path(checkpoint_path):
+    local_mkdir_safe(checkpoint_path)
+    local_mkdir_safe(os.path.join(checkpoint_path, "dist_ckpt"))
+    return os.path.join(checkpoint_path, "dist_ckpt")
 
 
 def get_hf_model_checkpoint_path(checkpoint_path):
-    os.makedirs(checkpoint_path, exist_ok=True)
+    local_mkdir_safe(checkpoint_path)
+    local_mkdir_safe(os.path.join(checkpoint_path, "huggingface"))
     return os.path.join(checkpoint_path, "huggingface")
 
 
-def get_hf_config_and_tokenizer_checkpoint_path(checkpoint_path):
+def get_transformer_config_checkpoint_path(checkpoint_path):
     os.makedirs(checkpoint_path, exist_ok=True)
-    return os.path.join(checkpoint_path, "hf_config_and_tokenizer")
-
-
-def get_optimizer_checkpoint_path(checkpoint_path, use_distributed_optimizer=True):
-    os.makedirs(os.path.join(checkpoint_path, "optim"), exist_ok=True)
-    if not use_distributed_optimizer:
-        return os.path.join(checkpoint_path, "optim", "optim.pt")
-    pp_rank = mpu.get_pipeline_model_parallel_rank()
-    tp_rank = mpu.get_tensor_model_parallel_rank()
-    cp_rank = mpu.get_context_parallel_rank()
-    dp_rank = mpu.get_data_parallel_rank()
-    # TODO: support ep
-    return os.path.join(checkpoint_path, "optim", f"distrib_optim_pp{pp_rank}_tp{tp_rank}_cp{cp_rank}_dp{dp_rank}.pt")
-
-
-def get_rng_states_checkpoint_path(checkpoint_path, only_rank0_save=False):
-    # save rng states cause interrupts
-    os.makedirs(os.path.join(checkpoint_path, "rng_states"), exist_ok=True)
-    if only_rank0_save:
-        return os.path.join(checkpoint_path, "rng_states", "rng_states.pt")
-    dp_rank = mpu.get_data_parallel_rank()
-    pp_rank = mpu.get_pipeline_model_parallel_rank()
-    tp_rank = mpu.get_tensor_model_parallel_rank()
-    cp_rank = mpu.get_context_parallel_rank()
-    return os.path.join(checkpoint_path, "rng_states", f"rng_states_pp{pp_rank}_tp{tp_rank}_cp{cp_rank}_dp{dp_rank}.pt")
-
-
-def get_optimizer_scheduler_checkpoint_path(checkpoint_path, only_rank0_save=False):
-    # save rng states cause interrupts
-    os.makedirs(os.path.join(checkpoint_path, "optimizer_scheduler"), exist_ok=True)
-    if only_rank0_save:
-        return os.path.join(checkpoint_path, "optimizer_scheduler", "optimizer_scheduler.pt")
-    dp_rank = mpu.get_data_parallel_rank()
-    pp_rank = mpu.get_pipeline_model_parallel_rank()
-    tp_rank = mpu.get_tensor_model_parallel_rank()
-    cp_rank = mpu.get_context_parallel_rank()
-    return os.path.join(checkpoint_path, "optimizer_scheduler", f"optimizer_scheduler_pp{pp_rank}_tp{tp_rank}_cp{cp_rank}_dp{dp_rank}.pt")
+    return os.path.join(checkpoint_path, "transformer_config.json")
 
 
 def convert_megatron_model_to_transformers_model(
@@ -635,7 +604,7 @@ def broadcast_from_megatron_pp(tensor: torch.Tensor):
             src_rank = rank
     assert target_tensor_spec is not None
     if tensor is None:
-        tensor = torch.empty(size=target_tensor_spec[0], dtype=target_tensor_spec[1], device=torch.cuda.current_device())
+        tensor = torch.empty(size=target_tensor_spec[0], dtype=target_tensor_spec[1], device=get_device_id())
         if target_tensor_spec[2] is not None:
             tensor.tensor_model_parallel = target_tensor_spec[2]
         if target_tensor_spec[3] is not None:
@@ -763,7 +732,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, transform
             # for now we patch it by adding those keys to extra_keys.
             extra_keys = [x for x in model.state_dict().keys() if "_extra_state" not in x and x not in existing_keys]
             for name in extra_keys:
-                yield name, model.state_dict()[name].to(torch.cuda.current_device())
+                yield name, model.state_dict()[name].to(get_device_id())
 
     # we need first make all rank get full model information
     meta_info = []

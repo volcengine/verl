@@ -85,5 +85,11 @@ jobs:
             echo "Please use verl instead of veRL in the codebase"
             exit 1
           fi
+      - name: Validate test folder structure
+        run: python3 tests/special_sanity/validate_structure.py
       - name: Assert documentation requirement for functions
         run: python3 tests/special_sanity/validate_imported_docs.py
+      - name: Assert device api usage in verl/recipe
+        run: python3 tests/special_sanity/check_device_api_usage.py --directory ./recipe
+      - name: Assert device api usage in verl/verl
+        run: python3 tests/special_sanity/check_device_api_usage.py --directory ./verl

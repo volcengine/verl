@@ -113,7 +113,7 @@ def _ulysses_flash_attn_forward(
         validate_ulysses_config(self.num_heads, ulysses_sp_size)
 
         num_key_value_groups = self.config.num_attention_heads // self.config.num_key_value_heads
-        k_pe = repeat_kv(k_pe, ulysses_sp_size)                     # to keep heads=1 after a2a
+        k_pe = repeat_kv(k_pe, ulysses_sp_size)  # to keep heads=1 after a2a
         k_nope = repeat_kv(k_nope, num_key_value_groups)
         value_states = repeat_kv(value_states, num_key_value_groups)
         q = gather_seq_scatter_heads(q, seq_dim=2, head_dim=1)

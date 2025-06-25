@@ -133,6 +133,16 @@ def get_supported_model(model_type: str) -> SupportedModel:
 
 
 def hf_to_mcore_config(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
+    """Convert huggingface PretrainedConfig to mcore TransformerConfig.
+
+    Args:
+        hf_config: The huggingface PretrainedConfig.
+        dtype: The dtype of the model.
+        **override_transformer_config_kwargs: The kwargs to override the transformer config.
+
+    Returns:
+        The mcore TransformerConfig.
+    """
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     model = get_supported_model(hf_config.architectures[0])
     return MODEL_CONFIG_CONVERTER_REGISTRY[model](hf_config, dtype, **override_transformer_config_kwargs)

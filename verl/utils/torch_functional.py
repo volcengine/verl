@@ -40,7 +40,8 @@ except ImportError:
 
 try:
     import torch_npu
-    NPU_CROSS_ENTROPY_LOSS_AVAILABLE = hasattr(torch_npu, 'npu_cross_entropy_loss')
+
+    NPU_CROSS_ENTROPY_LOSS_AVAILABLE = hasattr(torch_npu, "npu_cross_entropy_loss")
 except ImportError:
     NPU_CROSS_ENTROPY_LOSS_AVAILABLE = False
 
@@ -150,10 +151,10 @@ def entropy_from_logits_with_chunking(logits: torch.Tensor, chunk_size: int = 20
     """Memory-efficient entropy calculation with chunking."""
     entropy = torch.zeros(logits.shape[0], device=logits.device)
     for i in range(0, logits.shape[0], chunk_size):
-        logits_chunk = logits[i:i + chunk_size].float()
+        logits_chunk = logits[i : i + chunk_size].float()
         pd_chunk = torch.nn.functional.softmax(logits_chunk, dim=-1)
         entropy_chunk = torch.logsumexp(logits_chunk, dim=-1) - torch.sum(pd_chunk * logits_chunk, dim=-1)
-        entropy[i:i + chunk_size] = entropy_chunk
+        entropy[i : i + chunk_size] = entropy_chunk
     return entropy
 
 
@@ -697,7 +698,7 @@ def distributed_mean_max_min_std(local_tensor, compute_max=True, compute_min=Tru
     """
     # Sum the local tensor across all processes
     local_sum = torch.sum(local_tensor)
-    local_num = torch.tensor(torch.numel(local_tensor), device="cuda")
+    local_num = torch.tensor(torch.numel(local_tensor), device=get_device_name())
 
     torch.distributed.all_reduce(local_sum, op=torch.distributed.ReduceOp.SUM)
     torch.distributed.all_reduce(local_num, op=torch.distributed.ReduceOp.SUM)
