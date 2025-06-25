@@ -28,7 +28,7 @@ from torch.distributed.device_mesh import DeviceMesh
 from verl.protocol import DataProto, all_gather_data_proto
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.device import get_torch_device
-from verl.utils.megatron_utils import per_tensor_generator
+from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, per_tensor_generator
 
 from .base import BaseShardingManager
 
@@ -56,6 +56,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         layer_name_mapping,
         weight_converter,
         device_mesh: DeviceMesh | None = None,
+        offload_param: bool = False,
     ):
         self.actor_module = actor_module
         self.inference_engine = inference_engine
@@ -64,6 +65,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
         self.device_mesh = device_mesh
+        self.offload_param = offload_param
 
         if self.device_mesh is not None:
             self.infer_tp_size = self.device_mesh["tp"].mesh.size()[0]
@@ -85,6 +87,8 @@ class MegatronSGLangShardingManager(BaseShardingManager):
     def __enter__(self):
         self.timing = {}
         with simple_timer("reshard", self.timing):
+            if self.offload_param:
+                load_megatron_model_to_gpu(self.actor_module)
             per_tensor_param = per_tensor_generator(
                 self.actor_module,
                 self.model_config,
@@ -94,6 +98,9 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             )
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self.update_weights(per_tensor_param))
+            if self.offload_param:
+                offload_megatron_model_to_cpu(self.actor_module)
+            get_torch_device().empty_cache()
             # important: need to manually set the random states of each tp to be identical.
             if self.device_mesh is not None:
                 self.torch_random_states = get_torch_device().get_rng_state()

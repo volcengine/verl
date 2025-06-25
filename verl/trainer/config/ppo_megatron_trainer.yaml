@@ -201,7 +201,6 @@ actor_rollout_ref:
 
     # Multi-turn interaction config for tools or chat.
     multi_turn:
-
       # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
       enable: False
 
@@ -235,6 +234,9 @@ actor_rollout_ref:
       # - ignore_strippable: ignore strippable tokens when checking tokenization sanity
       tokenization_sanity_check_mode: strict
   
+      # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
+      format: hermes
+
     # support logging rollout prob for debugging purpose
     calculate_log_probs: False
     # Nsight system profiler configs
