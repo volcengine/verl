@@ -17,7 +17,7 @@ import argparse
 import os
 import warnings
 from contextlib import contextmanager
-from typing import Callable, ContextManager
+from typing import Any, Callable, ContextManager
 
 import torch
 from accelerate import init_empty_weights
@@ -42,21 +42,6 @@ def _init_args():
     parser.add_argument("--trust_remote_code", action="store_true", help="Whether to trust remote code")
     args = parser.parse_args()
     return args
-
-
-class MegatronConfig:
-    def __init__(self):
-        self.params_dtype = torch.bfloat16
-
-
-class ModelConfig:
-    def __init__(self):
-        self.path = None
-
-
-class Config:
-    def __init__(self):
-        self.model = ModelConfig()
 
 
 def test_conversion(megatron_model_provider, tfconfig, output_path, model):
@@ -316,7 +301,7 @@ def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_
 
 
 @contextmanager
-def noop_context() -> None:
+def noop_context() -> Any:
     yield
 
 
@@ -344,8 +329,6 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
     hf_config = AutoConfig.from_pretrained(hf_model_path)
     print(hf_config, flush=True)
 
-    cfg = Config()
-    cfg.model.path = hf_model_path
     tfconfig = hf_to_mcore_config(hf_config, torch.bfloat16)
     tfconfig.use_cpu_initialization = use_cpu_initialization
     tie_word_embeddings = getattr(hf_config, "tie_word_embeddings", False)
