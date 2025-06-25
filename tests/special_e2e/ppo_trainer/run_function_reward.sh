@@ -97,6 +97,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.use_shm=${USE_SHM} \
     actor_rollout_ref.model.lora_rank=${LORA_RANK} \
     actor_rollout_ref.model.lora_alpha=${LORA_ALPHA} \
+    actor_rollout_ref.model.target_modules=${LORA_TARGET} \
+    actor_rollout_ref.model.exclude_modules=${LORA_EXCLUDE} \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding="${RM_PAD}" \
     actor_rollout_ref.model.use_fused_kernels=${FUSED_KERNELS} \
