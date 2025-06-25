@@ -201,7 +201,7 @@ actor_rollout_ref:
       # KL divergence penalty coefficient
       ppo_kl_coef: 0.1
 
-    # Constant C in Dual-clip PPO; clips when advantage < -C
+    # Constant C in Dual-clip PPO; clips when advantage < 0 and ratio > C
     clip_ratio_c: 3.0
 
     # Loss aggregation mode: "token-mean", "seq-mean-token-sum", or "seq-mean-token-mean"
@@ -464,6 +464,9 @@ actor_rollout_ref:
 
     # number of responses (i.e. num sample times). > 1 for grpo
     n: 1
+
+    # Whether to wake up inference engine in multi-stage. (Wake up model weights first, then resume kv cache)
+    multi_stage_wake_up: false
 
     # Extra inference engine arguments (vllm, sglang).
     engine_kwargs:

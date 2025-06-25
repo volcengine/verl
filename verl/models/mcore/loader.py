@@ -374,8 +374,8 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
         layer_map = _megatron_calc_layer_map(config)
 
         for layer in range(config.num_hidden_layers):
-            print_rank_0(f"loading layer #{layer}...")
             layer_name = f"model.layers.{layer}"
+            print_rank_0(f"loading layer #{layer}, with layer_name model.layers.{layer}...")
             dst_pp_rank, dst_virtual_pp_rank, dst_layer_idx = layer_map[layer]
 
             gpt_model_module = _get_gpt_model(models[dst_virtual_pp_rank])
