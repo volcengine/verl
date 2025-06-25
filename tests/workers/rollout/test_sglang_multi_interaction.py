@@ -28,6 +28,7 @@ from unittest.mock import MagicMock, patch
 import torch
 import torch.distributed as dist
 from omegaconf import DictConfig, OmegaConf
+from transformers import AutoTokenizer
 
 from verl.interactions.base import BaseInteraction
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
@@ -101,17 +102,16 @@ class TestSGLangMultiInteraction:
         try:
             # Mock SGLang engine and initialization methods like the reference test
             with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
-                # Create a mock tokenizer
-                mock_tokenizer = MagicMock()
-                mock_tokenizer.pad_token_id = 0
-                mock_tokenizer.eos_token_id = 2
+                # Create a real tokenizer like the reference test
+                tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
+                tokenizer.pad_token = tokenizer.eos_token
 
                 # Mock model config
                 mock_model_config = MagicMock()
                 mock_model_config.max_position_embeddings = 2048
 
                 # Create SGLangRollout instance
-                rollout = SGLangRollout(actor_module="mock_model", config=config, processing_class=mock_tokenizer, model_hf_config=mock_model_config, port=None, trust_remote_code=False, device_mesh=None)
+                rollout = SGLangRollout(actor_module="mock_model", config=config, processing_class=tokenizer, model_hf_config=mock_model_config, port=None, trust_remote_code=False, device_mesh=None)
 
                 # Check that interactions were initialized
                 assert len(rollout.interaction_map) == 2
@@ -134,14 +134,13 @@ class TestSGLangMultiInteraction:
 
         try:
             with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
-                mock_tokenizer = MagicMock()
-                mock_tokenizer.pad_token_id = 0
-                mock_tokenizer.eos_token_id = 2
+                tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
+                tokenizer.pad_token = tokenizer.eos_token
 
                 mock_model_config = MagicMock()
                 mock_model_config.max_position_embeddings = 2048
 
-                rollout = SGLangRollout(actor_module="mock_model", config=config, processing_class=mock_tokenizer, model_hf_config=mock_model_config, port=None, trust_remote_code=False, device_mesh=None)
+                rollout = SGLangRollout(actor_module="mock_model", config=config, processing_class=tokenizer, model_hf_config=mock_model_config, port=None, trust_remote_code=False, device_mesh=None)
 
                 # Test interaction selection logic
                 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
@@ -170,7 +169,7 @@ class TestSGLangMultiInteraction:
                     max_model_len=512,
                     use_inference_chat_template=True,
                     tokenization_sanity_check_mode="off",
-                    processing_class=mock_tokenizer,
+                    processing_class=tokenizer,
                 )
 
                 # Test that the correct interaction is selected
