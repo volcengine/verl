@@ -31,7 +31,6 @@ from typing import Optional, Type
 import numpy as np
 import ray
 import torch
-import time
 from omegaconf import OmegaConf, open_dict
 from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
@@ -805,14 +804,23 @@ class RayPPOTrainer:
             )
 
     def should_save_ckpt_esi(self, max_steps_duration: float, save_ckpt_duration: float = 60, redundant_time: float = 0) -> bool:
-        exp_ts = os.getenv("MLP_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP")
-        if not exp_ts: 
+        exp_ts_mlp = os.getenv("MLP_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP") # vemlp
+        exp_ts_aws = os.getenv('SAGEMAKER_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP') # aws
+        if exp_ts_mlp: 
+            try:
+                import time
+                remaining = float(exp_ts_mlp) - time.time()
+            except ValueError: 
+                return False
+            return remaining > 0 and max_steps_duration > 0 and remaining <= save_ckpt_duration + max_steps_duration + redundant_time
+        elif exp_ts_aws:
+            from datetime import datetime, timedelta
+            expiration_time = datetime.fromtimestamp(int(exp_ts_aws))
+            time_difference = expiration_time - datetime.now()
+            threshold_minutes = (save_ckpt_duration + max_steps_duration + redundant_time) / 60
+            return time_difference < timedelta(minutes=threshold_minutes)
+        else:
             return False
-        try:
-            remaining = float(exp_ts) - time.time()
-        except ValueError: 
-            return False
-        return remaining > 0 and max_steps_duration > 0 and remaining <= save_ckpt_duration + max_steps_duration + redundant_time
     
     def _save_checkpoint(self):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
