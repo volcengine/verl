@@ -2,7 +2,7 @@
 # CUDA_VISIBLE_DEVICES=0,1,2,3 vllm serve dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --served_model_name genrm-demo
 
 # sglang server
-# CUDA_VISIBLE_DEVICES=0,1,2,3 python -m sglang_router.launch_server --model-path dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --dp 4
+# CUDA_VISIBLE_DEVICES=0,1,2,3 python -m sglang_router.launch_server --model-path dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --dp-size 4
 
 set -x
 

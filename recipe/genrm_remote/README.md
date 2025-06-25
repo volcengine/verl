@@ -25,7 +25,7 @@ For convenience, we run both the RL training and server on the same machine. To 
 You can use sglang server with data parallel for faster inference:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3 python -m sglang_router.launch_server --model-path dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --dp 4
+CUDA_VISIBLE_DEVICES=0,1,2,3 python -m sglang_router.launch_server --model-path dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --dp-size 4
 ```
 
 Note that you should modify the `BASE_URL` in `reward_function.py` to match your SGLang Server address.
