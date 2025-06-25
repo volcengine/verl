@@ -110,6 +110,7 @@ actor_rollout_ref:
       save_path: null # the path to save the profile result
     load_weight: True
     checkpoint:
+      async_save: False # save checkpoint asynchronously
       # What to include in saved checkpoints
       # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
       save_contents: ['model', 'optimizer', 'extra']
@@ -311,6 +312,7 @@ critic:
     kl_coef: 0.001
   loss_agg_mode: ${actor_rollout_ref.actor.loss_agg_mode}
   checkpoint:
+    async_save: False # save checkpoint asynchronously
     # What to include in saved checkpoints
     # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
     save_contents: ['model', 'optimizer', 'extra']
