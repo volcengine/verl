@@ -213,14 +213,13 @@ class TestSGLangMultiInteraction:
 
         try:
             with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
-                mock_tokenizer = MagicMock()
-                mock_tokenizer.pad_token_id = 0
-                mock_tokenizer.eos_token_id = 2
+                tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
+                tokenizer.pad_token = tokenizer.eos_token
 
                 mock_model_config = MagicMock()
                 mock_model_config.max_position_embeddings = 2048
 
-                rollout = SGLangRollout(actor_module="mock_model", config=config, processing_class=mock_tokenizer, model_hf_config=mock_model_config, port=None, trust_remote_code=False, device_mesh=None)
+                rollout = SGLangRollout(actor_module="mock_model", config=config, processing_class=tokenizer, model_hf_config=mock_model_config, port=None, trust_remote_code=False, device_mesh=None)
 
                 # Test that default interaction name works
                 interaction_kwargs_without_name = {"test_param": "value"}
@@ -238,14 +237,13 @@ class TestSGLangMultiInteraction:
 
         try:
             with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
-                mock_tokenizer = MagicMock()
-                mock_tokenizer.pad_token_id = 0
-                mock_tokenizer.eos_token_id = 2
+                tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
+                tokenizer.pad_token = tokenizer.eos_token
 
                 mock_model_config = MagicMock()
                 mock_model_config.max_position_embeddings = 2048
 
-                rollout = SGLangRollout(actor_module="mock_model", config=config, processing_class=mock_tokenizer, model_hf_config=mock_model_config, port=None, trust_remote_code=False, device_mesh=None)
+                rollout = SGLangRollout(actor_module="mock_model", config=config, processing_class=tokenizer, model_hf_config=mock_model_config, port=None, trust_remote_code=False, device_mesh=None)
 
                 # Test error when requesting non-existent interaction
                 non_existent_name = "non_existent_interaction"
@@ -283,16 +281,13 @@ class TestSGLangMultiInteraction:
         )
 
         with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
-            mock_tokenizer = MagicMock()
-            mock_tokenizer.pad_token_id = 0
-            mock_tokenizer.eos_token_id = 2
+            tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
+            tokenizer.pad_token = tokenizer.eos_token
 
             mock_model_config = MagicMock()
             mock_model_config.max_position_embeddings = 2048
 
-            rollout = SGLangRollout(actor_module="mock_model", config=config, processing_class=mock_tokenizer, model_hf_config=mock_model_config, port=None, trust_remote_code=False, device_mesh=None)
+            rollout = SGLangRollout(actor_module="mock_model", config=config, processing_class=tokenizer, model_hf_config=mock_model_config, port=None, trust_remote_code=False, device_mesh=None)
 
             # Check that no interactions were initialized
             assert len(rollout.interaction_map) == 0
-
-            # Should work without errors (backward compatibility)
