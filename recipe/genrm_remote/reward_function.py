@@ -15,11 +15,17 @@
 from concurrent.futures import ThreadPoolExecutor
 from time import sleep
 
-import openai
-from openai import OpenAI
+import requests
 
 from verl.utils.reward_score.math import last_boxed_only_string, remove_boxed
 
+
+BASE_URL = "http://localhost:8000/v1"
+API_KEY = "EMPTY"
+MAX_RETRIES = 3
+BASE_DELAY = 2
+MAX_WORKERS = 256
+MODEL_NAME = "dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly"
 GENRM_PROMPT_TEMPLATE = """
 The following is a math problem and an AI solution:
 
@@ -36,26 +42,21 @@ Your task is to review and critique the solution step by step, and output whethe
 Please put your final answer (i.e., 'True' or 'False') in \\boxed{{}}.
 """.strip()
 
-BASE_URL = "http://localhost:8000/v1"
-API_KEY = "EMPTY"
-MAX_RETRIES = 3
-BASE_DELAY = 2
-MAX_WORKERS = 64
-
-
-def get_response(client, problem, solution_str):
+def get_response(problem, solution_str, ground_truth):
     prompt = GENRM_PROMPT_TEMPLATE.format(problem=problem, solution=solution_str)
     messages = [{"role": "user", "content": prompt}]
     for attempt in range(MAX_RETRIES):
         try:
-            output = client.chat.completions.create(
-                model="genrm-demo",
-                messages=messages,
-                max_tokens=4096,
-                temperature=0.0,
-            )
-            return output.choices[0].message.content
-        except (openai.APIError, openai.RateLimitError, openai.InternalServerError, openai.OpenAIError, openai.APIStatusError, openai.APITimeoutError, openai.APIConnectionError) as e:
+            headers = {"Content-Type": "application/json"}
+            chat_url = f"{BASE_URL}/chat/completions"
+            data = {
+                "model": MODEL_NAME,
+                "messages": messages
+            }
+            output = requests.post(chat_url, headers=headers, json=data, timeout=30)
+            response = output.json()['choices'][0]['message']['content']
+            return response
+        except Exception as e:
             if attempt < MAX_RETRIES - 1:
                 print("Exception: ", repr(e))
                 delay = BASE_DELAY * (2**attempt)
@@ -63,11 +64,10 @@ def get_response(client, problem, solution_str):
                 sleep(delay)
             else:
                 print(f"Failed after {MAX_RETRIES} attempts. Error: {e}")
-        except Exception as e:
-            print(f"Failed to run the model for {prompt}!")
-            print("Exception: ", repr(e))
-            raise e
-    return None
+
+    print(f"Failed to run the model for {prompt}!")
+    print("Exception: ", repr(e))
+    raise e
 
 
 def compute_reward(response):
@@ -91,13 +91,8 @@ def compute_score(data_source, solution_str, ground_truth, extra_info):
     if split == "test":
         return func_rm_score
     else:
-        client = OpenAI(
-            base_url=BASE_URL,
-            api_key=API_KEY,
-            timeout=90,
-        )
         problem = extra_info["question"]
-        response = get_response(client, problem, solution_str)
+        response = get_response(problem, solution_str, ground_truth)
         if response is not None:
             reward_score = compute_reward(response)
         else:
