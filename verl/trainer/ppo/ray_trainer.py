@@ -50,7 +50,7 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.utils.checkpoint.checkpoint_manager import BaseCheckpointManager, find_latest_ckpt_path
+from verl.utils.checkpoint.checkpoint_manager import BaseCheckpointManager, find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 from verl.utils.metric import (
     reduce_metrics,
@@ -803,27 +803,6 @@ class RayPPOTrainer:
                 worker_group=self.actor_rollout_wg,
             )
 
-    def should_save_ckpt_esi(self, max_steps_duration: float, save_ckpt_duration: float = 60, redundant_time: float = 0) -> bool:
-        exp_ts_mlp = os.getenv("MLP_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP")  # vemlp
-        exp_ts_aws = os.getenv("SAGEMAKER_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP")  # aws
-        if exp_ts_mlp:
-            try:
-                import time
-
-                remaining = float(exp_ts_mlp) - time.time()
-            except ValueError:
-                return False
-            return remaining > 0 and max_steps_duration > 0 and remaining <= save_ckpt_duration + max_steps_duration + redundant_time
-        elif exp_ts_aws:
-            from datetime import datetime, timedelta
-
-            expiration_time = datetime.fromtimestamp(int(exp_ts_aws))
-            time_difference = expiration_time - datetime.now()
-            threshold_minutes = (save_ckpt_duration + max_steps_duration + redundant_time) / 60
-            return time_difference < timedelta(minutes=threshold_minutes)
-        else:
-            return False
-
     def _save_checkpoint(self):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
         local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, f"global_step_{self.global_steps}")
@@ -1175,7 +1154,7 @@ class RayPPOTrainer:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
 
-                    esi_close_to_expiration = self.should_save_ckpt_esi(max_steps_duration=self.max_steps_duration, redundant_time=self.config.trainer.esi_redundant_time)
+                    esi_close_to_expiration = should_save_ckpt_esi(max_steps_duration=self.max_steps_duration, redundant_time=self.config.trainer.esi_redundant_time)
                     if self.config.trainer.save_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0 or esi_close_to_expiration):
                         if esi_close_to_expiration:
                             print("Force saving checkpoint: ESI instance expiration approaching.")
