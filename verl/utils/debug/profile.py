@@ -175,14 +175,14 @@ class DistProfiler:
     def __init__(self, rank: int, config: Optional[ProfilerConfig] = None):
         pass
 
-    def start(self):
+    def start(self, **kwargs):
         pass
 
     def stop(self):
         pass
 
     @staticmethod
-    def annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
+    def annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None, **kwargs) -> Callable:
         def decorator(func):
             return func
 

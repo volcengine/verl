@@ -23,6 +23,7 @@ import ray
 from omegaconf import OmegaConf
 
 from verl.trainer.ppo.reward import get_custom_reward_fn
+from verl.utils.device import is_cuda_available
 
 from .dapo_ray_trainer import RayDAPOTrainer
 
@@ -40,7 +41,7 @@ def run_ppo(config) -> None:
             num_cpus=config.ray_init.num_cpus,
         )
 
-    if OmegaConf.select(config.trainer, "profile_steps") is not None and len(OmegaConf.select(config.trainer, "profile_steps")) > 0:
+    if is_cuda_available and OmegaConf.select(config.trainer, "profile_steps") is not None and len(OmegaConf.select(config.trainer, "profile_steps")) > 0:
         nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
     else:
