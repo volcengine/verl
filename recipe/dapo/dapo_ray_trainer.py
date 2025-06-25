@@ -96,13 +96,13 @@ class RayDAPOTrainer(RayPPOTrainer):
             for batch_dict in self.train_dataloader:
                 do_profile = self.global_steps in (self.config.trainer.profile_steps or [])
                 if do_profile:
-                    self.actor_rollout_wg.start_profile()
+                    self.actor_rollout_wg.start_profile(role="actor_rollout", profile_step=str(self.global_steps))
                     if self.use_reference_policy:
-                        self.ref_policy_wg.start_profile()
+                        self.ref_policy_wg.start_profile(role="ref", profile_step=str(self.global_steps))
                     if self.use_critic:
-                        self.critic_wg.start_profile()
+                        self.critic_wg.start_profile(role="critic", profile_step=str(self.global_steps))
                     if self.use_rm:
-                        self.rm_wg.start_profile()
+                        self.rm_wg.start_profile(role="rm", profile_step=str(self.global_steps))
 
                 metrics = {}
 

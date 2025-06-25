@@ -29,6 +29,7 @@ from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.dataset.sampler import AbstractSampler
 from verl.utils.import_utils import load_extern_type
+from verl.utils.device import is_cuda_available
 
 
 def trainer_dict_to_dataclass(conf: DictConfig):
@@ -52,6 +53,7 @@ def trainer_dict_to_dataclass(conf: DictConfig):
     return config
 
 
+
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
 def main(config_dict):
     config = trainer_dict_to_dataclass(config_dict)
@@ -73,7 +75,7 @@ def run_ppo(config) -> None:
 
     # Create a remote instance of the TaskRunner class, and
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
-    if config.trainer.get("profile_steps") is not None and len(config.trainer.get("profile_steps", [])) > 0:
+    if is_cuda_available and config.trainer.get("profile_steps") is not None and len(config.trainer.get("profile_steps", [])) > 0:
         nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
     else:

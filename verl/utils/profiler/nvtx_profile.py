@@ -131,7 +131,7 @@ class NsightSystemsProfiler(DistProfiler):
         elif not config.ranks:
             self.this_rank = rank in config.ranks
 
-    def start(self):
+    def start(self, **kwargs):
         if self.this_rank:
             self.this_step = True
             if not self.discrete:
@@ -149,6 +149,7 @@ class NsightSystemsProfiler(DistProfiler):
         color: Optional[str] = None,
         domain: Optional[str] = None,
         category: Optional[str] = None,
+        **kwargs,
     ) -> Callable:
         """Decorate a Worker member function to profile the current rank in the current training step.
 

@@ -179,7 +179,7 @@ class DistProfiler:
     def __init__(self, rank: int, config: Optional[ProfilerConfig] = None):
         pass
 
-    def start(self):
+    def start(self, **kwargs):
         pass
 
     def stop(self):
@@ -191,6 +191,7 @@ class DistProfiler:
         color: Optional[str] = None,
         domain: Optional[str] = None,
         category: Optional[str] = None,
+        **kwargs,
     ) -> Callable:
         def decorator(func):
             return func
