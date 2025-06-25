@@ -31,6 +31,7 @@ from typing import Optional, Type
 import numpy as np
 import ray
 import torch
+import time
 from omegaconf import OmegaConf, open_dict
 from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
@@ -803,6 +804,16 @@ class RayPPOTrainer:
                 worker_group=self.actor_rollout_wg,
             )
 
+    def should_save_ckpt_esi(self, max_steps_duration: float, save_ckpt_duration: float = 60, redundant_time: float = 0) -> bool:
+        exp_ts = os.getenv("MLP_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP")
+        if not exp_ts: 
+            return False
+        try:
+            remaining = float(exp_ts) - time.time()
+        except ValueError: 
+            return False
+        return remaining > 0 and max_steps_duration > 0 and remaining <= save_ckpt_duration + max_steps_duration + redundant_time
+    
     def _save_checkpoint(self):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
         local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, f"global_step_{self.global_steps}")
@@ -939,6 +950,7 @@ class RayPPOTrainer:
         # we start from step 1
         self.global_steps += 1
         last_val_metrics = None
+        self.max_steps_duration = 0
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
@@ -1153,10 +1165,19 @@ class RayPPOTrainer:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
 
-                    if self.config.trainer.save_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0):
+                    esi_close_to_expiration = self.should_save_ckpt_esi(max_steps_duration=self.max_steps_duration, redundant_time=self.config.trainer.esi_redundant_time)
+                    if (self.config.trainer.save_freq > 0 
+                        and (is_last_step 
+                             or self.global_steps % self.config.trainer.save_freq == 0 
+                             or esi_close_to_expiration)
+                    ):
+                        if(esi_close_to_expiration):
+                            print("Force saving checkpoint: ESI instance expiration approaching.")
                         with marked_timer("save_checkpoint", timing_raw, color="green"):
                             self._save_checkpoint()
-
+                        
+                steps_duration = timing_raw["step"]
+                self.max_steps_duration = max(self.max_steps_duration, steps_duration)
                 # training metrics
                 metrics.update(
                     {
