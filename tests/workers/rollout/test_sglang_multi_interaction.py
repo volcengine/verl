@@ -99,8 +99,8 @@ class TestSGLangMultiInteraction:
         config, temp_config_path = create_mock_config_with_multi_interactions()
 
         try:
-            # Mock only the SGLang engine - keep real distributed environment
-            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"):
+            # Mock SGLang engine and initialization methods like the reference test
+            with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
                 # Create a mock tokenizer
                 mock_tokenizer = MagicMock()
                 mock_tokenizer.pad_token_id = 0
@@ -133,7 +133,7 @@ class TestSGLangMultiInteraction:
         config, temp_config_path = create_mock_config_with_multi_interactions()
 
         try:
-            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"):
+            with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
                 mock_tokenizer = MagicMock()
                 mock_tokenizer.pad_token_id = 0
                 mock_tokenizer.eos_token_id = 2
@@ -213,7 +213,7 @@ class TestSGLangMultiInteraction:
         )
 
         try:
-            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"):
+            with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
                 mock_tokenizer = MagicMock()
                 mock_tokenizer.pad_token_id = 0
                 mock_tokenizer.eos_token_id = 2
@@ -238,7 +238,7 @@ class TestSGLangMultiInteraction:
         config, temp_config_path = create_mock_config_with_multi_interactions()
 
         try:
-            with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"):
+            with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
                 mock_tokenizer = MagicMock()
                 mock_tokenizer.pad_token_id = 0
                 mock_tokenizer.eos_token_id = 2
@@ -283,7 +283,7 @@ class TestSGLangMultiInteraction:
             }
         )
 
-        with patch("verl.workers.rollout.sglang_rollout.sglang_rollout.AsyncEngine"):
+        with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
             mock_tokenizer = MagicMock()
             mock_tokenizer.pad_token_id = 0
             mock_tokenizer.eos_token_id = 2
