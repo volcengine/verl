@@ -56,12 +56,12 @@ RUN aria2c --always-resume=true --max-tries=99999 https://developer.download.nvi
     update-alternatives --set cuda /usr/local/cuda-12.4 && \
     rm -rf /usr/local/cuda-12.6
 
-# Install torch-2.6.0+cu124 + vllm-0.8.5.post1 + sglang-0.4.6.post5
+# Install torch-2.6.0+cu124 + vllm-0.8.5.post1 + sglang-0.4.8
 # torch-2.6.0+cu124: cxx11abi=False
 # torch-2.6.0+cu126: cxx11abi=True
 # see https://github.com/flashinfer-ai/flashinfer/issues/911
 # Install sglang-0.4.6.post1 and torch-memory-saver
-RUN pip install "sglang[all]==0.4.6.post5" --no-cache-dir --find-links https://flashinfer.ai/whl/cu124/torch2.6/flashinfer-python && pip install torch-memory-saver --no-cache-dir
+RUN pip install "sglang[all]==0.4.8" --no-cache-dir --find-links https://flashinfer.ai/whl/cu124/torch2.6/flashinfer-python
 
 RUN pip install --no-cache-dir "vllm==0.8.5.post1" "torch==2.6.0" "torchvision==0.21.0" "torchaudio==2.6.0" "tensordict==0.6.2" torchdata
 
