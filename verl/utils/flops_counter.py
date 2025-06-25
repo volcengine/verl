@@ -70,10 +70,11 @@ class FlopsCounter:
         self.estimate_func = {
             "qwen2": self._estimate_qwen2_flops,
             "llama": self._estimate_qwen2_flops,
+            "qwen2_moe": self._estimate_qwen2_flops,
             "qwen2_vl": self._estimate_qwen2_flops,
             "qwen2_5_vl": self._estimate_qwen2_flops,
             "qwen3": self._estimate_qwen2_flops,
-            "qwen3_moe": self._estimate_qwen3_moe_flops,
+            "qwen3_moe": self._estimate_qwen2_moe_flops,
             "deepseek_v3": self._estimate_deepseek_v3_flops,
         }
         self.config = config
@@ -161,7 +162,7 @@ class FlopsCounter:
 
         return flops_achieved
 
-    def _estimate_qwen3_moe_flops(self, tokens_sum, batch_seqlens, delta_time):
+    def _estimate_qwen2_moe_flops(self, tokens_sum, batch_seqlens, delta_time):
         hidden_size = self.config.hidden_size
         vocab_size = self.config.vocab_size
         num_hidden_layers = self.config.num_hidden_layers
