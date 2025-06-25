@@ -127,6 +127,15 @@ ENGINES=("vllm" "sglang_async")
 exp_name="$(basename "${MODEL_ID,,}")-megatron-gsm8k-minimal"
 
 for ENGINE in "${ENGINES[@]}"; do
+    if [ "$ENGINE" = "vllm" ]; then
+        MODE=${MODE:-"sync"}
+        ROLLOUT_MODE_ARG="actor_rollout_ref.rollout.mode=${MODE}"
+        if [ "$MODE" = "async" ]; then
+            ROLLOUT_MODE_ARG="${ROLLOUT_MODE_ARG} data.return_raw_chat=True"
+        fi
+    else
+        ROLLOUT_MODE_ARG=""
+    fi
     python3 -m verl.trainer.main_ppo --config-path=config \
         --config-name='ppo_megatron_trainer.yaml'\
         algorithm.adv_estimator="${ADV_ESTIMATOR}" \
@@ -158,7 +167,7 @@ for ENGINE in "${ENGINES[@]}"; do
         actor_rollout_ref.actor.kl_loss_coef=0.001 \
         actor_rollout_ref.actor.kl_loss_type=low_var_kl \
         actor_rollout_ref.actor.checkpoint.save_contents=$CHECKPOINT_CONTENTS \
-        actor_rollout_ref.rollout.name="${ENGINE}" \
+        actor_rollout_ref.rollout.name="${ENGINE}" ${ROLLOUT_MODE_ARG}\
         actor_rollout_ref.rollout.tensor_model_parallel_size=$ROLLOUT_TP \
         actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
         actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
