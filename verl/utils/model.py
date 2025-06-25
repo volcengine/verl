@@ -229,7 +229,30 @@ def convert_weight_keys(state_dict: Dict[str, torch.Tensor], model: PreTrainedMo
     return original_weights
 
 
-def check_target_module_exists(config, key: str) -> bool | re.Match[str] | None:
+def check_exclude_modules(config, key: str) -> bool:
+    """
+    A helper method to check if the passed module's key name matches any of the exclude modules in the adapter_config.
+    Adapted from https://github.com/huggingface/peft/blob/main/src/peft/tuners/tuners_utils.py
+
+    Args:
+        config (`LoraConfig` | `LycorisConfig`): A config to match exclude modules from
+        key (`str`): A key to search any matches in config
+
+    Returns:
+        True of match object if key matches any exclude modules from config, False if no match found
+    """
+    if hasattr(config, "exclude_modules") and config.exclude_modules:
+        if isinstance(config.exclude_modules, str):
+            if re.fullmatch(config.exclude_modules, key):
+                return True
+        elif key in config.exclude_modules:
+            return True
+        elif any(key.endswith(f".{exclude_key}") for exclude_key in config.exclude_modules):
+            return True
+    return False
+
+
+def check_target_modules(config, key: str) -> bool:
     """
     A helper method to check if the passed module's key name matches any of the target modules in the adapter_config.
     Adapted from https://github.com/huggingface/peft/blob/main/src/peft/tuners/tuners_utils.py
@@ -239,18 +262,8 @@ def check_target_module_exists(config, key: str) -> bool | re.Match[str] | None:
         key (`str`): A key to search any matches in config
 
     Returns:
-        `bool` | `re.Match[str]` | `None`: True of match object if key matches any target modules from config, False or
-        None if no match found
+        True of match object if key matches any target modules from config, False if no match found
     """
-    if hasattr(config, "exclude_modules") and config.exclude_modules:
-        if isinstance(config.exclude_modules, str):
-            if re.fullmatch(config.exclude_modules, key):
-                return False
-        elif key in config.exclude_modules:
-            return False
-        elif any(key.endswith(f".{exclude_key}") for exclude_key in config.exclude_modules):
-            return False
-
     if isinstance(config.target_modules, str):
         target_module_found = re.fullmatch(config.target_modules, key)
     elif key in config.target_modules:
