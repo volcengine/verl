@@ -70,6 +70,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         device_mesh,
         offload_param: bool = True,
     ):
+        super().__init__()
+
         self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.offload_param = offload_param

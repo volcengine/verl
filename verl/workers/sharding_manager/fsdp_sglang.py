@@ -61,6 +61,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         offload_param: bool = False,
         multi_stage_wake_up: bool = False,
     ):
+        super().__init__()
         self.module = module
         self.inference_engine = inference_engine
         self.model_config = model_config

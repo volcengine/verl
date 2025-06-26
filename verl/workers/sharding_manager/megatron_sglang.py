@@ -58,6 +58,8 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         device_mesh: DeviceMesh | None = None,
         offload_param: bool = False,
     ):
+        super().__init__()
+
         self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.model_config = model_config
