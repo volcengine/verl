@@ -154,8 +154,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             self._ref_is_offload_param = self.config.ref.megatron.get("param_offload", False)
 
     def _build_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
-        from megatron.core.models.gpt.gpt_model import ModelType
-
         from verl.utils.megatron.optimizer import get_megatron_optimizer, get_megatron_optimizer_param_scheduler
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from verl.utils.model import get_generation_config, print_model_size
@@ -187,6 +185,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                     wrap_with_ddp=wrap_with_ddp,
                     use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
                 )
+
         if self._is_actor and self._is_rollout:
             actor_module = make_model(wrap_with_ddp=True)
             print(f"actor_module: {len(actor_module)}")

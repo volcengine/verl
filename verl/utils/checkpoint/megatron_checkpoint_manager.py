@@ -356,7 +356,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         local_path = local_mkdir_safe(local_path)
         dist_checkpoint_path = get_dist_checkpoint_path(local_path)
 
-
         if self.use_dist_checkpointing:
             # Generate state dict for saving
             state_dict = self.generate_state_dict()
@@ -385,7 +384,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             hf_ckpt_path = get_hf_model_checkpoint_path(local_path)
             self.bridge.save_weights(self.model, hf_ckpt_path)
             log_with_rank(f"Saved bridge checkpoint to {hf_ckpt_path}", rank=self.rank, logger=logger)
-
 
         if self.should_save_model:
             # Only rank 0 saves the hf config and tokenizer to huggingface path
