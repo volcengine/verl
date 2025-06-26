@@ -83,6 +83,7 @@ class RayDAPOTrainer(RayPPOTrainer):
         last_val_metrics = None
 
         timing_raw = defaultdict(float)
+        reward_extra_infos_dict_keys = set()
         batch = None
         num_prompt_in_batch = 0
         num_gen_batches = 0
@@ -173,6 +174,8 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                         if reward_extra_infos_dict:
                             new_batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+                            for k in reward_extra_infos_dict:
+                                reward_extra_infos_dict_keys.add(k)
 
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
@@ -308,11 +311,12 @@ class RayDAPOTrainer(RayPPOTrainer):
                             inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
                             outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
                             scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
+                            reward_extra_infos_dict = {k: batch.non_tensor_batch[k] for k in reward_extra_infos_dict_keys if k in batch.non_tensor_batch}
                             self._dump_generations(
                                 inputs=inputs,
                                 outputs=outputs,
                                 scores=scores,
-                                reward_extra_infos_dict=reward_extra_infos_dict,  # this is not correct yet
+                                reward_extra_infos_dict=reward_extra_infos_dict,
                                 dump_path=rollout_data_dir,
                             )
 

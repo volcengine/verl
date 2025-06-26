@@ -259,8 +259,4 @@ def compute_score(
     reward = 1.0 if correct else -1.0
     acc = correct
 
-    return {
-        "score": reward,
-        "acc": acc,
-        "pred": pred,
-    }
+    return {"score": reward, "acc": acc, "pred": pred, "ground_truth": ground_truth}
