@@ -19,7 +19,7 @@ import requests
 
 from verl.utils.reward_score.math import last_boxed_only_string, remove_boxed
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:30000"
 API_KEY = "EMPTY"
 MAX_RETRIES = 3
 BASE_DELAY = 2
@@ -51,6 +51,7 @@ def get_response(problem, solution_str, ground_truth):
             chat_url = f"{BASE_URL}/v1/chat/completions"
             data = {"model": MODEL_NAME, "messages": messages}
             output = requests.post(chat_url, headers=headers, json=data, timeout=30)
+            print(output)
             response = output.json()["choices"][0]["message"]["content"]
             return response
         except Exception as e:
