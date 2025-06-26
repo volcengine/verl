@@ -167,7 +167,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             from verl.models.mcore import init_mcore_model
 
             parallel_model = init_mcore_model(
-                tf_config=self.tf_config,
+                tfconfig=self.tf_config,
                 hf_config=self.hf_config,
                 use_fused_kernels=self.config.model.get("use_fused_kernels", False),
                 pre_process=pre_process,
@@ -691,7 +691,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             from verl.models.mcore import init_mcore_model
 
             parallel_model = init_mcore_model(
-                tf_config=self.tf_config,
+                tfconfig=self.tf_config,
                 hf_config=self.hf_config,
                 use_fused_kernels=False,
                 pre_process=pre_process,
@@ -911,7 +911,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             from verl.models.mcore import init_mcore_model
 
             parallel_model = init_mcore_model(
-                tf_config=self.tf_config,
+                tfconfig=self.tf_config,
                 hf_config=self.hf_config,
                 use_fused_kernels=False,
                 pre_process=pre_process,
