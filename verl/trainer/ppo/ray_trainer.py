@@ -941,9 +941,14 @@ class RayPPOTrainer:
         # we start from step 1
         self.global_steps += 1
         last_val_metrics = None
+        skip_steps = self.config.trainer.get("skip_steps", 0)
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
+                if self.global_steps <= skip_steps:
+                    progress_bar.update(1)
+                    self.global_steps += 1
+                    continue
                 do_profile = self.global_steps in self.config.trainer.profile_steps if self.config.trainer.profile_steps is not None else False
                 if do_profile:
                     self.actor_rollout_wg.start_profile()
