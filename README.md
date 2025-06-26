@@ -103,7 +103,7 @@ verl is fast with:
 
 - [Installation](https://verl.readthedocs.io/en/latest/start/install.html)
 - [Quickstart](https://verl.readthedocs.io/en/latest/start/quickstart.html)
-- [Programming Guide](https://verl.readthedocs.io/en/latest/hybrid_flow.html)
+- [Programming Guide](https://verl.readthedocs.io/en/latest/hybrid_flow.html) & [Tech Talk](https://hcqnc.xetlk.com/sl/3vACOK) (in Chinese)
 - [PPO in verl](https://verl.readthedocs.io/en/latest/algo/ppo.html)
 - [GRPO in verl](https://verl.readthedocs.io/en/latest/algo/grpo.html)
 
