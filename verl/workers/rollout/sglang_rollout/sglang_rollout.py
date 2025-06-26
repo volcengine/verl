@@ -411,6 +411,8 @@ class SGLangRollout(BaseRollout):
                 # log_requests_level=2,
                 # max_running_requests=1,
                 mm_attention_backend="fa3",
+                # In async mode, we want token in token out.
+                skip_tokenizer_init=self.config.mode == "async",
             )
         else:
             self._engine = None
@@ -815,7 +817,8 @@ class SGLangRollout(BaseRollout):
                     finish_reason_type = FinishReasonTypeEnum.LENGTH
                     break
                 # Video support is not implemented yet
-                output = await self._handle_engine_call(_req, request_sampling_params, image_data=image_data)
+                generation_prompt_ids = _req.get_generation_prompt_ids(self.processing_class)
+                output = await self._handle_engine_call(generation_prompt_ids, request_sampling_params, image_data=image_data)
                 content = output["text"]
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
@@ -904,8 +907,7 @@ class SGLangRollout(BaseRollout):
 
         return _req
 
-    async def _handle_engine_call(self, _req: AsyncRolloutRequest, sampling_params: dict, image_data: Optional[list[Any]] = None) -> dict:
-        generation_prompt_ids = _req.get_generation_prompt_ids(self.processing_class)
+    async def _handle_engine_call(self, generation_prompt_ids: list[int], sampling_params: dict, image_data: Optional[list[Any]] = None) -> dict:
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
         kwargs = sampling_params.copy()
         kwargs["max_new_tokens"] = max_new_tokens
@@ -1172,7 +1174,8 @@ class SGLangRollout(BaseRollout):
         for k, v in json_request.items():
             if k not in ["messages", "model", "tools"] and hasattr(temp_sampling_params, k):
                 valid_sampling_params[k] = v
-        output = await self._handle_engine_call(req, valid_sampling_params)
+        generation_prompt_ids = req.get_generation_prompt_ids(self.processing_class)
+        output = await self._handle_engine_call(generation_prompt_ids, valid_sampling_params)
         # it can be Dict or AsyncIterator[Dict]
         if isinstance(output, dict):
             outputs = [output]
@@ -1204,6 +1207,12 @@ class SGLangRollout(BaseRollout):
         }
 
         # this function is left for uniform train-inference resharding
+
+    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
+        request_sampling_params = self.sampling_params.copy()
+        request_sampling_params.update(sampling_params)
+        output = await self._handle_engine_call(prompt_ids, request_sampling_params)
+        return output["output_ids"]
 
     async def wake_up(self):
         if not self.is_sleep:

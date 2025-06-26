@@ -190,6 +190,7 @@ class AgentLoopWorker:
         sampling_params = dict(
             temperature=config.temperature,
             top_p=config.top_p,
+            repetition_penalty=1.0,
         )
 
         # override sampling params for validation

@@ -23,7 +23,7 @@ import regex as re
 from pydantic import BaseModel
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput
-from verl.tools.base_tool import initialize_tools_from_config
+from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.debug import simple_timer
 
 logger = logging.getLogger(__file__)

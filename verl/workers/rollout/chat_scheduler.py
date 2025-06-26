@@ -32,7 +32,7 @@ from openai.types.chat.chat_completion import ChatCompletion
 from tensordict import TensorDict
 
 from verl.protocol import DataProto
-from verl.tools.base_tool import initialize_tools_from_config
+from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
 

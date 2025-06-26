@@ -14,6 +14,7 @@
 # limitations under the License.
 import asyncio
 import logging
+from typing import Any, Dict, List
 
 import ray
 from omegaconf import DictConfig
@@ -62,6 +63,9 @@ class AsyncSglangServer(AsyncServerBase):
         output_future = self.master_worker.chat_completion.remote(request)
         [outputs] = await asyncio.gather(output_future)
         return JSONResponse(outputs)
+
+    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+        return await self.master_worker.generate.remote(prompt_ids, sampling_params, request_id)
 
     async def wake_up(self):
         tasks = [worker.wake_up.remote() for worker in self.workers]

@@ -88,8 +88,11 @@ def initialize_tools_from_config(tools_config_file):
 
         match tool_type:
             case ToolType.NATIVE:
-                tool_schema_dict = OmegaConf.to_container(tool_config.tool_schema, resolve=True)
-                tool_schema = OpenAIFunctionToolSchema.model_validate(tool_schema_dict)
+                if tool_config.get("tool_schema", None) is None:
+                    tool_schema = None
+                else:
+                    tool_schema_dict = OmegaConf.to_container(tool_config.tool_schema, resolve=True)
+                    tool_schema = OpenAIFunctionToolSchema.model_validate(tool_schema_dict)
                 tool = tool_cls(
                     config=OmegaConf.to_container(tool_config.config, resolve=True),
                     tool_schema=tool_schema,

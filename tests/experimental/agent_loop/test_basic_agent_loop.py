@@ -169,11 +169,11 @@ def test_tool_agent(init_config):
         "tools": [
             {
                 "class_name": "tests.workers.rollout.rollout_vllm.test_vllm_chat_scheduler.WeatherTool",
-                "config": {},
+                "config": {"type": "native"},
             },
             {
                 "class_name": "tests.workers.rollout.rollout_vllm.test_vllm_chat_scheduler.WeatherToolWithData",
-                "config": {},
+                "config": {"type": "native"},
             },
         ]
     }
