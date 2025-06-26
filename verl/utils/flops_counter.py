@@ -70,7 +70,7 @@ class FlopsCounter:
         self.estimate_func = {
             "qwen2": self._estimate_qwen2_flops,
             "llama": self._estimate_qwen2_flops,
-            "qwen2_moe": self._estimate_qwen2_flops,
+            "qwen2_moe": self._estimate_qwen2_moe_flops,
             "qwen2_vl": self._estimate_qwen2_flops,
             "qwen2_5_vl": self._estimate_qwen2_flops,
             "qwen3": self._estimate_qwen2_flops,
