@@ -110,6 +110,7 @@ actor_rollout_ref:
       save_path: null # the path to save the profile result
     load_weight: True
     checkpoint:
+      async_save: False # save checkpoint asynchronously
       # What to include in saved checkpoints
       # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
       save_contents: ['model', 'optimizer', 'extra']
@@ -201,7 +202,6 @@ actor_rollout_ref:
 
     # Multi-turn interaction config for tools or chat.
     multi_turn:
-
       # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
       enable: False
 
@@ -235,6 +235,9 @@ actor_rollout_ref:
       # - ignore_strippable: ignore strippable tokens when checking tokenization sanity
       tokenization_sanity_check_mode: strict
   
+      # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
+      format: hermes
+
     # support logging rollout prob for debugging purpose
     calculate_log_probs: False
     # Nsight system profiler configs
@@ -309,6 +312,7 @@ critic:
     kl_coef: 0.001
   loss_agg_mode: ${actor_rollout_ref.actor.loss_agg_mode}
   checkpoint:
+    async_save: False # save checkpoint asynchronously
     # What to include in saved checkpoints
     # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
     save_contents: ['model', 'optimizer', 'extra']

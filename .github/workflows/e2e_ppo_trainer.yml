@@ -10,8 +10,8 @@ on:
       - main
       - v0.*
     paths:
+      - "**/*.py"
       # Other entrypoints
-      - "!tests/*.py"
       - "!verl/trainer/fsdp_sft_trainer.py"
       # Recipes
       - "!recipe/**"
@@ -25,7 +25,7 @@ on:
     paths:
       - "**/*.py"
       # Other entrypoints
-      - "!*.md"
+      - "!**/*.md"
       - "!docker/**"
       - "!examples/**"
       - "!tests/**"
@@ -109,7 +109,7 @@ jobs:
       - name: Test merging FSDP checkpoints (Qwen Actor) 
         run: |
           exp_name="qwen2.5-0.5b-function-reward-minimal-fsdp-size8"
-          python scripts/model_merger.py test --backend fsdp --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
+          python -m verl.model_merger test --backend fsdp --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
       - name: Running GSM8K E2E training tests on 8 L20 GPUs with rmpad using function rm with validation and saving (DDP_SIZE=2, FSDP_SIZE=4)
         run: |
           ray stop --force
@@ -117,7 +117,7 @@ jobs:
       - name: Test merging DDP+FSDP checkpoints (Qwen Actor) 
         run: |
           exp_name="qwen2.5-0.5b-function-reward-minimal-ddp-size2-fsdp-size4"
-          python scripts/model_merger.py test --backend fsdp --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
+          python -m verl.model_merger test --backend fsdp --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
       - name: Running GSM8K E2E training tests on 8 L20 GPUs with rmpad using function rm with validation and saving (FSDP2)
         run: |
           ray stop --force
@@ -125,7 +125,7 @@ jobs:
       - name: Test merging FSDP2 checkpoints (Qwen Actor) 
         run: |
           exp_name="qwen2.5-0.5b-function-reward-minimal-fsdp2-size8"
-          python scripts/model_merger.py test --backend fsdp --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
+          python -m verl.model_merger test --backend fsdp --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
       - name: Running GSM8K E2E without rmpad using function rm
         run: |
           ray stop --force
@@ -159,8 +159,8 @@ jobs:
         run: |
           export EXP_NAME="qwen2.5-0.5b-function-reward-minimal"
           ls checkpoints/verl-test/${EXP_NAME}/global_step_1/actor
-          cat checkpoints/verl-test/${EXP_NAME}/global_step_1/actor/config.json
-          python3 scripts/model_merger.py merge --backend fsdp --local_dir checkpoints/verl-test/${EXP_NAME}/global_step_1/actor/ --target_dir checkpoints/verl-test/${EXP_NAME}/global_step_1/actor/hf
+          cat checkpoints/verl-test/${EXP_NAME}/global_step_1/actor/huggingface/config.json
+          python3 -m verl.model_merger merge --backend fsdp --local_dir checkpoints/verl-test/${EXP_NAME}/global_step_1/actor/ --target_dir checkpoints/verl-test/${EXP_NAME}/global_step_1/actor/huggingface
       - name: Running GSM8K E2E training tests on 8 L20 GPUs with grpo lora using function rm with use_shm and layered_summon with fsdp2
         run: |
           ray stop --force

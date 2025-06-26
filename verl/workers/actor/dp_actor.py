@@ -89,7 +89,13 @@ class DataParallelPPOActor(BasePPOActor):
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
             for key in micro_batch["multi_modal_inputs"][0].keys():
-                multi_modal_inputs[key] = torch.cat([inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0)
+                # Special handling for MiniCPM-o model: pixel_values, image_bound, and tgt_sizes
+                # need different concatenation strategies compared to other multimodal inputs
+                if (key == "pixel_values" and isinstance(micro_batch["multi_modal_inputs"][0]["pixel_values"], list)) or key == "image_bound" or key == "tgt_sizes":
+                    # For MiniCPM-o: keep as list structure instead of concatenating tensors
+                    multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"]]
+                else:
+                    multi_modal_inputs[key] = torch.cat([inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0)
 
         with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
@@ -101,7 +107,7 @@ class DataParallelPPOActor(BasePPOActor):
                 position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
 
             if self.use_remove_padding:
-                input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+                input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
                 # unpad the position_ids to align the rotary
@@ -109,6 +115,26 @@ class DataParallelPPOActor(BasePPOActor):
                     position_ids_rmpad = index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
                 else:
                     position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(0, 1)
+
+                if "multi_modal_inputs" in micro_batch:
+                    # MiniCPM-o specific processing for image bounds and pixel values
+                    if "image_bound" in multi_modal_inputs:
+                        # Adjust image bounds based on left padding and cumulative sequence lengths
+                        # This is necessary for MiniCPM-o's vision-language alignment
+                        left_padding_length = torch.argmax(attention_mask, dim=1)
+                        image_bounds = []
+                        for i in range(len(multi_modal_inputs["image_bound"])):
+                            image_bound = multi_modal_inputs["image_bound"][i].to(left_padding_length.device) - left_padding_length[i] + cu_seqlens[i]
+                            image_bounds.append(image_bound)
+                        multi_modal_inputs["image_bound"] = [torch.vstack(image_bounds)]
+                        # Flatten pixel values list for MiniCPM-o processing
+                        pixel_values = []
+                        for i in range(len(multi_modal_inputs["pixel_values"])):
+                            pixel_values.extend([p for p in multi_modal_inputs["pixel_values"][i]])
+                        multi_modal_inputs["pixel_values"] = [pixel_values]
+                    # Handle target sizes for MiniCPM-o vision processing
+                    if "tgt_sizes" in multi_modal_inputs:
+                        multi_modal_inputs["tgt_sizes"] = [torch.vstack(multi_modal_inputs["tgt_sizes"])]
 
                 # for compute the log_prob
                 input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
@@ -217,6 +243,8 @@ class DataParallelPPOActor(BasePPOActor):
                 extra_args = {}
                 if self.use_fused_kernels:
                     extra_args["temperature"] = temperature
+                    extra_args["return_dict"] = True
+
                 output = self.actor_module(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
