@@ -251,3 +251,7 @@ Search Tool Integration
    :maxdepth: 1
 
    search_tool_example
+
+Code Walkthrough
+~~~~~~~~~~~~~~~~~~~~~~~
+If you want to learn more in depth about the code execution flow, please read https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/tree/main/rlhf/verl/multi-turn/code-walk-through
