@@ -15,7 +15,7 @@ python3 -m verl.trainer.main_ppo \
     data.trust_remote_code=True \
     data.custom_cls.path=recipe/minicpmo/rl_dataset.py \
     data.custom_cls.name=RLHFDataset \
-    actor_rollout_ref.model.path=/home/tiger/.cache/huggingface/hub/models--openbmb--MiniCPM-o-2_6/snapshots/9da79acdd8906c7007242cbd09ed014d265d281a \
+    actor_rollout_ref.model.path=openbmb/MiniCPM-o-2_6 \
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
