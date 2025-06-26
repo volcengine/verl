@@ -37,8 +37,6 @@ https://verl.readthedocs.io/en/latest/advance/checkpoint.html#convert-fsdp-and-m
 """
 
 from .base_model_merger import generate_config_from_args, parse_args
-from .fsdp_model_merger import FSDPModelMerger
-from .megatron_model_merger import MegatronModelMerger
 
 
 def main():
@@ -47,8 +45,12 @@ def main():
     print(f"config: {config}")
 
     if config.backend == "fsdp":
+        from .fsdp_model_merger import FSDPModelMerger
+
         merger = FSDPModelMerger(config)
     elif config.backend == "megatron":
+        from .megatron_model_merger import MegatronModelMerger
+
         merger = MegatronModelMerger(config)
     else:
         raise NotImplementedError(f"Unknown backend: {config.backend}")
