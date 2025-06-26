@@ -4,7 +4,7 @@ set -x
 
 # Launch a vllm server
 CUDA_VISIBLE_DEVICES=0 vllm serve dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly \
-    --served_model_name genrm-demo > /dev/null &
+    --served_model_name genrm-demo --host localhost --port 8000 > /dev/null &
 SERVER_PID=$!
 
 # kill server when script exits

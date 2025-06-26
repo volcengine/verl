@@ -23,7 +23,7 @@ BASE_URL = "http://localhost:8000"
 API_KEY = "EMPTY"
 MAX_RETRIES = 3
 BASE_DELAY = 2
-MAX_WORKERS = 256
+MAX_WORKERS = 32
 MODEL_NAME = "genrm-demo"
 GENRM_PROMPT_TEMPLATE = """
 The following is a math problem and an AI solution:
@@ -62,7 +62,7 @@ def get_response(problem, solution_str, ground_truth):
             else:
                 print(f"Failed after {MAX_RETRIES} attempts. Error: {e}")
 
-    print(f"Failed to run the model for {prompt}!")
+    raise ConnectionRefusedError(f"Failed to run the model for {prompt}!")
 
 
 def compute_reward(response):
