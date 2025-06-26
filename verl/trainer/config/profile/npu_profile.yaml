@@ -1,0 +1,29 @@
+# Config for the npu profiler
+options:
+
+  # Storage path of collected data
+  save_path: ./profiler_data
+
+  # Export format, optional values: text, db (can save about 70% disk space). Default: text
+  export_type: text
+
+  # Collection level, optional values: level_none, level0, level1, level2. Default: level0
+  level: level1
+
+  # Whether to enable memory analysis. Default: False
+  with_memory: False
+
+  # Whether to record tensor shape. Default: False
+  record_shapes: False
+
+  # Whether to record Device-side performance data. Default: True
+  with_npu: True
+
+  # Whether to record Host-side performance data. Default: True
+  with_cpu: True
+
+  # Whether to record Python call stack information. Default: False
+  with_module: False
+
+  # Whether to automatically parse the data. Default: True
+  analysis: True
