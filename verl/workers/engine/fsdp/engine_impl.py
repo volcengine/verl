@@ -51,6 +51,19 @@ from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from .utils import create_device_mesh, get_sharding_strategy
+from verl.utils.ulysses import (gather_outpus_and_unpad,
+                                ulysses_pad_and_slice_inputs)
+from verl import DataProto
+from verl.utils.device import get_torch_device, is_cuda_available, is_npu_available
+if is_cuda_available:
+    from flash_attn.bert_padding import (index_first_axis, pad_input,
+                                         rearrange, unpad_input)
+elif is_npu_available:
+    from transformers.integrations.npu_flash_attention import (
+        index_first_axis, pad_input, rearrange, unpad_input)
+from verl.utils.seqlen_balancing import (get_reverse_idx,
+                                         rearrange_micro_batches)
+import itertools
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -83,10 +96,11 @@ class FSDPEngine(object):
 
         self.ulysses_device_mesh = None
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
+        self.device_name = get_device_name()
+        self.use_remove_padding = self.config.model.get("use_remove_padding", False)
         dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
-            device_name = get_device_name()
-            self.ulysses_device_mesh = init_device_mesh(device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"])
+            self.ulysses_device_mesh = init_device_mesh(self.device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"])
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)        
         self._is_lora = self.config.model.get("lora_rank", 0) > 0
@@ -333,8 +347,77 @@ class FSDPEngine(object):
         return self.ulysses_sharding_manager.postprocess_data(data)
 
 
+    def _forward_micro_batch(self, micro_batch):
+        response_length = micro_batch["responses"].size(-1)
+        multi_modal_inputs = {}
+        if "multi_modal_inputs" in micro_batch.keys():
+            for key in micro_batch["multi_modal_inputs"][0].keys():
+                multi_modal_inputs[key] = torch.cat([inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0)
+
+        with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
+            input_ids = micro_batch["input_ids"]
+            batch, seqlen = input_ids.shape
+            attention_mask = micro_batch["attention_mask"]
+            position_ids = micro_batch["position_ids"]
+            if position_ids.dim() == 3:  # qwen2vl mrope
+                position_ids = position_ids.transpose(0, 1)
+
+            if self.use_remove_padding:
+                input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+                input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
+
+                # unpad the position_ids to align the rotary
+                if position_ids.dim() == 3:
+                    position_ids_rmpad = index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
+                else:
+                    position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(0, 1)
+
+                # pad and slice the inputs if sp > 1
+                if self.ulysses_sequence_parallel_size > 1:
+                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size)
+
+                # only pass input_ids and position_ids to enable flash_attn_varlen
+                output = self.module(
+                    input_ids=input_ids_rmpad,
+                    attention_mask=None,
+                    position_ids=position_ids_rmpad,
+                    **multi_modal_inputs,
+                    use_cache=False,
+                )  # prevent model thinks we are generating
+
+                if hasattr(self.module, "v_head"):
+                    # For trl.AutoModelForCausalLMWithValueHead
+                    values_rmpad = output[2].squeeze(0).unsqueeze(-1)
+                else:
+                    values_rmpad = output.logits
+                    values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
+
+                # gather output if sp > 1
+                if self.ulysses_sequence_parallel_size > 1:
+                    values_rmpad = gather_outpus_and_unpad(values_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+
+                # pad it back
+                values = pad_input(values_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
+                values = values[:, -response_length - 1 : -1]
+            else:
+                output = self.module(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    **multi_modal_inputs,
+                    use_cache=False,
+                )  # prevent model thinks we are generating
+                if hasattr(self.module, "v_head"):
+                    # For trl.AutoModelForCausalLMWithValueHead
+                    values = output[2]
+                else:
+                    values = output.logits
+                values = values[:, -response_length - 1 : -1].squeeze(-1)
+            return values
+
+
     def forward_backward_step(self, 
-                              batch, 
+                              data, 
                               ctx=None, 
                               forward_only=False, 
                               preprocess_fn=None, 
@@ -362,25 +445,80 @@ class FSDPEngine(object):
         elif self.mode == "eval":
             assert forward_only ==True
 
-        # optional microbatch preprocess
-        if preprocess_fn is not None:
-            inputs, ctx = preprocess_fn(batch, ctx)
-        else:
-            inputs = batch
+        with self.ulysses_sharding_manager:
+            data = self.ulysses_sharding_manager.preprocess_data(data=data)
+            micro_batch_size = data.meta_info["micro_batch_size"]
+            select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
+            batch = data.select(batch_keys=select_keys).batch
+            use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
+            has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
 
-        # forward execution
-        inputs["use_cache"] = False
-        outputs = self.module(**inputs)
+            if has_multi_modal_inputs:
+                num_micro_batches = data.batch.batch_size[0] // micro_batch_size
+                non_tensor_select_keys = ["multi_modal_inputs"]
+                micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
+            elif use_dynamic_bsz:
+                # split using dynamic bsz
+                max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
+                micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
+            else:
+                micro_batches = batch.split(micro_batch_size)
 
-        # optional microbatch postprocess
-        if postprocess_fn is not None:
-            preds, ctx = postprocess_fn(outputs, ctx)
-        else:
-            preds = outputs
+            values_lst = []
+            for micro_batch in micro_batches:
+                if isinstance(micro_batch, DataProto):
+                    micro_batch = {**micro_batch.batch, **micro_batch.non_tensor_batch}
 
+                with torch.no_grad():
+                    values = self._forward_micro_batch(micro_batch)
+                values_lst.append(values)
+            values = torch.concat(values_lst, dim=0)
+
+            if use_dynamic_bsz:
+                indices = list(itertools.chain.from_iterable(indices))
+                assert len(indices) == values.size(0), f"{len(indices)} vs. {values.size()}"
+                revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+                values = values[revert_indices]
+                
+            responses = data.batch["responses"]
+            attention_mask = data.batch["attention_mask"]
+            response_length = responses.size(1)
+            response_mask = attention_mask[:, -response_length:]
+            values = values * response_mask # Only action tokens have values
+    
+            output = DataProto.from_dict(tensors={"values": values})
+            output = self.ulysses_sharding_manager.postprocess_data(data=output)
+            output = DataProto.from_dict(tensors={"values": values})
+            output = self.ulysses_sharding_manager.postprocess_data(data=output)
+
+        output = output.to("cpu")
         if forward_only:
-            return preds, ctx
+            return output, ctx
+        raise ValueError
 
+
+
+
+        # # optional microbatch preprocess
+        # if preprocess_fn is not None:
+        #     inputs, ctx = preprocess_fn(batch, ctx)
+        # else:
+        #     inputs = batch
+
+        # # forward execution
+        # inputs["use_cache"] = False
+        # outputs = self.module(**inputs)
+
+        # # optional microbatch postprocess
+        # if postprocess_fn is not None:
+        #     preds, ctx = postprocess_fn(outputs, ctx)
+        # else:
+        #     preds = outputs
+
+        # if forward_only:
+        #     return preds, ctx
+
+        raise ValueError
         # loss function
         loss, ctx = self.loss_fn(batch, preds, ctx)
         # backward

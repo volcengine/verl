@@ -212,6 +212,12 @@ class CriticWorker(Worker):
         data.meta_info["micro_batch_size"] = micro_batch_size
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
+
+        with self.engine.eval_mode():
+            self.engine.forward_backward_step(data,
+                                            forward_only=True)
+        raise ValueError
+
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
 
         def get_micro_batches(data):
@@ -270,6 +276,7 @@ class CriticWorker(Worker):
             output = self.engine.unshard_data(output)
 
         output = output.to("cpu")
+        raise ValueError
         return output
 
 
