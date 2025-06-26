@@ -202,6 +202,14 @@ def get_checkpoint_tracker_filename(root_path: str):
 
 
 def should_save_ckpt_esi(max_steps_duration: float, save_ckpt_duration: float = 60, redundant_time: float = 0) -> bool:
+    """
+    Determine if checkpoint should be saved based on capacity esi expiration.
+
+    Args:
+        max_steps_duration: Max estimated time (seconds) required to complete one training step
+        save_ckpt_duration: Estimated time (seconds) required to save checkpoint (default: 60)
+        redundant_time: Additional buffer time (seconds) for unexpected delays (default: 0)
+    """
     exp_ts_mlp = os.getenv("MLP_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP")  # vemlp
     exp_ts_aws = os.getenv("SAGEMAKER_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP")  # aws
     if exp_ts_mlp:

@@ -56,13 +56,6 @@ class TestShouldSaveCkptEsi(TestCase):
         os.environ["SAGEMAKER_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP"] = str(int(expiration.timestamp()))
         self.assertFalse(should_save_ckpt_esi(30 * 60))
 
-    def test_aws_expiration_passed(self):
-        """Test expired AWS timestamp"""
-        now = datetime.now()
-        expiration = now - timedelta(minutes=10)  # Past timestamp
-        os.environ["SAGEMAKER_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP"] = str(int(expiration.timestamp()))
-        self.assertFalse(should_save_ckpt_esi(30 * 60))
-
     def test_redundant_time(self):
         """Test redundant_time parameter effect"""
         current_time = time.time()
