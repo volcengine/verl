@@ -35,6 +35,7 @@ from transformers import PretrainedConfig
 
 import verl.utils.megatron.tensor_parallel as tp_utils
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
+from verl.utils.fs import local_mkdir_safe
 from verl.utils.model import normalize_model_name
 from verl.utils.torch_dtypes import PrecisionType
 
@@ -63,6 +64,7 @@ def get_model(
             this_model = model_provider_func(pre_process=pre_process, post_process=post_process)
             this_model.model_type = model_type
             model.append(this_model)
+        mpu.set_virtual_pipeline_model_parallel_rank(0)
     else:
         pre_process = mpu.is_pipeline_first_stage()
         post_process = mpu.is_pipeline_last_stage()
@@ -421,55 +423,21 @@ def load_megatron_optimizer(optimizers):
         get_torch_device().empty_cache()
 
 
-def get_model_checkpoint_path(checkpoint_path):
-    os.makedirs(checkpoint_path, exist_ok=True)
-    return os.path.join(checkpoint_path, "model")
+def get_dist_checkpoint_path(checkpoint_path):
+    local_mkdir_safe(checkpoint_path)
+    local_mkdir_safe(os.path.join(checkpoint_path, "dist_ckpt"))
+    return os.path.join(checkpoint_path, "dist_ckpt")
 
 
 def get_hf_model_checkpoint_path(checkpoint_path):
-    os.makedirs(checkpoint_path, exist_ok=True)
+    local_mkdir_safe(checkpoint_path)
+    local_mkdir_safe(os.path.join(checkpoint_path, "huggingface"))
     return os.path.join(checkpoint_path, "huggingface")
 
 
-def get_hf_config_and_tokenizer_checkpoint_path(checkpoint_path):
+def get_transformer_config_checkpoint_path(checkpoint_path):
     os.makedirs(checkpoint_path, exist_ok=True)
-    return os.path.join(checkpoint_path, "hf_config_and_tokenizer")
-
-
-def get_optimizer_checkpoint_path(checkpoint_path, use_distributed_optimizer=True):
-    os.makedirs(os.path.join(checkpoint_path, "optim"), exist_ok=True)
-    if not use_distributed_optimizer:
-        return os.path.join(checkpoint_path, "optim", "optim.pt")
-    pp_rank = mpu.get_pipeline_model_parallel_rank()
-    tp_rank = mpu.get_tensor_model_parallel_rank()
-    cp_rank = mpu.get_context_parallel_rank()
-    dp_rank = mpu.get_data_parallel_rank()
-    # TODO: support ep
-    return os.path.join(checkpoint_path, "optim", f"distrib_optim_pp{pp_rank}_tp{tp_rank}_cp{cp_rank}_dp{dp_rank}.pt")
-
-
-def get_rng_states_checkpoint_path(checkpoint_path, only_rank0_save=False):
-    # save rng states cause interrupts
-    os.makedirs(os.path.join(checkpoint_path, "rng_states"), exist_ok=True)
-    if only_rank0_save:
-        return os.path.join(checkpoint_path, "rng_states", "rng_states.pt")
-    dp_rank = mpu.get_data_parallel_rank()
-    pp_rank = mpu.get_pipeline_model_parallel_rank()
-    tp_rank = mpu.get_tensor_model_parallel_rank()
-    cp_rank = mpu.get_context_parallel_rank()
-    return os.path.join(checkpoint_path, "rng_states", f"rng_states_pp{pp_rank}_tp{tp_rank}_cp{cp_rank}_dp{dp_rank}.pt")
-
-
-def get_optimizer_scheduler_checkpoint_path(checkpoint_path, only_rank0_save=False):
-    # save rng states cause interrupts
-    os.makedirs(os.path.join(checkpoint_path, "optimizer_scheduler"), exist_ok=True)
-    if only_rank0_save:
-        return os.path.join(checkpoint_path, "optimizer_scheduler", "optimizer_scheduler.pt")
-    dp_rank = mpu.get_data_parallel_rank()
-    pp_rank = mpu.get_pipeline_model_parallel_rank()
-    tp_rank = mpu.get_tensor_model_parallel_rank()
-    cp_rank = mpu.get_context_parallel_rank()
-    return os.path.join(checkpoint_path, "optimizer_scheduler", f"optimizer_scheduler_pp{pp_rank}_tp{tp_rank}_cp{cp_rank}_dp{dp_rank}.pt")
+    return os.path.join(checkpoint_path, "transformer_config.json")
 
 
 def convert_megatron_model_to_transformers_model(

@@ -288,10 +288,10 @@ specific rank, you can set the profile_ranks, by default, it will be [0].
 
 .. code:: python
 
-   actor_rollout_ref.actor.profile.use_profiler=True \
+   actor_rollout_ref.actor.profile.use_profile=True \
    actor_rollout_ref.actor.profile.profile_ranks=[0] \
-   actor_rollout_ref.actor.profile.begin_step=0 \
-   actor_rollout_ref.actor.profile.end_step=1 \
+   actor_rollout_ref.actor.profile.step_start=0 \
+   actor_rollout_ref.actor.profile.step_end=1 \
    actor_rollout_ref.actor.profile.save_path="./profile"
 
 
