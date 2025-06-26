@@ -113,7 +113,7 @@ def marked_timer(
 class NsightSystemsProfiler(DistProfiler):
     """Nsight system profiler. Installed in a worker to control the Nsight system profiler."""
 
-    def __init__(self, rank: int, config: Optional[ProfilerConfig]):
+    def __init__(self, rank: int, config: Optional[ProfilerConfig], **kwargs):
         """Initialize the NsightSystemsProfiler.
 
         Args:

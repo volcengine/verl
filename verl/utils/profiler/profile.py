@@ -176,7 +176,7 @@ class DistProfiler:
         config (ProfilerConfig, optional): Configuration for the profiler.
     """
 
-    def __init__(self, rank: int, config: Optional[ProfilerConfig] = None):
+    def __init__(self, rank: int, config: Optional[ProfilerConfig] = None, **kwargs):
         pass
 
     def start(self, **kwargs):
@@ -217,9 +217,9 @@ class DistProfilerExtension:
     from verl.single_controller.base.decorator import Dispatch, register
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def start_profile(self) -> None:
+    def start_profile(self, **kwargs) -> None:
         """Start profiling for the current rank in the current training step."""
-        self.profiler.start()
+        self.profiler.start(**kwargs)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def stop_profile(self) -> None:
