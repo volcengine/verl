@@ -68,7 +68,7 @@ Most of the features of `GPTModel` is out-of-the-box supported in verl through c
 Features about parallel strategies should be supported with changes about the online weights conversion(especially the resharding part) and verl work dispatching.
 
 ### checkpointing
-The existing checkpointing code is in `verl/utils/checkpoint/megatron_checkpoint_manager.py`. And the script to convert checkpoint to huggingface format is in `verl/scripts/model_merger.py`.
+The existing checkpointing code is in `verl/utils/checkpoint/megatron_checkpoint_manager.py`. And the script to convert checkpoint to huggingface format is in `verl/scripts/model_merger`.
 
 The existing checkpoint format simply saves every rank's weights and optimizer states. It should be refactored by `dist_checkpointing` format.
 

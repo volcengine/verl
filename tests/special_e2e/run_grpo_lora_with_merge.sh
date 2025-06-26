@@ -67,7 +67,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.total_epochs=1 $@
 
 # step 2. merge model
-python3 scripts/model_merger.py merge \
+python3 -m verl.model_merger merge \
     --backend fsdp \
     --local_dir checkpoints/verl_grpo_example_gsm8k/${EXP_NAME}/global_step_1/actor/ \
     --target_dir checkpoints/verl_grpo_example_gsm8k/${EXP_NAME}/global_step_1/actor/hf

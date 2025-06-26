@@ -16,7 +16,7 @@ from transformers import PretrainedConfig
 
 from verl.utils.device import get_torch_device
 
-VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen2_vl", "qwen2_5_vl", "qwen3", "qwen3_moe", "deepseek_v3"}
+VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen2_vl", "qwen2_5_vl", "qwen3", "qwen3_moe", "deepseek_v3", "minicpmv", "minicpmo"}
 
 
 def get_device_flops(unit="T"):
@@ -75,6 +75,8 @@ class FlopsCounter:
             "qwen3": self._estimate_qwen2_flops,
             "qwen3_moe": self._estimate_qwen3_moe_flops,
             "deepseek_v3": self._estimate_deepseek_v3_flops,
+            "minicpmv": self._estimate_qwen2_flops,
+            "minicpmo": self._estimate_qwen2_flops,
         }
         self.config = config
 

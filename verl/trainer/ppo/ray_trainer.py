@@ -50,7 +50,7 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.utils.checkpoint.checkpoint_manager import BaseCheckpointManager, find_latest_ckpt_path
+from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.debug import marked_timer
 from verl.utils.metric import (
     reduce_metrics,
@@ -804,6 +804,8 @@ class RayPPOTrainer:
             )
 
     def _save_checkpoint(self):
+        from verl.utils.fs import local_mkdir_safe
+
         # path: given_path + `/global_step_{global_steps}` + `/actor`
         local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, f"global_step_{self.global_steps}")
 
@@ -826,7 +828,7 @@ class RayPPOTrainer:
             self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps, max_ckpt_to_keep=max_critic_ckpt_to_keep)
 
         # save dataloader
-        BaseCheckpointManager.local_mkdir(local_global_step_folder)
+        local_mkdir_safe(local_global_step_folder)
         dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
         dataloader_state_dict = self.train_dataloader.state_dict()
         torch.save(dataloader_state_dict, dataloader_local_path)

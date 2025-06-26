@@ -583,7 +583,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 optimizer=self.actor.actor_optimizer,
                 lr_scheduler=self.actor_lr_scheduler,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
-                checkpoint_contents=self.config.actor.checkpoint,
+                checkpoint_config=self.config.actor.checkpoint,
             )
 
         if not self._is_actor and self._is_rollout:
@@ -596,7 +596,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 optimizer=None,
                 lr_scheduler=None,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
-                checkpoint_contents=checkpoint_contents,
+                checkpoint_config=checkpoint_contents,
             )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -1074,7 +1074,7 @@ class CriticWorker(Worker, DistProfilerExtension):
             optimizer=self.critic_optimizer,
             lr_scheduler=self.critic_lr_scheduler,
             processing_class=self.processor if self.processor is not None else self.tokenizer,
-            checkpoint_contents=self.config.checkpoint,
+            checkpoint_config=self.config.checkpoint,
         )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)

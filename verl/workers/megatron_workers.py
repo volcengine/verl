@@ -427,7 +427,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             self.flops_counter = FlopsCounter(self.actor_model_config)
             self.checkpoint_mananager = MegatronCheckpointManager(
                 config=self.config,
+                checkpoint_config=self.config.actor.checkpoint,
                 model_config=self.actor_model_config,
+                transformer_config=self.tf_config,
                 role="actor",
                 model=self.actor_module,
                 arch=self.architectures[0],
@@ -439,7 +441,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 optimizer_scheduler=self.actor_optimizer_scheduler,
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
                 use_checkpoint_opt_param_scheduler=self.config.actor.optim.use_checkpoint_opt_param_scheduler,
-                checkpoint_contents=self.config.actor.checkpoint,
             )
         get_torch_device().empty_cache()
         log_gpu_memory_usage("After init_model finish", logger=logger)
@@ -772,7 +773,9 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         self.flops_counter = FlopsCounter(self.critic_model_config)
         self.checkpoint_mananager = MegatronCheckpointManager(
             config=self.config,
+            checkpoint_config=self.config.checkpoint,
             model_config=self.critic_model_config,
+            transformer_config=self.tf_config,
             role="critic",
             model=self.critic_module,
             arch=self.architectures[0],
