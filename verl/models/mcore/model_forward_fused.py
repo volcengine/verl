@@ -31,7 +31,7 @@ from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
 from verl.utils.megatron_utils import unwrap_model
 from verl.utils.model import CausalLMOutputForPPO
 
-from .qwen2_5_vl.model import Qwen2_5_VLModel
+from .qwen2_5_vl.model import Qwen2_5VLModel
 
 
 def fused_forward_gptmodel(
@@ -64,7 +64,7 @@ def fused_forward_gptmodel(
 
 
 def fused_forward_qwen2_5_vl(
-    model: Qwen2_5_VLModel,
+    model: Qwen2_5VLModel,
     input_ids: Tensor,
     position_ids: Tensor,
     attention_mask: Tensor,
