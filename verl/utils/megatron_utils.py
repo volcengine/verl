@@ -115,7 +115,7 @@ def get_model(
     # Fp16 conversion.
     config: TransformerConfig = get_model_config(model[0])
     config.fp8 = None
-    tf_config: TransformerConfig = model[0].config
+    tfconfig: TransformerConfig = model[0].config
     if config.fp16 or config.bf16:  # the ModelParallelConfig in GPTModel
         model = [Float16Module(config, model_module) for model_module in model]
 
@@ -123,7 +123,7 @@ def get_model(
         ddp_models = []
         for model_chunk_idx, model_chunk in enumerate(model):
             ddp_model = DDP(
-                config=tf_config,
+                config=tfconfig,
                 module=model_chunk,
                 disable_bucketing=(model_chunk_idx > 0),
                 ddp_config=DistributedDataParallelConfig(
