@@ -53,7 +53,7 @@ class vLLMRollout(BaseRollout):
         # before fixing the hf config model context window assertion
         # expected behavior: if the model use rope scaling yarn in its config,
         # it will still raise error since this assertion only checks the `max_position_embeddings` in the HF config
-        assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, "model context length should be greater than total sequence length"
+        # assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, "model context length should be greater than total sequence length"
         # after fixing
         # expect behavior: if the model uses yarn position embeddings, it will pass the assertion
         # since it checks the rope scaling factor (if any) to calculate the effective max position embeddings
