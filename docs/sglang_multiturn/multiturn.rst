@@ -41,6 +41,7 @@ Finally, set the ``tools_config_file`` in your rollout config:
 This allows integration of customized tool behaviors during actor rollout steps. 
 
 If you want rollout with simulated interaction, you can set the ``interaction_config_file`` in your rollout config:
+
 .. code-block:: yaml
 
     interaction:
