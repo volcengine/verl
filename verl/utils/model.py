@@ -512,19 +512,19 @@ def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=Fal
     return
 
 
-def get_parallel_gptmodel_from_config(tf_config, hf_config, pre_process=None, post_process=None, share_embeddings_and_output_weights=False, value=False):
+def get_parallel_gptmodel_from_config(tfconfig, hf_config, pre_process=None, post_process=None, share_embeddings_and_output_weights=False, value=False):
     from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
     from megatron.core.models.gpt.gpt_model import GPTModel
 
     use_te = True
-    assert tf_config.normalization == "RMSNorm", "only RMSNorm is supported for now"
-    transformer_layer_spec = get_gpt_decoder_block_spec(tf_config, use_transformer_engine=use_te)
+    assert tfconfig.normalization == "RMSNorm", "only RMSNorm is supported for now"
+    transformer_layer_spec = get_gpt_decoder_block_spec(tfconfig, use_transformer_engine=use_te)
     rope_scaling_args = {}
     if hf_config.rope_scaling is not None:
         assert hf_config.rope_scaling["type"] == "linear", "only linear scaling is supported for now"
         rope_scaling_args["seq_len_interpolation_factor"] = hf_config.rope_scaling["factor"]
     parallel_model = GPTModel(
-        config=tf_config,
+        config=tfconfig,
         transformer_layer_spec=transformer_layer_spec,
         vocab_size=hf_config.vocab_size,
         max_sequence_length=hf_config.max_position_embeddings,
@@ -540,7 +540,7 @@ def get_parallel_gptmodel_from_config(tf_config, hf_config, pre_process=None, po
     if post_process and value:
         from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
 
-        parallel_model.output_layer = LinearForLastLayer(input_size=tf_config.hidden_size, output_size=1, config=tf_config)
+        parallel_model.output_layer = LinearForLastLayer(input_size=tfconfig.hidden_size, output_size=1, config=tfconfig)
     return parallel_model
 
 
