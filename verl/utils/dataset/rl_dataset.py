@@ -337,3 +337,9 @@ class RLHFDataset(Dataset):
             return state
 
         return self.__dict__.copy()
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        # Reconstruct dataframe if it was removed during serialization
+        if not self.serialize_dataset and not hasattr(self, 'dataframe'):
+            self.resume_dataset_state()
