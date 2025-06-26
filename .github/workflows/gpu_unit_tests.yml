@@ -79,6 +79,8 @@ jobs:
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: 1
+      PYTHONPATH: tests/:$PYTHONPATH
+      COVERAGE_PROCESS_START: ./.coveragerc
     container:
       image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.0-te2.3
       options: --gpus all --shm-size=10g
@@ -92,9 +94,17 @@ jobs:
           pip3 install --no-deps -e .[test]
           pip3 install --upgrade "ray>=2.40.0"
           pip3 install cupy-cuda12x
+          pip3 install coverage
+      
       - name: Run all GPU unit tests
         run: |
-          pytest -s -x --ignore-glob="*test_linear_cross_entropy_tp.py" --ignore-glob='*on_cpu.py' --ignore-glob="*test_vllm*" --ignore-glob="*_sglang*" --ignore-glob="*_hf_rollout*" --ignore-glob="tests/models/" --ignore-glob='tests/special*' tests/
+          coverage run -m pytest -s -x --ignore-glob="*test_linear_cross_entropy_tp.py" --ignore-glob='*on_cpu.py' --ignore-glob="*test_vllm*" --ignore-glob="*_sglang*" --ignore-glob="*_hf_rollout*" --ignore-glob="tests/models/" --ignore-glob='tests/special*' tests/
       - name: Testing LinearCrossEntropyTP Correctness, Computation Time and Memory Consumption
         run: |
-          LOW_MEMORY=True torchrun --standalone --nnodes=1 --nproc-per-node=8 tests/utils/test_linear_cross_entropy_tp.py
+          LOW_MEMORY=True coverage run --parallel-mode -m torch.distributed.run --standalone --nnodes=1 --nproc-per-node=8 tests/utils/test_linear_cross_entropy_tp.py
+      
+      - name: coverage combine
+        id: coverage_result
+        run: |
+          coverage combine 
+          coverage report -m

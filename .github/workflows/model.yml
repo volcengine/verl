@@ -70,6 +70,8 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
+      PYTHONPATH: tests/:$PYTHONPATH
+      COVERAGE_PROCESS_START: ./.coveragerc
     container:
       image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.0-te2.3
       options: --gpus all --shm-size=10g
@@ -81,41 +83,56 @@ jobs:
         run: |
           pip3 install --no-deps -e .[test]
           pip3 install --upgrade transformers
+          pip3 install coverage
       - name: Running rmpad model tests on 8 L20 GPUs + flash_attn 2.5.8
         run: |
-          pytest -s tests/models/test_transformer.py
+          coverage run -m pytest -s tests/models/test_transformer.py
       - name: Running rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
-          pytest -s tests/models/test_transformer.py
+          coverage run -m pytest -s tests/models/test_transformer.py
       - name: Running FSDP rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
-          STRATEGY=fsdp torchrun --nproc_per_node=8 tests/special_distributed/test_fsdp_ckpt.py
+          STRATEGY=fsdp coverage run --parallel-mode -m torch.distributed.run --nproc_per_node=8 tests/special_distributed/test_fsdp_ckpt.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + latest transformers
         run: |
-          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
+          coverage run --parallel-mode -m torch.distributed.run --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.49.0
         run: |
           pip3 install transformers==4.49.0
-          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
+          coverage run --parallel-mode -m torch.distributed.run --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.48.0
         run: |
           pip3 install transformers==4.48.0
-          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
+          coverage run --parallel-mode -m torch.distributed.run --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.47.0
         run: |
           pip3 install transformers==4.47.0
-          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
+          coverage run --parallel-mode -m torch.distributed.run --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.46.0
         run: |
           pip3 install transformers==4.46.0
-          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
+          coverage run --parallel-mode -m torch.distributed.run --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.45.0
         run: |
           pip3 install transformers==4.45.0
-          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
+          coverage run --parallel-mode -m torch.distributed.run --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Run distributed test
         run: |
           bash tests/special_distributed/run_all.sh
+      - name: coverage combine
+        id: coverage_result
+        run: |
+          coverage combine 
+          coverage_result=.coverage.model_rmpad_coverage_report
+          cp .coverage $coverage_result
+          echo "result=$coverage_result" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          include-hidden-files: true
+          path: ${{ steps.coverage_result.outputs.result }}
+          name: ${{ steps.coverage_result.outputs.result }}
 
   # TODO: Move this back to model_rmpad once FSDP2 is stable.
   # NOTE: List as an independent job to make rerun easier.
@@ -128,6 +145,8 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
+      COVERAGE_PROCESS_START: .coveragerc 
+      PYTHONPATH: tests/:$PYTHONPATH
     container:
       image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.0-te2.3
       options: --gpus all --shm-size=10g
@@ -139,6 +158,47 @@ jobs:
         run: |
           pip3 install --no-deps -e .[test]
           pip3 install --upgrade transformers
+          pip3 install coverage
       - name: Running FSDP2 rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
-          STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/special_distributed/test_fsdp_ckpt.py
+          STRATEGY=fsdp2 coverage run --parallel-mode -m torch.distributed.run --nproc_per_node=8 tests/special_distributed/test_fsdp_ckpt.py
+      
+      - name: coverage combine
+        id: coverage_result
+        run: |
+          coverage combine
+          coverage_result=.coverage.model_rmpad_fsdp2_unstable_coverage_report
+          cp .coverage $coverage_result
+          echo "result=$coverage_result" >> $GITHUB_OUTPUT
+    
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          include-hidden-files: true
+          path: ${{ steps.coverage_result.outputs.result }}
+          name: ${{ steps.coverage_result.outputs.result }}
+
+  download_artifact:
+    runs-on: [L20x8]
+    needs: [model_rmpad, model_rmpad_fsdp2_unstable]
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+    container:
+      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.0-te2.3
+      options: --gpus all --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: .coverage.*
+          merge-multiple: true
+      - name: combine coverage data
+        run: |
+          pip3 install --no-deps -e .[test]
+          pip3 install coverage
+          coverage combine
+          coverage report -m
