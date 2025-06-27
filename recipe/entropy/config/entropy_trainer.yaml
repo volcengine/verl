@@ -11,7 +11,7 @@ data:
 
 reward_model:
   reward_kwargs:
-        overlong_buffer_cfg: $reward_model.overlong_buffer
+        overlong_buffer_cfg: ${reward_model.overlong_buffer}
   reward_manager: dapo
   overlong_buffer: 
     enable: False 
