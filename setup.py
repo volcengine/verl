@@ -49,7 +49,7 @@ GEO_REQUIRES = ["mathruler", "torchvision", "qwen_vl_utils"]
 GPU_REQUIRES = ["liger-kernel", "flash-attn"]
 MATH_REQUIRES = ["math-verify"]  # Add math-verify as an optional dependency
 VLLM_REQUIRES = ["tensordict<=0.6.2", "vllm<=0.8.5"]
-SGLANG_REQUIRES = ["tensordict<=0.6.2", "sglang[srt,openai]==0.4.8"]
+SGLANG_REQUIRES = ["tensordict<=0.6.2", "sglang[srt,openai]==0.4.8", "flash-attn==2.8.0.post2"]
 TRL_REQUIRES = ["trl<=0.9.6"]
 
 extras_require = {
