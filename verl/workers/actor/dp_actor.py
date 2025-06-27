@@ -29,7 +29,6 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, get_policy_loss_fn, kl_penalty
-from verl.utils.dataset.vision_utils import process_multi_modal_inputs_for_minicpmo
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
@@ -116,6 +115,8 @@ class DataParallelPPOActor(BasePPOActor):
                     position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(0, 1)
 
                 if "image_bound" in multi_modal_inputs:
+                    from verl.utils.dataset.vision_utils import process_multi_modal_inputs_for_minicpmo
+
                     multi_modal_inputs = process_multi_modal_inputs_for_minicpmo(input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs)
 
                 # for compute the log_prob
