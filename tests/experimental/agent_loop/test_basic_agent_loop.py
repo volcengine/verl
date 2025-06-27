@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import json
+import os
 from typing import Any, Tuple
 
 import numpy as np
@@ -20,7 +21,7 @@ import ray
 from omegaconf import DictConfig, OmegaConf
 from transformers.utils import get_json_schema
 
-from tests.workers.rollout.async_rollout_utils import init_async_rollout_manager
+from tests.experimental.agent_loop.agent_utils import init_agent_loop_manager
 from verl.protocol import DataProto
 from verl.tools.base_tool import BaseTool, OpenAIFunctionToolSchema
 from verl.utils import hf_tokenizer
@@ -31,10 +32,12 @@ def init_config() -> DictConfig:
     config = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
     model_path = "Qwen/Qwen2.5-1.5B-Instruct"
     config.actor_rollout_ref.model.path = model_path
+    config.actor_rollout_ref.rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
     config.actor_rollout_ref.rollout.mode = "async"
-    config.actor_rollout_ref.rollout.multi_turn.format = "hermes"
     config.actor_rollout_ref.rollout.prompt_length = 4096
     config.actor_rollout_ref.rollout.response_length = 4096
+    config.actor_rollout_ref.rollout.n = 4
+    config.actor_rollout_ref.rollout.agent.num_workers = 2
 
     # test sleep/wake_up with fsdp offload
     config.actor_rollout_ref.actor.fsdp_config.param_offload = True
@@ -43,7 +46,7 @@ def init_config() -> DictConfig:
     return config
 
 
-def test_vllm_async_rollout_without_tool_calls(init_config):
+def test_single_turn(init_config):
     ray.init(
         runtime_env={
             "env_vars": {
@@ -55,14 +58,8 @@ def test_vllm_async_rollout_without_tool_calls(init_config):
         }
     )
 
-    # =========================== 1. Init rollout manager ===========================
-    async_rollout_manager = init_async_rollout_manager(init_config)
+    agent_loop_manager = init_agent_loop_manager(init_config)
 
-    # test sleep and wake_up
-    async_rollout_manager.sleep()
-    async_rollout_manager.wake_up()
-
-    # =========================== 2. Generate sequences  ===========================
     raw_prompts = [
         [
             {
@@ -75,13 +72,14 @@ def test_vllm_async_rollout_without_tool_calls(init_config):
     batch = DataProto(
         non_tensor_batch={
             "raw_prompt": np.array(raw_prompts),
+            "agent_name": np.array(["single_turn_agent"] * len(raw_prompts)),
         },
     )
-    result = async_rollout_manager.generate_sequences(prompts=batch)
+    result = agent_loop_manager.generate_sequences(prompts=batch)
+    assert len(result) == len(raw_prompts) * init_config.actor_rollout_ref.rollout.n
 
     # check result
     seq_len = result.batch["prompts"].size(1) + result.batch["responses"].size(1)
-    assert len(result) == 2
     assert result.batch["input_ids"].size(1) == seq_len
     assert result.batch["attention_mask"].size(1) == seq_len
     assert result.batch["position_ids"].size(1) == seq_len
@@ -154,7 +152,7 @@ class WeatherToolWithData(BaseTool):
             return str(e), 0, {}
 
 
-def test_vllm_async_rollout_with_tool_calls(init_config):
+def test_tool_agent(init_config):
     ray.init(
         runtime_env={
             "env_vars": {
@@ -183,8 +181,11 @@ def test_vllm_async_rollout_with_tool_calls(init_config):
     with open(tool_config_path, "w") as f:
         json.dump(tool_config, f)
 
+    n = 2
+    init_config.actor_rollout_ref.rollout.n = n
     init_config.actor_rollout_ref.rollout.multi_turn.tool_config_path = tool_config_path
-    async_rollout_manager = init_async_rollout_manager(init_config)
+    init_config.actor_rollout_ref.rollout.multi_turn.max_parallel_calls = 2
+    agent_loop_manager = init_agent_loop_manager(init_config)
 
     # =========================== 2. Generate sequences  ===========================
     raw_prompts = [
@@ -195,6 +196,9 @@ def test_vllm_async_rollout_with_tool_calls(init_config):
             {"role": "user", "content": "What's the temperature in Los Angeles now?"},
         ],
         [
+            {"role": "user", "content": "What's the temperature in New York now?"},
+        ],
+        [
             {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.\n\nCurrent Date: 2024-09-30"},
             {"role": "user", "content": "What's the temperature in San Francisco now? How about tomorrow?"},
         ],
@@ -202,18 +206,22 @@ def test_vllm_async_rollout_with_tool_calls(init_config):
     batch = DataProto(
         non_tensor_batch={
             "raw_prompt": np.array([np.array(prompt) for prompt in raw_prompts], dtype=object),
+            "agent_name": np.array(["tool_agent"] * len(raw_prompts)),
         },
     )
-    result = async_rollout_manager.generate_sequences(prompts=batch)
+    result = agent_loop_manager.generate_sequences(prompts=batch)
+    assert len(result) == len(raw_prompts) * n
 
     # Check turns
     num_turns = result.non_tensor_batch["__num_turns__"]
-    # [user, assistant]
-    assert num_turns[0] == 2
-    # [user, assistant, tool, assistant]
-    assert num_turns[1] == 4
-    # [system, user, assistant, tool, tool, assistant]
-    assert num_turns[2] == 6
+    print(f"num_turns: {num_turns}")
+    for i in range(len(num_turns)):
+        if i // n == 0:
+            # [user, assistant]
+            assert num_turns[i] == 2
+        else:
+            # [user, assistant, tool, assistant]
+            assert num_turns[i] == 4
 
     # Check response_mask
     tokenizer = hf_tokenizer(init_config.actor_rollout_ref.model.path)

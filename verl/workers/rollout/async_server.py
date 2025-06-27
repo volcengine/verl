@@ -82,6 +82,20 @@ class AsyncServerBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+        """Generate response ids given prompt ids.
+
+        Args:
+            prompt_ids (List[int]): prompt ids
+            sampling_params (Dict[str, Any]): sampling params
+            request_id (str): request id
+
+        Returns:
+            List[int]: response ids
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     async def init_engine(self):
         """Init async LLM engine."""
         raise NotImplementedError
