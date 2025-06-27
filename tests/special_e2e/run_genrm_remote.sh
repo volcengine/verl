@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+export no_proxy="localhost,127.0.0.1"
+
 set -x
 
 # Launch a vllm server
@@ -42,7 +44,7 @@ fi
 
 curl -v -X POST -H "Content-Type: application/json" -d '{"prompt": "Q: 1+1=?\nA: ", "max_new_tokens": 10}' http://localhost:30000/generate
 
-curl -v -X POST http://localhost:30000/v1/chat/completions \
+curl -v --fail -X POST http://localhost:30000/v1/chat/completions \
     -H "Content-Type: application/json" \
     -d '{
         "model": "genrm-demo",
