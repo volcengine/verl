@@ -56,6 +56,7 @@ SGLANG_REQUIRES = [
     "torch==2.6.0",
 ]
 TRL_REQUIRES = ["trl<=0.9.6"]
+LANGGRAPH_REQUIRES = ["langgraph>=0.4", "langchain-openai>=0.3", "langchain>=0.3"]
 
 extras_require = {
     "test": TEST_REQUIRES,
@@ -66,6 +67,7 @@ extras_require = {
     "vllm": VLLM_REQUIRES,
     "sglang": SGLANG_REQUIRES,
     "trl": TRL_REQUIRES,
+    "langgraph": LANGGRAPH_REQUIRES,
 }
 
 

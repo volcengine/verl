@@ -162,6 +162,12 @@ class AsyncvLLMServer(AsyncServerBase):
                 kwargs[k] = config.get(k)
         print(f"override_generation_config: {kwargs}")
 
+        openai_serving_chat = dict(request_logger=RequestLogger(max_log_len=4096), chat_template=None, chat_template_content_format="auto", enable_auto_tools=True, tool_parser=config.multi_turn.format)
+        if config.get("openai_serving_chat", False):
+            for k, v in config.openai_serving_chat.items():
+                openai_serving_chat[k] = v
+        print(f"openai_serving_chat: {openai_serving_chat}")
+
         engine_args = AsyncEngineArgs(
             model=local_path,
             enable_sleep_mode=True,
@@ -193,17 +199,7 @@ class AsyncvLLMServer(AsyncServerBase):
         model_config = self.engine.model_config
         BASE_MODEL_PATHS = [BaseModelPath(name=model_name, model_path=model_path)]
         models = OpenAIServingModels(self.engine, model_config, BASE_MODEL_PATHS)
-        self.openai_serving_chat = OpenAIServingChat(
-            self.engine,
-            model_config,
-            models,
-            "assistant",
-            request_logger=RequestLogger(max_log_len=4096),
-            chat_template=None,
-            chat_template_content_format="auto",
-            enable_auto_tools=True,
-            tool_parser=config.multi_turn.format,  # hermes, llama3_json, ...
-        )
+        self.openai_serving_chat = OpenAIServingChat(self.engine, model_config, models, "assistant", **openai_serving_chat)
 
     async def chat_completion(self, raw_request: Request):
         """OpenAI-compatible HTTP endpoint.

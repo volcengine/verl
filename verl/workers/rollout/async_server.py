@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import importlib
 import logging
 import os
 import socket
@@ -166,8 +167,15 @@ class AsyncLLMServerManager:
         self.chat_scheduler_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.chat_scheduler_loop)
 
+        if self.config.rollout.chat_scheduler:
+            module_path, class_name = self.config.rollout.chat_scheduler.rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            scheduler_cls = getattr(module, class_name)
+        else:
+            scheduler_cls = ChatCompletionScheduler
+
         try:
-            self.chat_scheduler = ChatCompletionScheduler(
+            self.chat_scheduler = scheduler_cls(
                 config=self.full_config,
                 server_addresses=self.server_addresses,
             )
