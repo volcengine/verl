@@ -134,6 +134,7 @@ def get_npu_profiler(option: DictConfig, role: Optional[str] = None, profile_ste
 
     prof = torch_npu.profiler.profile(
         with_modules=option.with_module,
+        with_stack=option.with_stack,
         record_shapes=option.record_shapes,
         profile_memory=option.with_memory,
         activities=activites,
