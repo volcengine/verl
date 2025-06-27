@@ -45,7 +45,7 @@ RUN pip uninstall -y torch torchvision torchaudio \
     pytorch-quantization pytorch-triton torch-tensorrt \
     xgboost transformer_engine flash_attn apex megatron-core grpcio
 
-RUN pip install --resume-retries 999 --no-cache-dir torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu126
+RUN pip install --resume-retries 999 --no-cache-dir torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 flashinfer-python==0.2.6.post1
 
 # Install flash-attn-2.8.0.post2 (cxx11abi=True)
 RUN wget -nv https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl && \
