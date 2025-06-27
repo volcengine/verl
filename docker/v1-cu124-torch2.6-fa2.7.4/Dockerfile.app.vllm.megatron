@@ -1,6 +1,6 @@
 # Start from the verl base image
 # Dockerfile.base
-FROM verlai/verl:base-v3-cu126-cudnn9.8-torch2.6-fa2.8.0-te2.3
+FROM verlai/verl:base-v1-cu124-cudnn9.8-torch2.6-fa2.7.4-te2.3
 
 # Define environments
 ENV MAX_JOBS=32
@@ -14,7 +14,11 @@ ENV HF_HUB_ENABLE_HF_TRANSFER="1"
 # torch-2.6.0+cu124: cxx11abi=False
 # torch-2.6.0+cu126: cxx11abi=True
 # see https://github.com/flashinfer-ai/flashinfer/issues/911
-RUN pip install --resume-retries 999 --no-cache-dir "vllm==0.8.5.post1"
+RUN git clone https://github.com/vllm-project/vllm.git && \
+    cd vllm && git checkout v0.8.5.post1 \
+    python use_existing_torch.py && \
+    pip install -r requirements/build.txt && \
+    pip install --no-build-isolation --no-cache-dir .
 
 # Install flashinfer-0.2.2.post1+cu126 (cxx11abi=True)
 # vllm-0.8.3 does not support flashinfer>=0.2.3
@@ -33,4 +37,9 @@ RUN pip install --no-cache-dir "tensordict==0.6.2" "transformers[hf_xet]>=4.51.0
     pytest py-spy pyext pre-commit ruff
 
 RUN pip uninstall -y pynvml nvidia-ml-py && \
-    pip install --no-cache-dir --upgrade "nvidia-ml-py>=12.560.30" "fastapi[standard]>=0.115.0" "optree>=0.13.0" "pydantic>=2.9" "grpcio>=1.62.1"
+    pip install --resume-retries 999 --no-cache-dir --upgrade "nvidia-ml-py>=12.560.30" "fastapi[standard]>=0.115.0" "optree>=0.13.0" "pydantic>=2.9" "grpcio>=1.62.1"
+
+RUN pip install --resume-retries 999 --no-cache-dir nvidia-cudnn-cu12==9.8.0.87
+
+# Install Megatron-LM
+RUN pip3 install --no-deps --no-cache-dir git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.1
