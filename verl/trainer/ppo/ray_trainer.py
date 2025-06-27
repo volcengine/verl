@@ -26,7 +26,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Optional, Type
+from typing import Iterable, Optional, Type
 
 import numpy as np
 import ray
@@ -52,6 +52,9 @@ from verl.trainer.ppo.metric_utils import (
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.debug import marked_timer
+from verl.utils.checkpoint.checkpoint_manager import BaseCheckpointManager, find_latest_ckpt_path
+from verl.utils.dataset.rl_dataset import gen_next_batch
+from verl.utils.debug.performance import _timer
 from verl.utils.metric import (
     reduce_metrics,
 )
@@ -314,6 +317,7 @@ class RayPPOTrainer:
         """
 
         # Store the tokenizer for text processing
+        self.stream_mode = True
         self.tokenizer = tokenizer
         self.processor = processor
         self.config = config
@@ -500,9 +504,11 @@ class RayPPOTrainer:
 
             collate_fn = default_collate_fn
 
+        train_batch = self.config.data.get("gen_batch_size", self.config.data.train_batch_size)
+        reader_batch = 1 if self.stream_mode else train_batch
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
-            batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+            batch_size=reader_batch,
             num_workers=self.config.data.get("dataloader_num_workers", 8),
             drop_last=True,
             collate_fn=collate_fn,
@@ -1195,3 +1201,15 @@ class RayPPOTrainer:
                     pprint(f"Final validation metrics: {last_val_metrics}")
                     progress_bar.close()
                     return
+
+    def async_generate_sequence(self, data_iter: Iterable, renew=False):
+        self.async_rollout_manager.wake_up()
+        if self.stream_mode:
+            stop_iter, gen_batch_output, gen_batch, batch = self.async_rollout_manager.stream_generate_sequences(data_iter, renew)
+            if stop_iter:
+                raise StopIteration
+        else:
+            gen_batch, batch = gen_next_batch(data_iter)
+            gen_batch_output, gen_batch, batch = self.async_rollout_manager.generate_sequences(gen_batch)
+        self.async_rollout_manager.sleep()
+        return gen_batch_output, gen_batch, batch

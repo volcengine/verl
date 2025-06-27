@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
 import logging
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -22,12 +23,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
-from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ErrorResponse
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from vllm.entrypoints.openai.serving_models import BaseModelPath, OpenAIServingModels
 from vllm.inputs import TokensPrompt
 from vllm.outputs import RequestOutput
+from vllm.entrypoints.utils import with_cancellation
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.executor.abstract import Executor
 from vllm.worker.worker_base import WorkerWrapperBase
@@ -150,6 +151,7 @@ class AsyncvLLMServer(AsyncServerBase):
         max_num_batched_tokens = config.get("max_num_batched_tokens", 8192)
         max_model_len = config.max_model_len if config.max_model_len else config.prompt_length + config.response_length
         self.max_model_len = int(max_model_len)
+        stat_log_interval = config.get("stat_log_interval", 10)
 
         # Override default generation config from hugging face model config,
         # user can still override them by passing kwargs in each request.
@@ -167,6 +169,7 @@ class AsyncvLLMServer(AsyncServerBase):
         engine_args = AsyncEngineArgs(
             model=local_path,
             enable_sleep_mode=True,
+            disable_log_requests=False,
             override_generation_config=kwargs,
             tensor_parallel_size=tensor_parallel_size,
             distributed_executor_backend=ExternalRayDistributedExecutor if os.environ.get("VERL_VLLM_USE_RAY_BACKEND", "1") == "1" else None,
@@ -189,7 +192,8 @@ class AsyncvLLMServer(AsyncServerBase):
         vllm_config = engine_args.create_engine_config()
         namespace = ray.get_runtime_context().namespace
         vllm_config.instance_id = f"{namespace}:{self.wg_prefix}:{self.vllm_dp_size}:{self.vllm_dp_rank}"
-        self.engine = AsyncLLM.from_vllm_config(vllm_config)
+        # this will override vllm_config for logging
+        self.engine = AsyncLLM.from_vllm_config(vllm_config, disable_log_stats=False)
 
         # build serving chat
         model_config = self.engine.model_config
@@ -200,13 +204,23 @@ class AsyncvLLMServer(AsyncServerBase):
             model_config,
             models,
             "assistant",
-            request_logger=RequestLogger(max_log_len=4096),
+            # request_logger=RequestLogger(max_log_len=4096),
+            request_logger=None,
             chat_template=None,
             chat_template_content_format="auto",
             enable_auto_tools=config.multi_turn.tool_config_path is not None,
             tool_parser=config.multi_turn.format,  # hermes, llama3_json, ...
         )
 
+        async def _force_log(stat_log_interval=10):
+            print("stat_log_interval", stat_log_interval)
+            while True:
+                await asyncio.sleep(stat_log_interval)
+                await self.engine.do_log_stats()
+
+        asyncio.create_task(_force_log(stat_log_interval))
+
+    @with_cancellation
     async def chat_completion(self, raw_request: Request):
         """OpenAI-compatible HTTP endpoint.
 

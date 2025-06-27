@@ -35,7 +35,7 @@ from tests.workers.rollout.async_rollout_utils import init_async_rollout_manager
 from verl.protocol import DataProto
 from verl.utils import hf_tokenizer
 from verl.utils.reward_score.sandbox_fusion.utils import _process_single_case
-from verl.workers.rollout.chat_scheduler import ChatCompletionScheduler, ToolCompletionCallback
+from verl.workers.rollout.chat_scheduler.chat_scheduler import ChatCompletionScheduler, ToolCompletionCallback
 
 
 def _get_free_port():

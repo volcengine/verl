@@ -28,7 +28,7 @@ from starlette.requests import Request
 
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
-from verl.workers.rollout.chat_scheduler import ChatCompletionScheduler
+from verl.workers.rollout.chat_scheduler.chat_scheduler import ChatCompletionScheduler, MicroBatchScheduler, StreamScheduler, StreamSchedulerMixin
 
 logger = logging.getLogger(__file__)
 
@@ -172,7 +172,7 @@ class AsyncLLMServerManager:
         self.chat_scheduler_exception: Exception = None
         self.chat_scheduler_loop = None
         self.chat_scheduler_ready = threading.Event()
-        self.chat_scheduler_thread = threading.Thread(target=self._init_chat_scheduler, daemon=True)
+        self.chat_scheduler_thread = threading.Thread(target=self._init_chat_scheduler, daemon=True, name="chat_scheduler_thread")
         self.chat_scheduler_thread.start()
         self.chat_scheduler_ready.wait()
 
@@ -181,7 +181,10 @@ class AsyncLLMServerManager:
         asyncio.set_event_loop(self.chat_scheduler_loop)
 
         try:
-            self.chat_scheduler = ChatCompletionScheduler(
+            _chat_scheduler_cls = chat_scheduler_class(
+                scheduler_str=self.config.rollout.chat_scheduler.name,
+            )
+            self.chat_scheduler = _chat_scheduler_cls(
                 config=self.full_config,
                 server_addresses=self.server_addresses,
             )
@@ -224,8 +227,13 @@ class AsyncLLMServerManager:
     def generate_sequences(self, prompts: DataProto, **sampling_params) -> DataProto:
         """Generate multiple sequences in parallel via chat scheduler."""
         assert self.chat_scheduler is not None, "chat scheduler is not initialized."
+        future = asyncio.run_coroutine_threadsafe(self.chat_scheduler.generate_sequences(batch, **sampling_params), self.chat_scheduler_loop)
+        return future.result()
 
-        future = asyncio.run_coroutine_threadsafe(self.chat_scheduler.generate_sequences(prompts, **sampling_params), self.chat_scheduler_loop)
+    def stream_generate_sequences(self, data_iter, batch_size, renew, **sampling_params) -> Tuple[bool, DataProto, DataProto, DataProto]:
+        assert self.chat_scheduler is not None, "chat scheduler is not initialized."
+        assert isinstance(self.chat_scheduler, StreamSchedulerMixin), "this should mix in StreamSchedulerMixin"
+        future = asyncio.run_coroutine_threadsafe(self.chat_scheduler.stream_generate_sequences(data_iter, batch_size, renew, **sampling_params), self.chat_scheduler_loop)
         return future.result()
 
 
@@ -248,3 +256,18 @@ def async_server_class(rollout_backend: str) -> Type[AsyncServerBase]:
         return AsyncSglangServer
     else:
         raise NotImplementedError
+
+
+def chat_scheduler_class(scheduler_str: str) -> Type[ChatCompletionScheduler]:
+    """Get chat scheduler class.
+    Args:
+        scheduler_str: str, scheduler name, should be "micro_batch", "stream" or "default".
+    Returns:
+        Type[ChatCompletionScheduler]: chat scheduler class.
+    """
+    if scheduler_str == "micro_batch":
+        return MicroBatchScheduler
+    elif scheduler_str == "stream":
+        return StreamScheduler
+    else:
+        return ChatCompletionScheduler

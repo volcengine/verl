@@ -19,7 +19,7 @@ import logging
 import os
 import re
 from collections import defaultdict
-from typing import List, Optional, Union
+from typing import Iterable, List, Optional, Tuple, Union
 
 import datasets
 import numpy as np
@@ -29,6 +29,7 @@ from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
 import verl.utils.torch_functional as verl_F
+from verl.protocol import DataProto
 from verl.utils.model import compute_position_id_with_mask
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,26 @@ def collate_fn(data_list: list[dict]) -> dict:
         non_tensors[key] = np.array(val, dtype=object)
 
     return {**tensors, **non_tensors}
+
+
+def gen_next_batch(dataloader_iter: Iterable) -> Tuple[bool, DataProto, DataProto]:
+    # this function will raise StopIteration Execption
+    batch_dict = next(dataloader_iter)
+    batch: DataProto = DataProto.from_single_dict(batch_dict)
+    # pop those keys for generation
+    batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
+    non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
+    if "multi_modal_data" in batch.non_tensor_batch:
+        non_tensor_batch_keys_to_pop.append("multi_modal_data")
+    if "raw_prompt" in batch.non_tensor_batch:
+        non_tensor_batch_keys_to_pop.append("raw_prompt")
+    if "tools_kwargs" in batch.non_tensor_batch:
+        non_tensor_batch_keys_to_pop.append("tools_kwargs")
+    gen_batch = batch.pop(
+        batch_keys=batch_keys_to_pop,
+        non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
+    )
+    return False, gen_batch, batch
 
 
 class RLHFDataset(Dataset):
@@ -165,7 +186,7 @@ class RLHFDataset(Dataset):
                 desc=f"Filtering prompts longer than {self.max_prompt_length} tokens",
             )
 
-            print(f"filter dataset len: {len(self.dataframe)}")
+        print(f"filter dataset len: {len(self.dataframe)}")
 
     def resume_dataset_state(self):
         self.serialize_dataset = not hasattr(self, "original_data_files")
