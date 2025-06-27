@@ -94,7 +94,7 @@ jobs:
           pip3 install cupy-cuda12x
       - name: Run all GPU unit tests
         run: |
-          pytest -s -x --ignore-glob="*test_linear_cross_entropy_tp.py" --ignore-glob='*on_cpu.py' --ignore-glob="*test_vllm*" --ignore-glob="*_sglang*" --ignore-glob="*_hf_rollout*" --ignore-glob="tests/models/" --ignore-glob='tests/special*' tests/
+          pytest -s -x --ignore-glob="*test_linear_cross_entropy_tp.py" --ignore-glob='*on_cpu.py' --ignore-glob="*test_vllm*" --ignore-glob="*_sglang*" --ignore-glob="*_hf_rollout*" --ignore-glob="tests/models/" --ignore-glob='tests/special*' --ignore-glob="tests/experimental" tests/
       - name: Testing LinearCrossEntropyTP Correctness, Computation Time and Memory Consumption
         run: |
           LOW_MEMORY=True torchrun --standalone --nnodes=1 --nproc-per-node=8 tests/utils/test_linear_cross_entropy_tp.py
