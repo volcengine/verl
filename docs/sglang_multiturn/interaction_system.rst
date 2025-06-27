@@ -4,7 +4,9 @@ Interaction System for Multi-turn RL Training
 Overview
 --------
 
-The verl interaction system enables dynamic, multi-turn conversational feedback during reinforcement learning training. This system allows models to engage in iterative problem-solving scenarios where an interaction agent can provide corrective feedback, guidance, or evaluation based on the model's responses.
+The verl interaction system enables dynamic, multi-turn conversational feedback during reinforcement learning training. This system allows models to engage in iterative problem-solving scenarios where interaction agents can provide corrective feedback, guidance, or evaluation based on the model's responses.
+
+**New in Multi-Interaction Support**: The system now supports multiple named interactions within a single training session, enabling sophisticated training scenarios where different samples can use different interaction strategies. This allows for curriculum learning, domain-specific feedback, and flexible agent switching at the sample level.
 
 Key features:
 
@@ -12,6 +14,8 @@ Key features:
 - **Instance Management**: Stateful session handling with unique instance IDs for concurrent interactions
 - **SGLang Integration**: Seamless integration with SGLang rollout system for multi-turn conversations
 - **Configuration-driven**: Dynamic agent loading via YAML configuration files
+- **Multi-Interaction Support**: Registry system enabling multiple named interactions per rollout
+- **Sample-Level Selection**: Each sample can specify which interaction to use via configuration
 - **Reward Integration**: Turn-level scoring mechanism integrated with verl's reward system
 
 Architecture
@@ -21,16 +25,35 @@ The interaction system follows a plugin-based architecture with clear separation
 
 .. code-block::
 
+    Interaction Registry System
+         ↓
     BaseInteraction (Abstract Interface)
          ↓
-    Gsm8kInteraction (Concrete Implementation)
+    Multiple Named Interactions (e.g., Gsm8kInteraction, CustomInteraction)
          ↓
-    SGLang Rollout Integration
+    SGLang Rollout Integration (interaction_map)
+         ↓
+    Sample-Level Interaction Selection
          ↓
     Async Request Lifecycle Management
 
 Core Components
 ~~~~~~~~~~~~~~~
+
+**Interaction Registry System**
+
+The interaction registry system allows loading and managing multiple named interactions:
+
+.. code-block:: python
+
+    from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
+    
+    # Load multiple interactions from config
+    interaction_map = initialize_interactions_from_config("config.yaml")
+    
+    # Access specific interaction by name
+    gsm8k_interaction = interaction_map["gsm8k"]
+    custom_interaction = interaction_map["custom_solver"]
 
 **BaseInteraction Interface**
 
@@ -42,6 +65,10 @@ All interaction agents must implement the ``BaseInteraction`` abstract class:
     from typing import Dict, Any, List, Tuple, Optional
 
     class BaseInteraction:
+        def __init__(self, config: Dict[str, Any]):
+            self.config = config
+            self.name: str = config.get("name", "interaction_agent")
+        
         async def start_interaction(self, instance_id: Optional[str] = None, **kwargs) -> str:
             """Initialize interaction session, return instance_id"""
             
@@ -82,15 +109,47 @@ Enable interaction in your rollout configuration:
 
 **Interaction Configuration File**
 
-Create an interaction configuration file (e.g., ``gsm8k_interaction_config.yaml``):
+Create an interaction configuration file (e.g., ``interaction_config.yaml``):
+
+**Single Interaction (Legacy Format)**
+
+.. code-block:: yaml
+
+    interaction:
+      - name: "gsm8k"
+        class_name: "verl.interactions.gsm8k_interaction.Gsm8kInteraction"
+        config: {}
+
+**Multiple Interactions (New Format)**
+
+.. code-block:: yaml
+
+    interaction:
+      - name: "gsm8k"
+        class_name: "verl.interactions.gsm8k_interaction.Gsm8kInteraction"
+        config: {}
+      - name: "custom_solver"
+        class_name: "custom.interactions.CustomInteraction"
+        config: 
+          solver_type: "advanced"
+          timeout: 30
+      - name: "code_verifier"
+        class_name: "verl.interactions.base.BaseInteraction"
+        config: 
+          verification_mode: "strict"
+
+**Automatic Name Generation**
+
+If no ``name`` field is provided, the system will automatically generate one from the class name:
 
 .. code-block:: yaml
 
     interaction:
       - class_name: "verl.interactions.gsm8k_interaction.Gsm8kInteraction"
         config: {}
+        # Automatically generates name: "gsm8k"
 
-The system will dynamically load the specified interaction class using importlib.
+The system will dynamically load all specified interaction classes and make them available by name.
 
 Implementation Example: GSM8K
 -----------------------------
@@ -169,15 +228,46 @@ Include interaction configuration in your training command:
 
 **Data Requirements**
 
-Ensure your dataset includes interaction parameters:
+Ensure your dataset includes interaction parameters with the ``name`` field for interaction selection:
 
 .. code-block:: python
 
     # Dataset should include interaction_kwargs in non_tensor_batch
     interaction_kwargs = [
-        {"query": "What is 2+2?", "ground_truth": "4"},
-        {"query": "What is 3+3?", "ground_truth": "6"},
+        {"name": "gsm8k", "query": "What is 2+2?", "ground_truth": "4"},
+        {"name": "custom_solver", "query": "Solve: x^2 + 5x + 6 = 0", "ground_truth": "x = -2, -3"},
+        {"name": "gsm8k", "query": "What is 3+3?", "ground_truth": "6"},
     ]
+
+**Sample-Level Interaction Selection**
+
+Each sample can specify which interaction to use via the ``name`` field. This enables flexible training scenarios where different samples use different interaction strategies:
+
+.. code-block:: python
+
+    # Example: Math problems use GSM8K interaction, code problems use code verifier
+    data_samples = [
+        {
+            "prompt": "What is 15% of 200?",
+            "interaction_kwargs": {
+                "name": "gsm8k",
+                "query": "What is 15% of 200?", 
+                "ground_truth": "30"
+            }
+        },
+        {
+            "prompt": "Write a function to check if a number is prime",
+            "interaction_kwargs": {
+                "name": "code_verifier",
+                "code_type": "python",
+                "expected_behavior": "return True for prime numbers"
+            }
+        }
+    ]
+
+**Backward Compatibility**
+
+If no ``name`` field is provided in ``interaction_kwargs``, the system defaults to ``"gsm8k"`` for backward compatibility.
 
 Best Practices
 --------------
@@ -220,6 +310,43 @@ Comprehensive testing is essential for interaction systems:
 
 Advanced Usage
 --------------
+
+**Multi-Interaction Training Strategies**
+
+You can design sophisticated training scenarios using multiple interactions:
+
+.. code-block:: python
+
+    # Example: Progressive difficulty with different interaction agents
+    class MathTrainingPipeline:
+        def create_interaction_config(self):
+            return {
+                "interaction": [
+                    {
+                        "name": "basic_math",
+                        "class_name": "verl.interactions.gsm8k_interaction.Gsm8kInteraction",
+                        "config": {"difficulty": "easy"}
+                    },
+                    {
+                        "name": "advanced_math", 
+                        "class_name": "custom.interactions.AdvancedMathInteraction",
+                        "config": {"difficulty": "hard", "allow_hints": True}
+                    },
+                    {
+                        "name": "competition_math",
+                        "class_name": "custom.interactions.CompetitionMathInteraction", 
+                        "config": {"time_limit": 300, "show_steps": False}
+                    }
+                ]
+            }
+    
+        def create_curriculum_data(self, epoch):
+            if epoch < 5:
+                return [{"name": "basic_math", ...} for _ in samples]
+            elif epoch < 10:
+                return [{"name": "advanced_math", ...} for _ in samples]
+            else:
+                return [{"name": "competition_math", ...} for _ in samples]
 
 **Custom Scoring Functions**
 
@@ -266,6 +393,9 @@ Troubleshooting
 2. **Memory Leaks**: Always call ``finalize_interaction()`` to clean up resources
 3. **Blocking Operations**: Keep interaction logic async and non-blocking
 4. **Configuration Errors**: Verify interaction config path and class name are correct
+5. **Interaction Name Conflicts**: Ensure all interactions have unique names in the configuration
+6. **Missing Interaction**: Verify the ``name`` field in ``interaction_kwargs`` matches available interactions
+7. **Backward Compatibility**: When migrating from single to multi-interaction, add ``name`` fields to existing data
 
 **Debugging**
 
