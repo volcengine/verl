@@ -51,7 +51,6 @@ def get_response(problem, solution_str, ground_truth):
             chat_url = f"{BASE_URL}/v1/chat/completions"
             data = {"model": MODEL_NAME, "messages": messages}
             output = requests.post(chat_url, headers=headers, json=data, timeout=30)
-            print(output)
             response = output.json()["choices"][0]["message"]["content"]
             return response
         except Exception as e:
