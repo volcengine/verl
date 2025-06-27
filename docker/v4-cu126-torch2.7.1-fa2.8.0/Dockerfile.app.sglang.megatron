@@ -10,21 +10,8 @@ ENV NODE_OPTIONS=""
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV HF_HUB_ENABLE_HF_TRANSFER="1"
 
-# Install torch-2.6.0+cu126 + vllm-0.8.5.post1
-# torch-2.6.0+cu124: cxx11abi=False
-# torch-2.6.0+cu126: cxx11abi=True
-# see https://github.com/flashinfer-ai/flashinfer/issues/911
-RUN pip install --resume-retries 999 --no-cache-dir "vllm==0.8.5.post1"
-
-# Install flashinfer-0.2.2.post1+cu126 (cxx11abi=True)
-# vllm-0.8.3 does not support flashinfer>=0.2.3
-# see https://github.com/vllm-project/vllm/pull/15777
-RUN git clone https://github.com/flashinfer-ai/flashinfer.git --recursive
-
-RUN cd flashinfer && \
-    git checkout v0.2.2.post1 && \
-    pip install ninja && \
-    pip install --no-cache-dir --no-build-isolation .
+# Install sglang-0.4.6.post5 and torch-memory-saver
+RUN pip install --resume-retries 999 "sglang[all]==0.4.6.post5" --no-cache-dir --find-links https://flashinfer.ai/whl/cu126/torch2.6/flashinfer-python && pip install torch-memory-saver --no-cache-dir
 
 # Fix packages
 RUN pip install --no-cache-dir "tensordict==0.6.2" "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
