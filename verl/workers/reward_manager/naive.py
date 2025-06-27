@@ -11,107 +11,59 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from collections import defaultdict
-
-import torch
+import asyncio
+import time
 
 from verl import DataProto
-from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register
+
+from .base import BaseRewardManager
 
 
 @register("naive")
-class NaiveRewardManager:
+class NaiveRewardManager(BaseRewardManager):
     """The reward manager."""
 
-    def __init__(self, tokenizer, num_examine, compute_score=None, reward_fn_key="data_source") -> None:
-        """
-        Initialize the NaiveRewardManager instance.
+    async def async_compute_scores(self, reward_data: DataProto) -> list[int | float | dict]:
+        semaphore = asyncio.Semaphore(self.max_concurrency) if self.max_concurrency is not None else None
+        min_interval = 1.0 / self.qps if self.qps and self.qps > 0 else None
+        lock = asyncio.Lock()
+        last_called = 0.0
 
-        Args:
-            tokenizer: The tokenizer used to decode token IDs into text.
-            num_examine: The number of batches of decoded responses to print to the console for debugging purpose.
-            compute_score: A function to compute the reward score. If None, `default_compute_score` will be used.
-            reward_fn_key: The key used to access the data source in the non-tensor batch data. Defaults to "data_source".
-        """
-        self.tokenizer = tokenizer  # Store the tokenizer for decoding token IDs
-        self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
-        self.compute_score = compute_score or default_compute_score
-        self.reward_fn_key = reward_fn_key  # Store the key for accessing the data source
+        async def throttled_call(data_item):
+            nonlocal last_called
+            if semaphore:
+                await semaphore.acquire()
+            try:
+                if min_interval:
+                    async with lock:
+                        now = time.monotonic()
+                        wait = min_interval - (now - last_called)
+                        if wait > 0:
+                            await asyncio.sleep(wait)
+                        last_called = time.monotonic()
+                return await asyncio.wait_for(
+                    self.user_defined_compute_scores(data_source=data_item.non_tensor_batch["data_sources"], solution_str=data_item.non_tensor_batch["solution_strs"], ground_truth=data_item.non_tensor_batch["ground_truths"], extra_info=data_item.non_tensor_batch["extra_infos"]), self.timeout
+                )
+            finally:
+                if semaphore:
+                    semaphore.release()
 
-    def __call__(self, data: DataProto, return_dict=False):
-        """We will expand this function gradually based on the available datasets"""
+        return await asyncio.gather(*[throttled_call(reward_data[i]) for i in range(len(reward_data))])
 
-        # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
-        if "rm_scores" in data.batch.keys():
-            if return_dict:
-                return {"reward_tensor": data.batch["rm_scores"]}
-            else:
-                return data.batch["rm_scores"]
-
-        reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
-        reward_extra_info = defaultdict(list)
-
-        already_print_data_sources = {}
-
-        for i in range(len(data)):
-            data_item = data[i]  # DataProtoItem
-
-            prompt_ids = data_item.batch["prompts"]
-
-            prompt_length = prompt_ids.shape[-1]
-
-            valid_prompt_length = data_item.batch["attention_mask"][:prompt_length].sum()
-            valid_prompt_ids = prompt_ids[-valid_prompt_length:]
-
-            response_ids = data_item.batch["responses"]
-            valid_response_length = data_item.batch["attention_mask"][prompt_length:].sum()
-            valid_response_ids = response_ids[:valid_response_length]
-
-            # decode
-            prompt_str = self.tokenizer.decode(valid_prompt_ids, skip_special_tokens=True)
-            response_str = self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
-
-            ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
-            data_source = data_item.non_tensor_batch[self.reward_fn_key]
-            extra_info = data_item.non_tensor_batch.get("extra_info", None)
-
-            score = self.compute_score(
-                data_source=data_source,
-                solution_str=response_str,
-                ground_truth=ground_truth,
-                extra_info=extra_info,
+    def sync_compute_scores(self, reward_data: DataProto) -> list[int | float | dict]:
+        return [
+            self.user_defined_compute_scores(
+                data_source=reward_data.non_tensor_batch["data_sources"][i],
+                solution_str=reward_data.non_tensor_batch["solution_strs"][i],
+                ground_truth=reward_data.non_tensor_batch["ground_truths"][i],
+                extra_info=reward_data.non_tensor_batch["extra_infos"][i],
             )
+            for i in range(len(reward_data))
+        ]
 
-            if isinstance(score, dict):
-                reward = score["score"]
-                # Store the information including original reward
-                for key, value in score.items():
-                    reward_extra_info[key].append(value)
-            else:
-                reward = score
-
-            reward_tensor[i, valid_response_length - 1] = reward
-
-            if data_source not in already_print_data_sources:
-                already_print_data_sources[data_source] = 0
-
-            if already_print_data_sources[data_source] < self.num_examine:
-                already_print_data_sources[data_source] += 1
-                print("[prompt]", prompt_str)
-                print("[response]", response_str)
-                print("[ground_truth]", ground_truth)
-                if isinstance(score, dict):
-                    for key, value in score.items():
-                        print(f"[{key}]", value)
-                else:
-                    print("[score]", score)
-
-        if return_dict:
-            return {
-                "reward_tensor": reward_tensor,
-                "reward_extra_info": reward_extra_info,
-            }
+    def compute_scores(self, reward_data: DataProto) -> list[int | float | dict]:
+        if asyncio.iscoroutinefunction(self.user_defined_compute_scores):
+            return asyncio.run(self.async_compute_scores(reward_data))
         else:
-            return reward_tensor
+            return self.sync_compute_scores(reward_data)
