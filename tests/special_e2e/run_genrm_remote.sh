@@ -42,15 +42,6 @@ if ! wait_for_server; then
     exit 1
 fi
 
-curl -v -X POST -H "Content-Type: application/json" -d '{"prompt": "Q: 1+1=?\nA: ", "max_new_tokens": 10}' http://localhost:30000/generate
-
-curl -v --fail -X POST http://localhost:30000/v1/chat/completions \
-    -H "Content-Type: application/json" \
-    -d '{
-        "model": "genrm-demo",
-        "messages": [{"role": "user", "content": "Hello!"}]
-    }'
-
 CUDA_VISIBLE_DEVICES=4,5,6,7 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=${HOME}/data/gsm8k/train.parquet \
