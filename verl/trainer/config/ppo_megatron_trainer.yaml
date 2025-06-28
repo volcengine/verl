@@ -8,17 +8,17 @@ data:
   max_response_length: 512
   train_batch_size: 1024
   val_batch_size: null # DEPRECATED: Validation datasets are sent to inference engines as a whole batch, which will schedule the memory themselves
-  return_raw_input_ids: False  # This should be set to true when the tokenizer between policy and rm differs
+  return_raw_input_ids: False # This should be set to true when the tokenizer between policy and rm differs
   return_raw_chat: False
   return_full_prompt: False
   shuffle: True
   filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You cat set the filter_overlong_prompts_workers to use multiprocessing to speed up.
   filter_overlong_prompts_workers: 1
   truncation: error
-  trust_remote_code: False  # main_ppo will check this config to determine whether to use remote code for tokenizer
+  trust_remote_code: False # main_ppo will check this config to determine whether to use remote code for tokenizer
   custom_cls:
-      path: null
-      name: null
+    path: null
+    name: null
 
 actor_rollout_ref:
   hybrid_engine: True
@@ -42,7 +42,7 @@ actor_rollout_ref:
       activations_checkpoint_num_layers: null # not used with 'selective'
     trust_remote_code: False
   actor:
-    strategy: megatron  # This is for backward-compatibility
+    strategy: megatron # This is for backward-compatibility
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
     ppo_micro_batch_size_per_gpu: null
@@ -63,7 +63,7 @@ actor_rollout_ref:
     ppo_epochs: 1
     data_loader_seed: null
     shuffle: False
-    policy_loss:   # policy loss config
+    policy_loss: # policy loss config
       loss_mode: "vanilla" # Loss function mode: vanilla / clip-cov / kl-cov from https://arxiv.org/abs/2505.22617
       clip_cov_ratio: 0.0002 # Ratio of tokens to be clipped for clip-cov loss
       clip_cov_lb: 1.0 # Lower bound for clip-cov loss
@@ -74,10 +74,10 @@ actor_rollout_ref:
       optimizer: adam
       lr: 1e-6
       clip_grad: 1.0
-      total_training_steps: -1  # must be override by program
-      lr_warmup_init: 0.0  # initial learning rate for warmup, default to 0.0
+      total_training_steps: -1 # must be override by program
+      lr_warmup_init: 0.0 # initial learning rate for warmup, default to 0.0
       lr_warmup_steps: null # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
-      lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
+      lr_warmup_steps_ratio: 0. # the total steps will be injected during runtime
       lr_decay_steps: null
       lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
       min_lr: 0.0 # minimum learning rate, default to 0.0
@@ -87,9 +87,9 @@ actor_rollout_ref:
       lr_wsd_decay_steps: null
       use_checkpoint_opt_param_scheduler: False # use checkpoint optimizer parameter scheduler
     megatron:
-      param_offload: False
-      grad_offload: False
-      optimizer_offload: False
+      param_offload: True
+      grad_offload: True
+      optimizer_offload: True
       tensor_model_parallel_size: 1
       expert_model_parallel_size: 1
       expert_tensor_parallel_size: null
@@ -113,7 +113,7 @@ actor_rollout_ref:
       async_save: False # save checkpoint asynchronously
       # What to include in saved checkpoints
       # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
-      save_contents: ['model', 'optimizer', 'extra']
+      save_contents: ["model", "optimizer", "extra"]
       # For more flexibility, you can specify the contents to load from the checkpoint.
       load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
     # Nsight system profiler configs
@@ -125,7 +125,7 @@ actor_rollout_ref:
     strategy: ${actor_rollout_ref.actor.strategy}
     use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
     megatron:
-      param_offload: False
+      param_offload: True
       tensor_model_parallel_size: 1
       expert_model_parallel_size: 1
       expert_tensor_parallel_size: None
@@ -160,13 +160,14 @@ actor_rollout_ref:
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1
-    prompt_length: ${data.max_prompt_length}  # for xperf_gpt
+    prompt_length: ${data.max_prompt_length} # for xperf_gpt
     response_length: ${data.max_response_length}
     # for vllm rollout
     dtype: bfloat16 # should align with FSDP
     gpu_memory_utilization: 0.5
     ignore_eos: False
     enforce_eager: True
+    multi_stage_wake_up: True
     free_cache_engine: True
     load_format: dummy_megatron
     tensor_model_parallel_size: 1
@@ -243,13 +244,12 @@ actor_rollout_ref:
       # - strict: enable strict tokenization sanity check (default)
       # - ignore_strippable: ignore strippable tokens when checking tokenization sanity
       tokenization_sanity_check_mode: strict
-  
+
       # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
       format: hermes
 
     # [Experimental] agent loop based rollout configs
     agent:
-
       # Number of agent loop workers
       num_workers: 8
 
@@ -268,10 +268,10 @@ critic:
     optimizer: adam
     lr: 1e-6
     clip_grad: 1.0
-    total_training_steps: -1  # must be override by program
-    lr_warmup_init: 0.0  # initial learning rate for warmup, default to 0.0
+    total_training_steps: -1 # must be override by program
+    lr_warmup_init: 0.0 # initial learning rate for warmup, default to 0.0
     lr_warmup_steps: null # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
-    lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
+    lr_warmup_steps_ratio: 0. # the total steps will be injected during runtime
     lr_decay_steps: null
     lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
     min_lr: 0.0 # minimum learning rate, default to 0.0
@@ -296,9 +296,9 @@ critic:
       activations_checkpoint_granularity: null
       activations_checkpoint_num_layers: null
   megatron:
-    param_offload: False
-    grad_offload: False
-    optimizer_offload: False
+    param_offload: True
+    grad_offload: True
+    optimizer_offload: True
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1
     expert_tensor_parallel_size: null
@@ -330,7 +330,7 @@ critic:
     async_save: False # save checkpoint asynchronously
     # What to include in saved checkpoints
     # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
-    save_contents: ['model', 'optimizer', 'extra']
+    save_contents: ["model", "optimizer", "extra"]
     load_contents: ${critic.checkpoint.save_contents}
   # Nsight system profiler configs
   profiler:
@@ -342,7 +342,7 @@ reward_model:
   strategy: ${actor_rollout_ref.actor.strategy}
   nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
   megatron:
-    param_offload: False
+    param_offload: True
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1
     expert_tensor_parallel_size: null
@@ -356,7 +356,7 @@ reward_model:
     seed: ${actor_rollout_ref.actor.megatron.seed}
     override_transformer_config: {}
   model:
-    input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
+    input_tokenizer: ${actor_rollout_ref.model.path} # set this to null if the chat template is identical
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     trust_remote_code: False
     external_lib: ${actor_rollout_ref.model.external_lib}
@@ -388,7 +388,7 @@ algorithm:
   adv_estimator: gae
   norm_adv_by_std_in_grpo: True
   use_kl_in_reward: False
-  kl_penalty: kl  # how to estimate kl divergence
+  kl_penalty: kl # how to estimate kl divergence
   kl_ctrl:
     type: fixed
     kl_coef: 0.001
@@ -396,7 +396,7 @@ algorithm:
     target_kl: 0.1
   use_pf_ppo: False
   pf_ppo:
-    reweight_method: pow  # ["pow", "max_min", "max_random"]
+    reweight_method: pow # ["pow", "max_min", "max_random"]
     weight_pow: 2.0
 
 trainer:
@@ -406,13 +406,13 @@ trainer:
   profile_steps: null # [1,2,5] or [] or null
   project_name: verl_examples
   experiment_name: gsm8k
-  logger: ['console', 'wandb']
+  logger: ["console", "wandb"]
   log_val_generations: 0
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1
   esi_redundant_time: 0
-  
+
   # auto: find the last ckpt to resume. If can't find, start from scratch
   resume_mode: auto # or disable or resume_path if resume_from_path is set
   resume_from_path: null

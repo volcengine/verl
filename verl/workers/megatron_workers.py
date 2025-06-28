@@ -326,6 +326,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 weight_converter=weight_converter,
                 device_mesh=rollout_device_mesh,
                 offload_param=self._is_offload_param,
+                multi_stage_wake_up=self.config.rollout.multi_stage_wake_up,
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
         else:
