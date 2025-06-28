@@ -37,7 +37,6 @@ from types import ModuleType
 from typing import Iterable
 
 _ALLOW_LIST = [
-    "verl.third_party.vllm.LLMEngine",
     "verl.third_party.vllm.LLM",
     "verl.third_party.vllm.parallel_state",
     "verl.utils.debug.WorkerProfiler",

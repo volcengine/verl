@@ -45,8 +45,6 @@ export ip_head
 echo "IP Head: $ip_head"
 
 # make sure we set environment variables before Ray initialization
-# This environment variable is no longer needed for vLLM 0.7.0+:
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 
 printenv
 

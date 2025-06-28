@@ -1,6 +1,5 @@
 set -x
 
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation overlapping
 
 rollout_mode="sync"

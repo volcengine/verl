@@ -100,13 +100,7 @@ Solution 2nd:
 Illegal memory access
 ---------------------------------
 
-If you encounter the error message like ``CUDA error: an illegal memory access was encountered`` during rollout, please set the following environment variable. The env var must be set before the ``ray start`` command if any.
-
-.. code:: bash
-
-    export VLLM_ATTENTION_BACKEND=XFORMERS
-
-If in doubt, print this env var in each rank to make sure it is properly set.
+If you encounter the error message like ``CUDA error: an illegal memory access was encountered`` during rollout, please check the vLLM documentation for troubleshooting steps specific to your vLLM version.
 
 Checkpoints
 ------------------------

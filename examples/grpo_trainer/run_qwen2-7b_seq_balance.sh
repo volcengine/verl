@@ -1,6 +1,5 @@
 set -x
 
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 
 # For async rollout mode, dataset should return raw chat.
 rollout_mode="async"

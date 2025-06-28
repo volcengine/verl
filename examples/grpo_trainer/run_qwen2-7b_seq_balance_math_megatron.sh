@@ -1,6 +1,5 @@
 set -x
 
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation overlapping
 
 gsm8k_train_path=$HOME/data/gsm8k/train.parquet

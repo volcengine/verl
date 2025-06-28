@@ -7,8 +7,6 @@ export WANDB_EXP=3b-${NOW}
 MODEL_PATH=Qwen/Qwen2.5-3B-Instruct
 
 set -x
-export VLLM_ATTENTION_BACKEND=XFORMERS
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 nproc_per_gpu=62
 nnodes=1
 ngpu_per_node=1

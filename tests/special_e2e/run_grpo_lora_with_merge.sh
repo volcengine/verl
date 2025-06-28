@@ -14,7 +14,6 @@ else
     echo "Model directory ${MODEL_PATH} already exists, skip downloading."
 fi
 
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 
 BATCH_SIZE=16
 EXP_NAME="qwen2.5_0.5b_grpo_lora"

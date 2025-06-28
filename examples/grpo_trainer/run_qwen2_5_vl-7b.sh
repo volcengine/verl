@@ -1,6 +1,5 @@
 set -x
 ENGINE=${1:-vllm}
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
