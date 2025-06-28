@@ -1,7 +1,7 @@
 Single Controller interface
 ============================
 
-  Last updated on 05/27/2025 (API docstrings are auto-generated).
+Last updated: 05/27/2025 (API docstrings are auto-generated).
 
 The Single Controller provides a unified interface for managing distributed workers
 using Ray or other backends and executing functions across them.

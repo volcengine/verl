@@ -1,7 +1,7 @@
 Implement Reward Function for Dataset
 ======================================
 
-  Last updated on 06/02/2025.
+Last updated: 06/02/2025.
 
 For each dataset, we need to implement a reward function or utilize a reward model to compute the rewards for the generated responses.
 We already pre-implemented some reward functions in `reward_score directory <https://github.com/volcengine/verl/blob/main/verl/utils/reward_score>`_.

@@ -2,7 +2,7 @@
 Search Tool Integration
 =======================
 
-  Last updated on 05/30/2025.
+Last updated: 05/30/2025.
 
 Introduction
 ------------

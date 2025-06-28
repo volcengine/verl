@@ -1,7 +1,7 @@
 Extend to other RL(HF) algorithms
 =================================
 
-  Last updated on 02/25/2025.
+Last updated: 02/25/2025.
 
 We already implemented the complete training pipeline of the PPO
 algorithms. To extend to other algorithms, we analyze the high-level

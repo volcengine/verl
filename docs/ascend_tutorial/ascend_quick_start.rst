@@ -1,7 +1,7 @@
 verl x Ascend
 ===================================
 
-  Last updated on 06/17/2025.
+Last updated: 06/17/2025.
 
 我们在 verl 上增加对华为昇腾设备的支持。
 

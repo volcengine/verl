@@ -1,7 +1,7 @@
 Trainer Interface
 ================================
 
-  Last updated on 06/08/2025 (API docstrings are auto-generated).
+Last updated: 06/08/2025 (API docstrings are auto-generated).
 
 Trainers drive the training loop. Introducing new trainer classes in case of new training paradiam is encouraged.
 

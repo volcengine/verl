@@ -1,6 +1,6 @@
 # Recipe: Entropy Mechanism
 
-> Last updated on 06/27/2025.
+Last updated: 06/27/2025.
 
 
 <div align="center">

@@ -1,7 +1,7 @@
 Performance Tuning Guide
 ==============================
 
-  Last updated on 06/23/2025.
+Last updated: 06/23/2025.
 
 Author: `Guangming Sheng <https://github.com/PeterSH6>`_
 

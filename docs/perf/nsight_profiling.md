@@ -1,6 +1,6 @@
 # NVIDIA Nsight Systems profiling in verl
 
-> Last updated on 06/20/2025.
+Last updated: 06/20/2025.
 
 This guide explains how to use NVIDIA Nsight Systems for profiling verl training runs.
 

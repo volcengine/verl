@@ -1,6 +1,6 @@
 # Algorithm Baselines
 
-> Last updated on 06/18/2025.
+Last updated: 06/18/2025.
 
 ## Math related datasets
 

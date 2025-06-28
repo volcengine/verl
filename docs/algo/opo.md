@@ -1,6 +1,6 @@
 # On-Policy RL with Optimal Reward Baseline (OPO)
 
-> Last updated on 06/02/2025.
+Last updated: 06/02/2025.
 
 Loose on-policy constraints and suboptimal baselines in reinforcement learning often lead to training instability such as large policy shifts and entropy collapse. OPO addresses these challenges by using exact on-policy training with the theretically optimal reward baseline for advantage estimation. It achieves lower policy shifts and higher output entropy, encouraging more diverse and less repetitive responses.
 

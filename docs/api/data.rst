@@ -1,7 +1,7 @@
 Data interface
 =========================
 
-  Last updated on 05/19/2025 (API docstrings are auto-generated).
+Last updated: 05/19/2025 (API docstrings are auto-generated).
 
 DataProto is the interface for data exchange.
 

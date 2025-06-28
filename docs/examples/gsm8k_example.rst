@@ -1,7 +1,7 @@
 GSM8K Example
 =============
 
-  Last updated on 03/25/2025.
+Last updated: 03/25/2025.
 
 Introduction
 ------------

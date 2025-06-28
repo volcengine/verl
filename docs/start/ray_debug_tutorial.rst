@@ -1,7 +1,7 @@
 Ray Debug Tutorial
 ==================
 
-  Last updated on 04/23/2025
+Last updated: 04/23/2025
 
 
 .. _wuxibin89: https://github.com/wuxibin89

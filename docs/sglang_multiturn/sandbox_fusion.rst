@@ -2,7 +2,7 @@
 Sandbox Fusion Tool Integration
 ===============================
 
-  Last updated on 06/10/2025.
+Last updated: 06/10/2025.
 
 Motivations
 ===========

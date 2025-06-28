@@ -1,7 +1,7 @@
 Multinode Training
 ==================
 
-  Last updated on 06/10/2025.
+Last updated: 06/10/2025.
 
 .. _wuxibin89: https://github.com/wuxibin89
 

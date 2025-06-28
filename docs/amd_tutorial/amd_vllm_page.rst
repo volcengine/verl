@@ -1,7 +1,7 @@
 verl performance tuning for AMD (ROCm Kernel)
 =====================================================
 
-  Last updated on 04/25/2025.
+Last updated: 04/25/2025.
 
 Author: `Yang Wang <https://github.com/YangWang92/>`_
 

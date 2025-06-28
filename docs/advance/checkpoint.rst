@@ -1,7 +1,7 @@
 Using Checkpoints to Support Fault Tolerance Training
 =====================================================
 
-  Last updated on 06/25/2025.
+Last updated: 06/25/2025.
 
 There could be training errors or machine failure during the whole RLHF training process, 
 so it is recommended to enable checkpoints to minimize your loss.

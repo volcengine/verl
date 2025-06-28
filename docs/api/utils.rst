@@ -1,7 +1,7 @@
 Utilities
 ============
 
-  Last updated on 05/19/2025 (API docstrings are auto-generated).
+Last updated: 05/19/2025 (API docstrings are auto-generated).
 
 This section documents the utility functions and classes in the VERL library.
 

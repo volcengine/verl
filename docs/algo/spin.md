@@ -1,6 +1,6 @@
 # Recipe: Self-Play Fine-Tuning (SPIN)
 
-> Last updated on 05/31/2025.
+Last updated: 05/31/2025.
 
 `verl` provides a recipe inspired by the paper **"Self-Play Fine-Tuning Converts Weak Language Models to Strong Language Models"** (SPIN). SPIN is a language model finetuning algorithm that enables iterative self-improvement through a self-play mechanism inspired by game theory.
 

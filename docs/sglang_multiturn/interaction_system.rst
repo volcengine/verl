@@ -1,7 +1,7 @@
 Interaction System for Multi-turn RL Training
 =============================================
 
-  Last updated on 06/25/2025.
+Last updated: 06/25/2025.
 
 Overview
 --------

@@ -1,6 +1,6 @@
 # Recipe: Decoupled Clip and Dynamic Sampling Policy Optimization (DAPO)
 
-> Last updated on 06/19/2025.
+Last updated: 06/19/2025.
 
 > Open-Source Algorithm Implementation & Expriement Running: [Yuxuan Tong](https://tongyx361.github.io/), [Guangming Sheng](https://hk.linkedin.com/in/guangming-sheng-b50640211)
 

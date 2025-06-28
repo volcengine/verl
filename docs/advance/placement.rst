@@ -1,7 +1,7 @@
 Ray API Design Tutorial
 =======================================
 
-  Last updated on 10/30/2024.
+Last updated: 10/30/2024.
 
 We provide a tutorial for our Ray API design, including:
 
