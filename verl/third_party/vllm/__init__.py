@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from importlib.metadata import PackageNotFoundError, version
+from packaging.version import Version
 
 from packaging import version as vs
 
