@@ -37,7 +37,7 @@ docker/Dockerfile.rocm
     # Install vllm
     RUN pip uninstall -y vllm && \
         rm -rf vllm && \
-        git clone -b v0.6.3 https://github.com/vllm-project/vllm.git && \
+        git clone -b v0.7.3 https://github.com/vllm-project/vllm.git && \
         cd vllm && \
         MAX_JOBS=$(nproc) python3 setup.py install && \
         cd .. && \
@@ -405,8 +405,6 @@ slurm_script.sh
     echo "IP Head: $ip_head"
 
     # make sure we set environment variables before Ray initialization
-    # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
-    # export VLLM_ATTENTION_BACKEND=XFORMERS
 
     # Print out all env variables
     printenv

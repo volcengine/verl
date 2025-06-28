@@ -8,7 +8,6 @@ MODEL_PATH=Qwen/Qwen2.5-14B-Instruct
 
 set -x
 export VLLM_ATTENTION_BACKEND=XFORMERS
-# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 nproc_per_gpu=58 # 32√ → 64× → 48√ → 56√ → 60× → 58√ → 59×
 nnodes=1

@@ -27,7 +27,7 @@ For users who pursue better scalability, we recommend using **Megatron-LM** back
 
 2. Inference:
 
-For inference, vllm 0.6.3 and 0.8.2 have been tested for stability. Avoid using vllm 0.7x due to reported issues with its functionality.
+For inference, vllm 0.8.2 and later versions have been tested for stability. We recommend using vLLM 0.7.0+ for optimal performance.
 
 For SGLang, refer to the :doc:`SGLang Backend<../workers/sglang_worker>` for detailed installation and usage instructions. **SGLang offers better throughput and is under extensive development.** We encourage users to report any issues or provide feedback via the `SGLang Issue Tracker <https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/issues/106>`_.
 
@@ -239,7 +239,7 @@ Find the docker for AMD ROCm: `docker/Dockerfile.rocm <https://github.com/volcen
     # Install vllm
     RUN pip uninstall -y vllm && \
         rm -rf vllm && \
-        git clone -b v0.6.3 https://github.com/vllm-project/vllm.git && \
+        git clone -b v0.8.2 https://github.com/vllm-project/vllm.git && \
         cd vllm && \
         MAX_JOBS=$(nproc) python3 setup.py install && \
         cd .. && \

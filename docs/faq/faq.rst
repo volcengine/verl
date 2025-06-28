@@ -42,7 +42,7 @@ manager available on your cluster or use other container runtimes (e.g. through 
 
 .. code:: bash
 
-    apptainer pull /your/dest/dir/vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3.sif docker://verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3
+    apptainer pull /your/dest/dir/vemlp-th2.4.0-cu124-vllm0.7.3-ray2.10-te1.7-v0.0.3.sif docker://verlai/verl:vemlp-th2.4.0-cu124-vllm0.7.3-ray2.10-te1.7-v0.0.3
 
 2. Follow :doc:`GSM8K example<../examples/gsm8k_example>` to prepare the dataset and model checkpoints.
 
@@ -100,8 +100,7 @@ Solution 2nd:
 Illegal memory access
 ---------------------------------
 
-If you encounter the error message like ``CUDA error: an illegal memory access was encountered`` during rollout, most likely it is due to a known issue from vllm(<=0.6.3).
-Please set the following environment variable. The env var must be set before the ``ray start`` command if any.
+If you encounter the error message like ``CUDA error: an illegal memory access was encountered`` during rollout, please set the following environment variable. The env var must be set before the ``ray start`` command if any.
 
 .. code:: bash
 

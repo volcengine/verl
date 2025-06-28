@@ -40,7 +40,7 @@ actor_rollout_ref.rollout.free_cache_engine=False \
 and also **remove** the environment variable if it exists:
 
 ```bash
-# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
+# This environment variable is no longer needed for vLLM 0.8+:
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 ```
 

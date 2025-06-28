@@ -39,10 +39,5 @@ if "ROCM_PATH" in os.environ:
         raise ValueError(f"Warning: Could not parse version format: {vllm_package_version}")
 ###
 
-if Version(vllm_package_version) <= Version("0.6.3"):
-    vllm_mode = "customized"
-    from .fire_vllm_rollout import FIREvLLMRollout  # noqa: F401
-    from .vllm_rollout import vLLMRollout  # noqa: F401
-else:
-    vllm_mode = "spmd"
-    from .vllm_rollout_spmd import vLLMAsyncRollout, vLLMRollout  # noqa: F401
+vllm_mode = "spmd"
+from .vllm_rollout_spmd import vLLMAsyncRollout, vLLMRollout  # noqa: F401

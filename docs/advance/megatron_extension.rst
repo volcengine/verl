@@ -41,4 +41,4 @@ To support other model, users are required to implement:
    partitioned during runtime. So, it's advisable to map the model name
    in actor model implementation. Otherwise, you may need an additional
    name mapping and even weight transformation. The weight loader implementation
-   is in `megatron_weight_loaders.py <https://github.com/volcengine/verl/blob/main/verl/third_party/vllm/vllm_v_0_6_3/megatron_weight_loaders.py>`_.
+   is in the vLLM integration modules.
