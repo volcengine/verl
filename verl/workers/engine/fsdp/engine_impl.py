@@ -419,9 +419,7 @@ class FSDPEngine(object):
     def forward_backward_step(self, 
                               data, 
                               ctx=None, 
-                              forward_only=False, 
-                              preprocess_fn=None, 
-                              postprocess_fn=None):
+                              forward_only=False):
         """
         Perform forward (and backward if training) pass using the FSDP-wrapped module.
 
@@ -445,8 +443,7 @@ class FSDPEngine(object):
         elif self.mode == "eval":
             assert forward_only ==True
 
-        with self.ulysses_sharding_manager:
-            data = self.ulysses_sharding_manager.preprocess_data(data=data)
+        if forward_only:
             micro_batch_size = data.meta_info["micro_batch_size"]
             select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
             batch = data.select(batch_keys=select_keys).batch
@@ -485,45 +482,45 @@ class FSDPEngine(object):
             response_length = responses.size(1)
             response_mask = attention_mask[:, -response_length:]
             values = values * response_mask # Only action tokens have values
-    
             output = DataProto.from_dict(tensors={"values": values})
-            output = self.ulysses_sharding_manager.postprocess_data(data=output)
-            output = DataProto.from_dict(tensors={"values": values})
-            output = self.ulysses_sharding_manager.postprocess_data(data=output)
-
-        output = output.to("cpu")
-        if forward_only:
             return output, ctx
-        raise ValueError
+        else:
+            # split batch into micro_batches
+            mini_batch = data
+            if  "multi_modal_inputs" in mini_batch:
+                num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
+                micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
+                ctx["gradient_accumulation"] = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+            elif self.config.use_dynamic_bsz:
+                max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
+                micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
+            else:
+                micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
+                ctx["gradient_accumulation"] = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
 
+            vpreds_list = []
+            losses = []
+            for micro_batch in micro_batches:
+                # Support all devices
+                if isinstance(micro_batch, DataProto):
+                    micro_batch = {**micro_batch.batch.to(get_torch_device().current_device()), **micro_batch.non_tensor_batch}
+                else:
+                    micro_batch = micro_batch.to(get_torch_device().current_device())  # critic device is cpu when using offload
+                responses = micro_batch["responses"]
+                attention_mask = micro_batch["attention_mask"]
+                values = micro_batch["values"]
+                returns = micro_batch["returns"]
+                response_length = responses.size(1)
 
+                response_mask = attention_mask[:, -response_length:]
+                vpreds = self._forward_micro_batch(micro_batch)
+                loss, ctx = self.loss_fn(micro_batch, vpreds, ctx)
+                loss.backward()
 
+                vpreds_list.append(vpreds)
+                losses.append(loss)
+            return vpreds_list, losses, ctx
 
-        # # optional microbatch preprocess
-        # if preprocess_fn is not None:
-        #     inputs, ctx = preprocess_fn(batch, ctx)
-        # else:
-        #     inputs = batch
-
-        # # forward execution
-        # inputs["use_cache"] = False
-        # outputs = self.module(**inputs)
-
-        # # optional microbatch postprocess
-        # if postprocess_fn is not None:
-        #     preds, ctx = postprocess_fn(outputs, ctx)
-        # else:
-        #     preds = outputs
-
-        # if forward_only:
-        #     return preds, ctx
-
-        raise ValueError
-        # loss function
-        loss, ctx = self.loss_fn(batch, preds, ctx)
-        # backward
-        loss.backward()
-        return preds, loss, ctx
 
 
     def optimizer_zero_grad(self):
