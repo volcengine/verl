@@ -78,6 +78,7 @@ if __name__ == "__main__":
                     "answer": answer_raw,
                     "question": question_raw,
                     "interaction_kwargs": {
+                        "name": "gsm8k",
                         "query": question,
                         "ground_truth": solution,
                     },

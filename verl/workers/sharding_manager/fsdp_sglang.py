@@ -97,6 +97,8 @@ class FSDPSGLangShardingManager(BaseShardingManager):
     def __enter__(self):
         self.timing = {}
         with simple_timer("reshard", self.timing):
+            get_torch_device().empty_cache()
+
             loop = asyncio.get_event_loop()
 
             if self.device_mesh["infer_tp"].get_local_rank() == 0:

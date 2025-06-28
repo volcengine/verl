@@ -55,6 +55,7 @@ from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast, Processor
 
 from verl import DataProto
 from verl.interactions.base import BaseInteraction
+from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
 from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.tools.base_tool import BaseTool
 from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
@@ -282,7 +283,7 @@ class SGLangRollout(BaseRollout):
             self._sgl_tools,
             self._function_call_parser,
         ) = self._initialize_tools(config, processing_class)
-        self.interaction: dict[str, BaseInteraction] = self._intitalize_interaction(config)
+        self.interaction_map: dict[str, BaseInteraction] = self._initialize_interactions(config)
         # If turn on `free_cache_engine`, SGLang engine's KV cache
         # will be freed after each `generate_sequences` call.
         assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
@@ -411,6 +412,9 @@ class SGLangRollout(BaseRollout):
                 # log_requests_level=2,
                 # max_running_requests=1,
                 mm_attention_backend="fa3",
+                attention_backend="fa3",
+                # In async mode, we want token in token out.
+                skip_tokenizer_init=self.config.mode == "async",
             )
         else:
             self._engine = None
@@ -480,30 +484,20 @@ class SGLangRollout(BaseRollout):
             function_call_parser,
         )
 
-    def _intitalize_interaction(self, config):
-        import importlib.util
-        import sys
+    def _initialize_interactions(self, config):
+        """Initialize interactions from configuration.
 
-        from omegaconf import OmegaConf
-
+        Returns:
+            dict[str, BaseInteraction]: A dictionary mapping interaction names to interaction instances.
+        """
         if config.multi_turn.interaction_config_path is None:
-            return None
+            return {}
+
         interaction_config_file = config.multi_turn.interaction_config_path
-        interaction_config = OmegaConf.load(interaction_config_file).interaction[0]
-        cls_name = interaction_config.class_name
-        module_name, class_name = cls_name.rsplit(".", 1)
-        if module_name not in sys.modules:
-            spec = importlib.util.find_spec(module_name)
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            spec.loader.exec_module(module)
-        else:
-            module = sys.modules[module_name]
+        interaction_map = initialize_interactions_from_config(interaction_config_file)
 
-        interaction_cls = getattr(module, class_name)
-
-        interaction = interaction_cls(config=OmegaConf.to_container(interaction_config.config, resolve=True))
-        return interaction
+        logger.info(f"Initialize interactions from configuration: interaction_map: {list(interaction_map.keys())}")
+        return interaction_map
 
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
@@ -863,14 +857,21 @@ class SGLangRollout(BaseRollout):
                             self.processing_class,
                             content,
                         )
-                        if _req.interaction_kwargs and user_turns < self.config.multi_turn.max_user_turns and current_turns < self.config.multi_turn.max_assistant_turns:
+                        if _req.interaction_kwargs and self.interaction_map and user_turns < self.config.multi_turn.max_user_turns and current_turns < self.config.multi_turn.max_assistant_turns:
                             _req.state = AsyncRolloutRequestStateEnum.INTERACTING
                         else:
                             break
             elif _req.state == AsyncRolloutRequestStateEnum.INTERACTING:
                 user_turns += 1
                 messages = [{"role": x.role, "content": x.content} for x in _req.messages]
-                should_terminate_sequence, content, reward, metrics = await self.interaction.generate_response(_req.request_id, messages, **_req.interaction_kwargs)
+
+                # Get interaction by name from interaction_kwargs
+                interaction_name = _req.interaction_kwargs.get("name", "gsm8k")  # Default to gsm8k for backward compatibility
+                if interaction_name not in self.interaction_map:
+                    raise ValueError(f"Interaction '{interaction_name}' not found in interaction_map. Available interactions: {list(self.interaction_map.keys())}")
+
+                interaction = self.interaction_map[interaction_name]
+                should_terminate_sequence, content, reward, metrics = await interaction.generate_response(_req.request_id, messages, **_req.interaction_kwargs)
                 user_turn_rewards.append(reward)
                 if should_terminate_sequence:
                     finish_reason_type = FinishReasonTypeEnum.STOP
@@ -906,6 +907,9 @@ class SGLangRollout(BaseRollout):
 
     async def _handle_engine_call(self, _req: AsyncRolloutRequest, sampling_params: dict, image_data: Optional[list[Any]] = None) -> dict:
         generation_prompt_ids = _req.get_generation_prompt_ids(self.processing_class)
+        return await self._handle_engine_generate(generation_prompt_ids, sampling_params, image_data)
+
+    async def _handle_engine_generate(self, generation_prompt_ids: list[int], sampling_params: dict, image_data: Optional[list[Any]] = None) -> dict:
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
         kwargs = sampling_params.copy()
         kwargs["max_new_tokens"] = max_new_tokens
@@ -926,9 +930,15 @@ class SGLangRollout(BaseRollout):
                 create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
                 tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
             await asyncio.gather(*tool_creation_coroutines)
-        if _req.interaction_kwargs:
+        if _req.interaction_kwargs and self.interaction_map:
             interaction_kwargs = _req.interaction_kwargs
-            await self.interaction.start_interaction(_req.request_id, **interaction_kwargs)
+            # Get interaction by name from interaction_kwargs
+            interaction_name = interaction_kwargs.get("name", "gsm8k")  # Default to gsm8k for backward compatibility
+            if interaction_name not in self.interaction_map:
+                raise ValueError(f"Interaction '{interaction_name}' not found in interaction_map. Available interactions: {list(self.interaction_map.keys())}")
+
+            interaction = self.interaction_map[interaction_name]
+            await interaction.start_interaction(_req.request_id, **interaction_kwargs)
 
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
@@ -1093,7 +1103,7 @@ class SGLangRollout(BaseRollout):
                     _tools_kwargs = {}
                     _tool_schemas = None
 
-                if self.interaction is not None:
+                if self.interaction_map:
                     _interaction_kwargs = prompts.non_tensor_batch["interaction_kwargs"][data_idx]
                 else:
                     _interaction_kwargs = {}
@@ -1204,6 +1214,12 @@ class SGLangRollout(BaseRollout):
         }
 
         # this function is left for uniform train-inference resharding
+
+    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
+        request_sampling_params = self.sampling_params.copy()
+        request_sampling_params.update(sampling_params)
+        output = await self._handle_engine_generate(prompt_ids, request_sampling_params)
+        return output["output_ids"]
 
     async def wake_up(self):
         if not self.is_sleep:
