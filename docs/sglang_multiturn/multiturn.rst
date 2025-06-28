@@ -41,6 +41,7 @@ Finally, set the ``tools_config_file`` in your rollout config:
 This allows integration of customized tool behaviors during actor rollout steps. 
 
 If you want rollout with simulated interaction, you can set the ``interaction_config_file`` in your rollout config:
+
 .. code-block:: yaml
 
     interaction:
@@ -251,3 +252,7 @@ Search Tool Integration
    :maxdepth: 1
 
    search_tool_example
+
+Code Walkthrough
+~~~~~~~~~~~~~~~~~~~~~~~
+If you want to learn more in depth about the code execution flow, please read https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/tree/main/rlhf/verl/multi-turn/code-walk-through
