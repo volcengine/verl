@@ -39,7 +39,7 @@ vllm & vllm-ascend
 .. code-block:: bash
     
     # vllm
-    git clone -b v0.6.3 --depth 1 https://github.com/vllm-project/vllm.git
+    git clone -b v0.7.3 --depth 1 https://github.com/vllm-project/vllm.git
     cd vllm
     pip install -r requirements-build.txt
 
@@ -109,6 +109,7 @@ vllm & vllm-ascend
 
     set -x
 
+    export VLLM_ATTENTION_BACKEND=XFORMERS
 
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=grpo \
