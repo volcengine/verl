@@ -523,6 +523,9 @@ Trainer
      remove_previous_ckpt_in_save: False
      del_local_ckpt_after_load: False
      ray_wait_register_center_timeout: 300
+     save_after_epochs: -1
+     save_best_val_metric: None
+
 
 - ``trainer.total_epochs``: Number of epochs in training.
 - ``trainer.project_name``: For wandb, swanlab, mlflow
@@ -550,6 +553,10 @@ Trainer
   checkpoints after loading them. Default is False.
 - ``trainer.ray_wait_register_center_timeout``: The timeout for waiting
   for the ray register center to be ready. Default is 300 seconds.
+- ``trainer.save_after_epochs``: The frequency (by epoch) to save
+  checkpoint of the actor and critic model. Default is -1, which means not saving after epochs.
+- ``trainer.save_best_val_metric``: The metric to save the best validation
+    checkpoint. If set to None, the program will not save the best validation checkpoint.
 
 
 This figure illustrates how the configurations affect the training.
