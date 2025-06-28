@@ -48,7 +48,9 @@ The first two types of images are hosted on dockerhub `verlai/verl <https://hub.
 Base Image
 ::::::::::
 
-The latest base image is ``verlai/verl:base-v4-cu126-cudnn9.8-torch2.7.1-fa2.8.0-te2.3-fi0.2.6``. The installed package versions can be found from tags, and the Dockerfile can be found in ``docker/v[version]-[packages]/Dockerfile.base``.
+The stable base image is ``verlai/verl:base-v1-cu124-cudnn9.8-torch2.6-fa2.7.4-te2.3``. The installed package versions can be found from tags, and the Dockerfile can be found in ``docker/v[version]-[packages]/Dockerfile.base``.
+
+The latest base image is ``verlai/verl:base-v2-cu126-cudnn9.8-torch2.7.1-fa2.8.0-te2.3-fi0.2.6``.
 
 The update of base image is not frequent, and the app image can be built on top of it without reinstalling base packages.
 
@@ -63,8 +65,8 @@ There are four types of application images available:
 - **vLLM with FSDP and Megatron**: ``verlai/verl:app-vllm0.8.5-mcore0.12.1-basev1``
 - **SGLang with FSDP**: ``verlai/verl:app-sglang0.4.6.post5-basev1``
 - **SGLang with FSDP and Megatron**: ``verlai/verl:app-sglang0.4.6.post5-mcore0.12.1-basev1``
-- **Preview version of SGLang with FSDP**: ``verlai/verl:app-sglang0.4.8-basev4``
-- **Preview version of SGLang with FSDP and Megatron**: ``verlai/verl:app-sglang0.4.8-mcore0.12.1-basev4``
+- **Preview version of SGLang with FSDP**: ``verlai/verl:app-sglang0.4.8-basev2``
+- **Preview version of SGLang with FSDP and Megatron**: ``verlai/verl:app-sglang0.4.8-mcore0.12.1-basev2``
 
 Notice that currently verl does not support latest vLLM 0.9.0 and latest base image requires new version of vLLM, so vLLM with newer base image can not work with verl.
 
