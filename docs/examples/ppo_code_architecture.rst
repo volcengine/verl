@@ -1,6 +1,8 @@
 PPO Example Architecture
 ========================
 
+  Last updated on 02/17/2025.
+
 Let's start with the Proximal Policy Optimization algorithm, which is
 most widely used algorithm in LLM post-training.
 

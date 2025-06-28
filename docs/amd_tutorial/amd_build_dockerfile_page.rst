@@ -1,6 +1,8 @@
 Getting started with AMD (ROCM Kernel)
 =====================================================
 
+  Last updated on 06/02/2025.
+
 Author: `Yusheng Su <https://yushengsu-thu.github.io/>`_
 
 Setup
