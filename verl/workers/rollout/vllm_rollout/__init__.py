@@ -14,6 +14,8 @@
 import os
 from importlib.metadata import PackageNotFoundError, version
 
+from .vllm_rollout_spmd import vLLMAsyncRollout, vLLMRollout  # noqa: F401
+
 
 def get_version(pkg):
     try:
@@ -35,8 +37,5 @@ if "ROCM_PATH" in os.environ:
         vllm_package_version = match.group(1)
     else:
         raise ValueError(f"Warning: Could not parse version format: {vllm_package_version}")
-###
-
-from .vllm_rollout_spmd import vLLMAsyncRollout, vLLMRollout  # noqa: F401
 
 vllm_mode = "spmd"
