@@ -122,7 +122,7 @@ The checkpoint is saved at the following dir by default: ``checkpoints/${trainer
 
 .. code-block:: bash
 
-    python -m verl.model_merger merge \
+    python3 -m verl.model_merger merge \
         --backend fsdp \
         --local_dir checkpoints/${trainer.project_name}/${trainer.experiment_name}/global_step_1/actor \
         --target_dir checkpoints/${trainer.project_name}/${trainer.experiment_name}/global_step_1/actor/huggingface
