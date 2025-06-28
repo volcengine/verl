@@ -239,7 +239,7 @@ Find the docker for AMD ROCm: `docker/Dockerfile.rocm <https://github.com/volcen
     # Install vllm
     RUN pip uninstall -y vllm && \
         rm -rf vllm && \
-        git clone -b v0.8.2 https://github.com/vllm-project/vllm.git && \
+        git clone -b v0.6.3 https://github.com/vllm-project/vllm.git && \
         cd vllm && \
         MAX_JOBS=$(nproc) python3 setup.py install && \
         cd .. && \

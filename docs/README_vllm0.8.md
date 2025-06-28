@@ -39,11 +39,6 @@ actor_rollout_ref.rollout.free_cache_engine=False \
 
 and also **remove** the environment variable if it exists:
 
-```bash
-# This environment variable is no longer needed for vLLM 0.8+:
-# export VLLM_ATTENTION_BACKEND=XFORMERS
-```
-
 ## Notes
 
 When you just directly upgrade vllm>=0.8, some dependency packages may undergo version changes. If you encounter the following problems:

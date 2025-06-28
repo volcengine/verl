@@ -7,7 +7,7 @@ export WANDB_EXP=72b-${NOW}
 MODEL_PATH=Qwen/Qwen2.5-72B-Instruct
 
 set -x
-nproc_per_gpu=22nproc_per_gpu=22 # 16√ → 32× → 24× → 20√ → 22√ → 23×
+nproc_per_gpu=22 # 16√ → 32× → 24× → 20√ → 22√ → 23×
 nnodes=1
 ngpu_per_node=8
 total_procs=$(( nproc_per_gpu * nnodes * ngpu_per_node ))

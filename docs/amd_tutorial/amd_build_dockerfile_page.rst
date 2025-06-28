@@ -37,7 +37,7 @@ docker/Dockerfile.rocm
     # Install vllm
     RUN pip uninstall -y vllm && \
         rm -rf vllm && \
-        git clone -b v0.7.3 https://github.com/vllm-project/vllm.git && \
+        git clone -b v0.6.3 https://github.com/vllm-project/vllm.git && \
         cd vllm && \
         MAX_JOBS=$(nproc) python3 setup.py install && \
         cd .. && \
