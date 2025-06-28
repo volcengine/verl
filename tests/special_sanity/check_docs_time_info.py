@@ -53,7 +53,7 @@ def main():
     if not DOCS_DIR.exists():
         print(f"Error: Documentation directory '{DOCS_DIR}' does not exist.", file=sys.stderr)
         sys.exit(1)
-    
+
     missing = []
 
     # Gather all .md and .rst files under docs/
