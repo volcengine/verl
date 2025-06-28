@@ -24,8 +24,8 @@ from pathlib import Path
 
 # Relative paths (to docs/) or glob patterns to skip checking
 ALLOW_LIST = {
-    "docs/README.md",         # you can list individual files
-    "docs/legacy/*.rst",      # or glob patterns
+    "docs/README.md",  # you can list individual files
+    "docs/legacy/*.rst",  # or glob patterns
     "docs/index.rst",
     "docs/start/install.rst",
     "docs/start/quickstart.rst",
@@ -37,6 +37,7 @@ DOCS_DIR = Path("docs")
 
 # === SCRIPT ===
 
+
 def is_allowed(path: Path) -> bool:
     """
     Return True if `path` matches any entry in ALLOW_LIST.
@@ -47,7 +48,12 @@ def is_allowed(path: Path) -> bool:
             return True
     return False
 
+
 def main():
+    if not DOCS_DIR.exists():
+        print(f"Error: Documentation directory '{DOCS_DIR}' does not exist.", file=sys.stderr)
+        sys.exit(1)
+    
     missing = []
 
     # Gather all .md and .rst files under docs/
@@ -69,6 +75,7 @@ def main():
         raise AssertionError("Some documentation files lack a 'Last updated' line. Please include info such as 'Last updated: mm/dd/yyyy' to indicate the last update time of the document.")
     else:
         print("✅ All checked files contain 'Last updated'.")
+
 
 if __name__ == "__main__":
     main()
