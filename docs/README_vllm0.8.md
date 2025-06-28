@@ -1,5 +1,7 @@
 # Upgrading to vLLM >= 0.8
 
+Last updated: 05/04/2025.
+
 ## Installation
 
 Note: This version of verl+vLLM 0.8+ supports **FSDP** for training and **vLLM** for rollout.
