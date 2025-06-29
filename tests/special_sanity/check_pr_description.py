@@ -13,25 +13,26 @@
 # limitations under the License.
 
 #!/usr/bin/env python3
-import os
 import json
+import os
+
 
 # Custom exception types for clear error handling
 class TemplateFileError(Exception):
     pass
 
+
 class PRBodyLoadError(Exception):
     pass
+
 
 class PRDescriptionError(Exception):
     pass
 
+
 # Path to the PR template file
-template_file = os.path.join(
-    os.getenv('GITHUB_WORKSPACE', '.'),
-    '.github',
-    'PULL_REQUEST_TEMPLATE.md'
-)
+template_file = os.path.join(os.getenv("GITHUB_WORKSPACE", "."), ".github", "PULL_REQUEST_TEMPLATE.md")
+
 
 def load_template(path):
     """
@@ -39,38 +40,35 @@ def load_template(path):
     """
     try:
         lines = []
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding="utf-8") as f:
             for _ in range(5):
                 line = f.readline()
                 if not line:
                     break
                 lines.append(line)
-        return ''.join(lines).strip()
+        return "".join(lines).strip()
     except Exception as e:
         raise TemplateFileError(f"Failed to read PR template (first 5 lines) at {path}: {e}") from e
 
 
 def load_pr_body(event_path):
     try:
-        with open(event_path, 'r', encoding='utf-8') as f:
+        with open(event_path, encoding="utf-8") as f:
             payload = json.load(f)
-        return payload.get('pull_request', {}).get('body', '') or ''
+        return payload.get("pull_request", {}).get("body", "") or ""
     except Exception as e:
         raise PRBodyLoadError(f"Failed to read PR body from {event_path}: {e}") from e
 
 
 def check_pr_description(body, template_snippet):
     if template_snippet in body:
-        raise PRDescriptionError(
-            "It looks like you haven't updated the '### What does this PR do?' section. "
-            "Please replace the placeholder text with a concise description of what your PR does."
-        )
+        raise PRDescriptionError("It looks like you haven't updated the '### What does this PR do?' section. Please replace the placeholder text with a concise description of what your PR does.")
 
 
 def main():
-    event_path = os.getenv('GITHUB_EVENT_PATH')
+    event_path = os.getenv("GITHUB_EVENT_PATH")
     if not event_path:
-        raise EnvironmentError("GITHUB_EVENT_PATH is not set.")
+        raise OSError("GITHUB_EVENT_PATH is not set.")
 
     template_snippet = load_template(template_file)
     pr_body = load_pr_body(event_path)
