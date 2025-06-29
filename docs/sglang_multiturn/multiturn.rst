@@ -26,10 +26,54 @@ For custom environment interaction tools, you can implement your own tools based
 
     tools:
       - class_name: ""
-        config: {}
+        config: 
+            type: native
         tool_schema:
 
 You may refer to GSM8KTool_example_configuration_, which is one example of the tool configurations. Its implementation can be found in gsm8k_tool.py_.
+
+For MCP interaction tools, specify your tool configurations in a YAML file, where mcp_servers_config_path is a json file of MCP servers and tool_selected_list (Optional) is the tools used from servers. If you want to use all tools, just remove this attribute.
+
+.. code-block:: yaml
+
+    tools:
+      - class_name: ""
+        config:
+            type: mcp
+        mcp:
+            mcp_servers_config_path: ./mcp_server.json
+            tool_selected_list:
+
+.. code-block:: json
+
+      {
+          "mcpServers": {
+              "SSE Server": {
+                  "url": "your_server_url",
+                  "auth_token": "your_server_api_token"
+              },
+              "STDIO Server": {
+                  "command": "npx",
+                  "args": ["-y", "server-mcp@0.2.1"],
+                  "env": {
+                    "SERVER_API_KEY": "your_server_api_token"
+                  }
+              }
+          }
+      }
+
+Since the content formats returned by the MCP server may vary, users can inherit from ``MCPBaseTool`` and override the ``_parse_tool_result`` method to implement custom parsing logic. 
+You may refer to mcp_search_tool.py_ and mcp_tool_config.yaml_ for custom implementation and configuration.
+
+.. code-block:: python
+
+   class MCPYourTool(MCPBaseTool):
+       def __init__(self, config: dict, tool_schema: OpenAIFunctionToolSchema):
+           super().__init__(config, tool_schema)
+
+       def _parse_tool_result(self, content: list) -> Tuple[str, dict]:
+           ...
+
 
 Finally, set the ``tools_config_file`` in your rollout config:
 
