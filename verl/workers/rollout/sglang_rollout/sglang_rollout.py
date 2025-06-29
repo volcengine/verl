@@ -949,7 +949,6 @@ class SGLangRollout(BaseRollout):
         if self._tp_rank == 0:
             req_list = self._preprocess_prompt_to_async_rollout_requests(
                 prompts,
-                n=1 if is_validate else self.config.n,
             )
             loop = asyncio.get_event_loop()
             output_req_list = loop.run_until_complete(
@@ -1076,7 +1075,7 @@ class SGLangRollout(BaseRollout):
             },
         )
 
-    def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: int) -> list[AsyncRolloutRequest]:
+    def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto) -> list[AsyncRolloutRequest]:
         assert "raw_prompt" in prompts.non_tensor_batch, "need data.return_raw_chat=True, due to no official way do parse_messages"
         req_list = []
         multi_modal_data_list = prompts.non_tensor_batch.get("multi_modal_data", [None] * len(prompts.non_tensor_batch["raw_prompt"]))
