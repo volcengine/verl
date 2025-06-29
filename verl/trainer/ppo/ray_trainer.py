@@ -958,9 +958,10 @@ class RayPPOTrainer:
                 timing_raw = {}
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
-                # pop those keys for generation
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
+
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
+
                 if "multi_modal_data" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")
                 if "raw_prompt" in batch.non_tensor_batch:
@@ -974,6 +975,14 @@ class RayPPOTrainer:
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
                 )
 
+                if self.config.actor_rollout_ref.rollout.name == "sglang":
+                    uids_for_prompts = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+                    batch.non_tensor_batch["uid"] = uids_for_prompts
+                    gen_batch.non_tensor_batch["uid"] = uids_for_prompts
+                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    assert np.array_equal(batch.non_tensor_batch["uid"], gen_batch.non_tensor_batch["uid"]), "UIDs must be identical for SGLang rollout"
+
                 is_last_step = self.global_steps >= self.total_training_steps
 
                 with marked_timer("step", timing_raw):
@@ -982,6 +991,8 @@ class RayPPOTrainer:
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
+                            # vllm should set async_rollout_mode to enable async rollout
+                            # sglang turns on async_rollout_mode by default
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
@@ -1002,9 +1013,11 @@ class RayPPOTrainer:
 
                             del gen_baseline_batch, gen_baseline_output
 
-                    batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
-                    # repeat to align with repeated responses in rollout
-                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    if self.config.actor_rollout_ref.rollout.name == "vllm":
+                        batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+                        # repeat to align with repeated responses in rollout
+                        batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+
                     batch = batch.union(gen_batch_output)
 
                     batch.batch["response_mask"] = compute_response_mask(batch)

@@ -19,7 +19,6 @@ import datetime
 import logging
 import os
 import time
-import warnings
 from typing import Union
 
 import torch
@@ -281,13 +280,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
-        elif self.config.rollout.name in ["sglang", "sglang_async"]:
-            if self.config.rollout.name == "sglang_async":
-                warnings.warn(
-                    "'sglang_async' has been deprecated and merged into 'sglang'. Please use 'sglang' going forward.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
+        elif self.config.rollout.name == "sglang":
             from verl.workers.rollout.sglang_rollout import SGLangRollout
 
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's model_runner would check CUDA device capability.
