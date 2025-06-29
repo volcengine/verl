@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+#!/usr/bin/env python3
 import os
 import json
 
@@ -33,11 +34,20 @@ template_file = os.path.join(
 )
 
 def load_template(path):
+    """
+    Load only the first 5 lines of the PR template file.
+    """
     try:
+        lines = []
         with open(path, 'r', encoding='utf-8') as f:
-            return f.read().strip()
+            for _ in range(5):
+                line = f.readline()
+                if not line:
+                    break
+                lines.append(line)
+        return ''.join(lines).strip()
     except Exception as e:
-        raise TemplateFileError(f"Failed to read PR template at {path}: {e}") from e
+        raise TemplateFileError(f"Failed to read PR template (first 5 lines) at {path}: {e}") from e
 
 
 def load_pr_body(event_path):
@@ -55,7 +65,6 @@ def check_pr_description(body, template_snippet):
             "It looks like you haven't updated the '### What does this PR do?' section. "
             "Please replace the placeholder text with a concise description of what your PR does."
         )
-    # If needed, additional checks could go here
 
 
 def main():
