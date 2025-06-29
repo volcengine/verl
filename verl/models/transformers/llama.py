@@ -12,9 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass
 import sys
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, Optional, Tuple
 
 import torch
 
@@ -25,7 +24,6 @@ else:
 
 from transformers.cache_utils import Cache
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
-from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 from transformers.utils import logging
 
@@ -230,65 +228,3 @@ def llama_attn_forward(
     attn_output = attn_output.reshape(bsz, q_len, -1).contiguous()
     attn_output = self.o_proj(attn_output)
     return attn_output, attn_weights
-
-
-@dataclass
-class CausalLMOutputWithoutLogits(CausalLMOutputWithPast):
-    last_hidden_state: Optional[torch.FloatTensor] = None
-
-
-def forward_without_logits(
-    self,
-    input_ids: torch.LongTensor = None,
-    attention_mask: Optional[torch.Tensor] = None,
-    position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[Union["Cache", List[torch.FloatTensor]]] = None,
-    inputs_embeds: Optional[torch.FloatTensor] = None,
-    labels: Optional[torch.LongTensor] = None,
-    use_cache: Optional[bool] = None,
-    output_attentions: Optional[bool] = None,
-    output_hidden_states: Optional[bool] = None,
-    return_dict: Optional[bool] = None,
-    cache_position: Optional[torch.LongTensor] = None,
-    logits_to_keep: Union[int, torch.Tensor] = 0,
-    **loss_kwargs,
-) -> Union[Tuple, CausalLMOutputWithoutLogits]:
-    r"""
-    Copy paste LLaMa's forward
-    https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/transformers/model/llama.py
-
-    This function should be generic enough for all pure text models.
-    ```"""
-    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-    output_hidden_states = (
-        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-    )
-    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
-    # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
-    outputs = self.model(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        position_ids=position_ids,
-        past_key_values=past_key_values,
-        inputs_embeds=inputs_embeds,
-        use_cache=use_cache,
-        output_attentions=output_attentions,
-        output_hidden_states=output_hidden_states,
-        return_dict=return_dict,
-        cache_position=cache_position,
-    )
-
-    hidden_states = outputs[0]
-
-    if labels is not None:
-        raise NotImplementedError("forward_without_logits does not support labels")
-    if not return_dict:
-        raise NotImplementedError("forward_without_logits has to return_dict")
-
-    return CausalLMOutputWithoutLogits(
-        last_hidden_state=hidden_states,
-        past_key_values=outputs.past_key_values,
-        hidden_states=outputs.hidden_states,
-        attentions=outputs.attentions,
-    )

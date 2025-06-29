@@ -1,6 +1,8 @@
 Implement Reward Function for Dataset
 ======================================
 
+Last updated: 06/02/2025.
+
 For each dataset, we need to implement a reward function or utilize a reward model to compute the rewards for the generated responses.
 We already pre-implemented some reward functions in `reward_score directory <https://github.com/volcengine/verl/blob/main/verl/utils/reward_score>`_.
 You can also use customized reward functions.
@@ -13,7 +15,7 @@ RewardManager
 -------------
 
 In the entrypoint of the PPO Post-Training script `main_ppo.py <https://github.com/volcengine/verl/blob/main/verl/trainer/main_ppo.py#L33>`_,
-we implement a ``RewardManager`` that utilze pre-implemented reward functions to compute the scores for each response.
+we implement a ``RewardManager`` that utilize pre-implemented reward functions to compute the scores for each response.
 
 In the ``RewardManager``, we implemented a ``__call__`` function to
 compute the score for each response. 

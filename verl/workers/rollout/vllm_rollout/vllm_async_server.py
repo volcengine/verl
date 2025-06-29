@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
-from collections.abc import AsyncGenerator
+import os
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import cloudpickle
@@ -26,6 +26,8 @@ from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ErrorResponse
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from vllm.entrypoints.openai.serving_models import BaseModelPath, OpenAIServingModels
+from vllm.inputs import TokensPrompt
+from vllm.outputs import RequestOutput
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.executor.abstract import Executor
 from vllm.worker.worker_base import WorkerWrapperBase
@@ -66,7 +68,7 @@ class ExternalRayDistributedExecutor(Executor):
         actor_names = sorted(actor_names, key=get_pg_index_and_local_rank)
         actor_names = actor_names[vllm_dp_rank * vllm_tp_size : (vllm_dp_rank + 1) * vllm_tp_size]
         self.workers: List[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
-        print(f"instance_id: {self.vllm_config.instance_id} intializes with external actors: {actor_names}")
+        print(f"instance_id: {self.vllm_config.instance_id} initializes with external actors: {actor_names}")
 
         kwargs = dict(
             vllm_config=self.vllm_config,
@@ -78,7 +80,7 @@ class ExternalRayDistributedExecutor(Executor):
         self.collective_rpc("init_worker", args=([kwargs],))
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
-        print(f"instance_id: {self.vllm_config.instance_id} intializes finished.")
+        print(f"instance_id: {self.vllm_config.instance_id} initializes finished.")
 
     def collective_rpc(
         self,
@@ -122,14 +124,14 @@ class AsyncvLLMServer(AsyncServerBase):
     def __init__(self, config: DictConfig, vllm_dp_size: int, vllm_dp_rank: int, wg_prefix: str):
         """
         Args:
-            config: DictConfig, actor_rollout_ref config.
+            config: DictConfig.
             vllm_dp_size: int, vllm data parallel size.
             vllm_dp_rank: int, vllm data parallel rank.
             wg_prefix: str, worker group prefix, used to lookup actors.
         """
         super().__init__()
 
-        self.config = config
+        self.config = config.actor_rollout_ref
         self.vllm_dp_size = vllm_dp_size
         self.vllm_dp_rank = vllm_dp_rank
         self.wg_prefix = wg_prefix
@@ -147,14 +149,15 @@ class AsyncvLLMServer(AsyncServerBase):
         tensor_parallel_size = config.get("tensor_model_parallel_size", 1)
         max_num_batched_tokens = config.get("max_num_batched_tokens", 8192)
         max_model_len = config.max_model_len if config.max_model_len else config.prompt_length + config.response_length
-        max_model_len = int(max_model_len)
+        self.max_model_len = int(max_model_len)
 
         # Override default generation config from hugging face model config,
         # user can still override them by passing kwargs in each request.
         kwargs = dict(
             n=1,
             logprobs=0,
-            max_tokens=config.response_length,
+            repetition_penalty=1.0,
+            max_new_tokens=config.response_length,
         )
         for k in config.keys():
             if hasattr(SamplingParams(), str(k)):
@@ -166,21 +169,20 @@ class AsyncvLLMServer(AsyncServerBase):
             enable_sleep_mode=True,
             override_generation_config=kwargs,
             tensor_parallel_size=tensor_parallel_size,
-            distributed_executor_backend=ExternalRayDistributedExecutor,
+            distributed_executor_backend=ExternalRayDistributedExecutor if os.environ.get("VERL_VLLM_USE_RAY_BACKEND", "1") == "1" else None,
             dtype=config.dtype,
             enforce_eager=config.enforce_eager,
             gpu_memory_utilization=config.gpu_memory_utilization,
             disable_custom_all_reduce=True,
-            disable_mm_preprocessor_cache=True,
             skip_tokenizer_init=False,
-            max_model_len=max_model_len,
+            max_model_len=self.max_model_len,
             load_format="auto",
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
             enable_prefix_caching=True,
             trust_remote_code=trust_remote_code,
-            seed=self.vllm_dp_rank,
+            seed=config.get("seed", 0),
         )
 
         # init async llm engine
@@ -201,6 +203,8 @@ class AsyncvLLMServer(AsyncServerBase):
             request_logger=RequestLogger(max_log_len=4096),
             chat_template=None,
             chat_template_content_format="auto",
+            enable_auto_tools=config.multi_turn.tool_config_path is not None,
+            tool_parser=config.multi_turn.format,  # hermes, llama3_json, ...
         )
 
     async def chat_completion(self, raw_request: Request):
@@ -220,27 +224,19 @@ class AsyncvLLMServer(AsyncServerBase):
             assert isinstance(generator, ChatCompletionResponse)
             return JSONResponse(content=generator.model_dump())
 
-    async def chat_completion_generator(self, request: ChatCompletionRequest) -> AsyncGenerator[Tuple[int, str]]:
-        """Direct chat completion without FastAPI.
+    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+        max_tokens = self.max_model_len - len(prompt_ids)
+        sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
+        prompt = TokensPrompt(prompt_token_ids=prompt_ids)
+        generator = self.engine.generate(prompt=prompt, sampling_params=sampling_params, request_id=request_id)
 
-        Args:
-            request: ChatCompletionRequest, request object.
+        # Get final response
+        final_res: Optional[RequestOutput] = None
+        async for output in generator:
+            final_res = output
+        assert final_res is not None
 
-        Returns:
-            AsyncGenerator[Tuple[int, str]]: async generator of (status_code, data) pairs.
-        """
-        generator = await self.openai_serving_chat.create_chat_completion(request)
-        if isinstance(generator, ErrorResponse):
-            data = generator.model_dump_json(exclude_unset=True)
-            yield generator.code, f"data: {data}\n\n"
-
-        if request.stream:
-            async for chunk in generator:
-                yield 200, chunk
-        else:
-            assert isinstance(generator, ChatCompletionResponse)
-            data = generator.model_dump_json(exclude_unset=True)
-            yield 200, f"data: {data}\n\n"
+        return final_res.outputs[0].token_ids
 
     async def wake_up(self):
         await self.engine.wake_up()

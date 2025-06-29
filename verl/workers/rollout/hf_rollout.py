@@ -28,6 +28,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import GenerationConfig
 
 from verl import DataProto
+from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.torch_functional import get_response_mask
 
 from .base import BaseRollout
@@ -51,7 +52,7 @@ class HFRollout(BaseRollout):
 
     @torch.no_grad()
     def _generate_minibatch(self, prompts: DataProto) -> DataProto:
-        # make sampling args can be overriden by inputs
+        # make sampling args can be overridden by inputs
         do_sample = prompts.meta_info.get("do_sample", self.config.do_sample)
         is_validate = prompts.meta_info.get("validate", False)
 
@@ -105,10 +106,11 @@ class HFRollout(BaseRollout):
         if isinstance(self.module, FSDP):
             # recurse need to set to False according to https://github.com/pytorch/pytorch/issues/100069
             param_ctx = FSDP.summon_full_params(self.module, writeback=False, recurse=False)
-        with param_ctx, torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        with param_ctx, torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):
             output = self.module.generate(
                 input_ids=idx,
                 attention_mask=attention_mask,
+                position_ids=position_ids,
                 do_sample=do_sample,
                 max_new_tokens=response_length,
                 eos_token_id=eos_token_id,
@@ -165,7 +167,7 @@ class HFRollout(BaseRollout):
         )
 
         # empty cache before compute old_log_prob
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
 
         self.module.train()
         return DataProto(batch=batch)

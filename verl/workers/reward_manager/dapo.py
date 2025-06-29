@@ -17,9 +17,11 @@ from collections import defaultdict
 import torch
 
 from verl import DataProto
-from verl.utils.reward_score import _default_compute_score
+from verl.utils.reward_score import default_compute_score
+from verl.workers.reward_manager import register
 
 
+@register("dapo")
 class DAPORewardManager:
     """The reward manager."""
 
@@ -34,7 +36,7 @@ class DAPORewardManager:
     ) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
-        self.compute_score = compute_score or _default_compute_score
+        self.compute_score = compute_score or default_compute_score
         self.reward_fn_key = reward_fn_key
         self.overlong_buffer_cfg = overlong_buffer_cfg
         self.max_resp_len = max_resp_len

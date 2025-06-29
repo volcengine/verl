@@ -23,20 +23,26 @@ import os
 from typing import Tuple
 
 import torch
-from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
+from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
+from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import logprobs_from_logits
-from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
+from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.actor import BasePPOActor
+
+if is_cuda_available:
+    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
+elif is_npu_available:
+    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
+
 
 __all__ = ["DataParallelPPOActor"]
 
@@ -52,27 +58,26 @@ class DataParallelPPOActor(BasePPOActor):
         self.actor_optimizer = actor_optimizer
 
         self.use_remove_padding = self.config.get("use_remove_padding", False)
-        print(f"Actor use_remove_padding={self.use_remove_padding}")
+        if torch.distributed.get_rank() == 0:
+            print(f"Actor use_remove_padding={self.use_remove_padding}")
         self.use_fused_kernels = self.config.get("use_fused_kernels", False)
-        print(f"Actor use_fused_kernels={self.use_fused_kernels}")
+        if torch.distributed.get_rank() == 0:
+            print(f"Actor use_fused_kernels={self.use_fused_kernels}")
 
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
+        if self.config.entropy_from_logits_with_chunking:
+            entropy_from_logits = verl_F.entropy_from_logits_with_chunking
+        else:
+            entropy_from_logits = verl_F.entropy_from_logits
+
         self.compute_entropy_from_logits = (
-            torch.compile(verl_F.entropy_from_logits, dynamic=True)
+            torch.compile(entropy_from_logits, dynamic=True)
             if self.config.get("use_torch_compile", True)  #  use torch compile by default
-            else verl_F.entropy_from_logits
+            else entropy_from_logits
         )
-
-        if self.use_fused_kernels:
-            from verl.utils.experimental.torch_functional import FusedLinearForPPO
-
-            self.fused_linear_for_ppo = FusedLinearForPPO()
-
-            # FusedLinearForPPO has an error when compiled, disable for now
-            # if self.config.get("use_torch_compile", True):
-            #     self.fused_linear_for_ppo.compile(dynamic=True)
+        self.device_name = get_device_name()
 
     def _forward_micro_batch(self, micro_batch, temperature, calculate_entropy=False) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -82,11 +87,15 @@ class DataParallelPPOActor(BasePPOActor):
         """
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
-        if "multi_modal_inputs" in micro_batch:
-            for key in micro_batch["multi_modal_inputs"][0].keys():
-                multi_modal_inputs[key] = torch.cat([inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0)
+        if "multi_modal_inputs" in micro_batch.keys():
+            if "image_bound" in micro_batch["multi_modal_inputs"][0]:  # minicpm-o logic
+                for key in micro_batch["multi_modal_inputs"][0].keys():
+                    multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"]]
+            else:
+                for key in micro_batch["multi_modal_inputs"][0].keys():
+                    multi_modal_inputs[key] = torch.cat([inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0)
 
-        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
@@ -96,7 +105,7 @@ class DataParallelPPOActor(BasePPOActor):
                 position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
 
             if self.use_remove_padding:
-                input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+                input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
                 # unpad the position_ids to align the rotary
@@ -105,16 +114,30 @@ class DataParallelPPOActor(BasePPOActor):
                 else:
                     position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(0, 1)
 
+                if "image_bound" in multi_modal_inputs:
+                    from verl.utils.dataset.vision_utils import process_multi_modal_inputs_for_minicpmo
+
+                    multi_modal_inputs = process_multi_modal_inputs_for_minicpmo(input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs)
+
                 # for compute the log_prob
                 input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
 
                 # pad and slice the inputs if sp > 1
                 if self.use_ulysses_sp:
-                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
-                        input_ids_rmpad,
-                        position_ids_rmpad=position_ids_rmpad,
-                        sp_size=self.ulysses_sequence_parallel_size,
-                    )
+                    is_vlm_model = "multi_modal_inputs" in micro_batch.keys()
+                    if is_vlm_model:
+                        # vlm model's inputs will be sliced after embedding
+                        input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
+                            input_ids_rmpad,
+                            position_ids_rmpad=position_ids_rmpad,
+                            sp_size=self.ulysses_sequence_parallel_size,
+                        )
+                    else:
+                        input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
+                            input_ids_rmpad,
+                            position_ids_rmpad=position_ids_rmpad,
+                            sp_size=self.ulysses_sequence_parallel_size,
+                        )
                     input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(
                         input_ids_rmpad_rolled,
                         position_ids_rmpad=None,
@@ -124,29 +147,26 @@ class DataParallelPPOActor(BasePPOActor):
                 input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
 
                 # only pass input_ids and position_ids to enable flash_attn_varlen
+                extra_args = {}
+                if self.use_fused_kernels:
+                    extra_args["temperature"] = temperature
+                    extra_args["return_dict"] = True
+
                 output = self.actor_module(
                     input_ids=input_ids_rmpad,
                     attention_mask=None,
                     position_ids=position_ids_rmpad,
                     **multi_modal_inputs,
                     use_cache=False,
+                    **extra_args,
                 )  # prevent model thinks we are generating
 
                 if self.use_fused_kernels:
-                    hidden_states = output.last_hidden_state
-                    vocab_weights = self.actor_module.lm_head.weight
-
-                    log_probs, entropy_rmpad = self.fused_linear_for_ppo(
-                        hidden_states=hidden_states.squeeze(0),
-                        vocab_weights=vocab_weights,
-                        input_ids=input_ids_rmpad_rolled,
-                        temperature=temperature,
-                    )
+                    log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
+                    entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
 
                 else:
                     logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
-
-                    # logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
                     logits_rmpad.div_(temperature)
 
                     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
@@ -161,7 +181,10 @@ class DataParallelPPOActor(BasePPOActor):
 
                     # compute entropy
                     if calculate_entropy:
-                        entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+                        if not self.config.entropy_checkpointing:
+                            entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+                        else:
+                            entropy_rmpad = torch.utils.checkpoint.checkpoint(self.compute_entropy_from_logits, logits_rmpad)
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:
@@ -200,24 +223,23 @@ class DataParallelPPOActor(BasePPOActor):
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
 
             else:  # not using rmpad and no ulysses sp
+                extra_args = {}
+                if self.use_fused_kernels:
+                    extra_args["temperature"] = temperature
+                    extra_args["return_dict"] = True
+
                 output = self.actor_module(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     position_ids=position_ids,
                     **multi_modal_inputs,
                     use_cache=False,
+                    **extra_args,
                 )  # prevent model thinks we are generating
 
                 if self.use_fused_kernels:
-                    hidden_states = output.last_hidden_state
-                    vocab_weights = self.actor_module.lm_head.weight
-
-                    log_probs, entropy = self.fused_linear_for_ppo(
-                        hidden_states=hidden_states[:, -response_length - 1 : -1, :],
-                        vocab_weights=vocab_weights,
-                        input_ids=micro_batch["responses"],
-                        temperature=temperature,
-                    )
+                    log_probs = output.log_probs[:, -response_length - 1 : -1]
+                    entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
 
                 else:
                     logits = output.logits
@@ -274,20 +296,39 @@ class DataParallelPPOActor(BasePPOActor):
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
 
-        select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
-        batch = data.select(batch_keys=select_keys).batch
-        has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+        def _get_micro_batches(data: DataProto) -> Tuple[list, list | None]:
+            select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
+            batch = data.select(batch_keys=select_keys).batch
+            has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch
 
-        if has_multi_modal_inputs:
-            num_micro_batches = data.batch.batch_size[0] // micro_batch_size
-            non_tensor_select_keys = ["multi_modal_inputs"]
-            micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
-        elif use_dynamic_bsz:
-            # split using dynamic bsz
-            max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
-            micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
-        else:
-            micro_batches = batch.split(micro_batch_size)
+            if has_multi_modal_inputs:
+                all_multi_modal_inputs_list = data.non_tensor_batch["multi_modal_inputs"]
+                if use_dynamic_bsz:
+                    max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
+                    rearranged_text_micro_batches, textual_indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
+
+                    final_micro_batches_list = []
+                    for i, text_mb_td in enumerate(rearranged_text_micro_batches):
+                        current_original_indices = textual_indices[i]
+                        current_mm_inputs_list = [all_multi_modal_inputs_list[idx] for idx in current_original_indices]
+
+                        mb_dict = {k: v for k, v in text_mb_td.items()}
+                        mb_dict["multi_modal_inputs"] = current_mm_inputs_list
+                        final_micro_batches_list.append(mb_dict)
+                    return final_micro_batches_list, textual_indices
+                else:
+                    num_micro_batches = batch.batch_size[0] // micro_batch_size
+                    micro_batches_dp = data.chunk(num_micro_batches)
+                    return micro_batches_dp, None
+            elif use_dynamic_bsz:
+                max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
+                micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
+                return micro_batches, indices
+            else:
+                micro_batches = batch.split(micro_batch_size)
+                return micro_batches, None
+
+        micro_batches, indices = _get_micro_batches(data)
 
         log_probs_lst = []
         entropy_lst = []
@@ -309,6 +350,8 @@ class DataParallelPPOActor(BasePPOActor):
             assert len(indices) == log_probs.size(0), f"{len(indices)} vs. {log_probs.size()}"
             revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
             log_probs = log_probs[revert_indices]
+            if calculate_entropy:
+                entropys = entropys[revert_indices]
 
         return log_probs, entropys
 
@@ -343,9 +386,23 @@ class DataParallelPPOActor(BasePPOActor):
                 # split batch into micro_batches
                 mini_batch = data
                 if has_multi_modal_inputs:
-                    self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
-                    num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
-                    micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
+                    micro_batches = []
+                    if self.config.use_dynamic_bsz:
+                        all_multi_modal_inputs_list = data.non_tensor_batch["multi_modal_inputs"]
+                        batch_tensordict_for_rearrange = data.batch
+
+                        max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
+                        rearranged_text_micro_batches_tds, textual_indices = rearrange_micro_batches(batch=batch_tensordict_for_rearrange, max_token_len=max_token_len)
+
+                        for current_original_indices, text_mb_td in zip(textual_indices, rearranged_text_micro_batches_tds):
+                            current_mm_inputs_list = [all_multi_modal_inputs_list[idx] for idx in current_original_indices]
+                            mb_dict = {k: v for k, v in text_mb_td.items()}
+                            mb_dict["multi_modal_inputs"] = current_mm_inputs_list
+                            micro_batches.append(mb_dict)
+                    else:
+                        self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                        num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
+                        micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
                 elif self.config.use_dynamic_bsz:
                     max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                     micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
@@ -359,9 +416,17 @@ class DataParallelPPOActor(BasePPOActor):
                 for data in micro_batches:
                     # Support all hardwares
                     if isinstance(data, DataProto):
-                        data = {**data.batch.to(torch.cuda.current_device()), **data.non_tensor_batch}
+                        data = {**data.batch.to(get_device_id()), **data.non_tensor_batch}
+                    elif isinstance(data, dict):
+                        for k, v in data.items():
+                            if isinstance(v, torch.Tensor):
+                                data[k] = v.to(get_device_id())
+                            elif k == "multi_modal_inputs" and v is not None:
+                                data[k] = [{kk: vv.to(get_device_id()) for kk, vv in item_dict.items()} for item_dict in v]
+                            else:
+                                data[k] = v
                     else:
-                        data = data.to(torch.cuda.current_device())  # actor device is cpu when using offload
+                        data = data.to(get_device_id())  # actor device is cpu when using offload
                     responses = data["responses"]
                     response_length = responses.size(1)
                     attention_mask = data["attention_mask"]
@@ -386,17 +451,23 @@ class DataParallelPPOActor(BasePPOActor):
                         calculate_entropy = True
                     entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature, calculate_entropy=calculate_entropy)
 
-                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
-                        old_log_prob=old_log_prob,
-                        log_prob=log_prob,
-                        advantages=advantages,
-                        response_mask=response_mask,
-                        cliprange=clip_ratio,
-                        cliprange_low=clip_ratio_low,
-                        cliprange_high=clip_ratio_high,
-                        clip_ratio_c=clip_ratio_c,
-                        loss_agg_mode=loss_agg_mode,
-                    )
+                    loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
+
+                    if self.config.policy_loss.loss_mode == "vanilla":
+                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
+                            old_log_prob=old_log_prob,
+                            log_prob=log_prob,
+                            advantages=advantages,
+                            response_mask=response_mask,
+                            cliprange=clip_ratio,
+                            cliprange_low=clip_ratio_low,
+                            cliprange_high=clip_ratio_high,
+                            clip_ratio_c=clip_ratio_c,
+                            loss_agg_mode=loss_agg_mode,
+                        )
+                    else:
+                        policy_loss_fn = get_policy_loss_fn(loss_mode)
+                        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(old_log_prob, log_prob, advantages, response_mask, loss_agg_mode, self.config)
 
                     if entropy_coeff != 0:
                         entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
@@ -410,7 +481,7 @@ class DataParallelPPOActor(BasePPOActor):
                         ref_log_prob = data["ref_log_prob"]
                         # compute kl loss
                         kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type)
-                        kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=self.config.loss_agg_mode)
+                        kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                         metrics["actor/kl_loss"] = kl_loss.detach().item()
@@ -433,6 +504,6 @@ class DataParallelPPOActor(BasePPOActor):
 
                 grad_norm = self._optimizer_step()
                 data = {"actor/grad_norm": grad_norm.detach().item()}
-            append_to_dict(metrics, data)
+                append_to_dict(metrics, data)
         self.actor_optimizer.zero_grad()
         return metrics

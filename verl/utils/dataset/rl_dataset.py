@@ -35,7 +35,17 @@ logger = logging.getLogger(__name__)
 
 
 def collate_fn(data_list: list[dict]) -> dict:
-    """Collate a batch of data."""
+    """
+    Collate a batch of sample dicts into batched tensors and arrays.
+
+    Args:
+        data_list: List of dicts mapping feature names to torch.Tensor or other values.
+
+    Returns:
+        Dict where tensor entries are stacked into a torch.Tensor of shape
+        (batch_size, \*dims) and non-tensor entries are converted to
+        np.ndarray of dtype object with shape (batch_size,).
+    """
     tensors = defaultdict(list)
     non_tensors = defaultdict(list)
 
@@ -57,7 +67,19 @@ def collate_fn(data_list: list[dict]) -> dict:
 
 class RLHFDataset(Dataset):
     """
-    We assume the dataset contains a column that contains prompts and other information
+    Load and preprocess RLHF data from Parquet files.
+
+    - Caches files locally.
+    - Reads into a HuggingFace Dataset and tokenizes prompts.
+    - Optionally handles images/videos via a ProcessorMixin.
+    - Filters prompts over a max length.
+    - Supports resuming from checkpoints.
+
+    Args:
+        data_files (str or list): Path(s) to Parquet file(s).
+        tokenizer (PreTrainedTokenizer): For the tokenization of text to token IDs.
+        config (DictConfig): Options like cache_dir, prompt_key, max_prompt_length, truncation, etc.
+        processor (ProcessorMixin, optional): Multimodal preprocessor for images/videos.
     """
 
     def __init__(
@@ -88,6 +110,7 @@ class RLHFDataset(Dataset):
 
         self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
+        self.use_shm = config.get("use_shm", False)
         self.chat_template_func = config.get("chat_template_func", None)
         self.need_tools_kwargs = config.get("need_tools_kwargs", False)
         self.filter_prompts = config.get("filter_prompts", True)
@@ -100,7 +123,7 @@ class RLHFDataset(Dataset):
 
         data_files = self.data_files if not use_origin_parquet else self.original_data_files
         for i, parquet_file in enumerate(data_files):
-            self.data_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir)
+            self.data_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir, use_shm=self.use_shm)
 
     def _read_files_and_tokenize(self):
         dataframes = []
@@ -115,9 +138,29 @@ class RLHFDataset(Dataset):
         # filter out too long prompts
         if self.filter_overlong_prompts:
             tokenizer = self.tokenizer
+            processor = self.processor
             prompt_key = self.prompt_key
+            image_key = self.image_key
+            video_key = self.video_key
+
+            if processor is not None:
+                from verl.utils.dataset.vision_utils import process_image, process_video
+
+                def doc2len(doc) -> int:
+                    messages = self._build_messages(doc)
+                    raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+                    images = [process_image(image) for image in messages.pop(image_key)] if image_key in messages else None
+                    videos = [process_video(video) for video in messages.pop(video_key)] if video_key in messages else None
+
+                    return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+
+            else:
+
+                def doc2len(doc) -> int:
+                    return len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True))
+
             self.dataframe = self.dataframe.filter(
-                lambda doc: len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
+                lambda doc: doc2len(doc) <= self.max_prompt_length,
                 num_proc=self.num_workers,
                 desc=f"Filtering prompts longer than {self.max_prompt_length} tokens",
             )
@@ -143,7 +186,9 @@ class RLHFDataset(Dataset):
             for message in messages:
                 content = message["content"]
                 content_list = []
-                for segment in re.split("(<image>|<video>)", content):
+                segments = re.split("(<image>|<video>)", content)
+                segments = [item for item in segments if item != ""]
+                for segment in segments:
                     if segment == "<image>":
                         content_list.append({"type": "image"})
                     elif segment == "<video>":
@@ -170,12 +215,12 @@ class RLHFDataset(Dataset):
             multi_modal_data = {}
 
             images = None
-            if self.image_key in row_dict:
+            if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None:
                 images = [process_image(image) for image in row_dict.pop(self.image_key)]
                 multi_modal_data["image"] = images
 
             videos = None
-            if self.video_key in row_dict:
+            if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None:
                 videos = [process_video(video) for video in row_dict.pop(self.video_key)]
                 multi_modal_data["video"] = [video.numpy() for video in videos]
 
@@ -209,7 +254,7 @@ class RLHFDataset(Dataset):
             truncation=self.truncation,
         )
 
-        if self.processor is not None and self.processor.image_processor.__class__.__name__ == "Qwen2VLImageProcessor":
+        if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
             from verl.models.transformers.qwen2_vl import get_rope_index
 
             position_ids = [
@@ -247,19 +292,21 @@ class RLHFDataset(Dataset):
         # encode prompts without chat template
         if self.return_raw_chat:
             row_dict["raw_prompt"] = messages
-        
+
         # get prompts with chat template
         if self.return_full_prompt:
-            row_dict["full_prompts"] = raw_prompt # array of strings
+            row_dict["full_prompts"] = raw_prompt  # array of strings
 
         # add index for each prompt
         index = row_dict.get("extra_info", {}).get("index", 0)
         tools_kwargs = row_dict.get("extra_info", {}).get("tools_kwargs", {})
+        interaction_kwargs = row_dict.get("extra_info", {}).get("interaction_kwargs", {})
         need_tools_kwargs = row_dict.get("extra_info", {}).get("need_tools_kwargs", self.need_tools_kwargs)
         if need_tools_kwargs and not tools_kwargs:
             logger.warning("tools_kwargs is empty for index {}, data source: {}", index, row_dict["data_source"])
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
+        row_dict["interaction_kwargs"] = interaction_kwargs
         return row_dict
 
     def __getstate__(self):

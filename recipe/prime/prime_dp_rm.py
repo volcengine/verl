@@ -25,6 +25,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
+from verl.utils.device import get_device_name
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
@@ -46,11 +47,6 @@ class DataParallelPRIMERewardModel:
         print(f"Reward model use_fused_kernels={self.use_fused_kernels}")
 
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
-
-        if self.use_fused_kernels:
-            from verl.utils.experimental.torch_functional import FusedLinearForPPO
-
-            self.fused_linear_for_ppo = FusedLinearForPPO()
 
     def _forward_micro_batch(self, micro_batch, prompt_length):
         input_ids = micro_batch["input_ids"]
@@ -82,17 +78,11 @@ class DataParallelPRIMERewardModel:
                 attention_mask=None,
                 position_ids=position_ids_rmpad,
                 use_cache=False,
+                return_dict=self.use_fused_kernels,
             )
 
             if self.use_fused_kernels:
-                hidden_states = output.last_hidden_state
-                vocab_weights = self.reward_module.lm_head.weight
-
-                rm_log_labels, _ = self.fused_linear_for_ppo(
-                    hidden_states=hidden_states.squeeze(0),
-                    vocab_weights=vocab_weights,
-                    input_ids=input_ids_rmpad_rolled,
-                )
+                rm_log_labels = output.log_probs.squeeze(0)  # (total_nnz,)
                 rm_log_labels = rm_log_labels.to(torch.float32)
 
             else:
@@ -112,17 +102,11 @@ class DataParallelPRIMERewardModel:
                 attention_mask=micro_batch["attention_mask"],
                 position_ids=micro_batch["position_ids"],
                 use_cache=False,
+                return_dict=self.use_fused_kernels,
             )
 
             if self.use_fused_kernels:
-                hidden_states = output.last_hidden_state
-                vocab_weights = self.reward_module.lm_head.weight
-
-                rm_log_labels, _ = self.fused_linear_for_ppo.forward(
-                    hidden_states=hidden_states[:, :-1, :],
-                    vocab_weights=vocab_weights,
-                    input_ids=micro_batch["input_ids"][:, 1:],
-                )
+                rm_log_labels = output.log_probs[:, :-1]  # (bsz, seq_length)
                 rm_log_labels = rm_log_labels.to(torch.float32)
 
             else:
@@ -132,7 +116,7 @@ class DataParallelPRIMERewardModel:
 
         if self.ref_module is not None:
             # do not have to pad again
-            with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.no_grad(), torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):
                 if self.ulysses_sequence_parallel_size > 1 and self.use_remove_padding:
                     ref_output = self.ref_module(
                         input_ids=input_ids_rmpad,
@@ -142,18 +126,11 @@ class DataParallelPRIMERewardModel:
                     )
 
                     if self.use_fused_kernels:
-                        hidden_states = ref_output.last_hidden_state
-                        vocab_weights = self.ref_module.lm_head.weight
-
-                        ref_log_labels, _ = self.fused_linear_for_ppo(
-                            hidden_states=hidden_states.squeeze(0),
-                            vocab_weights=vocab_weights,
-                            input_ids=input_ids_rmpad_rolled,
-                        )
+                        ref_log_labels = ref_output.log_probs.squeeze(0)  # (total_nnz,)
                         ref_log_labels = ref_log_labels.to(torch.float32)
 
                     else:
-                        logits = ref_output.logits.squeeze(0)
+                        ref_output_logits = ref_output.logits.squeeze(0)
                         ref_log_labels = verl_F.logprobs_from_logits(logits=ref_output_logits, labels=input_ids_rmpad_rolled)
 
                     ref_log_labels = gather_outpus_and_unpad(ref_log_labels, gather_dim=0, unpad_dim=0, padding_size=pad_size)
@@ -167,14 +144,7 @@ class DataParallelPRIMERewardModel:
                     )
 
                     if self.use_fused_kernels:
-                        hidden_states = ref_output.last_hidden_state
-                        vocab_weights = self.ref_module.lm_head.weight
-
-                        ref_log_labels, _ = self.fused_linear_for_ppo.forward(
-                            hidden_states=hidden_states[:, :-1, :],
-                            vocab_weights=vocab_weights,
-                            input_ids=micro_batch["input_ids"][:, 1:],
-                        )
+                        ref_log_labels = ref_output.log_probs[:, :-1]  # (batch_size, seq_length)
                         ref_log_labels = ref_log_labels.to(torch.float32)
 
                     else:
@@ -322,7 +292,7 @@ class DataParallelPRIMERewardModel:
             self.reward_optimizer.zero_grad()
 
             for data in micro_batches:
-                data = data.cuda()
+                data = data.to(get_device_name())
                 attention_mask = data["attention_mask"]
                 acc = data["acc"]
 
