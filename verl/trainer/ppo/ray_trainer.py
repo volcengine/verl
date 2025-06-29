@@ -958,7 +958,6 @@ class RayPPOTrainer:
                 timing_raw = {}
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
-
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
 
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
