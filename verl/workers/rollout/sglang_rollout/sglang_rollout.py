@@ -1083,7 +1083,6 @@ class SGLangRollout(BaseRollout):
 
         for data_idx, (raw_prompt, multi_modal_data) in enumerate(zip(prompts.non_tensor_batch["raw_prompt"], multi_modal_data_list)):
             uid = prompts.non_tensor_batch["uid"][data_idx] if "uid" in prompts.non_tensor_batch else None
-            assert uid is not None, "uid is required to ensure the order of the responses in multi-turn GRPO"
 
             if self._tool_schemas:
                 _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
@@ -1103,7 +1102,7 @@ class SGLangRollout(BaseRollout):
 
             req = AsyncRolloutRequest(
                 batch_data_id=data_idx,
-                rollout_offset=0,  # 由于 n=1，rollout_offset 总是 0
+                rollout_offset=0,
                 request_id=str(uuid4()),
                 uid=uid,
                 state=AsyncRolloutRequestStateEnum.PENDING,
