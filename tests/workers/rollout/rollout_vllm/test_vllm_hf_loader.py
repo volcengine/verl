@@ -18,7 +18,7 @@ import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from vllm import SamplingParams
 
-from verl.third_party.vllm import LLM, vllm_version
+from verl.third_party.vllm import LLM, customized_vllm
 from verl.utils.torch_functional import pad_sequence_to_length
 from verl.workers.rollout.vllm_rollout.vllm_rollout import _pre_process_inputs
 
@@ -104,10 +104,7 @@ def test_vllm_with_hf():
 
     kwargs = dict(n=1, temperature=temperature, top_p=top_p, max_tokens=max_response_length, logprobs=1, ignore_eos=True)
 
-    if vllm_version in (
-        "0.5.4",
-        "0.6.3",
-    ):
+    if customized_vllm:
         kwargs["detokenize"] = False
     sampling_params = SamplingParams(**kwargs)
 
