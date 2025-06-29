@@ -350,7 +350,7 @@ class AtroposAPIClient:
                 token_id = tokens[j + 1]
                 log_prob = log_probs[0, j, token_id].item()
                 ref_logprobs.append(log_prob)
-            ref_logprobs.append(0.0)  # Dummy for last token
+            ref_logprobs.append(0.0)  # Placeholder for last token
             
         return ref_logprobs
         

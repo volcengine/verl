@@ -1,0 +1,114 @@
+# GRPO training with Atropos GSM8K environment
+# Real environment feedback for math problem solving
+
+defaults:
+  - _self_
+
+# Trainer configuration
+trainer:
+  # Atropos integration
+  atropos:
+    api_url: "http://localhost:8000"
+    timeout: 30
+    use_atropos_prompts: true
+    
+  # Training settings
+  project_name: "grpo_atropos_gsm8k"
+  experiment_name: "qwen2_0.5b_gsm8k_real_feedback"
+  n_gpus_per_node: 8
+  nnodes: 1
+  
+  default_local_dir: "./checkpoints/grpo_atropos_gsm8k"
+  
+  # Training schedule
+  total_epochs: 100
+  save_freq: 10
+  test_freq: 5
+  
+  # Wandb logging
+  logger: ["console", "wandb"]
+  wandb_project: "verl-atropos-gsm8k"
+  
+# Algorithm configuration  
+algorithm:
+  name: "grpo_atropos"
+  
+  # GRPO settings
+  group_size: 8
+  kl_coef: 0.1
+  use_token_level_overrides: true
+  normalize_advantages: true
+  
+  # Standard RL settings
+  gamma: 1.0
+  lam: 0.95
+  adv_estimator: "grpo"
+  
+# Model and rollout configuration
+actor_rollout_ref:
+  # Model configuration
+  model:
+    path: "Qwen/Qwen2-0.5B-Instruct"
+    enable_gradient_checkpointing: true
+    trust_remote_code: true
+    
+  # Actor training settings
+  actor:
+    strategy: "fsdp"
+    ppo_mini_batch_size: 256
+    ppo_epochs: 1
+    
+    optim:
+      lr: 5e-6
+      
+    fsdp_config:
+      mixed_precision:
+        param_dtype: "fp16"
+        reduce_dtype: "fp16"
+        buffer_dtype: "fp16"
+        
+  # Rollout settings
+  rollout:
+    type: "vllm"
+    batch_size: 64
+    rollout_batch_size: 512
+    
+    # vLLM settings
+    tensor_model_parallel_size: 1
+    gpu_memory_utilization: 0.8
+    max_model_len: 2048
+    
+    # Generation settings
+    temperature: 0.7
+    top_p: 0.9
+    max_tokens: 512  # Max response length
+    
+  # Reference model (for KL penalty)
+  ref:
+    # Use same model as actor but frozen
+    log_prob_micro_batch_size_per_gpu: 64
+    
+# Data configuration
+data:
+  train_files: null  # Atropos provides prompts
+  val_files: null
+  
+  # Batch settings
+  train_batch_size: 512
+  max_prompt_length: 512
+  max_response_length: 512
+  
+# Ray configuration
+ray_init:
+  address: null  # Use local Ray
+  
+# Metrics to track
+metrics:
+  track:
+    - "atropos/gsm8k/correct_rate"
+    - "atropos/gsm8k/mean_score"
+    - "grpo/advantages/mean"
+    - "grpo/advantages/std"
+    - "grpo/kl_divergence"
+    - "actor/learning_rate"
+    - "timing/total"
