@@ -110,6 +110,7 @@ class AdvantageEstimator(str, Enum):
     RLOO = "rloo"
     OPO = "opo"
     GRPO_PASSK = "grpo_passk"
+    GRPO_ATROPOS = "grpo_atropos"
 
 
 class AdaptiveKLController:
@@ -312,6 +313,54 @@ def compute_grpo_passk_outcome_advantage(
 
     advantages = advantages.unsqueeze(-1) * response_mask
     return advantages, advantages
+
+
+@register_adv_est(AdvantageEstimator.GRPO_ATROPOS)  # or simply: @register_adv_est("grpo_atropos")
+def compute_grpo_atropos_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+    config=None,
+    **kwargs,
+):
+    """
+    Compute GRPO advantages with support for Atropos environment overrides.
+    
+    This function computes GRPO-style advantages but allows for token-level
+    advantage overrides from Atropos environments. If no overrides are provided,
+    it falls back to standard GRPO computation.
+    
+    Args:
+        token_level_rewards: (bs, response_length)
+        response_mask: (bs, response_length)
+        index: (bs,) → group ID per sample
+        epsilon: float for numerical stability
+        norm_adv_by_std_in_grpo: whether to normalize by std
+        config: algorithm configuration
+        **kwargs: additional arguments (e.g., token_level_advantages from Atropos)
+        
+    Returns:
+        advantages: (bs, response_length)
+        returns: (bs, response_length)
+    """
+    # Check if we have token-level advantages from Atropos
+    token_level_advantages = kwargs.get("token_level_advantages")
+    
+    if token_level_advantages is not None:
+        # Use provided advantages from Atropos
+        advantages = token_level_advantages * response_mask
+        return advantages, advantages
+    
+    # Fall back to standard GRPO computation
+    return compute_grpo_outcome_advantage(
+        token_level_rewards=token_level_rewards,
+        response_mask=response_mask,
+        index=index,
+        epsilon=epsilon,
+        norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
+    )
 
 
 @register_adv_est(AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE)  # or simply: @register_adv_est("reinforce_plus_plus_baseline")

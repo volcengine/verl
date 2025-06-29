@@ -1,0 +1,79 @@
+# Configuration for GRPO training with Atropos GSM8K environment
+
+algorithm:
+  adv_estimator: grpo_atropos
+  use_critic: false
+  gamma: 1.0
+  lam: 0.95
+  kl_ctrl:
+    type: fixed
+    kl_coef: 0.1
+  clip_ratio: 0.2
+  entropy_coef: 0.01
+  norm_adv_by_std_in_grpo: true
+
+trainer:
+  atropos:
+    api_url: http://localhost:9001
+    timeout: 30
+    retry_attempts: 10
+    retry_delay: 0.5
+    max_wait_time: 30.0
+    use_advantages: true
+    fallback_to_grpo: true
+  
+  total_epochs: 3
+  steps_per_epoch: 100
+  gradient_accumulation_steps: 4
+  log_interval: 10
+  save_interval: 50
+  eval_interval: 50
+
+model:
+  path: meta-llama/Llama-2-7b-hf
+  enable_gradient_checkpointing: true
+  
+rollout:
+  name: vllm
+  temperature: 0.7
+  max_new_tokens: 512
+  top_p: 0.9
+  top_k: -1
+  
+data:
+  train_batch_size: 32
+  rollout_batch_size: 128
+  
+  # GSM8K specific settings
+  max_prompt_length: 512
+  max_response_length: 512
+  
+optimizer:
+  name: adamw
+  lr: 5e-6
+  betas: [0.9, 0.999]
+  eps: 1e-8
+  weight_decay: 0.01
+  
+  # Learning rate schedule
+  lr_scheduler:
+    name: cosine
+    warmup_steps: 100
+    
+# Distributed training settings
+distributed:
+  strategy: fsdp
+  fsdp:
+    shard_grad_op: true
+    cpu_offload: false
+    
+# Logging settings
+logging:
+  wandb:
+    enabled: true
+    project: verl-atropos-grpo
+    name: gsm8k-grpo-example
+  
+  # Track Atropos-specific metrics
+  track_atropos_metrics: true
+  log_advantages_histogram: true
