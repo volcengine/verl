@@ -77,6 +77,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         device_mesh: Device mesh for parallel operations
         offload_param (bool): Whether to offload parameters when not in use
     """
+
     @check_device_is_available()
     def __init__(
         self,

@@ -47,7 +47,7 @@ Megatron Hybrid Engine:
 
 
 class MegatronSGLangShardingManager(BaseShardingManager):
-    """A sharding manager for Megatron-style training/inference with SGLang.
+    """A sharding manager for Megatron-style training & inference with SGLang.
 
     This class manages the sharding of model parameters between training and inference
     phases in a Megatron-style parallel setup. It handles:
@@ -67,6 +67,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         device_mesh (DeviceMesh | None): PyTorch device mesh for distributed training
         offload_param (bool): Whether to offload parameters to CPU when not in use
     """
+
     def __init__(
         self,
         actor_module: nn.ModuleList,
