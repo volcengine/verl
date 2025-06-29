@@ -975,7 +975,7 @@ class RayPPOTrainer:
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
                 )
 
-                if self.config.actor_rollout_ref.rollout.name == "sglang" and self.config.actor_rollout_ref.rollout.multi_turn.enable:
+                if self.config.actor_rollout_ref.rollout.name == "sglang":
                     uids_for_prompts = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
                     batch.non_tensor_batch["uid"] = uids_for_prompts
                     gen_batch.non_tensor_batch["uid"] = uids_for_prompts
