@@ -43,7 +43,7 @@ def collate_fn(data_list: list[dict]) -> dict:
 
     Returns:
         Dict where tensor entries are stacked into a torch.Tensor of shape
-        (batch_size, *dims) and non-tensor entries are converted to
+        (batch_size, \*dims) and non-tensor entries are converted to
         np.ndarray of dtype object with shape (batch_size,).
     """
     tensors = defaultdict(list)
