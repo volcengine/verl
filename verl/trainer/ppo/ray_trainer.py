@@ -958,8 +958,8 @@ class RayPPOTrainer:
                 timing_raw = {}
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
-                # pop those keys for generation
                 if self.config.actor_rollout_ref.rollout.name == "sglang":
+                    # SGLang rollout repeat the prompts for rollout.n times in ray_trainer.
                     uids_for_prompts = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
                     batch.non_tensor_batch["uid"] = uids_for_prompts
 
@@ -984,6 +984,8 @@ class RayPPOTrainer:
                     batch.non_tensor_batch["uid"] = uids_for_prompts
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    # Since we poped the uid from batch to gen_batch, we need to add it back to batch
+                    # The uid will be used to union the batch and gen_batch_output
                     assert np.array_equal(batch.non_tensor_batch["uid"], gen_batch.non_tensor_batch["uid"]), "UIDs must be identical for SGLang rollout"
 
                 is_last_step = self.global_steps >= self.total_training_steps
@@ -1020,9 +1022,9 @@ class RayPPOTrainer:
                         batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
                         # repeat to align with repeated responses in rollout
                         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                        batch = batch.union(gen_batch_output)
-                    elif self.config.actor_rollout_ref.rollout.name == "sglang":
-                        batch = batch.union_by_uid(gen_batch_output)
+
+                    batch = batch.union(gen_batch_output)
+
 
                     batch.batch["response_mask"] = compute_response_mask(batch)
                     # Balance the number of valid tokens across DP ranks.
