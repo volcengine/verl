@@ -36,16 +36,11 @@ from recipe.spin import core_algos
 from verl import DataProto
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
-from verl.single_controller.ray import (RayClassWithInitArgs, RayResourcePool,
-                                        RayWorkerGroup)
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
-from verl.trainer.ppo.metric_utils import (compute_throughout_metrics,
-                                           compute_timing_metrics,
-                                           process_validation_metrics,
-                                           reduce_metrics)
+from verl.trainer.ppo.metric_utils import compute_throughout_metrics, compute_timing_metrics, process_validation_metrics, reduce_metrics
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
-from verl.utils.seqlen_balancing import (get_seqlen_balanced_partitions,
-                                         log_seqlen_unbalance)
+from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 
@@ -504,8 +499,7 @@ class RaySPINTrainer:
         if train_sampler is None:
             train_sampler = create_rl_sampler(self.config.data, self.train_dataset)
         if collate_fn is None:
-            from verl.utils.dataset.rl_dataset import \
-                collate_fn as default_collate_fn
+            from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
 
             collate_fn = default_collate_fn
 
