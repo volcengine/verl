@@ -108,11 +108,7 @@ class RayEntropyTrainer(RayPPOTrainer):
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
-                            if self.config.actor_rollout_ref.rollout.free_cache_engine:
-                                self.async_rollout_manager.wake_up()
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
-                            if self.config.actor_rollout_ref.rollout.free_cache_engine:
-                                self.async_rollout_manager.sleep()
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with simple_timer("gen_max", timing_raw):

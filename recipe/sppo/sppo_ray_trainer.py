@@ -186,11 +186,7 @@ class RaySPPOTrainer(RayPPOTrainer):
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
-                            if self.config.actor_rollout_ref.rollout.free_cache_engine:
-                                self.async_rollout_manager.wake_up()
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
-                            if self.config.actor_rollout_ref.rollout.free_cache_engine:
-                                self.async_rollout_manager.sleep()
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 

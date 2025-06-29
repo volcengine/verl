@@ -624,11 +624,7 @@ class RaySPINTrainer:
             if not self.async_rollout_mode:
                 test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
             else:
-                if self.config.actor_rollout_ref.rollout.free_cache_engine:
-                    self.async_rollout_manager.wake_up()
                 test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
-                if self.config.actor_rollout_ref.rollout.free_cache_engine:
-                    self.async_rollout_manager.sleep()
 
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
