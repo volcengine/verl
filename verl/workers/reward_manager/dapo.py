@@ -15,6 +15,7 @@
 from collections import defaultdict
 
 import torch
+import warnings
 
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
@@ -107,6 +108,15 @@ class DAPORewardManager:
             if self.overlong_buffer_cfg.enable:
                 overlong_buffer_len = self.overlong_buffer_cfg.len
                 expected_len = self.max_resp_len - overlong_buffer_len
+
+                if expected_len < 0:
+                    warnings.warn(
+                        f"Overlong buffer configuration issue: expected_len = {expected_len} < 0. "
+                        f"This means overlong_buffer_len ({overlong_buffer_len}) > max_resp_len ({self.max_resp_len}). "
+                        f"All reasonable response lengths will be penalized. "
+                        f"Consider reducing overlong_buffer_len or increasing max_resp_len."
+                    )
+                    
                 exceed_len = valid_response_length - expected_len
                 overlong_penalty_factor = self.overlong_buffer_cfg.penalty_factor
                 overlong_reward = min(-exceed_len / overlong_buffer_len * overlong_penalty_factor, 0)
