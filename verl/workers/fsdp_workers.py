@@ -337,8 +337,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             mp_policy = MixedPrecisionPolicy(param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True)
             if role == "actor" and fsdp_config.offload_policy:
                 cpu_offload = CPUOffloadPolicy(pin_memory=True)
-                self._is_offload_param = False
-                self._is_offload_optimizer = False
             else:
                 cpu_offload = None if role == "actor" else CPUOffloadPolicy(pin_memory=True)
 
@@ -1000,8 +998,6 @@ class CriticWorker(Worker, DistProfilerExtension):
             mp_policy = MixedPrecisionPolicy(param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True)
             offload_policy = None
             if fsdp_config.offload_policy:
-                self._is_offload_param = False
-                self._is_offload_optimizer = False
                 offload_policy = CPUOffloadPolicy(pin_memory=True)
 
             fsdp_kwargs = {
