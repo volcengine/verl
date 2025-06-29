@@ -21,6 +21,7 @@ import asyncio
 import logging
 import os
 
+from omegaconf import DictConfig
 from sglang.srt.entrypoints.engine import Engine
 from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
@@ -72,9 +73,9 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         self,
         actor_module: nn.ModuleList,
         inference_engine: Engine,
-        model_config: "DictConfig",
-        rollout_config: "DictConfig",
-        transformer_config: "PretrainedConfig",
+        model_config: DictConfig,
+        rollout_config: DictConfig,
+        transformer_config,
         layer_name_mapping,
         weight_converter,
         device_mesh: DeviceMesh | None = None,

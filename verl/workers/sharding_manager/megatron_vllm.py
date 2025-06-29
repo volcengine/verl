@@ -22,6 +22,7 @@ import os
 import torch
 import torch.distributed
 from megatron.core import parallel_state as mpu
+from omegaconf import DictConfig
 from torch import nn
 
 from verl import DataProto
@@ -83,9 +84,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self,
         actor_module: nn.ModuleList,
         inference_engine: LLM,
-        model_config: "DictConfig",
-        transformer_config: "PretrainedConfig",
-        rollout_config: "DictConfig",
+        model_config: DictConfig,
+        transformer_config,
+        rollout_config: DictConfig,
         layer_name_mapping,
         weight_converter: McoreToHFWeightConverterBase,
         device_mesh,
