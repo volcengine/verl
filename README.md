@@ -244,7 +244,8 @@ pre-commit install
 To resolve CI errors locally, you can manually run pre-commit by:
 
 ```bash
-pre-commit run
+pre-commit run # for staged files, or
+pre-commit run --all-files # for all files in the repo
 ```
 
 ### Adding CI tests
