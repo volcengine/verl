@@ -52,7 +52,7 @@ def load_template(path):
                 lines.append(line.strip())
         return lines
     except Exception as e:
-        raise TemplateFileError(f"Failed to read PR template (first {NUM_LINES} lines) at {path}: {e}")
+        raise TemplateFileError(f"Failed to read PR template (first {NUM_LINES} lines) at {path}: {e}") from e
 
 
 def load_pr_body(event_path):
@@ -61,7 +61,7 @@ def load_pr_body(event_path):
             payload = json.load(f)
         return payload.get("pull_request", {}).get("body", "") or ""
     except Exception as e:
-        raise PRBodyLoadError(f"Failed to read PR body from {event_path}: {e}")
+        raise PRBodyLoadError(f"Failed to read PR body from {event_path}: {e}") from e
 
 
 def check_pr_description(body, template_lines):
