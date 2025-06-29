@@ -961,11 +961,10 @@ class RayPPOTrainer:
                 if self.config.actor_rollout_ref.rollout.name == "sglang":
                     # SGLang rollout repeat the prompts for rollout.n times in ray_trainer.
                     uids_for_prompts = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
-                    batch.non_tensor_batch["uid"] = uids_for_prompts
 
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
 
-                non_tensor_batch_keys_to_pop = ["raw_prompt_ids"] if self.config.actor_rollout_ref.rollout.name == "vllm" else ["raw_prompt_ids", "uid"]
+                non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
 
                 if "multi_modal_data" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")
@@ -983,6 +982,7 @@ class RayPPOTrainer:
                 if self.config.actor_rollout_ref.rollout.name == "sglang":
                     batch.non_tensor_batch["uid"] = uids_for_prompts
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    gen_batch["uid"] = uids_for_prompts
                     gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     # Since we poped the uid from batch to gen_batch, we need to add it back to batch
                     # The uid will be used to union the batch and gen_batch_output
