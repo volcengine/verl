@@ -16,15 +16,10 @@
 import json
 import logging
 import os
-import threading
-from contextlib import ExitStack
-from enum import Enum
-from typing import Any, Callable, Optional, Tuple, TypeVar
+from typing import Any, Optional, Tuple, TypeVar
 from uuid import uuid4
 
-import ray
-import ray.actor
-
+from verl.tools.utils.execution_pool import PoolMode, init_execution_pool
 from verl.tools.utils.search_r1_like_utils import perform_single_search_batch
 
 from .base_tool import BaseTool
@@ -34,77 +29,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 T = TypeVar("T")
-
-
-# Adapted from verl/tools/sandbox_fusion_tools.py
-class PoolMode(Enum):
-    """Execution pool mode enumeration."""
-
-    ThreadMode = 1
-    ProcessMode = 2
-
-
-@ray.remote(concurrency_groups={"acquire": 1, "release": 10})
-class TokenBucketWorker:
-    """Ray actor for rate limiting using token bucket algorithm."""
-
-    def __init__(self, rate_limit: int):
-        self.rate_limit = rate_limit
-        self.current_count = 0  # For observability
-        self._semaphore = threading.Semaphore(rate_limit)
-
-    @ray.method(concurrency_group="acquire")
-    def acquire(self):
-        """Acquire a token from the bucket."""
-        self._semaphore.acquire()
-        self.current_count += 1
-
-    @ray.method(concurrency_group="release")
-    def release(self):
-        """Release a token back to the bucket."""
-        self._semaphore.release()
-        self.current_count -= 1
-
-    def get_current_count(self):
-        """Get current number of acquired tokens."""
-        return self.current_count
-
-
-class SearchExecutionWorker:
-    """Worker for executing search operations with optional rate limiting."""
-
-    def __init__(self, enable_global_rate_limit=True, rate_limit=10):
-        self.rate_limit_worker = self._init_rate_limit(rate_limit) if enable_global_rate_limit else None
-
-    def _init_rate_limit(self, rate_limit):
-        """Initialize singleton rate limiter."""
-        return TokenBucketWorker.options(name="rate-limiter", get_if_exists=True).remote(rate_limit)
-
-    def ping(self):
-        """Health check method."""
-        return True
-
-    def execute(self, fn: Callable[..., T], *fn_args, **fn_kwargs) -> T:
-        """Execute function with optional rate limiting."""
-        if self.rate_limit_worker:
-            with ExitStack() as stack:
-                stack.callback(self.rate_limit_worker.release.remote)
-                ray.get(self.rate_limit_worker.acquire.remote())
-                try:
-                    return fn(*fn_args, **fn_kwargs)
-                except Exception as e:
-                    # TODO we should make this available to the tool caller
-                    logger.warning(f"Error when executing search: {e}")
-        else:
-            return fn(*fn_args, **fn_kwargs)
-
-
-def init_search_execution_pool(num_workers: int, enable_global_rate_limit=True, rate_limit=10, mode: PoolMode = PoolMode.ThreadMode):
-    """Initialize search execution pool."""
-    if mode == PoolMode.ThreadMode:
-        return ray.remote(SearchExecutionWorker).options(max_concurrency=num_workers).remote(enable_global_rate_limit=enable_global_rate_limit, rate_limit=rate_limit)
-    else:
-        raise NotImplementedError("Process mode is not implemented yet")
 
 
 class SearchTool(BaseTool):
@@ -158,7 +82,7 @@ class SearchTool(BaseTool):
         self.timeout = config.get("timeout", 30)
 
         self.enable_global_rate_limit = config.get("enable_global_rate_limit", True)
-        self.execution_pool = init_search_execution_pool(num_workers=self.num_workers, enable_global_rate_limit=self.enable_global_rate_limit, rate_limit=self.rate_limit, mode=PoolMode.ThreadMode)
+        self.execution_pool = init_execution_pool(num_workers=self.num_workers, enable_global_rate_limit=self.enable_global_rate_limit, rate_limit=self.rate_limit, mode=PoolMode.ThreadMode, rate_limiter_name="search_rate_limiter")
 
         # Retrieval service configuration
         self.retrieval_service_url = config.get("retrieval_service_url")

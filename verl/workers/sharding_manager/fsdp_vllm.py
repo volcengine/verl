@@ -144,6 +144,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                     model = model.to(orig_dev)
             return lora_params
 
+        print("--------- sharding_manager __enter__ ")
         # NOTE: Basically, we only need `get_torch_device().empty_cache()` before vllm wake_up and
         # after vllm sleep, since vllm has its own caching memory allocator CuMemAllocator.
         # Out of vllm scope, we should avoid empty cache to let pytorch using caching memory

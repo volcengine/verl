@@ -59,7 +59,6 @@ def test_rl_dataset():
 
     data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
     assert "input_ids" in data_proto.batch
-
     data = dataset[0]["input_ids"]
     output = tokenizer.batch_decode([data])[0]
     print(f"type: type{output}")
