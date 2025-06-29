@@ -1,5 +1,6 @@
 set -x
-export VLLM_ATTENTION_BACKEND=XFORMERS
+# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
+# export VLLM_ATTENTION_BACKEND=XFORMERS
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -8,22 +9,26 @@ python3 -m verl.trainer.main_ppo \
     data.train_batch_size=128 \
     data.max_prompt_length=1024 \
     data.max_response_length=2048 \
-    data.filter_overlong_prompts=True \
+    data.filter_overlong_prompts=False \
     data.truncation='error' \
     data.image_key=images \
-    +data.trust_remote_code=True \
+    data.trust_remote_code=True \
+    data.custom_cls.path=recipe/minicpmo/rl_dataset.py \
+    data.custom_cls.name=RLHFDataset \
     actor_rollout_ref.model.path=openbmb/MiniCPM-o-2_6 \
-    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.model.use_remove_padding=True \
+    actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.use_dynamic_bsz=False \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
-    actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+    +actor_rollout_ref.actor.fsdp_config.use_orig_params=True \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
@@ -43,6 +48,4 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
-    trainer.total_epochs=15 \
-    actor_rollout_ref.model.trust_remote_code=True \
-    +actor_rollout_ref.rollout.trust_remote_code=True $@
+    trainer.total_epochs=15 $@

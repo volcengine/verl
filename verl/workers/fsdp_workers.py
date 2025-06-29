@@ -20,7 +20,7 @@ import logging
 import os
 import warnings
 from dataclasses import asdict
-from typing import Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import psutil
 import torch
@@ -323,14 +323,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 actor_module,
                 cpu_offload=cpu_offload,
                 param_init_fn=init_fn,
-                use_orig_params=False,
                 auto_wrap_policy=auto_wrap_policy,
                 device_id=get_device_id(),
                 sharding_strategy=sharding_strategy,  # zero3
                 mixed_precision=mixed_precision,
                 sync_module_states=True,
                 device_mesh=self.device_mesh,
-                forward_prefetch=self.config.actor.fsdp_config.forward_prefetch,
+                use_orig_params=self.config.actor.fsdp_config.get("use_orig_params", False),
+                forward_prefetch=self.config.actor.fsdp_config.get("forward_prefetch", False),
             )
         elif fsdp_strategy == "fsdp2":
             assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
@@ -438,6 +438,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 module=self.actor_module_fsdp,
                 inference_engine=rollout.inference_engine,
                 model_config=self.actor_model_config,
+                rollout_config=self.config.rollout,
                 full_params=full_params,
                 device_mesh=rollout_device_mesh,
                 offload_param=self._is_offload_param,
@@ -481,6 +482,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 module=self.actor_module_fsdp,
                 inference_engine=rollout._engine,
                 model_config=self.actor_model_config,
+                rollout_config=self.config.rollout,
                 full_params="hf" in self.config.rollout.load_format,
                 device_mesh=rollout_device_mesh,
                 offload_param=self._is_offload_param,
@@ -1513,14 +1515,21 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         ret = await self.rollout.chat_completion(json_request)
         return ret
 
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
+    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+        ret = await self.rollout.generate(prompt_ids, sampling_params, request_id)
+        return ret
+
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def wake_up(self):
-        await self.rollout.wake_up()
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.wake_up()
         # return something to block the caller
         return True
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def sleep(self):
-        await self.rollout.sleep()
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.sleep()
         # return something to block the caller
         return True

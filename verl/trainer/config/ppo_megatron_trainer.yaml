@@ -214,6 +214,15 @@ actor_rollout_ref:
       # null for no limit (default max_length // 3)
       max_user_turns: null
 
+      # max parallel call for tools in single turn
+      max_parallel_calls: 1
+
+      # max length of tool response
+      max_tool_response_length: 256
+
+      # truncate side of tool response: left, middle, right
+      tool_response_truncate_side: middle
+
       # null for no interaction
       interaction_config_path: null
 
@@ -237,6 +246,12 @@ actor_rollout_ref:
   
       # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
       format: hermes
+
+    # [Experimental] agent loop based rollout configs
+    agent:
+
+      # Number of agent loop workers
+      num_workers: 8
 
     # support logging rollout prob for debugging purpose
     calculate_log_probs: False
@@ -396,6 +411,8 @@ trainer:
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1
+  esi_redundant_time: 0
+  
   # auto: find the last ckpt to resume. If can't find, start from scratch
   resume_mode: auto # or disable or resume_path if resume_from_path is set
   resume_from_path: null

@@ -26,13 +26,14 @@ class TestGsm8kInteraction:
 
     def setup_method(self):
         """Set up test environment before each test method."""
-        self.config = {}
+        self.config = {"name": "gsm8k"}
         self.interaction = Gsm8kInteraction(self.config)
 
     def test_init(self):
         """Test Gsm8kInteraction initialization."""
         assert self.interaction._instance_dict == {}
         assert self.interaction.config == self.config
+        assert self.interaction.name == "gsm8k"
 
     @pytest.mark.asyncio
     async def test_start_interaction_with_instance_id(self):
@@ -378,3 +379,19 @@ class TestGsm8kInteraction:
         assert callable(self.interaction.generate_response)
         assert callable(self.interaction.calculate_score)
         assert callable(self.interaction.finalize_interaction)
+
+    def test_name_attribute_initialization(self):
+        """Test name attribute initialization with different configs."""
+        # Test with explicit name in config
+        config_with_name = {"name": "custom_gsm8k"}
+        interaction_with_name = Gsm8kInteraction(config_with_name)
+        assert interaction_with_name.name == "custom_gsm8k"
+
+        # Test with default name when not provided in config
+        config_without_name = {}
+        interaction_without_name = Gsm8kInteraction(config_without_name)
+        assert interaction_without_name.name == "interaction_agent"  # Default from BaseInteraction
+
+        # Test that name is accessible as attribute
+        assert hasattr(self.interaction, "name")
+        assert self.interaction.name == "gsm8k"

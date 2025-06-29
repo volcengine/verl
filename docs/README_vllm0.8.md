@@ -1,5 +1,7 @@
 # Upgrading to vLLM >= 0.8
 
+Last updated: 05/04/2025.
+
 ## Installation
 
 Note: This version of verl+vLLM 0.8+ supports **FSDP** for training and **vLLM** for rollout.
@@ -34,7 +36,7 @@ vLLM 0.8+ supports cuda graph and V1 engine by default in verl. To enable these 
 
 ```bash
 actor_rollout_ref.rollout.enforce_eager=False \
-actor_rollout_ref.rollout.free_cache_engine=False \
+actor_rollout_ref.rollout.free_cache_engine=True \
 ```
 
 and also **remove** the environment variable if it exists:
