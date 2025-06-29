@@ -71,7 +71,9 @@ def main():
         raise OSError("GITHUB_EVENT_PATH is not set.")
 
     template_snippet = load_template(template_file)
+    print(f"The original PR template pattern to match:\n{template_snippet}")
     pr_body = load_pr_body(event_path)
+    print(f"The PR body:\n{pr_body}")
     check_pr_description(pr_body, template_snippet)
 
     print("✅ '### What does this PR do?' section has been filled out.")
