@@ -669,6 +669,18 @@ class SGLangRollout(BaseRollout):
             if self.config.calculate_log_probs:
                 rollout_log_probs = pad_sequence_to_length(rollout_log_probs, self.config.response_length, self.pad_token_id)
 
+        # utilize current sampling params
+        if request_sampling_params.get("n", 1) > 1 and do_sample:
+            idx = idx.repeat_interleave(request_sampling_params["n"], dim=0)
+            attention_mask = attention_mask.repeat_interleave(request_sampling_params["n"], dim=0)
+            position_ids = position_ids.repeat_interleave(request_sampling_params["n"], dim=0)
+            batch_size = batch_size * request_sampling_params["n"]
+            _non_tensor_batch = {}
+            for key, val in non_tensor_batch.items():
+                _non_tensor_batch[key] = np.repeat(val, request_sampling_params["n"], axis=0)
+        else:
+            _non_tensor_batch = non_tensor_batch
+
         seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
@@ -706,7 +718,7 @@ class SGLangRollout(BaseRollout):
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self._engine.flush_cache())
 
-        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+        return DataProto(batch=batch, non_tensor_batch=_non_tensor_batch)
 
     async def _async_rollout_a_request(
         self,
