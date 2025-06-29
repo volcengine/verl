@@ -982,9 +982,7 @@ class RayPPOTrainer:
                     batch.non_tensor_batch["uid"] = uids_for_prompts
                     gen_batch.non_tensor_batch["uid"] = uids_for_prompts
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    print(f"DEBUG: len(batch.non_tensor_batch['uid']): {len(batch.non_tensor_batch['uid'])}")
                     gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    print(f"DEBUG: len(gen_batch.non_tensor_batch['uid']): {len(gen_batch.non_tensor_batch['uid'])}")
                     assert np.array_equal(batch.non_tensor_batch["uid"], gen_batch.non_tensor_batch["uid"]), "UIDs must be identical for SGLang rollout"
 
                 is_last_step = self.global_steps >= self.total_training_steps
@@ -1022,8 +1020,6 @@ class RayPPOTrainer:
                         # repeat to align with repeated responses in rollout
                         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
-                    print(f"DEBUG: len(batch.non_tensor_batch['uid']): {len(batch.non_tensor_batch['uid'])}")
-                    print(f"DEBUG: len(gen_batch_output.non_tensor_batch['uid']): {len(gen_batch_output.non_tensor_batch['uid'])}")
                     batch = batch.union(gen_batch_output)
 
                     batch.batch["response_mask"] = compute_response_mask(batch)
