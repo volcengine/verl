@@ -68,11 +68,17 @@ class AsyncSglangServer(AsyncServerBase):
         return await self.master_worker.generate.remote(prompt_ids, sampling_params, request_id)
 
     async def wake_up(self):
+        if not self.config.rollout.free_cache_engine:
+            return
+
         tasks = [worker.wake_up.remote() for worker in self.workers]
         if tasks:
             await asyncio.gather(*tasks)
 
     async def sleep(self):
+        if not self.config.rollout.free_cache_engine:
+            return
+
         tasks = [worker.sleep.remote() for worker in self.workers]
         if tasks:
             await asyncio.gather(*tasks)

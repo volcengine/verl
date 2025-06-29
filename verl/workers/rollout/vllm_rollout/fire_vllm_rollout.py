@@ -36,6 +36,7 @@ from torch import nn
 from vllm import SamplingParams
 
 from verl import DataProto
+from verl.third_party.vllm import customized_vllm
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.rollout.vllm_rollout.vllm_rollout import vLLMRollout
 
@@ -110,7 +111,7 @@ class FIREvLLMRollout(vLLMRollout):
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         # rebuild vllm cache engine
-        if self.config.free_cache_engine:
+        if customized_vllm and self.config.free_cache_engine:
             self.inference_engine.init_cache_engine()
 
         idx = prompts.batch["input_ids"]  # (bs, prompt_length)
@@ -211,7 +212,7 @@ class FIREvLLMRollout(vLLMRollout):
         )
 
         # free vllm cache engine
-        if self.config.free_cache_engine:
+        if customized_vllm and self.config.free_cache_engine:
             self.inference_engine.free_cache_engine()
 
         return DataProto(batch=batch)

@@ -98,9 +98,8 @@ Our investigation shows that ROCm may trigger an unexpected crash when attemptin
         seed=config.get('seed', 0),
     )
 
-Then, you can enable CUDA graph by setting the following environment variables (see `this page <https://github.com/volcengine/verl/blob/v0.3.0.rc0/docs/README_vllm0.8.md>`_):
+Then, you can choose to enable CUDA graph by setting the following environment variables (see `this page <https://github.com/volcengine/verl/blob/v0.3.0.rc0/docs/README_vllm0.8.md>`_):
 
 .. code-block:: bash
 
 	actor_rollout_ref.rollout.enforce_eager=False \
-	actor_rollout_ref.rollout.free_cache_engine=False \
