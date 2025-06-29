@@ -47,13 +47,33 @@ Megatron Hybrid Engine:
 
 
 class MegatronSGLangShardingManager(BaseShardingManager):
+    """A sharding manager for Megatron-style training/inference with SGLang.
+
+    This class manages the sharding of model parameters between training and inference
+    phases in a Megatron-style parallel setup. It handles:
+    - Loading/offloading parameters between CPU/GPU
+    - Updating inference engine weights
+    - Managing random states for reproducibility
+    - Data preprocessing for distributed inference
+
+    Args:
+        actor_module (nn.ModuleList): The actor model modules
+        inference_engine (Engine): The SGLang inference engine
+        model_config: Configuration for the actor's model
+        rollout_config: Configuration for rollout generation
+        transformer_config: Transformer-specific configuration
+        layer_name_mapping: Mapping between layer names and parameters
+        weight_converter: Utility for converting weights between formats
+        device_mesh (DeviceMesh | None): PyTorch device mesh for distributed training
+        offload_param (bool): Whether to offload parameters to CPU when not in use
+    """
     def __init__(
         self,
         actor_module: nn.ModuleList,
         inference_engine: Engine,
-        model_config,
-        rollout_config,
-        transformer_config,
+        model_config: "DictConfig",
+        rollout_config: "DictConfig",
+        transformer_config: "PretrainedConfig",
         layer_name_mapping,
         weight_converter,
         device_mesh: DeviceMesh | None = None,

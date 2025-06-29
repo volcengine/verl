@@ -54,14 +54,37 @@ Megatron Hybrid Engine:
 
 
 class MegatronVLLMShardingManager(BaseShardingManager):
+    """A sharding manager that bridges Megatron-LM training with vLLM inference.
+
+    This class handles the parameter sharding and communication between:
+    - Megatron-LM's tensor/expert parallel training setup
+    - vLLM's tensor parallel inference setup
+
+    Key responsibilities:
+    - Manages parameter broadcasting between training and inference configurations
+    - Handles weight conversion between Megatron and HuggingFace formats
+    - Coordinates memory management between training and inference phases
+    - Maintains random state consistency across different parallel groups
+
+    Args:
+        actor_module (nn.ModuleList): The Megatron-LM model being trained
+        inference_engine (LLM): The vLLM inference engine
+        model_config: Configuration for the actor's model
+        transformer_config: Transformer-specific configuration for the model
+        rollout_config: Configuration for rollout
+        layer_name_mapping: Mapping between Megatron and HF layer names
+        weight_converter (McoreToHFWeightConverterBase): Converts weights between formats
+        device_mesh: Device mesh for parallel operations
+        offload_param (bool): Whether to offload parameters when not in use
+    """
     @check_device_is_available()
     def __init__(
         self,
         actor_module: nn.ModuleList,
         inference_engine: LLM,
-        model_config,
-        transformer_config,
-        rollout_config,
+        model_config: "DictConfig",
+        transformer_config: "PretrainedConfig",
+        rollout_config: "DictConfig",
         layer_name_mapping,
         weight_converter: McoreToHFWeightConverterBase,
         device_mesh,
