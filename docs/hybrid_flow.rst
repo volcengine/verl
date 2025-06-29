@@ -2,6 +2,8 @@
 HybridFlow Programming Guide
 =========================================================
 
+Last updated: 06/02/2025.
+
 .. _vermouth: https://github.com/vermouth1992
 
 Author: `Chi Zhang <https://github.com/vermouth1992>`_

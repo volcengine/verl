@@ -1,6 +1,8 @@
 Multinode Training
 ==================
 
+Last updated: 06/10/2025.
+
 .. _wuxibin89: https://github.com/wuxibin89
 
 Author: `Xibin Wu <https://github.com/wuxibin89>`_, `Yusheng Su <https://yushengsu-thu.github.io/>`_.

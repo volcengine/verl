@@ -1,6 +1,8 @@
 Frequently Asked Questions
 ====================================
 
+Last updated: 06/25/2025.
+
 Ray related
 ------------
 
