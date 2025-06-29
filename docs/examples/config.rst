@@ -3,6 +3,8 @@
 Config Explanation
 ===================
 
+Last updated: 06/18/2025.
+
 ppo_trainer.yaml for RL FSDP Backend
 -------------------------------------
 
