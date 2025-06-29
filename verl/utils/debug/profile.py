@@ -13,8 +13,8 @@
 # limitations under the License.
 
 import os
-from dataclasses import dataclass
-from typing import Callable, Optional
+from dataclasses import dataclass, field
+from typing import Callable, Optional, Union
 
 import torch
 import torch.distributed
@@ -125,9 +125,9 @@ def mark_annotate(message: Optional[str] = None, color: Optional[str] = None, do
 
     return decorator
 
-
-@dataclass
-class ProfilerConfig:
+from verl.base_config import BaseConfig
+@dataclass(frozen=True)
+class ProfilerConfig(BaseConfig):
     """Worker profiler config. Currently only support Nsight system profiler."""
 
     # True for each task has its own database, False for all tasks in one training step share one database.
@@ -136,8 +136,8 @@ class ProfilerConfig:
     # Whether to profile all ranks.
     all_ranks: bool = False
 
-    # The ranks that will be profiled. None or [0,1,...]
-    ranks: Optional[list[int]] = None
+    # The ranks that will be profiled. [] or [0,1,...]
+    ranks: list[int] = field(default_factory=list)
 
     def union(self, other: "ProfilerConfig") -> "ProfilerConfig":
         return ProfilerConfig(
@@ -155,8 +155,6 @@ class ProfilerConfig:
 
     def __post_init__(self) -> None:
         """config validation logics go here"""
-        if self.ranks is None:
-            self.ranks = []
         assert isinstance(self.ranks, (set, list, tuple))
 
 

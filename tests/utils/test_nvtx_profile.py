@@ -110,10 +110,15 @@ class TestNsightSystemsProfiler(unittest.TestCase):
         arr = cfg.actor_rollout_ref
         for config in [cfg.critic.profiler, arr.actor.profiler, cfg.reward_model.profiler, arr.ref.profiler, arr.rollout.profiler]:
             profiler_config = omega_conf_to_dataclass(config, ProfilerConfig)
-            self.assertEqual(profiler_config.discrete, False)
-            self.assertEqual(profiler_config.all_ranks, False)
-            self.assertEqual(profiler_config.ranks, [])
+            self.assertEqual(profiler_config.discrete, config.discrete)
+            self.assertEqual(profiler_config.all_ranks, config.all_ranks)
+            self.assertEqual(profiler_config.ranks, config.ranks)
             assert isinstance(profiler_config, ProfilerConfig)
+            with self.assertRaises(AttributeError):
+                profiler_config.non_existing_key
+            assert config.get('non_existing_key') == profiler_config.get('non_existing_key')
+            assert config.get('non_existing_key', 1) == profiler_config.get('non_existing_key', 1)
+            assert config['discrete'] == profiler_config['discrete']
 
 
 if __name__ == "__main__":

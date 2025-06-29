@@ -308,8 +308,8 @@ actor_rollout_ref:
       # Whether to profile all ranks.
       all_ranks: False
 
-      # The ranks that will be profiled. null or [0,1,...]
-      ranks: null
+      # The ranks that will be profiled. [] or [0,1,...]
+      ranks: []
 
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
@@ -372,8 +372,8 @@ actor_rollout_ref:
       # Whether to profile all ranks.
       all_ranks: False
 
-      # The ranks that will be profiled. null or [0,1,...]
-      ranks: null
+      # The ranks that will be profiled. [] or [0,1,...]
+      ranks: []
 
   # Rollout model config.
   rollout:
@@ -547,8 +547,8 @@ actor_rollout_ref:
       # Whether to profile all ranks.
       all_ranks: False
 
-      # The ranks that will be profiled. null or [0,1,...]
-      ranks: null
+      # The ranks that will be profiled. [] or [0,1,...]
+      ranks: []
 
 # configs for the critic
 critic:
@@ -709,8 +709,8 @@ critic:
     # Whether to profile all ranks.
     all_ranks: False
 
-    # The ranks that will be profiled. null or [0,1,...]
-    ranks: null
+    # The ranks that will be profiled. [] or [0,1,...]
+    ranks: []
 
 # configs for the reward model
 reward_model:
@@ -820,8 +820,8 @@ reward_model:
     # Whether to profile all ranks.
     all_ranks: False
 
-    # The ranks that will be profiled. null or [0,1,...]
-    ranks: null
+    # The ranks that will be profiled. [] or [0,1,...]
+    ranks: []
 
 # custom reward function definition
 custom_reward_function:

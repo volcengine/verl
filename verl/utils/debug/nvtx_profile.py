@@ -101,6 +101,7 @@ class NsightSystemsProfiler(DistProfiler):
 
     def __init__(self, rank: int, config: ProfilerConfig):
         config = config
+        assert config is not None
         self.this_step: bool = False
         self.discrete: bool = config.discrete
         self.this_rank: bool = False
