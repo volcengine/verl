@@ -48,7 +48,7 @@ def load_template(path):
                 line = f.readline()
                 if not line:
                     break
-                lines.append(line)
+                lines.append(line.strip())
         return lines
     except Exception as e:
         raise TemplateFileError(
@@ -69,7 +69,7 @@ def check_pr_description(body, template_lines):
     If they match exactly, the placeholder was not modified.
     """
     pr_lines = body.splitlines(keepends=True)
-    pr_first = pr_lines[:NUM_LINES]
+    pr_first = [x.strip() for x in pr_lines[:NUM_LINES]]
     if pr_first == template_lines:
         raise PRDescriptionError(
             "It looks like you haven't updated the '### What does this PR do?' section. "
