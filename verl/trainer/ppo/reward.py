@@ -21,10 +21,12 @@ import ray
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
 
+
 # This function is used to merge additional keyword arguments with the original function's arguments.
 def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
     merged_kwargs = {**kwargs, **extra_kwargs}
     return raw_fn(*args, **merged_kwargs)
+
 
 def get_custom_reward_fn(config):
     import importlib.util
@@ -55,11 +57,7 @@ def get_custom_reward_fn(config):
 
     reward_kwargs = dict(reward_fn_config.get("reward_kwargs", {}))
 
-    return partial(
-        _call_with_kwargs,
-        raw_fn,
-        reward_kwargs
-    )
+    return partial(_call_with_kwargs, raw_fn, reward_kwargs)
 
 
 def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
