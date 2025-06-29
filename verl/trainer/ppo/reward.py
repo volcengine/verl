@@ -57,8 +57,8 @@ def get_custom_reward_fn(config):
 
     return partial(
         _call_with_kwargs,
-        raw_fn=raw_fn,
-        extra_kwargs=reward_kwargs
+        raw_fn,
+        reward_kwargs
     )
 
 
