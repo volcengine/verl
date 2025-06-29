@@ -958,56 +958,7 @@ class RayPPOTrainer:
                 timing_raw = {}
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
-                if self.config.actor_rollout_ref.rollout.name == "sglang":
-                    uids_for_prompts = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
-                    batch.non_tensor_batch["uid"] = uids_for_prompts
-                    batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
-                    non_tensor_batch_keys_to_pop = ["raw_prompt_ids", "uid"]
-                    if "multi_modal_data" in batch.non_tensor_batch:
-                        non_tensor_batch_keys_to_pop.append("multi_modal_data")
-                    if "raw_prompt" in batch.non_tensor_batch:
-                        non_tensor_batch_keys_to_pop.append("raw_prompt")
-                    if "tools_kwargs" in batch.non_tensor_batch:
-                        non_tensor_batch_keys_to_pop.append("tools_kwargs")
-                    if "interaction_kwargs" in batch.non_tensor_batch:
-                        non_tensor_batch_keys_to_pop.append("interaction_kwargs")
-                    gen_batch = batch.pop(
-                        batch_keys=batch_keys_to_pop,
-                        non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
-                    )
-                    is_last_step = self.global_steps >= self.total_training_steps
-
-                    batch.non_tensor_batch["uid"] = uids_for_prompts
-                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-
-                    assert np.array_equal(batch.non_tensor_batch["uid"], gen_batch.non_tensor_batch["uid"]), "UIDs must be identical for SGLang rollout"
-
-                    with marked_timer("step", timing_raw):
-                        with marked_timer("gen", timing_raw):
-                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                            assert np.array_equal(batch.non_tensor_batch["uid"], gen_batch_output.non_tensor_batch["uid"]), "UIDs must be identical for SGLang rollout"
-                            timing_raw.update(gen_batch_output.meta_info["timing"])
-                            gen_batch_output.meta_info.pop("timing", None)
-
-                        if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
-                            with marked_timer("gen_max", timing_raw, color="purple"):
-                                gen_baseline_batch = deepcopy(gen_batch)
-                                gen_baseline_batch.meta_info["do_sample"] = False
-                                gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
-
-                                batch = batch.union(gen_baseline_output)
-                                reward_baseline_tensor = self.reward_fn(batch)
-                                reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
-
-                                batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
-
-                                batch.batch["reward_baselines"] = reward_baseline_tensor
-
-                                del gen_baseline_batch, gen_baseline_output
-
-                    batch = batch.union(gen_batch_output)
-                elif self.config.actor_rollout_ref.rollout.name == "vllm":
+                if self.config.actor_rollout_ref.rollout.name == "vllm":
                     # pop those keys for generation
                     batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
                     non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
@@ -1055,6 +1006,55 @@ class RayPPOTrainer:
                         batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
                         # repeat to align with repeated responses in rollout
                         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                        batch = batch.union(gen_batch_output)
+                elif self.config.actor_rollout_ref.rollout.name == "sglang":
+                    uids_for_prompts = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+                    batch.non_tensor_batch["uid"] = uids_for_prompts
+                    batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
+                    non_tensor_batch_keys_to_pop = ["raw_prompt_ids", "uid"]
+                    if "multi_modal_data" in batch.non_tensor_batch:
+                        non_tensor_batch_keys_to_pop.append("multi_modal_data")
+                    if "raw_prompt" in batch.non_tensor_batch:
+                        non_tensor_batch_keys_to_pop.append("raw_prompt")
+                    if "tools_kwargs" in batch.non_tensor_batch:
+                        non_tensor_batch_keys_to_pop.append("tools_kwargs")
+                    if "interaction_kwargs" in batch.non_tensor_batch:
+                        non_tensor_batch_keys_to_pop.append("interaction_kwargs")
+                    gen_batch = batch.pop(
+                        batch_keys=batch_keys_to_pop,
+                        non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
+                    )
+                    is_last_step = self.global_steps >= self.total_training_steps
+
+                    batch.non_tensor_batch["uid"] = uids_for_prompts
+                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    assert np.array_equal(batch.non_tensor_batch["uid"], gen_batch.non_tensor_batch["uid"]), "UIDs must be identical for SGLang rollout"
+
+                    with marked_timer("step", timing_raw):
+                        # generate a batch
+                        with marked_timer("gen", timing_raw, color="red"):
+                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                            assert np.array_equal(batch.non_tensor_batch["uid"], gen_batch_output.non_tensor_batch["uid"]), "UIDs must be identical for SGLang rollout"
+                            timing_raw.update(gen_batch_output.meta_info["timing"])
+                            gen_batch_output.meta_info.pop("timing", None)
+
+                        if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
+                            with marked_timer("gen_max", timing_raw, color="purple"):
+                                gen_baseline_batch = deepcopy(gen_batch)
+                                gen_baseline_batch.meta_info["do_sample"] = False
+                                gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
+
+                                batch = batch.union(gen_baseline_output)
+                                reward_baseline_tensor = self.reward_fn(batch)
+                                reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
+
+                                batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
+
+                                batch.batch["reward_baselines"] = reward_baseline_tensor
+
+                                del gen_baseline_batch, gen_baseline_output
+
                         batch = batch.union(gen_batch_output)
 
                     batch.batch["response_mask"] = compute_response_mask(batch)
