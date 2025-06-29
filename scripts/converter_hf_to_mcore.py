@@ -338,10 +338,11 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
         from verl.models.mcore import init_mcore_model
 
         parallel_model = init_mcore_model(
-            tfconfig,
-            hf_config,
-            pre_process,
-            post_process,
+            tfconfig=tfconfig,
+            hf_config=hf_config,
+            use_fused_kernels=False,
+            pre_process=pre_process,
+            post_process=post_process,
             share_embeddings_and_output_weights=tie_word_embeddings,
             value=False,
         )
@@ -377,7 +378,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
     elif "Qwen2_5_VLForConditionalGeneration" in hf_config.architectures:
         convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hf_model, model[0].module, hf_config)
     elif "DeepseekV3ForCausalLM" in hf_config.architectures:
-        numel: int = convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model[0].module, hf_config, tfconfig=tfconfig)
+        numel: int = convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model[0].module, hf_config, tf_config=tfconfig)
         if numel != hf_model.num_parameters():
             warnings.warn(f"numel mismatch: {numel=} != {hf_model.num_parameters()=}", stacklevel=1)
     elif "Qwen3MoeForCausalLM" in hf_config.architectures:

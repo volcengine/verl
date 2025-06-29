@@ -20,6 +20,8 @@ from abc import ABC, abstractmethod
 from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec, get_gpt_mtp_block_spec
 from megatron.core.models.gpt.gpt_model import GPTModel
 
+from verl.models.mcore.patch_v012 import GPTModelWithFusedLayer, apply_monkey_patch
+
 from .config_converter import PretrainedConfig, TransformerConfig
 
 
@@ -47,6 +49,7 @@ class BaseModelInitializer(ABC):
 
     def initialize(
         self,
+        use_fused_kernels: bool = False,
         pre_process: bool = True,
         post_process: bool = True,
         share_embeddings_and_output_weights: bool = False,
@@ -65,10 +68,17 @@ class BaseModelInitializer(ABC):
         Returns:
             GPTModel: An initialized GPT model instance
         """
+
+        # Apply patches to GPTModel
+        apply_monkey_patch(self.hf_config.model_type == "deepseek_v3")
+
         transformer_layer_spec = self.get_transformer_layer_spec()
         rope_scaling_args = self.get_rope_scaling_args()
         mtp_block_spec = extra_kwargs.get("mtp_block_spec", None)
-        model = GPTModel(
+        MODEL_CLASS = GPTModel
+        if use_fused_kernels:
+            MODEL_CLASS = GPTModelWithFusedLayer
+        model = MODEL_CLASS(
             config=self.tfconfig,
             transformer_layer_spec=transformer_layer_spec,
             vocab_size=self.hf_config.vocab_size,
