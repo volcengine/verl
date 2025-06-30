@@ -415,22 +415,17 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # TODO: a sharding manager that do nothing?
 
         elif rollout_name == "vllm":
-            from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMRollout
+            from verl.workers.rollout.vllm_rollout import vLLMRollout
             from verl.workers.sharding_manager.fsdp_vllm import FSDPVLLMShardingManager
 
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
             local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
             lora_kwargs = {"lora_kwargs": {"enable_lora": True, "max_loras": 1, "max_lora_rank": self._lora_rank}} if self._is_lora else {}
             # lora_kwargs = {}
-            if vllm_mode == "customized":
-                rollout = vLLMRollout(actor_module=self.actor_module_fsdp, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor_model_config, trust_remote_code=trust_remote_code, **lora_kwargs)
-            elif vllm_mode == "spmd":
-                from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
+            from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 
-                vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
-                rollout = vllm_rollout_cls(model_path=local_path, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor_model_config, device_mesh=rollout_device_mesh, trust_remote_code=trust_remote_code, **lora_kwargs)
-            else:
-                raise NotImplementedError("vllm_mode must be 'customized' or 'spmd'")
+            vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
+            rollout = vllm_rollout_cls(model_path=local_path, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor_model_config, device_mesh=rollout_device_mesh, trust_remote_code=trust_remote_code, **lora_kwargs)
 
             log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
             full_params = torch.distributed.get_world_size() == 1
