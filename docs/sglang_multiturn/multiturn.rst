@@ -123,7 +123,7 @@ The tokenization sanity check mode can be configured using the ``actor_rollout_r
 
 - ``ignore_strippable``: Ignores differences in whitespace characters (``\n``, ``\t``, ``\r``, spaces) while still checking for meaningful text mismatches. This is useful when debugging chat template issues where whitespace variations are expected and acceptable.
 
-- ``off``: Completely disables the tokenization sanity check. Only use this if you have thoroughly validated that tokenization discrepancies are expected and won't impact training.
+- ``disable``: Completely disables the tokenization sanity check. Only use this if you have thoroughly validated that tokenization discrepancies are expected and won't impact training.
 
 Example configuration:
 
@@ -132,7 +132,7 @@ Example configuration:
     actor_rollout_ref:
         rollout:
             multi_turn:
-                tokenization_sanity_check_mode: "ignore_strippable"  # Choose from: "strict", "ignore_strippable", "off"
+                tokenization_sanity_check_mode: "ignore_strippable"  # Choose from: "disable", "ignore_strippable", "strict"
 
 Handling Multi-Modal Inputs in Datasets
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -70,7 +70,7 @@ class AsyncRolloutRequestStateEnum(str, Enum):
 class TokenizationSanityCheckModeEnum(str, Enum):
     """The enum for tokenization sanity check mode."""
 
-    OFF = "off"
+    DISABLE = "disable"
     STRICT = "strict"
     IGNORE_STRIPPABLE = "ignore_strippable"
 
@@ -367,7 +367,7 @@ class AsyncRolloutRequest(BaseModel):
         self.multi_modal_inputs.pop("input_ids", None)
         self.multi_modal_inputs.pop("attention_mask", None)
 
-        if self.tokenization_sanity_check_mode != TokenizationSanityCheckModeEnum.OFF:
+        if self.tokenization_sanity_check_mode != TokenizationSanityCheckModeEnum.DISABLE:
             # When there is a diff, we log the diffs with diff_surrounding_chars context
             diff_surrounding_chars = 10
 
