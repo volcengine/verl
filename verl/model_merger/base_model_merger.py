@@ -37,7 +37,7 @@ def parse_args():
 
     base_op_parser = argparse.ArgumentParser(add_help=False)
     base_op_parser.add_argument("--backend", type=str, required=True, choices=["fsdp", "megatron"], help="The backend of the model")
-    base_op_parser.add_argument("--local_dir", type=str, default=None, help="Path to the original Hugging Face model for config.")
+    base_op_parser.add_argument("--local_dir", type=str, default=None, help="Path to the saved model checkpoints")
     base_op_parser.add_argument("--tie-word-embedding", action="store_true", help="Whether to tie word embedding weights (currently only Megatron supported)")
     base_op_parser.add_argument("--is-value-model", action="store_true", help="Whether the model is a value model (currently only Megatron supported)")
     base_op_parser.add_argument("--use_cpu_initialization", action="store_true", help="Whether to use CPU initialization for the model. This is useful for large models that cannot fit into GPU memory during initialization.")
