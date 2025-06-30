@@ -40,10 +40,13 @@ def get_rope_index(
     Calculate the 3D rope index based on image and video's temporal, height and width in LLM.
 
     Explanation:
+
         Each embedding sequence contains vision embedding and text embedding or just contains text embedding.
 
         For pure text embedding sequence, the rotary position embedding has no difference with modern LLMs.
+
         Examples:
+
             input_ids: [T T T T T], here T is for text.
             temporal position_ids: [0, 1, 2, 3, 4]
             height position_ids: [0, 1, 2, 3, 4]
@@ -51,7 +54,9 @@ def get_rope_index(
 
         For vision and text embedding sequence, we calculate 3D rotary position embedding for vision part
         and 1D rotary position embedding for text part.
+
         Examples:
+
             Temporal (Time): 3 patches, representing different segments of the video in time.
             Height: 2 patches, dividing each frame vertically.
             Width: 2 patches, dividing each frame horizontally.
@@ -59,7 +64,7 @@ def get_rope_index(
             fps (Frames Per Second): The video's frame rate, set to 1. This means one frame is processed each
             second.
             tokens_per_second: This is a crucial parameter. It dictates how many "time-steps" or "temporal
-            tokens" are conceptually packed into a one-second interval of the video.
+                               tokens" are conceptually packed into a one-second interval of the video.
                                In this case, we have 25 tokens per second. So each second of the video will be
                                represented with 25 separate time points. It essentially defines the temporal
                                granularity.
