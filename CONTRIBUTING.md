@@ -42,6 +42,14 @@ Our test suites run on GitHub Actions. Check these workflows for details:
 - [vLLM tests](https://github.com/volcengine/verl/blob/main/.github/workflows/vllm.yml)
 - [SGLang tests](https://github.com/volcengine/verl/blob/main/.github/workflows/sgl.yml)
 
+### Adding CI tests
+
+If possible, please add CI test(s) for your new feature:
+
+1. Find the most relevant workflow yml file, which usually corresponds to a `hydra` default config (e.g. `ppo_trainer`, `ppo_megatron_trainer`, `sft_trainer`, etc).
+2. Add related path patterns to the `paths` section if not already included.
+3. Minimize the workload of the test script(s) (see existing scripts for examples).
+
 ## Building the Docs
 ```
 # Ensure verl is on your PYTHONPATH, e.g.:
