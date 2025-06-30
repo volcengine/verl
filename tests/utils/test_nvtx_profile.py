@@ -115,10 +115,14 @@ class TestNsightSystemsProfiler(unittest.TestCase):
             self.assertEqual(profiler_config.ranks, config.ranks)
             assert isinstance(profiler_config, ProfilerConfig)
             with self.assertRaises(AttributeError):
-                profiler_config.non_existing_key
-            assert config.get('non_existing_key') == profiler_config.get('non_existing_key')
-            assert config.get('non_existing_key', 1) == profiler_config.get('non_existing_key', 1)
-            assert config['discrete'] == profiler_config['discrete']
+                _ = profiler_config.non_existing_key
+            assert config.get("non_existing_key") == profiler_config.get("non_existing_key")
+            assert config.get("non_existing_key", 1) == profiler_config.get("non_existing_key", 1)
+            assert config["discrete"] == profiler_config["discrete"]
+            from dataclasses import FrozenInstanceError
+
+            with self.assertRaises(FrozenInstanceError):
+                profiler_config.discrete = False
 
 
 if __name__ == "__main__":

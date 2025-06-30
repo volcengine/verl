@@ -20,7 +20,7 @@ import logging
 import os
 import time
 import warnings
-from typing import Union
+from typing import Optional, Union
 
 import torch
 import torch.distributed
@@ -334,8 +334,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             import importlib
 
             importlib.import_module(self.config.model.external_lib)
-
-        from omegaconf import OmegaConf
 
         from verl.utils.torch_dtypes import PrecisionType
 
@@ -720,7 +718,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         # create critic
-        from omegaconf import OmegaConf
 
         from verl.utils.torch_dtypes import PrecisionType
 
@@ -926,7 +923,6 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         # create critic
-        from omegaconf import OmegaConf
 
         from verl.utils.torch_dtypes import PrecisionType
 
