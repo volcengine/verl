@@ -19,7 +19,7 @@ import torch
 from omegaconf import OmegaConf
 
 from verl.trainer.config import AlgoConfig, KLControlConfig, PFPPOConfig
-from verl.trainer.ppo.core_algos import compute_gae_advantage_return, compute_grpo_outcome_advantage, get_adv_estimator_fn, get_kl_controller
+from verl.trainer.ppo.core_algos import compute_gae_advantage_return, compute_grpo_outcome_advantage, get_adv_estimator_fn
 from verl.utils.config import omega_conf_to_dataclass
 
 
