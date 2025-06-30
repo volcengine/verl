@@ -36,6 +36,8 @@ from .config_converter import (
 from .model_forward import (
     gptmodel_forward,
     gptmodel_forward_qwen2_5_vl,
+    gptmodel_forward_qwen2_5_vl_with_fused_kernel,
+    gptmodel_forward_with_fused_kernel,
 )
 from .model_initializer import (
     BaseModelInitializer,
@@ -110,6 +112,21 @@ MODEL_FORWARD_REGISTRY: Dict[SupportedModel, Callable] = {
     SupportedModel.QWEN2_5_VL: gptmodel_forward_qwen2_5_vl,
     SupportedModel.DEEPSEEK_V3: gptmodel_forward,
 }
+
+MODEL_FORWARD_FUSED_REGISTRY: Dict[SupportedModel, Callable] = {
+    SupportedModel.LLAMA: gptmodel_forward_with_fused_kernel,
+    SupportedModel.QWEN2: gptmodel_forward_with_fused_kernel,
+    SupportedModel.QWEN2_MOE: gptmodel_forward_with_fused_kernel,
+    SupportedModel.MIXTRAL: gptmodel_forward_with_fused_kernel,
+    SupportedModel.DEEPSEEK_V3: gptmodel_forward_with_fused_kernel,
+    SupportedModel.QWEN2_5_VL: gptmodel_forward_with_fused_kernel,
+    SupportedModel.LLAMA4: gptmodel_forward_with_fused_kernel,
+    SupportedModel.QWEN3: gptmodel_forward_with_fused_kernel,
+    SupportedModel.QWEN3_MOE: gptmodel_forward_with_fused_kernel,
+    SupportedModel.QWEN2_5_VL: gptmodel_forward_qwen2_5_vl_with_fused_kernel,
+    SupportedModel.DEEPSEEK_V3: gptmodel_forward_with_fused_kernel,
+}
+
 
 # Registry for model weight converters
 MODEL_WEIGHT_CONVERTER_REGISTRY: Dict[SupportedModel, Type] = {
@@ -188,6 +205,15 @@ def get_mcore_forward_fn(hf_config: PretrainedConfig) -> Callable:
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     model = get_supported_model(hf_config.architectures[0])
     return MODEL_FORWARD_REGISTRY[model]
+
+
+def get_mcore_forward_fused_fn(hf_config: PretrainedConfig) -> Callable:
+    """
+    Get the forward function with fused kernels for given model architecture.
+    """
+    assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
+    model = get_supported_model(hf_config.architectures[0])
+    return MODEL_FORWARD_FUSED_REGISTRY[model]
 
 
 def get_mcore_weight_converter(hf_config: PretrainedConfig, dtype: torch.dtype) -> Callable:

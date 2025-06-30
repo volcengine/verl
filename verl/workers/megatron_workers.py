@@ -149,39 +149,30 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             self._ref_is_offload_param = self.config.ref.megatron.get("param_offload", False)
 
     def _build_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
-        from megatron.core.models.gpt.gpt_model import ModelType
-
         from verl.utils.megatron.optimizer import get_megatron_optimizer, get_megatron_optimizer_param_scheduler
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config
+        from verl.utils.megatron_utils import McoreModuleWrapperConfig, generate_mcore_module, init_megatron_optim_config
         from verl.utils.model import get_generation_config, print_model_size
 
         self._init_hf_config_and_tf_config(model_path, model_path, self.dtype, override_model_config, override_transformer_config, self.config.model.get("trust_remote_code", False))
         self.generation_config = get_generation_config(self.local_path)
 
-        def megatron_actor_model_provider(pre_process, post_process):
-            from verl.models.mcore import init_mcore_model
-
-            parallel_model = init_mcore_model(
-                tfconfig=self.tf_config,
-                hf_config=self.hf_config,
-                use_fused_kernels=self.config.model.get("use_fused_kernels", False),
-                pre_process=pre_process,
-                post_process=post_process,
-                share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
-                value=False,
-                freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False),
-            )
-            parallel_model.to(get_device_name())
-            return parallel_model
-
         # Step 3: initialize the megatron model
         if self._is_actor and self._is_rollout:
-            actor_module = get_model(
-                megatron_actor_model_provider,
+            actor_module_wrapper_config = McoreModuleWrapperConfig(
+                role="actor",
+                tf_config=self.tf_config,
+                hf_config=self.hf_config,
+                share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
+                use_fused_kernels=self.config.model.get("use_fused_kernels", False),
                 wrap_with_ddp=True,
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
             )
-            print(f"actor_module: {len(actor_module)}")
+            actor_module = generate_mcore_module(
+                wrap_config=actor_module_wrapper_config,
+                tf_config=self.tf_config,
+                hf_config=self.hf_config,
+                override_model_config=override_model_config,
+            )
             if self.config.actor.load_weight:
                 if self.config.actor.megatron.use_dist_checkpointing:
                     load_mcore_dist_weights(actor_module, self.config.actor.megatron.dist_checkpointing_path, is_value_model=False)
@@ -192,14 +183,21 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 print_model_size(actor_module[0])
             log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
         elif self._is_ref:
-            print(f"self.config.ref.load_weight: {self.config.ref.load_weight}")
-            ref_module = get_model(
-                model_provider_func=megatron_actor_model_provider,
-                model_type=ModelType.encoder_or_decoder,
-                wrap_with_ddp=False,
+            ref_module_wrapper_config = McoreModuleWrapperConfig(
+                role="ref",
+                tf_config=self.tf_config,
+                hf_config=self.hf_config,
+                share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
+                use_fused_kernels=False,
+                wrap_with_ddp=False,  # ref module is not wrapped with DDP
                 use_distributed_optimizer=self.config.ref.megatron.use_distributed_optimizer,
             )
-            # ref_module = nn.ModuleList(ref_module)
+            ref_module = generate_mcore_module(
+                wrap_config=ref_module_wrapper_config,
+                tf_config=self.tf_config,
+                hf_config=self.hf_config,
+                override_model_config=override_model_config,
+            )
 
             if self.config.ref.load_weight:  # should align with the actor:
                 assert self.config.actor.load_weight == self.config.ref.load_weight
@@ -678,37 +676,27 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         # TODO(sgm): support critic model offload
 
     def _build_critic_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
-        from megatron.core.models.gpt.gpt_model import ModelType
-
         from verl.utils.megatron.optimizer import get_megatron_optimizer, get_megatron_optimizer_param_scheduler
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config
+        from verl.utils.megatron_utils import McoreModuleWrapperConfig, generate_mcore_module, init_megatron_optim_config
         from verl.utils.model import print_model_size
 
         self._init_hf_config_and_tf_config(model_path, self.config.model.tokenizer_path, self.dtype, override_model_config, override_transformer_config, self.config.model.get("trust_remote_code", False))
 
-        def megatron_critic_model_provider(pre_process, post_process):
-            from verl.models.mcore import init_mcore_model
-
-            parallel_model = init_mcore_model(
-                tfconfig=self.tf_config,
-                hf_config=self.hf_config,
-                use_fused_kernels=False,
-                pre_process=pre_process,
-                post_process=post_process,
-                share_embeddings_and_output_weights=False,
-                value=True,
-                freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False),
-            )
-
-            parallel_model.to(get_device_name())
-            return parallel_model
-
         # Step 3: initialize the megatron model
-        critic_module = get_model(
-            model_provider_func=megatron_critic_model_provider,
-            model_type=ModelType.encoder_or_decoder,
+        critic_module_wrapper_config = McoreModuleWrapperConfig(
+            role="critic",
+            tf_config=self.tf_config,
+            hf_config=self.hf_config,
+            share_embeddings_and_output_weights=False,
+            use_fused_kernels=False,
             wrap_with_ddp=True,
             use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
+        )
+        critic_module = generate_mcore_module(
+            wrap_config=critic_module_wrapper_config,
+            tf_config=self.tf_config,
+            hf_config=self.hf_config,
+            override_model_config=override_model_config,
         )
         # note that here critic_module will be a list to be compatible with the construction of interleaved pp (vpp).
         # but here, we do not use pp (vpp) yet. For simplicity, we remove the list
@@ -900,33 +888,25 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
     def _build_rm_model(self, model_path, tokenizer, override_model_config, override_transformer_config):
-        from megatron.core.models.gpt.gpt_model import ModelType
-
-        from verl.utils.megatron_utils import get_model
+        from verl.utils.megatron_utils import McoreModuleWrapperConfig, generate_mcore_module
 
         self._init_hf_config_and_tf_config(model_path, tokenizer, self.dtype, override_model_config, override_transformer_config, self.config.model.get("trust_remote_code", False))
 
-        def megatron_rm_model_provider(pre_process, post_process):
-            from verl.models.mcore import init_mcore_model
-
-            parallel_model = init_mcore_model(
-                tfconfig=self.tf_config,
-                hf_config=self.hf_config,
-                use_fused_kernels=False,
-                pre_process=pre_process,
-                post_process=post_process,
-                share_embeddings_and_output_weights=False,
-                value=True,
-            )
-            parallel_model.to(get_device_name())
-            return parallel_model
-
         # Step 3: initialize the megatron model
-        reward_model = get_model(
-            model_provider_func=megatron_rm_model_provider,
-            model_type=ModelType.encoder_or_decoder,
+        reward_model_wrapper_config = McoreModuleWrapperConfig(
+            role="reward_model",
+            tf_config=self.tf_config,
+            hf_config=self.hf_config,
+            share_embeddings_and_output_weights=False,
+            use_fused_kernels=False,
             wrap_with_ddp=False,
             use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
+        )
+        reward_model = generate_mcore_module(
+            wrap_config=reward_model_wrapper_config,
+            tf_config=self.tf_config,
+            hf_config=self.hf_config,
+            override_model_config=override_model_config,
         )
         # note that here critic_module will be a list to be compatible with the construction of interleaved pp (vpp).
         # but here, we do not use pp (vpp) yet. For simplicity, we remove the list

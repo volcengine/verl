@@ -24,7 +24,7 @@ import itertools
 import logging
 import os
 from functools import partial
-from typing import Dict, Iterable
+from typing import Callable, Dict, Iterable
 
 import torch
 import torch.distributed
@@ -452,18 +452,25 @@ class MegatronPPOActor(BasePPOActor):
 
             logits_processor_args = {"labels": labels, "labels_mask": labels_mask}
 
-            from verl.models.mcore import get_mcore_forward_fn
-
-            forward_fn = get_mcore_forward_fn(self.hf_config)
-
-            fused_kernel_kwargs = {}
+            forward_fn: Callable = None
             if self.use_fused_kernels:
-                fused_kernel_kwargs["labels"] = labels
-                fused_kernel_kwargs["labels_mask"] = labels_mask
+                from verl.models.mcore import get_mcore_forward_fused_fn
 
-            output = forward_fn(
-                model, input_ids, attention_mask, position_ids, sequence_parallel=self.tf_config.sequence_parallel, multi_modal_inputs=multi_modal_inputs, logits_processor=logits_processor, logits_processor_args=logits_processor_args, use_fused_kernels=self.use_fused_kernels, **fused_kernel_kwargs
-            )
+                forward_fn = get_mcore_forward_fused_fn(self.hf_config)
+            else:
+                from verl.models.mcore import get_mcore_forward_fn
+
+                forward_fn = get_mcore_forward_fn(self.hf_config)
+
+            forward_kwargs = {}
+            if self.use_fused_kernels:
+                forward_kwargs["labels"] = labels
+                forward_kwargs["labels_mask"] = labels_mask
+            else:
+                forward_kwargs["logits_processor"] = logits_processor
+                forward_kwargs["logits_processor_args"] = logits_processor_args
+
+            output = forward_fn(model, input_ids, attention_mask, position_ids, sequence_parallel=self.tf_config.sequence_parallel, multi_modal_inputs=multi_modal_inputs, **forward_kwargs)
 
             if forward_only:
                 meta_info = None

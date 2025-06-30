@@ -19,6 +19,7 @@
 import gc
 import os
 import warnings
+from dataclasses import dataclass
 from typing import Any, Dict
 
 import torch
@@ -139,6 +140,54 @@ def get_model(
         for model_module in model:
             model_module.broadcast_params()
     return model
+
+
+@dataclass
+class McoreModuleWrapperConfig:
+    """Configuration for Mcore module wrapper."""
+
+    role: str = "actor"
+    share_embeddings_and_output_weights: bool = False
+    use_fused_kernels: bool = False
+    wrap_with_ddp: bool = True
+    use_distributed_optimizer: bool = True
+
+
+def generate_mcore_module(
+    wrap_config: McoreModuleWrapperConfig,
+    tf_config: TransformerConfig,
+    hf_config: PretrainedConfig,
+    override_model_config: Dict[str, Any] = None,
+):
+    def megatron_actor_model_provider(pre_process, post_process):
+        from verl.models.mcore import init_mcore_model
+
+        parallel_model = init_mcore_model(
+            tfconfig=tf_config,
+            hf_config=hf_config,
+            pre_process=pre_process,
+            post_process=post_process,
+            share_embeddings_and_output_weights=wrap_config.share_embeddings_and_output_weights,
+            value=False,
+            freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False),
+        )
+        parallel_model.to(get_device_name())
+        return parallel_model
+
+    # Step 3: initialize the megatron model
+    module = get_model(
+        megatron_actor_model_provider,
+        wrap_with_ddp=wrap_config.wrap_with_ddp,
+        use_distributed_optimizer=wrap_config.use_distributed_optimizer,
+    )
+    if wrap_config.use_fused_kernels:
+        assert wrap_config.role == "actor", "Fused kernels are only supported for actor role"
+        from verl.models.mcore.patch_v012 import patch_gptmodel_forward_with_fused_kernel
+
+        # Apply the patch for fused kernel
+        for vpp_rank, vpp_module in enumerate(module):
+            patch_gptmodel_forward_with_fused_kernel(vpp_module, hf_config.model_type)
+    return module
 
 
 ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module)
