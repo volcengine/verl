@@ -99,7 +99,7 @@ class NsightSystemsProfiler(DistProfiler):
     Nsight system profiler. Installed in a worker to control the Nsight system profiler.
     """
 
-    def __init__(self, rank: int, config: ProfilerConfig):
+    def __init__(self, rank: int, config: ProfilerConfig, **kwargs):
         config = config
         self.this_step: bool = False
         self.discrete: bool = config.discrete
@@ -109,7 +109,7 @@ class NsightSystemsProfiler(DistProfiler):
         elif config.ranks is not None:
             self.this_rank = rank in config.ranks
 
-    def start(self):
+    def start(self, **kwargs):
         if self.this_rank:
             self.this_step = True
             if not self.discrete:
@@ -122,7 +122,7 @@ class NsightSystemsProfiler(DistProfiler):
                 torch.cuda.profiler.stop()
 
     @staticmethod
-    def annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
+    def annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None, **kwargs) -> Callable:
         """Decorate a Worker member function to profile the current rank in the current training step.
 
         Requires the target function to be a member function of a Worker, which has a member field `profiler` with NightSystemsProfiler type.
