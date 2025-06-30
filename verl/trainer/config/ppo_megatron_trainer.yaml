@@ -122,7 +122,7 @@ actor_rollout_ref:
       _target_: verl.utils.profiler.ProfilerConfig
       discrete: False
       all_ranks: False
-      ranks: null
+      ranks: []
   ref:
     strategy: ${actor_rollout_ref.actor.strategy}
     use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
@@ -157,7 +157,7 @@ actor_rollout_ref:
       _target_: verl.utils.profiler.ProfilerConfig
       discrete: False
       all_ranks: False
-      ranks: null
+      ranks: []
   rollout:
     name: vllm
     mode: sync # sync: LLM, async: AsyncLLM
@@ -265,7 +265,7 @@ actor_rollout_ref:
       _target_: verl.utils.profiler.ProfilerConfig
       discrete: False
       all_ranks: False
-      ranks: null
+      ranks: []
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
   strategy: ${actor_rollout_ref.actor.strategy}
@@ -344,7 +344,7 @@ critic:
     _target_: verl.utils.profiler.ProfilerConfig
     discrete: False
     all_ranks: False
-    ranks: null
+    ranks: []
 reward_model:
   enable: False
   strategy: ${actor_rollout_ref.actor.strategy}
@@ -386,7 +386,7 @@ reward_model:
     _target_: verl.utils.profiler.ProfilerConfig
     discrete: False
     all_ranks: False
-    ranks: null
+    ranks: []
 
 custom_reward_function:
   path: null
