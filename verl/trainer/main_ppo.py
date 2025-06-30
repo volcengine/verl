@@ -30,7 +30,7 @@ from verl.utils.config import omega_conf_to_dataclass
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
 def main(config):
-    config.algorithm = omega_conf_to_dataclass(config.algorithm, AlgoConfig)
+    config.algorithm = omega_conf_to_dataclass(config.algorithm)
     run_ppo(config)
 
 

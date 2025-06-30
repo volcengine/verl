@@ -90,7 +90,7 @@ prompt_bsz = self.config.data.train_batch_size
 if num_prompt_in_batch < prompt_bsz:
     print(f'{num_prompt_in_batch=} < {prompt_bsz=}')
     num_gen_batches += 1
-    max_num_gen_batches = self.algo_config.filter_groups.max_num_gen_batches
+    max_num_gen_batches = self.config.algorithm.filter_groups.max_num_gen_batches
     if max_num_gen_batches <= 0 or num_gen_batches < max_num_gen_batches:
         print(f'{num_gen_batches=} < {max_num_gen_batches=}. Keep generating...')
         continue
