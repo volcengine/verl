@@ -1,4 +1,3 @@
-# Tutorial for setting MCP tool: https://github.com/AlecHenx/ml-recipe/blob/main/Tutorial%20for%20MCP%20Tool%20in%20verl.md
 tools:
   - class_name: verl.tools.mcp_search_tool.MCPSearchTool
     config:
