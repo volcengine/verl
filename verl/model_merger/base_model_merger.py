@@ -39,9 +39,7 @@ def parse_args():
     base_op_parser.add_argument(
         "--backend", type=str, required=True, choices=["fsdp", "megatron"], help="The backend of the model"
     )
-    base_op_parser.add_argument(
-        "--local_dir", type=str, default=None, help="Path to the saved model checkpoints."
-    )
+    base_op_parser.add_argument("--local_dir", type=str, default=None, help="Path to the saved model checkpoints.")
     base_op_parser.add_argument(
         "--tie-word-embedding",
         action="store_true",

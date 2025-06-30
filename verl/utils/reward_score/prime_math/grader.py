@@ -302,7 +302,7 @@ def math_equal(
                 pred_matrix = eval(prediction)
                 # ref_matrix_items = reference.split()[1:-1:2]
                 ref_matrix_items = (
-                    reference.lstrip("\\begin{pmatrix}")
+                    reference.lstrip("\\begin{pmatrix}")  # noqa: B005
                     .lstrip("\begin{pmatrix}")
                     .rstrip("\\end{pmatrix}")
                     .rstrip("\end{pmatrix}")
