@@ -122,6 +122,8 @@ if [ "$USE_DIST_CKPT" = "True" ]; then
         --output_path "${DIST_CKPT_PATH}"
 fi
 
+USE_FUSED_KERNELS=${USE_FUSED_KERNELS:-False}
+
 ENGINES=("vllm" "sglang_async")
 
 exp_name="$(basename "${MODEL_ID,,}")-megatron-gsm8k-minimal"
@@ -147,6 +149,7 @@ for ENGINE in "${ENGINES[@]}"; do
         data.filter_overlong_prompts=True \
         data.truncation='error' \
         actor_rollout_ref.model.path="${MODEL_PATH}" \
+        actor_rollout_ref.model.use_fused_kernels="${USE_FUSED_KERNELS}" \
         actor_rollout_ref.actor.optim.lr_warmup_steps=$LR_WARMUP_STEPS \
         actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
         actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \

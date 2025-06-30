@@ -234,10 +234,6 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, *
     # DeepseekV3ForCausalLM
     from megatron.core.transformer.enums import AttnBackend
 
-    from .patch_v012 import apply_patch
-
-    apply_patch()
-
     mla_rope_config = {
         "beta_fast": 32,
         "beta_slow": 1,
