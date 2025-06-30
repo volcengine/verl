@@ -294,6 +294,9 @@ class AsyncRolloutRequest(BaseModel):
                     delta_multi_modal_data["video"].extend(content["video"])
                 if "text" in content:
                     content_list.append({"type": "text", "text": content["text"]})
+                for key in content:
+                    if key not in ["image", "video", "text"]:
+                        logger.warning(f"Tool response message contains unexpected key: {key} while we only support `image`, `video`, and `text`.")
                 self.messages.append(Message(role="tool", content=content_list))
             else:
                 self.messages.append(Message(role="tool", content=content))
