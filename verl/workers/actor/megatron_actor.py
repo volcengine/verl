@@ -39,12 +39,12 @@ from torch import nn
 
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, get_policy_loss_fn, kl_penalty
-from verl.utils.profiler import GPUMemoryLogger
-from verl.utils.profiler.profile import Profiler
 from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import get_model_config
+from verl.utils.profiler import GPUMemoryLogger
+from verl.utils.profiler.profile import Profiler
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import broadcast_dict_tensor

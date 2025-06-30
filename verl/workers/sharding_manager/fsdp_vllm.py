@@ -34,10 +34,10 @@ from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.fsdp_utils import fsdp_version, layered_summon_lora_params, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
 from verl.utils.model import check_exclude_modules, check_target_modules, convert_weight_keys
+from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.torch_functional import check_device_is_available
 from verl.utils.vllm_utils import TensorLoRARequest, VLLMHijack, is_version_ge, patch_vllm_moe_model_weight_loader
 

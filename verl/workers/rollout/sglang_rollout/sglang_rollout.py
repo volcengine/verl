@@ -60,8 +60,8 @@ from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.tools.base_tool import BaseTool
 from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
 from verl.tools.utils.tool_registry import initialize_tools_from_config
-from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.net_utils import is_ipv6
+from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.schemas import (

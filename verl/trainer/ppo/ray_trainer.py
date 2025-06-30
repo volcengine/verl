@@ -52,10 +52,10 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
-from verl.utils.profiler import marked_timer
 from verl.utils.metric import (
     reduce_metrics,
 )
+from verl.utils.profiler import marked_timer
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
