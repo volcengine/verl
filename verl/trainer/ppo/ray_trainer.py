@@ -41,7 +41,7 @@ from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
-from verl.trainer.config.algo_config import AlgoConfig
+from verl.trainer.config.algorithm import AlgoConfig
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
@@ -319,8 +319,6 @@ class RayPPOTrainer:
         self.tokenizer = tokenizer
         self.processor = processor
         self.config = config
-        # Convert algorithm config to dataclass
-        self.algo_config = omega_conf_to_dataclass(config.algorithm)
         self.reward_fn = reward_fn
         self.val_reward_fn = val_reward_fn
 
@@ -343,12 +341,12 @@ class RayPPOTrainer:
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
-        if self.algo_config.use_kl_in_reward:
-            self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.algo_config.kl_ctrl)
+        if self.config.algorithm.use_kl_in_reward:
+            self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
-        if self.algo_config.adv_estimator == AdvantageEstimator.GAE:
+        if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
             self.use_critic = True
-        elif self.algo_config.adv_estimator in [
+        elif self.config.algorithm.adv_estimator in [
             AdvantageEstimator.GRPO,
             AdvantageEstimator.GRPO_PASSK,
             AdvantageEstimator.REINFORCE_PLUS_PLUS,
@@ -451,7 +449,7 @@ class RayPPOTrainer:
             "seq-mean-token-sum-norm",
         ], f"Invalid loss_agg_mode: {config.actor_rollout_ref.actor.loss_agg_mode}"
 
-        if self.algo_config.use_kl_in_reward and config.actor_rollout_ref.actor.use_kl_loss:
+        if self.config.algorithm.use_kl_in_reward and config.actor_rollout_ref.actor.use_kl_loss:
             print("NOTICE: You have both enabled in-reward kl and kl loss.")
 
         # critic
@@ -480,7 +478,7 @@ class RayPPOTrainer:
         # check multi_turn with tool config
         if config.actor_rollout_ref.rollout.multi_turn.enable:
             assert config.actor_rollout_ref.rollout.multi_turn.tool_config_path is not None or config.actor_rollout_ref.rollout.multi_turn.interaction_config_path is not None, "tool_config_path or interaction_config_path must be set when enabling multi_turn with tool, due to no role-playing support"
-            assert self.algo_config.adv_estimator in [AdvantageEstimator.GRPO], "only GRPO is tested for multi-turn with tool"
+            assert self.config.algorithm.adv_estimator in [AdvantageEstimator.GRPO], "only GRPO is tested for multi-turn with tool"
 
         print("[validate_config] All configuration checks passed successfully!")
 
@@ -990,7 +988,7 @@ class RayPPOTrainer:
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
-                    if self.algo_config.adv_estimator == AdvantageEstimator.REMAX:
+                    if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with marked_timer("gen_max", timing_raw, color="purple"):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info["do_sample"] = False
@@ -1096,25 +1094,25 @@ class RayPPOTrainer:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
                         # compute rewards. apply_kl_penalty if available
-                        if self.algo_config.use_kl_in_reward:
-                            batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.algo_config.kl_penalty)
+                        if self.config.algorithm.use_kl_in_reward:
+                            batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty)
                             metrics.update(kl_metrics)
                         else:
                             batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
                         # compute advantages, executed on the driver process
 
-                        norm_adv_by_std_in_grpo = self.algo_config.norm_adv_by_std_in_grpo  # GRPO adv normalization factor
+                        norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)  # GRPO adv normalization factor
 
                         batch = compute_advantage(
                             batch,
-                            adv_estimator=self.algo_config.adv_estimator,
-                            gamma=self.algo_config.gamma,
-                            lam=self.algo_config.lam,
+                            adv_estimator=self.config.algorithm.adv_estimator,
+                            gamma=self.config.algorithm.gamma,
+                            lam=self.config.algorithm.lam,
                             num_repeat=self.config.actor_rollout_ref.rollout.n,
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                             multi_turn=self.config.actor_rollout_ref.rollout.multi_turn.enable,
-                            config=self.algo_config,
+                            config=self.config.algorithm,
                         )
 
                     # update critic

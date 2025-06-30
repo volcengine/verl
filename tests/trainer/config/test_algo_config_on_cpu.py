@@ -18,7 +18,7 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from verl.trainer.config.algo_config import AlgoConfig, KLControlConfig, PFPPOConfig
+from verl.trainer.config.algorithm import AlgoConfig, KLControlConfig, PFPPOConfig
 from verl.trainer.ppo.core_algos import compute_gae_advantage_return, compute_grpo_outcome_advantage, get_adv_estimator_fn, get_kl_controller
 from verl.utils.config import omega_conf_to_dataclass
 
@@ -201,7 +201,7 @@ class TestAlgoConfig(unittest.TestCase):
     def test_config_init_from_yaml(self):
         cfg = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
         algo_config = omega_conf_to_dataclass(cfg.algorithm)
-        from verl.trainer.config.algo_config import AlgoConfig, PFPPOConfig
+        from verl.trainer.config.algorithm import AlgoConfig, PFPPOConfig
 
         assert isinstance(algo_config, AlgoConfig)
         assert isinstance(algo_config.pf_ppo, PFPPOConfig)

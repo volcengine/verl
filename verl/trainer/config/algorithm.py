@@ -15,9 +15,11 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from verl.base_config import BaseConfig
 
-@dataclass
-class KLControlConfig:
+
+@dataclass(frozen=True)
+class KLControlConfig(BaseConfig):
     """Configuration for KL control."""
 
     type: str = "fixed"  # "fixed" or "adaptive"
@@ -26,16 +28,16 @@ class KLControlConfig:
     target_kl: float = 0.1  # Target KL divergence for adaptive controller
 
 
-@dataclass
-class PFPPOConfig:
+@dataclass(frozen=True)
+class PFPPOConfig(BaseConfig):
     """Configuration for preference feedback PPO."""
 
     reweight_method: str = "pow"  # "pow", "max_min", or "max_random"
     weight_pow: float = 2.0  # Power used for weight scaling in "pow" method
 
 
-@dataclass
-class FilterGroupsConfig:
+@dataclass(frozen=True)
+class FilterGroupsConfig(BaseConfig):
     """Configuration for filter groups (used in DAPO and Entropy)."""
 
     enable: bool = False  # Whether to enable filter groups
@@ -43,8 +45,8 @@ class FilterGroupsConfig:
     max_num_gen_batches: int = 0  # Non-positive values mean no upper limit
 
 
-@dataclass
-class AlgoConfig:
+@dataclass(frozen=True)
+class AlgoConfig(BaseConfig):
     """Configuration for the algorithm."""
 
     gamma: float = 1.0  # Discount factor for future rewards
@@ -62,16 +64,3 @@ class AlgoConfig:
 
     # SPPO parameters
     sppo_eta: Optional[float] = None  # SPPO eta parameter
-
-    def __post_init__(self):
-        """Initialize nested configs if they are None."""
-        if self.kl_ctrl is None:
-            self.kl_ctrl = KLControlConfig()
-        if self.pf_ppo is None:
-            self.pf_ppo = PFPPOConfig()
-        if self.filter_groups is None:
-            self.filter_groups = FilterGroupsConfig()
-
-    def get(self, key: str, default=None):
-        """Get attribute with default value for backward compatibility."""
-        return getattr(self, key, default)
