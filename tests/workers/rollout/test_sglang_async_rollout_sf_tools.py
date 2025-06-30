@@ -200,24 +200,33 @@ class TestRolloutWithTools:
         prompts = DataProto(batch=prompt_dict, non_tensor_batch={"raw_prompt": messages, "tools_kwargs": tools_kwargs, "index": index})
         return prompts
 
-    @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
-    @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
-    @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
-    def test_tools_registration(self, mock_env, mock_engine, mock_sampling, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config):
-        rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
-        assert len(rollout._tool_schemas) == 1
-        assert "code_interpreter" in rollout._tool_map.keys()
+    @pytest.fixture
+    def mock_rollout(self, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config):
+        """Mock the rollout instance"""
+        with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
+            rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
+            # set default sampling_params
+            rollout.sampling_params = {
+                "n": 1,
+                "max_new_tokens": sandbox_fusion_rollout_config.response_length,
+                "presence_penalty": 0.0,
+                "frequency_penalty": 0.0,
+                "repetition_penalty": 1.0,
+            }
+            return rollout
+
+    def test_tools_registration(self, mock_rollout):
+        """Test tool registration functionality"""
+        assert len(mock_rollout._tool_schemas) == 1
+        assert "code_interpreter" in mock_rollout._tool_map.keys()
         from verl.tools.sandbox_fusion_tools import SandboxFusionTool
 
-        assert isinstance(rollout._tool_map["code_interpreter"], SandboxFusionTool)
-        assert rollout._tool_call_parser_type == "qwen25"
+        assert isinstance(mock_rollout._tool_map["code_interpreter"], SandboxFusionTool)
+        assert mock_rollout._tool_call_parser_type == "qwen25"
 
-    @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
-    @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
-    @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
-    def test_rollout_req_creation(self, mock_env, mock_engine, mock_sampling, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config, sandbox_data_proto):
-        rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
-        req_list = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)
+    def test_rollout_req_creation(self, mock_rollout, sandbox_data_proto):
+        """Test request creation functionality"""
+        req_list = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)
         assert len(req_list) == 1
         assert req_list[0].state == AsyncRolloutRequestStateEnum.PENDING
         assert len(req_list[0].tool_schemas) == 1
@@ -242,34 +251,31 @@ class TestRolloutWithTools:
             ),
         )
 
-    @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
-    @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
-    @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
-    def test_over_size_case(self, mock_env, mock_engine, mock_sampling, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config, sandbox_data_proto, sandbox_fusion_data):
-        sandbox_fusion_rollout_config.multi_turn.max_turns = 1
-        rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
-        req = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
+    def test_over_size_case(self, mock_rollout, sandbox_data_proto, sandbox_fusion_data):
+        """Test over-size response truncation case"""
+        mock_rollout.config.multi_turn.max_assistant_turns = 1
+        req = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
         req.finalize = MagicMock()
         req_list = [req]
 
         _, expect_turn_array, tool_return_array = sandbox_fusion_data
         # here we mock a meta info with 'length'. indicate the response is truncate
-        rollout._handle_engine_call = MagicMock()
+        mock_rollout._handle_engine_call = MagicMock()
         future = asyncio.Future()
         future.set_result({"text": expect_turn_array[0], "meta_info": {"id": "d1188d81cba840359df5b352b344bc8e", "finish_reason": {"type": "length", "length": 1024}, "prompt_tokens": 132, "completion_tokens": 100, "cached_tokens": 0, "e2e_latency": 9.9304039478302}})
-        rollout._handle_engine_call.return_value = future
-        rollout._tp_rank = 0
+        mock_rollout._handle_engine_call.return_value = future
+        mock_rollout._tp_rank = 0
         loop = asyncio.get_event_loop()
         output_req_list = loop.run_until_complete(
             asyncio.gather(
-                *[rollout._async_rollout_a_request(req, True, False) for req in req_list],
+                *[mock_rollout._async_rollout_a_request(req, True, False) for req in req_list],
             )
         )
         assert len(output_req_list) == 1
         output_req = output_req_list[0]
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-        assert output_req.reward_scores == {"code_interpreter": []}
+        assert output_req.reward_scores.get("code_interpreter") == []
         # we should only have two message, one for prompt, second for response.
         assert len(output_req.messages) == 2
         assert output_req.messages[1] == Message(
@@ -279,33 +285,30 @@ class TestRolloutWithTools:
         )
 
     @skip_if_valid_sandbox(sandbox_url)
-    @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
-    @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
-    @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
-    def test_tool_call_basic_case(self, mock_env, mock_engine, mock_sampling, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config, sandbox_data_proto, sandbox_fusion_data):
-        sandbox_fusion_rollout_config.multi_turn.max_turns = 10
-        rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
-        self._tool_map["code_interpreter"].sandbox_fusion_url = sandbox_url
-        req = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
+    def test_tool_call_basic_case(self, mock_rollout, sandbox_data_proto, sandbox_fusion_data):
+        """Test basic tool call case"""
+        mock_rollout.config.multi_turn.max_assistant_turns = 10
+        mock_rollout._tool_map["code_interpreter"].sandbox_fusion_url = sandbox_url
+        req = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
         req.finalize = MagicMock()
         req_list = [req]
         _, expect_turn_array, tool_return_array = sandbox_fusion_data
         # here we mock a meta info with 'length'. indicate the response is truncate
-        rollout._handle_engine_call = MagicMock()
+        mock_rollout._handle_engine_call = MagicMock()
         futures = [asyncio.Future() for i in expect_turn_array]
         for idx, (i, turn) in enumerate(zip(futures, expect_turn_array)):
             i.set_result({"text": turn, "meta_info": {"id": "d1188d81cba840359df5b352b344bc8e", "finish_reason": {"type": "tool_calls" if idx < len(expect_turn_array) - 1 else "stop"}, "prompt_tokens": len(turn), "completion_tokens": 100, "cached_tokens": 0, "e2e_latency": 9.9304039478302}})
             if idx < len(expect_turn_array) - 1:
-                assert rollout._function_call_parser.has_tool_call(turn)
-                assert rollout._function_call_parser.parse_non_stream(turn)
+                assert mock_rollout._function_call_parser.has_tool_call(turn)
+                assert mock_rollout._function_call_parser.parse_non_stream(turn)
 
-        rollout._handle_engine_call.side_effect = futures
-        rollout._tp_rank = 0
+        mock_rollout._handle_engine_call.side_effect = futures
+        mock_rollout._tp_rank = 0
         loop = asyncio.get_event_loop()
         output_req_list = loop.run_until_complete(
             asyncio.gather(
-                *[rollout._async_rollout_a_request(req, True, False) for req in req_list],
+                *[mock_rollout._async_rollout_a_request(req, True, False) for req in req_list],
             )
         )
         assert len(output_req_list) == 1
@@ -313,7 +316,7 @@ class TestRolloutWithTools:
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
         # here we verify whether the code sandbox is executed correctly
         assert output_req.metrics == {"code_interpreter": ["3", "149"]}
-        assert rollout._handle_engine_call.call_count == 3
+        assert mock_rollout._handle_engine_call.call_count == 3
         assert len(output_req.messages) == 6  # user + 3*assistant + 2*tool_call
         code_counter = 0
         for msg in output_req.messages:
@@ -323,14 +326,11 @@ class TestRolloutWithTools:
         assert code_counter == 2
 
     @skip_if_valid_sandbox(sandbox_url)
-    @patch.object(SGLangRollout, "_init_distributed_env", return_value=None)
-    @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
-    @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
-    def test_tool_call_batch_case(self, mock_env, mock_engine, mock_sampling, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config, sandbox_data_proto, sandbox_fusion_data):
-        sandbox_fusion_rollout_config.multi_turn.max_turns = 10
-        rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
-        self._tool_map["code_interpreter"].sandbox_fusion_url = sandbox_url
-        req = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
+    def test_tool_call_batch_case(self, mock_rollout, sandbox_data_proto, sandbox_fusion_data):
+        """Test batch tool call case"""
+        mock_rollout.config.multi_turn.max_assistant_turns = 10
+        mock_rollout._tool_map["code_interpreter"].sandbox_fusion_url = sandbox_url
+        req = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
         req_nums = 100
         req_list = []
         req_turns_counter = {}
@@ -346,8 +346,8 @@ class TestRolloutWithTools:
             for idx, (i, turn) in enumerate(zip(futures, expect_turn_array)):
                 i.set_result({"text": turn, "meta_info": {"id": "d1188d81cba840359df5b352b344bc8e", "finish_reason": {"type": "tool_calls" if idx < len(expect_turn_array) - 1 else "stop"}, "prompt_tokens": len(turn), "completion_tokens": 100, "cached_tokens": 0, "e2e_latency": 9.9304039478302}})
                 if idx < len(expect_turn_array) - 1:
-                    assert rollout._function_call_parser.has_tool_call(turn)
-                    assert rollout._function_call_parser.parse_non_stream(turn)
+                    assert mock_rollout._function_call_parser.has_tool_call(turn)
+                    assert mock_rollout._function_call_parser.parse_non_stream(turn)
             req_turns_map[_temp_req.batch_data_id] = futures
             req_turns_counter[_temp_req.batch_data_id] = 0
 
@@ -358,11 +358,11 @@ class TestRolloutWithTools:
             return re
 
         with patch.object(SGLangRollout, "_handle_engine_call", new=hacked_handle_engine_call):
-            rollout._tp_rank = 0
+            mock_rollout._tp_rank = 0
             loop = asyncio.get_event_loop()
             output_req_list = loop.run_until_complete(
                 asyncio.gather(
-                    *[rollout._async_rollout_a_request(req, True, False) for req in req_list],
+                    *[mock_rollout._async_rollout_a_request(req, True, False) for req in req_list],
                 )
             )
             assert len(output_req_list) == req_nums
@@ -378,6 +378,22 @@ class TestRolloutWithTools:
                     if msg.role == "tool":
                         code_counter += 1
                 assert code_counter == 2
+
+    def test_sampling_params_functionality(self, mock_rollout):
+        """Test sampling_params functionality"""
+        # test basic copy functionality
+        copied_params = mock_rollout.sampling_params.copy()
+        assert copied_params == mock_rollout.sampling_params
+        assert copied_params is not mock_rollout.sampling_params
+
+        # test parameter update
+        copied_params.update({"temperature": 0.8, "top_p": 0.9})
+        assert copied_params["temperature"] == 0.8
+        assert copied_params["top_p"] == 0.9
+
+        # ensure original parameters are not modified
+        assert "temperature" not in mock_rollout.sampling_params
+        assert "top_p" not in mock_rollout.sampling_params
 
 
 class RayMultiProcessTestCase(MultiProcessTestCase):

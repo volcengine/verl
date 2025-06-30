@@ -171,11 +171,11 @@ def test_vllm_async_rollout_with_tool_calls(init_config):
         "tools": [
             {
                 "class_name": "tests.workers.rollout.rollout_vllm.test_vllm_chat_scheduler.WeatherTool",
-                "config": {},
+                "config": {"type": "native"},
             },
             {
                 "class_name": "tests.workers.rollout.rollout_vllm.test_vllm_chat_scheduler.WeatherToolWithData",
-                "config": {},
+                "config": {"type": "native"},
             },
         ]
     }

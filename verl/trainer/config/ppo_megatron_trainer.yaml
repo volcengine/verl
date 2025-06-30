@@ -25,6 +25,7 @@ actor_rollout_ref:
   nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
   model:
     path: ~/models/deepseek-llm-7b-chat
+    custom_chat_template: null
     external_lib: null
     override_config:
       model_config: {}
@@ -62,6 +63,13 @@ actor_rollout_ref:
     ppo_epochs: 1
     data_loader_seed: null
     shuffle: False
+    policy_loss:   # policy loss config
+      loss_mode: "vanilla" # Loss function mode: vanilla / clip-cov / kl-cov from https://arxiv.org/abs/2505.22617
+      clip_cov_ratio: 0.0002 # Ratio of tokens to be clipped for clip-cov loss
+      clip_cov_lb: 1.0 # Lower bound for clip-cov loss
+      clip_cov_ub: 5.0 # Upper bound for clip-cov loss
+      kl_cov_ratio: 0.0002 # Ratio of tokens to be applied kl penalty for kl-cov loss
+      ppo_kl_coef: 0.1 # KL divergence penalty coefficient
     optim:
       optimizer: adam
       lr: 1e-6
@@ -94,21 +102,27 @@ actor_rollout_ref:
       dist_checkpointing_path: null
       seed: 42
       override_transformer_config: {} # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
-    profile: # profile the actor model in `update_policy` 
+    profile: # profile the actor model in `update_policy`
       use_profile: False # open it when you want to profile the actor model
       profile_ranks: null # list, you can specify the ranks to profile
-      step_start: -1 # start step in update_policy 
-      step_end: -1 # end step 
+      step_start: -1 # start step in update_policy
+      step_end: -1 # end step
       save_path: null # the path to save the profile result
     load_weight: True
     checkpoint:
+      async_save: False # save checkpoint asynchronously
       # What to include in saved checkpoints
       # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
       save_contents: ['model', 'optimizer', 'extra']
       # For more flexibility, you can specify the contents to load from the checkpoint.
       load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
+    # Nsight system profiler configs
+    profiler:
+      discrete: False
+      all_ranks: False
+      ranks: null
   ref:
-    strategy: megatron
+    strategy: ${actor_rollout_ref.actor.strategy}
     use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
     megatron:
       param_offload: False
@@ -135,6 +149,11 @@ actor_rollout_ref:
     log_prob_micro_batch_size_per_gpu: null
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
+    # Nsight system profiler configs
+    profiler:
+      discrete: False
+      all_ranks: False
+      ranks: null
   rollout:
     name: vllm
     mode: sync # sync: LLM, async: AsyncLLM
@@ -170,6 +189,7 @@ actor_rollout_ref:
     engine_kwargs: # inference engine parameters
       vllm:
         swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+        disable_mm_preprocessor_cache: False # whether to disable the preprocessor cache for multimodel models.
       sglang:
         attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
     val_kwargs:
@@ -179,24 +199,70 @@ actor_rollout_ref:
       temperature: 0
       n: 1
       do_sample: False # default eager for validation
-    multi_turn: 
-      enable: False  # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
-      max_turns: null  # null for no limit (default max_length // 3)
-      tool_config_path: null  # null for no tool
+
+    # Multi-turn interaction config for tools or chat.
+    multi_turn:
+      # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
+      enable: False
+
+      # null for no limit (default max_length // 3)
+      max_assistant_turns: null
+
+      # null for no tool
+      tool_config_path: null
+
+      # null for no limit (default max_length // 3)
+      max_user_turns: null
+
+      # max parallel call for tools in single turn
+      max_parallel_calls: 1
+
+      # max length of tool response
+      max_tool_response_length: 256
+
+      # truncate side of tool response: left, middle, right
+      tool_response_truncate_side: middle
+
+      # null for no interaction
+      interaction_config_path: null
+
+      # null for default callback
+      completion_callback: null
+
       # - When set to True, the model's default chat template is used for multi-turn rollout, which typically matches production behavior.
       # - When set to False, the token ids recorded for training are used instead; unlike the default chat template, these always include the model's full output,
-      #   which may contain additional content such as reasoning content. And this will lead to longer prompts.
-      use_inference_chat_template: True
+      #   which may contain additional content such as reasoning content. This maintains the consistency between training and rollout, but it will lead to longer prompts.
+      use_inference_chat_template: False
+
       # Tokenization is performed turn by turn and the resulting token ids are concatenated to form the full conversation.
       # To ensure this matches the result of tokenizing the entire conversation at once, a sanity check is run at the end of each multi-turn rollout to compare the two sets of token ids.
       # Some models are known to produce different tokenization results when tokenizing turn by turn vs. all at once. aThis behavior has already been validated for them.
       # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
-      enable_tokenization_sanity_check: True
+      # - off: disable tokenization sanity check
+      # - strict: enable strict tokenization sanity check (default)
+      # - ignore_strippable: ignore strippable tokens when checking tokenization sanity
+      tokenization_sanity_check_mode: strict
+  
+      # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
+      format: hermes
 
+    # [Experimental] agent loop based rollout configs
+    agent:
+
+      # Number of agent loop workers
+      num_workers: 8
+
+    # support logging rollout prob for debugging purpose
+    calculate_log_probs: False
+    # Nsight system profiler configs
+    profiler:
+      discrete: False
+      all_ranks: False
+      ranks: null
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
-  strategy: megatron
+  strategy: ${actor_rollout_ref.actor.strategy}
   nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
   optim:
     optimizer: adam
@@ -261,14 +327,19 @@ critic:
     kl_coef: 0.001
   loss_agg_mode: ${actor_rollout_ref.actor.loss_agg_mode}
   checkpoint:
+    async_save: False # save checkpoint asynchronously
     # What to include in saved checkpoints
     # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
     save_contents: ['model', 'optimizer', 'extra']
     load_contents: ${critic.checkpoint.save_contents}
-
+  # Nsight system profiler configs
+  profiler:
+    discrete: False
+    all_ranks: False
+    ranks: null
 reward_model:
   enable: False
-  strategy: megatron
+  strategy: ${actor_rollout_ref.actor.strategy}
   nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
   megatron:
     param_offload: False
@@ -300,6 +371,13 @@ reward_model:
   sandbox_fusion:
     url: null # faas url to run code in cloud sandbox
     max_concurrent: 64 # max concurrent requests to sandbox
+    memory_limit_mb: 1024 # Max memory limit for each sandbox process in MB
+  # Nsight system profiler configs
+  profiler:
+    discrete: False
+    all_ranks: False
+    ranks: null
+
 custom_reward_function:
   path: null
   name: compute_score
@@ -325,6 +403,7 @@ trainer:
   balance_batch: True
   total_epochs: 30
   total_training_steps: null
+  profile_steps: null # [1,2,5] or [] or null
   project_name: verl_examples
   experiment_name: gsm8k
   logger: ['console', 'wandb']
@@ -332,6 +411,8 @@ trainer:
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1
+  esi_redundant_time: 0
+  
   # auto: find the last ckpt to resume. If can't find, start from scratch
   resume_mode: auto # or disable or resume_path if resume_from_path is set
   resume_from_path: null
@@ -346,6 +427,18 @@ trainer:
   # The timeout for ray worker group to wait for the register center to be ready
   ray_wait_register_center_timeout: 300
   device: cuda
+  # see ppo_trainer.yaml for more details
+  controller_nsight_options:
+    trace: "cuda,nvtx,cublas,ucx"
+    cuda-memory-usage: "true"
+    cuda-graph-trace: "graph"
+  worker_nsight_options:
+    trace: "cuda,nvtx,cublas,ucx"
+    cuda-memory-usage: "true"
+    cuda-graph-trace: "graph"
+    capture-range: "cudaProfilerApi"
+    capture-range-end: null
+    kill: none
 
 ray_init:
   num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.

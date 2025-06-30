@@ -21,15 +21,15 @@ import asyncio
 import logging
 import os
 
+from omegaconf import DictConfig
 from sglang.srt.entrypoints.engine import Engine
 from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.protocol import DataProto, all_gather_data_proto
-from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
-from verl.utils.debug.performance import _timer
+from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.device import get_torch_device
-from verl.utils.megatron_utils import per_tensor_generator
+from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, per_tensor_generator
 
 from .base import BaseShardingManager
 
@@ -48,23 +48,48 @@ Megatron Hybrid Engine:
 
 
 class MegatronSGLangShardingManager(BaseShardingManager):
+    """A sharding manager for Megatron-style training & inference with SGLang.
+
+    This class manages the sharding of model parameters between training and inference
+    phases in a Megatron-style parallel setup. It handles:
+    - Loading/offloading parameters between CPU/GPU
+    - Updating inference engine weights
+    - Managing random states for reproducibility
+    - Data preprocessing for distributed inference
+
+    Args:
+        actor_module (nn.ModuleList): The actor model modules
+        inference_engine (Engine): The SGLang inference engine
+        model_config: Configuration for the actor's model
+        rollout_config: Configuration for rollout generation
+        transformer_config: Transformer-specific configuration
+        layer_name_mapping: Mapping between layer names and parameters
+        weight_converter: Utility for converting weights between formats
+        device_mesh (DeviceMesh | None): PyTorch device mesh for distributed training
+        offload_param (bool): Whether to offload parameters to CPU when not in use
+    """
+
     def __init__(
         self,
         actor_module: nn.ModuleList,
         inference_engine: Engine,
-        model_config,
+        model_config: DictConfig,
+        rollout_config: DictConfig,
         transformer_config,
         layer_name_mapping,
         weight_converter,
         device_mesh: DeviceMesh | None = None,
+        offload_param: bool = False,
     ):
         self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.model_config = model_config
+        self.rollout_config = rollout_config
         self.transformer_config = transformer_config
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
         self.device_mesh = device_mesh
+        self.offload_param = offload_param
 
         if self.device_mesh is not None:
             self.infer_tp_size = self.device_mesh["tp"].mesh.size()[0]
@@ -85,7 +110,9 @@ class MegatronSGLangShardingManager(BaseShardingManager):
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     def __enter__(self):
         self.timing = {}
-        with _timer("reshard", self.timing):
+        with simple_timer("reshard", self.timing):
+            if self.offload_param:
+                load_megatron_model_to_gpu(self.actor_module)
             per_tensor_param = per_tensor_generator(
                 self.actor_module,
                 self.model_config,
@@ -95,6 +122,9 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             )
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self.update_weights(per_tensor_param))
+            if self.offload_param:
+                offload_megatron_model_to_cpu(self.actor_module)
+            get_torch_device().empty_cache()
             # important: need to manually set the random states of each tp to be identical.
             if self.device_mesh is not None:
                 self.torch_random_states = get_torch_device().get_rng_state()
@@ -102,10 +132,11 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager exit", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(self.release_memory())
-        log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
+        if self.rollout_config.free_cache_engine:
+            log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.release_memory())
+            log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
 
         for model in self.actor_module:
             model.train()
@@ -118,7 +149,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             get_torch_device().set_rng_state(self.torch_random_states)
 
     async def update_weights(self, params):
-        if self.device_mesh["tp"].get_local_rank() == 0:
+        if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.resume_memory_occupation()
 
         # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
@@ -142,7 +173,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                 await self.inference_engine.flush_cache()
 
     async def release_memory(self):
-        if self.device_mesh["tp"].get_local_rank() == 0:
+        if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.release_memory_occupation()
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
@@ -162,9 +193,10 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager exit", logger=logger)
     async def sleep(self):
-        log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
-        await self.release_memory()
-        log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
+        if self.rollout_config.free_cache_engine:
+            log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
+            await self.release_memory()
+            log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
 
         for model in self.actor_module:
             model.train()
