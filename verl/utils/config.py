@@ -32,6 +32,9 @@ def omega_conf_to_dataclass(config: Union[DictConfig, dict], dataclass_type: Opt
     Returns:
         The dataclass instance.
     """
+    if dataclass_type is not None and isinstance(config, dataclass_type):
+        return config
+
     if dataclass_type is None:
         from hydra.utils import instantiate
 
