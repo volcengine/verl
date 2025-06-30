@@ -45,6 +45,14 @@ def _get_current_mem_info(unit: str = "GB", precision: int = 2) -> Tuple[str]:
 
 
 def log_gpu_memory_usage(head: str, logger: logging.Logger = None, level=logging.DEBUG, rank: int = 0):
+    """Log GPU memory usage information.
+
+    Args:
+        head (str): A descriptive header for the memory usage log message.
+        logger (logging.Logger, optional): Logger instance to use for logging. If None, prints to stdout.
+        level: Logging level to use. Defaults to logging.DEBUG.
+        rank (int): The rank of the process to log memory for. Defaults to 0.
+    """
     if (not dist.is_initialized()) or (rank is None) or (dist.get_rank() == rank):
         mem_allocated, mem_reserved, mem_used, mem_total = _get_current_mem_info()
         message = f"{head}, memory allocated (GB): {mem_allocated}, memory reserved (GB): {mem_reserved}, device memory used/total (GB): {mem_used}/{mem_total}"

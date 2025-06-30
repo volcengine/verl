@@ -61,6 +61,3 @@ class AlgoConfig(BaseConfig):
 
     # Filter groups parameters (used in DAPO and Entropy)
     filter_groups: Optional[FilterGroupsConfig] = None  # Filter groups configuration
-
-    # SPPO parameters
-    sppo_eta: Optional[float] = None  # SPPO eta parameter

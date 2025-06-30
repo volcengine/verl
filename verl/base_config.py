@@ -25,7 +25,7 @@ class BaseConfig(collections.abc.Mapping):
     This allows instances of this class to be used like dictionaries.
     """
 
-    def get(self, key: str, default: Any = None):
+    def get(self, key: str, default: Any = None) -> Any:
         """Get the value associated with the given key. If the key does not exist, return the default value.
 
         Args:
