@@ -21,15 +21,6 @@ import ray
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 
-@ray.remote(resources={'TPU': 1})
-def is_torch_tpu_available() -> bool:
-    """Check the availability of TPUs"""
-    try:
-        import torch_xla.core.xla_model as xm
-        return xm.get_xla_supported_devices("TPU") is not None
-    except:
-        return False
-    
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
 def main(config):
@@ -49,15 +40,9 @@ def run_ppo(config) -> None:
             num_cpus=config.ray_init.num_cpus,
         )
     
-    # check for TPU availability and set environment variable
-    tpu_available = ray.get(is_torch_tpu_available.remote())
-    task_runner_env_vars = {
-        "TORCH_TPU_AVAILABLE": "1" if tpu_available else "0"
-    }
-
     # Create a remote instance of the TaskRunner class, and
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
-    runner = TaskRunner.options(runtime_env={"env_vars": task_runner_env_vars}).remote()
+    runner = TaskRunner.remote()
     ray.get(runner.run.remote(config))
 
     # [Optional] get the path of the timeline trace file from the configuration, default to None
