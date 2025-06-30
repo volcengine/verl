@@ -25,8 +25,6 @@ from pathlib import Path
 # directory or file path must contain keyword ".cuda" or "cuda"
 CUDA_KEYWORD_CHECK_WHITELIST = [
     "verl/utils/device.py",
-    "verl/third_party/vllm/vllm_v_0_5_4",
-    "verl/third_party/vllm/vllm_v_0_6_3",
     "recipe/prime/prime_ray_trainer.py",  # appear in default device_name
     "recipe/spin/spin_trainer.py",  # appear in default device_name
     "recipe/sppo/sppo_ray_trainer.py",  # appear in default device_name
@@ -42,8 +40,6 @@ CUDA_KEYWORD_CHECK_WHITELIST = [
 # directory or file path must contain keyword "nccl"
 NCCL_KEYWORD_CHECK_WHITELIST = [
     "verl/utils/device.py",
-    "verl/third_party/vllm/vllm_v_0_5_4",
-    "verl/third_party/vllm/vllm_v_0_6_3",
     "verl/third_party/sglang/parallel_state.py",  # appear in default backend
 ]
 

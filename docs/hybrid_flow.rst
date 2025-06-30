@@ -254,12 +254,7 @@ Important code files in the repository are organized as below:
        weight_loader_registery.py  # registry of weight loaders for loading hf ckpt into Megatron
      third_party
        vllm  # adaptor for vllm's usage in RL
-         vllm_v_0_6_3  # vllm v0.6.3 adaptor
-           llm.py  # entrypoints for generate, sync_model_weight, offload_model_weights
-           parallel_state.py  # vllm related device mesh and process groups
-           dtensor_weight_loaders.py  # weight loader for huggingface models with FSDP
-           megatron_weight_loaders.py  # weight loader for Megatron models
-         vllm_spmd  # vllm >= v0.7 adaptor (coming soon)
+         vllm_spmd  # vllm >= v0.7 adaptor
    examples  # example scripts
    tests  # integration and unit tests
    .github  # the configuration of continuous integration tests

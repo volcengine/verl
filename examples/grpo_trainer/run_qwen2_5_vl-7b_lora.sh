@@ -1,5 +1,7 @@
 set -x
 ENGINE=${1:-vllm}
+# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
+# export VLLM_ATTENTION_BACKEND=XFORMERS
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -12,10 +14,14 @@ python3 -m verl.trainer.main_ppo \
     data.truncation='error' \
     data.image_key=images \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-7B-Instruct \
-    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.actor.optim.lr=3e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=10 \
+    actor_rollout_ref.model.lora_rank=64 \
+    actor_rollout_ref.model.lora_alpha=32 \
+    actor_rollout_ref.model.target_modules=all-linear \
+    actor_rollout_ref.model.exclude_modules='.*visual.*' \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.01 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
@@ -30,7 +36,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=False \
-    actor_rollout_ref.rollout.free_cache_engine=True \
+    actor_rollout_ref.rollout.free_cache_engine=False \
     actor_rollout_ref.rollout.n=5 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=20 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \

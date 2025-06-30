@@ -1,7 +1,5 @@
 set -x
 
-#export VLLM_ATTENTION_BACKEND=XFORMERS
-
 gsm8k_train_path=$HOME/data/rlhf/gsm8k/train.parquet
 gsm8k_test_path=$HOME/data/rlhf/math/test.parquet
 model_path=Qwen/Qwen2.5-Coder-14B-Instruct
