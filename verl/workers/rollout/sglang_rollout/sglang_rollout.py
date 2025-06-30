@@ -633,12 +633,26 @@ class SGLangRollout(BaseRollout):
         # Update with any additional kwargs
         request_sampling_params.update(kwargs)
 
+        # Add JSON schema support if expected_schema is provided in the dataset
+        expected_schemas = non_tensor_batch.get("expected_schema", None)
+        if expected_schemas is not None:
+            # Create per-request sampling params to handle different schemas
+            per_request_sampling_params = []
+            for expected_schema in expected_schemas:
+                request_params = request_sampling_params.copy()
+                if expected_schema is not None:
+                    request_params["json_schema"] = expected_schema
+                per_request_sampling_params.append(request_params)
+        else:
+            # Use the same sampling params for all requests
+            per_request_sampling_params = [request_sampling_params] * len(sglang_inputs)
+
         if self._tp_rank == 0:
             loop = asyncio.get_event_loop()
             output = loop.run_until_complete(
                 self._engine.async_generate(
                     prompt=None,  # because we have already convert it to prompt token id
-                    sampling_params=request_sampling_params,
+                    sampling_params=per_request_sampling_params,
                     return_logprob=True,
                     input_ids=idx_list,
                     image_data=image_list,
@@ -773,6 +787,10 @@ class SGLangRollout(BaseRollout):
 
         # Update with any additional kwargs
         request_sampling_params.update(kwargs)
+
+        # Add JSON schema support if expected_schema is provided in the request
+        if _req.expected_schema is not None:
+            request_sampling_params["json_schema"] = _req.expected_schema
 
         while current_turns < self.config.multi_turn.max_assistant_turns:
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
@@ -1106,6 +1124,11 @@ class SGLangRollout(BaseRollout):
                 else:
                     _interaction_kwargs = {}
 
+                # Extract expected_schema from the dataset
+                _expected_schema = None
+                if "expected_schema" in prompts.non_tensor_batch:
+                    _expected_schema = prompts.non_tensor_batch["expected_schema"][data_idx]
+
                 req = AsyncRolloutRequest(
                     batch_data_id=data_idx,
                     rollout_offset=rollout_offset,
@@ -1116,6 +1139,7 @@ class SGLangRollout(BaseRollout):
                     tool_schemas=_tool_schemas,
                     tools_kwargs=_tools_kwargs,
                     interaction_kwargs=_interaction_kwargs,
+                    expected_schema=_expected_schema,
                     input_ids=_input_ids,
                     response_ids=[],
                     attention_mask=_attention_mask,

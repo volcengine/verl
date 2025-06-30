@@ -88,6 +88,7 @@ class AsyncRolloutRequest(BaseModel):
     tool_schemas: Optional[List[OpenAIFunctionToolSchema]] = None
     tools_kwargs: Dict[str, Any] = {}
     interaction_kwargs: Dict[str, Any] = {}
+    expected_schema: Optional[Dict[str, Any]] = None
     input_ids: List[int]
     prompt_ids: List[int]
     response_ids: List[int]
