@@ -1,6 +1,8 @@
 Multinode Training
 ==================
 
+Last updated: 06/10/2025.
+
 .. _wuxibin89: https://github.com/wuxibin89
 
 Author: `Xibin Wu <https://github.com/wuxibin89>`_, `Yusheng Su <https://yushengsu-thu.github.io/>`_.
@@ -61,10 +63,6 @@ Submit job to ray cluster
 
 .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/job.png?raw=true
 .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/job_detail.png?raw=true
-
-.. note:: 
-
-    From Ray 2.20, ``ray job submit`` or ``client = JobSubmissionClient("http://127.0.0.1:8265")`` is deprecated in current environment, and Ray version less than 2.40 is not compatible with current version of verl. We recommend you upgrade to Ray latest version and directly execute the training scripts.
 
 
 Slurm
@@ -456,8 +454,6 @@ slurm_script.sh
     echo "IP Head: $ip_head"
 
     # make sure we set environment variables before Ray initialization
-    # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
-    # export VLLM_ATTENTION_BACKEND=XFORMERS
 
     # Print out all env variables
     printenv

@@ -128,7 +128,17 @@ class TaskRunner:
         val_reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=1, compute_score=compute_score, reward_fn_key=config.data.reward_fn_key)
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
-        trainer = RaySPINTrainer(config=config, tokenizer=tokenizer, processor=processor, role_worker_mapping=role_worker_mapping, resource_pool_manager=resource_pool_manager, ray_worker_group_cls=ray_worker_group_cls, reward_fn=reward_fn, val_reward_fn=val_reward_fn)
+        trainer = RaySPINTrainer(
+            config=config,
+            tokenizer=tokenizer,
+            processor=processor,
+            role_worker_mapping=role_worker_mapping,
+            resource_pool_manager=resource_pool_manager,
+            ray_worker_group_cls=ray_worker_group_cls,
+            reward_fn=reward_fn,
+            val_reward_fn=val_reward_fn,
+            device_name=config.trainer.device,
+        )
         trainer.init_workers()
         trainer.fit_dpo()
 

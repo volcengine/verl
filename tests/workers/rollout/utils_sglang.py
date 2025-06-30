@@ -120,7 +120,7 @@ def generate_hf_output(model, input_ids, attention_mask, tokenizer, max_response
     return tokenizer.batch_decode(response)
 
 
-def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_config_path):
+def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_config_path=None, interaction_config_path=None):
     sampling_params = dict(
         n=1,
         temperature=0,
@@ -138,9 +138,10 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
     rollout_config = OmegaConf.create(
         {
             "name": "sglang",
+            "mode": "sync",
             "load_format": "dummy_dtensor",
             "enforce_eager": False,
-            "free_cache_engine": False,
+            "free_cache_engine": True,
             "dtype": dtype,
             "gpu_memory_utilization": 0.5,
             "ignore_eos": False,
@@ -149,11 +150,13 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
             "response_length": max_response_length,
             "tensor_model_parallel_size": tensor_parallel_size,
             "multi_turn": {
-                "max_turns": 4,
+                "max_assistant_turns": 4,
+                "max_user_turns": 4,
                 "enable": True,
                 "tool_config_path": tool_config_path,
+                "interaction_config_path": interaction_config_path,
                 "use_inference_chat_template": False,
-                "enable_tokenization_sanity_check": True,
+                "tokenization_sanity_check_mode": "strict",
             },
             "max_model_len": None,
             **sampling_params,

@@ -16,7 +16,7 @@ from transformers import PretrainedConfig
 
 from verl.utils.device import get_torch_device
 
-VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen2_vl", "qwen2_5_vl", "qwen3", "qwen3_moe", "deepseek_v3"}
+VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen2_vl", "qwen2_5_vl", "qwen3", "qwen3_moe", "deepseek_v3", "minicpmv", "minicpmo"}
 
 
 def get_device_flops(unit="T"):
@@ -70,11 +70,14 @@ class FlopsCounter:
         self.estimate_func = {
             "qwen2": self._estimate_qwen2_flops,
             "llama": self._estimate_qwen2_flops,
+            "qwen2_moe": self._estimate_qwen2_moe_flops,
             "qwen2_vl": self._estimate_qwen2_flops,
             "qwen2_5_vl": self._estimate_qwen2_flops,
             "qwen3": self._estimate_qwen2_flops,
-            "qwen3_moe": self._estimate_qwen3_moe_flops,
+            "qwen3_moe": self._estimate_qwen2_moe_flops,
             "deepseek_v3": self._estimate_deepseek_v3_flops,
+            "minicpmv": self._estimate_qwen2_flops,
+            "minicpmo": self._estimate_qwen2_flops,
         }
         self.config = config
 
@@ -161,13 +164,13 @@ class FlopsCounter:
 
         return flops_achieved
 
-    def _estimate_qwen3_moe_flops(self, tokens_sum, batch_seqlens, delta_time):
+    def _estimate_qwen2_moe_flops(self, tokens_sum, batch_seqlens, delta_time):
         hidden_size = self.config.hidden_size
         vocab_size = self.config.vocab_size
         num_hidden_layers = self.config.num_hidden_layers
         num_key_value_heads = self.config.num_key_value_heads
         num_attention_heads = self.config.num_attention_heads
-        moe_intermediate_size = self.config.moe_intermediate_size       
+        moe_intermediate_size = self.config.moe_intermediate_size
         moe_topk = self.config.num_experts_per_tok
         num_experts = self.config.num_experts
 
@@ -196,7 +199,6 @@ class FlopsCounter:
         flops_all_token = dense_N_flops + attn_qkv_flops
         flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
         return flops_achieved
-
 
     def estimate_flops(self, batch_seqlens, delta_time):
         """

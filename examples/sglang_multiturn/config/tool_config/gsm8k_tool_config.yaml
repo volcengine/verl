@@ -1,6 +1,7 @@
 tools:
   - class_name: "verl.tools.gsm8k_tool.Gsm8kTool"
-    config: {}
+    config: 
+      type: native
     tool_schema:
       type: "function"
       function:

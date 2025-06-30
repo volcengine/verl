@@ -26,6 +26,7 @@ from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.device import get_device_id, get_device_name, get_nccl_backend
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.fsdp_utils import (
@@ -53,7 +54,7 @@ class PRIMERewardModelWorker(Worker):
         import torch.distributed
 
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend="nccl")
+            torch.distributed.init_process_group(backend=get_nccl_backend())
         self.config = config
 
         # build device mesh for Ulysses Sequence Parallel
@@ -66,7 +67,7 @@ class PRIMERewardModelWorker(Worker):
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
         dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
-            self.ulysses_device_mesh = init_device_mesh("cuda", mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"])
+            self.ulysses_device_mesh = init_device_mesh(get_device_name(), mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"])
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
 
@@ -190,7 +191,7 @@ class PRIMERewardModelWorker(Worker):
             param_init_fn=init_fn,
             use_orig_params=False,
             auto_wrap_policy=auto_wrap_policy,
-            device_id=torch.cuda.current_device(),
+            device_id=get_device_id(),
             sharding_strategy=sharding_strategy,
             mixed_precision=mixed_precision,
             sync_module_states=True,
@@ -206,7 +207,7 @@ class PRIMERewardModelWorker(Worker):
             param_init_fn=init_fn,
             use_orig_params=False,
             auto_wrap_policy=auto_wrap_policy,
-            device_id=torch.cuda.current_device(),
+            device_id=get_device_id(),
             sharding_strategy=sharding_strategy,
             mixed_precision=mixed_precision,
             sync_module_states=True,
@@ -268,7 +269,7 @@ class PRIMERewardModelWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_rm_score(self, data: DataProto):
-        data = data.to("cuda")
+        data = data.to(get_device_name())
 
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.reward_module)
@@ -303,12 +304,12 @@ class PRIMERewardModelWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_rm(self, data: DataProto):
-        data = data.to("cuda")
+        data = data.to(get_device_name())
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.ref_module)
             load_fsdp_model_to_gpu(self.reward_module)
         if self._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.reward_optimizer, device_id=torch.cuda.current_device())
+            load_fsdp_optimizer(optimizer=self.reward_optimizer, device_id=get_device_id())
 
         # perform forward computation
         with self.ulysses_sharding_manager:

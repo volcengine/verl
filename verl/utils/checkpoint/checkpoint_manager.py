@@ -15,17 +15,15 @@
 import os
 import random
 import shutil
-import tempfile
 from typing import Union
 
 import numpy as np
 import torch
 import torch.distributed
-from filelock import FileLock
 from omegaconf import DictConfig
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
-from verl.utils.device import is_cuda_available, is_npu_available
+from verl.utils.device import get_device_name, get_torch_device
 
 
 class BaseCheckpointManager:
@@ -49,10 +47,11 @@ class BaseCheckpointManager:
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler = None,
         processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
-        checkpoint_contents: DictConfig = None,
+        checkpoint_config: DictConfig = None,
     ):
-        checkpoint_load_contents = checkpoint_contents.get("load_contents", None) if checkpoint_contents else None
-        checkpoint_save_contents = checkpoint_contents.get("save_contents", None) if checkpoint_contents else None
+        self.checkpoint_config = checkpoint_config
+        checkpoint_load_contents = checkpoint_config.get("load_contents", None) if checkpoint_config else None
+        checkpoint_save_contents = checkpoint_config.get("save_contents", None) if checkpoint_config else None
         if checkpoint_load_contents is None:
             checkpoint_load_contents = ["model", "optimizer", "extra"]
         if checkpoint_save_contents is None:
@@ -141,27 +140,6 @@ class BaseCheckpointManager:
             shutil.rmtree(abs_path, ignore_errors=True)
 
     @staticmethod
-    def local_mkdir(path):
-        if not os.path.isabs(path):
-            working_dir = os.getcwd()
-            path = os.path.join(working_dir, path)
-
-        # Using hash value of path as lock file name to avoid long file name
-        lock_filename = f"ckpt_{hash(path) & 0xFFFFFFFF:08x}.lock"
-        lock_path = os.path.join(tempfile.gettempdir(), lock_filename)
-
-        try:
-            with FileLock(lock_path, timeout=60):  # Add timeout
-                # make a new dir
-                os.makedirs(path, exist_ok=True)
-        except Exception as e:
-            print(f"Warning: Failed to acquire lock for {path}: {e}")
-            # Even if the lock is not acquired, try to create the directory
-            os.makedirs(path, exist_ok=True)
-
-        return path
-
-    @staticmethod
     def get_rng_state():
         rng_state = {
             "cpu": torch.get_rng_state(),
@@ -169,10 +147,8 @@ class BaseCheckpointManager:
             "random": random.getstate(),
         }
 
-        if is_cuda_available:
-            rng_state["cuda"] = torch.cuda.get_rng_state()
-        elif is_npu_available:
-            rng_state["npu"] = torch.npu.get_rng_state()
+        if get_device_name() != "cpu":
+            rng_state[get_device_name()] = get_torch_device().get_rng_state()
 
         return rng_state
 
@@ -182,10 +158,8 @@ class BaseCheckpointManager:
         np.random.set_state(rng_state["numpy"])
         random.setstate(rng_state["random"])
 
-        if is_cuda_available:
-            torch.cuda.set_rng_state(rng_state["cuda"])
-        elif is_npu_available:
-            torch.npu.set_rng_state(rng_state["npu"])
+        if get_device_name() != "cpu":
+            get_torch_device().set_rng_state(rng_state[get_device_name()])
 
 
 def find_latest_ckpt_path(path, directory_format="global_step_{}"):
@@ -225,3 +199,33 @@ def get_checkpoint_tracker_filename(root_path: str):
     Tracker file rescords the latest chckpoint during training to restart from.
     """
     return os.path.join(root_path, "latest_checkpointed_iteration.txt")
+
+
+def should_save_ckpt_esi(max_steps_duration: float, save_ckpt_duration: float = 60, redundant_time: float = 0) -> bool:
+    """
+    Determine if checkpoint should be saved based on capacity esi expiration.
+
+    Args:
+        max_steps_duration: Max estimated time (seconds) required to complete one training step
+        save_ckpt_duration: Estimated time (seconds) required to save checkpoint (default: 60)
+        redundant_time: Additional buffer time (seconds) for unexpected delays (default: 0)
+    """
+    exp_ts_mlp = os.getenv("MLP_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP")  # vemlp
+    exp_ts_aws = os.getenv("SAGEMAKER_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP")  # aws
+    if exp_ts_mlp:
+        try:
+            import time
+
+            remaining = float(exp_ts_mlp) - time.time()
+        except ValueError:
+            return False
+        return remaining > 0 and max_steps_duration > 0 and remaining <= save_ckpt_duration + max_steps_duration + redundant_time
+    elif exp_ts_aws:
+        from datetime import datetime, timedelta
+
+        expiration_time = datetime.fromtimestamp(int(exp_ts_aws))
+        time_difference = expiration_time - datetime.now()
+        threshold_minutes = (save_ckpt_duration + max_steps_duration + redundant_time) / 60
+        return time_difference < timedelta(minutes=threshold_minutes)
+    else:
+        return False

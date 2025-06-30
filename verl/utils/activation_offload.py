@@ -25,6 +25,7 @@ from typing import Any, Optional
 import torch
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
+from verl.utils.device import get_torch_device
 from verl.utils.fsdp_utils import FSDPModule as FSDP2
 
 logger = logging.getLogger(__file__)
@@ -250,8 +251,8 @@ class AsyncDoubleBufferGroupOffloadHandler(SynchronizedGroupOffloadHandler):
                 self.layer_window_map[i] += constant
 
         # allocate streams and events for synchronization
-        self.d2h_stream = torch.cuda.Stream()
-        self.h2d_stream = torch.cuda.Stream()
+        self.d2h_stream = get_torch_device().Stream()
+        self.h2d_stream = get_torch_device().Stream()
 
     def tensor_push(self, tensor: torch.Tensor, **kwargs) -> Any:
         torch_stray_tensor = isinstance(
@@ -295,7 +296,7 @@ class AsyncDoubleBufferGroupOffloadHandler(SynchronizedGroupOffloadHandler):
         """Bulk offload group."""
         offload_mapping = {}
         offload_size = 0
-        with torch.cuda.stream(self.d2h_stream):
+        with get_torch_device().stream(self.d2h_stream):
             for tensor_tag, state in self.tensor_tag_to_state.items():
                 group_id, _ = tensor_tag
                 if group_id == group_to_offload:
@@ -318,15 +319,15 @@ class AsyncDoubleBufferGroupOffloadHandler(SynchronizedGroupOffloadHandler):
         # For the first group, kickstart the offload after we have
         # the first compute completion
         if current_group == 0:
-            self.d2h_stream.wait_stream(torch.cuda.current_stream())
+            self.d2h_stream.wait_stream(get_torch_device().current_stream())
             self.bulk_offload_group(current_group)
 
         # Window map data structure helps us synchronize based on number
         # of layers offloaded
         if self.layer_window_map[self.offloaded_group_count] == current_group:
             # Stream synchronization both ways
-            self.d2h_stream.wait_stream(torch.cuda.current_stream())
-            torch.cuda.current_stream().wait_stream(self.d2h_stream)
+            self.d2h_stream.wait_stream(get_torch_device().current_stream())
+            get_torch_device().current_stream().wait_stream(self.d2h_stream)
 
             # Time to free the activation memory after usage
             for tensor_tag, _ in self.tensor_tag_to_buf.items():
@@ -352,7 +353,7 @@ class AsyncDoubleBufferGroupOffloadHandler(SynchronizedGroupOffloadHandler):
         """Bulk reload group."""
         assert group_to_reload < self.num_offload_group
 
-        with torch.cuda.stream(self.h2d_stream):
+        with get_torch_device().stream(self.h2d_stream):
             # move back tensors
             offload_mapping = self.group_offload_mapping.pop(group_to_reload)
             assert offload_mapping is not None
@@ -376,8 +377,8 @@ class AsyncDoubleBufferGroupOffloadHandler(SynchronizedGroupOffloadHandler):
         # Layer window data structure helps us to reload at right times
         if self.layer_window_map[self.offloaded_group_count - 1] == self.current_group:
             # Stream synchronization both ways
-            self.h2d_stream.wait_stream(torch.cuda.current_stream())
-            torch.cuda.current_stream().wait_stream(self.h2d_stream)
+            self.h2d_stream.wait_stream(get_torch_device().current_stream())
+            get_torch_device().current_stream().wait_stream(self.h2d_stream)
 
             # Time to reload the next group
             self.bulk_reload_group(self.offloaded_group_count - 1)
@@ -387,7 +388,7 @@ class AsyncDoubleBufferGroupOffloadHandler(SynchronizedGroupOffloadHandler):
 
         # Last group computation needs to wait till all the reloads complete
         if self.current_group == 0:
-            torch.cuda.current_stream().wait_stream(self.h2d_stream)
+            get_torch_device().current_stream().wait_stream(self.h2d_stream)
             self.offloaded_group_count = 0
 
 

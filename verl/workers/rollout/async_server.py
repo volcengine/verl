@@ -82,6 +82,20 @@ class AsyncServerBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+        """Generate response ids given prompt ids.
+
+        Args:
+            prompt_ids (List[int]): prompt ids
+            sampling_params (Dict[str, Any]): sampling params
+            request_id (str): request id
+
+        Returns:
+            List[int]: response ids
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     async def init_engine(self):
         """Init async LLM engine."""
         raise NotImplementedError
@@ -155,6 +169,7 @@ class AsyncLLMServerManager:
 
         # Init user provided chat scheduler in sperate thread.
         self.chat_scheduler: ChatCompletionScheduler = None
+        self.chat_scheduler_exception: Exception = None
         self.chat_scheduler_loop = None
         self.chat_scheduler_ready = threading.Event()
         self.chat_scheduler_thread = threading.Thread(target=self._init_chat_scheduler, daemon=True)
@@ -165,21 +180,27 @@ class AsyncLLMServerManager:
         self.chat_scheduler_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.chat_scheduler_loop)
 
-        self.chat_scheduler = ChatCompletionScheduler(
-            config=self.full_config,
-            server_addresses=self.server_addresses,
-        )
-
-        self.chat_scheduler_ready.set()
+        try:
+            self.chat_scheduler = ChatCompletionScheduler(
+                config=self.full_config,
+                server_addresses=self.server_addresses,
+            )
+        except Exception as e:
+            logger.exception(f"chat_scheduler init error: {e}")
+            self.chat_scheduler_exception = e
+        finally:
+            self.chat_scheduler_ready.set()
         self.chat_scheduler_loop.run_forever()
 
     def wake_up(self):
         """Wake up all vllm instances."""
-        ray.get([server.wake_up.remote() for server in self.async_llm_servers])
+        if self.config.rollout.free_cache_engine:
+            ray.get([server.wake_up.remote() for server in self.async_llm_servers])
 
     def sleep(self):
         """Sleep all vllm instances."""
-        ray.get([server.sleep.remote() for server in self.async_llm_servers])
+        if self.config.rollout.free_cache_engine:
+            ray.get([server.sleep.remote() for server in self.async_llm_servers])
 
     def submit_chat_completions(
         self,

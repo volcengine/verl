@@ -28,7 +28,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import GenerationConfig
 
 from verl import DataProto
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.torch_functional import get_response_mask
 
 from .base import BaseRollout
@@ -106,7 +106,7 @@ class HFRollout(BaseRollout):
         if isinstance(self.module, FSDP):
             # recurse need to set to False according to https://github.com/pytorch/pytorch/issues/100069
             param_ctx = FSDP.summon_full_params(self.module, writeback=False, recurse=False)
-        with param_ctx, torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        with param_ctx, torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):
             output = self.module.generate(
                 input_ids=idx,
                 attention_mask=attention_mask,
