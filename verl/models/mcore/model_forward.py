@@ -67,12 +67,11 @@ def gptmodel_forward(
         # output_orig is CausalLMOutputForPPO, hidden_states or directly a logits tensor
 
         # Post-processing
-        if post_process:
-            if logits_processor is not None:
-                # use logits_processor to calculate smaller data, output_orig is a logits tensor
-                args = {k: preprocess_packed_seqs(v, attention_mask, pre_process=True)[0] for k, v in logits_processor_args.items()}
-                output_dict = logits_processor(output_orig, **args)
-                output = {k: postprocess_packed_seqs(v, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process) for k, v in output_dict.items()}
+        if post_process and logits_processor is not None:
+            # use logits_processor to calculate smaller data, output_orig is a logits tensor
+            args = {k: preprocess_packed_seqs(v, attention_mask, pre_process=True)[0] for k, v in logits_processor_args.items()}
+            output_dict = logits_processor(output_orig, **args)
+            output = {k: postprocess_packed_seqs(v, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process) for k, v in output_dict.items()}
         else:
             if logits_processor is None:
                 warnings.warn("logits_processor is not provided, may be memory in-efficient", stacklevel=2)
