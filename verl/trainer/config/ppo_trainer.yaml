@@ -87,6 +87,9 @@ data:
 
     # The name of the dataset class within the specified file.
     name: null
+  
+  # Whether to process multi-modal inputs. Set to False if rollout generates new multi-modal inputs.
+  process_multi_modal_inputs_in_dataset: True
 
 # config for actor, rollout and reference model
 actor_rollout_ref:
@@ -547,7 +550,7 @@ actor_rollout_ref:
       # Some models are known to produce different tokenization results when tokenizing turn by turn vs. all at once. aThis behavior has already been validated for them.
       # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
-      # - off: disable tokenization sanity check
+      # - disable: disable tokenization sanity check
       # - strict: enable strict tokenization sanity check (default)
       # - ignore_strippable: ignore strippable tokens when checking tokenization sanity
       tokenization_sanity_check_mode: strict
