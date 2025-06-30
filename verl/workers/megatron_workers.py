@@ -160,8 +160,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         if self._is_actor and self._is_rollout:
             actor_module_wrapper_config = McoreModuleWrapperConfig(
                 role="actor",
-                tf_config=self.tf_config,
-                hf_config=self.hf_config,
                 share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
                 use_fused_kernels=self.config.model.get("use_fused_kernels", False),
                 wrap_with_ddp=True,
@@ -185,8 +183,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         elif self._is_ref:
             ref_module_wrapper_config = McoreModuleWrapperConfig(
                 role="ref",
-                tf_config=self.tf_config,
-                hf_config=self.hf_config,
                 share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
                 use_fused_kernels=False,
                 wrap_with_ddp=False,  # ref module is not wrapped with DDP
@@ -685,8 +681,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         # Step 3: initialize the megatron model
         critic_module_wrapper_config = McoreModuleWrapperConfig(
             role="critic",
-            tf_config=self.tf_config,
-            hf_config=self.hf_config,
             share_embeddings_and_output_weights=False,
             use_fused_kernels=False,
             wrap_with_ddp=True,
@@ -895,8 +889,6 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
         # Step 3: initialize the megatron model
         reward_model_wrapper_config = McoreModuleWrapperConfig(
             role="reward_model",
-            tf_config=self.tf_config,
-            hf_config=self.hf_config,
             share_embeddings_and_output_weights=False,
             use_fused_kernels=False,
             wrap_with_ddp=False,
