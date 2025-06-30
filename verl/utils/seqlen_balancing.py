@@ -120,7 +120,9 @@ def karmarkar_karp(seqlen_list: List[int], k_partitions: int, equal_size: bool):
     partitions = final_state.get_partitions()
     if equal_size:
         for i, partition in enumerate(partitions):
-            assert len(partition) * k_partitions == len(seqlen_list), f"{len(partition)} * {k_partitions} != {len(seqlen_list)}"
+            assert len(partition) * k_partitions == len(seqlen_list), (
+                f"{len(partition)} * {k_partitions} != {len(seqlen_list)}"
+            )
     return partitions
 
 
@@ -138,7 +140,9 @@ def greedy_partition(seqlen_list: List[int], k_partitions: int, equal_size: bool
         partition_sums[min_idx] += seqlen
     if equal_size:
         for i, partition in enumerate(partitions):
-            assert len(partition) * k_partitions == len(seqlen_list), f"{len(partition)} * {k_partitions} != {len(seqlen_list)}"
+            assert len(partition) * k_partitions == len(seqlen_list), (
+                f"{len(partition)} * {k_partitions} != {len(seqlen_list)}"
+            )
     return partitions
 
 
@@ -242,7 +246,14 @@ def roundup_divisible(a, b):
     return ((a + b - 1) // b) * b
 
 
-def rearrange_micro_batches(batch, max_token_len, dp_group=None, num_batches_divided_by=None, same_micro_num_in_dp=True, min_num_micro_batch=None):
+def rearrange_micro_batches(
+    batch,
+    max_token_len,
+    dp_group=None,
+    num_batches_divided_by=None,
+    same_micro_num_in_dp=True,
+    min_num_micro_batch=None,
+):
     """
     Split a batch into micro-batches by total token count, with optional DP sync and padding.
 
@@ -260,7 +271,9 @@ def rearrange_micro_batches(batch, max_token_len, dp_group=None, num_batches_div
     """
     # this is per local micro_bsz
     max_seq_len = batch["attention_mask"].shape[-1]
-    assert max_token_len >= max_seq_len, f"max_token_len must be greater than the sequence length. Got {max_token_len=} and {max_seq_len=}"
+    assert max_token_len >= max_seq_len, (
+        f"max_token_len must be greater than the sequence length. Got {max_token_len=} and {max_seq_len=}"
+    )
     seq_len_effective: torch.Tensor = batch["attention_mask"].sum(dim=1)
     total_seqlen = seq_len_effective.sum().item()
     # NOTE: num_microbatches <= batch_size, so take the min of this two.

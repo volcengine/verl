@@ -194,7 +194,11 @@ def get_rope_index(
             max_position_ids = position_ids.max(0, keepdim=False)[0].max(-1, keepdim=True)[0]
             mrope_position_deltas = max_position_ids + 1 - attention_mask.shape[-1]
         else:
-            position_ids = torch.arange(input_ids.shape[1], device=input_ids.device).view(1, 1, -1).expand(3, input_ids.shape[0], -1)
+            position_ids = (
+                torch.arange(input_ids.shape[1], device=input_ids.device)
+                .view(1, 1, -1)
+                .expand(3, input_ids.shape[0], -1)
+            )
             mrope_position_deltas = torch.zeros(
                 [input_ids.shape[0], 1],
                 device=input_ids.device,
@@ -204,7 +208,9 @@ def get_rope_index(
         return position_ids, mrope_position_deltas
 
 
-def apply_rotary_pos_emb_thd_absolute(t: Tensor, cu_seqlens: Tensor, freqs: Tensor, rotary_interleaved: bool = False) -> Tensor:
+def apply_rotary_pos_emb_thd_absolute(
+    t: Tensor, cu_seqlens: Tensor, freqs: Tensor, rotary_interleaved: bool = False
+) -> Tensor:
     """A baseline implementation of applying RoPE for `thd` format.
 
     Args:

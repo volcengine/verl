@@ -70,7 +70,9 @@ def test_decorator_dp_compute(ray_init_shutdown):
     num_workers = 2
     resource_pool = RayResourcePool([num_workers], use_gpu=False, max_colocate_count=1)  # Use CPU for simplicity
     cls_with_args = RayClassWithInitArgs(cls=DecoratorTestWorker, initial_value=10)
-    worker_group = RayWorkerGroup(resource_pool, cls_with_args, name_prefix=f"decorator_test_sync_dp_{int(time.time())}")
+    worker_group = RayWorkerGroup(
+        resource_pool, cls_with_args, name_prefix=f"decorator_test_sync_dp_{int(time.time())}"
+    )
 
     # Prepare input data (size 4, for 2 workers)
     input_tensor = torch.arange(4, dtype=torch.float32)
@@ -104,7 +106,9 @@ def test_decorator_async_function(ray_init_shutdown):
     num_workers = 2
     resource_pool = RayResourcePool([num_workers], use_gpu=False, max_colocate_count=1)
     cls_with_args = RayClassWithInitArgs(cls=DecoratorTestWorker, initial_value=5)
-    worker_group = RayWorkerGroup(resource_pool, cls_with_args, name_prefix=f"decorator_test_async_dp_{int(time.time())}")
+    worker_group = RayWorkerGroup(
+        resource_pool, cls_with_args, name_prefix=f"decorator_test_async_dp_{int(time.time())}"
+    )
 
     # Prepare input data (size 4, for 2 workers)
     input_tensor = torch.arange(4, dtype=torch.float32)
@@ -132,4 +136,6 @@ def test_decorator_async_function(ray_init_shutdown):
     expected_output_part2 = (torch.tensor([2, 3], dtype=torch.float32) * 2) + 5 + 1
     expected_output = torch.cat([expected_output_part1, expected_output_part2])
 
-    torch.testing.assert_close(result_data.batch["output_async"], expected_output, msg="Async DP compute output data mismatch")
+    torch.testing.assert_close(
+        result_data.batch["output_async"], expected_output, msg="Async DP compute output data mismatch"
+    )

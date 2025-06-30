@@ -56,7 +56,9 @@ def find_violations(tests_root: Path, allowed: set[str], allowed_files: list[str
 
         first_folder = rel_parts[0]
         if first_folder not in allowed:
-            errors.append(f"{test_file}: subfolder '{first_folder}' under tests/ is not an allowed module. The valid ones are: {sorted(allowed)}")
+            errors.append(
+                f"{test_file}: subfolder '{first_folder}' under tests/ is not an allowed module. The valid ones are: {sorted(allowed)}"
+            )
     return errors
 
 

@@ -127,7 +127,9 @@ def llama_flash_attn_forward(
         else:
             target_dtype = self.q_proj.weight.dtype
 
-        logger.warning_once(f"The input hidden states seems to be silently casted in float32, this might be related to the fact you have upcasted embedding or layer norm layers in float32. We will cast back the input in {target_dtype}.")
+        logger.warning_once(
+            f"The input hidden states seems to be silently casted in float32, this might be related to the fact you have upcasted embedding or layer norm layers in float32. We will cast back the input in {target_dtype}."
+        )
 
         query_states = query_states.to(target_dtype)
         key_states = key_states.to(target_dtype)
@@ -206,7 +208,9 @@ def llama_attn_forward(
     attention_interface: Callable = eager_attention_forward
     if self.config._attn_implementation != "eager":
         if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
-            logger.warning_once('`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to eager attention. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.')
+            logger.warning_once(
+                '`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to eager attention. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
+            )
         else:
             attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 

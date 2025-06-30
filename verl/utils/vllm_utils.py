@@ -186,7 +186,9 @@ class VLLMHijack:
                 raise e
 
             if lora.extra_vocab_size > self.lora_config.lora_extra_vocab_size:
-                raise ValueError(f"LoRA added vocab size {lora.extra_vocab_size} is greater than lora_extra_vocab_size {self.lora_config.lora_extra_vocab_size}.")
+                raise ValueError(
+                    f"LoRA added vocab size {lora.extra_vocab_size} is greater than lora_extra_vocab_size {self.lora_config.lora_extra_vocab_size}."
+                )
             return lora
 
         def do_hijack(target_cls, target_method_name, hooking_method):

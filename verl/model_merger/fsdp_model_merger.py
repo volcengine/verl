@@ -111,7 +111,11 @@ class FSDPModelMerger(BaseModelMerger):
         return world_size
 
     def _load_rank_zero_state_dict(self, world_size: int) -> dict:
-        return torch.load(Path(self.config.local_dir) / f"model_world_size_{world_size}_rank_0.pt", map_location="cpu", weights_only=False)
+        return torch.load(
+            Path(self.config.local_dir) / f"model_world_size_{world_size}_rank_0.pt",
+            map_location="cpu",
+            weights_only=False,
+        )
 
     def _extract_device_mesh_info(self, state_dict: dict, world_size: int) -> tuple[np.ndarray, tuple[str, ...]]:
         """
@@ -133,7 +137,9 @@ class FSDPModelMerger(BaseModelMerger):
 
         return mesh, mesh_dim_names
 
-    def _calculate_shard_configuration(self, mesh: np.ndarray, mesh_dim_names: tuple[str, ...]) -> tuple[int, tuple[int, ...]]:
+    def _calculate_shard_configuration(
+        self, mesh: np.ndarray, mesh_dim_names: tuple[str, ...]
+    ) -> tuple[int, tuple[int, ...]]:
         """Calculates the total number of shards and the shape of the device mesh."""
         assert mesh_dim_names in (("fsdp",), ("ddp", "fsdp")), f"Unsupported mesh_dim_names {mesh_dim_names}"
 
@@ -158,7 +164,9 @@ class FSDPModelMerger(BaseModelMerger):
 
         raise NotImplementedError(f"Unsupported placement: {placement}")
 
-    def _load_and_merge_state_dicts(self, world_size: int, total_shards: int, mesh_shape: tuple[int, ...], mesh_dim_names: tuple[str, ...]) -> dict[str, torch.Tensor]:
+    def _load_and_merge_state_dicts(
+        self, world_size: int, total_shards: int, mesh_shape: tuple[int, ...], mesh_dim_names: tuple[str, ...]
+    ) -> dict[str, torch.Tensor]:
         model_state_dict_lst = [None] * total_shards
 
         def process_one_shard(rank: int, model_state_dict_lst: list):
@@ -261,11 +269,15 @@ class FSDPModelMerger(BaseModelMerger):
         for key in hf_model_keys:
             hf_shape = hf_state_dict[key].shape
             collected_shape = state_dict[key].shape
-            assert hf_shape == collected_shape, f"Shape mismatch for key '{key}': original {hf_shape} vs collected {collected_shape}"
+            assert hf_shape == collected_shape, (
+                f"Shape mismatch for key '{key}': original {hf_shape} vs collected {collected_shape}"
+            )
 
             hf_dtype = hf_state_dict[key].dtype
             collected_dtype = state_dict[key].dtype
-            assert hf_dtype == collected_dtype, f"Dtype mismatch for key '{key}': original {hf_dtype} vs collected {collected_dtype}"
+            assert hf_dtype == collected_dtype, (
+                f"Dtype mismatch for key '{key}': original {hf_dtype} vs collected {collected_dtype}"
+            )
 
             torch.testing.assert_close(hf_state_dict[key], state_dict[key], atol=1e-6, rtol=1e-6)
 

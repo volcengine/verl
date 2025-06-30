@@ -63,7 +63,9 @@ class DecoratorLoggerBase:
         log_only_rank_0 (bool): If True, only log for rank 0.
     """
 
-    def __init__(self, role: str, logger: logging.Logger = None, level=logging.DEBUG, rank: int = 0, log_only_rank_0: bool = True):
+    def __init__(
+        self, role: str, logger: logging.Logger = None, level=logging.DEBUG, rank: int = 0, log_only_rank_0: bool = True
+    ):
         self.role = role
         self.logger = logger
         self.level = level

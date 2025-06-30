@@ -109,7 +109,15 @@ class Qwen2_5VLModel(MegatronModule):
         # on the word embeddings inside `finalize_model_grads._allreduce_word_embedding_grads`.
         self.share_embeddings_and_output_weights = False
         if self.pre_process:
-            self.vision_model = Qwen2_5VisionModel(vision_transformer_config, vision_transformer_layer_spec, vision_projection_config, vision_projection_layer_spec, projection_type=vision_projection_type, pre_process=True, post_process=True)
+            self.vision_model = Qwen2_5VisionModel(
+                vision_transformer_config,
+                vision_transformer_layer_spec,
+                vision_projection_config,
+                vision_projection_layer_spec,
+                projection_type=vision_projection_type,
+                pre_process=True,
+                post_process=True,
+            )
 
         self.language_model = GPTModel(
             config=language_transformer_config,
@@ -215,8 +223,12 @@ class Qwen2_5VLModel(MegatronModule):
             vision_grid_thw = torch.cat([vision_grid_thw, video_grid_thw], dim=0)
             vision_data = torch.cat([vision_data, pixel_values_videos], dim=0)
             video_start_index = image_mask.sum().item() + video_mask.sum().item()
-        use_inference_kv_cache = inference_params is not None and "image_tokens_count" in inference_params.key_value_memory_dict
-        use_inference_kv_cache = inference_params is not None and "image_tokens_count" in inference_params.key_value_memory_dict
+        use_inference_kv_cache = (
+            inference_params is not None and "image_tokens_count" in inference_params.key_value_memory_dict
+        )
+        use_inference_kv_cache = (
+            inference_params is not None and "image_tokens_count" in inference_params.key_value_memory_dict
+        )
         if use_inference_kv_cache:
             raise NotImplementedError()
 
@@ -255,7 +267,9 @@ class Qwen2_5VLModel(MegatronModule):
                     image_embeds = vision_embeds[:video_start_index]
                     video_embeds = vision_embeds[video_start_index:]
                 else:
-                    raise ValueError(f"Expect video token start index in range [0, {vision_embeds.shape[0]}], but got {video_start_index}")
+                    raise ValueError(
+                        f"Expect video token start index in range [0, {vision_embeds.shape[0]}], but got {video_start_index}"
+                    )
 
                 combined_embeddings = self.language_model.embedding(
                     input_ids=input_ids,
@@ -268,12 +282,16 @@ class Qwen2_5VLModel(MegatronModule):
                         image_mask = (input_ids == self.image_token_id).contiguous()
                         if image_mask.sum() > 0:
                             combined_embeddings = combined_embeddings.clone()
-                            combined_embeddings[image_mask] = image_embeds.to(dtype=combined_embeddings.dtype, device=combined_embeddings.device)
+                            combined_embeddings[image_mask] = image_embeds.to(
+                                dtype=combined_embeddings.dtype, device=combined_embeddings.device
+                            )
                     if video_embeds is not None:
                         video_mask = (input_ids == self.video_token_id).contiguous()
                         if video_mask.sum() > 0:
                             combined_embeddings = combined_embeddings.clone()
-                            combined_embeddings[video_mask] = video_embeds.to(dtype=combined_embeddings.dtype, device=combined_embeddings.device)
+                            combined_embeddings[video_mask] = video_embeds.to(
+                                dtype=combined_embeddings.dtype, device=combined_embeddings.device
+                            )
                     combined_embeddings = combined_embeddings.transpose(0, 1).contiguous()
 
             else:
@@ -288,7 +306,9 @@ class Qwen2_5VLModel(MegatronModule):
             combined_embeddings = None
         from .rope_utils import get_rope_index
 
-        position_ids, _ = get_rope_index(input_ids, image_grid_thw=image_grid_thw, video_grid_thw=video_grid_thw, attention_mask=attention_mask)
+        position_ids, _ = get_rope_index(
+            input_ids, image_grid_thw=image_grid_thw, video_grid_thw=video_grid_thw, attention_mask=attention_mask
+        )
 
         output = self.language_model(
             input_ids=None,

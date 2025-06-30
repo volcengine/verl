@@ -136,4 +136,6 @@ def test_flops_counter(config_type: str):
         # set delta time to 1 to get the flops
         counted_flops, _ = flops_counter.estimate_flops(batch_seqlens, 1)
         print(f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}")
-        assert math.isclose(counted_flops, expected_flops), f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}"
+        assert math.isclose(counted_flops, expected_flops), (
+            f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}"
+        )

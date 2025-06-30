@@ -629,7 +629,9 @@ def is_latex_equal(given_answer: str, ground_truth: str) -> bool:
     try:
         with timeout(1):
             try:
-                if (len(given_answer) > 128 and repeatness(given_answer)) or (len(ground_truth) > 128 and repeatness(ground_truth)):
+                if (len(given_answer) > 128 and repeatness(given_answer)) or (
+                    len(ground_truth) > 128 and repeatness(ground_truth)
+                ):
                     return False
                 # First conduct normalized string matching.
                 ground_truth_normalized = _normalize(ground_truth)
@@ -895,7 +897,12 @@ def split_tuple(expr: str):
     expr = _strip_properly_formatted_commas(expr)
     if len(expr) == 0:
         return []
-    if len(expr) > 2 and expr[0] in TUPLE_CHARS and expr[-1] in TUPLE_CHARS and all([ch not in expr[1:-1] for ch in TUPLE_CHARS]):
+    if (
+        len(expr) > 2
+        and expr[0] in TUPLE_CHARS
+        and expr[-1] in TUPLE_CHARS
+        and all([ch not in expr[1:-1] for ch in TUPLE_CHARS])
+    ):
         elems = [elem.strip() for elem in expr[1:-1].split(",")]
     else:
         elems = [expr]
@@ -962,7 +969,9 @@ def grade_answer_sympy(given_answer: str, ground_truth: str) -> bool:
     ground_truth_elems = split_tuple(ground_truth_normalized)
     given_elems = split_tuple(given_normalized)
 
-    if len(ground_truth_elems) > 1 and (ground_truth_normalized[0] != given_normalized[0] or ground_truth_normalized[-1] != given_normalized[-1]):
+    if len(ground_truth_elems) > 1 and (
+        ground_truth_normalized[0] != given_normalized[0] or ground_truth_normalized[-1] != given_normalized[-1]
+    ):
         is_correct = False
     elif len(ground_truth_elems) != len(given_elems):
         is_correct = False
