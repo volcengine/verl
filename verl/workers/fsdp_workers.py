@@ -415,22 +415,17 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # TODO: a sharding manager that do nothing?
 
         elif rollout_name == "vllm":
-            from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMRollout
+            from verl.workers.rollout.vllm_rollout import vLLMRollout
             from verl.workers.sharding_manager.fsdp_vllm import FSDPVLLMShardingManager
 
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
             local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
             lora_kwargs = {"lora_kwargs": {"enable_lora": True, "max_loras": 1, "max_lora_rank": self._lora_rank}} if self._is_lora else {}
             # lora_kwargs = {}
-            if vllm_mode == "customized":
-                rollout = vLLMRollout(actor_module=self.actor_module_fsdp, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor_model_config, trust_remote_code=trust_remote_code, **lora_kwargs)
-            elif vllm_mode == "spmd":
-                from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
+            from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 
-                vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
-                rollout = vllm_rollout_cls(model_path=local_path, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor_model_config, device_mesh=rollout_device_mesh, trust_remote_code=trust_remote_code, **lora_kwargs)
-            else:
-                raise NotImplementedError("vllm_mode must be 'customized' or 'spmd'")
+            vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
+            rollout = vllm_rollout_cls(model_path=local_path, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor_model_config, device_mesh=rollout_device_mesh, trust_remote_code=trust_remote_code, **lora_kwargs)
 
             log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
             full_params = torch.distributed.get_world_size() == 1
@@ -438,6 +433,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 module=self.actor_module_fsdp,
                 inference_engine=rollout.inference_engine,
                 model_config=self.actor_model_config,
+                rollout_config=self.config.rollout,
                 full_params=full_params,
                 device_mesh=rollout_device_mesh,
                 offload_param=self._is_offload_param,
@@ -481,6 +477,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 module=self.actor_module_fsdp,
                 inference_engine=rollout._engine,
                 model_config=self.actor_model_config,
+                rollout_config=self.config.rollout,
                 full_params="hf" in self.config.rollout.load_format,
                 device_mesh=rollout_device_mesh,
                 offload_param=self._is_offload_param,
@@ -1501,12 +1498,20 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     def generate_sequences(self, prompts: DataProto):
         raise NotImplementedError("AsyncActorRolloutRefWorker does not support generate_sequences")
 
+    # ============================ vLLM related ============================
+
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     def execute_method(self, method: Union[str, bytes], *args, **kwargs):
         """Called by ExternalRayDistributedExecutor collective_rpc."""
         if self.vllm_tp_rank == 0 and method != "execute_model":
             print(f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: {method if isinstance(method, str) else 'Callable'}")
         return self.rollout.execute_method(method, *args, **kwargs)
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    def get_zeromq_address(self):
+        return self.rollout.get_zeromq_address()
+
+    # ============================ SGLang related ============================
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def chat_completion(self, json_request):
@@ -1520,12 +1525,14 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def wake_up(self):
-        await self.rollout.wake_up()
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.wake_up()
         # return something to block the caller
         return True
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def sleep(self):
-        await self.rollout.sleep()
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.sleep()
         # return something to block the caller
         return True

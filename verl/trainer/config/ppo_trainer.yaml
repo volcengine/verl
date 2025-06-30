@@ -396,8 +396,6 @@ actor_rollout_ref:
     # Top-p sampling parameter. Default 1.0.
     top_p: 1
 
-    # https://arxiv.org/abs/2410.21236
-    use_fire_sampling: False
 
     # typically the same as data max prompt length
     prompt_length: ${data.max_prompt_length}

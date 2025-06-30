@@ -3,6 +3,8 @@
 Config Explanation
 ===================
 
+Last updated: 06/18/2025.
+
 ppo_trainer.yaml for RL FSDP Backend
 -------------------------------------
 
@@ -307,9 +309,6 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
 
 - ``actor_rollout_ref.rollout.gpu_memory_utilization``:
 
-  - For vLLM v0.5.4 and v0.6.3: The proportion of the **remaining** GPU memory
-    allocated for kv cache after other models have initialized when using
-    vLLM.
   - For vLLM v0.7.0 and later: The fraction of **total** GPU memory to be used for the vLLM instance.
   - For SGLang: Corresponding to ``mem_fraction_static``, the fraction of the free GPU memory used for **static** memory like model weights and KV cache. 
 
@@ -353,9 +352,9 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
   token and continue generating tokens after the EOS token is generated.
 
 - ``actor_rollout_ref.rollout.free_cache_engine``: Offload the KVCache
-  after rollout generation stage. Default is True. When set to True, we
-  need to disable the usage of CUDAGraph (set ``enforce_eager`` to
-  True.)
+  after rollout generation stage. Default is True. When set to True,
+  for vllm v0.5.4 and v0.6.3, we need to disable the usage of CUDAGraph
+  (set ``enforce_eager`` to True.)
 
 - ``actor_rollout_ref.rollout.enforce_eager``: Whether to use CUDAGraph
   in vLLM generation. Default set to True to disable CUDAGraph.
