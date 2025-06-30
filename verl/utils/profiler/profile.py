@@ -13,11 +13,12 @@
 # limitations under the License.
 
 import os
-from dataclasses import dataclass, field
-from typing import Callable, Optional, Union
+from typing import Callable, Optional
 
 import torch
 import torch.distributed
+
+from .config import ProfilerConfig
 
 
 class Profiler:
@@ -124,38 +125,6 @@ def mark_annotate(message: Optional[str] = None, color: Optional[str] = None, do
         return func
 
     return decorator
-
-from verl.base_config import BaseConfig
-@dataclass(frozen=True)
-class ProfilerConfig(BaseConfig):
-    """Worker profiler config. Currently only support Nsight system profiler."""
-
-    # True for each task has its own database, False for all tasks in one training step share one database.
-    discrete: bool = False
-
-    # Whether to profile all ranks.
-    all_ranks: bool = False
-
-    # The ranks that will be profiled. [] or [0,1,...]
-    ranks: list[int] = field(default_factory=list)
-
-    def union(self, other: "ProfilerConfig") -> "ProfilerConfig":
-        return ProfilerConfig(
-            all_ranks=self.all_ranks or other.all_ranks,
-            ranks=list(set(self.ranks or []) | set(other.ranks or [])),
-            discrete=self.discrete or other.discrete,
-        )
-
-    def intersect(self, other: "ProfilerConfig") -> "ProfilerConfig":
-        return ProfilerConfig(
-            all_ranks=self.all_ranks and other.all_ranks,
-            ranks=list(set(self.ranks or []) & set(other.ranks or [])),
-            discrete=self.discrete and other.discrete,
-        )
-
-    def __post_init__(self) -> None:
-        """config validation logics go here"""
-        assert isinstance(self.ranks, (set, list, tuple))
 
 
 class DistProfiler:
