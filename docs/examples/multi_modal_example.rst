@@ -1,6 +1,8 @@
 Multi-Modal Example Architecture
 =================================
 
+Last updated: 04/28/2025.
+
 Introduction
 ------------
 

@@ -3,6 +3,8 @@
 Config Explanation
 ===================
 
+Last updated: 06/18/2025.
+
 ppo_trainer.yaml for RL FSDP Backend
 -------------------------------------
 
@@ -353,9 +355,9 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
   token and continue generating tokens after the EOS token is generated.
 
 - ``actor_rollout_ref.rollout.free_cache_engine``: Offload the KVCache
-  after rollout generation stage. Default is True. When set to True, we
-  need to disable the usage of CUDAGraph (set ``enforce_eager`` to
-  True.)
+  after rollout generation stage. Default is True. When set to True,
+  for vllm v0.5.4 and v0.6.3, we need to disable the usage of CUDAGraph
+  (set ``enforce_eager`` to True.)
 
 - ``actor_rollout_ref.rollout.enforce_eager``: Whether to use CUDAGraph
   in vLLM generation. Default set to True to disable CUDAGraph.

@@ -1,6 +1,8 @@
 Hardware Resource Needed for RL
 ===============================
 
+Last updated: 06/25/2025.
+
 Since RL requires more resources compared to regular training, 
 determining how much resources are needed to successfully run it before training 
 is a relatively difficult task. To provide more people with reference points for 

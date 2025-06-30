@@ -13,10 +13,11 @@
 # limitations under the License.
 import logging
 import os
+import pickle
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import cloudpickle
 import ray
+import zmq
 from omegaconf import DictConfig
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
@@ -38,37 +39,44 @@ from verl.workers.rollout.async_server import AsyncServerBase
 logger = logging.getLogger(__file__)
 
 
+def _get_model_runner_workers(vllm_config, init_ray: bool = True):
+    assert vllm_config.instance_id is not None, "instance_id must be set for external ray actors."
+
+    fields = vllm_config.instance_id.split(":")
+    assert len(fields) == 4, f"instance_id: {vllm_config.instance_id} must be in the format of <namespace>:<wg_prefix>:<vllm_dp_size>:<vllm_dp_rank>."
+    namespace, wg_prefix, vllm_dp_size, vllm_dp_rank = fields[0], fields[1], int(fields[2]), int(fields[3])
+
+    # Make sure subprocess in same namespace as parent actor.
+    # actor name format: {name_prefix}WorkerDict_{pg_idx}:{local_rank}
+    if init_ray:
+        ray.init(namespace=namespace)
+    actor_names = [actor_name for actor_name in ray.util.list_named_actors() if actor_name.startswith(f"{wg_prefix}WorkerDict")]
+
+    vllm_tp_size = vllm_config.parallel_config.tensor_parallel_size
+    assert len(actor_names) == vllm_dp_size * vllm_tp_size, f"instance_id: {vllm_config.instance_id} has {len(actor_names)} actors, but vllm_dp_size: {vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = {vllm_dp_size * vllm_tp_size} is expected."
+
+    def get_pg_index_and_local_rank(actor_name) -> Tuple[int, int]:
+        fields = actor_name.split(":")
+        assert len(fields) == 2, f"invalid actor name: {actor_name}"
+        pg_index, local_rank = int(fields[0].split("_")[-1]), int(fields[1])
+        return pg_index, local_rank
+
+    # sort actor names by pg_index and local_rank
+    actor_names = sorted(actor_names, key=get_pg_index_and_local_rank)
+    actor_names = actor_names[vllm_dp_rank * vllm_tp_size : (vllm_dp_rank + 1) * vllm_tp_size]
+    workers: List[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
+    print(f"instance_id: {vllm_config.instance_id} initializes with external actors: {actor_names}")
+
+    return workers
+
+
 class ExternalRayDistributedExecutor(Executor):
     """An executor that engines are launched by external ray actors."""
 
     uses_ray: bool = False
 
     def _init_executor(self) -> None:
-        assert self.vllm_config.instance_id is not None, "instance_id must be set for external ray actors."
-
-        fields = self.vllm_config.instance_id.split(":")
-        assert len(fields) == 4, f"instance_id: {self.vllm_config.instance_id} must be in the format of <namespace>:<wg_prefix>:<vllm_dp_size>:<vllm_dp_rank>."
-        namespace, wg_prefix, vllm_dp_size, vllm_dp_rank = fields[0], fields[1], int(fields[2]), int(fields[3])
-
-        # Make sure subprocess in same namespace as parent actor.
-        # actor name format: {name_prefix}WorkerDict_{pg_idx}:{local_rank}
-        ray.init(namespace=namespace)
-        actor_names = [actor_name for actor_name in ray.util.list_named_actors() if actor_name.startswith(f"{wg_prefix}WorkerDict")]
-
-        vllm_tp_size = self.vllm_config.parallel_config.tensor_parallel_size
-        assert len(actor_names) == vllm_dp_size * vllm_tp_size, f"instance_id: {self.vllm_config.instance_id} has {len(actor_names)} actors, but vllm_dp_size: {vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = {vllm_dp_size * vllm_tp_size} is expected."
-
-        def get_pg_index_and_local_rank(actor_name) -> Tuple[int, int]:
-            fields = actor_name.split(":")
-            assert len(fields) == 2, f"invalid actor name: {actor_name}"
-            pg_index, local_rank = int(fields[0].split("_")[-1]), int(fields[1])
-            return pg_index, local_rank
-
-        # sort actor names by pg_index and local_rank
-        actor_names = sorted(actor_names, key=get_pg_index_and_local_rank)
-        actor_names = actor_names[vllm_dp_rank * vllm_tp_size : (vllm_dp_rank + 1) * vllm_tp_size]
-        self.workers: List[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
-        print(f"instance_id: {self.vllm_config.instance_id} initializes with external actors: {actor_names}")
+        self.workers = _get_model_runner_workers(vllm_config=self.vllm_config, init_ray=True)
 
         kwargs = dict(
             vllm_config=self.vllm_config,
@@ -93,11 +101,62 @@ class ExternalRayDistributedExecutor(Executor):
         if isinstance(method, str):
             sent_method = method
         else:
-            sent_method = cloudpickle.dumps(method)
+            sent_method = pickle.dumps(method)
         del method
 
         # ~3ms overhead per schedule step due to SchedulerOutput/ModelRunnerOutput serialization/deserialization.
         outputs = ray.get([worker.execute_method.remote(sent_method, *args, **(kwargs or {})) for worker in self.workers])
+        return outputs
+
+    def check_health(self):
+        return
+
+
+class ExternalZeroMQDistributedExecutor(Executor):
+    """An executor that engines are launched by external ray actors."""
+
+    uses_ray: bool = False
+
+    def _init_executor(self) -> None:
+        addresses = os.environ["VERL_VLLM_ZMQ_ADDRESSES"].split(",")
+        self.context = zmq.Context()
+        self.sockets = []
+        for address in addresses:
+            socket = self.context.socket(zmq.REQ)
+            socket.connect(address)
+            self.sockets.append(socket)
+
+        kwargs = dict(
+            vllm_config=self.vllm_config,
+            local_rank=None,
+            rank=None,
+            distributed_init_method="env://",
+            is_driver_worker=True,
+        )
+        self.collective_rpc("init_worker", args=([kwargs],))
+        self.collective_rpc("init_device")
+        self.collective_rpc("load_model")
+
+    def collective_rpc(
+        self,
+        method: Union[str, Callable],
+        timeout: Optional[float] = None,
+        args: Tuple = (),
+        kwargs: Optional[Dict[str, Any]] = None,
+    ) -> List[Any]:
+        if isinstance(method, str):
+            sent_method = method
+        else:
+            sent_method = pickle.dumps(method)
+        del method
+
+        message = pickle.dumps((sent_method, args, kwargs or {}))
+        for socket in self.sockets:
+            socket.send(message, zmq.DONTWAIT)
+
+        outputs = []
+        for socket in self.sockets:
+            outputs.append(pickle.loads(socket.recv()))
         return outputs
 
     def check_health(self):
@@ -164,12 +223,20 @@ class AsyncvLLMServer(AsyncServerBase):
                 kwargs[k] = config.get(k)
         print(f"override_generation_config: {kwargs}")
 
+        backend = os.environ.get("VERL_VLLM_DISTRIBUTED_BACKEND", "zeromq")
+        if backend == "zeromq":
+            distributed_executor_backend = ExternalZeroMQDistributedExecutor
+        elif backend == "ray":
+            distributed_executor_backend = ExternalRayDistributedExecutor
+        else:
+            distributed_executor_backend = None
+
         engine_args = AsyncEngineArgs(
             model=local_path,
-            enable_sleep_mode=True,
+            enable_sleep_mode=config.free_cache_engine,
             override_generation_config=kwargs,
             tensor_parallel_size=tensor_parallel_size,
-            distributed_executor_backend=ExternalRayDistributedExecutor if os.environ.get("VERL_VLLM_USE_RAY_BACKEND", "1") == "1" else None,
+            distributed_executor_backend=distributed_executor_backend,
             dtype=config.dtype,
             enforce_eager=config.enforce_eager,
             gpu_memory_utilization=config.gpu_memory_utilization,
@@ -186,9 +253,7 @@ class AsyncvLLMServer(AsyncServerBase):
         )
 
         # init async llm engine
-        vllm_config = engine_args.create_engine_config()
-        namespace = ray.get_runtime_context().namespace
-        vllm_config.instance_id = f"{namespace}:{self.wg_prefix}:{self.vllm_dp_size}:{self.vllm_dp_rank}"
+        vllm_config = self._create_engine_config(engine_args)
         self.engine = AsyncLLM.from_vllm_config(vllm_config)
 
         # build serving chat
@@ -206,6 +271,20 @@ class AsyncvLLMServer(AsyncServerBase):
             enable_auto_tools=config.multi_turn.tool_config_path is not None,
             tool_parser=config.multi_turn.format,  # hermes, llama3_json, ...
         )
+
+    def _create_engine_config(self, engine_args: AsyncEngineArgs):
+        vllm_config = engine_args.create_engine_config()
+        namespace = ray.get_runtime_context().namespace
+        vllm_config.instance_id = f"{namespace}:{self.wg_prefix}:{self.vllm_dp_size}:{self.vllm_dp_rank}"
+
+        # VERL_VLLM_ZMQ_ADDRESSES
+        if engine_args.distributed_executor_backend == ExternalZeroMQDistributedExecutor:
+            workers = _get_model_runner_workers(vllm_config=vllm_config, init_ray=False)
+            zmq_addresses = ray.get([worker.get_zeromq_address.remote() for worker in workers])
+            print(f"VERL_VLLM_ZMQ_ADDRESSES: {zmq_addresses}")
+            os.environ["VERL_VLLM_ZMQ_ADDRESSES"] = ",".join(zmq_addresses)
+
+        return vllm_config
 
     async def chat_completion(self, raw_request: Request):
         """OpenAI-compatible HTTP endpoint.
@@ -239,9 +318,11 @@ class AsyncvLLMServer(AsyncServerBase):
         return final_res.outputs[0].token_ids
 
     async def wake_up(self):
-        await self.engine.wake_up()
+        if self.config.rollout.free_cache_engine:
+            await self.engine.wake_up()
 
     async def sleep(self):
         # TODO: https://github.com/vllm-project/vllm/issues/17103
         await self.engine.reset_prefix_cache()
-        await self.engine.sleep()
+        if self.config.rollout.free_cache_engine:
+            await self.engine.sleep()
