@@ -39,6 +39,11 @@ on:
     branches:
       - main
       - v0.*
+    paths:
+      - "**/*.py"
+      - "tests/**"
+      - "!recipe/**"
+      - "recipe/genrm_remote"
   pull_request:
     branches:
       - main
