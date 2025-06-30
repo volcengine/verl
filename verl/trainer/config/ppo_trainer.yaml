@@ -989,6 +989,12 @@ trainer:
   # Save frequency (by iteration) for model checkpoints
   save_freq: -1
 
+  # Save frequency (by epoch) for model checkpoints
+  save_after_epochs: -1
+
+  # Save model checkpoints only when validation metric improves
+  save_best_val_metric: None
+
   # ESI redundant time (in seconds) for model checkpointsAdd commentMore actions
   esi_redundant_time: 0
 
