@@ -86,6 +86,12 @@ class TestComputeDataMetrics(unittest.TestCase):
                     [1, 1, 1, 1],
                 ]
             ),
+            "response_mask": torch.tensor(
+                [
+                    [1, 1],  # 2 response tokens
+                    [1, 1],
+                ]
+            ),
             "values": torch.tensor([[0.9, 1.0], [1.1, 1.2]]),
         }
 
