@@ -198,6 +198,14 @@ class TestAlgoConfig(unittest.TestCase):
         self.assertIsNotNone(minimal_config.pf_ppo)
         self.assertIsInstance(minimal_config.pf_ppo, PFPPOConfig)
 
+    def test_config_init_from_yaml(self):
+        cfg = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
+        algo_config = omega_conf_to_dataclass(cfg.algorithm)
+        from verl.trainer.config.algo_config import AlgoConfig, PFPPOConfig
+
+        assert isinstance(algo_config, AlgoConfig)
+        assert isinstance(algo_config.pf_ppo, PFPPOConfig)
+
 
 if __name__ == "__main__":
     unittest.main()

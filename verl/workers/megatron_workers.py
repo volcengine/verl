@@ -118,11 +118,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         profiler_config: Optional[ProfilerConfig] = None
         if self._is_actor:
-            profiler_config = omega_conf_to_dataclass(config.actor.get("profiler", {}), ProfilerConfig)
+            profiler_config = omega_conf_to_dataclass(config.actor.get("profiler", {}))
         if self._is_rollout:
-            profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler", {}), ProfilerConfig)
+            profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler", {}))
         if self._is_ref:
-            profiler_config = omega_conf_to_dataclass(config.ref.get("profiler", {}), ProfilerConfig)
+            profiler_config = omega_conf_to_dataclass(config.ref.get("profiler", {}))
 
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
 
@@ -625,7 +625,7 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 class CriticWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config):
         MegatronWorker.__init__(self)
-        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), ProfilerConfig)
+        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}))
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
         self.config = config
 
@@ -842,7 +842,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
 
     def __init__(self, config):
         MegatronWorker.__init__(self)
-        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), ProfilerConfig)
+        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}))
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
         self.config = config
 

@@ -13,14 +13,14 @@
 # limitations under the License.
 
 from dataclasses import is_dataclass
-from typing import Any, Dict, Type, Union
+from typing import Any, Dict, Optional, Type, Union
 
 from omegaconf import DictConfig, OmegaConf
 
 __all__ = ["omega_conf_to_dataclass"]
 
 
-def omega_conf_to_dataclass(config: Union[DictConfig, dict], dataclass_type: Type[Any]) -> Any:
+def omega_conf_to_dataclass(config: Union[DictConfig, dict], dataclass_type: Optional[Type[Any]] = None) -> Any:
     """
     Convert an OmegaConf DictConfig to a dataclass.
 
@@ -31,6 +31,11 @@ def omega_conf_to_dataclass(config: Union[DictConfig, dict], dataclass_type: Typ
     Returns:
         The dataclass instance.
     """
+    if dataclass_type is None:
+        from hydra.utils import instantiate
+
+        return instantiate(config, _convert_="partial")
+
     if not is_dataclass(dataclass_type):
         raise ValueError(f"{dataclass_type} must be a dataclass")
     cfg = OmegaConf.create(config)  # in case it's a dict

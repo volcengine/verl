@@ -154,7 +154,7 @@ class TaskRunner:
             mapping[Role.RewardModel] = global_pool_id
 
         # Add a reference policy worker if KL loss or KL reward is used.
-        algo_config = omega_conf_to_dataclass(config.algorithm, AlgoConfig)
+        algo_config = omega_conf_to_dataclass(config.algorithm)
         if algo_config.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
             role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id

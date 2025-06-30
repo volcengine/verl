@@ -46,4 +46,4 @@ class ProfilerConfig(BaseConfig):
 
     def __post_init__(self) -> None:
         """config validation logics go here"""
-        assert isinstance(self.ranks, (set, list, tuple))
+        assert isinstance(self.ranks, (set, list, tuple)), type(self.ranks)

@@ -320,7 +320,7 @@ class RayPPOTrainer:
         self.processor = processor
         self.config = config
         # Convert algorithm config to dataclass
-        self.algo_config = omega_conf_to_dataclass(config.algorithm, AlgoConfig)
+        self.algo_config = omega_conf_to_dataclass(config.algorithm)
         self.reward_fn = reward_fn
         self.val_reward_fn = val_reward_fn
 

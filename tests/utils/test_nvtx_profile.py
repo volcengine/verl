@@ -19,8 +19,8 @@ from unittest.mock import MagicMock, patch
 from omegaconf import OmegaConf
 
 from verl.utils import omega_conf_to_dataclass
-from verl.utils.debug import ProfilerConfig
-from verl.utils.debug.nvtx_profile import NsightSystemsProfiler
+from verl.utils.profiler import ProfilerConfig
+from verl.utils.profiler.nvtx_profile import NsightSystemsProfiler
 
 
 class TestNsightSystemsProfiler(unittest.TestCase):
@@ -109,7 +109,7 @@ class TestNsightSystemsProfiler(unittest.TestCase):
         cfg = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
         arr = cfg.actor_rollout_ref
         for config in [cfg.critic.profiler, arr.actor.profiler, cfg.reward_model.profiler, arr.ref.profiler, arr.rollout.profiler]:
-            profiler_config = omega_conf_to_dataclass(config, ProfilerConfig)
+            profiler_config = omega_conf_to_dataclass(config)
             self.assertEqual(profiler_config.discrete, config.discrete)
             self.assertEqual(profiler_config.all_ranks, config.all_ranks)
             self.assertEqual(profiler_config.ranks, config.ranks)

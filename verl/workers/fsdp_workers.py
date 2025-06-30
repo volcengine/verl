@@ -134,11 +134,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         profiler_config: Optional[ProfilerConfig] = None
         if self._is_actor:
-            profiler_config = omega_conf_to_dataclass(config.actor.get("profiler", {}), ProfilerConfig)
+            profiler_config = omega_conf_to_dataclass(config.actor.get("profiler", {}))
         if self._is_rollout:
-            profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler", {}), ProfilerConfig)
+            profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler", {}))
         if self._is_ref:
-            profiler_config = omega_conf_to_dataclass(config.ref.get("profiler", {}), ProfilerConfig)
+            profiler_config = omega_conf_to_dataclass(config.ref.get("profiler", {}))
 
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
 
@@ -821,7 +821,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config):
         Worker.__init__(self)
-        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), ProfilerConfig)
+        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}))
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
         import torch.distributed
 
@@ -1163,7 +1163,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
     def __init__(self, config):
         Worker.__init__(self)
-        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), ProfilerConfig)
+        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}))
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
 
         import torch.distributed

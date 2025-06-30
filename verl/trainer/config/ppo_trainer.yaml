@@ -302,6 +302,9 @@ actor_rollout_ref:
     # profiler configs
     profiler:
 
+      # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+      _target_: verl.utils.profiler.ProfilerConfig
+
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
 
@@ -365,6 +368,9 @@ actor_rollout_ref:
 
     # profiler configs
     profiler:
+
+      # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+      _target_: verl.utils.profiler.ProfilerConfig
 
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
@@ -541,6 +547,9 @@ actor_rollout_ref:
     # profiler configs
     profiler:
 
+      # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+      _target_: verl.utils.profiler.ProfilerConfig
+
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
 
@@ -703,6 +712,9 @@ critic:
   # the corresponding dataclass is verl.utils.debug.ProfilerConfig.
   profiler:
 
+    # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+    _target_: verl.utils.profiler.ProfilerConfig
+
     # True for each task has its own database, False for all tasks in one training step share one database.
     discrete: False
 
@@ -814,6 +826,9 @@ reward_model:
   # profiler configs
   profiler:
 
+    # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+    _target_: verl.utils.profiler.ProfilerConfig
+
     # True for each task has its own database, False for all tasks in one training step share one database.
     discrete: False
 
@@ -836,6 +851,9 @@ custom_reward_function:
 # config for the algorithm
 algorithm:
 
+  # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+  _target_: verl.trainer.config.algo_config.AlgoConfig
+
   # Discount factor for future rewards
   gamma: 1.0
 
@@ -857,6 +875,9 @@ algorithm:
   # KL control configuration
   kl_ctrl:
 
+    # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+    _target_: verl.trainer.config.algo_config.KLControlConfig
+
     # KL control type: "fixed" or "adaptive"
     type: fixed
 
@@ -874,6 +895,9 @@ algorithm:
 
   # Preference feedback PPO settings
   pf_ppo:
+
+    # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+    _target_: verl.trainer.config.algo_config.PFPPOConfig
 
     # Method for reweighting samples: "pow", "max_min", or "max_random"
     reweight_method: pow
