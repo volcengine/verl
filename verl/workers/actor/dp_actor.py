@@ -335,13 +335,11 @@ class DataParallelPPOActor(BasePPOActor):
             non_tensor_select_keys = ["multi_modal_inputs"]
             if self.config.num_gradient_updates_per_batch > 0:
                 if self.config.num_gradient_updates_per_batch > len(data):
-                    raise ValueError(f"num_gradient_updates_per_batch {self.config.num_gradient_updates_per_batch} "
-                                     f"is greater than the number of samples {len(data)}")
+                    raise ValueError(f"num_gradient_updates_per_batch {self.config.num_gradient_updates_per_batch} is greater than the number of samples {len(data)}")
                 trunc_size = (len(data) // self.config.num_gradient_updates_per_batch) * self.config.num_gradient_updates_per_batch
                 trunc_data = data.select_idxs(list(range(trunc_size)))
                 dataloader = trunc_data.select(select_keys, non_tensor_select_keys).chunk(self.config.num_gradient_updates_per_batch)
-                print(f"Truncated data to {len(trunc_data)} samples which is "
-                        f"divisible by {self.config.num_gradient_updates_per_batch} for gradient updates")
+                print(f"Truncated data to {len(trunc_data)} samples which is divisible by {self.config.num_gradient_updates_per_batch} for gradient updates")
             else:
                 dataloader = data.select(select_keys, non_tensor_select_keys).chunk(num_mini_batches)
         else:
@@ -396,6 +394,9 @@ class DataParallelPPOActor(BasePPOActor):
                     clip_ratio_low = self.config.clip_ratio_low if self.config.clip_ratio_low is not None else clip_ratio
                     clip_ratio_high = self.config.clip_ratio_high if self.config.clip_ratio_high is not None else clip_ratio
                     clip_ratio_c = self.config.get("clip_ratio_c", 3.0)
+                    use_cispo = self.config.get("use_cispo", False)
+                    clip_ratio_is_high = self.config.get("clip_ratio_is_high", 0.45)
+                    clip_ratio_is_low = self.config.get("clip_ratio_is_low", 1.0)
                     entropy_coeff = self.config.entropy_coeff
                     loss_agg_mode = self.config.loss_agg_mode
 
@@ -415,6 +416,9 @@ class DataParallelPPOActor(BasePPOActor):
                         cliprange_high=clip_ratio_high,
                         clip_ratio_c=clip_ratio_c,
                         loss_agg_mode=loss_agg_mode,
+                        use_cispo=use_cispo,
+                        clip_ratio_is_high=clip_ratio_is_high,
+                        clip_ratio_is_low=clip_ratio_is_low,
                     )
 
                     if entropy_coeff != 0:
@@ -449,10 +453,7 @@ class DataParallelPPOActor(BasePPOActor):
                         "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
                         "actor/entropy_loss": entropy_loss.detach().item(),
                         "actor/policy_loss": policy_loss.detach().item(),
-                        "actor/num_grad_updates_this_batch": (
-                            self.config.num_gradient_updates_per_batch 
-                            if self.config.num_gradient_updates_per_batch > 0 else num_mini_batches
-                        ) * self.config.ppo_epochs,
+                        "actor/num_grad_updates_this_batch": (self.config.num_gradient_updates_per_batch if self.config.num_gradient_updates_per_batch > 0 else num_mini_batches) * self.config.ppo_epochs,
                     }
                     append_to_dict(metrics, data)
 
