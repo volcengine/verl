@@ -273,9 +273,21 @@ class ValidationGenerationsLogger:
         if "tensorboard" in loggers:
             self.log_generations_to_tensorboard(samples, step)
 
+        if "vemlp_wandb" in loggers:
+            self.log_generations_to_vemlp_wandb(samples, step)
+
+    def log_generations_to_vemlp_wandb(self, samples, step):
+        from volcengine_ml_platform import wandb as vemlp_wandb
+
+        self._log_generations_to_wandb(samples, step, vemlp_wandb)
+
     def log_generations_to_wandb(self, samples, step):
-        """Log samples to wandb as a table"""
         import wandb
+
+        self._log_generations_to_wandb(samples, step, wandb)
+
+    def _log_generations_to_wandb(self, samples, step, wandb):
+        """Log samples to wandb as a table"""
 
         # Create column names for all samples
         columns = ["step"] + sum([[f"input_{i + 1}", f"output_{i + 1}", f"score_{i + 1}"] for i in range(len(samples))], [])

@@ -90,3 +90,26 @@ def process_video(
                 video["max_frames"] = fps_max_frames
 
     return fetch_video(video)
+
+
+def process_multi_modal_inputs_for_minicpmo(input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs):
+    # Adjust image bounds based on left padding and cumulative sequence lengths
+    # This is necessary for MiniCPM-o's vision-language alignment
+    left_padding_length = torch.argmax(attention_mask, dim=1)
+    image_bounds = []
+    for i in range(len(multi_modal_inputs["image_bound"])):
+        image_bound = multi_modal_inputs["image_bound"][i].to(left_padding_length.device) - left_padding_length[i] + cu_seqlens[i]
+        image_bounds.append(image_bound)
+
+    # Flatten pixel values list for MiniCPM-o processing
+    pixel_values = []
+    for i in range(len(multi_modal_inputs["pixel_values"])):
+        pixel_values.extend([p for p in multi_modal_inputs["pixel_values"][i]])
+
+    multi_modal_inputs["pixel_values"] = [pixel_values]
+    multi_modal_inputs["image_bound"] = [torch.vstack(image_bounds)]
+    multi_modal_inputs["tgt_sizes"] = [torch.vstack(multi_modal_inputs["tgt_sizes"])]
+    multi_modal_inputs["input_ids"] = input_ids
+    multi_modal_inputs["attention_mask"] = attention_mask
+    multi_modal_inputs["position_ids"] = position_ids
+    return {"data": multi_modal_inputs}

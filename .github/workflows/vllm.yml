@@ -128,4 +128,5 @@ jobs:
         run: |
           pip3 install --upgrade vllm==0.8.3 tensordict==0.7.2
           pytest -svvv tests/workers/rollout/rollout_vllm/test_vllm_chat_scheduler.py
+          ROLLOUT_NAME=vllm pytest -svvv tests/experimental/agent_loop/test_basic_agent_loop.py
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests

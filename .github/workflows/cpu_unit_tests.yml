@@ -76,7 +76,7 @@ jobs:
           pip install --upgrade "ray>=2.40.0" pillow
       - name: Running CPU unit tests
         run: |
-          [ ! -d "$HOME/verl-data" ] && git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/verl-data
+          [ ! -d "$HOME/verl-data" ] && huggingface-cli download verl-team/gsm8k-v0.4.1 --repo-type dataset --local-dir ~/verl-data/gsm8k
           python3 examples/data_preprocess/geo3k.py
           echo '[pytest]' > pytest.ini
           echo 'python_files = *_on_cpu.py' >> pytest.ini

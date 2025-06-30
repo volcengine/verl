@@ -1,6 +1,8 @@
 Frequently Asked Questions
 ====================================
 
+Last updated: 06/25/2025.
+
 Ray related
 ------------
 
@@ -112,7 +114,7 @@ If in doubt, print this env var in each rank to make sure it is properly set.
 Checkpoints
 ------------------------
 
-If you want to convert the model checkpoint into huggingface safetensor format, please refer to ``scripts/model_merger.py``.
+If you want to convert the model checkpoint into huggingface safetensor format, please refer to ``verl/model_merger``.
 
 
 Triton ``compile_module_from_src`` error
