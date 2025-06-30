@@ -37,7 +37,7 @@ from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.fsdp_utils import fsdp_version, layered_summon_lora_params, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
-from verl.utils.model import convert_weight_keys
+from verl.utils.model import check_exclude_modules, check_target_modules, convert_weight_keys
 from verl.utils.torch_functional import check_device_is_available
 from verl.utils.vllm_utils import TensorLoRARequest, VLLMHijack, is_version_ge, patch_vllm_moe_model_weight_loader
 
@@ -243,10 +243,18 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
                 def replace_lora_wrapper(k):
                     stacked_params = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
-                    if any([k.endswith(f"{s}.weight") for s in stacked_params]):
-                        return k.replace(".weight", ".base_layer.weight")
-                    if any([k.endswith(f"{s}.bias") for s in stacked_params]):
-                        return k.replace(".bias", ".base_layer.bias")
+                    if k.endswith(".weight"):
+                        module_k = k[: -len(".weight")]
+                        if check_exclude_modules(peft_config, module_k):
+                            return k
+                        elif any([module_k.endswith(s) for s in stacked_params]) or check_target_modules(peft_config, module_k):
+                            return f"{module_k}.base_layer.weight"
+                    if k.endswith(".bias"):
+                        module_k = k[: -len(".bias")]
+                        if check_exclude_modules(peft_config, module_k):
+                            return k
+                        elif any([module_k.endswith(s) for s in stacked_params]) or check_target_modules(peft_config, module_k):
+                            return f"{module_k}.base_layer.bias"
                     return k
 
                 updated_params = {replace_lora_wrapper(k): v for k, v in updated_params.items()}
