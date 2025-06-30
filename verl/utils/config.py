@@ -26,7 +26,8 @@ def omega_conf_to_dataclass(config: Union[DictConfig, dict], dataclass_type: Opt
 
     Args:
         config: The OmegaConf DictConfig or dict to convert.
-        dataclass_type: The dataclass type to convert to.
+        dataclass_type: The dataclass type to convert to. When dataclass_type is None,
+            the DictConfig must contain _target_ to be instantiated via hydra.instantiate API.
 
     Returns:
         The dataclass instance.
