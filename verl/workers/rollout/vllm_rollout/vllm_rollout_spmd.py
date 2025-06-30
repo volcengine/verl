@@ -28,13 +28,19 @@ When working with Megatron:
 
 import logging
 import os
+import pickle
+import socket
+import threading
 from contextlib import contextmanager
 from copy import deepcopy
 from typing import Any, Dict, List, Union
 
 import numpy as np
+import ray
 import torch
 import torch.distributed
+import zmq
+from filelock import FileLock
 from omegaconf import DictConfig, OmegaConf
 from tensordict import TensorDict
 from vllm import LLM, SamplingParams
@@ -43,7 +49,6 @@ from vllm.lora.request import LoRARequest
 from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
-from verl.third_party.vllm import vllm_version
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
@@ -87,7 +92,6 @@ class vLLMRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
-        assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), "tensor parallel size should be less than or equal to the world size"
@@ -99,15 +103,7 @@ class vLLMRollout(BaseRollout):
 
             os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
             os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
-            if vllm_version in (
-                "0.5.4",
-                "0.6.3",
-            ):
-                train_tp = kwargs.get("train_tp")
-                num_tp_per_train_tp = train_tp // tensor_parallel_size
-                vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size, num_tp_per_train_tp=num_tp_per_train_tp)
-            else:
-                vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
+            vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
 
         rope_scaling_config = getattr(model_hf_config, "rope_scaling", None)
         if not rope_scaling_config:
@@ -148,7 +144,7 @@ class vLLMRollout(BaseRollout):
 
         self.inference_engine = LLM(
             model=model_path,
-            enable_sleep_mode=True,
+            enable_sleep_mode=config.free_cache_engine,
             tensor_parallel_size=tensor_parallel_size,
             distributed_executor_backend="external_launcher",
             dtype=config.dtype,
@@ -169,7 +165,8 @@ class vLLMRollout(BaseRollout):
         )
 
         # Offload vllm model to reduce peak memory usage
-        self.inference_engine.sleep(level=1)
+        if config.free_cache_engine:
+            self.inference_engine.sleep(level=1)
 
         kwargs = dict(
             n=1,
@@ -177,9 +174,7 @@ class vLLMRollout(BaseRollout):
             max_tokens=config.response_length,
         )
 
-        # # we may detokenize the result all together later
-        if vllm_version != "0.3.1":
-            kwargs["detokenize"] = False
+        kwargs["detokenize"] = False
 
         # supporting adding any sampling params from the config file
         for k in config.keys():
@@ -210,17 +205,6 @@ class vLLMRollout(BaseRollout):
     @GPUMemoryLogger(role="vllm rollout spmd", logger=logger)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-        # rebuild vllm cache engine
-        if (
-            vllm_version
-            in (
-                "0.5.4",
-                "0.6.3",
-            )
-            and self.config.free_cache_engine
-        ):
-            self.inference_engine.init_cache_engine()
-
         idx = prompts.batch["input_ids"]  # (bs, prompt_length)
         # left-padded attention_mask
         attention_mask = prompts.batch["attention_mask"]
@@ -354,17 +338,6 @@ class vLLMRollout(BaseRollout):
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
 
-        # free vllm cache engine
-        if (
-            vllm_version
-            in (
-                "0.5.4",
-                "0.6.3",
-            )
-            and self.config.free_cache_engine
-        ):
-            self.inference_engine.free_cache_engine()
-
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
 
@@ -373,11 +346,54 @@ class vLLMAsyncRollout:
     which is engine in single worker process.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
         # Engine is deferred to be initialized in init_worker
+        self.config = config
         self.inference_engine: WorkerWrapperBase = None
         self.sharding_manager = None
         self.is_sleep = False
+        self.address = self._init_zeromq()
+
+    def _init_zeromq(self) -> str:
+        tensor_parallel_size = self.config.tensor_model_parallel_size
+
+        # single node: ipc, multi nodes: tcp
+        local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
+        socket_type = "ipc" if tensor_parallel_size <= local_world_size else "tcp"
+
+        # File lock to prevent multiple workers listen to same port
+        with FileLock("/tmp/verl_vllm_zmq.lock"):
+            if socket_type == "ipc":
+                pid = os.getpid()
+                address = f"ipc:///tmp/verl_vllm_zmq_{pid}.ipc"
+            else:
+                ip, port = self._get_free_port()
+                address = f"tcp://{ip}:{port}"
+            context = zmq.Context()
+            self.socket = context.socket(zmq.REP)
+            self.socket.bind(address)
+
+        self.loop_thread = threading.Thread(target=self._loop_forever)
+        self.loop_thread.start()
+
+        return address
+
+    def _get_free_port(self):
+        ip = ray._private.services.get_node_ip_address()
+        with socket.socket() as sock:
+            sock.bind(("", 0))
+            port = sock.getsockname()[1]
+        return ip, port
+
+    def _loop_forever(self):
+        while True:
+            message = self.socket.recv()
+            method, args, kwargs = pickle.loads(message)
+            result = self.execute_method(method, *args, **kwargs)
+            self.socket.send(pickle.dumps(result))
+
+    def get_zeromq_address(self):
+        return self.address
 
     def init_worker(self, all_kwargs: List[Dict[str, Any]]):
         """Initialize worker engine."""

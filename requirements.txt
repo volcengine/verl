@@ -22,3 +22,5 @@ wandb
 packaging>=20.0
 uvicorn
 fastapi
+latex2sympy2_extended
+math_verify

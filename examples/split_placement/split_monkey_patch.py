@@ -167,23 +167,26 @@ def fit(self):
                         norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                     )
 
-                # update critic
-                if self.use_critic:
-                    with marked_timer("update_critic_call", timing_raw):
-                        critic_output = self.critic_wg.update_critic(batch)
-
                 # implement critic warmup
                 if self.config.trainer.critic_warmup <= self.global_steps:
                     # update actor
                     with marked_timer("update_actor_call", timing_raw):
                         actor_output = self.actor_rollout_wg.update_actor(batch)
+                else:
+                    actor_output = None
 
-                # NOTE: make sure you set blocking=False in update_actor and update_crtic in the worker class
-                with marked_timer("update_actor_critic", timing_raw):
-                    critic_output = critic_output.get()
-                    critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
-                    metrics.update(critic_output_metrics)
+                # update critic
+                if self.use_critic:
+                    with marked_timer("update_critic_call", timing_raw):
+                        critic_output = self.critic_wg.update_critic(batch)
 
+                    # NOTE: make sure you set blocking=False in update_actor and update_crtic in the worker class
+                    with marked_timer("update_actor_critic", timing_raw):
+                        critic_output = critic_output.get()
+                        critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
+                        metrics.update(critic_output_metrics)
+
+                if actor_output is not None:
                     actor_output = actor_output.get()
                     actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                     metrics.update(actor_output_metrics)

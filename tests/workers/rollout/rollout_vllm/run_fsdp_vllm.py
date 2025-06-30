@@ -142,7 +142,7 @@ def main():
     batch_size = input_ids.shape[0]
 
     pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
-    from verl.workers.rollout.vllm_rollout.vllm_rollout import _pre_process_inputs
+    from verl.workers.rollout.vllm_rollout.vllm_rollout_spmd import _pre_process_inputs
 
     for i in range(batch_size):
         idx_list.append(_pre_process_inputs(pad_token_id, input_ids[i]))

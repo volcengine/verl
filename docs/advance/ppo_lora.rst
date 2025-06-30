@@ -1,6 +1,8 @@
 RL(HF) algorithms with LoRA Support
 ===========================================
 
+Last updated: 06/05/2025.
+
 We support LoRA (Low-Rank Adaptation) for reinforcement learning algorithms such as PPO, GRPO, and others.
 
 LoRA is a parameter-efficient fine-tuning technique that injects trainable low-rank matrices into pre-trained weights (typically linear layers). This reduces memory footprint and compute cost, making it possible to fine-tune large models with limited hardware.

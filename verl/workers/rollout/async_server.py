@@ -82,6 +82,20 @@ class AsyncServerBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+        """Generate response ids given prompt ids.
+
+        Args:
+            prompt_ids (List[int]): prompt ids
+            sampling_params (Dict[str, Any]): sampling params
+            request_id (str): request id
+
+        Returns:
+            List[int]: response ids
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     async def init_engine(self):
         """Init async LLM engine."""
         raise NotImplementedError
@@ -180,11 +194,13 @@ class AsyncLLMServerManager:
 
     def wake_up(self):
         """Wake up all vllm instances."""
-        ray.get([server.wake_up.remote() for server in self.async_llm_servers])
+        if self.config.rollout.free_cache_engine:
+            ray.get([server.wake_up.remote() for server in self.async_llm_servers])
 
     def sleep(self):
         """Sleep all vllm instances."""
-        ray.get([server.sleep.remote() for server in self.async_llm_servers])
+        if self.config.rollout.free_cache_engine:
+            ray.get([server.sleep.remote() for server in self.async_llm_servers])
 
     def submit_chat_completions(
         self,

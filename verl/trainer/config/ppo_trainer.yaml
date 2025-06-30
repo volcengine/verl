@@ -127,9 +127,13 @@ actor_rollout_ref:
     # LoRA scaling factor
     lora_alpha: 16
 
-    # Target modules to apply LoRA. Options: "all-linear" or
+    # Target modules to apply LoRA. Options: "all-linear" (not recommended for VLMs) or
     # [q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]
     target_modules: all-linear
+    
+    # Exclude modules from applying Lora. Similar usage to target_modules and Peft.
+    # Example: '.*visual.*' for excluding the ViT in Qwen2.5-VL, as currently vllm does not support ViT Lora.
+    exclude_modules: null
 
     # Whether to use Liger for linear layer fusion
     use_liger: false
@@ -396,8 +400,6 @@ actor_rollout_ref:
     # Top-p sampling parameter. Default 1.0.
     top_p: 1
 
-    # https://arxiv.org/abs/2410.21236
-    use_fire_sampling: False
 
     # typically the same as data max prompt length
     prompt_length: ${data.max_prompt_length}
@@ -520,6 +522,15 @@ actor_rollout_ref:
       # null for no limit (default max_length // 3)
       max_user_turns: null
 
+      # max parallel call for tools in single turn
+      max_parallel_calls: 1
+
+      # max length of tool response
+      max_tool_response_length: 256
+
+      # truncate side of tool response: left, middle, right
+      tool_response_truncate_side: middle
+
       # null for no interaction
       interaction_config_path: null
 
@@ -558,6 +569,12 @@ actor_rollout_ref:
 
       # The ranks that will be profiled. null or [0,1,...]
       ranks: null
+
+    # [Experimental] agent loop based rollout configs
+    agent:
+
+      # Number of agent loop workers
+      num_workers: 8
 
 # configs for the critic
 critic:
@@ -971,6 +988,9 @@ trainer:
 
   # Save frequency (by iteration) for model checkpoints
   save_freq: -1
+
+  # ESI redundant time (in seconds) for model checkpointsAdd commentMore actions
+  esi_redundant_time: 0
 
   # Resume mode: "auto", "disable", or "resume_path"
   # "auto": resume from last checkpoint if available
