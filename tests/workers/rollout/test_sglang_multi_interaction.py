@@ -174,7 +174,7 @@ class TestSGLangMultiInteraction:
                     max_response_len=16,
                     max_model_len=512,
                     use_inference_chat_template=True,
-                    tokenization_sanity_check_mode="off",
+                    tokenization_sanity_check_mode="disable",
                     processing_class=tokenizer,
                 )
 
@@ -201,7 +201,7 @@ class TestSGLangMultiInteraction:
 
         config = DictConfig(
             {
-                "multi_turn": {"interaction_config_path": interaction_config_path, "tool_config_path": None, "enable": True, "max_assistant_turns": 5, "max_user_turns": 3, "use_inference_chat_template": True, "tokenization_sanity_check_mode": "off"},
+                "multi_turn": {"interaction_config_path": interaction_config_path, "tool_config_path": None, "enable": True, "max_assistant_turns": 5, "max_user_turns": 3, "use_inference_chat_template": True, "tokenization_sanity_check_mode": "disable"},
                 "prompt_length": 32,
                 "response_length": 16,
                 "max_model_len": 512,
@@ -270,7 +270,7 @@ class TestSGLangMultiInteraction:
         # Create config without interaction config
         config = DictConfig(
             {
-                "multi_turn": {"interaction_config_path": None, "tool_config_path": None, "enable": True, "max_assistant_turns": 5, "max_user_turns": 3, "use_inference_chat_template": True, "tokenization_sanity_check_mode": "off"},
+                "multi_turn": {"interaction_config_path": None, "tool_config_path": None, "enable": True, "max_assistant_turns": 5, "max_user_turns": 3, "use_inference_chat_template": True, "tokenization_sanity_check_mode": "disable"},
                 "prompt_length": 32,
                 "response_length": 16,
                 "max_model_len": 512,
