@@ -39,6 +39,7 @@ def parse_args():
     base_op_parser.add_argument("--backend", type=str, required=True, choices=["fsdp", "megatron"], help="The backend of the model")
     base_op_parser.add_argument("--local_dir", type=str, default=None, help="Path to the original Hugging Face model for config.")
     base_op_parser.add_argument("--tie-word-embedding", action="store_true", help="Whether to tie word embedding weights (currently only Megatron supported)")
+    base_op_parser.add_argument("--trust-remote-code", action="store_true", help="Whether to trust remote code")
     base_op_parser.add_argument("--is-value-model", action="store_true", help="Whether the model is a value model (currently only Megatron supported)")
     base_op_parser.add_argument("--use_cpu_initialization", action="store_true", help="Whether to use CPU initialization for the model. This is useful for large models that cannot fit into GPU memory during initialization.")
 
@@ -63,6 +64,7 @@ class ModelMergerConfig:
     private: bool = False
     test_hf_dir: Optional[str] = None
     tie_word_embedding: bool = False
+    trust_remote_code: bool = False
     is_value_model: bool = False
     local_dir: Optional[str] = None
     hf_model_config_path: Optional[str] = None
@@ -82,6 +84,7 @@ def generate_config_from_args(args: argparse.Namespace) -> ModelMergerConfig:
         "operation": args.operation,
         "backend": args.backend,
         "tie_word_embedding": args.tie_word_embedding,
+        "trust_remote_code": args.trust_remote_code,
         "is_value_model": args.is_value_model,
         "local_dir": args.local_dir,
         "hf_model_config_path": os.path.join(args.local_dir, "huggingface"),
@@ -136,7 +139,7 @@ class BaseModelMerger(ABC):
     def __init__(self, config: ModelMergerConfig):
         self.config = config
         self.hf_model_config_path = config.hf_model_config_path
-        self.model_config = AutoConfig.from_pretrained(self.hf_model_config_path)
+        self.model_config = AutoConfig.from_pretrained(self.hf_model_config_path, trust_remote_code=self.config.trust_remote_code)
 
     def get_transformers_auto_model_class(self):
         if "ForTokenClassification" in self.model_config.architectures[0]:
@@ -231,8 +234,8 @@ class BaseModelMerger(ABC):
         del state_dict
         del model
 
-        processor = hf_processor(self.hf_model_config_path)
-        tokenizer = hf_tokenizer(self.hf_model_config_path)
+        processor = hf_processor(self.hf_model_config_path, trust_remote_code=self.config.trust_remote_code)
+        tokenizer = hf_tokenizer(self.hf_model_config_path, trust_remote_code=self.config.trust_remote_code)
         if processor is not None:
             print(f"Saving processor to {self.config.target_dir}")
             processor.save_pretrained(self.config.target_dir)

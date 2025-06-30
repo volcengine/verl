@@ -12,13 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, ContextManager, Dict, List
 
+import numpy as np
 import torch
+import torch.distributed as dist
 from accelerate import init_empty_weights
 from megatron.core import mpu
 from megatron.core.models.gpt.gpt_model import ModelType
@@ -33,6 +36,7 @@ from verl.models.mcore import hf_to_mcore_config
 from verl.utils.device import get_nccl_backend
 from verl.utils.megatron.dist_checkpointing import load_dist_checkpointing
 from verl.utils.megatron_utils import get_model
+from verl.utils.tokenizer import hf_processor, hf_tokenizer
 
 from .base_model_merger import BaseModelMerger, ModelMergerConfig
 
@@ -40,6 +44,39 @@ from .base_model_merger import BaseModelMerger, ModelMergerConfig
 @contextmanager
 def noop_context() -> Any:
     yield
+
+
+def get_dynamic_pipeline_shards(layer_num: int, pp_size: int) -> List[int]:
+    """Calculate the pipeline sharding configuration for Megatron-LM.
+
+    Args:
+        layer_num: Total number of layers in the model.
+        pp_size: Number of pipeline parallel ranks.
+
+    Returns:
+        layer number of each pp rank. Make the sharding of the pipeline as uniform as possible.
+    """
+    assert layer_num >= pp_size, f"layer_num {layer_num} must be greater than pp_size {pp_size}."
+
+    if pp_size == 1:
+        return [layer_num]
+
+    if pp_size == 2:
+        return [
+            layer_num // 2,
+            layer_num - layer_num // 2,
+        ]
+
+    middle_size = pp_size - 2
+    res = []
+    for i in range(layer_num - 1, 0, -1):
+        left = layer_num - i * middle_size
+        if i * middle_size < layer_num and left > 4:
+            res = [left // 2] + [i] * middle_size + [left - left // 2]
+            break
+
+    assert sum(res) == layer_num, f"sum(res)={sum(res)} != layer_num={layer_num}, pp_size={pp_size}"
+    return res
 
 
 class MegatronModelMerger(BaseModelMerger):
@@ -87,25 +124,38 @@ class MegatronModelMerger(BaseModelMerger):
     def __init__(self, config: ModelMergerConfig):
         super().__init__(config)
         # Currently we use only 1 rank to merge the dist_ckpt, we will move to multi-process save shortly afterwards
-        os.environ["RANK"] = "0"
-        os.environ["WORLD_SIZE"] = "1"
-        os.environ["MASTER_ADDR"] = "localhost"
-        os.environ["MASTER_PORT"] = "12355"
+        if "WORLD_SIZE" not in os.environ:
+            os.environ["RANK"] = "0"
+            os.environ["LOCAL_RANK"] = "0"
+            os.environ["WORLD_SIZE"] = "1"
+            os.environ["MASTER_ADDR"] = "localhost"
+            os.environ["MASTER_PORT"] = "12355"
+
         torch.distributed.init_process_group(get_nccl_backend())
+
+        self.rank = torch.distributed.get_rank()
+        self.world_size = torch.distributed.get_world_size()
+        local_rank = os.environ.get("LOCAL_RANK", 0)
+        torch.cuda.set_device(f"cuda:{local_rank}")
+
         mpu.initialize_model_parallel(
             tensor_model_parallel_size=1,
+            pipeline_model_parallel_size=self.world_size,
             virtual_pipeline_model_parallel_size=None,
             context_parallel_size=1,
             expert_model_parallel_size=1,
         )
         model_parallel_cuda_manual_seed(0)
-        self.hf_config = AutoConfig.from_pretrained(self.config.hf_model_config_path)
+        self.hf_config = AutoConfig.from_pretrained(self.config.hf_model_config_path, trust_remote_code=self.config.trust_remote_code)
         print(self.hf_config, flush=True)
 
         self.params_mapping = {
             # megatron core gpt model name, huggingface model name
             # NOTICE: It's a little bit tricky, when 2 keys have the same prefix, we need to make sure the longer key within the containing relationship is processed first.
             "embedding.word_embeddings": "model.embed_tokens",
+            # input layer norm for dpskv3
+            "input_layernorm.weight": "input_layernorm.weight",
+            "input_layernorm.bias": "input_layernorm.bias",
             # attn
             "self_attention.linear_qkv.layer_norm_weight": "input_layernorm.weight",
             "self_attention.linear_qkv.layer_norm_bias": "input_layernorm.bias",
@@ -151,7 +201,15 @@ class MegatronModelMerger(BaseModelMerger):
         """
 
         # init hf config
-        tf_config = hf_to_mcore_config(self.hf_config, torch.bfloat16)
+        self.pipeline_shards = get_dynamic_pipeline_shards(self.hf_config.num_hidden_layers, self.world_size)
+        print(f"Pipeline shards: {self.pipeline_shards}, total layers: {sum(self.pipeline_shards)}")
+
+        tf_config = hf_to_mcore_config(
+            self.hf_config,
+            torch.bfloat16,
+            num_layers_in_first_pipeline_stage=self.pipeline_shards[0] if len(self.pipeline_shards) > 1 else None,
+            num_layers_in_last_pipeline_stage=self.pipeline_shards[-1] if len(self.pipeline_shards) > 2 else None,
+        )
         tf_config.use_cpu_initialization = self.config.use_cpu_initialization
         tie_word_embeddings = getattr(self.hf_config, "tie_word_embeddings", False)
 
@@ -261,7 +319,11 @@ class MegatronModelMerger(BaseModelMerger):
     def _merge_state_dicts(self, model_state_dict_list: List[Dict[str, Any]]) -> dict[str, torch.Tensor]:
         state_dict = {}
         layers_cum = 0
+        if self.world_size > 1:
+            pipeline_cumsum = np.cumsum(self.pipeline_shards)
+            layers_cum = 0 if self.rank == 0 else pipeline_cumsum[self.rank - 1]
 
+        print(f"{layers_cum=}")
         for model_state_dict in model_state_dict_list:
             layers_handled = 0
             keys = model_state_dict.keys()
@@ -285,6 +347,12 @@ class MegatronModelMerger(BaseModelMerger):
                 else:
                     warnings.warn(f"hf_name {hf_name} will not be fixed with layer number", stacklevel=2)
 
+                if "mlp.experts." in hf_name and ".weight" in hf_name:
+                    name_prefix, expert_id = hf_name.split(".weight")
+                    for proj in ["gate_up", "down"]:
+                        if f"{proj}_proj" in hf_name:
+                            hf_name = hf_name.replace(f"mlp.experts.{proj}_proj.weight{expert_id}", f"mlp.experts.{expert_id}.{proj}_proj.weight")
+
                 tensor = model_state_dict[key]
                 split_tensor = self._split_tensors(key, tensor, self.hf_config, is_value_model=self.config.is_value_model)
 
@@ -303,6 +371,73 @@ class MegatronModelMerger(BaseModelMerger):
             layers_cum += layers_handled + 1  # zero based
 
         return state_dict
+
+    def save_hf_model_and_tokenizer(self, merged_state_dict):
+        if self.world_size == 1:
+            return super().save_hf_model_and_tokenizer(merged_state_dict)
+
+        from safetensors.torch import save_file
+
+        layer_num = self.hf_config.num_hidden_layers
+
+        # FIXME: make configurable
+        saves_per_layer = 1 if layer_num < 30 else 2
+        saves_total = saves_per_layer * layer_num
+        saves_indexes = {}
+
+        # calculate the layer start index and key chunks
+        layer_this_rank = self.pipeline_shards[self.rank]
+        pipeline_cumsum = np.cumsum(self.pipeline_shards)
+        layer_start = 0 if self.rank == 0 else pipeline_cumsum[self.rank - 1]
+        keys = list(merged_state_dict.keys())
+        keys_chunk = np.array_split(np.array(keys), layer_this_rank * saves_per_layer)
+        numel = 0
+
+        assert len(keys_chunk) == layer_this_rank * saves_per_layer, f"Expected {len(keys_chunk)} chunks, but got {layer_this_rank * saves_per_layer} for rank {self.rank}."
+
+        # save to model shards manually
+        target_dir = Path(self.config.target_dir)
+        for i, keys in enumerate(keys_chunk):
+            sd_to_save = {k: merged_state_dict[k] for k in keys}
+            numel += sum([sd_to_save[i].numel() for i in sd_to_save])
+            save_idx = layer_start * saves_per_layer + i
+            save_path = target_dir / f"model-{save_idx + 1:05d}-of-{saves_total:05d}.safetensors"
+
+            save_file(sd_to_save, save_path)
+            for k in keys:
+                saves_indexes[k] = str(save_path.name)
+
+        tensor = torch.tensor([numel]).cuda()
+        dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+        numel = tensor.cpu().item()
+
+        all_save_indexes = [{} for _ in range(self.world_size)]
+        dist.all_gather_object(all_save_indexes, saves_indexes)
+        saves_indexes = {k: v for i in all_save_indexes for k, v in i.items()}
+        if self.rank == 0:
+            with open(target_dir / "model.safetensors.index.json", "w") as f:
+                json.dump(
+                    {
+                        "metadata": {
+                            "total_size": numel,
+                        },
+                        "weight_map": saves_indexes,
+                    },
+                    f,
+                    indent=4,
+                )
+            print(f"model saved to {target_dir} with {numel=}")
+
+            self.model_config.save_pretrained(self.config.target_dir)
+
+            processor = hf_processor(self.hf_model_config_path, trust_remote_code=self.config.trust_remote_code)
+            tokenizer = hf_tokenizer(self.hf_model_config_path, trust_remote_code=self.config.trust_remote_code)
+            if processor is not None:
+                print(f"Saving processor to {self.config.target_dir}")
+                processor.save_pretrained(self.config.target_dir)
+            if tokenizer is not None:
+                print(f"Saving tokenizer to {self.config.target_dir}")
+                tokenizer.save_pretrained(self.config.target_dir)
 
     def merge_and_save(self):
         from verl.utils.megatron_utils import get_dist_checkpoint_path
@@ -353,6 +488,7 @@ class MegatronModelMerger(BaseModelMerger):
 
             megatron_name = megatron_name.replace("decoder", "model")
             param_name = megatron_name.replace(m_name, v_name)
+
             return param_name
 
         return None  # Return None if no mapping found

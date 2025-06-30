@@ -19,7 +19,9 @@ import warnings
 from contextlib import contextmanager
 from typing import Any, Callable, ContextManager
 
+import numpy as np
 import torch
+import torch.distributed as dist
 from accelerate import init_empty_weights
 from megatron.core import dist_checkpointing
 from megatron.core import parallel_state as mpu
@@ -29,11 +31,20 @@ from megatron.core.models.gpt.gpt_model import ModelType
 from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
 from transformers import AutoConfig
 
+from verl.model_merger.megatron_model_merger import get_dynamic_pipeline_shards
 from verl.models.mcore import hf_to_mcore_config
 from verl.utils.megatron_utils import get_model
 
 
 def _init_args():
+    """
+    Examples:
+
+    1. single rank conversion for any model:
+        > python converter_hf_to_mcore.py --hf_model_path %{hf_model} --output_path ${output_path}
+    2. distributed conversion for DeepseekV3 671B:
+        > torchrun --nproc_per_node 1 --nnodes 4 --node_rank ${RANK} converter_hf_to_mcore.py --hf_model_path %{hf_model} --output_path ${output_path}
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--hf_model_path", type=str, required=True, help="The path for the huggingface model")
     parser.add_argument("--output_path", type=str, required=True, help="The path for the output mcore model")
@@ -243,12 +254,17 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
 
 
 @torch.no_grad()
-def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_config, tfconfig):
+def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_config, tfconfig, layer_start: int, layer_end: int):
     warnings.warn("MTP model is not supported yet", stacklevel=2)
     numel: int = 0
-    numel += safe_copy(hf_model.model.embed_tokens.weight, model.embedding.word_embeddings.weight)
-    print(f"{numel=}")
-    for layer_idx, (layer, hf_layer) in enumerate(zip(model.decoder.layers, hf_model.model.layers)):
+    pp_rank = mpu.get_pipeline_model_parallel_rank()
+    pp_size = mpu.get_pipeline_model_parallel_world_size()
+    if pp_rank == 0:
+        numel += safe_copy(hf_model.model.embed_tokens.weight, model.embedding.word_embeddings.weight)
+
+    assert len(model.decoder.layers) == (layer_end - layer_start)
+    for layer_idx, (layer, hf_layer) in enumerate(zip(model.decoder.layers, hf_model.model.layers[layer_start:layer_end])):
+        global_layer_idx = layer_idx + layer_start
         numel_cur: int = numel
         numel += safe_copy(hf_layer.input_layernorm.weight, layer.input_layernorm.weight)
 
@@ -290,13 +306,14 @@ def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_
             shared_fc1_weight = torch.cat([hf_layer.mlp.shared_experts.gate_proj.weight, hf_layer.mlp.shared_experts.up_proj.weight])
             numel += safe_copy(shared_fc1_weight, layer.mlp.shared_experts.linear_fc1.weight)
             numel += safe_copy(hf_layer.mlp.shared_experts.down_proj.weight, layer.mlp.shared_experts.linear_fc2.weight)
-            print(f"{layer_idx=} {numel=} numel this layer={numel - numel_cur}")
+        print(f"{pp_rank=} {global_layer_idx=} {layer_idx=} {numel=} numel this layer={numel - numel_cur}")
+        assert numel - numel_cur == sum([i.numel() for i in hf_layer.state_dict().values()]), "numel mismatch"
 
-    numel += safe_copy(hf_model.model.norm.weight, model.decoder.final_layernorm.weight)
-
-    if not hf_config.tie_word_embeddings:
-        numel += safe_copy(hf_model.lm_head.weight, model.output_layer.weight)
-    print(f"{numel=}")
+    if pp_rank == pp_size - 1:
+        numel += safe_copy(hf_model.model.norm.weight, model.decoder.final_layernorm.weight)
+        if not hf_config.tie_word_embeddings:
+            numel += safe_copy(hf_model.lm_head.weight, model.output_layer.weight)
+    print(f"{pp_rank=} {numel=}")
     return numel
 
 
@@ -312,13 +329,22 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
         return
 
     # init torch distributed and mpu
-    os.environ["RANK"] = "0"
-    os.environ["WORLD_SIZE"] = "1"
-    os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = "12355"
+    if "WORLD_SIZE" not in os.environ:
+        os.environ["RANK"] = "0"
+        os.environ["WORLD_SIZE"] = "1"
+        os.environ["MASTER_ADDR"] = "localhost"
+        os.environ["MASTER_PORT"] = "12355"
+
     torch.distributed.init_process_group("nccl")
+
+    rank = dist.get_rank()
+    local_rank = os.getenv("LOCAL_RANK", 0)
+    world_size = dist.get_world_size()
+    torch.cuda.set_device(f"cuda:{local_rank}")
+
     mpu.initialize_model_parallel(
         tensor_model_parallel_size=1,
+        pipeline_model_parallel_size=world_size,
         virtual_pipeline_model_parallel_size=None,
         context_parallel_size=1,
         expert_model_parallel_size=1,
@@ -329,7 +355,18 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
     hf_config = AutoConfig.from_pretrained(hf_model_path)
     print(hf_config, flush=True)
 
-    tfconfig = hf_to_mcore_config(hf_config, torch.bfloat16)
+    if world_size > 1 and "DeepseekV3ForCausalLM" not in hf_config.architectures:
+        raise NotImplementedError(f"distributed conversion is not supported for {hf_config.architectures} yet.")
+
+    pipeline_shards = get_dynamic_pipeline_shards(hf_config.num_hidden_layers, world_size)
+    print(f"Pipeline shards: {pipeline_shards}", flush=True)
+
+    tfconfig = hf_to_mcore_config(
+        hf_config,
+        torch.bfloat16,
+        num_layers_in_first_pipeline_stage=pipeline_shards[0] if len(pipeline_shards) > 1 else None,
+        num_layers_in_last_pipeline_stage=pipeline_shards[-1] if len(pipeline_shards) > 2 else None,
+    )
     tfconfig.use_cpu_initialization = use_cpu_initialization
     tie_word_embeddings = getattr(hf_config, "tie_word_embeddings", False)
 
@@ -377,7 +414,14 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
     elif "Qwen2_5_VLForConditionalGeneration" in hf_config.architectures:
         convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hf_model, model[0].module, hf_config)
     elif "DeepseekV3ForCausalLM" in hf_config.architectures:
-        numel: int = convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model[0].module, hf_config, tfconfig=tfconfig)
+        pipeline_cumsum = np.cumsum(pipeline_shards)
+        layer_start = 0 if rank == 0 else pipeline_cumsum[rank - 1]
+        layer_end = pipeline_cumsum[rank]
+        numel_partial: int = convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model[0].module, hf_config, tfconfig=tfconfig, layer_start=layer_start, layer_end=layer_end)
+        numel_tensor = torch.tensor([numel_partial]).cuda()
+        dist.all_reduce(numel_tensor, op=dist.ReduceOp.SUM)
+        numel = int(numel_tensor.cpu().item())
+        print(f"total numel={numel} vs {hf_model.num_parameters()=}")
         if numel != hf_model.num_parameters():
             warnings.warn(f"numel mismatch: {numel=} != {hf_model.num_parameters()=}", stacklevel=1)
     elif "Qwen3MoeForCausalLM" in hf_config.architectures:

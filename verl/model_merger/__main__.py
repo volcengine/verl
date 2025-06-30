@@ -32,6 +32,16 @@ python -m verl.model_merger merge \
     --target_dir /path/to/merged_hf_model
 ```
 
+or use distribtued merge for large models like dpskv3 671B
+
+```sh
+torchrun --nproc_per_node 1 --nnodes 8 --node_rank ${RANK} -m verl.model_merger merge\
+    --backend megatron \
+    --local_dir ./checkpoints/global_step_1/actor \
+    --target_dir /path/to/merged_hf_model
+```
+
+
 For more details, please refer to documentation:
 https://verl.readthedocs.io/en/latest/advance/checkpoint.html#convert-fsdp-and-megatron-checkpoints-to-huggingface-format-model
 """
