@@ -45,7 +45,8 @@ def fused_forward_gptmodel(
 ):
     pre_process: bool = unwrap_model(model).pre_process
     post_process: bool = unwrap_model(model).post_process
-    unwrap_model(model).forward = _fused_GPTModel_forward
+    forward_fn = unwrap_model(model).__class__.forward
+    unwrap_model(model).__class__.forward = _fused_GPTModel_forward
 
     batch_size, seq_len = attention_mask.shape[:2]
     input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask, pre_process=pre_process)
@@ -60,6 +61,9 @@ def fused_forward_gptmodel(
     if post_process:
         # output_orig is in type of CausalLMOutputForPPO
         output = postprocess_packed_seqs_for_dict_output(labels_mask_rmpad, output_orig, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
+    else:
+        output = output_orig
+    unwrap_model(model).__class__.forward = forward_fn
     return output
 
 
@@ -77,7 +81,8 @@ def fused_forward_qwen2_5_vl(
     post_process = unwrap_model(model).post_process
     if hasattr(unwrap_model(model), "language_model"):
         language_model = unwrap_model(model).language_model
-        language_model.forward = _fused_GPTModel_forward
+        forward_fn = language_model.__class__.forward
+        language_model.__class__.forward = _fused_GPTModel_forward
 
     pixel_values = multi_modal_inputs["pixel_values"].to(input_ids.device) if "pixel_values" in multi_modal_inputs else None
     image_grid_thw = multi_modal_inputs["image_grid_thw"].to(input_ids.device) if "image_grid_thw" in multi_modal_inputs else None
@@ -101,6 +106,10 @@ def fused_forward_qwen2_5_vl(
     if post_process:
         # output_orig is in type of CausalLMOutputForPPO
         output = postprocess_packed_seqs_for_dict_output(labels_mask_rmpad, output_orig, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
+    else:
+        output = output_orig
+    if hasattr(unwrap_model(model), "language_model"):
+        language_model.__class__.forward = forward_fn
     return output
 
 
