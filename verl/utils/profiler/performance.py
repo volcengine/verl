@@ -67,7 +67,7 @@ class GPUMemoryLogger(DecoratorLoggerBase):
     """A decorator class to log GPU memory usage.
 
     Example:
-        >>> from verl.utils.debug.performance import GPUMemoryLogger
+        >>> from verl.utils.profiler.performance import GPUMemoryLogger
         >>> @GPUMemoryLogger(role="actor")
         >>> def update_actor(self, batch):
         ...     # real actor update logics

@@ -42,7 +42,7 @@ from vllm.lora.request import LoRARequest
 from verl import DataProto
 from verl.third_party.vllm import LLM, customized_vllm
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.debug import GPUMemoryLogger
+from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
 

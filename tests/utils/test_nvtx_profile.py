@@ -78,7 +78,7 @@ class TestNsightSystemsProfiler(unittest.TestCase):
         def test_func(self, *args, **kwargs):
             return "result"
 
-        with patch("torch.cuda.profiler.start") as mock_start, patch("torch.cuda.profiler.stop") as mock_stop, patch("verl.utils.debug.nvtx_profile.mark_start_range") as mock_start_range, patch("verl.utils.debug.nvtx_profile.mark_end_range") as mock_end_range:
+        with patch("torch.cuda.profiler.start") as mock_start, patch("torch.cuda.profiler.stop") as mock_stop, patch("verl.utils.profiler.nvtx_profile.mark_start_range") as mock_start_range, patch("verl.utils.profiler.nvtx_profile.mark_end_range") as mock_end_range:
             result = test_func(mock_self)
             self.assertEqual(result, "result")
             mock_start_range.assert_called_once()
@@ -97,7 +97,7 @@ class TestNsightSystemsProfiler(unittest.TestCase):
         def test_func(self, *args, **kwargs):
             return "result"
 
-        with patch("torch.cuda.profiler.start") as mock_start, patch("torch.cuda.profiler.stop") as mock_stop, patch("verl.utils.debug.nvtx_profile.mark_start_range") as mock_start_range, patch("verl.utils.debug.nvtx_profile.mark_end_range") as mock_end_range:
+        with patch("torch.cuda.profiler.start") as mock_start, patch("torch.cuda.profiler.stop") as mock_stop, patch("verl.utils.profiler.nvtx_profile.mark_start_range") as mock_start_range, patch("verl.utils.profiler.nvtx_profile.mark_end_range") as mock_end_range:
             result = test_func(mock_self)
             self.assertEqual(result, "result")
             mock_start_range.assert_called_once()

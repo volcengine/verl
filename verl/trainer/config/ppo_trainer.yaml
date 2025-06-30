@@ -733,7 +733,7 @@ critic:
     load_contents: ${critic.checkpoint.save_contents}
 
   # profiler configs
-  # the corresponding dataclass is verl.utils.debug.ProfilerConfig.
+  # the corresponding dataclass is verl.utils.profiler.ProfilerConfig.
   profiler:
 
     # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass

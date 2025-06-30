@@ -31,7 +31,7 @@ from torch import nn
 
 from verl import DataProto
 from verl.trainer.ppo import core_algos
-from verl.utils.debug import GPUMemoryLogger
+from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.py_functional import append_to_dict
