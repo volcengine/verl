@@ -70,7 +70,7 @@ class AtroposEnvironmentClient:
                 raise AtroposAPIError(f"Atropos API health check failed: {response.status_code}")
             logger.info(f"Connected to Atropos API at {self.config.api_url}")
         except requests.exceptions.RequestException as e:
-            raise AtroposAPIError(f"Cannot connect to Atropos API at {self.config.api_url}: {e}")
+            raise AtroposAPIError(f"Cannot connect to Atropos API at {self.config.api_url}: {e}") from e
     
     def submit_responses_and_get_advantages(
         self,
