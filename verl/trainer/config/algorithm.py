@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from verl.base_config import BaseConfig
@@ -55,7 +55,7 @@ class AlgoConfig(BaseConfig):
     norm_adv_by_std_in_grpo: bool = True  # Whether to normalize advantages by std (specific to GRPO)
     use_kl_in_reward: bool = False  # Whether to enable in-reward KL penalty
     kl_penalty: str = "kl"  # How to estimate KL divergence: "kl", "abs", "mse", "low_var_kl", or "full"
-    kl_ctrl: Optional[KLControlConfig] = None  # KL control configuration
+    kl_ctrl: KLControlConfig = field(default_factory=KLControlConfig)  # KL control configuration
     use_pf_ppo: bool = False  # Whether to enable preference feedback PPO
     pf_ppo: Optional[PFPPOConfig] = None  # Preference feedback PPO settings
 

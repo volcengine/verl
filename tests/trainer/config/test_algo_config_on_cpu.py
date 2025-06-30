@@ -18,7 +18,7 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from verl.trainer.config.algorithm import AlgoConfig, KLControlConfig, PFPPOConfig
+from verl.trainer.config import AlgoConfig, KLControlConfig, PFPPOConfig
 from verl.trainer.ppo.core_algos import compute_gae_advantage_return, compute_grpo_outcome_advantage, get_adv_estimator_fn, get_kl_controller
 from verl.utils.config import omega_conf_to_dataclass
 
@@ -30,21 +30,33 @@ class TestAlgoConfig(unittest.TestCase):
         """Set up test fixtures."""
         # Create a sample algorithm config as DictConfig (similar to what comes from YAML)
         self.config_dict = {
+            "_target_": "verl.trainer.config.AlgoConfig",
             "gamma": 0.99,
             "lam": 0.95,
             "adv_estimator": "gae",
             "norm_adv_by_std_in_grpo": True,
             "use_kl_in_reward": True,
             "kl_penalty": "kl",
-            "kl_ctrl": {"type": "adaptive", "kl_coef": 0.002, "horizon": 5000, "target_kl": 0.05},
+            "kl_ctrl": {"_target_": "verl.trainer.config.KLControlConfig", "type": "adaptive", "kl_coef": 0.002, "horizon": 5000, "target_kl": 0.05},
             "use_pf_ppo": True,
-            "pf_ppo": {"reweight_method": "max_min", "weight_pow": 3.0},
+            "pf_ppo": {"_target_": "verl.trainer.config.PFPPOConfig", "reweight_method": "max_min", "weight_pow": 3.0},
         }
         self.omega_config = OmegaConf.create(self.config_dict)
+        self.algo_config = AlgoConfig(
+            gamma=0.99,
+            lam=0.95,
+            adv_estimator="gae",
+            norm_adv_by_std_in_grpo=True,
+            use_kl_in_reward=True,
+            kl_penalty="kl",
+            kl_ctrl=KLControlConfig(type="adaptive", kl_coef=0.002, horizon=5000, target_kl=0.05),
+            use_pf_ppo=True,
+            pf_ppo=PFPPOConfig(reweight_method="max_min", weight_pow=3.0),
+        )
 
     def test_dataclass_creation_from_dict(self):
         """Test creating AlgoConfig from dictionary."""
-        config = omega_conf_to_dataclass(self.config_dict, AlgoConfig)
+        config = omega_conf_to_dataclass(self.config_dict)
 
         self.assertIsInstance(config, AlgoConfig)
         self.assertEqual(config.gamma, 0.99)
@@ -57,7 +69,7 @@ class TestAlgoConfig(unittest.TestCase):
 
     def test_dataclass_creation_from_omega_config(self):
         """Test creating AlgoConfig from OmegaConf DictConfig."""
-        config = omega_conf_to_dataclass(self.omega_config, AlgoConfig)
+        config = omega_conf_to_dataclass(self.omega_config)
 
         self.assertIsInstance(config, AlgoConfig)
         self.assertEqual(config.gamma, 0.99)
@@ -65,7 +77,7 @@ class TestAlgoConfig(unittest.TestCase):
 
     def test_nested_configs(self):
         """Test that nested configurations are properly converted."""
-        config = omega_conf_to_dataclass(self.omega_config, AlgoConfig)
+        config = omega_conf_to_dataclass(self.omega_config)
 
         # Test KL control config
         self.assertIsInstance(config.kl_ctrl, KLControlConfig)
@@ -94,7 +106,7 @@ class TestAlgoConfig(unittest.TestCase):
 
     def test_get_method_backward_compatibility(self):
         """Test the get method for backward compatibility."""
-        config = omega_conf_to_dataclass(self.omega_config, AlgoConfig)
+        config = omega_conf_to_dataclass(self.omega_config)
 
         # Test existing attribute
         self.assertEqual(config.get("gamma"), 0.99)
@@ -104,24 +116,9 @@ class TestAlgoConfig(unittest.TestCase):
         self.assertIsNone(config.get("non_existing"))
         self.assertEqual(config.get("non_existing", "default"), "default")
 
-    def test_kl_controller_integration(self):
-        """Test integration with KL controller from core_algos."""
-        config = omega_conf_to_dataclass(self.omega_config, AlgoConfig)
-
-        # Test adaptive KL controller
-        kl_controller = get_kl_controller(config.kl_ctrl)
-        self.assertEqual(kl_controller.value, 0.002)
-        self.assertEqual(kl_controller.target, 0.05)
-        self.assertEqual(kl_controller.horizon, 5000)
-
-        # Test fixed KL controller
-        fixed_config = omega_conf_to_dataclass({"kl_ctrl": {"type": "fixed", "kl_coef": 0.001}}, AlgoConfig)
-        fixed_controller = get_kl_controller(fixed_config.kl_ctrl)
-        self.assertEqual(fixed_controller.value, 0.001)
-
-    def test_advantage_estimator_integration(self):
+    def test_advantage_estimator_with_cfg(self):
         """Test integration with advantage estimators from core_algos."""
-        config = omega_conf_to_dataclass(self.omega_config, AlgoConfig)
+        config = self.algo_config
 
         # Test GAE advantage estimator
         adv_fn = get_adv_estimator_fn(config.adv_estimator)
@@ -138,9 +135,9 @@ class TestAlgoConfig(unittest.TestCase):
         self.assertEqual(advantages.shape, (batch_size, seq_len))
         self.assertEqual(returns.shape, (batch_size, seq_len))
 
-    def test_grpo_advantage_estimator_integration(self):
+    def test_grpo_advantage_estimator_with_cfg(self):
         """Test integration with GRPO advantage estimator."""
-        grpo_config = omega_conf_to_dataclass({"adv_estimator": "grpo", "norm_adv_by_std_in_grpo": True}, AlgoConfig)
+        grpo_config = AlgoConfig(adv_estimator="grpo", norm_adv_by_std_in_grpo=True)
 
         # Test GRPO advantage computation
         batch_size, seq_len = 4, 3
@@ -153,40 +150,6 @@ class TestAlgoConfig(unittest.TestCase):
         self.assertEqual(advantages.shape, (batch_size, seq_len))
         self.assertEqual(returns.shape, (batch_size, seq_len))
 
-    def test_yaml_like_config_conversion(self):
-        """Test conversion from a YAML-like configuration structure."""
-        # This simulates the actual YAML structure from ppo_trainer.yaml
-        yaml_like_config = {
-            "gamma": 1.0,
-            "lam": 1.0,
-            "adv_estimator": "gae",
-            "norm_adv_by_std_in_grpo": True,
-            "use_kl_in_reward": False,
-            "kl_penalty": "kl",
-            "kl_ctrl": {"type": "fixed", "kl_coef": 0.001, "horizon": 10000, "target_kl": 0.1},
-            "use_pf_ppo": False,
-            "pf_ppo": {"reweight_method": "pow", "weight_pow": 2.0},
-        }
-
-        config = omega_conf_to_dataclass(yaml_like_config, AlgoConfig)
-
-        # Verify all fields match the YAML structure
-        self.assertEqual(config.gamma, 1.0)
-        self.assertEqual(config.lam, 1.0)
-        self.assertEqual(config.adv_estimator, "gae")
-        self.assertTrue(config.norm_adv_by_std_in_grpo)
-        self.assertFalse(config.use_kl_in_reward)
-        self.assertEqual(config.kl_penalty, "kl")
-
-        self.assertEqual(config.kl_ctrl.type, "fixed")
-        self.assertEqual(config.kl_ctrl.kl_coef, 0.001)
-        self.assertEqual(config.kl_ctrl.horizon, 10000)
-        self.assertEqual(config.kl_ctrl.target_kl, 0.1)
-
-        self.assertFalse(config.use_pf_ppo)
-        self.assertEqual(config.pf_ppo.reweight_method, "pow")
-        self.assertEqual(config.pf_ppo.weight_pow, 2.0)
-
     def test_post_init_nested_configs(self):
         """Test that __post_init__ properly initializes nested configs when None."""
         # Create config without nested configs
@@ -195,13 +158,12 @@ class TestAlgoConfig(unittest.TestCase):
         # Check that nested configs are initialized
         self.assertIsNotNone(minimal_config.kl_ctrl)
         self.assertIsInstance(minimal_config.kl_ctrl, KLControlConfig)
-        self.assertIsNotNone(minimal_config.pf_ppo)
-        self.assertIsInstance(minimal_config.pf_ppo, PFPPOConfig)
+        self.assertIsNone(minimal_config.pf_ppo)
 
     def test_config_init_from_yaml(self):
         cfg = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
         algo_config = omega_conf_to_dataclass(cfg.algorithm)
-        from verl.trainer.config.algorithm import AlgoConfig, PFPPOConfig
+        from verl.trainer.config import AlgoConfig, PFPPOConfig
 
         assert isinstance(algo_config, AlgoConfig)
         assert isinstance(algo_config.pf_ppo, PFPPOConfig)

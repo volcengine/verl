@@ -876,7 +876,7 @@ custom_reward_function:
 algorithm:
 
   # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
-  _target_: verl.trainer.config.algo_config.AlgoConfig
+  _target_: verl.trainer.config.AlgoConfig
 
   # Discount factor for future rewards
   gamma: 1.0
@@ -900,7 +900,7 @@ algorithm:
   kl_ctrl:
 
     # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
-    _target_: verl.trainer.config.algo_config.KLControlConfig
+    _target_: verl.trainer.config.KLControlConfig
 
     # KL control type: "fixed" or "adaptive"
     type: fixed
@@ -921,7 +921,7 @@ algorithm:
   pf_ppo:
 
     # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
-    _target_: verl.trainer.config.algo_config.PFPPOConfig
+    _target_: verl.trainer.config.PFPPOConfig
 
     # Method for reweighting samples: "pow", "max_min", or "max_random"
     reweight_method: pow

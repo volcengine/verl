@@ -28,7 +28,7 @@ import numpy as np
 import torch
 
 import verl.utils.torch_functional as verl_F
-from verl.trainer.config.algorithm import AlgoConfig
+from verl.trainer.config import AlgoConfig
 
 POLICY_LOSS_REGISTRY = {}
 
