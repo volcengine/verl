@@ -27,7 +27,6 @@ from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer
 
 from verl.utils import hf_tokenizer
-from verl.utils.dataset.sft_dataset import SFTDataset
 from verl.utils.fs import copy_local_path_from_hdfs
 
 
@@ -232,7 +231,7 @@ class MultiTurnSFTDataset(Dataset):
         enable_thinking = self.enable_thinking[item] if self.enable_thinking is not None else None
 
         if self.tools is not None:
-            tools = self.tools[item]
+            tools = json.loads(self.tools[item])
         else:
             tools = None
 
@@ -332,68 +331,6 @@ class MultiTurnSFTDataset(Dataset):
         position_ids = torch.arange(len(input_ids), dtype=torch.long)
         # Zero out position IDs for padding
         position_ids = position_ids * attention_mask
-
-        return {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "position_ids": position_ids,
-            "loss_mask": loss_mask,
-        }
-
-
-class MultiTurnSFTDatasetV2(SFTDataset):
-    """
-    Dataset for multi-turn conversations where each assistant response should be trained
-    """
-
-    def __init__(self, parquet_files: Union[str, List[str]], tokenizer, config=None):
-        super().__init__(parquet_files, tokenizer, config)
-
-        self.messages_key = config.multiturn.messages_key
-        self.tools_key = config.multiturn.tools_key
-        self.system_prompt = self.tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=False)
-
-    def _read_files_and_tokenize(self):
-        dataframes = []
-        for parquet_file in self.parquet_files:
-            # read parquet files and cache
-            dataframe = pd.read_parquet(parquet_file)
-            dataframes.append(dataframe)
-        self.dataframe = pd.concat(dataframes)
-
-    def __len__(self):
-        return len(self.dataframe)
-
-    def __getitem__(self, item):
-        row_dict: dict = self.dataframe.iloc[item].to_dict()
-        messages, tool_schemas = row_dict[self.messages_key], json.loads(row_dict[self.tools_key])
-
-        # encode first turn with system prompt and tool schemas
-        prompt = self.tokenizer.apply_chat_template(messages[:1], tools=tool_schemas, add_generation_prompt=False, tokenize=True)
-
-        # encode following turns
-        response, response_mask = [], []
-        last = 0
-        for i in range(1, len(messages)):
-            # parallel tool calls are in single turn
-            if messages[i]["role"] == "tool" and messages[i + 1]["role"] == "tool":
-                continue
-            response_str = self.tokenizer.apply_chat_template(messages[last + 1 : i + 1], add_generation_prompt=False, tokenize=False)
-            # remove system prompt prefix
-            response_ids = self.tokenizer.encode(response_str[len(self.system_prompt) :])
-            response += response_ids
-            response_mask += [0 if messages[i]["role"] == "tool" else 1] * len(response_ids)
-
-            last = i
-
-        input_ids = torch.tensor(prompt + response, dtype=torch.long)
-        loss_mask = torch.tensor([0] * len(prompt) + response_mask, dtype=torch.long)
-        attention_mask = torch.ones_like(input_ids)
-
-        input_ids = self._pad_or_truncate(input_ids, self.tokenizer.pad_token_id)
-        loss_mask = self._pad_or_truncate(loss_mask, 0)
-        attention_mask = self._pad_or_truncate(attention_mask, 0)
-        position_ids = torch.arange(len(input_ids), dtype=torch.long) * attention_mask
 
         return {
             "input_ids": input_ids,
