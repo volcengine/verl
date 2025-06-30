@@ -168,7 +168,8 @@ class ParallelQwen2Attention(nn.Module):
             f"num_head must be divisible by tp_size. Got num_head={self.num_heads}, tp_size={tp_size}"
         )
         assert self.num_key_value_heads % tp_size == 0, (
-            f"num_key_value_heads must be divisible by tp_size. Got num_key_value_heads={self.num_key_value_heads}, tp_size={tp_size}"
+            f"num_key_value_heads must be divisible by tp_size. Got num_key_value_heads="
+            f"{self.num_key_value_heads}, tp_size={tp_size}"
         )
 
         self.num_heads_per_tp = self.num_heads // tp_size
@@ -177,7 +178,8 @@ class ParallelQwen2Attention(nn.Module):
 
         if (self.head_dim * self.num_heads) != self.hidden_size:
             raise ValueError(
-                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size} and `num_heads`: {self.num_heads})."
+                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size} and "
+                f"`num_heads`: {self.num_heads})."
             )
 
         column_kwargs = tp_utils.get_default_kwargs_for_column_parallel_linear()
@@ -253,7 +255,8 @@ class ParallelQwen2Attention(nn.Module):
 
         if attn_weights.size() != (bsz, self.num_heads_per_tp, q_len, kv_seq_len):
             raise ValueError(
-                f"Attention weights should be of size {(bsz, self.num_heads_per_tp, q_len, kv_seq_len)}, but is {attn_weights.size()}"
+                f"Attention weights should be of size {(bsz, self.num_heads_per_tp, q_len, kv_seq_len)}, "
+                f"but is {attn_weights.size()}"
             )
 
         if attention_mask is not None:
@@ -269,7 +272,8 @@ class ParallelQwen2Attention(nn.Module):
 
         if attn_output.size() != (bsz, self.num_heads_per_tp, q_len, self.head_dim):
             raise ValueError(
-                f"`attn_output` should be of size {(bsz, self.num_heads_per_tp, q_len, self.head_dim)}, but is {attn_output.size()}"
+                f"`attn_output` should be of size {(bsz, self.num_heads_per_tp, q_len, self.head_dim)}, "
+                f"but is {attn_output.size()}"
             )
 
         attn_output = attn_output.transpose(1, 2).contiguous()
@@ -352,7 +356,8 @@ class ParallelQwen2AttentionRmPad(ParallelQwen2Attention):
         query_states, key_states = apply_rotary_pos_emb_rmpad_flash(
             query_states, key_states, cos, sin, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen_in_batch
         )
-        # query_states, key_states = apply_rotary_pos_emb_rmpad(query_states, key_states, cos, sin, position_ids, indices,
+        # query_states, key_states = apply_rotary_pos_emb_rmpad(query_states, key_states, cos, sin,
+        # position_ids, indices,
 
         # It is recommended to use dropout with FA according to the docs
         # when training.

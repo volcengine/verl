@@ -69,7 +69,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         self.module = module
         # For AsyncLLM, inference_engine and model_runner are defer initialized in vLLMAsyncRollout.load_model
         self.inference_engine = inference_engine
-        # self.model_runner = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if inference_engine else None
+        # self.model_runner = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if
+        # inference_engine else None
 
         self.model_runner = (
             self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner
@@ -130,7 +131,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                 if self.layered_summon:
                     if not self.base_sync_done:
                         raise ValueError(
-                            "To use layered_summon, you must make sure base-model is preloaded in vllm, e.g. let rollout.load_format=safetensors"
+                            "To use layered_summon, you must make sure base-model is preloaded in vllm, e.g. let "
+                            "rollout.load_format=safetensors"
                         )
                     lora_params = layered_summon_lora_params(self.module)
                 else:

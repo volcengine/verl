@@ -79,7 +79,8 @@ def compute_onlinedpo_pref(
     # print(f"---- [DEBUG] Inside compute_onlinedpo_pref ----")
     if token_level_rewards.shape[0] % 2 != 0 or response_mask.shape[0] % 2 != 0:
         raise ValueError(
-            f"Input tensor batch dimension must be even for pair comparison, got shapes: {token_level_rewards.shape}, {response_mask.shape}"
+            f"Input tensor batch dimension must be even for pair comparison, got shapes: "
+            f"{token_level_rewards.shape}, {response_mask.shape}"
         )
     if token_level_rewards.shape != response_mask.shape:
         raise ValueError(f"Shape mismatch between rewards {token_level_rewards.shape} and mask {response_mask.shape}")
@@ -164,7 +165,8 @@ def get_batch_logps(
     Compute the log probabilities of the given labels under the given logits.
 
     Args:
-        logits: Logits of the model (e.g., huggingface CausalLMOutputs `logits`). Shape: (batch_size, sequence_length, vocab_size)
+        logits: Logits of the model (e.g., huggingface CausalLMOutputs `logits`).
+                Shape: (batch_size, sequence_length, vocab_size)
         labels: Labels for computing the sequence log probabilities. Shape: (batch_size, sequence_length)
         average_log_prob: If True, return the average log probability per sequence. Otherwise, return the sum.
 

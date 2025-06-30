@@ -73,7 +73,8 @@ def check_pr_description(body, template_lines):
     pr_first = [x.strip() for x in pr_lines[:NUM_LINES]]
     if pr_first == template_lines:
         raise PRDescriptionError(
-            "It looks like you haven't updated the '### What does this PR do?' section. Please replace the placeholder text with a concise description of what your PR does."
+            "It looks like you haven't updated the '### What does this PR do?' section. Please replace "
+            "the placeholder text with a concise description of what your PR does."
         )
     else:
         print(pr_first)

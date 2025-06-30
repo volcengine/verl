@@ -93,7 +93,8 @@ class BaseCheckpointManager:
     @property
     def should_save_hf_model(self) -> bool:
         """
-        Returns True if 'hf_model' is in checkpoint_save_contents, indicating the model should be converted to hf model and saved.
+        Returns True if 'hf_model' is in checkpoint_save_contents, indicating the model should be converted to hf
+        model and saved.
         """
         return "hf_model" in self.checkpoint_save_contents
 

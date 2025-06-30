@@ -273,7 +273,8 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
             )
         else:
             assert tensor.shape == chunk_shape, (
-                f"rank #{torch.distributed.get_rank() == src_rank:} tensor {gate_name, up_name} shape {tensor.shape} != {chunk_shape}"
+                f"rank #{torch.distributed.get_rank() == src_rank:} tensor {gate_name, up_name} shape "
+                f"{tensor.shape} != {chunk_shape}"
             )
             sync_tensor = torch.empty_like(tensor, device=get_device_id(), requires_grad=False)
 

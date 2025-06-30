@@ -55,7 +55,8 @@ def parse_args():
     base_op_parser.add_argument(
         "--use_cpu_initialization",
         action="store_true",
-        help="Whether to use CPU initialization for the model. This is useful for large models that cannot fit into GPU memory during initialization.",
+        help="Whether to use CPU initialization for the model. This is useful for large models that cannot "
+        "fit into GPU memory during initialization.",
     )
 
     merge_parser = subparsers.add_parser("merge", parents=[base_op_parser], help="Merge model checkpoints and save.")
@@ -186,7 +187,8 @@ class BaseModelMerger(ABC):
                 model.generation_config = GenerationConfig.from_pretrained(self.hf_model_config_path)
             except OSError:
                 print(
-                    f"Warning: Generation config file not found in {self.hf_model_config_path}, using a generation config created from the model config."
+                    f"Warning: Generation config file not found in {self.hf_model_config_path}, using a "
+                    f"generation config created from the model config."
                 )
         return model
 

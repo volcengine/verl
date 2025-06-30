@@ -326,7 +326,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             log_with_rank(f"Loaded optimizer checkpoint from {local_path}", rank=self.rank, logger=logger)
             if self.use_checkpoint_opt_param_scheduler:
                 assert "lr_scheduler" in state_dict, (
-                    f"LR scheduler state dict not found in {state_dict.keys()}. Please check the checkpoint file {local_path}."
+                    f"LR scheduler state dict not found in {state_dict.keys()}. Please check the checkpoint file "
+                    f"{local_path}."
                 )
                 lr_scheduler_state_dict = state_dict["lr_scheduler"]
                 if self.lr_scheduler is not None:

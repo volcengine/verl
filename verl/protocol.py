@@ -335,7 +335,8 @@ class DataProto:
             batch_size = self.batch.batch_size[0]
             for key, val in self.non_tensor_batch.items():
                 assert isinstance(val, np.ndarray), (
-                    f"data in the non_tensor_batch must be a numpy.array with dtype=object, but for {key=}, got {type(val)=}"
+                    f"data in the non_tensor_batch must be a numpy.array with dtype=object, but for "
+                    f"{key=}, got {type(val)=}"
                 )
                 assert val.shape[0] == batch_size, (
                     f"key {key} length {len(val)} is not equal to batch size {batch_size}"
@@ -394,7 +395,8 @@ class DataProto:
             else:
                 current_batch = tensor.shape[:num_batch_dims]
                 assert batch_size == current_batch, (
-                    f"Not all the tensor in tensors have the same batch size with batch_dims={num_batch_dims}. Got {pivot_key} has {batch_size}, {key} has {current_batch}"
+                    f"Not all the tensor in tensors have the same batch size with batch_dims={num_batch_dims}. "
+                    f"Got {pivot_key} has {batch_size}, {key} has {current_batch}"
                 )
 
         for key, val in non_tensors.items():
@@ -626,12 +628,15 @@ class DataProto:
 
 
         Args:
-            mini_batch_size (int): mini-batch size when iterating the dataset. We require that ``batch.batch_size[0] % mini_batch_size == 0``.
+            mini_batch_size (int): mini-batch size when iterating the dataset. We require that
+                ``batch.batch_size[0] % mini_batch_size == 0``.
             epochs (int): number of epochs when iterating the dataset.
-            dataloader_kwargs (Any): internally, it returns a DataLoader over the batch. The dataloader_kwargs is the kwargs passed to the DataLoader.
+            dataloader_kwargs (Any): internally, it returns a DataLoader over the batch. The
+                dataloader_kwargs is the kwargs passed to the DataLoader.
 
         Returns:
-            Iterator: an iterator that yields a mini-batch data at a time. The total number of iteration steps is ``self.batch.batch_size * epochs // mini_batch_size``
+            Iterator: an iterator that yields a mini-batch data at a time. The total number of iteration
+                steps is ``self.batch.batch_size * epochs // mini_batch_size``
         """
         assert self.batch.batch_size[0] % mini_batch_size == 0, f"{self.batch.batch_size[0]} % {mini_batch_size} != 0"
         # we can directly create a dataloader from TensorDict
@@ -892,7 +897,8 @@ class DataProtoFuture:
     for data so that asynchronous execution becomes possible.
     DataProtoFuture contains a list of futures from another WorkerGroup of size world_size.
     - collect_fn is a Callable that reduces the list of futures to a DataProto
-    - dispatch_fn is a Callable that partitions the DataProto into a list of DataProto of size world_size and then select
+    - dispatch_fn is a Callable that partitions the DataProto into a list of DataProto of size world_size
+        and then select
 
     Potential issue: we can optimize dispatch_fn(collect_fn) such that only needed data is fetched on destination
     - DataProtoFuture only supports directly passing from the output of a method to another input. You can't perform any

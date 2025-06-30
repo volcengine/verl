@@ -150,7 +150,8 @@ def copy_to_shm(src: str):
     if os.path.exists(dest) and verify_copy(src, dest):
         # inform user and depends on him
         print(
-            f"[WARNING]: The memory model path {dest} already exists. If it is not you want, please clear it and restart the task."
+            f"[WARNING]: The memory model path {dest} already exists. If it is not you want, please clear it and "
+            f"restart the task."
         )
     else:
         if os.path.isdir(src):

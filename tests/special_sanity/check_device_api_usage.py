@@ -83,9 +83,11 @@ if __name__ == "__main__":
                     break
 
             print(
-                f"[CHECK] File {path_in_str} is detected for device api usage check, check result: {'success' if not find_invalid_device_management else f'failed, because detect {sk}'}."
+                f"[CHECK] File {path_in_str} is detected for device api usage check, check result: "
+                f"{'success' if not find_invalid_device_management else f'failed, because detect {sk}'}."
             )
 
             assert not find_invalid_device_management, (
-                f'file {path_in_str} contains .cuda/"cuda"/"nccl" usage, please use api in verl/utils/device.py directly.'
+                f'file {path_in_str} contains .cuda/"cuda"/"nccl" usage, please use api in '
+                f"verl/utils/device.py directly."
             )

@@ -288,28 +288,36 @@ class TestLinearCrossEntropy:
         print("\n[INFO]: Verified forward & backward correctness.")
 
         print(
-            f"[INFO]: Forward pass: Torch implementation average time: {sum(torch_forward_latency) / len(torch_forward_latency):.2f} ms"
+            f"[INFO]: Forward pass: Torch implementation average time: "
+            f"{sum(torch_forward_latency) / len(torch_forward_latency):.2f} ms"
         )
         print(
-            f"[INFO]: Backward pass: torch implementation average time: {sum(torch_backward_latency) / len(torch_backward_latency):.2f} ms"
+            f"[INFO]: Backward pass: torch implementation average time: "
+            f"{sum(torch_backward_latency) / len(torch_backward_latency):.2f} ms"
         )
         print(
-            f"[INFO]: Forward pass: VeRL implementation average time: {sum(verl_forward_latency) / len(verl_forward_latency):.2f} ms"
+            f"[INFO]: Forward pass: VeRL implementation average time: "
+            f"{sum(verl_forward_latency) / len(verl_forward_latency):.2f} ms"
         )
         print(
-            f"[INFO]: Backward pass: VeRL implementation average time: {sum(verl_backward_latency) / len(verl_backward_latency):.2f} ms"
+            f"[INFO]: Backward pass: VeRL implementation average time: "
+            f"{sum(verl_backward_latency) / len(verl_backward_latency):.2f} ms"
         )
         print(
-            f"[INFO]: Forward pass: VeRL Fused Entropy implementation average time: {sum(verl_fused_forward_latency) / len(verl_fused_forward_latency):.2f} ms"
+            f"[INFO]: Forward pass: VeRL Fused Entropy implementation average time: "
+            f"{sum(verl_fused_forward_latency) / len(verl_fused_forward_latency):.2f} ms"
         )
         print(
-            f"[INFO]: Backward pass: VeRL Fused Entropy implementation average time: {sum(verl_fused_backward_latency) / len(verl_fused_backward_latency):.2f} ms"
+            f"[INFO]: Backward pass: VeRL Fused Entropy implementation average time: "
+            f"{sum(verl_fused_backward_latency) / len(verl_fused_backward_latency):.2f} ms"
         )
         print(
-            f"[INFO]: Forward pass: Kernel implementation average time: {sum(kernel_forward_latency) / len(kernel_forward_latency):.2f} ms"
+            f"[INFO]: Forward pass: Kernel implementation average time: "
+            f"{sum(kernel_forward_latency) / len(kernel_forward_latency):.2f} ms"
         )
         print(
-            f"[INFO]: Backward pass: kernel implementation average time: {sum(kernel_backward_latency) / len(kernel_backward_latency):.2f} ms"
+            f"[INFO]: Backward pass: kernel implementation average time: "
+            f"{sum(kernel_backward_latency) / len(kernel_backward_latency):.2f} ms"
         )
 
     def check_storage(self, method_name, run_forward):

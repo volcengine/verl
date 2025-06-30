@@ -47,7 +47,8 @@ async def parallel_compute_score_async(
         extra_info = [None] * len(tasks)
     scores = []
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
-        # to prevent very occasional starvation caused by some anomalous programs ( like infinite loop ), the exceptions in async programs will instantly halt the evaluation, and all summoned processes will be killed.
+        # to prevent very occasional starvation caused by some anomalous programs ( like infinite loop ), the
+        # exceptions in async programs will instantly halt the evaluation, and all summoned processes will be killed.
         try:
             # Create tasks for all rows
             tasks_async = [

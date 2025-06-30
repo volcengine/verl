@@ -125,7 +125,8 @@ class Qwen2_5VisionModel(VisionModule):
         self.post_process = post_process
 
         # Transformer layers.
-        # TODO: Follow-up changes will make pre and post_process configurable. They are needed for supporting pipeline parallelism.
+        # TODO: Follow-up changes will make pre and post_process configurable. They are needed for supporting
+        # pipeline parallelism.
         # NOTE: a final layer norm and/or linear layer present in some implementations are omitted here.
         self.decoder = TransformerBlock(
             config=transformer_config,

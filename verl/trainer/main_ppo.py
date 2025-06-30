@@ -240,7 +240,8 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
         # Verify that the custom dataset class inherits from torch.utils.data.Dataset
         if not issubclass(dataset_cls, Dataset):
             raise TypeError(
-                f"The custom dataset class '{data_config.custom_cls.name}' from '{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset"
+                f"The custom dataset class '{data_config.custom_cls.name}' from "
+                f"'{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset"
             )
     else:
         # Use the default RLHFDataset class if no custom class is specified

@@ -168,7 +168,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
             else:
                 assert self.config.ref.get("log_prob_micro_batch_size_per_gpu", None) is not None, (
-                    "Please note that in the ref policy configuration, `log_prob_micro_batch_size_per_gpu` and `log_prob_micro_batch_size` should not be None at the same time."
+                    "Please note that in the ref policy configuration, `log_prob_micro_batch_size_per_gpu` and "
+                    "`log_prob_micro_batch_size` should not be None at the same time."
                 )
             self._ref_is_offload_param = self.config.ref.megatron.get("param_offload", False)
 
@@ -331,10 +332,12 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 )
             from verl.workers.rollout.sglang_rollout import SGLangRollout
 
-            # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's model_runner would check CUDA device capability.
-            # However, due to verl's setting, the main process of ray can not find any CUDA device, which would potentially lead to:
-            # "RuntimeError: No CUDA GPUs are available".
-            # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it here use the abs path.
+            # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's
+            # model_runner would check CUDA device capability.
+            # However, due to verl's setting, the main process of ray can not find any CUDA device, which would
+            # potentially lead to: "RuntimeError: No CUDA GPUs are available".
+            # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it
+            # here use the abs path.
             # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
             from verl.workers.sharding_manager.megatron_sglang import MegatronSGLangShardingManager
 
@@ -667,7 +670,8 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         """Called by ExternalRayDistributedExecutor collective_rpc."""
         if self.vllm_tp_rank == 0 and method != "execute_model":
             print(
-                f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: {method if isinstance(method, str) else 'Callable'}"
+                f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: "
+                f"{method if isinstance(method, str) else 'Callable'}"
             )
         return self.rollout.execute_method(method, *args, **kwargs)
 

@@ -363,7 +363,8 @@ def _strip_string(string):
     # remove spaces
     string = string.replace(" ", "")
 
-    # \frac1b or \frac12 --> \frac{1}{b} and \frac{1}{2}, etc. Even works with \frac1{72} (but not \frac{72}1). Also does a/b --> \\frac{a}{b}
+    # \frac1b or \frac12 --> \frac{1}{b} and \frac{1}{2}, etc. Even works with \frac1{72} (but not \frac{72}1).
+    # Also does a/b --> \\frac{a}{b}
     string = _fix_fracs(string)
 
     # manually change 0.5 --> \frac{1}{2}
@@ -982,7 +983,8 @@ def grade_answer_sympy(given_answer: str, ground_truth: str) -> bool:
                 # so, we don't want to allow sympy.simplify in this case
                 is_correct = ground_truth_elem == given_elem
             elif _str_is_int(ground_truth_elem) != _str_is_int(given_elem):
-                # if the ground truth answer is an integer, we require the given answer to be a strict match (no sympy.simplify)
+                # if the ground truth answer is an integer, we require the given answer to be a strict match
+                # (no sympy.simplify)
                 is_correct = False
             else:
                 is_correct = are_equal_under_sympy(ground_truth_elem, given_elem)

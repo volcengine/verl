@@ -294,7 +294,8 @@ class RayWorkerGroup(WorkerGroup):
         self._ray_wait_register_center_timeout = ray_wait_register_center_timeout
         # Whether the WorkerGroup is a Colocate WorkerGroup created by FusedWorker.
         self.fused_worker_used = ray_cls_with_init.fused_worker_used
-        # if a WorkerGroup is spawned from Colocate WorkerGroup, this indicates which sub-class is binded to this WorkerGroup.
+        # if a WorkerGroup is spawned from Colocate WorkerGroup, this indicates which sub-class is binded to
+        # this WorkerGroup.
         self.sub_cls_name = ""
         self.device_name = device_name
         self.profile_steps = kwargs.get("profile_steps", None)
@@ -427,7 +428,8 @@ class RayWorkerGroup(WorkerGroup):
                         elapsed = int(time.time() - start_time)
                         if elapsed % 30 == 0:
                             logging.warning(
-                                "Waiting for register center actor %s to be ready. Elapsed time: %s seconds out of %s seconds.",
+                                "Waiting for register center actor %s to be ready. Elapsed time: %s seconds out of "
+                                "%s seconds.",
                                 actor_name,
                                 elapsed,
                                 self._ray_wait_register_center_timeout,

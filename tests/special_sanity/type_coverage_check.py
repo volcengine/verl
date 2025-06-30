@@ -13,7 +13,8 @@
 # limitations under the License.
 """Custom type annotation check tool.
 To inspect the type annotation for functions in the entire codebase, please run:
-find verl -type f -name "*.py" | xargs -n 1 python3 tests/special_sanity/type_coverage_check.py --all-lines --debug --target-file
+find verl -type f -name "*.py" | xargs -n 1 python3 tests/special_sanity/type_coverage_check.py --all-lines
+--debug --target-file
 """
 
 import argparse
@@ -147,7 +148,8 @@ def main() -> None:
     ratio = (total_annotated / total_changed) if total_changed else 1.0
 
     print(
-        f"🔍 Type coverage on {'all' if args.all_lines else 'changed'} lines: {total_annotated}/{total_changed} = {ratio:.2%}. Files inspected: {target_files}"
+        f"🔍 Type coverage on {'all' if args.all_lines else 'changed'} lines: "
+        f"{total_annotated}/{total_changed} = {ratio:.2%}. Files inspected: {target_files}"
     )
 
     if all_warnings:
@@ -162,7 +164,8 @@ def main() -> None:
 
     if ratio < args.threshold:
         print(
-            f"Please add type annotations for inputs and outputs to meet threshold {args.threshold}. Cases exempt from checking:"
+            f"Please add type annotations for inputs and outputs to meet threshold {args.threshold}. "
+            f"Cases exempt from checking:"
         )
         print("1. Private methods.")
         print("2. Args with name in ('self', 'cls'), or *args / **kwargs")

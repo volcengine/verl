@@ -249,7 +249,8 @@ class MegatronRewardModel(BasePPORewardModel):
                     max_token_len=max_token_len,
                 )
                 assert len(micro_batches) % self.tf_config.microbatch_group_size_per_vp_stage == 0, (
-                    f"micro_batches {micro_batches} must be divisible by microbatch_group_size_per_vp_stage {microbatch_group_size_per_vp_stage} for megatron backend"
+                    f"micro_batches {micro_batches} must be divisible by microbatch_group_size_per_vp_stage "
+                    f"{microbatch_group_size_per_vp_stage} for megatron backend"
                 )
             else:
                 micro_batches, indices = rearrange_micro_batches(batch=mini_batch.batch, max_token_len=max_token_len)

@@ -154,7 +154,8 @@ class Worker(WorkerHelper):
             cuda_visible_devices (str, optional):
                 CUDA visible devices configuration. Defaults to None.
         """
-        # construct a meta from environment variable. Note that the import must be inside the class because it is executed remotely
+        # construct a meta from environment variable. Note that the import must be inside the class because
+        # it is executed remotely
         import os
 
         self._setup_env_cuda_visible_devices()
@@ -211,7 +212,8 @@ class Worker(WorkerHelper):
             hip_val = None
             if cuda_val:
                 assert val == cuda_val, (
-                    f"Please use the same HIP_VISIBLE_DEVICES or CUDA_VISIBLE_DEVICES, inconsistant values found: {val} and {cuda_val}."
+                    f"Please use the same HIP_VISIBLE_DEVICES or CUDA_VISIBLE_DEVICES, inconsistant values "
+                    f"found: {val} and {cuda_val}."
                 )
             else:
                 cuda_val = val

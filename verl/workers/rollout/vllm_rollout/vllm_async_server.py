@@ -44,7 +44,8 @@ def _get_model_runner_workers(vllm_config, init_ray: bool = True):
 
     fields = vllm_config.instance_id.split(":")
     assert len(fields) == 4, (
-        f"instance_id: {vllm_config.instance_id} must be in the format of <namespace>:<wg_prefix>:<vllm_dp_size>:<vllm_dp_rank>."
+        f"instance_id: {vllm_config.instance_id} must be in the format of "
+        f"<namespace>:<wg_prefix>:<vllm_dp_size>:<vllm_dp_rank>."
     )
     namespace, wg_prefix, vllm_dp_size, vllm_dp_rank = fields[0], fields[1], int(fields[2]), int(fields[3])
 
@@ -58,7 +59,8 @@ def _get_model_runner_workers(vllm_config, init_ray: bool = True):
 
     vllm_tp_size = vllm_config.parallel_config.tensor_parallel_size
     assert len(actor_names) == vllm_dp_size * vllm_tp_size, (
-        f"instance_id: {vllm_config.instance_id} has {len(actor_names)} actors, but vllm_dp_size: {vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = {vllm_dp_size * vllm_tp_size} is expected."
+        f"instance_id: {vllm_config.instance_id} has {len(actor_names)} actors, but vllm_dp_size: "
+        f"{vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = {vllm_dp_size * vllm_tp_size} is expected."
     )
 
     def get_pg_index_and_local_rank(actor_name) -> Tuple[int, int]:

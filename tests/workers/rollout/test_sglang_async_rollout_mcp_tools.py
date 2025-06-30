@@ -215,11 +215,13 @@ class TestRolloutWithMCPSearchTools:
                             },
                             "days": {
                                 "type": "integer",
-                                "description": "Number of days back to include in search results (only for 'news' topic)",
+                                "description": "Number of days back to include in search results (only for "
+                                "'news' topic)",
                             },
                             "time_range": {
                                 "type": "string",
-                                "description": "Time range for results ('day', 'week', 'month', 'year', 'd', 'w', 'm', 'y')",
+                                "description": "Time range for results ('day', 'week', 'month', 'year', 'd', "
+                                "'w', 'm', 'y')",
                             },
                             "include_domains": {
                                 "type": "array",

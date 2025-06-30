@@ -66,7 +66,8 @@ def forward_base_model(
             n_image_features = image_embeds.shape[0]
             if n_image_tokens != n_image_features:
                 raise ValueError(
-                    f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
+                    f"Image features and image tokens do not match: tokens: {n_image_tokens}, "
+                    f"features {n_image_features}"
                 )
 
             mask = input_ids == self.config.image_token_id
@@ -84,7 +85,8 @@ def forward_base_model(
             n_video_features = video_embeds.shape[0]
             if n_video_tokens != n_video_features:
                 raise ValueError(
-                    f"Video features and video tokens do not match: tokens: {n_video_tokens}, features {n_video_features}"
+                    f"Video features and video tokens do not match: tokens: {n_video_tokens}, "
+                    f"features {n_video_features}"
                 )
 
             mask = input_ids == self.config.video_token_id

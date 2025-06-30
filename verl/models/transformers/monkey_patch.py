@@ -159,7 +159,8 @@ def patch_forward_with_backends(
     """
     if not use_fused_kernels or fused_kernels_backend not in ["triton", "torch"]:
         print(
-            f"Skipping monkey patch for {model.__class__.__name__} as use_fused_kernels is {use_fused_kernels} or fused_kernels_backend is {fused_kernels_backend}"
+            f"Skipping monkey patch for {model.__class__.__name__} as use_fused_kernels is "
+            f"{use_fused_kernels} or fused_kernels_backend is {fused_kernels_backend}"
         )
         return
 
@@ -220,7 +221,9 @@ def apply_monkey_patch(
         f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
     )
     assert num_key_value_heads % ulysses_sp_size == 0 or ulysses_sp_size % num_key_value_heads == 0, (
-        f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,kv heads are repeated to ensure correctness."
+        f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size "
+        f"{ulysses_sp_size}or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,"
+        f"kv heads are repeated to ensure correctness."
     )
 
     if is_trl_available():

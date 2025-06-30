@@ -189,7 +189,8 @@ class CustomCompletionCallback(ToolCompletionCallback):
         metadata = await self.sandbox_code_execution(code)
         if metadata["run_status"] != "Finished":
             print(
-                f"[id={completions.id},turn={turn},finish_reason={finish_reason}] Code block execution failed: {metadata}, done!"
+                f"[id={completions.id},turn={turn},finish_reason={finish_reason}] Code block execution failed: "
+                f"{metadata}, done!"
             )
             return
 
@@ -217,9 +218,11 @@ print(...)
 ```
 </code>
 
-The code must explictly print necessary output to stdout. Remember stop generation at </code> immediately and return the code.
+The code must explictly print necessary output to stdout. Remember stop generation at </code> immediately and 
+return the code.
 2. User will send the python code to a external sandbox to execute and get output from stdout.
-3. User will send the output in format <interpreter>output</interpreter> to you, and you should use the output to answer the question.
+3. User will send the output in format <interpreter>output</interpreter> to you, and you should use the 
+output to answer the question.
 The answer format must be: <answer>\\boxed{'The final answer goes here.'}</answer>
 
 *user question:*

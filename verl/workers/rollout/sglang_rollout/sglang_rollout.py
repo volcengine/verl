@@ -293,7 +293,9 @@ class SGLangRollout(BaseRollout):
         # If turn on `free_cache_engine`, SGLang engine's KV cache
         # will be freed after each `generate_sequences` call.
         logger.info(
-            f"tool_schemas: {self._tool_schemas}, tool_map: {self._tool_map}, tool_call_parser_type: {self._tool_call_parser_type}, sgl_tools: {self._sgl_tools}, function_call_parser: {self._function_call_parser}"
+            f"tool_schemas: {self._tool_schemas}, tool_map: {self._tool_map}, tool_call_parser_type: "
+            f"{self._tool_call_parser_type}, sgl_tools: {self._sgl_tools}, function_call_parser: "
+            f"{self._function_call_parser}"
         )
 
         self._init_distributed_env(device_mesh_cpu=device_mesh, **kwargs)
@@ -830,7 +832,8 @@ class SGLangRollout(BaseRollout):
                     raise ValueError(f"Unexpected tool calling last message state: {_req.messages[-1]}")
             elif _req.state == AsyncRolloutRequestStateEnum.RUNNING:
                 # Only continue the conversation if the prompt length is not greater than max_model_len - 1,
-                # since SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra token accounts for the EOS token).
+                # since SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra
+                # token accounts for the EOS token).
                 if len(_req.get_generation_prompt_ids(self.processing_class)) + 1 >= self.config.max_model_len:
                     finish_reason_type = FinishReasonTypeEnum.LENGTH
                     break
@@ -904,7 +907,8 @@ class SGLangRollout(BaseRollout):
                 )  # Default to gsm8k for backward compatibility
                 if interaction_name not in self.interaction_map:
                     raise ValueError(
-                        f"Interaction '{interaction_name}' not found in interaction_map. Available interactions: {list(self.interaction_map.keys())}"
+                        f"Interaction '{interaction_name}' not found in interaction_map. Available interactions: "
+                        f"{list(self.interaction_map.keys())}"
                     )
 
                 interaction = self.interaction_map[interaction_name]
@@ -979,7 +983,8 @@ class SGLangRollout(BaseRollout):
             interaction_name = interaction_kwargs.get("name", "gsm8k")  # Default to gsm8k for backward compatibility
             if interaction_name not in self.interaction_map:
                 raise ValueError(
-                    f"Interaction '{interaction_name}' not found in interaction_map. Available interactions: {list(self.interaction_map.keys())}"
+                    f"Interaction '{interaction_name}' not found in interaction_map. Available interactions: "
+                    f"{list(self.interaction_map.keys())}"
                 )
 
             interaction = self.interaction_map[interaction_name]
@@ -1194,7 +1199,11 @@ class SGLangRollout(BaseRollout):
                     processing_class=self.processing_class,
                 )
 
-                error_message = f"Request {req.request_id} has mismatched lengths: input_ids={len(req.input_ids)}, attention_mask={len(req.attention_mask)}, position_ids={len(req.position_ids)}, loss_mask={len(req.loss_mask)}"
+                error_message = (
+                    f"Request {req.request_id} has mismatched lengths: input_ids={len(req.input_ids)}, "
+                    f"attention_mask={len(req.attention_mask)}, position_ids={len(req.position_ids)}, "
+                    f"loss_mask={len(req.loss_mask)}"
+                )
                 assert len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask), (
                     error_message
                 )

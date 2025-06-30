@@ -159,7 +159,8 @@ def vocab_parallel_log_probs_from_logits(logits, labels):
 
 
 def vocab_parallel_log_probs_from_logits_response_rmpad(input_ids, attention_mask, logits_rmpad, response_length):
-    """Similar to log_probs_from_logits_response_rmpad, but the logits_rmpad is now spliited across tensor parallel region.
+    """Similar to log_probs_from_logits_response_rmpad, but the logits_rmpad is now spliited across tensor parallel
+    region.
     This will further reduce the peak memory usage during training
 
     Args:

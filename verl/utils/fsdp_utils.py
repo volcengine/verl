@@ -75,7 +75,8 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
     if config is None:
         config = {}
 
-    # NOTE: This is a temporary workaround to be compatible with the OmegaConf & dataclass. We will remove this once we have make all config in verl from OmegaConf to data class.
+    # NOTE: This is a temporary workaround to be compatible with the OmegaConf & dataclass. We will remove this
+    # once we have make all config in verl from OmegaConf to data class.
     def _get_attr(attr_name, default_value=None):
         if hasattr(config, "get"):
             return config.get(attr_name, default_value)
@@ -361,7 +362,8 @@ def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, tor
             if (not is_param) and fqn not in shard_states:
                 if state.is_meta:
                     raise RuntimeError(
-                        f"find a non-persistent buffer ({fqn}) initiated with device meta. Such buffer is not saved in checkpoint and user should guarantee to init in CPU / GPU device."
+                        f"find a non-persistent buffer ({fqn}) initiated with device meta. Such buffer is not saved "
+                        f"in checkpoint and user should guarantee to init in CPU / GPU device."
                     )
                 continue
             # for shared parameter, we get it from the first time it is created

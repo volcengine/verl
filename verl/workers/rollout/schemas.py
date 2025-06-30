@@ -167,9 +167,11 @@ class AsyncRolloutRequest(BaseModel):
                 tokenization_dict_with_prompt["attention_mask"],
             )
             if len(values["input_ids"]) > max_prompt_len:
-                # Only log the warning to avoid truncating in the middle of generation prompt. Consider raising an error for this case in the future.
+                # Only log the warning to avoid truncating in the middle of generation prompt. Consider raising an
+                # error for this case in the future.
                 logger.warning(
-                    f"Prompt {values['batch_data_id']} length {len(values['input_ids'])} greater than max_prompt_len {max_prompt_len} after applied chat template with tools."
+                    f"Prompt {values['batch_data_id']} length {len(values['input_ids'])} greater than max_prompt_len "
+                    f"{max_prompt_len} after applied chat template with tools."
                 )
 
         values["prompt_ids"], values["prompt_attention_mask"] = values["input_ids"], values["attention_mask"]
@@ -295,7 +297,8 @@ class AsyncRolloutRequest(BaseModel):
         messages = [*BASE_CHAT_HISTORY, self.messages[-1]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
 
-        # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine Inference, it is pure text.
+        # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine
+        # Inference, it is pure text.
         content_ids = self._handle_apply_chat_template(
             processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True
         )[self.base_conv_wo_gen_prompt_end_pos :]
@@ -312,7 +315,8 @@ class AsyncRolloutRequest(BaseModel):
         messages = [*BASE_CHAT_HISTORY, self.messages[-1]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
 
-        # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine Inference, it is pure text.
+        # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine
+        # Inference, it is pure text.
         content_ids = self._handle_apply_chat_template(
             processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True
         )[self.base_conv_with_gen_prompt_end_pos :]
@@ -437,21 +441,26 @@ class AsyncRolloutRequest(BaseModel):
                 if log_warning:
                     mode_str = f" ({self.tokenization_sanity_check_mode.value})"
                     logger.warning(
-                        f"Inconsistent training and inference tokenization detected{mode_str}. This may lead to unexpected behavior during training. Please review your chat template to determine if this is intentional. For more information, refer to the multiturn README.md."
+                        f"Inconsistent training and inference tokenization detected{mode_str}. This may lead to "
+                        f"unexpected behavior during training. Please review your chat template to determine if this "
+                        f"is intentional. For more information, refer to the multiturn README.md."
                     )
                     logger.warning(
-                        f"Showing {diff_surrounding_chars} characters before and after the diffs for context and better readability."
+                        f"Showing {diff_surrounding_chars} characters before and after the diffs for context and "
+                        f"better readability."
                     )
                     diff_details_list = []
                     for d in diffs:
                         i1, i2, j1, j2 = d["indices"]
                         diff_details_list.append(
-                            f"idx {i1}:{i2} -> {j1}:{j2} | full_prompt_chunk: {repr(d['full_prompt_chunk'])} | current_prompt_chunk: {repr(d['current_prompt_chunk'])}"
+                            f"idx {i1}:{i2} -> {j1}:{j2} | full_prompt_chunk: {repr(d['full_prompt_chunk'])} | "
+                            f"current_prompt_chunk: {repr(d['current_prompt_chunk'])}"
                         )
                     diff_details = "\n".join(diff_details_list)
                     logger.warning(f"Found differences:\n{diff_details}")
 
-        # In case we failed to generate the assistant message and the generation prompt ids were already added to input_ids, remove them from the end of input_ids
+        # In case we failed to generate the assistant message and the generation prompt ids were already added to
+        # input_ids, remove them from the end of input_ids
         if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids:
             self.input_ids = self.input_ids[: -len(self.generation_prompt_ids)]
             self.attention_mask = self.attention_mask[: -len(self.generation_prompt_ids)]

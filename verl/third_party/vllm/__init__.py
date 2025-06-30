@@ -33,7 +33,8 @@ vllm_version = None
 if package_version is None:
     if not is_sglang_available():
         raise ValueError(
-            f"vllm version {package_version} not supported and SGLang also not Found. Currently supported vllm versions are 0.7.0+"
+            f"vllm version {package_version} not supported and SGLang also not Found. Currently supported "
+            f"vllm versions are 0.7.0+"
         )
 elif vs.parse(package_version) >= vs.parse("0.7.0"):
     vllm_version = package_version
@@ -42,11 +43,13 @@ elif vs.parse(package_version) >= vs.parse("0.7.0"):
 else:
     if vs.parse(package_version) in [vs.parse("0.5.4"), vs.parse("0.6.3")]:
         raise ValueError(
-            f"vLLM version {package_version} support has been removed. vLLM 0.5.4 and 0.6.3 are no longer supported. Please use vLLM 0.7.0 or later."
+            f"vLLM version {package_version} support has been removed. vLLM 0.5.4 and 0.6.3 are no longer "
+            f"supported. Please use vLLM 0.7.0 or later."
         )
     if not is_sglang_available():
         raise ValueError(
-            f"vllm version {package_version} not supported and SGLang also not Found. Currently supported vllm versions are 0.7.0+"
+            f"vllm version {package_version} not supported and SGLang also not Found. Currently supported "
+            f"vllm versions are 0.7.0+"
         )
 
 __all__ = ["LLM", "parallel_state"]

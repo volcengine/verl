@@ -206,7 +206,8 @@ class MultiTurnSFTDataset(Dataset):
             a == b for a, b in zip(concat_tokens, full_tokens_list)
         ):
             logging.warning(
-                f"Token mismatch detected! Full tokenization length: {len(full_tokens_list)}, Concatenated tokens length: {len(concat_tokens)}. Using concatenated version."
+                f"Token mismatch detected! Full tokenization length: {len(full_tokens_list)}, Concatenated tokens "
+                f"length: {len(concat_tokens)}. Using concatenated version."
                 # f"full tokens text: {self.tokenizer.decode(full_tokens_list)}"
                 # f"concat tokens text: {self.tokenizer.decode(concat_tokens)}"
             )
@@ -245,7 +246,8 @@ class MultiTurnSFTDataset(Dataset):
             )
         except Exception as e:
             logging.error(
-                f"Error applying chat template: {e}\nMessages: {messages}\nTools: {tools}\nEnable thinking: {enable_thinking}"
+                f"Error applying chat template: {e}\nMessages: {messages}\nTools: {tools}\nEnable thinking: "
+                f"{enable_thinking}"
             )
             raise
 

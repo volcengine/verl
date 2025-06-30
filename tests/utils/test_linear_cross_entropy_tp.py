@@ -437,16 +437,20 @@ class TestLinearCrossEntropy_TensorParallel:
             print("\n[PASS]: Verified kernel forward & backward correctness.")
 
             print(
-                f"[INFO]: Forward pass: Torch implementation average time: {sum(torch_forward_latency) / len(torch_forward_latency):.2f} ms"
+                f"[INFO]: Forward pass: Torch implementation average time: "
+                f"{sum(torch_forward_latency) / len(torch_forward_latency):.2f} ms"
             )
             print(
-                f"[INFO]: Backward pass: torch implementation average time: {sum(torch_backward_latency) / len(torch_backward_latency):.2f} ms"
+                f"[INFO]: Backward pass: torch implementation average time: "
+                f"{sum(torch_backward_latency) / len(torch_backward_latency):.2f} ms"
             )
             print(
-                f"[INFO]: Forward pass: Kernel implementation average time: {sum(kernel_forward_latency) / len(kernel_forward_latency):.2f} ms"
+                f"[INFO]: Forward pass: Kernel implementation average time: "
+                f"{sum(kernel_forward_latency) / len(kernel_forward_latency):.2f} ms"
             )
             print(
-                f"[INFO]: Backward pass: kernel implementation average time: {sum(kernel_backward_latency) / len(kernel_backward_latency):.2f} ms"
+                f"[INFO]: Backward pass: kernel implementation average time: "
+                f"{sum(kernel_backward_latency) / len(kernel_backward_latency):.2f} ms"
             )
 
     def check_kernel_storage(self):
@@ -490,7 +494,8 @@ if __name__ == "__main__":
 
     # Check if running with torchrun (distributed mode)
     assert int(os.environ["WORLD_SIZE"]) > 1, (
-        "[ERROR]: This test is designed to run in distributed mode with torchrun. Please use torchrun to execute this script."
+        "[ERROR]: This test is designed to run in distributed mode with torchrun. Please use torchrun to "
+        "execute this script."
     )
     torch.manual_seed(233376 + int(os.environ.get("RANK", 0)))
 

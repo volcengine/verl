@@ -119,7 +119,8 @@ class AgentLoopOutput(BaseModel):
 
 
 class AgentLoopBase(ABC):
-    """An agent loop takes a input message, chat with OpenAI compatible LLM server and interact with various environments."""
+    """An agent loop takes a input message, chat with OpenAI compatible LLM server and interact with various
+    environments."""
 
     _class_initialized = False
 

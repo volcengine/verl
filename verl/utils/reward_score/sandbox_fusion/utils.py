@@ -130,7 +130,10 @@ def call_sandbox_api(
 
             # Check for Gateway Timeout (504) specifically for retrying
             if response.status_code == 504:
-                last_error = f"{log_prefix}API Request Error: Gateway Timeout (504) on attempt {attempt + 1}/{MAX_RETRIES}"  # <-- Use internal log_prefix
+                last_error = (
+                    f"{log_prefix}API Request Error: Gateway Timeout (504) on attempt "
+                    f"{attempt + 1}/{MAX_RETRIES}"
+                )  # <-- Use internal log_prefix
                 logger.warning(last_error)
                 if attempt < MAX_RETRIES - 1:  # Don't sleep after the last attempt
                     # Calculate increasing delay (e.g., 1s, 2s, 4s, ...) or (1s, 2s, 3s, ...)
@@ -240,7 +243,8 @@ def _execute_user_function():
         try:
             _args = [json.loads(line) for line in _raw_input_str.split('\\n')]
         except json.JSONDecodeError as _je:
-            sys.stderr.write(f"WrapperError: Invalid JSON input for '{{_SANDBOX_FN_NAME}}': {{_je}}\\nInput was: {{_raw_input_str[:200]}}\\n")
+            sys.stderr.write(f"WrapperError: Invalid JSON input for '{{_SANDBOX_FN_NAME}}': {{_je}}\\nInput was: "
+                              f"{{_raw_input_str[:200]}}\\n")
             return None, True # result, error_occurred
 
     # --- Function Location and Execution ---

@@ -76,7 +76,8 @@ class FlopsCounter:
     def __init__(self, config: PretrainedConfig):
         if config.model_type not in VALID_CONFIG_TYPE:
             print(
-                f"Only support config type of {VALID_CONFIG_TYPE}, but got {config.model_type}. MFU will always be zero."
+                f"Only support config type of {VALID_CONFIG_TYPE}, but got {config.model_type}. MFU will always be "
+                f"zero."
             )
 
         self.estimate_func = {
@@ -225,7 +226,8 @@ class FlopsCounter:
         Estimate the FLOPS based on the number of valid tokens in the current batch and the time taken.
 
         Args:
-            batch_seqlens (List[int]): A list where each element represents the number of valid tokens in the current batch.
+            batch_seqlens (List[int]): A list where each element represents the number of valid tokens in the
+                current batch.
             delta_time (float): The time taken to process the batch, in seconds.
 
         Returns:

@@ -59,7 +59,8 @@ def test_auto_padding():
         assert len(chunked) == chunk_size, f"during test_size = {test_size}, expecting {chunk_size}, got {chunked}"
         for dp in chunked:
             assert len(dp) == test_size // chunk_size + bool(test_size % chunk_size), (
-                f"test size = {test_size}, expecting dp to be length of {test_size // chunk_size + bool(test_size % chunk_size)}, but got {len(dp)}: {dp} {chunked}"
+                f"test size = {test_size}, expecting dp to be length of "
+                f"{test_size // chunk_size + bool(test_size % chunk_size)}, but got {len(dp)}: {dp} {chunked}"
             )
 
     # test with RayWorkerGroup method decorated as dispatch_mode=Dispatch.DP_COMPUTE_PROTO

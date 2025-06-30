@@ -88,7 +88,8 @@ class CompletionCallback(ABC):
             n: How many chat completion choices to generate for each input message.
 
         Returns:
-            Batch data, should include ["prompts", "responses", "response_mask", "input_ids", "attention_mask", "position_ids"].
+            Batch data, should include ["prompts", "responses", "response_mask", "input_ids", "attention_mask",
+            "position_ids"].
         """
         raise NotImplementedError
 
@@ -125,7 +126,8 @@ class ToolCompletionCallback(CompletionCallback):
         tool_responses = await asyncio.gather(*tasks)
         if any(isinstance(item, Exception) for item in tool_responses):
             print(
-                f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] Error when calling tools, done!"
+                f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] Error when calling tools, "
+                f"done!"
             )
             return
         messages.extend(tool_responses)

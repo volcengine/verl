@@ -238,7 +238,8 @@ class TestRolloutWithSearchTools:
                     properties={
                         "query_list": OpenAIFunctionPropertySchema(
                             type="array",
-                            description="A list of fully-formed semantic queries. The tool will return search results for each query.",
+                            description="A list of fully-formed semantic queries. The tool will return search "
+                            "results for each query.",
                             items={"type": "string"},
                         )
                     },

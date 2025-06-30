@@ -249,7 +249,8 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
 
             if debug:
                 print(
-                    f"time: {datetime.now().time()} testing index = {index}  inputs = {inputs}, {type(inputs)}. type = {which_type}"
+                    f"time: {datetime.now().time()} testing index = {index}  inputs = {inputs}, {type(inputs)}. "
+                    f"type = {which_type}"
                 )
             if which_type == CODE_TYPE.call_based:  # Call-based
                 signal.alarm(timeout)
@@ -301,7 +302,8 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                 signal.alarm(0)
                 if debug:
                     print(
-                        f"outputs = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs}, {type(inputs)}, {output == [in_outs['outputs'][index]]}"
+                        f"outputs = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs}, "
+                        f"{type(inputs)}, {output == [in_outs['outputs'][index]]}"
                     )
             elif which_type == CODE_TYPE.standard_input:  # Standard input
                 faulthandler.enable()
@@ -338,11 +340,14 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                         nl = "\n"
                         if not isinstance(inputs, list):
                             print(
-                                f"not passed output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs.replace(nl, ' new-line ')}, {type(inputs)}, {output == [in_outs['outputs'][index]]}"
+                                f"not passed output = {output}, test outputs = {in_outs['outputs'][index]}, "
+                                f"inputs = {inputs.replace(nl, ' new-line ')}, {type(inputs)}, "
+                                f"{output == [in_outs['outputs'][index]]}"
                             )
                         else:
                             print(
-                                f"not passed output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs}, {type(inputs)}, {output == [in_outs['outputs'][index]]}"
+                                f"not passed output = {output}, test outputs = {in_outs['outputs'][index]}, "
+                                f"inputs = {inputs}, {type(inputs)}, {output == [in_outs['outputs'][index]]}"
                             )
                     continue
 
@@ -407,11 +412,14 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                     nl = "\n"
                     if not isinstance(inputs, list):
                         print(
-                            f"@1 output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs.replace(nl, ' new-line ')}, {type(inputs)}, {output == [in_outs['outputs'][index]]} {tmp_result=}"
+                            f"@1 output = {output}, test outputs = {in_outs['outputs'][index]}, "
+                            f"inputs = {inputs.replace(nl, ' new-line ')}, {type(inputs)}, "
+                            f"{output == [in_outs['outputs'][index]]} {tmp_result=}"
                         )
                     else:
                         print(
-                            f"@1 output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs}, {type(inputs)}, {output == [in_outs['outputs'][index]]} {tmp_result=}"
+                            f"@1 output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs}, "
+                            f"{type(inputs)}, {output == [in_outs['outputs'][index]]} {tmp_result=}"
                         )
 
                 if debug:
@@ -530,11 +538,14 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                     nl = "\n"
                     if not isinstance(inputs, list):
                         print(
-                            f"@2 output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs.replace(nl, ' new-line ')}, {type(inputs)}, {output == [in_outs['outputs'][index]]}"
+                            f"@2 output = {output}, test outputs = {in_outs['outputs'][index]}, "
+                            f"inputs = {inputs.replace(nl, ' new-line ')}, {type(inputs)}, "
+                            f"{output == [in_outs['outputs'][index]]}"
                         )
                     else:
                         print(
-                            f"@2 output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs}, {type(inputs)}, {output == [in_outs['outputs'][index]]}"
+                            f"@2 output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs}, "
+                            f"{type(inputs)}, {output == [in_outs['outputs'][index]]}"
                         )
 
                     print(f"results = {results}")

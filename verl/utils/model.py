@@ -384,7 +384,8 @@ def _get_parallel_model_architecture_from_config(config: PretrainedConfig, value
         if model_cls is not None:
             return model_cls
     raise ValueError(
-        f"Model architectures {architectures} are not supported for now. Supported architectures: {ModelRegistry.get_supported_archs()}"
+        f"Model architectures {architectures} are not supported for now. Supported architectures: "
+        f"{ModelRegistry.get_supported_archs()}"
     )
 
 

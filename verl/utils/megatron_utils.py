@@ -234,7 +234,8 @@ def mcore_model_parallel_config(
     # WARNING: Code should not reach this point. This function is deprecated and will be removed.
     # Please use hf_to_mcore_config_dense() from verl.models.mcore.config_converter instead.
     warnings.warn(
-        "Code should not reach this point. This function is deprecated and will be removed. Please use hf_to_mcore_config_dense() from verl.models.mcore.config_converter instead.",
+        "Code should not reach this point. This function is deprecated and will be removed. Please use "
+        "hf_to_mcore_config_dense() from verl.models.mcore.config_converter instead.",
         DeprecationWarning,
         stacklevel=2,
     )
@@ -765,8 +766,8 @@ def per_tensor_generator(
                 yield name, param
             # note
             # there is a bug in megatron GPTModel
-            # decoder.layers[n].mlp.router.expert_bias" in GPTModel is not registered in named_parameter, but in state_dict().
-            # for now we patch it by adding those keys to extra_keys.
+            # decoder.layers[n].mlp.router.expert_bias" in GPTModel is not registered in named_parameter, but in
+            # state_dict(). for now we patch it by adding those keys to extra_keys.
             extra_keys = [x for x in model.state_dict().keys() if "_extra_state" not in x and x not in existing_keys]
             for name in extra_keys:
                 yield name, model.state_dict()[name].to(get_device_id())

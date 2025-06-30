@@ -188,7 +188,8 @@ class DataParallelPRIMERewardModel:
 
         # reward computation does not need gradient. only q needs
         with torch.no_grad():
-            # generalized estimation of r should go before the reward filling. r means process reward for policy model, or the advantage of reward model.
+            # generalized estimation of r should go before the reward filling. r means process reward for policy
+            # model, or the advantage of reward model.
             lam = self.config.get("lambda", 0.0)
             beta = self.config.model.get("beta_train", 0.05)
             if lam == 0.0:
@@ -199,7 +200,8 @@ class DataParallelPRIMERewardModel:
                 q_ = q * beta
                 r = torch.zeros_like(q)
                 lastgaelam = 0
-                # change the last token and mask out all paddings to make this process easier if we rely on outcome reward to calculate V
+                # change the last token and mask out all paddings to make this process easier if we rely on
+                # outcome reward to calculate V
                 for i in range(q.shape[0]):
                     if self.config.prime_use_gt:
                         q_[i, max_positions[i] - 1] = acc[i] - q_[i, : max_positions[i] - 1].sum()
@@ -335,7 +337,8 @@ class DataParallelPRIMERewardModel:
                 if self.config.model.loss_type == "ce":
                     dpo_loss = compute_ce_dpo_loss_rm(q, acc, response_mask=response_mask, beta=beta)
                 elif self.config.model.loss_type == "dpo":
-                    # the implementation of dpo is actually detached, which means we have to know the average value of w/l reward before the update.
+                    # the implementation of dpo is actually detached, which means we have to know the average
+                    # value of w/l reward before the update.
                     dpo_loss = compute_detach_dpo_loss_rm(
                         q, acc, Q_bc=data["Q_bc"], acc_bc=data["acc_bc"], response_mask=response_mask, beta=beta
                     )

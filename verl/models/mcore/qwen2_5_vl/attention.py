@@ -21,7 +21,8 @@ from .rope_utils import apply_rotary_pos_emb_absolute
 
 class Qwen2_5VLSelfAttention(SelfAttention):
     """
-    Overrides the SelfAttention class, the difference is that qwen2_5_vl uses apply_rotary_pos_emb_absolute instead of apply_rotary_pos_emb
+    Overrides the SelfAttention class, the difference is that qwen2_5_vl uses apply_rotary_pos_emb_absolute
+    instead of apply_rotary_pos_emb
     """
 
     def forward(

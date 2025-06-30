@@ -86,18 +86,22 @@ class MegatronPPOActor(BasePPOActor):
                 ``model_config.hidden_size``
             hf_config (PretrainedConfig): huggingface config
             tf_config (TransformerConfig): mcore transformer config
-            actor_module (nn.ModuleList): actor module is a ModuleList that contains a list of nn.Module in this pp stage.
-                each nn.Module in this rank holds a vpp module chunk. See https://arxiv.org/pdf/2104.04473.pdf for more details.
+            actor_module (nn.ModuleList): actor module is a ModuleList that contains a list of nn.Module in this
+                pp stage.
+                each nn.Module in this rank holds a vpp module chunk. See https://arxiv.org/pdf/2104.04473.pdf for
+                more details.
                 The actor module has some constraints to follow in order to use the updating logics implemented here
 
-                1. It must implement unpad_input before any computation and pad_input after all the computation. Remove padding is an
+                1. It must implement unpad_input before any computation and pad_input after all the computation.
+                Remove padding is an
                 optimization that removes the padding tokens. See unpad_input and pad_input function in flash-attn
                 (https://github.com/Dao-AILab/flash-attention/blob/main/flash_attn/bert_padding.py).
 
                 2. Each pp stage must return the hidden state with the same shape [total_nnz, 1, hidden_size],
                 where total_nnz is the number of valid tokens in this batch. If sequence parallel is enabled, the size
                 of the hidden state is [total_nnz // tp, 1, hidden_size].
-            actor_optimizer (DistributedOptimizer): currently, we only support DistributedOptimizer in Megatron. It implements
+            actor_optimizer (DistributedOptimizer): currently, we only support DistributedOptimizer in Megatron.
+                It implements
                 zero1 optimizer that shards the optimizer state across dp ranks.
 
         >>> from megatron.training import get_model
@@ -184,7 +188,8 @@ class MegatronPPOActor(BasePPOActor):
             return {"log_probs": log_probs}
 
         # We make recompute_old_log_prob by default here.
-        # TODO (zhangchi.usc1992): actually, this function should only return log_prob and this logic should be handled by user outside
+        # TODO (zhangchi.usc1992): actually, this function should only return log_prob and this logic should be
+        # handled by user outside
         recompute_old_log_prob = self.config.get("recompute_old_log_prob", True)
 
         entropys = torch.Tensor()
@@ -264,17 +269,21 @@ class MegatronPPOActor(BasePPOActor):
         Args:
             data (DataProto): a DataProto containing keys
 
-                ``input_ids``: tensor of shape [batch_size, sequence_length]. torch.int64, where ``sequence_length = prompt_length + response_length``
+                ``input_ids``: tensor of shape [batch_size, sequence_length]. torch.int64, where
+                ``sequence_length = prompt_length + response_length``
 
                 ``attention_mask``: tensor of shape [batch_size, sequence_length]. torch.int64
 
                 ``position_ids``: tensor of shape [batch_size, sequence_length]. torch.int64
 
-                ``responses``: tensor of shape [batch_size, response_length]. torch.int64. Note that responses = input_ids[:, -response_length:]
+                ``responses``: tensor of shape [batch_size, response_length]. torch.int64. Note that
+                responses = input_ids[:, -response_length:]
 
-                ``old_log_probs``: tensor of shape [batch_size, response_length]. torch.float32. The log probability of responses.
+                ``old_log_probs``: tensor of shape [batch_size, response_length]. torch.float32. The log probability
+                of responses.
 
-                ``advantages``: tensor of shape [batch_size, response_length]. torch.float32. The advantages of responses.
+                ``advantages``: tensor of shape [batch_size, response_length]. torch.float32. The advantages of
+                responses.
                 See PPO paper for details. https://arxiv.org/abs/1707.06347
 
         Returns:
@@ -345,7 +354,8 @@ class MegatronPPOActor(BasePPOActor):
                     max_token_len=max_token_len,
                 )
                 assert len(micro_batches) % self.tf_config.microbatch_group_size_per_vp_stage == 0, (
-                    f"micro_batches {micro_batches} must be divisible by microbatch_group_size_per_vp_stage {microbatch_group_size_per_vp_stage} for megatron backend"
+                    f"micro_batches {micro_batches} must be divisible by microbatch_group_size_per_vp_stage "
+                    f"{microbatch_group_size_per_vp_stage} for megatron backend"
                 )
             else:
                 micro_batches, indices = rearrange_micro_batches(batch=mini_batch.batch, max_token_len=max_token_len)

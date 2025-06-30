@@ -47,28 +47,45 @@ def get_sandbox_fusion_messages():
         "role": "user",
         "content": """
             Solve the following problem step by step. You now have the ability to selectively 
-            write executable Python code to enhance your reasoning process. \n\n**user question:**\nThere 
-            are 152 students at Dala High School. Assume the following: \n- 100 students take a Math class \n- 94 
-            students take a Science class \n- 57 students take an English class \n- 73 students take a Math class 
-            and a Science class \n- 24 students take a Math class and an English class \n- 27 students take a Science 
-            class and an English class \n- 22 students take a Math class and a Science class and an English class\n \nHow 
-            many students take neither a Math class nor a Science class nor an Eglish class?\n\nRemember to place the final 
-            answer in the last part using the format: \n<answer>\n\boxed{'The final answer goes here.'}\n</answer>
+            write executable Python code to enhance your reasoning process. \n\n**user question:**\n
+            There 
+            are 152 students at Dala High School. Assume the following: \n- 100 students take a Math class \n
+            - 94 
+            students take a Science class \n- 57 students take an English class \n- 73 students take a 
+            Math class 
+            and a Science class \n- 24 students take a Math class and an English class \n- 27 students take 
+            a Science 
+            class and an English class \n- 22 students take a Math class and a Science class and an English 
+            class\n \nHow 
+            many students take neither a Math class nor a Science class nor an Eglish class?\n\nRemember to 
+            place the final 
+            answer in the last part using the format: \n<answer>\n\boxed{'The final answer goes here.'}
+            \n</answer>
         """,
     }
     expect_turn_0_msg = {
         "role": "assistant",
         "content": """
-            Okay, so I need to find out how many students at Dala High School are not taking any of the three classes: Math, 
-            Science, or English. The total number of students is 152. Let me see... I remember this is a problem about sets 
-            and maybe using the principle of inclusion-exclusion. Let me recall how that works.\n\nFirst, the inclusion-exclusion 
-            principle for three sets says that the total number of students taking at least one of the classes is equal to the 
-            sum of the numbers in each individual class, minus the sum of the numbers in each pair of classes, plus the number in 
-            all three classes. Then, subtract that total from the overall number of students to get those not taking any of the 
-            three. \n\nLet me write that down step by step. Let M be the set of students taking Math, S for Science, and E for English. 
-            Then:\n\nTotal in at least one class = |M ∪ S ∪ E| = |M| + |S| + |E| - |M ∩ S| - |M ∩ E| - |S ∩ E| + |M ∩ S ∩ E|\n\nGiven the 
-            numbers:\n\n|M| = 100\n\n|S| = 94\n\n|E| = 57\n\n|M ∩ S| = 73\n\n|M ∩ E| = 24\n\n|S ∩ E| = 27\n\n|M ∩ S ∩ E| = 22\n\nSo plugging 
-            these into the formula:\n\nTotal = 100 + 94 + 57 - 73 - 24 - 27 + 22\n\nLet me compute that step by step using code to ensure 
+            Okay, so I need to find out how many students at Dala High School are not taking any of the three 
+            classes: Math, 
+            Science, or English. The total number of students is 152. Let me see... I remember this is a problem 
+            about sets 
+            and maybe using the principle of inclusion-exclusion. Let me recall how that works.\n\nFirst, the 
+            inclusion-exclusion 
+            principle for three sets says that the total number of students taking at least one of the classes is 
+            equal to the 
+            sum of the numbers in each individual class, minus the sum of the numbers in each pair of classes, plus 
+            the number in 
+            all three classes. Then, subtract that total from the overall number of students to get those not taking 
+            any of the 
+            three. \n\nLet me write that down step by step. Let M be the set of students taking Math, S for Science, 
+            and E for English. 
+            Then:\n\nTotal in at least one class = |M ∪ S ∪ E| = |M| + |S| + |E| - |M ∩ S| - |M ∩ E| - |S ∩ E| + 
+            |M ∩ S ∩ E|\n\nGiven the 
+            numbers:\n\n|M| = 100\n\n|S| = 94\n\n|E| = 57\n\n|M ∩ S| = 73\n\n|M ∩ E| = 24\n\n|S ∩ E| = 27\n\n
+            |M ∩ S ∩ E| = 22\n\nSo plugging 
+            these into the formula:\n\nTotal = 100 + 94 + 57 - 73 - 24 - 27 + 22\n\nLet me compute that step by step 
+            using code to ensure 
             accuracy.\n
         """,
         "tool_calls": [
@@ -77,8 +94,9 @@ def get_sandbox_fusion_messages():
                 "function": {
                     "name": "code_interpreter",
                     "arguments": {
-                        "code": """M = 100\\nS = 94\\nE = 57\\nM_S = 73\\nM_E = 24\\nS_E = 27\\nM_S_E = 
-                        22\\n\\ntotal_in_any = M + S + E - M_S - M_E - S_E + M_S_E\\nstudents_neither = 152 - total_in_any\\nprint(students_neither)""",
+                        "code": """M = 100\\nS = 94\\nE = 57\\nM_S = 73\\nM_E = 24\\nS_E = 27\\nM_S_E = 22\\n\\n"""
+                        """total_in_any = M + S + E - M_S - M_E - S_E + M_S_E\\nstudents_neither = 152 - """
+                        """total_in_any\\nprint(students_neither)""",
                     },
                 },
             }
@@ -104,9 +122,10 @@ def get_sandbox_fusion_messages():
                 "function": {
                     "name": "code_interpreter",
                     "arguments": {
-                        "code": """only_M_S = 73 - 22\\nonly_M_E = 24 - 22\\nonly_S_E = 27 - 22\\n\\nonly_M = 100 - only_M_S -
-                        only_M_E - 22\\nonly_S = 94 - only_M_S - only_S_E - 22\\nonly_E = 57 - only_M_E - only_S_E - 22\\n\\ntotal_verify
-                        = only_M + only_S + only_E + only_M_S + only_M_E + only_S_E + 22\\nprint(total_verify)""",
+                        "code": """only_M_S = 73 - 22\\nonly_M_E = 24 - 22\\nonly_S_E = 27 - 22\\n\\n"""
+                        """only_M = 100 - only_M_S - only_M_E - 22\\nonly_S = 94 - only_M_S - only_S_E - 22\\n"""
+                        """only_E = 57 - only_M_E - only_S_E - 22\\n\\ntotal_verify = only_M + only_S + only_E + """
+                        """only_M_S + only_M_E + only_S_E + 22\\nprint(total_verify)""",
                     },
                 },
             }

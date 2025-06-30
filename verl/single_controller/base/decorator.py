@@ -272,7 +272,8 @@ def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
             local_pp_rank = worker_group.get_megatron_rank_info(rank=i).pp_rank
             local_cp_rank = worker_group.get_megatron_rank_info(rank=i).cp_rank
             # compute the rank in arg. Note that the order is dp then cp then pp
-            # Also note that the outputs within a pp group will be firstly allgathered, then only the output of pp0 will be collected.
+            # Also note that the outputs within a pp group will be firstly allgathered, then only the
+            # output of pp0 will be collected.
             # For pp=2 dp=4, a batch of data "ABCDEFGH" should be dispatched and collected in below order:
             #    dispatch:       pp_allgther:        collect:
             #   dp 0 1 2 3      dp  0  1  2  3

@@ -23,7 +23,8 @@ from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2RMSNorm
 
 
-# This patch takes effect when using apply_rotary_pos_emb_flashatt on qwen2_5_vl and will be removed in subsequent versions
+# This patch takes effect when using apply_rotary_pos_emb_flashatt on qwen2_5_vl and will be removed in
+# subsequent versions
 # https://github.com/huggingface/transformers/pull/38491
 def apply_rotary_pos_emb_flashatt_npu(
     q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor

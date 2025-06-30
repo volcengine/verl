@@ -14,7 +14,8 @@
 # limitations under the License.
 
 """
-This script override a model with custom config and random weights, mainly for create small models for debugging purposes.
+This script override a model with custom config and random weights, mainly for create small models for 
+debugging purposes.
 
 Usage:
     python scripts/init_random_model.py \

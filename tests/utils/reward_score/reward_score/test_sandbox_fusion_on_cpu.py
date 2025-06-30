@@ -125,7 +125,8 @@ def test_integration_runtime_timeout():
 
 @pytest.mark.skipif(skip_condition, reason=skip_reason)
 def test_integration_concurrency_high_load():
-    """Integration test: High concurrency (100 cases) against real API with mixed results (success, wrong answer, timeout)"""
+    """Integration test: High concurrency (100 cases) against real API with mixed results (success, wrong
+    answer, timeout)"""
     concurrency_level = 100
     # Indices for different expected outcomes
     wrong_answer_indices = {10, 25, 50}
@@ -182,7 +183,8 @@ else:
     end_time = time.time()
     duration = end_time - start_time
     print(
-        f"\nHigh concurrency test ({concurrency_level} cases with {len(wrong_answer_indices)} wrong answers, {len(timeout_indices)} timeouts) duration: {duration:.2f} seconds"
+        f"\nHigh concurrency test ({concurrency_level} cases with {len(wrong_answer_indices)} wrong answers, "
+        f"{len(timeout_indices)} timeouts) duration: {duration:.2f} seconds"
     )
 
     # Verify results against the expected map
@@ -205,7 +207,8 @@ else:
             unexpected_results.append((i, r, f"Expected {expected}"))
 
     print(
-        f"Correct results (True): {correct_count}/{concurrency_level - len(wrong_answer_indices) - len(timeout_indices)}"
+        f"Correct results (True): {correct_count}/"
+        f"{concurrency_level - len(wrong_answer_indices) - len(timeout_indices)}"
     )
     print(f"Expected wrong answers (False, correctly identified): {wrong_count}/{len(wrong_answer_indices)}")
     print(f"Expected timeouts (-3, correctly identified): {timeout_count}/{len(timeout_indices)}")
@@ -336,7 +339,8 @@ def test_unit_api_timeout_error_concurrent(mock_call_sandbox_api):
 MAX_GLOBAL_CONCURRENCY_LIMIT_TEST = 5
 # Define the number of processes used in the test
 NUM_PROCESSES_TEST = 4
-# Define the number of tasks processed by check_correctness in each process (i.e., internal ThreadPoolExecutor's concurrency potential)
+# Define the number of tasks processed by check_correctness in each process (i.e., internal
+# ThreadPoolExecutor's concurrency potential)
 NUM_TASKS_PER_PROCESS_TEST = 3
 # Simulate API call duration to ensure calls can overlap
 SIMULATED_API_CALL_DURATION_TEST = 0.2  # seconds
@@ -363,7 +367,8 @@ def _mock_api_call_for_concurrency_tracking(
         if active_calls_counter.value > max_calls_tracker.value:
             max_calls_tracker.value = active_calls_counter.value
         # Optional debug log:
-        # print(f"[PID:{os.getpid()}-TID:{threading.get_ident()}] API Call Start. Active: {active_calls_counter.value}, Max Observed: {max_calls_tracker.value}, Input: {stdin}")
+        # print(f"[PID:{os.getpid()}-TID:{threading.get_ident()}] API Call Start. Active: "
+        #       f"{active_calls_counter.value}, Max Observed: {max_calls_tracker.value}, Input: {stdin}")
 
     time.sleep(SIMULATED_API_CALL_DURATION_TEST)  # Simulate actual work duration
 
@@ -371,7 +376,8 @@ def _mock_api_call_for_concurrency_tracking(
     with call_lock:
         active_calls_counter.value -= 1
         # Optional debug log:
-        # print(f"[PID:{os.getpid()}-TID:{threading.get_ident()}] API Call End. Active: {active_calls_counter.value}, Input: {stdin}, Duration: {exit_time - entry_time:.2f}s")
+        # print(f"[PID:{os.getpid()}-TID:{threading.get_ident()}] API Call End. Active: "
+        #       f"{active_calls_counter.value}, Input: {stdin}, Duration: {exit_time - entry_time:.2f}s")
 
     # Return a simulated successful API response
     return {
@@ -418,7 +424,8 @@ def _process_pool_worker_for_concurrency_test(
     import verl.utils.reward_score.sandbox_fusion.utils
 
     print(
-        f"[Worker PID:{os.getpid()}] Original call_sandbox_api: {verl.utils.reward_score.sandbox_fusion.utils.call_sandbox_api}",
+        f"[Worker PID:{os.getpid()}] Original call_sandbox_api: "
+        f"{verl.utils.reward_score.sandbox_fusion.utils.call_sandbox_api}",
         flush=True,
     )
     # ---- END DEBUG PRINTS ----
@@ -428,7 +435,8 @@ def _process_pool_worker_for_concurrency_test(
     ) as mock_obj:
         # ---- START DEBUG PRINTS ----
         print(
-            f"[Worker PID:{os.getpid()}] Patched call_sandbox_api: {verl.utils.reward_score.sandbox_fusion.utils.call_sandbox_api}",
+            f"[Worker PID:{os.getpid()}] Patched call_sandbox_api: "
+            f"{verl.utils.reward_score.sandbox_fusion.utils.call_sandbox_api}",
             flush=True,
         )
         print(f"[Worker PID:{os.getpid()}] Mock object: {mock_obj}", flush=True)
@@ -524,7 +532,8 @@ def test_multiprocess_global_concurrency_limit_with_semaphore():
 
     # Core assertion: Observed maximum concurrent calls should not exceed the semaphore's limit
     assert max_calls_tracker.value <= MAX_GLOBAL_CONCURRENCY_LIMIT_TEST, (
-        f"Observed concurrency ({max_calls_tracker.value}) exceeded semaphore limit ({MAX_GLOBAL_CONCURRENCY_LIMIT_TEST})."
+        f"Observed concurrency ({max_calls_tracker.value}) exceeded semaphore limit "
+        f"({MAX_GLOBAL_CONCURRENCY_LIMIT_TEST})."
     )
 
     # Optional: Rough check on execution time to verify semaphore is working to limit concurrency
@@ -536,7 +545,9 @@ def test_multiprocess_global_concurrency_limit_with_semaphore():
     # print(f"Minimum Expected Execution Time (approx): {min_expected_duration:.2f}s")
     # Allow some margin, e.g., 80% of theoretical minimum time
     assert total_execution_time >= min_expected_duration * 0.8, (
-        f"Total execution time ({total_execution_time:.2f}s) was unexpectedly short, suggesting the semaphore might not be effectively limiting concurrency as expected (min expected: {min_expected_duration * 0.8:.2f}s)."
+        f"Total execution time ({total_execution_time:.2f}s) was unexpectedly short, suggesting the "
+        f"semaphore might not be effectively limiting concurrency as expected "
+        f"(min expected: {min_expected_duration * 0.8:.2f}s)."
     )
 
 
@@ -648,7 +659,8 @@ class Solution:
     # Use a short timeout for fast tests
     results, metadata_list = check_correctness(SANDBOX_URL, in_outs, generation_code, timeout=5)
     # from verl.utils.reward_score.prime_code import apps_check_correctness
-    # results, metadata_list = apps_check_correctness(in_outs=in_outs, generation=generation_code, timeout=50000, debug=True)
+    # results, metadata_list = apps_check_correctness(in_outs=in_outs, generation=generation_code,
+    #                                                        timeout=50000, debug=True)
 
     assert results == [True, True]
     assert "error" not in metadata_list[0]

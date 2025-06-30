@@ -197,7 +197,8 @@ def test_vllm_async_rollout_with_tool_calls(init_config):
         [
             {
                 "role": "system",
-                "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.\n\nCurrent Date: 2024-09-30",
+                "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.\n\n"
+                "Current Date: 2024-09-30",
             },
             {"role": "user", "content": "What's the temperature in San Francisco now? How about tomorrow?"},
         ],

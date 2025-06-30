@@ -94,7 +94,8 @@ class ResourcePoolManager:
         for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
             # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
             # For FSDP backend, we recommend using max_colocate_count=1 that merge all WorkerGroups into one.
-            # For Megatron backend, we recommend using max_colocate_count>1 that can utilize different WorkerGroup for different models
+            # For Megatron backend, we recommend using max_colocate_count>1 that can utilize different
+            # WorkerGroup for different models
             resource_pool = RayResourcePool(
                 process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=1, name_prefix=resource_pool_name
             )
@@ -136,7 +137,8 @@ class ResourcePoolManager:
                         break
             if num_nodes > 0:
                 raise ValueError(
-                    f"Resource pool {resource_pool_name}: {num_gpus}*{num_nodes} cannot be satisfied in this ray cluster"
+                    f"Resource pool {resource_pool_name}: {num_gpus}*{num_nodes} cannot be satisfied in this "
+                    f"ray cluster"
                 )
 
 
@@ -446,7 +448,9 @@ class RaySPINTrainer:
 
                 if mbs is not None and mbs_per_gpu is not None:
                     raise ValueError(
-                        f"[{name}] You have set both '{name}.{param}' AND '{name}.{param_per_gpu}'. Please remove '{name}.{param}' because only '*_{param_per_gpu}' is supported (the former is deprecated)."
+                        f"[{name}] You have set both '{name}.{param}' AND '{name}.{param_per_gpu}'. "
+                        f"Please remove '{name}.{param}' because only '*_{param_per_gpu}' is supported "
+                        f"(the former is deprecated)."
                     )
 
         if not config.actor_rollout_ref.actor.use_dynamic_bsz:
@@ -535,7 +539,8 @@ class RaySPINTrainer:
 
         if config.data.get("val_batch_size", None) is not None:
             print(
-                "WARNING: val_batch_size is deprecated. Validation datasets are sent to inference engines as a whole batch, which will schedule the memory themselves."
+                "WARNING: val_batch_size is deprecated. Validation datasets are sent to inference engines "
+                "as a whole batch, which will schedule the memory themselves."
             )
 
         # check eval config
@@ -596,7 +601,8 @@ class RaySPINTrainer:
         assert len(self.val_dataloader) >= 1, "Validation dataloader is empty!"
 
         print(
-            f"Size of train dataloader: {len(self.train_dataloader)}, Size of val dataloader: {len(self.val_dataloader)}"
+            f"Size of train dataloader: {len(self.train_dataloader)}, "
+            f"Size of val dataloader: {len(self.val_dataloader)}"
         )
 
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
@@ -804,8 +810,10 @@ class RaySPINTrainer:
             self.resource_pool_to_cls[resource_pool]["rm"] = rm_cls
 
         # initialize WorkerGroup
-        # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
-        # you should not use `create_colocated_worker_cls`. Instead, directly pass different resource pool to different worker groups.
+        # NOTE: if you want to use a different resource pool for each role, which can support different
+        # parallel size,
+        # you should not use `create_colocated_worker_cls`. Instead, directly pass different resource pool to
+        # different worker groups.
         # See https://github.com/volcengine/verl/blob/master/examples/ray/tutorial.ipynb for more information.
         all_wg = {}
         self.wg_dicts = []
@@ -860,7 +868,8 @@ class RaySPINTrainer:
         remove_previous_ckpt_in_save = self.config.trainer.get("remove_previous_ckpt_in_save", False)
         if remove_previous_ckpt_in_save:
             print(
-                "Warning: remove_previous_ckpt_in_save is deprecated, set max_actor_ckpt_to_keep=1 and max_critic_ckpt_to_keep=1 instead"
+                "Warning: remove_previous_ckpt_in_save is deprecated, set max_actor_ckpt_to_keep=1 and "
+                "max_critic_ckpt_to_keep=1 instead"
             )
         max_actor_ckpt_to_keep = (
             self.config.trainer.get("max_actor_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
@@ -999,17 +1008,20 @@ class RaySPINTrainer:
         loaded_step = self._load_checkpoint()
         self.global_steps = loaded_step + 1 if loaded_step is not None and loaded_step > 0 else 1
         print(
-            f"Starting Online DPO training from global step {self.global_steps}. Total steps: {self.total_training_steps}"
+            f"Starting Online DPO training from global step {self.global_steps}. "
+            f"Total steps: {self.total_training_steps}"
         )
         print(f"Reference model update frequency: {self.config.trainer.get('ref_update_freq', 'Not Set')}")
 
         # Check if reference policy is configured correctly for this mode
         if not self.use_reference_policy:
             print(
-                "WARNING: 'use_reference_policy' is False. Periodic reference model update requires a reference policy worker. DPO updates might fail or use incorrect logic."
+                "WARNING: 'use_reference_policy' is False. Periodic reference model update requires a "
+                "reference policy worker. DPO updates might fail or use incorrect logic."
             )
             # Consider raising an error if strict adherence is required:
-            # raise ValueError("Periodic reference model update requires 'use_reference_policy' to be True and a configured reference worker.")
+            # raise ValueError("Periodic reference model update requires 'use_reference_policy' to be True "
+            #                  "and a configured reference worker.")
 
         # Perform validation before training
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
@@ -1062,7 +1074,8 @@ class RaySPINTrainer:
                         batch: DataProto = DataProto.from_single_dict(batch_dict)
                         current_batch_size = batch.batch.batch_size[0]
                         print(
-                            f"\n[Step {self.global_steps}, Batch {batch_idx}] Processing batch size: {current_batch_size}"
+                            f"\n[Step {self.global_steps}, Batch {batch_idx}] Processing batch size: "
+                            f"{current_batch_size}"
                         )
 
                         # --- Reference Model Update ---
@@ -1138,7 +1151,8 @@ class RaySPINTrainer:
 
                         batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
-                        # --- Compute Log Probs for the CURRENT policy (used for KL if enabled, or ActorAsRef fallback) ---
+                        # --- Compute Log Probs for the CURRENT policy (used for KL if enabled, or ActorAsRef
+                        # fallback) ---
                         # Note: For pure DPO with external ref, this 'old_log_probs' might not be strictly needed
                         #       unless used for other metrics or a fallback. Keep it for now.
                         with _timer("policy_log_prob", timing_raw):
@@ -1159,7 +1173,8 @@ class RaySPINTrainer:
                                         ref_log_prob_output
                                     )  # Adds 'ref_log_prob' key [batch_size * n, seq_len]
                                     ref_log_prob_computed = True  # Mark success
-                                    # print(f"---- [Step {self.global_steps}] DEBUG DPO: ref_log_prob tensor shape: {batch.batch['ref_log_prob'].shape} ----")
+                                    # print(f"---- [Step {self.global_steps}] DEBUG DPO: ref_log_prob tensor shape: "
+                                    #       f"{batch.batch['ref_log_prob'].shape} ----")
                                 except Exception as ref_e:
                                     print(f"ERROR computing reference log probs at step {self.global_steps}: {ref_e}")
                                     traceback.print_exc()
@@ -1167,7 +1182,8 @@ class RaySPINTrainer:
                                     ref_log_prob_computed = False
                         else:
                             print(
-                                "Warning: Skipping external reference log prob calculation as use_reference_policy is False."
+                                "Warning: Skipping external reference log prob calculation as use_reference_policy "
+                                "is False."
                             )
                             # DPO update will likely fail unless ActorAsRef logic is re-enabled in dp_actor
 
@@ -1182,7 +1198,8 @@ class RaySPINTrainer:
                             reward_extra_infos_dict = {}
                             try:
                                 if self.reward_fn is None:
-                                    #  print(f"---- [DEBUG Step {self.global_steps}] ERROR: self.reward_fn is None! Using dummy rewards. ----")
+                                    #  print(f"---- [DEBUG Step {self.global_steps}] ERROR: self.reward_fn is None! "
+                                    #        f"Using dummy rewards. ----")
                                     # Use rm_scores if available, otherwise zeros
                                     reward_tensor = batch.batch.get(
                                         "rm_scores", torch.zeros_like(batch.batch["response_mask"], dtype=torch.float32)
@@ -1193,7 +1210,8 @@ class RaySPINTrainer:
                                     reward_extra_infos_dict = reward_result.get("reward_extra_info", {})
 
                             except Exception:
-                                # print(f'---- [DEBUG Step {self.global_steps}] Error in reward_fn call: {e}. Using dummy rewards. ----')
+                                # print(f'---- [DEBUG Step {self.global_steps}] Error in reward_fn call: {e}. '
+                                #       f'Using dummy rewards. ----')
                                 traceback.print_exc()
                                 reward_tensor = torch.zeros_like(batch.batch["response_mask"], dtype=torch.float32)
                                 reward_extra_infos_dict = {}
@@ -1268,7 +1286,8 @@ class RaySPINTrainer:
                                     # If not using external ref, DPO needs ActorAsRef logic in dp_actor
                                     # We won't add the keys here, dp_actor will handle it (or fail if not modified)
                                     print(
-                                        "Info: Not adding explicit reference logps to DPO batch (use_reference_policy=False)."
+                                        "Info: Not adding explicit reference logps to DPO batch "
+                                        "(use_reference_policy=False)."
                                     )
                                     reference_chosen_logps = None  # Explicitly None
                                     reference_rejected_logps = None
@@ -1368,7 +1387,8 @@ class RaySPINTrainer:
                         metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
                     else:
                         print(
-                            f"Warning: 'step' key missing from timing_raw at step {self.global_steps}. Skipping throughput."
+                            f"Warning: 'step' key missing from timing_raw at step {self.global_steps}. "
+                            f"Skipping throughput."
                         )
 
                     step_timer.stop()

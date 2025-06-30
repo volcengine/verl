@@ -90,7 +90,8 @@ def load_state_dict_to_megatron_qwen2(
     assert len(wrapped_models) == virtual_pp_size
     num_layers_per_model = config.num_hidden_layers // pp_size // virtual_pp_size
     assert num_layers_per_model * pp_size * virtual_pp_size == config.num_hidden_layers, (
-        f"num_layers_per_model: {num_layers_per_model} * pp_size: {pp_size} * virtual_pp_size: {virtual_pp_size} != config.num_hidden_layers: {config.num_hidden_layers}"
+        f"num_layers_per_model: {num_layers_per_model} * pp_size: {pp_size} * virtual_pp_size: "
+        f"{virtual_pp_size} != config.num_hidden_layers: {config.num_hidden_layers}"
     )
 
     models = [None] * len(wrapped_models)
@@ -272,7 +273,8 @@ def load_state_dict_to_megatron_qwen2(
             )
         else:
             assert tensor.shape == chunk_shape, (
-                f"rank #{torch.distributed.get_rank() == 0:} tensor {gate_name, up_name} shape {tensor.shape} != {chunk_shape}"
+                f"rank #{torch.distributed.get_rank() == 0:} tensor {gate_name, up_name} shape "
+                f"{tensor.shape} != {chunk_shape}"
             )
             sync_tensor = torch.empty_like(tensor, device=get_device_id(), requires_grad=False)
 

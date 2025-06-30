@@ -628,7 +628,8 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
 
     def _forward_head(self, hidden_states):
         # all_gather from sequence parallel region is performed inside lm_head
-        # print(f'logits shape before forward_head: {hidden_states.shape}, vocab_size = {self.config.vocab_size}') # [4, 32, 4096]
+        # print(f'logits shape before forward_head: {hidden_states.shape}, vocab_size = '
+        # f'{self.config.vocab_size}') # [4, 32, 4096]
         output_weight = None
         if self.share_embeddings_and_output_weights:
             output_weight = self.shared_embedding_or_output_weight()

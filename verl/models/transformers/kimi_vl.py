@@ -150,7 +150,8 @@ def _ulysses_flash_attn_forward(
     if self.q_head_dim != self.v_head_dim:
         value_states = F.pad(value_states, [0, self.q_head_dim - self.v_head_dim])
 
-    # TODO: These transpose are quite inefficient but Flash Attention requires the layout [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
+    # TODO: These transpose are quite inefficient but Flash Attention requires the layout
+    # [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
     # to be able to avoid many of these transpose/reshape/view.
     query_states = query_states.transpose(1, 2)
     key_states = key_states.transpose(1, 2)

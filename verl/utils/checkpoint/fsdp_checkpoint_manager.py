@@ -324,7 +324,8 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                         save_model.generation_config = generation_config
                     else:
                         print(
-                            f"Warning: {self.__class__.__name__}.save_checkpoint: Generation config file not found in, using a generation config created from the model config when saving hf_model."
+                            f"Warning: {self.__class__.__name__}.save_checkpoint: Generation config file not found "
+                            f"in, using a generation config created from the model config when saving hf_model."
                         )
 
                 save_model.save_pretrained(hf_local_path, state_dict=state_dict)

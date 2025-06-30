@@ -90,7 +90,8 @@ def load_state_dict_to_megatron_qwen2(
     assert len(wrapped_models) == virtual_pp_size
     num_layers_per_model = config.num_hidden_layers // pp_size // virtual_pp_size
     assert num_layers_per_model * pp_size * virtual_pp_size == config.num_hidden_layers, (
-        f"num_layers_per_model: {num_layers_per_model} * pp_size: {pp_size} * virtual_pp_size: {virtual_pp_size} != config.num_hidden_layers: {config.num_hidden_layers}"
+        f"num_layers_per_model: {num_layers_per_model} * pp_size: {pp_size} * virtual_pp_size: "
+        f"{virtual_pp_size} != config.num_hidden_layers: {config.num_hidden_layers}"
     )
 
     models = [None] * len(wrapped_models)
@@ -252,7 +253,8 @@ def load_state_dict_to_megatron_qwen2(
         dst_pp_rank, dst_virtual_pp_rank, dst_layer_idx = layer_map[layer]
 
         print(
-            f"{torch.distributed.get_rank()} offset: {offset}, num_layer_this_model: {num_layer_this_model}, layer_name: {layer_name}, layer_map[layer]: {layer_map[layer]}"
+            f"{torch.distributed.get_rank()} offset: {offset}, num_layer_this_model: {num_layer_this_model}, "
+            f"layer_name: {layer_name}, layer_map[layer]: {layer_map[layer]}"
         )
 
         gpt_model_module = _get_gpt_model(models[dst_virtual_pp_rank])

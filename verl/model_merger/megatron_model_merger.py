@@ -104,7 +104,8 @@ class MegatronModelMerger(BaseModelMerger):
 
         self.params_mapping = {
             # megatron core gpt model name, huggingface model name
-            # NOTICE: It's a little bit tricky, when 2 keys have the same prefix, we need to make sure the longer key within the containing relationship is processed first.
+            # NOTICE: It's a little bit tricky, when 2 keys have the same prefix, we need to make sure the
+            # longer key within the containing relationship is processed first.
             "embedding.word_embeddings": "model.embed_tokens",
             # attn
             "self_attention.linear_qkv.layer_norm_weight": "input_layernorm.weight",
@@ -208,7 +209,8 @@ class MegatronModelMerger(BaseModelMerger):
         """
         if key.startswith("model."):
             raise ValueError(
-                f"Invalid key {key} in Megatron state_dict. Expected keys to start with 'decoder/embedding/output_layer' in TransformerLayer."
+                f"Invalid key {key} in Megatron state_dict. Expected keys to start with "
+                f"'decoder/embedding/output_layer' in TransformerLayer."
             )
 
         skip_checking_keys = ["embedding.word_embeddings", "output_layer"]
@@ -310,9 +312,10 @@ class MegatronModelMerger(BaseModelMerger):
                     # split gate up
                     state_dict[hf_name.replace("gate_up", "gate")] = split_tensor[0]
                     state_dict[hf_name.replace("gate_up", "up")] = split_tensor[1]
-                print(
-                    f"converted {key} to {hf_name} with shape {split_tensor.shape if isinstance(split_tensor, torch.Tensor) else [t.shape for t in split_tensor]}"
+                shape_info = (
+                    split_tensor.shape if isinstance(split_tensor, torch.Tensor) else [t.shape for t in split_tensor]
                 )
+                print(f"converted {key} to {hf_name} with shape {shape_info}")
 
             layers_cum += layers_handled + 1  # zero based
 
