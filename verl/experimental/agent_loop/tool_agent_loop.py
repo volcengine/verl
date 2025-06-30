@@ -24,7 +24,7 @@ from pydantic import BaseModel
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput
 from verl.tools.utils.tool_registry import initialize_tools_from_config
-from verl.utils.debug import simple_timer
+from verl.utils.profiler import simple_timer
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))

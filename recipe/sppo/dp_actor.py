@@ -21,8 +21,8 @@ import torch
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, kl_penalty
-from verl.utils.debug import GPUMemoryLogger
 from verl.utils.device import get_device_id
+from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import rearrange_micro_batches
 from verl.workers.actor.dp_actor import DataParallelPPOActor

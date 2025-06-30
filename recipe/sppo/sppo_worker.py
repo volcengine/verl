@@ -20,10 +20,10 @@ from omegaconf import open_dict
 
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fsdp_utils import offload_fsdp_model_to_cpu, offload_fsdp_optimizer
 from verl.utils.import_utils import import_external_libs
+from verl.utils.profiler import log_gpu_memory_usage
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
 
 logger = logging.getLogger(__file__)

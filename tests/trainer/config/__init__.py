@@ -11,7 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-# APIs kept for backward compatibility purpose
-# This file is deprecated, for new features please develop in profiler/performance.py
-from verl.utils.profiler.performance import simple_timer, reduce_timing  # noqa
