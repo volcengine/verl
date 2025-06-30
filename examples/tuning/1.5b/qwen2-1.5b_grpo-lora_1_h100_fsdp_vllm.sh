@@ -7,9 +7,6 @@ export WANDB_EXP=1.5b-${NOW}
 MODEL_PATH=Qwen/Qwen2.5-1.5B-Instruct
 
 set -x
-export VLLM_ATTENTION_BACKEND=XFORMERS
-# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 nproc_per_gpu=128
 nnodes=1
 ngpu_per_node=1
