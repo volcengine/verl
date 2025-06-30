@@ -226,7 +226,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         if self.config.rollout.name == "vllm":
             from torch.distributed.device_mesh import init_device_mesh
 
-            from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMRollout
+            from verl.workers.rollout.vllm_rollout import vLLMRollout
             from verl.workers.sharding_manager.megatron_vllm import MegatronVLLMShardingManager
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
@@ -239,25 +239,17 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
             local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
-            if vllm_mode == "customized":
-                rollout = vLLMRollout(
-                    actor_module=self.actor_module,
-                    config=self.config.rollout,
-                    tokenizer=self.tokenizer,
-                    model_hf_config=self.actor_model_config,
-                )
-            elif vllm_mode == "spmd":
-                from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
+            from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 
-                vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
-                rollout = vllm_rollout_cls(
-                    model_path=local_path,
-                    config=self.config.rollout,
-                    tokenizer=self.tokenizer,
-                    model_hf_config=self.actor_model_config,
-                    device_mesh=rollout_device_mesh,
-                    trust_remote_code=trust_remote_code,
-                )
+            vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
+            rollout = vllm_rollout_cls(
+                model_path=local_path,
+                config=self.config.rollout,
+                tokenizer=self.tokenizer,
+                model_hf_config=self.actor_model_config,
+                device_mesh=rollout_device_mesh,
+                trust_remote_code=trust_remote_code,
+            )
             log_gpu_memory_usage("After building vllm rollout", logger=logger)
 
             # perform weight resharding between actor and rollout
