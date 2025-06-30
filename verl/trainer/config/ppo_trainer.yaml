@@ -309,7 +309,7 @@ actor_rollout_ref:
     # profiler configs
     profiler:
 
-      # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
       _target_: verl.utils.profiler.ProfilerConfig
 
       # True for each task has its own database, False for all tasks in one training step share one database.
@@ -376,7 +376,7 @@ actor_rollout_ref:
     # profiler configs
     profiler:
 
-      # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
       _target_: verl.utils.profiler.ProfilerConfig
 
       # True for each task has its own database, False for all tasks in one training step share one database.
@@ -567,7 +567,7 @@ actor_rollout_ref:
     # profiler configs
     profiler:
 
-      # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
       _target_: verl.utils.profiler.ProfilerConfig
 
       # True for each task has its own database, False for all tasks in one training step share one database.
@@ -738,7 +738,7 @@ critic:
   # the corresponding dataclass is verl.utils.profiler.ProfilerConfig.
   profiler:
 
-    # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
     _target_: verl.utils.profiler.ProfilerConfig
 
     # True for each task has its own database, False for all tasks in one training step share one database.
@@ -852,7 +852,7 @@ reward_model:
   # profiler configs
   profiler:
 
-    # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
     _target_: verl.utils.profiler.ProfilerConfig
 
     # True for each task has its own database, False for all tasks in one training step share one database.
@@ -877,7 +877,7 @@ custom_reward_function:
 # config for the algorithm
 algorithm:
 
-  # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
   _target_: verl.trainer.config.AlgoConfig
 
   # Discount factor for future rewards
@@ -901,7 +901,7 @@ algorithm:
   # KL control configuration
   kl_ctrl:
 
-    # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
     _target_: verl.trainer.config.KLControlConfig
 
     # KL control type: "fixed" or "adaptive"
@@ -922,7 +922,7 @@ algorithm:
   # Preference feedback PPO settings
   pf_ppo:
 
-    # instantiated via hydra.utils.instantiate or verl.utils.omega_conf_to_dataclass
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
     _target_: verl.trainer.config.PFPPOConfig
 
     # Method for reweighting samples: "pow", "max_min", or "max_random"
