@@ -391,12 +391,12 @@ def apply_patch_dpskv3():
     MLASelfAttention.get_query_key_value_tensors = patch_get_query_key_value_tensors
 
 
-def apply_patch(use_dpskv3_patch: bool = False):
+def apply_patch(model_type: str):
     """_summary_
     Patch for deepseek-V3 in mcore 0.12.
 
     Args:
         use_dpskv3_patch (bool, optional): Use patch for deepseek-V3. Defaults to False.
     """
-    if use_dpskv3_patch:
+    if model_type == "deepseek_v3":
         apply_patch_dpskv3()

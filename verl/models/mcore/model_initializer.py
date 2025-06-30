@@ -69,7 +69,7 @@ class BaseModelInitializer(ABC):
         """
 
         # Apply patches to GPTModel
-        apply_patch(self.hf_config.model_type == "deepseek_v3")
+        apply_patch(self.hf_config.model_type)
 
         transformer_layer_spec = self.get_transformer_layer_spec()
         rope_scaling_args = self.get_rope_scaling_args()
