@@ -43,21 +43,6 @@ class CriticWorker(Worker):
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend="nccl" if is_cuda_available else "hccl")
         self.config = config
-        self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
-
-        # normalize config
-        self.config.ppo_mini_batch_size *= self.config.rollout_n
-        self.config.ppo_mini_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
-        if self.config.ppo_micro_batch_size is not None:
-            self.config.ppo_micro_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
-            self.config.forward_micro_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
-            self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
-            self.config.forward_micro_batch_size_per_gpu = self.config.forward_micro_batch_size
-
-        if self.config.ppo_micro_batch_size_per_gpu is not None:
-            assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0, f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be divisible by ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
-            assert self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu > 0, f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be larger than ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
-
         self.engine = FSDPEngine(self.config)
 
         def loss_fn(batch, vpreds, ctx):

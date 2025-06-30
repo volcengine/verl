@@ -101,6 +101,20 @@ class FSDPEngine(object):
         dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
             self.ulysses_device_mesh = init_device_mesh(self.device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"])
+        self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
+
+        # normalize config
+        self.config.ppo_mini_batch_size *= self.config.rollout_n
+        self.config.ppo_mini_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+        if self.config.ppo_micro_batch_size is not None:
+            self.config.ppo_micro_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+            self.config.forward_micro_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+            self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
+            self.config.forward_micro_batch_size_per_gpu = self.config.forward_micro_batch_size
+
+        if self.config.ppo_micro_batch_size_per_gpu is not None:
+            assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0, f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be divisible by ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
+            assert self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu > 0, f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be larger than ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)        
         self._is_lora = self.config.model.get("lora_rank", 0) > 0

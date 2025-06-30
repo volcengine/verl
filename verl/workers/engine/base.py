@@ -62,18 +62,14 @@ class BaseEngine(object):
     def forward_backward_step(self, 
                               batch, 
                               ctx=None, 
-                              forward_only=False, 
-                              preprocess_fn=None, 
-                              postprocess_fn=None):
+                              forward_only=False):
         """
         Execute a forward pass (and optional backward pass) over a batch of data.
 
         Args:
             batch: Raw batch data (e.g., tensors or mappings) to process.
-            ctx: Optional context dict passed to preprocess/postprocess functions.
+            ctx: Optional context dict passed to the loss functions.
             forward_only: If True, skip gradient computation and backward pass.
-            preprocess_fn: Function(batch, ctx) -> (inputs, ctx), applied before model call.
-            postprocess_fn: Function(outputs, ctx) -> (predictions, ctx), applied after model call.
 
         Returns:
             If forward_only:
