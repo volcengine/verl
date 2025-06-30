@@ -131,9 +131,13 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # default to use dummy load format, which need to reload weights in first time
+        self._need_reload = True
 
     async def release_memory_occupation(self, tags: Optional[list[str]] = None):
         """Release GPU occupation temporarily."""
+        if self._need_reload:
+            await self.release_memory_occupation()
+            self._need_reload = False
         if tags is None:
             obj = ReleaseMemoryOccupationReqInput()
         else:
