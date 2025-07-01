@@ -36,19 +36,44 @@ def parse_args():
     subparsers = parser.add_subparsers(dest="operation", required=True, help="Specify 'merge' or 'test' operation.")
 
     base_op_parser = argparse.ArgumentParser(add_help=False)
-    base_op_parser.add_argument("--backend", type=str, required=True, choices=["fsdp", "megatron"], help="The backend of the model")
-    base_op_parser.add_argument("--local_dir", type=str, default=None, help="Path to the original Hugging Face model for config.")
-    base_op_parser.add_argument("--tie-word-embedding", action="store_true", help="Whether to tie word embedding weights (currently only Megatron supported)")
-    base_op_parser.add_argument("--is-value-model", action="store_true", help="Whether the model is a value model (currently only Megatron supported)")
-    base_op_parser.add_argument("--use_cpu_initialization", action="store_true", help="Whether to use CPU initialization for the model. This is useful for large models that cannot fit into GPU memory during initialization.")
+    base_op_parser.add_argument(
+        "--backend", type=str, required=True, choices=["fsdp", "megatron"], help="The backend of the model"
+    )
+    base_op_parser.add_argument("--local_dir", type=str, default=None, help="Path to the saved model checkpoints.")
+    base_op_parser.add_argument(
+        "--tie-word-embedding",
+        action="store_true",
+        help="Whether to tie word embedding weights (currently only Megatron supported)",
+    )
+    base_op_parser.add_argument(
+        "--is-value-model",
+        action="store_true",
+        help="Whether the model is a value model (currently only Megatron supported)",
+    )
+    base_op_parser.add_argument(
+        "--use_cpu_initialization",
+        action="store_true",
+        help="Whether to use CPU initialization for the model. This is useful for large models that cannot "
+        "fit into GPU memory during initialization.",
+    )
 
     merge_parser = subparsers.add_parser("merge", parents=[base_op_parser], help="Merge model checkpoints and save.")
-    merge_parser.add_argument("--target_dir", default="tmp", type=str, help="Directory to save the merged huggingface model")
-    merge_parser.add_argument("--hf_upload_path", default=None, type=str, help="Hugging Face repository ID to upload the model")
-    merge_parser.add_argument("--private", action="store_true", help="Whether to upload the model to a private Hugging Face repository")
+    merge_parser.add_argument(
+        "--target_dir", default="tmp", type=str, help="Directory to save the merged huggingface model"
+    )
+    merge_parser.add_argument(
+        "--hf_upload_path", default=None, type=str, help="Hugging Face repository ID to upload the model"
+    )
+    merge_parser.add_argument(
+        "--private", action="store_true", help="Whether to upload the model to a private Hugging Face repository"
+    )
 
-    test_parser = subparsers.add_parser("test", parents=[base_op_parser], help="Test merged model against a reference Hugging Face model")
-    test_parser.add_argument("--test_hf_dir", type=str, required=True, help="Path to the reference Hugging Face model directory for testing")
+    test_parser = subparsers.add_parser(
+        "test", parents=[base_op_parser], help="Test merged model against a reference Hugging Face model"
+    )
+    test_parser.add_argument(
+        "--test_hf_dir", type=str, required=True, help="Path to the reference Hugging Face model directory for testing"
+    )
 
     args = parser.parse_args()
     return args
@@ -159,7 +184,10 @@ class BaseModelMerger(ABC):
             try:
                 model.generation_config = GenerationConfig.from_pretrained(self.hf_model_config_path)
             except OSError:
-                print(f"Warning: Generation config file not found in {self.hf_model_config_path}, using a generation config created from the model config.")
+                print(
+                    f"Warning: Generation config file not found in {self.hf_model_config_path}, using a "
+                    f"generation config created from the model config."
+                )
         return model
 
     def save_lora_adapter(self, state_dict: dict[str, torch.Tensor]):
@@ -210,7 +238,11 @@ class BaseModelMerger(ABC):
         save_file(lora_params, os.path.join(lora_path, "adapter_model.safetensors"))
 
         for name in list(state_dict.keys()):
-            key = name.replace("base_model.model.", "").replace(".base_layer.weight", ".weight").replace(".base_layer.bias", ".bias")
+            key = (
+                name.replace("base_model.model.", "")
+                .replace(".base_layer.weight", ".weight")
+                .replace(".base_layer.bias", ".bias")
+            )
             state_dict[key] = state_dict.pop(name)
 
         return lora_path
@@ -252,7 +284,9 @@ class BaseModelMerger(ABC):
         except HfHubHTTPError as e:
             # Handle authentication/API errors
             if e.response.status_code == 401:
-                raise PermissionError("Hugging Face authentication failed. Verify your token is valid and has write permissions.") from e
+                raise PermissionError(
+                    "Hugging Face authentication failed. Verify your token is valid and has write permissions."
+                ) from e
             elif e.response.status_code == 404:
                 raise RepositoryNotFoundError(f"Repository path not found: {self.config.hf_upload_path}") from e
             else:

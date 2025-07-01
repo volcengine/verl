@@ -19,7 +19,11 @@ import torch
 from omegaconf import OmegaConf
 
 from verl.trainer.config import AlgoConfig, KLControlConfig, PFPPOConfig
-from verl.trainer.ppo.core_algos import compute_gae_advantage_return, compute_grpo_outcome_advantage, get_adv_estimator_fn
+from verl.trainer.ppo.core_algos import (
+    compute_gae_advantage_return,
+    compute_grpo_outcome_advantage,
+    get_adv_estimator_fn,
+)
 from verl.utils.config import omega_conf_to_dataclass
 
 
@@ -37,7 +41,13 @@ class TestAlgoConfig(unittest.TestCase):
             "norm_adv_by_std_in_grpo": True,
             "use_kl_in_reward": True,
             "kl_penalty": "kl",
-            "kl_ctrl": {"_target_": "verl.trainer.config.KLControlConfig", "type": "adaptive", "kl_coef": 0.002, "horizon": 5000, "target_kl": 0.05},
+            "kl_ctrl": {
+                "_target_": "verl.trainer.config.KLControlConfig",
+                "type": "adaptive",
+                "kl_coef": 0.002,
+                "horizon": 5000,
+                "target_kl": 0.05,
+            },
             "use_pf_ppo": True,
             "pf_ppo": {"_target_": "verl.trainer.config.PFPPOConfig", "reweight_method": "max_min", "weight_pow": 3.0},
         }
@@ -130,7 +140,13 @@ class TestAlgoConfig(unittest.TestCase):
         values = torch.randn(batch_size, seq_len)
         response_mask = torch.ones(batch_size, seq_len)
 
-        advantages, returns = compute_gae_advantage_return(token_level_rewards=token_level_rewards, values=values, response_mask=response_mask, gamma=config.gamma, lam=config.lam)
+        advantages, returns = compute_gae_advantage_return(
+            token_level_rewards=token_level_rewards,
+            values=values,
+            response_mask=response_mask,
+            gamma=config.gamma,
+            lam=config.lam,
+        )
 
         self.assertEqual(advantages.shape, (batch_size, seq_len))
         self.assertEqual(returns.shape, (batch_size, seq_len))
@@ -145,7 +161,12 @@ class TestAlgoConfig(unittest.TestCase):
         response_mask = torch.ones(batch_size, seq_len)
         index = np.array([0, 0, 1, 1])  # Two groups
 
-        advantages, returns = compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards, response_mask=response_mask, index=index, norm_adv_by_std_in_grpo=grpo_config.norm_adv_by_std_in_grpo)
+        advantages, returns = compute_grpo_outcome_advantage(
+            token_level_rewards=token_level_rewards,
+            response_mask=response_mask,
+            index=index,
+            norm_adv_by_std_in_grpo=grpo_config.norm_adv_by_std_in_grpo,
+        )
 
         self.assertEqual(advantages.shape, (batch_size, seq_len))
         self.assertEqual(returns.shape, (batch_size, seq_len))

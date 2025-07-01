@@ -123,7 +123,9 @@ class Worker(WorkerHelper):
             if os.getenv("WG_BACKEND", None) == "ray":
                 from verl.single_controller.base.register_center.ray import create_worker_group_register_center
 
-                self.register_center = create_worker_group_register_center(name=register_center_name, info=rank_zero_info)
+                self.register_center = create_worker_group_register_center(
+                    name=register_center_name, info=rank_zero_info
+                )
 
             os.environ.update(rank_zero_info)
         else:
@@ -135,7 +137,15 @@ class Worker(WorkerHelper):
     @classmethod
     def env_keys(cls):
         """The keys of the environment variables that are used to configure the Worker."""
-        return ["WORLD_SIZE", "RANK", "LOCAL_WORLD_SIZE", "LOCAL_RANK", "MASTER_ADDR", "MASTER_PORT", "CUDA_VISIBLE_DEVICES"]
+        return [
+            "WORLD_SIZE",
+            "RANK",
+            "LOCAL_WORLD_SIZE",
+            "LOCAL_RANK",
+            "MASTER_ADDR",
+            "MASTER_PORT",
+            "CUDA_VISIBLE_DEVICES",
+        ]
 
     def __init__(self, cuda_visible_devices=None) -> None:
         """Initialize the worker with environment settings and device configuration.
@@ -144,7 +154,8 @@ class Worker(WorkerHelper):
             cuda_visible_devices (str, optional):
                 CUDA visible devices configuration. Defaults to None.
         """
-        # construct a meta from environment variable. Note that the import must be inside the class because it is executed remotely
+        # construct a meta from environment variable. Note that the import must be inside the class because
+        # it is executed remotely
         import os
 
         self._setup_env_cuda_visible_devices()
@@ -200,7 +211,10 @@ class Worker(WorkerHelper):
             val = os.environ.pop("HIP_VISIBLE_DEVICES")
             hip_val = None
             if cuda_val:
-                assert val == cuda_val, f"Please use the same HIP_VISIBLE_DEVICES or CUDA_VISIBLE_DEVICES, inconsistant values found: {val} and {cuda_val}."
+                assert val == cuda_val, (
+                    f"Please use the same HIP_VISIBLE_DEVICES or CUDA_VISIBLE_DEVICES, inconsistant values "
+                    f"found: {val} and {cuda_val}."
+                )
             else:
                 cuda_val = val
                 os.environ["CUDA_VISIBLE_DEVICES"] = val
@@ -243,7 +257,9 @@ class Worker(WorkerHelper):
             if val is not None:
                 # print(f"set {key} to {val}")
                 os.environ[key] = str(val)
-        os.environ["REDIS_STORE_SERVER_HOST"] = str(self._master_addr).replace("[", "").replace("]", "") if self._master_addr else ""
+        os.environ["REDIS_STORE_SERVER_HOST"] = (
+            str(self._master_addr).replace("[", "").replace("]", "") if self._master_addr else ""
+        )
 
     def get_master_addr_port(self):
         """Get the master address and port for distributed communication."""

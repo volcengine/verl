@@ -241,7 +241,8 @@ class RayEntropyTrainer(RayPPOTrainer):
                             # Align the batch
                             traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
                             print(
-                                f"Collected {num_prompt_in_batch} / {self.config.data.train_batch_size} prompt. Collecting finished."
+                                f"Collected {num_prompt_in_batch} / {self.config.data.train_batch_size} prompt. "
+                                f"Collecting finished."
                             )
                             batch = batch[:traj_bsz]
 

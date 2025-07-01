@@ -29,7 +29,8 @@ requires-python = ">=3.8"
 [tool.ruff]
 # Note: While the formatter will attempt to format lines such that they remain within the line-length,
 # it isn't a hard upper bound, and formatted lines may exceed the line-length.
-line-length = 300 # TODO: Reduce this to a more reasonable value
+line-length = 120
+exclude = ["tests/workers/rollout/test_sglang_async_rollout_sf_tools.py", "scripts/legacy_model_merger.py"]
 
 [tool.ruff.lint]
 isort = {known-first-party = ["verl"]}

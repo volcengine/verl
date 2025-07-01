@@ -152,7 +152,8 @@ class NsightSystemsProfiler(DistProfiler):
     ) -> Callable:
         """Decorate a Worker member function to profile the current rank in the current training step.
 
-        Requires the target function to be a member function of a Worker, which has a member field `profiler` with NightSystemsProfiler type.
+        Requires the target function to be a member function of a Worker, which has a member field `profiler` with
+        NightSystemsProfiler type.
 
         Args:
             message (str, optional):

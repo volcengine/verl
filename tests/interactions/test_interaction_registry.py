@@ -41,7 +41,15 @@ class TestInteractionRegistry:
     def test_initialize_single_interaction_from_config(self):
         """Test initializing single interaction from config."""
         # Create temporary config file
-        config_content = {"interaction": [{"name": "test_gsm8k", "class_name": "verl.interactions.gsm8k_interaction.Gsm8kInteraction", "config": {}}]}
+        config_content = {
+            "interaction": [
+                {
+                    "name": "test_gsm8k",
+                    "class_name": "verl.interactions.gsm8k_interaction.Gsm8kInteraction",
+                    "config": {},
+                }
+            ]
+        }
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             OmegaConf.save(config_content, f.name)
@@ -60,7 +68,20 @@ class TestInteractionRegistry:
 
     def test_initialize_multiple_interactions_from_config(self):
         """Test initializing multiple interactions from config."""
-        config_content = {"interaction": [{"name": "gsm8k_solver", "class_name": "verl.interactions.gsm8k_interaction.Gsm8kInteraction", "config": {}}, {"name": "base_agent", "class_name": "verl.interactions.base.BaseInteraction", "config": {"custom_param": "test_value"}}]}
+        config_content = {
+            "interaction": [
+                {
+                    "name": "gsm8k_solver",
+                    "class_name": "verl.interactions.gsm8k_interaction.Gsm8kInteraction",
+                    "config": {},
+                },
+                {
+                    "name": "base_agent",
+                    "class_name": "verl.interactions.base.BaseInteraction",
+                    "config": {"custom_param": "test_value"},
+                },
+            ]
+        }
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             OmegaConf.save(config_content, f.name)
@@ -89,7 +110,9 @@ class TestInteractionRegistry:
 
     def test_initialize_interaction_without_explicit_name(self):
         """Test that interaction name is derived from class name when not specified."""
-        config_content = {"interaction": [{"class_name": "verl.interactions.gsm8k_interaction.Gsm8kInteraction", "config": {}}]}
+        config_content = {
+            "interaction": [{"class_name": "verl.interactions.gsm8k_interaction.Gsm8kInteraction", "config": {}}]
+        }
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             OmegaConf.save(config_content, f.name)
@@ -122,7 +145,9 @@ class TestInteractionRegistry:
 
     def test_invalid_class_name(self):
         """Test handling of invalid class name."""
-        config_content = {"interaction": [{"name": "invalid", "class_name": "invalid.module.InvalidClass", "config": {}}]}
+        config_content = {
+            "interaction": [{"name": "invalid", "class_name": "invalid.module.InvalidClass", "config": {}}]
+        }
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             OmegaConf.save(config_content, f.name)
@@ -139,7 +164,11 @@ class TestInteractionRegistry:
         config_content = {
             "interaction": [
                 {"name": "duplicate", "class_name": "verl.interactions.base.BaseInteraction", "config": {}},
-                {"name": "duplicate", "class_name": "verl.interactions.gsm8k_interaction.Gsm8kInteraction", "config": {}},
+                {
+                    "name": "duplicate",
+                    "class_name": "verl.interactions.gsm8k_interaction.Gsm8kInteraction",
+                    "config": {},
+                },
             ]
         }
 

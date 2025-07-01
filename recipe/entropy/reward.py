@@ -60,7 +60,9 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
             sandbox_manager = multiprocessing.Manager()
             # Create a semaphore to control concurrent access to the sandbox
             _concurrent_semaphore = sandbox_manager.Semaphore(sandbox_config.get("max_concurrent", 64))
-            final_compute_score = partial(_default_compute_score, sandbox_fusion_url=sandbox_url, concurrent_semaphore=_concurrent_semaphore)
+            final_compute_score = partial(
+                _default_compute_score, sandbox_fusion_url=sandbox_url, concurrent_semaphore=_concurrent_semaphore
+            )
         else:
             final_compute_score = _default_compute_score
 

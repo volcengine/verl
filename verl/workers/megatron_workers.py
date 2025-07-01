@@ -22,6 +22,7 @@ import time
 import warnings
 from typing import Optional, Union
 
+import psutil
 import torch
 import torch.distributed
 from codetiming import Timer
@@ -162,7 +163,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
             else:
                 assert self.config.ref.get("log_prob_micro_batch_size_per_gpu", None) is not None, (
-                    "Please note that in the ref policy configuration, `log_prob_micro_batch_size_per_gpu` and `log_prob_micro_batch_size` should not be None at the same time."
+                    "Please note that in the ref policy configuration, `log_prob_micro_batch_size_per_gpu` and "
+                    "`log_prob_micro_batch_size` should not be None at the same time."
                 )
             self._ref_is_offload_param = self.config.ref.megatron.get("param_offload", False)
 
@@ -325,10 +327,12 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 )
             from verl.workers.rollout.sglang_rollout import SGLangRollout
 
-            # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's model_runner would check CUDA device capability.
-            # However, due to verl's setting, the main process of ray can not find any CUDA device, which would potentially lead to:
-            # "RuntimeError: No CUDA GPUs are available".
-            # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it here use the abs path.
+            # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's
+            # model_runner would check CUDA device capability.
+            # However, due to verl's setting, the main process of ray can not find any CUDA device, which would
+            # potentially lead to: "RuntimeError: No CUDA GPUs are available".
+            # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it
+            # here use the abs path.
             # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
             from verl.workers.sharding_manager.megatron_sglang import MegatronSGLangShardingManager
 
@@ -502,6 +506,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         global_num_tokens = data.meta_info["global_token_num"]
         estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
         metrics["perf/mfu/actor"] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+        metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
+        metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
+        metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
         from verl.utils.megatron.optimizer import get_megatron_last_lr
 
         metrics["actor/lr"] = get_megatron_last_lr(self.actor_optimizer)
@@ -659,7 +666,8 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         """Called by ExternalRayDistributedExecutor collective_rpc."""
         if self.vllm_tp_rank == 0 and method != "execute_model":
             print(
-                f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: {method if isinstance(method, str) else 'Callable'}"
+                f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: "
+                f"{method if isinstance(method, str) else 'Callable'}"
             )
         return self.rollout.execute_method(method, *args, **kwargs)
 
