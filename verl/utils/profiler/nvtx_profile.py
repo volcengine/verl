@@ -15,7 +15,7 @@
 
 import functools
 from contextlib import contextmanager
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, List
 
 import nvtx
 import torch
@@ -78,6 +78,16 @@ def mark_annotate(
         return nvtx.annotate(profile_message, color=color, domain=domain, category=category)(func)
 
     return decorator
+
+
+def start_profiler(profile_wg: List[RayWorkerGroup], **kwargs):
+    for worker_group in profile_wg:
+        worker_group.start_profile()
+
+
+def stop_profiler(profile_wg: List[RayWorkerGroup]):
+    for worker_group in profile_wg:
+        worker_group.stop_profile()
 
 
 @contextmanager
