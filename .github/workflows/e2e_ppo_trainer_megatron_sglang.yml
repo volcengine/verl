@@ -29,8 +29,7 @@
 #     - new workflow yaml is added to `.github/workflows`
 #     - new tests are added to workflow mentioned in 2.
 
-name: e2e_ppo_trainer_megatron
-# latest version: Megatron-LM core_r0.11.0 https://github.com/NVIDIA/Megatron-LM/tree/core_r0.11.0
+name: e2e_ppo_trainer_megatron_sglang
 
 on:
   # Trigger the workflow on push or pull request,
@@ -72,7 +71,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-sglang0.4.6.post5-mcore0.12.1-basev3"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.4-sglang0.4.6.post5-mcore0.12.1"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:

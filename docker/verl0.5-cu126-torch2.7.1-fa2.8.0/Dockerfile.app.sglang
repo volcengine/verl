@@ -1,9 +1,9 @@
 # Start from the verl base image
 # Dockerfile.base
-FROM verlai/verl:base-v4-cu126-cudnn9.8-torch2.7.1-fa2.8.0-te2.3-fi0.2.6
+FROM verlai/verl:base-v2-cu126-cudnn9.8-torch2.7.1-fa2.8.0-te2.3-fi0.2.6
 
 # Define environments
-ENV MAX_JOBS=8
+ENV MAX_JOBS=32
 ENV VLLM_WORKER_MULTIPROC_METHOD=spawn
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_OPTIONS=""
@@ -20,9 +20,4 @@ RUN pip install --no-cache-dir "tensordict==0.6.2" "transformers[hf_xet]>=4.51.0
     pytest py-spy pyext pre-commit ruff
 
 RUN pip uninstall -y pynvml nvidia-ml-py && \
-    pip install --resume-retries 999 --no-cache-dir --upgrade "nvidia-ml-py>=12.560.30" "fastapi[standard]>=0.115.0" "optree>=0.13.0" "pydantic>=2.9" "grpcio>=1.62.1"
-
-RUN pip install --resume-retries 999 --no-cache-dir nvidia-cudnn-cu12==9.8.0.87
-
-# Install Megatron-LM
-RUN pip3 install --no-deps --no-cache-dir --no-build-isolation git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.1
+    pip install --no-cache-dir --upgrade "nvidia-ml-py>=12.560.30" "fastapi[standard]>=0.115.0" "optree>=0.13.0" "pydantic>=2.9" "grpcio>=1.62.1"

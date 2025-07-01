@@ -29,8 +29,7 @@
 #     - new workflow yaml is added to `.github/workflows`
 #     - new tests are added to workflow mentioned in 2.
 
-name: e2e_ppo_trainer_megatron
-# latest version: Megatron-LM core_r0.11.0 https://github.com/NVIDIA/Megatron-LM/tree/core_r0.11.0
+name: e2e_ppo_trainer_megatron_vllm
 
 on:
   # Trigger the workflow on push or pull request,
