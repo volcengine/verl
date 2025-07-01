@@ -24,7 +24,8 @@ from vllm.lora.worker_manager import LRUCacheWorkerLoRAManager
 
 from verl.third_party.vllm import get_version
 
-# To support different vLLM versions, we add the model into SUPPORTED_MOE_MODELS separately to avoid triggering unsupported issues.
+# To support different vLLM versions, we add the model into SUPPORTED_MOE_MODELS separately to avoid triggering
+# unsupported issues.
 SUPPORTED_MOE_MODELS = []
 
 try:
@@ -119,7 +120,8 @@ class VLLMHijack:
 
             Reason:
             VLLM does not support adding LoRA from tensors directly. It only supports adding LoRA via file paths.
-            To synchronize the LoRA tensors of the actor model, we need to find a workaround to enable VLLM to load memory-based LoRA tensors.
+            To synchronize the LoRA tensors of the actor model, we need to find a workaround to enable VLLM to
+            load memory-based LoRA tensors.
             """
             try:
                 supported_lora_modules = self._adapter_manager.supported_lora_modules
@@ -186,7 +188,10 @@ class VLLMHijack:
                 raise e
 
             if lora.extra_vocab_size > self.lora_config.lora_extra_vocab_size:
-                raise ValueError(f"LoRA added vocab size {lora.extra_vocab_size} is greater than lora_extra_vocab_size {self.lora_config.lora_extra_vocab_size}.")
+                raise ValueError(
+                    f"LoRA added vocab size {lora.extra_vocab_size} is greater than lora_extra_vocab_size "
+                    f"{self.lora_config.lora_extra_vocab_size}."
+                )
             return lora
 
         def do_hijack(target_cls, target_method_name, hooking_method):

@@ -74,7 +74,7 @@ vllm & vllm-ascend
 +--------------+---------------+
 | software     | description   |
 +--------------+---------------+
-| transformers | >= v4.52.4    |
+| transformers | v4.52.4       |
 +--------------+---------------+
 | flash_attn   | not supported |
 +--------------+---------------+

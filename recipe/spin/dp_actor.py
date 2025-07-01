@@ -165,11 +165,17 @@ class SPINDataParallelPPOActor(DataParallelPPOActor):
             # Important: Slice ALL required tensors, including labels and inputs
             micro_batch_chosen_labels = chosen_labels[start_idx:end_idx]
             micro_batch_rejected_labels = rejected_labels[start_idx:end_idx]
-            micro_batch_chosen_inputs = {"input_ids": batch_td["chosen_input_ids"][start_idx:end_idx], "attention_mask": batch_td["chosen_attention_mask"][start_idx:end_idx]}
+            micro_batch_chosen_inputs = {
+                "input_ids": batch_td["chosen_input_ids"][start_idx:end_idx],
+                "attention_mask": batch_td["chosen_attention_mask"][start_idx:end_idx],
+            }
             if "chosen_position_ids" in batch_td:
                 micro_batch_chosen_inputs["position_ids"] = batch_td["chosen_position_ids"][start_idx:end_idx]
 
-            micro_batch_rejected_inputs = {"input_ids": batch_td["rejected_input_ids"][start_idx:end_idx], "attention_mask": batch_td["rejected_attention_mask"][start_idx:end_idx]}
+            micro_batch_rejected_inputs = {
+                "input_ids": batch_td["rejected_input_ids"][start_idx:end_idx],
+                "attention_mask": batch_td["rejected_attention_mask"][start_idx:end_idx],
+            }
             if "rejected_position_ids" in batch_td:
                 micro_batch_rejected_inputs["position_ids"] = batch_td["rejected_position_ids"][start_idx:end_idx]
 
@@ -182,8 +188,12 @@ class SPINDataParallelPPOActor(DataParallelPPOActor):
                 policy_rejected_outputs = self.actor_module(**micro_batch_rejected_inputs, use_cache=False)
 
                 # --- Step 2: Calculate CURRENT policy log probs using get_batch_logps ---
-                policy_chosen_logps = get_batch_logps(policy_chosen_outputs.logits, micro_batch_chosen_labels, average_log_prob=False)
-                policy_rejected_logps = get_batch_logps(policy_rejected_outputs.logits, micro_batch_rejected_labels, average_log_prob=False)
+                policy_chosen_logps = get_batch_logps(
+                    policy_chosen_outputs.logits, micro_batch_chosen_labels, average_log_prob=False
+                )
+                policy_rejected_logps = get_batch_logps(
+                    policy_rejected_outputs.logits, micro_batch_rejected_labels, average_log_prob=False
+                )
 
                 # --- Step 3: Retrieve PRE-CALCULATED reference log probs (NO grad needed) ---
                 # Slice the full batch reference logps for the current micro-batch
@@ -218,7 +228,9 @@ class SPINDataParallelPPOActor(DataParallelPPOActor):
                 accumulated_metrics["actor/policy_chosen_logps_batch"].append(policy_chosen_logps.mean().item())
                 accumulated_metrics["actor/policy_rejected_logps_batch"].append(policy_rejected_logps.mean().item())
                 accumulated_metrics["actor/reference_chosen_logps_batch"].append(micro_ref_chosen_logps.mean().item())
-                accumulated_metrics["actor/reference_rejected_logps_batch"].append(micro_ref_rejected_logps.mean().item())
+                accumulated_metrics["actor/reference_rejected_logps_batch"].append(
+                    micro_ref_rejected_logps.mean().item()
+                )
 
             # --- Backward Pass (outside autocast) ---
             # Check if loss requires grad before backward
@@ -235,19 +247,30 @@ class SPINDataParallelPPOActor(DataParallelPPOActor):
         # --- Populate Final Metrics ---
         if num_micro_batches > 0 and bsz > 0:  # Check if any processing happened
             metrics["actor/dpo_loss"] = total_loss / num_micro_batches
-            metrics["actor/grad_norm"] = grad_norm.item() if torch.is_tensor(grad_norm) and torch.isfinite(grad_norm) else float("inf")
+            metrics["actor/grad_norm"] = (
+                grad_norm.item() if torch.is_tensor(grad_norm) and torch.isfinite(grad_norm) else float("inf")
+            )
             # Average other accumulated metrics
             for key, val_list in accumulated_metrics.items():
                 if val_list:
                     metrics[key.replace("_batch", "")] = np.mean(val_list)
 
             # Calculate accuracy / rewards / margins based on averaged logprobs if desired
-            if "actor/policy_chosen_logps" in metrics and "actor/policy_rejected_logps" in metrics and "actor/reference_chosen_logps" in metrics and "actor/reference_rejected_logps" in metrics:
+            if (
+                "actor/policy_chosen_logps" in metrics
+                and "actor/policy_rejected_logps" in metrics
+                and "actor/reference_chosen_logps" in metrics
+                and "actor/reference_rejected_logps" in metrics
+            ):
                 policy_ratio_mean = metrics["actor/policy_chosen_logps"] - metrics["actor/policy_rejected_logps"]
                 ref_ratio_mean = metrics["actor/reference_chosen_logps"] - metrics["actor/reference_rejected_logps"]
                 logits_mean = policy_ratio_mean - ref_ratio_mean
-                metrics["actor/rewards_chosen"] = beta * (metrics["actor/policy_chosen_logps"] - metrics["actor/reference_chosen_logps"])
-                metrics["actor/rewards_rejected"] = beta * (metrics["actor/policy_rejected_logps"] - metrics["actor/reference_rejected_logps"])
+                metrics["actor/rewards_chosen"] = beta * (
+                    metrics["actor/policy_chosen_logps"] - metrics["actor/reference_chosen_logps"]
+                )
+                metrics["actor/rewards_rejected"] = beta * (
+                    metrics["actor/policy_rejected_logps"] - metrics["actor/reference_rejected_logps"]
+                )
                 metrics["actor/rewards_accuracies"] = float(logits_mean > 0)  # Mean accuracy proxy
                 metrics["actor/rewards_margins"] = metrics["actor/rewards_chosen"] - metrics["actor/rewards_rejected"]
 

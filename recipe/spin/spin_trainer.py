@@ -38,7 +38,12 @@ from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
-from verl.trainer.ppo.metric_utils import compute_throughout_metrics, compute_timing_metrics, process_validation_metrics, reduce_metrics
+from verl.trainer.ppo.metric_utils import (
+    compute_throughout_metrics,
+    compute_timing_metrics,
+    process_validation_metrics,
+    reduce_metrics,
+)
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
@@ -89,8 +94,11 @@ class ResourcePoolManager:
         for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
             # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
             # For FSDP backend, we recommend using max_colocate_count=1 that merge all WorkerGroups into one.
-            # For Megatron backend, we recommend using max_colocate_count>1 that can utilize different WorkerGroup for different models
-            resource_pool = RayResourcePool(process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=1, name_prefix=resource_pool_name)
+            # For Megatron backend, we recommend using max_colocate_count>1 that can utilize different
+            # WorkerGroup for different models
+            resource_pool = RayResourcePool(
+                process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=1, name_prefix=resource_pool_name
+            )
             self.resource_pool_dict[resource_pool_name] = resource_pool
 
         self._check_resource_available()
@@ -110,9 +118,13 @@ class ResourcePoolManager:
 
         # check total required gpus can be satisfied
         total_available_gpus = sum(node_available_gpus.values())
-        total_required_gpus = sum([n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes])
+        total_required_gpus = sum(
+            [n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes]
+        )
         if total_available_gpus < total_required_gpus:
-            raise ValueError(f"Total available GPUs {total_available_gpus} is less than total desired GPUs {total_required_gpus}")
+            raise ValueError(
+                f"Total available GPUs {total_available_gpus} is less than total desired GPUs {total_required_gpus}"
+            )
 
         # check each resource pool can be satisfied, O(#resource_pools * #nodes)
         for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
@@ -124,7 +136,10 @@ class ResourcePoolManager:
                     if num_nodes == 0:
                         break
             if num_nodes > 0:
-                raise ValueError(f"Resource pool {resource_pool_name}: {num_gpus}*{num_nodes} cannot be satisfied in this ray cluster")
+                raise ValueError(
+                    f"Resource pool {resource_pool_name}: {num_gpus}*{num_nodes} cannot be satisfied in this "
+                    f"ray cluster"
+                )
 
 
 def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
@@ -149,7 +164,9 @@ def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
             # This logic depends heavily on how your masks are constructed.
             # Example: prompt_lengths_tensor = full_mask.sum(dim=1).float() - response_lengths_tensor
             # Fallback to using prompt shape if mask logic is complex:
-            prompt_lengths_tensor = torch.tensor([batch.batch["prompts"].shape[1]] * batch_size, dtype=torch.float32, device=batch.batch.device)
+            prompt_lengths_tensor = torch.tensor(
+                [batch.batch["prompts"].shape[1]] * batch_size, dtype=torch.float32, device=batch.batch.device
+            )
 
         return {
             "prompt_length": prompt_lengths_tensor,
@@ -163,7 +180,12 @@ def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
         b_size = batch.batch.batch_size[0] if batch.batch.batch_size else 1
         max_resp = batch.batch.get("responses").shape[1] if batch.batch.get("responses") is not None else 0
         max_prompt = batch.batch.get("prompts").shape[1] if batch.batch.get("prompts") is not None else 0
-        return {"prompt_length": torch.zeros(b_size), "response_length": torch.zeros(b_size), "max_response_length": max_resp, "max_prompt_length": max_prompt}
+        return {
+            "prompt_length": torch.zeros(b_size),
+            "response_length": torch.zeros(b_size),
+            "max_response_length": max_resp,
+            "max_prompt_length": max_prompt,
+        }
 
 
 # --- Modified Metric Function ---
@@ -266,7 +288,9 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
 
     # compute kl between ref_policy and current policy
     # When apply_kl_penalty, algorithm.use_kl_in_reward=True, so the reference model has been enabled.
-    kld = core_algos.kl_penalty(data.batch["old_log_probs"], data.batch["ref_log_prob"], kl_penalty=kl_penalty)  # (batch_size, response_length)
+    kld = core_algos.kl_penalty(
+        data.batch["old_log_probs"], data.batch["ref_log_prob"], kl_penalty=kl_penalty
+    )  # (batch_size, response_length)
     kld = kld * response_mask
     beta = kl_ctrl.value
 
@@ -398,7 +422,9 @@ class RaySPINTrainer:
 
         # 1. Check total batch size for data correctness
         real_train_batch_size = config.data.train_batch_size * config.actor_rollout_ref.rollout.n
-        assert real_train_batch_size % n_gpus == 0, f"real_train_batch_size ({real_train_batch_size}) must be divisible by total n_gpus ({n_gpus})."
+        assert real_train_batch_size % n_gpus == 0, (
+            f"real_train_batch_size ({real_train_batch_size}) must be divisible by total n_gpus ({n_gpus})."
+        )
 
         # A helper function to check "micro_batch_size" vs "micro_batch_size_per_gpu"
         # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
@@ -416,29 +442,51 @@ class RaySPINTrainer:
                 param_per_gpu = f"{param}_per_gpu"
 
                 if mbs is None and mbs_per_gpu is None:
-                    raise ValueError(f"[{name}] Please set at least one of '{name}.{param}' or '{name}.{param_per_gpu}'.")
+                    raise ValueError(
+                        f"[{name}] Please set at least one of '{name}.{param}' or '{name}.{param_per_gpu}'."
+                    )
 
                 if mbs is not None and mbs_per_gpu is not None:
-                    raise ValueError(f"[{name}] You have set both '{name}.{param}' AND '{name}.{param_per_gpu}'. Please remove '{name}.{param}' because only '*_{param_per_gpu}' is supported (the former is deprecated).")
+                    raise ValueError(
+                        f"[{name}] You have set both '{name}.{param}' AND '{name}.{param_per_gpu}'. "
+                        f"Please remove '{name}.{param}' because only '*_{param_per_gpu}' is supported "
+                        f"(the former is deprecated)."
+                    )
 
         if not config.actor_rollout_ref.actor.use_dynamic_bsz:
             # actor: ppo_micro_batch_size vs. ppo_micro_batch_size_per_gpu
-            check_mutually_exclusive(config.actor_rollout_ref.actor.ppo_micro_batch_size, config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu, "actor_rollout_ref.actor")
+            check_mutually_exclusive(
+                config.actor_rollout_ref.actor.ppo_micro_batch_size,
+                config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu,
+                "actor_rollout_ref.actor",
+            )
 
             if self.use_reference_policy:
                 # reference: log_prob_micro_batch_size vs. log_prob_micro_batch_size_per_gpu
-                check_mutually_exclusive(config.actor_rollout_ref.ref.log_prob_micro_batch_size, config.actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu, "actor_rollout_ref.ref")
+                check_mutually_exclusive(
+                    config.actor_rollout_ref.ref.log_prob_micro_batch_size,
+                    config.actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu,
+                    "actor_rollout_ref.ref",
+                )
 
             #  The rollout section also has log_prob_micro_batch_size vs. log_prob_micro_batch_size_per_gpu
-            check_mutually_exclusive(config.actor_rollout_ref.rollout.log_prob_micro_batch_size, config.actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu, "actor_rollout_ref.rollout")
+            check_mutually_exclusive(
+                config.actor_rollout_ref.rollout.log_prob_micro_batch_size,
+                config.actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu,
+                "actor_rollout_ref.rollout",
+            )
 
         if self.use_critic and not config.critic.use_dynamic_bsz:
             # Check for critic micro-batch size conflicts
-            check_mutually_exclusive(config.critic.ppo_micro_batch_size, config.critic.ppo_micro_batch_size_per_gpu, "critic")
+            check_mutually_exclusive(
+                config.critic.ppo_micro_batch_size, config.critic.ppo_micro_batch_size_per_gpu, "critic"
+            )
 
         # Check for reward model micro-batch size conflicts
         if config.reward_model.enable and not config.reward_model.use_dynamic_bsz:
-            check_mutually_exclusive(config.reward_model.micro_batch_size, config.reward_model.micro_batch_size_per_gpu, "reward_model")
+            check_mutually_exclusive(
+                config.reward_model.micro_batch_size, config.reward_model.micro_batch_size_per_gpu, "reward_model"
+            )
 
         # Actor
         # check if train_batch_size is larger than ppo_mini_batch_size
@@ -449,10 +497,18 @@ class RaySPINTrainer:
             assert config.data.train_batch_size >= config.actor_rollout_ref.actor.ppo_mini_batch_size
             sp_size = config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1)
             if config.actor_rollout_ref.actor.ppo_micro_batch_size is not None:
-                assert config.actor_rollout_ref.actor.ppo_mini_batch_size % config.actor_rollout_ref.actor.ppo_micro_batch_size == 0
+                assert (
+                    config.actor_rollout_ref.actor.ppo_mini_batch_size
+                    % config.actor_rollout_ref.actor.ppo_micro_batch_size
+                    == 0
+                )
                 assert config.actor_rollout_ref.actor.ppo_micro_batch_size * sp_size >= n_gpus
 
-        assert config.actor_rollout_ref.actor.loss_agg_mode in ["token-mean", "seq-mean-token-sum", "seq-mean-token-mean"], f"Invalid loss_agg_mode: {config.actor_rollout_ref.actor.loss_agg_mode}"
+        assert config.actor_rollout_ref.actor.loss_agg_mode in [
+            "token-mean",
+            "seq-mean-token-sum",
+            "seq-mean-token-mean",
+        ], f"Invalid loss_agg_mode: {config.actor_rollout_ref.actor.loss_agg_mode}"
 
         if config.algorithm.use_kl_in_reward and config.actor_rollout_ref.actor.use_kl_loss:
             print("NOTICE: You have both enabled in-reward kl and kl loss.")
@@ -467,19 +523,31 @@ class RaySPINTrainer:
 
         # Check if use_remove_padding is enabled when using sequence parallelism for fsdp
         if config.actor_rollout_ref.actor.strategy == "fsdp":
-            if config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1) > 1 or config.actor_rollout_ref.ref.get("ulysses_sequence_parallel_size", 1) > 1:
-                assert config.actor_rollout_ref.model.use_remove_padding, "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
+            if (
+                config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1) > 1
+                or config.actor_rollout_ref.ref.get("ulysses_sequence_parallel_size", 1) > 1
+            ):
+                assert config.actor_rollout_ref.model.use_remove_padding, (
+                    "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
+                )
 
         if self.use_critic and config.critic.strategy == "fsdp":
             if config.critic.get("ulysses_sequence_parallel_size", 1) > 1:
-                assert config.critic.model.use_remove_padding, "When using sequence parallelism for critic, you must enable `use_remove_padding`."
+                assert config.critic.model.use_remove_padding, (
+                    "When using sequence parallelism for critic, you must enable `use_remove_padding`."
+                )
 
         if config.data.get("val_batch_size", None) is not None:
-            print("WARNING: val_batch_size is deprecated. Validation datasets are sent to inference engines as a whole batch, which will schedule the memory themselves.")
+            print(
+                "WARNING: val_batch_size is deprecated. Validation datasets are sent to inference engines "
+                "as a whole batch, which will schedule the memory themselves."
+            )
 
         # check eval config
         if config.actor_rollout_ref.rollout.val_kwargs.do_sample:
-            assert config.actor_rollout_ref.rollout.temperature > 0, "validation gen temperature should be greater than 0 when enabling do_sample"
+            assert config.actor_rollout_ref.rollout.temperature > 0, (
+                "validation gen temperature should be greater than 0 when enabling do_sample"
+            )
 
         print("[validate_config] All configuration checks passed successfully!")
 
@@ -491,9 +559,13 @@ class RaySPINTrainer:
         from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
 
         if train_dataset is None:
-            train_dataset = create_rl_dataset(self.config.data.train_files, self.config.data, self.tokenizer, self.processor)
+            train_dataset = create_rl_dataset(
+                self.config.data.train_files, self.config.data, self.tokenizer, self.processor
+            )
         if val_dataset is None:
-            val_dataset = create_rl_dataset(self.config.data.val_files, self.config.data, self.tokenizer, self.processor)
+            val_dataset = create_rl_dataset(
+                self.config.data.val_files, self.config.data, self.tokenizer, self.processor
+            )
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
         if train_sampler is None:
@@ -528,7 +600,10 @@ class RaySPINTrainer:
         assert len(self.train_dataloader) >= 1, "Train dataloader is empty!"
         assert len(self.val_dataloader) >= 1, "Validation dataloader is empty!"
 
-        print(f"Size of train dataloader: {len(self.train_dataloader)}, Size of val dataloader: {len(self.val_dataloader)}")
+        print(
+            f"Size of train dataloader: {len(self.train_dataloader)}, "
+            f"Size of val dataloader: {len(self.val_dataloader)}"
+        )
 
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
 
@@ -585,7 +660,9 @@ class RaySPINTrainer:
             test_batch = DataProto.from_single_dict(test_data)
 
             # repeat test batch
-            test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True)
+            test_batch = test_batch.repeat(
+                repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True
+            )
 
             # we only do validation on rule-based rm
             if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
@@ -671,14 +748,20 @@ class RaySPINTrainer:
         print(f"DEBUG: reward_extra_infos_dict keys before processing: {reward_extra_infos_dict.keys()}")  # Added Print
 
         data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
-        print(f"DEBUG: Output of process_validation_metrics (data_src2var2metric2val): {data_src2var2metric2val}")  # Added Print
+        print(
+            f"DEBUG: Output of process_validation_metrics (data_src2var2metric2val): {data_src2var2metric2val}"
+        )  # Added Print
         metric_dict = {}
         for data_source, var2metric2val in data_src2var2metric2val.items():
             core_var = "acc" if "acc" in var2metric2val else "reward"
             for var_name, metric2val in var2metric2val.items():
                 n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
                 for metric_name, metric_val in metric2val.items():
-                    if (var_name == core_var) and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"]) and (f"@{n_max}" in metric_name):
+                    if (
+                        (var_name == core_var)
+                        and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"])
+                        and (f"@{n_max}" in metric_name)
+                    ):
                         metric_sec = "val-core"
                     else:
                         metric_sec = "val-aux"
@@ -696,7 +779,11 @@ class RaySPINTrainer:
         # create actor and rollout
         if self.hybrid_engine:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.ActorRollout)
-            actor_rollout_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.ActorRollout], config=self.config.actor_rollout_ref, role="actor_rollout")
+            actor_rollout_cls = RayClassWithInitArgs(
+                cls=self.role_worker_mapping[Role.ActorRollout],
+                config=self.config.actor_rollout_ref,
+                role="actor_rollout",
+            )
             self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
         else:
             raise NotImplementedError
@@ -710,7 +797,9 @@ class RaySPINTrainer:
         # create reference policy if needed
         if self.use_reference_policy:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
-            ref_policy_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RefPolicy], config=self.config.actor_rollout_ref, role="ref")
+            ref_policy_cls = RayClassWithInitArgs(
+                self.role_worker_mapping[Role.RefPolicy], config=self.config.actor_rollout_ref, role="ref"
+            )
             self.resource_pool_to_cls[resource_pool]["ref"] = ref_policy_cls
 
         # create a reward model if reward_fn is None
@@ -721,8 +810,10 @@ class RaySPINTrainer:
             self.resource_pool_to_cls[resource_pool]["rm"] = rm_cls
 
         # initialize WorkerGroup
-        # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
-        # you should not use `create_colocated_worker_cls`. Instead, directly pass different resource pool to different worker groups.
+        # NOTE: if you want to use a different resource pool for each role, which can support different
+        # parallel size,
+        # you should not use `create_colocated_worker_cls`. Instead, directly pass different resource pool to
+        # different worker groups.
         # See https://github.com/volcengine/verl/blob/master/examples/ray/tutorial.ipynb for more information.
         all_wg = {}
         self.wg_dicts = []
@@ -732,7 +823,12 @@ class RaySPINTrainer:
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
-            wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls, device_name=self.device_name, **wg_kwargs)
+            wg_dict = self.ray_worker_group_cls(
+                resource_pool=resource_pool,
+                ray_cls_with_init=worker_dict_cls,
+                device_name=self.device_name,
+                **wg_kwargs,
+            )
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)
             # keep the referece of WorkerDict to support ray >= 2.31. Ref: https://github.com/ray-project/ray/pull/45699
@@ -756,25 +852,46 @@ class RaySPINTrainer:
 
     def _save_checkpoint(self):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
-        local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, f"global_step_{self.global_steps}")
+        local_global_step_folder = os.path.join(
+            self.config.trainer.default_local_dir, f"global_step_{self.global_steps}"
+        )
 
         print(f"local_global_step_folder: {local_global_step_folder}")
         actor_local_path = os.path.join(local_global_step_folder, "actor")
 
-        actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "actor")
+        actor_remote_path = (
+            None
+            if self.config.trainer.default_hdfs_dir is None
+            else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "actor")
+        )
 
         remove_previous_ckpt_in_save = self.config.trainer.get("remove_previous_ckpt_in_save", False)
         if remove_previous_ckpt_in_save:
-            print("Warning: remove_previous_ckpt_in_save is deprecated, set max_actor_ckpt_to_keep=1 and max_critic_ckpt_to_keep=1 instead")
-        max_actor_ckpt_to_keep = self.config.trainer.get("max_actor_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
-        max_critic_ckpt_to_keep = self.config.trainer.get("max_critic_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
+            print(
+                "Warning: remove_previous_ckpt_in_save is deprecated, set max_actor_ckpt_to_keep=1 and "
+                "max_critic_ckpt_to_keep=1 instead"
+            )
+        max_actor_ckpt_to_keep = (
+            self.config.trainer.get("max_actor_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
+        )
+        max_critic_ckpt_to_keep = (
+            self.config.trainer.get("max_critic_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
+        )
 
-        self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path, self.global_steps, max_ckpt_to_keep=max_actor_ckpt_to_keep)
+        self.actor_rollout_wg.save_checkpoint(
+            actor_local_path, actor_remote_path, self.global_steps, max_ckpt_to_keep=max_actor_ckpt_to_keep
+        )
 
         if self.use_critic:
             critic_local_path = os.path.join(local_global_step_folder, "critic")
-            critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "critic")
-            self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps, max_ckpt_to_keep=max_critic_ckpt_to_keep)
+            critic_remote_path = (
+                None
+                if self.config.trainer.default_hdfs_dir is None
+                else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "critic")
+            )
+            self.critic_wg.save_checkpoint(
+                critic_local_path, critic_remote_path, self.global_steps, max_ckpt_to_keep=max_critic_ckpt_to_keep
+            )
 
         # save dataloader
         dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
@@ -782,7 +899,9 @@ class RaySPINTrainer:
         torch.save(dataloader_state_dict, dataloader_local_path)
 
         # latest checkpointed iteration tracker (for atomic usage)
-        local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt")
+        local_latest_checkpointed_iteration = os.path.join(
+            self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt"
+        )
         with open(local_latest_checkpointed_iteration, "w") as f:
             f.write(str(self.global_steps))
 
@@ -808,7 +927,9 @@ class RaySPINTrainer:
         else:
             if self.config.trainer.resume_mode == "resume_path":
                 assert isinstance(self.config.trainer.resume_from_path, str), "resume ckpt must be str type"
-                assert "global_step_" in self.config.trainer.resume_from_path, "resume ckpt must specify the global_steps"
+                assert "global_step_" in self.config.trainer.resume_from_path, (
+                    "resume ckpt must specify the global_steps"
+                )
                 global_step_folder = self.config.trainer.resume_from_path
                 if not os.path.isabs(global_step_folder):
                     working_dir = os.getcwd()
@@ -823,10 +944,14 @@ class RaySPINTrainer:
         actor_path = os.path.join(global_step_folder, "actor")
         critic_path = os.path.join(global_step_folder, "critic")
         # load actor
-        self.actor_rollout_wg.load_checkpoint(actor_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
+        self.actor_rollout_wg.load_checkpoint(
+            actor_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load
+        )
         # load critic
         if self.use_critic:
-            self.critic_wg.load_checkpoint(critic_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
+            self.critic_wg.load_checkpoint(
+                critic_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load
+            )
 
         # load dataloader,
         # TODO: from remote not implemented yet
@@ -843,11 +968,15 @@ class RaySPINTrainer:
         batch_size = attention_mask.shape[0]
         global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1).tolist()  # (train_batch_size,)
         world_size = self.actor_rollout_wg.world_size
-        global_partition_lst = get_seqlen_balanced_partitions(global_seqlen_lst, k_partitions=world_size, equal_size=True)
+        global_partition_lst = get_seqlen_balanced_partitions(
+            global_seqlen_lst, k_partitions=world_size, equal_size=True
+        )
         # reorder based on index. The data will be automatically equally partitioned by dispatch function
         global_idx = torch.tensor([j for partition in global_partition_lst for j in partition])
         batch.reorder(global_idx)
-        global_balance_stats = log_seqlen_unbalance(seqlen_list=global_seqlen_lst, partitions=global_partition_lst, prefix=logging_prefix)
+        global_balance_stats = log_seqlen_unbalance(
+            seqlen_list=global_seqlen_lst, partitions=global_partition_lst, prefix=logging_prefix
+        )
         metrics.update(global_balance_stats)
 
     def fit_dpo(self):  # Renamed for clarity as standard PPO loop
@@ -865,7 +994,12 @@ class RaySPINTrainer:
         # Initialize logger
         logger = None
         try:
-            logger = Tracking(project_name=self.config.trainer.project_name, experiment_name=self.config.trainer.experiment_name, default_backend=self.config.trainer.logger, config=OmegaConf.to_container(self.config, resolve=True, throw_on_missing=False))
+            logger = Tracking(
+                project_name=self.config.trainer.project_name,
+                experiment_name=self.config.trainer.experiment_name,
+                default_backend=self.config.trainer.logger,
+                config=OmegaConf.to_container(self.config, resolve=True, throw_on_missing=False),
+            )
         except Exception as e:
             print(f"Warning: Failed to initialize logger: {e}")
 
@@ -873,14 +1007,21 @@ class RaySPINTrainer:
         # Load checkpoint before doing anything
         loaded_step = self._load_checkpoint()
         self.global_steps = loaded_step + 1 if loaded_step is not None and loaded_step > 0 else 1
-        print(f"Starting Online DPO training from global step {self.global_steps}. Total steps: {self.total_training_steps}")
+        print(
+            f"Starting Online DPO training from global step {self.global_steps}. "
+            f"Total steps: {self.total_training_steps}"
+        )
         print(f"Reference model update frequency: {self.config.trainer.get('ref_update_freq', 'Not Set')}")
 
         # Check if reference policy is configured correctly for this mode
         if not self.use_reference_policy:
-            print("WARNING: 'use_reference_policy' is False. Periodic reference model update requires a reference policy worker. DPO updates might fail or use incorrect logic.")
+            print(
+                "WARNING: 'use_reference_policy' is False. Periodic reference model update requires a "
+                "reference policy worker. DPO updates might fail or use incorrect logic."
+            )
             # Consider raising an error if strict adherence is required:
-            # raise ValueError("Periodic reference model update requires 'use_reference_policy' to be True and a configured reference worker.")
+            # raise ValueError("Periodic reference model update requires 'use_reference_policy' to be True "
+            #                  "and a configured reference worker.")
 
         # Perform validation before training
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
@@ -896,7 +1037,13 @@ class RaySPINTrainer:
                 return
 
         # Add tqdm progress bar
-        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Online DPO Training Progress", position=0, leave=True)
+        progress_bar = tqdm(
+            total=self.total_training_steps,
+            initial=self.global_steps,
+            desc="Online DPO Training Progress",
+            position=0,
+            leave=True,
+        )
 
         last_val_metrics = None
         should_stop = False
@@ -926,11 +1073,18 @@ class RaySPINTrainer:
                     with _timer("step", timing_raw):
                         batch: DataProto = DataProto.from_single_dict(batch_dict)
                         current_batch_size = batch.batch.batch_size[0]
-                        print(f"\n[Step {self.global_steps}, Batch {batch_idx}] Processing batch size: {current_batch_size}")
+                        print(
+                            f"\n[Step {self.global_steps}, Batch {batch_idx}] Processing batch size: "
+                            f"{current_batch_size}"
+                        )
 
                         # --- Reference Model Update ---
                         ref_update_freq = self.config.trainer.get("ref_update_freq", -1)
-                        if self.use_reference_policy and ref_update_freq > 0 and self.global_steps % ref_update_freq == 0:
+                        if (
+                            self.use_reference_policy
+                            and ref_update_freq > 0
+                            and self.global_steps % ref_update_freq == 0
+                        ):
                             print(f"\n[Step {self.global_steps}] Updating Reference Model Weights from Actor...")
                             try:
                                 # --- This requires careful implementation with FSDP ---
@@ -982,7 +1136,9 @@ class RaySPINTrainer:
 
                         # Combine original prompts with generated sequences
                         batch.non_tensor_batch = original_non_tensor_data  # Restore non-tensor data
-                        batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(current_batch_size)], dtype=object)
+                        batch.non_tensor_batch["uid"] = np.array(
+                            [str(uuid.uuid4()) for _ in range(current_batch_size)], dtype=object
+                        )
                         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                         batch = batch.union(gen_batch_output)
                         # (Add Debug prints after union if needed)
@@ -995,7 +1151,8 @@ class RaySPINTrainer:
 
                         batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
-                        # --- Compute Log Probs for the CURRENT policy (used for KL if enabled, or ActorAsRef fallback) ---
+                        # --- Compute Log Probs for the CURRENT policy (used for KL if enabled, or ActorAsRef
+                        # fallback) ---
                         # Note: For pure DPO with external ref, this 'old_log_probs' might not be strictly needed
                         #       unless used for other metrics or a fallback. Keep it for now.
                         with _timer("policy_log_prob", timing_raw):
@@ -1009,17 +1166,25 @@ class RaySPINTrainer:
                                 # print(f"---- [Step {self.global_steps}] DEBUG DPO: Calling compute_ref_log_prob ----")
                                 try:
                                     # 'batch' contains interleaved chosen/rejected sequences
-                                    ref_log_prob_output = self.ref_policy_wg.compute_ref_log_prob(batch)  # Returns DataProto with 'ref_log_prob'
-                                    batch = batch.union(ref_log_prob_output)  # Adds 'ref_log_prob' key [batch_size * n, seq_len]
+                                    ref_log_prob_output = self.ref_policy_wg.compute_ref_log_prob(
+                                        batch
+                                    )  # Returns DataProto with 'ref_log_prob'
+                                    batch = batch.union(
+                                        ref_log_prob_output
+                                    )  # Adds 'ref_log_prob' key [batch_size * n, seq_len]
                                     ref_log_prob_computed = True  # Mark success
-                                    # print(f"---- [Step {self.global_steps}] DEBUG DPO: ref_log_prob tensor shape: {batch.batch['ref_log_prob'].shape} ----")
+                                    # print(f"---- [Step {self.global_steps}] DEBUG DPO: ref_log_prob tensor shape: "
+                                    #       f"{batch.batch['ref_log_prob'].shape} ----")
                                 except Exception as ref_e:
                                     print(f"ERROR computing reference log probs at step {self.global_steps}: {ref_e}")
                                     traceback.print_exc()
                                     batch.batch["ref_log_prob"] = None  # Mark as failed
                                     ref_log_prob_computed = False
                         else:
-                            print("Warning: Skipping external reference log prob calculation as use_reference_policy is False.")
+                            print(
+                                "Warning: Skipping external reference log prob calculation as use_reference_policy "
+                                "is False."
+                            )
                             # DPO update will likely fail unless ActorAsRef logic is re-enabled in dp_actor
 
                         # --- Compute Rewards/Scores (used to determine preference) ---
@@ -1033,16 +1198,20 @@ class RaySPINTrainer:
                             reward_extra_infos_dict = {}
                             try:
                                 if self.reward_fn is None:
-                                    #  print(f"---- [DEBUG Step {self.global_steps}] ERROR: self.reward_fn is None! Using dummy rewards. ----")
+                                    #  print(f"---- [DEBUG Step {self.global_steps}] ERROR: self.reward_fn is None! "
+                                    #        f"Using dummy rewards. ----")
                                     # Use rm_scores if available, otherwise zeros
-                                    reward_tensor = batch.batch.get("rm_scores", torch.zeros_like(batch.batch["response_mask"], dtype=torch.float32))
+                                    reward_tensor = batch.batch.get(
+                                        "rm_scores", torch.zeros_like(batch.batch["response_mask"], dtype=torch.float32)
+                                    )
                                 else:
                                     reward_result = self.reward_fn(batch, return_dict=True)
                                     reward_tensor = reward_result["reward_tensor"]  # Final combined reward
                                     reward_extra_infos_dict = reward_result.get("reward_extra_info", {})
 
                             except Exception:
-                                # print(f'---- [DEBUG Step {self.global_steps}] Error in reward_fn call: {e}. Using dummy rewards. ----')
+                                # print(f'---- [DEBUG Step {self.global_steps}] Error in reward_fn call: {e}. '
+                                #       f'Using dummy rewards. ----')
                                 traceback.print_exc()
                                 reward_tensor = torch.zeros_like(batch.batch["response_mask"], dtype=torch.float32)
                                 reward_extra_infos_dict = {}
@@ -1050,7 +1219,9 @@ class RaySPINTrainer:
                             # Use 'token_level_rewards' as the key for preference calculation
                             batch.batch["token_level_rewards"] = reward_tensor
                             if reward_extra_infos_dict:
-                                batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+                                batch.non_tensor_batch.update(
+                                    {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
+                                )
 
                         # --- Determine Preferences ---
                         # Uses 'token_level_rewards' to determine chosen/rejected based on score
@@ -1081,8 +1252,16 @@ class RaySPINTrainer:
                                 chosen_attention_mask = batch.batch["attention_mask"][preferences_mask]
                                 rejected_input_ids = batch.batch["input_ids"][not_preferences_mask]
                                 rejected_attention_mask = batch.batch["attention_mask"][not_preferences_mask]
-                                chosen_position_ids = batch.batch.get("position_ids")[preferences_mask] if "position_ids" in batch.batch else None
-                                rejected_position_ids = batch.batch.get("position_ids")[not_preferences_mask] if "position_ids" in batch.batch else None
+                                chosen_position_ids = (
+                                    batch.batch.get("position_ids")[preferences_mask]
+                                    if "position_ids" in batch.batch
+                                    else None
+                                )
+                                rejected_position_ids = (
+                                    batch.batch.get("position_ids")[not_preferences_mask]
+                                    if "position_ids" in batch.batch
+                                    else None
+                                )
 
                                 # Create Labels
                                 print("WARNING: Creating DPO labels using configured max_prompt_length...")
@@ -1095,14 +1274,21 @@ class RaySPINTrainer:
                                 # Calculate and Gather Reference Log Probs (Sequence Level)
                                 if self.use_reference_policy:
                                     ref_log_prob_tensor = batch.batch["ref_log_prob"]  # Token level [bsz * n, seq_len]
-                                    response_mask_full = batch.batch["response_mask"]  # Response mask [bsz * n, seq_len]
-                                    ref_sequence_logps = (ref_log_prob_tensor * response_mask_full).sum(dim=-1)  # Sequence level [bsz * n]
+                                    response_mask_full = batch.batch[
+                                        "response_mask"
+                                    ]  # Response mask [bsz * n, seq_len]
+                                    ref_sequence_logps = (ref_log_prob_tensor * response_mask_full).sum(
+                                        dim=-1
+                                    )  # Sequence level [bsz * n]
                                     reference_chosen_logps = ref_sequence_logps[preferences_mask]
                                     reference_rejected_logps = ref_sequence_logps[not_preferences_mask]
                                 else:
                                     # If not using external ref, DPO needs ActorAsRef logic in dp_actor
                                     # We won't add the keys here, dp_actor will handle it (or fail if not modified)
-                                    print("Info: Not adding explicit reference logps to DPO batch (use_reference_policy=False).")
+                                    print(
+                                        "Info: Not adding explicit reference logps to DPO batch "
+                                        "(use_reference_policy=False)."
+                                    )
                                     reference_chosen_logps = None  # Explicitly None
                                     reference_rejected_logps = None
 
@@ -1129,8 +1315,12 @@ class RaySPINTrainer:
                                 # Prepare Meta Info
                                 dpo_meta = {
                                     "dpo_beta": OmegaConf.select(self.config.algorithm, "dpo_beta", default=0.1),
-                                    "dpo_loss_type": OmegaConf.select(self.config.algorithm, "dpo_loss_type", default="sigmoid"),
-                                    "dpo_label_smoothing": OmegaConf.select(self.config.algorithm, "dpo_label_smoothing", default=0.0),
+                                    "dpo_loss_type": OmegaConf.select(
+                                        self.config.algorithm, "dpo_loss_type", default="sigmoid"
+                                    ),
+                                    "dpo_label_smoothing": OmegaConf.select(
+                                        self.config.algorithm, "dpo_label_smoothing", default=0.0
+                                    ),
                                     "use_reference_policy": self.use_reference_policy,
                                     "reference_free": not self.use_reference_policy,  # False if using external ref
                                     "global_step": self.global_steps,
@@ -1156,12 +1346,18 @@ class RaySPINTrainer:
                             if actor_output and "metrics" in actor_output.meta_info:
                                 metrics.update(reduce_metrics(actor_output.meta_info["metrics"]))
                         elif dpo_update_batch_proto is None:
-                            print(f"Skipping actor update at step {self.global_steps} due to DPO batch preparation error.")
+                            print(
+                                f"Skipping actor update at step {self.global_steps} due to DPO batch preparation error."
+                            )
 
                         # --- Validation and Saving ---
                         test_freq = OmegaConf.select(self.config.trainer, "test_freq", default=-1)
                         is_last_step = self.global_steps >= self.total_training_steps
-                        if self.val_reward_fn is not None and test_freq > 0 and (is_last_step or self.global_steps % test_freq == 0):
+                        if (
+                            self.val_reward_fn is not None
+                            and test_freq > 0
+                            and (is_last_step or self.global_steps % test_freq == 0)
+                        ):
                             print(f"\nRunning DPO validation at step {self.global_steps}...")
                             val_timing_raw = {}
                             with _timer("testing", val_timing_raw):
@@ -1190,7 +1386,10 @@ class RaySPINTrainer:
                     if "step" in timing_raw:
                         metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
                     else:
-                        print(f"Warning: 'step' key missing from timing_raw at step {self.global_steps}. Skipping throughput.")
+                        print(
+                            f"Warning: 'step' key missing from timing_raw at step {self.global_steps}. "
+                            f"Skipping throughput."
+                        )
 
                     step_timer.stop()
                     metrics["time/step"] = step_timer.last
@@ -1210,7 +1409,11 @@ class RaySPINTrainer:
                             print(f"Logging failed at step {self.global_steps}: {e}")
 
                     # Update progress bar
-                    postfix_metrics = {k: f"{v:.3f}" if isinstance(v, float) else v for k, v in metrics.items() if isinstance(v, (int, float))}
+                    postfix_metrics = {
+                        k: f"{v:.3f}" if isinstance(v, float) else v
+                        for k, v in metrics.items()
+                        if isinstance(v, (int, float))
+                    }
                     progress_bar.set_postfix(postfix_metrics)
 
                 except Exception as step_e:

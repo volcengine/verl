@@ -77,8 +77,12 @@ def test_ray_collective_group():
     actor_cls = RayClassWithInitArgs(cls=Actor)
     rollout_cls = RayClassWithInitArgs(cls=Rollout)
 
-    actor_wg = RayWorkerGroup(resource_pool=actor_resource_pool, ray_cls_with_init=actor_cls, name_prefix="collective_group_actor")
-    rollout_wg = RayWorkerGroup(resource_pool=rollout_resource_pool, ray_cls_with_init=rollout_cls, name_prefix="collective_group_rollout")
+    actor_wg = RayWorkerGroup(
+        resource_pool=actor_resource_pool, ray_cls_with_init=actor_cls, name_prefix="collective_group_actor"
+    )
+    rollout_wg = RayWorkerGroup(
+        resource_pool=rollout_resource_pool, ray_cls_with_init=rollout_cls, name_prefix="collective_group_rollout"
+    )
 
     actor_wg.init()
     rollout_wg.init()
