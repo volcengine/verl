@@ -16,8 +16,12 @@ vidia-cudnn-cu12==9.8.0.87
 
 ## Target
 
-- `verlai/verl:base-verl0.4-cu124-cudnn9.8-torch2.6-fa2.7.4`
-- `verlai/verl:app-verl0.4-sglang0.4.6.post5-mcore0.12.1`
-- `verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.1`
-- Preview image: `verlai/verl:app-verl0.4-sglang0.4.6.post5-mcore0.13.0`
-- Preview image: `verlai/verl:app-verl0.4-vllm0.8.5-mcore0.13.0`
+- Base image: 
+    - `verlai/verl:base-verl0.4-cu124-cudnn9.8-torch2.6-fa2.7.4`
+- App image:
+    - `verlai/verl:app-verl0.4-sglang0.4.6.post5-mcore0.12.1`
+- App image:
+    - `verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.1`
+- Preview image:
+    - `verlai/verl:app-verl0.4-sglang0.4.6.post5-mcore0.13.0-preview`
+    - `verlai/verl:app-verl0.4-vllm0.8.5-mcore0.13.0-preview`

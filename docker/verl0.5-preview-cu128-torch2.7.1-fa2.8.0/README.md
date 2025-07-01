@@ -16,7 +16,8 @@ vidia-cudnn-cu12==9.8.0.87
 
 ## Target
 
-- `verlai/verl:base-verl0.5-preview-cu128-cudnn9.8-torch2.7.1-fa2.8.0-fi0.2.6`: We offer a base image with flash infer 0.2.6.post1 built in
-- `verlai/verl:app-verl0.5-preview-sglang0.4.6.post5-mcore0.12.1`
-- `verlai/verl:app-verl0.5-preview-sglang0.4.6.post5`
+- Base image:
+    - `verlai/verl:base-verl0.5-preview-cu128-cudnn9.8-torch2.7.1-fa2.8.0-fi0.2.6`: We offer a base image with flash infer 0.2.6.post1 built in
+- App image:
+    - `verlai/verl:app-verl0.5-preview-sglang0.4.6.post5-mcore0.13.0-preview`
 - vllm temporarily not support latest version
