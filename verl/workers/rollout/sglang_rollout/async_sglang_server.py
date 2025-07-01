@@ -43,7 +43,9 @@ class AsyncSglangServer(AsyncServerBase):
             # avoid init twice
             return
         all_actors = ray.util.list_named_actors(all_namespaces=True)
-        matched_actors = [actor for actor in all_actors if actor.get("name", None).startswith(self.wg_prefix + "WorkerDict_")]
+        matched_actors = [
+            actor for actor in all_actors if actor.get("name", None).startswith(self.wg_prefix + "WorkerDict_")
+        ]
 
         for matched_actor in matched_actors:
             fields = matched_actor["name"].split(":")
@@ -68,11 +70,17 @@ class AsyncSglangServer(AsyncServerBase):
         return await self.master_worker.generate.remote(prompt_ids, sampling_params, request_id)
 
     async def wake_up(self):
+        if not self.config.rollout.free_cache_engine:
+            return
+
         tasks = [worker.wake_up.remote() for worker in self.workers]
         if tasks:
             await asyncio.gather(*tasks)
 
     async def sleep(self):
+        if not self.config.rollout.free_cache_engine:
+            return
+
         tasks = [worker.sleep.remote() for worker in self.workers]
         if tasks:
             await asyncio.gather(*tasks)

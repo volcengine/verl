@@ -47,7 +47,9 @@ class TestAsyncSglangServer:
         from verl.workers.rollout.sglang_rollout.async_sglang_server import AsyncSglangServer
 
         ActualClassToInstantiate = AsyncSglangServer
-        if hasattr(AsyncSglangServer, "__ray_metadata__") and hasattr(AsyncSglangServer.__ray_metadata__, "modified_class"):
+        if hasattr(AsyncSglangServer, "__ray_metadata__") and hasattr(
+            AsyncSglangServer.__ray_metadata__, "modified_class"
+        ):
             ActualClassToInstantiate = AsyncSglangServer.__ray_metadata__.modified_class
 
         def mock_get_actor_side_effect(name, namespace=None):
@@ -70,7 +72,10 @@ class TestAsyncSglangServer:
             return actor_mock
 
         # Verify instance.workers is correctly populated
-        with patch("verl.workers.rollout.sglang_rollout.async_sglang_server.ray.get_actor", side_effect=mock_get_actor_side_effect):
+        with patch(
+            "verl.workers.rollout.sglang_rollout.async_sglang_server.ray.get_actor",
+            side_effect=mock_get_actor_side_effect,
+        ):
             # Instance 1
             instance = ActualClassToInstantiate(server_config, 4, 0, "test_prefix")
             await instance.init_engine()

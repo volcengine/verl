@@ -28,13 +28,19 @@ When working with Megatron:
 
 import logging
 import os
+import pickle
+import socket
+import threading
 from contextlib import contextmanager
 from copy import deepcopy
 from typing import Any, Dict, List, Union
 
 import numpy as np
+import ray
 import torch
 import torch.distributed
+import zmq
+from filelock import FileLock
 from omegaconf import DictConfig, OmegaConf
 from tensordict import TensorDict
 from vllm import LLM, SamplingParams
@@ -43,7 +49,6 @@ from vllm.lora.request import LoRARequest
 from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
-from verl.third_party.vllm import vllm_version
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
@@ -87,10 +92,11 @@ class vLLMRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
-        assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
-        assert tensor_parallel_size <= torch.distributed.get_world_size(), "tensor parallel size should be less than or equal to the world size"
+        assert tensor_parallel_size <= torch.distributed.get_world_size(), (
+            "tensor parallel size should be less than or equal to the world size"
+        )
         max_num_batched_tokens = self.config.get("max_num_batched_tokens", 8192)
 
         if kwargs.get("train_tp") is not None:
@@ -99,29 +105,27 @@ class vLLMRollout(BaseRollout):
 
             os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
             os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
-            if vllm_version in (
-                "0.5.4",
-                "0.6.3",
-            ):
-                train_tp = kwargs.get("train_tp")
-                num_tp_per_train_tp = train_tp // tensor_parallel_size
-                vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size, num_tp_per_train_tp=num_tp_per_train_tp)
-            else:
-                vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
+            vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
 
         rope_scaling_config = getattr(model_hf_config, "rope_scaling", None)
         if not rope_scaling_config:
             max_position_embeddings = None
             if hasattr(model_hf_config, "max_position_embeddings"):
                 max_position_embeddings = model_hf_config.max_position_embeddings
-            elif hasattr(model_hf_config, "llm_config") and hasattr(model_hf_config.llm_config, "max_position_embeddings"):
+            elif hasattr(model_hf_config, "llm_config") and hasattr(
+                model_hf_config.llm_config, "max_position_embeddings"
+            ):
                 max_position_embeddings = model_hf_config.llm_config.max_position_embeddings
-            elif hasattr(model_hf_config, "text_config") and hasattr(model_hf_config.text_config, "max_position_embeddings"):
+            elif hasattr(model_hf_config, "text_config") and hasattr(
+                model_hf_config.text_config, "max_position_embeddings"
+            ):
                 max_position_embeddings = model_hf_config.text_config.max_position_embeddings
             if max_position_embeddings is None:
                 raise ValueError("max_position_embeddings not found in model_hf_config")
 
-            assert max_position_embeddings >= config.prompt_length + config.response_length, "model context length should be greater than total sequence length"
+            assert max_position_embeddings >= config.prompt_length + config.response_length, (
+                "model context length should be greater than total sequence length"
+            )
 
         max_model_len = int(config.max_model_len or config.prompt_length + config.response_length)
 
@@ -137,7 +141,11 @@ class vLLMRollout(BaseRollout):
         lora_kwargs = kwargs.pop("lora_kwargs", {})
         self.lora_kwargs = lora_kwargs
         # copy it to avoid secretly modifying the engine config
-        engine_kwargs = {} if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs else OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
+        engine_kwargs = (
+            {}
+            if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs
+            else OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
+        )
         # For each vLLM engine parameter,
         # - `None` means not setting it, so we pop it, and leave it to vLLM default value
         #    (which can vary across different vLLM versions);
@@ -148,7 +156,7 @@ class vLLMRollout(BaseRollout):
 
         self.inference_engine = LLM(
             model=model_path,
-            enable_sleep_mode=True,
+            enable_sleep_mode=config.free_cache_engine,
             tensor_parallel_size=tensor_parallel_size,
             distributed_executor_backend="external_launcher",
             dtype=config.dtype,
@@ -169,7 +177,8 @@ class vLLMRollout(BaseRollout):
         )
 
         # Offload vllm model to reduce peak memory usage
-        self.inference_engine.sleep(level=1)
+        if config.free_cache_engine:
+            self.inference_engine.sleep(level=1)
 
         kwargs = dict(
             n=1,
@@ -177,9 +186,7 @@ class vLLMRollout(BaseRollout):
             max_tokens=config.response_length,
         )
 
-        # # we may detokenize the result all together later
-        if vllm_version != "0.3.1":
-            kwargs["detokenize"] = False
+        kwargs["detokenize"] = False
 
         # supporting adding any sampling params from the config file
         for k in config.keys():
@@ -210,17 +217,6 @@ class vLLMRollout(BaseRollout):
     @GPUMemoryLogger(role="vllm rollout spmd", logger=logger)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-        # rebuild vllm cache engine
-        if (
-            vllm_version
-            in (
-                "0.5.4",
-                "0.6.3",
-            )
-            and self.config.free_cache_engine
-        ):
-            self.inference_engine.init_cache_engine()
-
         idx = prompts.batch["input_ids"]  # (bs, prompt_length)
         # left-padded attention_mask
         attention_mask = prompts.batch["attention_mask"]
@@ -233,17 +229,23 @@ class vLLMRollout(BaseRollout):
 
         non_tensor_batch = prompts.non_tensor_batch
         if "raw_prompt_ids" not in non_tensor_batch:
-            non_tensor_batch["raw_prompt_ids"] = np.array([_pre_process_inputs(self.pad_token_id, idx[i]) for i in range(batch_size)], dtype=object)
+            non_tensor_batch["raw_prompt_ids"] = np.array(
+                [_pre_process_inputs(self.pad_token_id, idx[i]) for i in range(batch_size)], dtype=object
+            )
 
         if batch_size != len(non_tensor_batch["raw_prompt_ids"]):
             raise RuntimeError("vllm sharding manager is not work properly.")
 
         if "multi_modal_data" in non_tensor_batch:
             vllm_inputs = []
-            for raw_prompt_ids, multi_modal_data in zip(non_tensor_batch.pop("raw_prompt_ids"), non_tensor_batch.pop("multi_modal_data")):
+            for raw_prompt_ids, multi_modal_data in zip(
+                non_tensor_batch.pop("raw_prompt_ids"), non_tensor_batch.pop("multi_modal_data")
+            ):
                 vllm_inputs.append({"prompt_token_ids": raw_prompt_ids, "multi_modal_data": multi_modal_data})
         else:
-            vllm_inputs = [{"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch.pop("raw_prompt_ids")]
+            vllm_inputs = [
+                {"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch.pop("raw_prompt_ids")
+            ]
 
         # ensure the type of `prompt_token_ids` passed to vllm is list[int]
         # https://github.com/volcengine/verl/pull/772
@@ -251,7 +253,9 @@ class vLLMRollout(BaseRollout):
             if isinstance(input_data["prompt_token_ids"], np.ndarray):
                 input_data["prompt_token_ids"] = input_data["prompt_token_ids"].tolist()
             elif not isinstance(input_data["prompt_token_ids"], list):
-                raise TypeError(f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}")
+                raise TypeError(
+                    f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}"
+                )
 
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
@@ -278,7 +282,9 @@ class vLLMRollout(BaseRollout):
             lora_int_ids = list(self.inference_engine.llm_engine.list_loras())
             if len(lora_int_ids) > 0:
                 lora_int_id = lora_int_ids[0]
-                lora_requests = [LoRARequest(lora_name=f"{lora_int_id}", lora_int_id=lora_int_id, lora_path="/simon-stub-path")] * batch_size
+                lora_requests = [
+                    LoRARequest(lora_name=f"{lora_int_id}", lora_int_id=lora_int_id, lora_path="/simon-stub-path")
+                ] * batch_size
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
@@ -304,9 +310,13 @@ class vLLMRollout(BaseRollout):
                             curr_log_prob.append(logprob[response_ids[i]].logprob)
                         rollout_log_probs.append(curr_log_prob)
 
-            response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(idx.device)
+            response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(
+                idx.device
+            )
             if self.config.calculate_log_probs:
-                rollout_log_probs = pad_2d_list_to_length(rollout_log_probs, -1, max_length=self.config.response_length).to(idx.device)
+                rollout_log_probs = pad_2d_list_to_length(
+                    rollout_log_probs, -1, max_length=self.config.response_length
+                ).to(idx.device)
                 rollout_log_probs = rollout_log_probs.to(torch.float32)
 
             if self.sampling_params.n > 1 and do_sample:
@@ -316,11 +326,17 @@ class vLLMRollout(BaseRollout):
                 batch_size = batch_size * self.sampling_params.n
                 # NOTE(linjunrong): for multi-turn https://github.com/volcengine/verl/pull/1037
                 if "tools_kwargs" in non_tensor_batch.keys():
-                    non_tensor_batch["tools_kwargs"] = _repeat_interleave(non_tensor_batch["tools_kwargs"], self.sampling_params.n)
+                    non_tensor_batch["tools_kwargs"] = _repeat_interleave(
+                        non_tensor_batch["tools_kwargs"], self.sampling_params.n
+                    )
                 if "interaction_kwargs" in non_tensor_batch.keys():
-                    non_tensor_batch["interaction_kwargs"] = _repeat_interleave(non_tensor_batch["interaction_kwargs"], self.sampling_params.n)
+                    non_tensor_batch["interaction_kwargs"] = _repeat_interleave(
+                        non_tensor_batch["interaction_kwargs"], self.sampling_params.n
+                    )
                 if "raw_prompt" in non_tensor_batch.keys():
-                    non_tensor_batch["raw_prompt"] = _repeat_interleave(non_tensor_batch["raw_prompt"], self.sampling_params.n)
+                    non_tensor_batch["raw_prompt"] = _repeat_interleave(
+                        non_tensor_batch["raw_prompt"], self.sampling_params.n
+                    )
 
             seq = torch.cat([idx, response], dim=-1)
 
@@ -336,7 +352,9 @@ class vLLMRollout(BaseRollout):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
         response_position_ids = position_ids[..., -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-        response_attention_mask = get_response_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
+        response_attention_mask = get_response_mask(
+            response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype
+        )
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
@@ -354,17 +372,6 @@ class vLLMRollout(BaseRollout):
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
 
-        # free vllm cache engine
-        if (
-            vllm_version
-            in (
-                "0.5.4",
-                "0.6.3",
-            )
-            and self.config.free_cache_engine
-        ):
-            self.inference_engine.free_cache_engine()
-
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
 
@@ -373,11 +380,54 @@ class vLLMAsyncRollout:
     which is engine in single worker process.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
         # Engine is deferred to be initialized in init_worker
+        self.config = config
         self.inference_engine: WorkerWrapperBase = None
         self.sharding_manager = None
         self.is_sleep = False
+        self.address = self._init_zeromq()
+
+    def _init_zeromq(self) -> str:
+        tensor_parallel_size = self.config.tensor_model_parallel_size
+
+        # single node: ipc, multi nodes: tcp
+        local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
+        socket_type = "ipc" if tensor_parallel_size <= local_world_size else "tcp"
+
+        # File lock to prevent multiple workers listen to same port
+        with FileLock("/tmp/verl_vllm_zmq.lock"):
+            if socket_type == "ipc":
+                pid = os.getpid()
+                address = f"ipc:///tmp/verl_vllm_zmq_{pid}.ipc"
+            else:
+                ip, port = self._get_free_port()
+                address = f"tcp://{ip}:{port}"
+            context = zmq.Context()
+            self.socket = context.socket(zmq.REP)
+            self.socket.bind(address)
+
+        self.loop_thread = threading.Thread(target=self._loop_forever)
+        self.loop_thread.start()
+
+        return address
+
+    def _get_free_port(self):
+        ip = ray._private.services.get_node_ip_address()
+        with socket.socket() as sock:
+            sock.bind(("", 0))
+            port = sock.getsockname()[1]
+        return ip, port
+
+    def _loop_forever(self):
+        while True:
+            message = self.socket.recv()
+            method, args, kwargs = pickle.loads(message)
+            result = self.execute_method(method, *args, **kwargs)
+            self.socket.send(pickle.dumps(result))
+
+    def get_zeromq_address(self):
+        return self.address
 
     def init_worker(self, all_kwargs: List[Dict[str, Any]]):
         """Initialize worker engine."""

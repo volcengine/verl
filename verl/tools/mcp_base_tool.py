@@ -88,7 +88,12 @@ class MCPBaseTool(BaseTool):
             self._instance_dict[instance_id]["reward"].append(result_text.strip())
 
             # Convert metadata to metrics
-            metrics = {"query_count": metadata.get("query_count", 0), "status": metadata.get("status", "unknown"), "total_results": metadata.get("total_results", 0), "api_request_error": metadata.get("api_request_error")}
+            metrics = {
+                "query_count": metadata.get("query_count", 0),
+                "status": metadata.get("status", "unknown"),
+                "total_results": metadata.get("total_results", 0),
+                "api_request_error": metadata.get("api_request_error"),
+            }
 
             return result_text, 0.0, metrics
 

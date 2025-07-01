@@ -55,7 +55,9 @@ def main(config):
     compute_score = get_custom_reward_fn(config)
 
     # Create remote tasks
-    remote_tasks = [process_item.remote(compute_score, data_sources[i], responses[i], reward_model_data[i]) for i in range(total)]
+    remote_tasks = [
+        process_item.remote(compute_score, data_sources[i], responses[i], reward_model_data[i]) for i in range(total)
+    ]
 
     # Process results as they come in
     with tqdm(total=total) as pbar:

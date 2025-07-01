@@ -1,6 +1,8 @@
 Megatron-LM Backend
 ===================
 
+Last updated: 06/24/2025.
+
 We support Megatron Backend by implementing various workers for actor,
 critic, reference, rollout and reward models. We also implement the
 ``3DHybridEngine`` using Megatron-LM and vLLM/SGLang in

@@ -94,7 +94,6 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test]
-          pip3 install vllm==0.5.4
       - name: Download Model to Use
         run: |
           huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct
@@ -103,10 +102,6 @@ jobs:
           huggingface-cli download 'deepseek-ai/deepseek-llm-7b-chat'
           export HF_HUB_OFFLINE=1
         # Disable requests to avoid network errors
-      - name: Running vllm tests on 8 L20 GPUs
-        run: |
-          cd tests/workers/rollout/rollout_vllm
-          torchrun --standalone --nnodes=1 --nproc_per_node=8 $(which pytest) -s test_vllm_hf_loader.py
       - name: Test the latest vLLM
         run: |
           pip3 install --upgrade vllm==0.7.3

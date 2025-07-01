@@ -1,6 +1,9 @@
 =======================
 Search Tool Integration
 =======================
+
+Last updated: 05/30/2025.
+
 Introduction
 ------------
 - We have added a search tool calling function to Multi-Turn RL, enabling the model to initiate retrieval requests during Actor rollout and directly use retrieval results for training. **We support using a local dense retriever as the retrieval tool, as well as integrating with your own local retrieval engine.**

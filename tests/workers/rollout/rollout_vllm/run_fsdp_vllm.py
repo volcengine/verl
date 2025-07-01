@@ -100,11 +100,15 @@ def main():
         device_mesh=device_mesh,
     )
 
-    FSDP.set_state_dict_type(fsdp_model, state_dict_type=StateDictType.SHARDED_STATE_DICT, state_dict_config=ShardedStateDictConfig())
+    FSDP.set_state_dict_type(
+        fsdp_model, state_dict_type=StateDictType.SHARDED_STATE_DICT, state_dict_config=ShardedStateDictConfig()
+    )
 
     state_dict = fsdp_model.state_dict()
 
-    sampling_params = SamplingParams(temperature=0, top_p=1, n=1, max_tokens=response_length, logprobs=1, ignore_eos=True, detokenize=False)
+    sampling_params = SamplingParams(
+        temperature=0, top_p=1, n=1, max_tokens=response_length, logprobs=1, ignore_eos=True, detokenize=False
+    )
 
     print(actor_model_config)
     llm = LLM(
@@ -142,7 +146,7 @@ def main():
     batch_size = input_ids.shape[0]
 
     pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
-    from verl.workers.rollout.vllm_rollout.vllm_rollout import _pre_process_inputs
+    from verl.workers.rollout.vllm_rollout.vllm_rollout_spmd import _pre_process_inputs
 
     for i in range(batch_size):
         idx_list.append(_pre_process_inputs(pad_token_id, input_ids[i]))

@@ -127,9 +127,13 @@ actor_rollout_ref:
     # LoRA scaling factor
     lora_alpha: 16
 
-    # Target modules to apply LoRA. Options: "all-linear" or
+    # Target modules to apply LoRA. Options: "all-linear" (not recommended for VLMs) or
     # [q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]
     target_modules: all-linear
+    
+    # Exclude modules from applying Lora. Similar usage to target_modules and Peft.
+    # Example: '.*visual.*' for excluding the ViT in Qwen2.5-VL, as currently vllm does not support ViT Lora.
+    exclude_modules: null
 
     # Whether to use Liger for linear layer fusion
     use_liger: false
@@ -396,8 +400,6 @@ actor_rollout_ref:
     # Top-p sampling parameter. Default 1.0.
     top_p: 1
 
-    # https://arxiv.org/abs/2410.21236
-    use_fire_sampling: False
 
     # typically the same as data max prompt length
     prompt_length: ${data.max_prompt_length}

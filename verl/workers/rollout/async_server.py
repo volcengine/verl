@@ -194,11 +194,13 @@ class AsyncLLMServerManager:
 
     def wake_up(self):
         """Wake up all vllm instances."""
-        ray.get([server.wake_up.remote() for server in self.async_llm_servers])
+        if self.config.rollout.free_cache_engine:
+            ray.get([server.wake_up.remote() for server in self.async_llm_servers])
 
     def sleep(self):
         """Sleep all vllm instances."""
-        ray.get([server.sleep.remote() for server in self.async_llm_servers])
+        if self.config.rollout.free_cache_engine:
+            ray.get([server.sleep.remote() for server in self.async_llm_servers])
 
     def submit_chat_completions(
         self,
@@ -225,7 +227,9 @@ class AsyncLLMServerManager:
         """Generate multiple sequences in parallel via chat scheduler."""
         assert self.chat_scheduler is not None, "chat scheduler is not initialized."
 
-        future = asyncio.run_coroutine_threadsafe(self.chat_scheduler.generate_sequences(prompts, **sampling_params), self.chat_scheduler_loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self.chat_scheduler.generate_sequences(prompts, **sampling_params), self.chat_scheduler_loop
+        )
         return future.result()
 
 

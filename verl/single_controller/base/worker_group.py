@@ -62,7 +62,9 @@ class ResourcePool:
 
     def local_world_size_list(self) -> List[int]:
         """Returns a flat list where each process has its local world size."""
-        nested_local_world_size_list = [[local_world_size for _ in range(local_world_size)] for local_world_size in self._store]
+        nested_local_world_size_list = [
+            [local_world_size for _ in range(local_world_size)] for local_world_size in self._store
+        ]
         return [item for row in nested_local_world_size_list for item in row]
 
     def local_rank_list(self) -> List[int]:
@@ -167,7 +169,9 @@ class WorkerGroup:
         # before starting checking worker aliveness, make sure all workers are already alive
         self._block_until_all_workers_alive()
 
-        self._checker_thread = threading.Thread(target=check_workers_alive, args=(self._workers, self._is_worker_alive, every_n_seconds))
+        self._checker_thread = threading.Thread(
+            target=check_workers_alive, args=(self._workers, self._is_worker_alive, every_n_seconds)
+        )
         self._checker_thread.start()
 
     @property
