@@ -18,7 +18,11 @@ import pytest
 
 from verl.utils.dataset.vision_utils import process_image
 from verl.utils.tokenizer import hf_processor
-from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, TokenizationSanityCheckModeEnum
+from verl.workers.rollout.schemas import (
+    AsyncRolloutRequest,
+    AsyncRolloutRequestStateEnum,
+    TokenizationSanityCheckModeEnum,
+)
 
 
 def _test_add_tool_response_messages_image_delta(processor, image_list, description_list, resize_image=False):
@@ -41,9 +45,21 @@ def _test_add_tool_response_messages_image_delta(processor, image_list, descript
         processed_images = processed_images_resized
 
     # Initial message history
+    system_prompt = (
+        "You will be provided with an image. Describe this image and then generate a new image for the next round"
+    )
     messages = [
-        {"role": "system", "content": "You will be provided with an image. Describe this image. and then generate a new image for the next round"},
-        {"role": "user", "content": [{"type": "text", "text": "Here is the first image provided: "}, {"type": "image", "image": [processed_images[0]]}]},
+        {
+            "role": "system",
+            "content": system_prompt,
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Here is the first image provided: "},
+                {"type": "image", "image": [processed_images[0]]},
+            ],
+        },
     ]
 
     # Initial multi_modal_data with one image
@@ -107,11 +123,20 @@ def _test_add_tool_response_messages_image_delta(processor, image_list, descript
 
     messages = [msg.model_dump() for msg in req.messages]
     tools = [tool.model_dump() for tool in req.tool_schemas] if req.tool_schemas else None
-    full_prompt_info = req._handle_apply_chat_template(processor, messages, multi_modal_data=req.multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True, return_dict=True)
+    full_prompt_info = req._handle_apply_chat_template(
+        processor,
+        messages,
+        multi_modal_data=req.multi_modal_data,
+        tools=tools,
+        add_generation_prompt=False,
+        tokenize=True,
+        return_dict=True,
+    )
     full_prompt_ids = full_prompt_info["input_ids"]
     assert full_prompt_ids == req.input_ids
 
-    # We must use dict(full_prompt_info) to convert BatchFeature values to a new dict to avoid np.array() only keeping the keys
+    # We must use dict(full_prompt_info) to convert BatchFeature values to a new dict
+    # because np.array() only keeps the keys for BatchFeature.
     full_prompt_multi_modal_inputs = dict(full_prompt_info)
     full_prompt_multi_modal_inputs.pop("input_ids", None)
     full_prompt_multi_modal_inputs.pop("attention_mask", None)
@@ -120,7 +145,9 @@ def _test_add_tool_response_messages_image_delta(processor, image_list, descript
         assert full_prompt_multi_modal_inputs[key].eq(req.multi_modal_inputs[key]).all()
 
 
-@pytest.mark.skipif(hf_processor("Qwen/Qwen2.5-VL-3B-Instruct") is None, reason="Processor not available for Qwen/Qwen2.5-VL-B-Instruct")
+@pytest.mark.skipif(
+    hf_processor("Qwen/Qwen2.5-VL-3B-Instruct") is None, reason="Processor not available for Qwen/Qwen2.5-VL-B-Instruct"
+)
 def test_add_tool_response_messages_image_delta():
     processor = hf_processor("Qwen/Qwen2.5-VL-3B-Instruct")
 
@@ -139,7 +166,9 @@ def test_add_tool_response_messages_image_delta():
     _test_add_tool_response_messages_image_delta(processor, image_list, description_list, resize_image=False)
 
 
-@pytest.mark.skipif(hf_processor("Qwen/Qwen2.5-VL-3B-Instruct") is None, reason="Processor not available for Qwen/Qwen2.5-VL-B-Instruct")
+@pytest.mark.skipif(
+    hf_processor("Qwen/Qwen2.5-VL-3B-Instruct") is None, reason="Processor not available for Qwen/Qwen2.5-VL-B-Instruct"
+)
 def test_add_tool_response_messages_image_delta_resize_image():
     processor = hf_processor("Qwen/Qwen2.5-VL-3B-Instruct")
 
