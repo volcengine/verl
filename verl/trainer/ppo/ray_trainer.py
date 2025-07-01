@@ -58,6 +58,8 @@ from verl.utils.metric import (
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
+from verl.utils.import_utils import load_type_from_module
+from verl.utils.dataset.datagen import AbstractDataGen
 
 WorkerType = Type[Worker]
 
@@ -1074,6 +1076,21 @@ class RayPPOTrainer:
         last_val_metrics = None
         self.max_steps_duration = 0
 
+        data_config = self.config.data
+        if "datagen" in data_config and data_config.datagen.get("path", None) is not None:
+
+
+            # Dynamically load the custom datagen class
+            datagen_cls = load_type_from_module(data_config.datagen.path, data_config.datagen.name)
+
+            # Verify that the custom datagen class inherits from AbstractDataGen
+            abs_cls = AbstractDataGen
+            if not issubclass(datagen_cls, abs_cls):
+                raise TypeError(f"The custom datagen class '{data_config.datagen.name}' from '{data_config.datagen.path}' must inherit from {abs_cls}")
+
+            data_generator = datagen_cls(data_config.datagen)
+            data_generator.generate(self.train_dataset) 
+
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 do_profile = (
@@ -1348,3 +1365,6 @@ class RayPPOTrainer:
                     pprint(f"Final validation metrics: {last_val_metrics}")
                     progress_bar.close()
                     return
+
+                if data_generator is not None:
+                    data_generator.generate(self.train_dataset)

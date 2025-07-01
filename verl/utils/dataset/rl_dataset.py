@@ -135,6 +135,9 @@ class RLHFDataset(Dataset):
 
         print(f"dataset len: {len(self.dataframe)}")
 
+        self.dataframe = self.maybe_filter_out_long_prompts(self.dataframe)
+
+    def maybe_filter_out_long_prompts(self, dataframe: datasets.Dataset = None):
         # filter out too long prompts
         if self.filter_overlong_prompts:
             tokenizer = self.tokenizer
@@ -165,13 +168,20 @@ class RLHFDataset(Dataset):
                 def doc2len(doc) -> int:
                     return len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True))
 
-            self.dataframe = self.dataframe.filter(
+            dataframe = dataframe.filter(
                 lambda doc: doc2len(doc) <= self.max_prompt_length,
                 num_proc=self.num_workers,
                 desc=f"Filtering prompts longer than {self.max_prompt_length} tokens",
             )
 
-            print(f"filter dataset len: {len(self.dataframe)}")
+            print(f"filter dataset len: {len(dataframe)}")
+        return dataframe
+
+    def append_dataframe(self, new_dataframe: datasets.Dataset):
+        new_dataframe = self.maybe_filter_out_long_prompts(new_dataframe)
+        self.dataframe = datasets.concatenate_datasets([self.dataframe, new_dataframe])
+
+        print(f"new dataset len: {len(self.dataframe)}")
 
     def resume_dataset_state(self):
         self.serialize_dataset = not hasattr(self, "original_data_files")
