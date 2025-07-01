@@ -63,7 +63,11 @@ if __name__ == "__main__":
                 "prompt": [
                     {
                         "role": "system",
-                        "content": ("You are a math expert. You are given a question and you need to solve it step by step. You should rethinking carefully if user point out your answer is wrong. Put your final answer in the format of `#### <answer>`."),
+                        "content": (
+                            "You are a math expert. You are given a question and you need to solve it step by step. "
+                            "You should rethinking carefully if user point out your answer is wrong. "
+                            "Put your final answer in the format of `#### <answer>`."
+                        ),
                     },
                     {
                         "role": "user",

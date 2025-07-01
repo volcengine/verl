@@ -287,7 +287,9 @@ def ulysses_pad(input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torc
     return input_ids_rmpad, position_ids_rmpad, pad_size
 
 
-def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor] = None, sp_size: int = 1):
+def ulysses_pad_and_slice_inputs(
+    input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor] = None, sp_size: int = 1
+):
     """
     Pad and slice input_ids to be divisible by sp_size
     Pad position_ids to be divisible by sp_size.
@@ -315,4 +317,6 @@ def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor, position_ids_rmp
 
 def validate_ulysses_config(num_heads, ulysses_sequence_size):
     if ulysses_sequence_size > 1:
-        assert num_heads % ulysses_sequence_size == 0, f"num_heads ({num_heads}) must be divisible by ulysses sequence size({ulysses_sequence_size})"
+        assert num_heads % ulysses_sequence_size == 0, (
+            f"num_heads ({num_heads}) must be divisible by ulysses sequence size({ulysses_sequence_size})"
+        )

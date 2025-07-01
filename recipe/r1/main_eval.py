@@ -55,7 +55,9 @@ def main(config):
     data_source_reward = defaultdict(list)
 
     # Create remote tasks
-    remote_tasks = [process_item.remote(config, data_sources[i], responses[i], reward_model_data[i]) for i in range(total)]
+    remote_tasks = [
+        process_item.remote(config, data_sources[i], responses[i], reward_model_data[i]) for i in range(total)
+    ]
 
     # Process results as they come in
     with tqdm(total=total) as pbar:

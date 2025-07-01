@@ -109,7 +109,9 @@ def test_parallelism():
         ground_truth.extend(prime_math_gts)
         data_sources.extend(["numina_aops_forum"] * len(prime_math_answers))
 
-    scores = asyncio.run(parallel_compute_score_async(default_compute_score, sequences_str, ground_truth, data_sources, num_processes=16))
+    scores = asyncio.run(
+        parallel_compute_score_async(default_compute_score, sequences_str, ground_truth, data_sources, num_processes=16)
+    )
     print(scores)
 
 
@@ -135,7 +137,9 @@ def test_prime_code_sandbox_fusion():
     # Removed the previous 'if not sandbox_url' check block
 
     for completion, ground_truth, score_ in zip(prime_code_answers, prime_code_gts, prime_code_scores):
-        score = default_compute_score(data_source, completion, ground_truth, extra_info={"sandbox_fusion_url": sandbox_fusion_url})  # <-- Use the URL obtained from the environment variable
+        score = default_compute_score(
+            data_source, completion, ground_truth, extra_info={"sandbox_fusion_url": sandbox_fusion_url}
+        )  # <-- Use the URL obtained from the environment variable
         assert float(score) == score_
 
 
@@ -150,7 +154,9 @@ def test_continuous_score_consistency():
     expected_continuous_score = 0.9
 
     # 1. Calculate score using prime_code (default) with continuous=True
-    prime_score, _ = sandbox_fusion.compute_score(os.environ.get("SANDBOX_FUSION_URL"), None, completion, ground_truth, continuous=True)
+    prime_score, _ = sandbox_fusion.compute_score(
+        os.environ.get("SANDBOX_FUSION_URL"), None, completion, ground_truth, continuous=True
+    )
 
     # 2. Calculate score using sandbox_fusion with continuous=True
     # Ensure the extra_info key triggers the sandbox_fusion path in default_compute_score

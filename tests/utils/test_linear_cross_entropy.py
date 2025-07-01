@@ -46,7 +46,9 @@ fused_linear_for_ppo.compile(dynamic=True)
 MAX_TEST_CASES = os.environ.get("MAX_TEST_CASES", 5)
 
 
-def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, temperature: float, reduction="none") -> typing.List[torch.Tensor]:
+def run_torch_entropy(
+    hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, temperature: float, reduction="none"
+) -> typing.List[torch.Tensor]:
     hidden = hidden.squeeze(0).to(torch.float32)
     weight = weight.transpose(0, 1).to(torch.float32)
     logits = torch.matmul(hidden, weight)  # [num_tokens, vocab_size]
@@ -142,8 +144,16 @@ class TestLinearCrossEntropy:
         assert MAX_TEST_CASES <= 5, "MAX_TEST_CASES should be less than or equal to 5."
 
     def generate_forward_inputs(self):
-        hidden = torch.empty((self.batch_size, self.num_tokens, self.hidden_size), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5).requires_grad_()
-        weight = torch.empty((self.vocab_size, self.hidden_size), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5).requires_grad_()
+        hidden = (
+            torch.empty((self.batch_size, self.num_tokens, self.hidden_size), dtype=self.dtype, device="cuda")
+            .uniform_(-0.5, 0.5)
+            .requires_grad_()
+        )
+        weight = (
+            torch.empty((self.vocab_size, self.hidden_size), dtype=self.dtype, device="cuda")
+            .uniform_(-0.5, 0.5)
+            .requires_grad_()
+        )
         labels = torch.randint(0, self.vocab_size, (self.batch_size, self.num_tokens), device="cuda")
         return hidden, weight, labels
 
@@ -185,7 +195,9 @@ class TestLinearCrossEntropy:
             verl_forward_latency.append(start_event.elapsed_time(end_event))
 
             start_event.record()
-            (verl_fused_logprobs, verl_fused_entropy) = run_verl_torch_fused_entropy(hidden, weight, labels, self.temperature)
+            (verl_fused_logprobs, verl_fused_entropy) = run_verl_torch_fused_entropy(
+                hidden, weight, labels, self.temperature
+            )
             end_event.record()
             torch.cuda.synchronize()
             verl_fused_forward_latency.append(start_event.elapsed_time(end_event))
@@ -215,25 +227,33 @@ class TestLinearCrossEntropy:
             g_entropy, g_logprobs = self.generate_backward_inputs()
 
             start_event.record()
-            (d_torch_hidden, d_torch_weight) = torch.autograd.grad((torch_entropy, torch_logprobs), (hidden, weight), (g_entropy, g_logprobs), retain_graph=False)
+            (d_torch_hidden, d_torch_weight) = torch.autograd.grad(
+                (torch_entropy, torch_logprobs), (hidden, weight), (g_entropy, g_logprobs), retain_graph=False
+            )
             end_event.record()
             torch.cuda.synchronize()
             torch_backward_latency.append(start_event.elapsed_time(end_event))
 
             start_event.record()
-            (d_verl_hidden, d_verl_weight) = torch.autograd.grad((verl_entropy, verl_logprobs), (hidden, weight), (g_entropy, g_logprobs), retain_graph=False)
+            (d_verl_hidden, d_verl_weight) = torch.autograd.grad(
+                (verl_entropy, verl_logprobs), (hidden, weight), (g_entropy, g_logprobs), retain_graph=False
+            )
             end_event.record()
             torch.cuda.synchronize()
             verl_backward_latency.append(start_event.elapsed_time(end_event))
 
             start_event.record()
-            (d_verl_fused_hidden, d_verl_fused_weight) = torch.autograd.grad((verl_fused_entropy, verl_fused_logprobs), (hidden, weight), (g_entropy, g_logprobs), retain_graph=False)
+            (d_verl_fused_hidden, d_verl_fused_weight) = torch.autograd.grad(
+                (verl_fused_entropy, verl_fused_logprobs), (hidden, weight), (g_entropy, g_logprobs), retain_graph=False
+            )
             end_event.record()
             torch.cuda.synchronize()
             verl_fused_backward_latency.append(start_event.elapsed_time(end_event))
 
             start_event.record()
-            (d_kernel_hidden, d_kernel_weight) = torch.autograd.grad((kernel_entropy, kernel_logprobs), (hidden, weight), (g_entropy, g_logprobs), retain_graph=False)
+            (d_kernel_hidden, d_kernel_weight) = torch.autograd.grad(
+                (kernel_entropy, kernel_logprobs), (hidden, weight), (g_entropy, g_logprobs), retain_graph=False
+            )
             end_event.record()
             torch.cuda.synchronize()
             kernel_backward_latency.append(start_event.elapsed_time(end_event))
@@ -267,14 +287,38 @@ class TestLinearCrossEntropy:
 
         print("\n[INFO]: Verified forward & backward correctness.")
 
-        print(f"[INFO]: Forward pass: Torch implementation average time: {sum(torch_forward_latency) / len(torch_forward_latency):.2f} ms")
-        print(f"[INFO]: Backward pass: torch implementation average time: {sum(torch_backward_latency) / len(torch_backward_latency):.2f} ms")
-        print(f"[INFO]: Forward pass: VeRL implementation average time: {sum(verl_forward_latency) / len(verl_forward_latency):.2f} ms")
-        print(f"[INFO]: Backward pass: VeRL implementation average time: {sum(verl_backward_latency) / len(verl_backward_latency):.2f} ms")
-        print(f"[INFO]: Forward pass: VeRL Fused Entropy implementation average time: {sum(verl_fused_forward_latency) / len(verl_fused_forward_latency):.2f} ms")
-        print(f"[INFO]: Backward pass: VeRL Fused Entropy implementation average time: {sum(verl_fused_backward_latency) / len(verl_fused_backward_latency):.2f} ms")
-        print(f"[INFO]: Forward pass: Kernel implementation average time: {sum(kernel_forward_latency) / len(kernel_forward_latency):.2f} ms")
-        print(f"[INFO]: Backward pass: kernel implementation average time: {sum(kernel_backward_latency) / len(kernel_backward_latency):.2f} ms")
+        print(
+            f"[INFO]: Forward pass: Torch implementation average time: "
+            f"{sum(torch_forward_latency) / len(torch_forward_latency):.2f} ms"
+        )
+        print(
+            f"[INFO]: Backward pass: torch implementation average time: "
+            f"{sum(torch_backward_latency) / len(torch_backward_latency):.2f} ms"
+        )
+        print(
+            f"[INFO]: Forward pass: VeRL implementation average time: "
+            f"{sum(verl_forward_latency) / len(verl_forward_latency):.2f} ms"
+        )
+        print(
+            f"[INFO]: Backward pass: VeRL implementation average time: "
+            f"{sum(verl_backward_latency) / len(verl_backward_latency):.2f} ms"
+        )
+        print(
+            f"[INFO]: Forward pass: VeRL Fused Entropy implementation average time: "
+            f"{sum(verl_fused_forward_latency) / len(verl_fused_forward_latency):.2f} ms"
+        )
+        print(
+            f"[INFO]: Backward pass: VeRL Fused Entropy implementation average time: "
+            f"{sum(verl_fused_backward_latency) / len(verl_fused_backward_latency):.2f} ms"
+        )
+        print(
+            f"[INFO]: Forward pass: Kernel implementation average time: "
+            f"{sum(kernel_forward_latency) / len(kernel_forward_latency):.2f} ms"
+        )
+        print(
+            f"[INFO]: Backward pass: kernel implementation average time: "
+            f"{sum(kernel_backward_latency) / len(kernel_backward_latency):.2f} ms"
+        )
 
     def check_storage(self, method_name, run_forward):
         self.cleanup()
@@ -291,7 +335,9 @@ class TestLinearCrossEntropy:
         g_entropy, g_logprobs = self.generate_backward_inputs()
 
         torch.cuda.reset_peak_memory_stats()
-        (d_torch_hidden, d_torch_weight) = torch.autograd.grad((entropy, logprobs), (hidden, weight), (g_entropy, g_logprobs), retain_graph=False)
+        (d_torch_hidden, d_torch_weight) = torch.autograd.grad(
+            (entropy, logprobs), (hidden, weight), (g_entropy, g_logprobs), retain_graph=False
+        )
         torch.cuda.synchronize()
         torch_backward_max_memory = torch.cuda.max_memory_allocated() / 1024 / 1024
         print(f"[INFO]: {method_name} Backward pass peak memory: {torch_backward_max_memory:.2f} MB")

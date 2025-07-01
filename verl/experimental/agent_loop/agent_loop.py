@@ -119,7 +119,8 @@ class AgentLoopOutput(BaseModel):
 
 
 class AgentLoopBase(ABC):
-    """An agent loop takes a input message, chat with OpenAI compatible LLM server and interact with various environments."""
+    """An agent loop takes a input message, chat with OpenAI compatible LLM server and interact with various
+    environments."""
 
     _class_initialized = False
 
@@ -214,7 +215,9 @@ class AgentLoopWorker:
         output = self._postprocess(outputs)
         return output
 
-    async def _run_agent_loop(self, agent_name: str, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> AgentLoopOutput:
+    async def _run_agent_loop(
+        self, agent_name: str, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]
+    ) -> AgentLoopOutput:
         agent_loop_class = self.get_agent_loop_class(agent_name)
         agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer)
         output = await agent_loop.run(messages, sampling_params)
@@ -270,7 +273,9 @@ class AgentLoopWorker:
             return_attention_mask=False,
         )
         response_mask = outputs["input_ids"]
-        assert response_ids.shape == response_mask.shape, f"mismatch in response_ids and response_mask shape: {response_ids.shape} vs {response_mask.shape}"
+        assert response_ids.shape == response_mask.shape, (
+            f"mismatch in response_ids and response_mask shape: {response_ids.shape} vs {response_mask.shape}"
+        )
         response_mask = response_mask * response_attention_mask
 
         input_ids = torch.cat([prompt_ids, response_ids], dim=1)
@@ -377,7 +382,9 @@ class AgentLoopManager:
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
             self.wake_up()
         chunkes = prompts.chunk(len(self.agent_loop_workers))
-        outputs = ray.get([worker.generate_sequences.remote(chunk) for worker, chunk in zip(self.agent_loop_workers, chunkes)])
+        outputs = ray.get(
+            [worker.generate_sequences.remote(chunk) for worker, chunk in zip(self.agent_loop_workers, chunkes)]
+        )
         output = DataProto.concat(outputs)
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
             self.sleep()

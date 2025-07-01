@@ -55,6 +55,11 @@ if is_npu_available:
         required = parse_version(required_version_spec)
 
         if not installed >= required:
-            raise ValueError(f"{package_name} version >= {required_version_spec} is required on ASCEND NPU, current version is {installed}.")
+            raise ValueError(
+                f"{package_name} version >= {required_version_spec} is required on ASCEND NPU, current version is "
+                f"{installed}."
+            )
     except DistributionNotFound as e:
-        raise ImportError(f"package {package_name} is not installed, please run pip install {package_name}=={required_version_spec}") from e
+        raise ImportError(
+            f"package {package_name} is not installed, please run pip install {package_name}=={required_version_spec}"
+        ) from e

@@ -98,7 +98,9 @@ def _ulysses_flash_attention_forward(
         position_ids = torch.concat(position_ids_list, dim=-1)
 
     # (bsz, seq_len, n_head/n, head_dim)
-    attn_output = _flash_attention_forward(query_states, key_states, value_states, *args, position_ids=position_ids, **kwargs)
+    attn_output = _flash_attention_forward(
+        query_states, key_states, value_states, *args, position_ids=position_ids, **kwargs
+    )
 
     ########## AlltoAll for Ulysses ##########
     if ulysses_sp_size > 1:
@@ -121,7 +123,11 @@ def patch_vlm_for_ulysses_input_slicing(model_class: type):
 
             current_ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
 
-            slice_now = inputs_embeds is not None and current_ulysses_sp_size > 1 and getattr(self, "_needs_initial_slice", True)
+            slice_now = (
+                inputs_embeds is not None
+                and current_ulysses_sp_size > 1
+                and getattr(self, "_needs_initial_slice", True)
+            )
             if slice_now:
                 call_kwargs["inputs_embeds"] = slice_input_tensor(inputs_embeds, dim=1, padding=False)
                 self._needs_initial_slice = False
@@ -152,7 +158,10 @@ def patch_forward_with_backends(
         fused_kernels_backend (str): The backend to use for fused kernels.
     """
     if not use_fused_kernels or fused_kernels_backend not in ["triton", "torch"]:
-        print(f"Skipping monkey patch for {model.__class__.__name__} as use_fused_kernels is {use_fused_kernels} or fused_kernels_backend is {fused_kernels_backend}")
+        print(
+            f"Skipping monkey patch for {model.__class__.__name__} as use_fused_kernels is "
+            f"{use_fused_kernels} or fused_kernels_backend is {fused_kernels_backend}"
+        )
         return
 
     forward_with_torch_backend_function = model.__class__.forward
@@ -203,11 +212,18 @@ def apply_monkey_patch(
     try:
         num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
     except AttributeError:
-        num_attention_heads, num_key_value_heads = model.config.text_config.num_attention_heads, model.config.text_config.num_key_value_heads
+        num_attention_heads, num_key_value_heads = (
+            model.config.text_config.num_attention_heads,
+            model.config.text_config.num_key_value_heads,
+        )
 
-    assert num_attention_heads % ulysses_sp_size == 0, f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
+    assert num_attention_heads % ulysses_sp_size == 0, (
+        f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
+    )
     assert num_key_value_heads % ulysses_sp_size == 0 or ulysses_sp_size % num_key_value_heads == 0, (
-        f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,kv heads are repeated to ensure correctness."
+        f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size "
+        f"{ulysses_sp_size}or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,"
+        f"kv heads are repeated to ensure correctness."
     )
 
     if is_trl_available():
@@ -226,7 +242,9 @@ def apply_monkey_patch(
 
             raise ValueError("Transformers 4.53 is not supported")
         else:
-            from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLFlashAttention2 as Qwen2_5_VLAttention
+            from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
+                Qwen2_5_VLFlashAttention2 as Qwen2_5_VLAttention,
+            )
 
         if use_remove_padding or ulysses_sp_size > 1:
             from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward

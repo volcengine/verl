@@ -199,7 +199,11 @@ def test_tool_agent(init_config):
             {"role": "user", "content": "What's the temperature in New York now?"},
         ],
         [
-            {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.\n\nCurrent Date: 2024-09-30"},
+            {
+                "role": "system",
+                "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.\n\n"
+                "Current Date: 2024-09-30",
+            },
             {"role": "user", "content": "What's the temperature in San Francisco now? How about tomorrow?"},
         ],
     ]

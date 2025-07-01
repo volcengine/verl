@@ -98,7 +98,9 @@ def build_memory_buffer(weight_buffer_meta: Dict[str, Dict]) -> Dict[torch.dtype
     return memory_buffers
 
 
-def build_memory_reference_from_module(module: torch.nn.Module, memory_buffers: Dict[torch.dtype, MemoryBuffer], maintain_weight=True):
+def build_memory_reference_from_module(
+    module: torch.nn.Module, memory_buffers: Dict[torch.dtype, MemoryBuffer], maintain_weight=True
+):
     start_index = {}
     for dtype in memory_buffers:
         start_index[dtype] = 0

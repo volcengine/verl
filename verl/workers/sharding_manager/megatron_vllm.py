@@ -97,7 +97,11 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.offload_param = offload_param
 
         # For AsyncLLM, inference_engine and model_runner are defer initialized in vLLMAsyncRollout.load_model
-        self.model_runner = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if self.inference_engine else None
+        self.model_runner = (
+            self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner
+            if self.inference_engine
+            else None
+        )
 
         self.model_config = model_config
         self.transformer_config = transformer_config
@@ -165,7 +169,10 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 offload_megatron_model_to_cpu(self.actor_module)
             get_torch_device().empty_cache()
 
-            if self.rollout_config.free_cache_engine and "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+            if (
+                self.rollout_config.free_cache_engine
+                and "tags" in inspect.signature(self.inference_engine.wake_up).parameters
+            ):
                 self.inference_engine.wake_up(tags=["kv_cache"])
 
             # important: need to manually set the random states of each tp to be identical.

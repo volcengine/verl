@@ -45,7 +45,9 @@ def compute_advantage(data: DataProto, adv_estimator, config):
         response_length = responses.size(-1)
         attention_mask = data.batch["attention_mask"]
         response_mask = attention_mask[:, -response_length:]
-        advantages, returns = prime_core_algos.compute_rloo_advantage_return(data, response_mask, config.actor_rollout_ref.rollout.n, config)
+        advantages, returns = prime_core_algos.compute_rloo_advantage_return(
+            data, response_mask, config.actor_rollout_ref.rollout.n, config
+        )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
     else:
@@ -102,7 +104,9 @@ def compute_data_metrics(batch, use_critic=True):
         "response_length/mean": torch.mean(response_length).detach().item(),
         "response_length/max": torch.max(response_length).detach().item(),
         "response_length/min": torch.min(response_length).detach().item(),
-        "response_length/clip_ratio": torch.mean(torch.eq(response_length, max_response_length).float()).detach().item(),
+        "response_length/clip_ratio": torch.mean(torch.eq(response_length, max_response_length).float())
+        .detach()
+        .item(),
         # prompt length
         "prompt_length/mean": torch.mean(prompt_length).detach().item(),
         "prompt_length/max": torch.max(prompt_length).detach().item(),
@@ -132,7 +136,10 @@ def compute_timing_metrics(batch, timing_raw):
 
     return {
         **{f"timing_s/{name}": value for name, value in timing_raw.items()},
-        **{f"timing_per_token_ms/{name}": timing_raw[name] * 1000 / num_tokens_of_section[name] for name in set(num_tokens_of_section.keys()) & set(timing_raw.keys())},
+        **{
+            f"timing_per_token_ms/{name}": timing_raw[name] * 1000 / num_tokens_of_section[name]
+            for name in set(num_tokens_of_section.keys()) & set(timing_raw.keys())
+        },
     }
 
 
@@ -177,7 +184,9 @@ class RayPRIMETrainer(RayPPOTrainer):
         from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 
         # TODO: we have to make sure the batch size is divisible by the dp size
-        self.train_dataset = RLHFDataset(data_files=self.config.data.train_files, tokenizer=self.tokenizer, config=self.config.data)
+        self.train_dataset = RLHFDataset(
+            data_files=self.config.data.train_files, tokenizer=self.tokenizer, config=self.config.data
+        )
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()
@@ -194,7 +203,9 @@ class RayPRIMETrainer(RayPPOTrainer):
             sampler=sampler,
         )
 
-        self.val_dataset = RLHFDataset(data_files=self.config.data.val_files, tokenizer=self.tokenizer, config=self.config.data)
+        self.val_dataset = RLHFDataset(
+            data_files=self.config.data.val_files, tokenizer=self.tokenizer, config=self.config.data
+        )
         self.val_dataloader = DataLoader(
             dataset=self.val_dataset,
             batch_size=len(self.val_dataset),
@@ -225,11 +236,17 @@ class RayPRIMETrainer(RayPPOTrainer):
 
     def _save_checkpoint(self):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
-        local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, f"global_step_{self.global_steps}")
+        local_global_step_folder = os.path.join(
+            self.config.trainer.default_local_dir, f"global_step_{self.global_steps}"
+        )
         print(f"local_global_step_folder: {local_global_step_folder}")
         actor_local_path = os.path.join(local_global_step_folder, "actor")
 
-        actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "actor")
+        actor_remote_path = (
+            None
+            if self.config.trainer.default_hdfs_dir is None
+            else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "actor")
+        )
         self.actor_rollout_wg.save_checkpoint(
             actor_local_path,
             actor_remote_path,
@@ -238,7 +255,11 @@ class RayPRIMETrainer(RayPPOTrainer):
 
         if self.use_rm:
             reward_local_path = os.path.join(local_global_step_folder, "reward")
-            reward_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "reward")
+            reward_remote_path = (
+                None
+                if self.config.trainer.default_hdfs_dir is None
+                else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "reward")
+            )
             self.rm_wg.save_checkpoint(
                 reward_local_path,
                 reward_remote_path,
@@ -252,7 +273,9 @@ class RayPRIMETrainer(RayPPOTrainer):
         torch.save(self.train_dataloader, dataloader_local_path, pickle_module=dill)
 
         # latest checkpointed iteration tracker (for atomic usage)
-        local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt")
+        local_latest_checkpointed_iteration = os.path.join(
+            self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt"
+        )
         with open(local_latest_checkpointed_iteration, "w") as f:
             f.write(str(self.global_steps))
 
@@ -278,7 +301,9 @@ class RayPRIMETrainer(RayPPOTrainer):
         else:
             if self.config.trainer.resume_mode == "resume_path":
                 assert isinstance(self.config.trainer.resume_from_path, str), "resume ckpt must be str type"
-                assert "global_step_" in self.config.trainer.resume_from_path, "resume ckpt must specify the global_steps"
+                assert "global_step_" in self.config.trainer.resume_from_path, (
+                    "resume ckpt must specify the global_steps"
+                )
                 global_step_folder = self.config.trainer.resume_from_path
                 if not os.path.isabs(global_step_folder):
                     working_dir = os.getcwd()
@@ -293,7 +318,9 @@ class RayPRIMETrainer(RayPPOTrainer):
         actor_path = os.path.join(global_step_folder, "actor")
         reward_path = os.path.join(global_step_folder, "reward")
         # load actor
-        self.actor_rollout_wg.load_checkpoint(actor_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
+        self.actor_rollout_wg.load_checkpoint(
+            actor_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load
+        )
         # load rm
         if self.use_rm:
             self.rm_wg.load_checkpoint(reward_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
@@ -373,7 +400,9 @@ class RayPRIMETrainer(RayPPOTrainer):
 
                             del gen_baseline_batch, gen_baseline_output
 
-                    batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+                    batch.non_tensor_batch["uid"] = np.array(
+                        [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
+                    )
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
@@ -433,13 +462,24 @@ class RayPRIMETrainer(RayPPOTrainer):
                                     metrics.update(reward_output_metrics)
 
                                 reward_output = self.rm_wg.compute_rm_score(batch)
-                            elif update_style == "reverse":  # run forward to calculate statistics, then update reward model
+                            elif (
+                                update_style == "reverse"
+                            ):  # run forward to calculate statistics, then update reward model
                                 reward_output = self.rm_wg.compute_rm_score(batch)
                                 # broadcast q and acc tensor to each result
                                 bc_td = DataProto.from_dict(
                                     tensors={
-                                        "Q_bc": reward_output.batch["q"].sum(dim=-1).view(-1, n_samples).unsqueeze(1).expand(-1, n_samples, -1).reshape(-1, n_samples),
-                                        "acc_bc": batch.batch["acc"].view(-1, n_samples).unsqueeze(1).expand(-1, n_samples, -1).reshape(-1, n_samples),
+                                        "Q_bc": reward_output.batch["q"]
+                                        .sum(dim=-1)
+                                        .view(-1, n_samples)
+                                        .unsqueeze(1)
+                                        .expand(-1, n_samples, -1)
+                                        .reshape(-1, n_samples),
+                                        "acc_bc": batch.batch["acc"]
+                                        .view(-1, n_samples)
+                                        .unsqueeze(1)
+                                        .expand(-1, n_samples, -1)
+                                        .reshape(-1, n_samples),
                                     }
                                 )
                                 batch = batch.union(bc_td)
@@ -452,7 +492,9 @@ class RayPRIMETrainer(RayPPOTrainer):
                                 metrics.update(reward_output_metrics)
 
                         # compute advantages, executed on the driver process
-                        batch = compute_advantage(batch, adv_estimator=self.config.algorithm.adv_estimator, config=self.config)
+                        batch = compute_advantage(
+                            batch, adv_estimator=self.config.algorithm.adv_estimator, config=self.config
+                        )
 
                     # update actor
                     with simple_timer("update_actor", timing_raw):
@@ -461,7 +503,11 @@ class RayPRIMETrainer(RayPPOTrainer):
                     metrics.update(actor_output_metrics)
 
                     # validate
-                    if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and self.global_steps % self.config.trainer.test_freq == 0:
+                    if (
+                        self.val_reward_fn is not None
+                        and self.config.trainer.test_freq > 0
+                        and self.global_steps % self.config.trainer.test_freq == 0
+                    ):
                         with simple_timer("testing", timing_raw):
                             val_metrics: dict = self._validate()
                         metrics.update(val_metrics)
@@ -485,7 +531,10 @@ class RayPRIMETrainer(RayPPOTrainer):
                         val_metrics = self._validate()
                         pprint(f"Final validation metrics: {val_metrics}")
                         logger.log(data=val_metrics, step=self.global_steps)
-                    if self.config.trainer.save_freq > 0 and (self.global_steps - 1) % self.config.trainer.save_freq != 0:
+                    if (
+                        self.config.trainer.save_freq > 0
+                        and (self.global_steps - 1) % self.config.trainer.save_freq != 0
+                    ):
                         with simple_timer("save_checkpoint", timing_raw):
                             self._save_checkpoint()
                     return
@@ -502,15 +551,24 @@ class RayPRIMETrainer(RayPPOTrainer):
 
         if self.config.data.filter_accuracy:
             acc_tensor = torch.mean(reward_matrix, dim=-1)
-            filter_mask[(acc_tensor > self.config.data.accuracy_upper_bound) | (acc_tensor < self.config.data.accuracy_lower_bound)] = False
+            filter_mask[
+                (acc_tensor > self.config.data.accuracy_upper_bound)
+                | (acc_tensor < self.config.data.accuracy_lower_bound)
+            ] = False
 
         if self.config.data.filter_truncate:
-            length_matrix = batch.batch["attention_mask"][:, -batch.batch["responses"].shape[-1] :].sum(dim=-1).reshape(-1, n_samples)
+            length_matrix = (
+                batch.batch["attention_mask"][:, -batch.batch["responses"].shape[-1] :]
+                .sum(dim=-1)
+                .reshape(-1, n_samples)
+            )
             length_tensor = torch.max(length_matrix, dim=-1)[0]
             filter_mask[length_tensor >= self.config.data.max_response_length - 1] = False
 
         reorder_index = torch.argsort(filter_mask, descending=True)
         reorder_index = (reorder_index.unsqueeze(-1) * n_samples + torch.arange(0, n_samples).unsqueeze(0)).view(-1)
-        batch.reorder(reorder_index[: int(len(batch) // self.config.data.oversample_factor)])  # this operation is inplace
+        batch.reorder(
+            reorder_index[: int(len(batch) // self.config.data.oversample_factor)]
+        )  # this operation is inplace
 
         return batch

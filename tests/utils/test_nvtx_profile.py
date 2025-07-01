@@ -78,7 +78,9 @@ class TestNsightSystemsProfiler(unittest.TestCase):
         def test_func(self, *args, **kwargs):
             return "result"
 
-        with patch("torch.cuda.profiler.start") as mock_start, patch("torch.cuda.profiler.stop") as mock_stop, patch("verl.utils.debug.nvtx_profile.mark_start_range") as mock_start_range, patch("verl.utils.debug.nvtx_profile.mark_end_range") as mock_end_range:
+        with patch("torch.cuda.profiler.start") as mock_start, patch("torch.cuda.profiler.stop") as mock_stop, patch(
+            "verl.utils.debug.nvtx_profile.mark_start_range"
+        ) as mock_start_range, patch("verl.utils.debug.nvtx_profile.mark_end_range") as mock_end_range:
             result = test_func(mock_self)
             self.assertEqual(result, "result")
             mock_start_range.assert_called_once()
@@ -97,7 +99,9 @@ class TestNsightSystemsProfiler(unittest.TestCase):
         def test_func(self, *args, **kwargs):
             return "result"
 
-        with patch("torch.cuda.profiler.start") as mock_start, patch("torch.cuda.profiler.stop") as mock_stop, patch("verl.utils.debug.nvtx_profile.mark_start_range") as mock_start_range, patch("verl.utils.debug.nvtx_profile.mark_end_range") as mock_end_range:
+        with patch("torch.cuda.profiler.start") as mock_start, patch("torch.cuda.profiler.stop") as mock_stop, patch(
+            "verl.utils.debug.nvtx_profile.mark_start_range"
+        ) as mock_start_range, patch("verl.utils.debug.nvtx_profile.mark_end_range") as mock_end_range:
             result = test_func(mock_self)
             self.assertEqual(result, "result")
             mock_start_range.assert_called_once()
@@ -108,7 +112,13 @@ class TestNsightSystemsProfiler(unittest.TestCase):
     def test_config_init(self):
         cfg = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
         arr = cfg.actor_rollout_ref
-        for config in [cfg.critic.profiler, arr.actor.profiler, cfg.reward_model.profiler, arr.ref.profiler, arr.rollout.profiler]:
+        for config in [
+            cfg.critic.profiler,
+            arr.actor.profiler,
+            cfg.reward_model.profiler,
+            arr.ref.profiler,
+            arr.rollout.profiler,
+        ]:
             profiler_config = omega_conf_to_dataclass(config, ProfilerConfig)
             self.assertEqual(profiler_config.discrete, False)
             self.assertEqual(profiler_config.all_ranks, False)
