@@ -25,9 +25,13 @@ import torch
 
 def concat_dict_to_str(dict: Dict, step):
     output = [f"step:{step}"]
+    extended_length_keys = {"actor/lr": 7}
     for k, v in dict.items():
         if isinstance(v, numbers.Number):
-            output.append(f"{k}:{v:.3f}")
+            if k in extended_length_keys:
+                output.append(f"{k}:{v:.{extended_length_keys[k]}f}")
+            else:
+                output.append(f"{k}:{v:.3f}")
     output_str = " - ".join(output)
     return output_str
 
