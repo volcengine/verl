@@ -24,6 +24,7 @@ from omegaconf import OmegaConf
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
+from verl.utils.dataset.curriculum_sampler import CurriculumSampler
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
@@ -244,16 +245,33 @@ def create_rl_sampler(data_config, dataset):
     """
     import torch
     from torch.utils.data import RandomSampler, SequentialSampler
-
-    # Use a sampler to facilitate checkpoint resumption.
-    # If shuffling is enabled in the data configuration, create a random sampler.
-    if data_config.shuffle:
+    if data_config.curriculum.use_curriculum:
+        from verl.utils.import_utils import load_extern_type
         train_dataloader_generator = torch.Generator()
-        train_dataloader_generator.manual_seed(data_config.get("seed", 1))
-        sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
+        train_dataloader_generator.manual_seed(data_config.get('seed', 1))
+
+        curriculum_class = load_extern_type(data_config.curriculum.curriculum_class_path, data_config.curriculum.curriculum_class)
+        curriculum_function = curriculum_class(data_config)
+
+        sampler = CurriculumSampler(
+            data_source=dataset,
+            initial_difficulty=data_config.curriculum.starting_difficulty,
+            min_difficulty=data_config.curriculum.min_difficulty,
+            max_difficulty=data_config.curriculum.max_difficulty,
+            generator=train_dataloader_generator,
+            shuffle=data_config.shuffle,
+            curriculum_function=curriculum_function, 
+        )
     else:
-        # If shuffling is disabled, use a sequential sampler to iterate through the dataset in order.
-        sampler = SequentialSampler(data_source=dataset)
+        # Use a sampler to facilitate checkpoint resumption.
+        # If shuffling is enabled in the data configuration, create a random sampler.
+        if data_config.shuffle:
+            train_dataloader_generator = torch.Generator()
+            train_dataloader_generator.manual_seed(data_config.get("seed", 1))
+            sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
+        else:
+            # If shuffling is disabled, use a sequential sampler to iterate through the dataset in order.
+            sampler = SequentialSampler(data_source=dataset)
 
     return sampler
 

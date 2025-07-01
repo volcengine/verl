@@ -485,10 +485,14 @@ class RayPPOTrainer:
 
             collate_fn = default_collate_fn
 
+        num_workers = self.config.data.get("dataloader_num_workers", 8)
+        if self.config.data.curriculum.use_curriculum:
+            assert num_workers == 0, "If using curriculum, num_workers must be 0 to prevent data caching."
+        
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
             batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
-            num_workers=self.config.data.get("dataloader_num_workers", 8),
+            num_workers=num_workers,
             drop_last=True,
             collate_fn=collate_fn,
             sampler=train_sampler,

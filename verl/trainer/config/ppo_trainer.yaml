@@ -88,6 +88,14 @@ data:
     # The name of the dataset class within the specified file.
     name: null
 
+  curriculum:
+    use_curriculum: False
+    curriculum_class_path: "utils.curriculum.basic_curriculum"
+    curriculum_class: "BasicCurriculumCheck"
+    min_difficulty: 1
+    starting_difficulty: 1
+    max_difficulty: 10
+
 # config for actor, rollout and reference model
 actor_rollout_ref:
 
