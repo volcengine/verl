@@ -22,21 +22,18 @@ import os
 import torch
 import torch.distributed
 from megatron.core import parallel_state as mpu
+from omegaconf import DictConfig
 from torch import nn
 
 from verl import DataProto
 from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
 from verl.protocol import all_gather_data_proto
-from verl.third_party.vllm import LLM, vllm_version
+from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.debug.performance import simple_timer
 from verl.utils.device import get_torch_device
-from verl.utils.megatron_utils import (
-    load_megatron_model_to_gpu,
-    offload_megatron_model_to_cpu,
-    per_tensor_generator,
-)
+from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, per_tensor_generator
 from verl.utils.torch_functional import check_device_is_available
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
@@ -58,13 +55,38 @@ Megatron Hybrid Engine:
 
 
 class MegatronVLLMShardingManager(BaseShardingManager):
+    """A sharding manager that bridges Megatron-LM training with vLLM inference.
+
+    This class handles the parameter sharding and communication between:
+    - Megatron-LM's tensor/expert parallel training setup
+    - vLLM's tensor parallel inference setup
+
+    Key responsibilities:
+    - Manages parameter broadcasting between training and inference configurations
+    - Handles weight conversion between Megatron and HuggingFace formats
+    - Coordinates memory management between training and inference phases
+    - Maintains random state consistency across different parallel groups
+
+    Args:
+        actor_module (nn.ModuleList): The Megatron-LM model being trained
+        inference_engine (LLM): The vLLM inference engine
+        model_config: Configuration for the actor's model
+        transformer_config: Transformer-specific configuration for the model
+        rollout_config: Configuration for rollout
+        layer_name_mapping: Mapping between Megatron and HF layer names
+        weight_converter (McoreToHFWeightConverterBase): Converts weights between formats
+        device_mesh: Device mesh for parallel operations
+        offload_param (bool): Whether to offload parameters when not in use
+    """
+
     @check_device_is_available()
     def __init__(
         self,
         actor_module: nn.ModuleList,
         inference_engine: LLM,
-        model_config,
+        model_config: DictConfig,
         transformer_config,
+        rollout_config: DictConfig,
         layer_name_mapping,
         weight_converter: McoreToHFWeightConverterBase,
         device_mesh,
@@ -75,15 +97,11 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.offload_param = offload_param
 
         # For AsyncLLM, inference_engine and model_runner are defer initialized in vLLMAsyncRollout.load_model
-        if "vllm_v_0_6_3" in str(type(self.inference_engine)) or "vllm_v_0_5_4" in str(type(self.inference_engine)):
-            # vLLM <= v0.6.3
-            self.model_runner = self.inference_engine.llm_engine.model_executor.worker.model_runner if self.inference_engine else None
-        else:
-            # vLLM > v0.6.3
-            self.model_runner = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if self.inference_engine else None
+        self.model_runner = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if self.inference_engine else None
 
         self.model_config = model_config
         self.transformer_config = transformer_config
+        self.rollout_config = rollout_config
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
         # initialize groups for vllm inference
@@ -125,36 +143,29 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             if self.offload_param:
                 load_megatron_model_to_gpu(self.actor_module)
 
-            if vllm_version in (
-                "0.5.4",
-                "0.6.3",
-            ):
-                per_tensor_param = per_tensor_generator(self.actor_module, self.model_config, self.weight_converter, self.transformer_config, self.layer_name_mapping, convert_qkv_gate_up_by_simple_split=False)
-                self.inference_engine.sync_model_weights(per_tensor_param, load_format="megatron")
-            else:
-                # > 0.7.2
+            if self.rollout_config.free_cache_engine:
                 if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                     self.inference_engine.wake_up(tags=["weights"])
                 else:
                     self.inference_engine.wake_up()
-                per_tensor_param = per_tensor_generator(
-                    self.actor_module,
-                    self.model_config,
-                    self.weight_converter,
-                    self.transformer_config,
-                    self.layer_name_mapping,
-                )
-                model = self.model_runner.model
-                patch_vllm_moe_model_weight_loader(model)
-                loaded_params = model.load_weights(per_tensor_param)
-                info = f"vLLM load weights, loaded_params: {len(loaded_params)}"
-                logger.info(info)
+            per_tensor_param = per_tensor_generator(
+                self.actor_module,
+                self.model_config,
+                self.weight_converter,
+                self.transformer_config,
+                self.layer_name_mapping,
+            )
+            model = self.model_runner.model
+            patch_vllm_moe_model_weight_loader(model)
+            loaded_params = model.load_weights(per_tensor_param)
+            info = f"vLLM load weights, loaded_params: {len(loaded_params)}"
+            logger.info(info)
 
             if self.offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
             get_torch_device().empty_cache()
 
-            if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+            if self.rollout_config.free_cache_engine and "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                 self.inference_engine.wake_up(tags=["kv_cache"])
 
             # important: need to manually set the random states of each tp to be identical.
@@ -164,12 +175,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        if vllm_version in (
-            "0.5.4",
-            "0.6.3",
-        ):
-            self.inference_engine.offload_model_weights()
-        else:
+        if self.rollout_config.free_cache_engine:
             self.inference_engine.sleep(level=1)
         for model in self.actor_module:
             model.train()
@@ -188,13 +194,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             return data
 
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
-        if vllm_version in (
-            "0.5.4",
-            "0.6.3",
-        ):
-            group = vllm_ps.get_tensor_model_parallel_group()
-        else:
-            group = vllm_ps.get_tensor_model_parallel_group().device_group
+        group = vllm_ps.get_tensor_model_parallel_group().device_group
 
         all_gather_data_proto(data=data, process_group=group)
         return data

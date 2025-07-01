@@ -22,6 +22,7 @@ import time
 import warnings
 from typing import Union
 
+import psutil
 import torch
 import torch.distributed
 from codetiming import Timer
@@ -38,12 +39,7 @@ from verl.utils.debug.performance import reduce_timing
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
-from verl.utils.megatron_utils import (
-    load_megatron_model_to_gpu,
-    load_megatron_optimizer,
-    offload_megatron_model_to_cpu,
-    offload_megatron_optimizer,
-)
+from verl.utils.megatron_utils import load_megatron_model_to_gpu, load_megatron_optimizer, offload_megatron_model_to_cpu, offload_megatron_optimizer
 from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
 from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
@@ -231,7 +227,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         if self.config.rollout.name == "vllm":
             from torch.distributed.device_mesh import init_device_mesh
 
-            from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMRollout
+            from verl.workers.rollout.vllm_rollout import vLLMRollout
             from verl.workers.sharding_manager.megatron_vllm import MegatronVLLMShardingManager
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
@@ -244,25 +240,17 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
             local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
-            if vllm_mode == "customized":
-                rollout = vLLMRollout(
-                    actor_module=self.actor_module,
-                    config=self.config.rollout,
-                    tokenizer=self.tokenizer,
-                    model_hf_config=self.actor_model_config,
-                )
-            elif vllm_mode == "spmd":
-                from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
+            from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 
-                vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
-                rollout = vllm_rollout_cls(
-                    model_path=local_path,
-                    config=self.config.rollout,
-                    tokenizer=self.tokenizer,
-                    model_hf_config=self.actor_model_config,
-                    device_mesh=rollout_device_mesh,
-                    trust_remote_code=trust_remote_code,
-                )
+            vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
+            rollout = vllm_rollout_cls(
+                model_path=local_path,
+                config=self.config.rollout,
+                tokenizer=self.tokenizer,
+                model_hf_config=self.actor_model_config,
+                device_mesh=rollout_device_mesh,
+                trust_remote_code=trust_remote_code,
+            )
             log_gpu_memory_usage("After building vllm rollout", logger=logger)
 
             # perform weight resharding between actor and rollout
@@ -273,6 +261,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 inference_engine=rollout.inference_engine,
                 model_config=self.actor_model_config,
                 transformer_config=self.tf_config,
+                rollout_config=self.config.rollout,
                 layer_name_mapping=layer_name_mapping,
                 actor_module=self.actor.actor_module,
                 weight_converter=weight_converter,
@@ -321,6 +310,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 actor_module=self.actor.actor_module,
                 inference_engine=rollout._engine,
                 model_config=self.actor_model_config,
+                rollout_config=self.config.rollout,
                 transformer_config=self.tf_config,
                 layer_name_mapping=layer_name_mapping,
                 weight_converter=weight_converter,
@@ -452,6 +442,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         global_num_tokens = data.meta_info["global_token_num"]
         estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
         metrics["perf/mfu/actor"] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+        metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
+        metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
+        metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
         from verl.utils.megatron.optimizer import get_megatron_last_lr
 
         metrics["actor/lr"] = get_megatron_last_lr(self.actor_optimizer)
@@ -591,12 +584,20 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
         return rollout, rollout_sharding_manager
 
+    # ============================ vLLM related ============================
+
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     def execute_method(self, method: Union[str, bytes], *args, **kwargs):
         """Called by ExternalRayDistributedExecutor collective_rpc."""
         if self.vllm_tp_rank == 0 and method != "execute_model":
             print(f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: {method if isinstance(method, str) else 'Callable'}")
         return self.rollout.execute_method(method, *args, **kwargs)
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    def get_zeromq_address(self):
+        return self.rollout.get_zeromq_address()
+
+    # ============================ SGLang related ============================
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def chat_completion(self, json_request):
@@ -605,13 +606,15 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def wake_up(self):
-        await self.rollout.wake_up()
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.wake_up()
         # return something to block the caller
         return True
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def sleep(self):
-        await self.rollout.sleep()
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.sleep()
         # return something to block the caller
         return True
 

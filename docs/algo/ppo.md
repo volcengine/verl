@@ -1,5 +1,7 @@
 # Proximal Policy Optimization (PPO)
 
+Last updated: 06/19/2025.
+
 Proximal Policy Optimization (PPO) is a family of policy gradient methods for reinforcement learning, proposed by OpenAI in 2017. PPO strikes a balance between simplicity, stability, and performance, making it one of the most widely used algorithms in modern RL applications, including large-scale language model fine-tuning.
 
 Traditional policy gradient methods like REINFORCE or Vanilla Policy Gradient suffer from:

@@ -136,7 +136,7 @@ class TaskRunner:
 
         reward_kwargs = {"max_resp_len": config.data.max_response_length, "overlong_buffer_cfg": config.reward_model.overlong_buffer}
         cfg_reward_kwargs = config.reward_model.get("reward_kwargs", {})
-        reward_fn = load_reward_manager(config, tokenizer, num_examine=0, **(merge_dict(reward_kwargs, cfg_reward_kwargs)))
+        reward_fn = load_reward_manager(config, tokenizer, num_examine=0, **OmegaConf.merge(OmegaConf.create(reward_kwargs), cfg_reward_kwargs))
         val_reward_fn = load_reward_manager(config, tokenizer, num_examine=1, **reward_kwargs)
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
