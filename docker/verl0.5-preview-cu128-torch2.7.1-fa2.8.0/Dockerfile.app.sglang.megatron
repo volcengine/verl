@@ -17,7 +17,7 @@ RUN pip install --resume-retries 999  --no-cache-dir "sglang[all]==0.4.8" && pip
 RUN pip install --no-cache-dir "tensordict==0.6.2" "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
     "numpy<2.0.0" "pyarrow>=19.0.1" pandas \
     ray[default] codetiming hydra-core pylatexenc qwen-vl-utils wandb dill pybind11 liger-kernel mathruler blobfile xgrammar \
-    pytest py-spy pyext pre-commit ruff
+    pytest py-spy pre-commit ruff
 
 RUN pip uninstall -y pynvml nvidia-ml-py && \
     pip install --resume-retries 999 --no-cache-dir --upgrade "nvidia-ml-py>=12.560.30" "fastapi[standard]>=0.115.0" "optree>=0.13.0" "pydantic>=2.9" "grpcio>=1.62.1"
