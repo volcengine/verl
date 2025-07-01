@@ -36,7 +36,9 @@ class BaseInteraction:
         else:
             return instance_id
 
-    async def generate_response(self, instance_id: str, messages: List[Dict[str, Any]], **kwargs) -> Tuple[bool, str, float, Dict[str, Any]]:  # More clear response generation method
+    async def generate_response(
+        self, instance_id: str, messages: List[Dict[str, Any]], **kwargs
+    ) -> Tuple[bool, str, float, Dict[str, Any]]:  # More clear response generation method
         """
         Generates a response for the current turn of interaction.
         Returns a tuple containing:

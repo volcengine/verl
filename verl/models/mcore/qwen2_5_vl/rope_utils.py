@@ -40,10 +40,13 @@ def get_rope_index(
     Calculate the 3D rope index based on image and video's temporal, height and width in LLM.
 
     Explanation:
+
         Each embedding sequence contains vision embedding and text embedding or just contains text embedding.
 
         For pure text embedding sequence, the rotary position embedding has no difference with modern LLMs.
+
         Examples:
+
             input_ids: [T T T T T], here T is for text.
             temporal position_ids: [0, 1, 2, 3, 4]
             height position_ids: [0, 1, 2, 3, 4]
@@ -51,16 +54,24 @@ def get_rope_index(
 
         For vision and text embedding sequence, we calculate 3D rotary position embedding for vision part
         and 1D rotary position embedding for text part.
+
         Examples:
+
             Temporal (Time): 3 patches, representing different segments of the video in time.
             Height: 2 patches, dividing each frame vertically.
             Width: 2 patches, dividing each frame horizontally.
             We also have some important parameters:
-            fps (Frames Per Second): The video's frame rate, set to 1. This means one frame is processed each second.
-            tokens_per_second: This is a crucial parameter. It dictates how many "time-steps" or "temporal tokens" are conceptually packed into a one-second interval of the video.
-                               In this case, we have 25 tokens per second. So each second of the video will be represented with 25 separate time points. It essentially defines the temporal granularity.
+            fps (Frames Per Second): The video's frame rate, set to 1. This means one frame is processed each
+            second.
+            tokens_per_second: This is a crucial parameter. It dictates how many "time-steps" or "temporal
+                               tokens" are conceptually packed into a one-second interval of the video.
+                               In this case, we have 25 tokens per second. So each second of the video will be
+                               represented with 25 separate time points. It essentially defines the temporal
+                               granularity.
             temporal_patch_size: The number of frames that compose one temporal patch. Here, it's 2 frames.
-            interval: The step size for the temporal position IDs, calculated as tokens_per_second * temporal_patch_size / fps. In this case, 25 * 2 / 1 = 50. This means that each temporal patch will be have a difference of 50 in the temporal position IDs.
+            interval: The step size for the temporal position IDs, calculated as tokens_per_second *
+            temporal_patch_size / fps. In this case, 25 * 2 / 1 = 50. This means that each temporal patch will be
+            have a difference of 50 in the temporal position IDs.
             input_ids: [V V V V V V V V V V V V T T T T T], here V is for vision.
             vision temporal position_ids: [0, 0, 0, 0, 50, 50, 50, 50, 100, 100, 100, 100]
             vision height position_ids: [0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1]
@@ -194,7 +205,11 @@ def get_rope_index(
             max_position_ids = position_ids.max(0, keepdim=False)[0].max(-1, keepdim=True)[0]
             mrope_position_deltas = max_position_ids + 1 - attention_mask.shape[-1]
         else:
-            position_ids = torch.arange(input_ids.shape[1], device=input_ids.device).view(1, 1, -1).expand(3, input_ids.shape[0], -1)
+            position_ids = (
+                torch.arange(input_ids.shape[1], device=input_ids.device)
+                .view(1, 1, -1)
+                .expand(3, input_ids.shape[0], -1)
+            )
             mrope_position_deltas = torch.zeros(
                 [input_ids.shape[0], 1],
                 device=input_ids.device,
@@ -204,7 +219,9 @@ def get_rope_index(
         return position_ids, mrope_position_deltas
 
 
-def apply_rotary_pos_emb_thd_absolute(t: Tensor, cu_seqlens: Tensor, freqs: Tensor, rotary_interleaved: bool = False) -> Tensor:
+def apply_rotary_pos_emb_thd_absolute(
+    t: Tensor, cu_seqlens: Tensor, freqs: Tensor, rotary_interleaved: bool = False
+) -> Tensor:
     """A baseline implementation of applying RoPE for `thd` format.
 
     Args:

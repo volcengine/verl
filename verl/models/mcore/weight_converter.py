@@ -176,8 +176,16 @@ class McoreToHFWeightConverterQwen2_5_VL(McoreToHFWeightConverterDense):
         convert_names = []
         if model_type == "language_model":
             name_map_after_layer = {
-                "self_attention.linear_qkv.bias": ["self_attn.q_proj.bias", "self_attn.k_proj.bias", "self_attn.v_proj.bias"],
-                "self_attention.linear_qkv.weight": ["self_attn.q_proj.weight", "self_attn.k_proj.weight", "self_attn.v_proj.weight"],
+                "self_attention.linear_qkv.bias": [
+                    "self_attn.q_proj.bias",
+                    "self_attn.k_proj.bias",
+                    "self_attn.v_proj.bias",
+                ],
+                "self_attention.linear_qkv.weight": [
+                    "self_attn.q_proj.weight",
+                    "self_attn.k_proj.weight",
+                    "self_attn.v_proj.weight",
+                ],
                 "self_attention.linear_proj.weight": "self_attn.o_proj.weight",
                 "self_attention.linear_qkv.layer_norm_weight": "input_layernorm.weight",
             }
@@ -191,7 +199,11 @@ class McoreToHFWeightConverterQwen2_5_VL(McoreToHFWeightConverterDense):
                 assert len(params) == 1
                 convert_names.append(f"model.layers.{layer_number}.{mapped_name}")
         elif model_type == "vision_model":
-            name_map_after_layer = {"self_attention.linear_proj.weight": "attn.proj.weight", "self_attention.linear_proj.bias": "attn.proj.bias", "self_attention.linear_qkv.layer_norm_weight": "norm1.weight"}
+            name_map_after_layer = {
+                "self_attention.linear_proj.weight": "attn.proj.weight",
+                "self_attention.linear_proj.bias": "attn.proj.bias",
+                "self_attention.linear_qkv.layer_norm_weight": "norm1.weight",
+            }
             name_after_layer = ".".join(name.split(".")[-3:])
             mapped_name = name_map_after_layer.get(name_after_layer, None)
             if mapped_name is None:
@@ -332,7 +344,10 @@ class McoreToHFWeightConverterDpskv3(McoreToHFWeightConverterBase):
             "mlp.linear_fc2.weight": "mlp.down_proj.weight",
             "mlp.shared_experts.linear_fc2.weight": "mlp.shared_experts.down_proj.weight",
             "mlp.linear_fc1.weight": ["mlp.gate_proj.weight", "mlp.up_proj.weight"],
-            "mlp.shared_experts.linear_fc1.weight": ["mlp.shared_experts.gate_proj.weight", "mlp.shared_experts.up_proj.weight"],
+            "mlp.shared_experts.linear_fc1.weight": [
+                "mlp.shared_experts.gate_proj.weight",
+                "mlp.shared_experts.up_proj.weight",
+            ],
             "pre_mlp_layernorm.weight": "post_attention_layernorm.weight",
             "mlp.router.weight": "mlp.gate.weight",
             "mlp.router.expert_bias": "mlp.gate.e_score_correction_bias",
@@ -367,7 +382,12 @@ class McoreToHFWeightConverterDpskv3(McoreToHFWeightConverterBase):
     def _convert_mtp_param(self, name: str, params: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
         assert self.mcore_config.mtp_num_layers == 1, "only support one mtp layer for now"
         assert self.mcore_config.num_layers == 61, "only support 61 layers for now"
-        direct_name_mapping = {"mtp.layers.0.enorm.weight": "model.layers.61.enorm.weight", "mtp.layers.0.hnorm.weight": "model.layers.61.hnorm.weight", "mtp.layers.0.eh_proj.weight": "model.layers.61.eh_proj.weight", "mtp.layers.0.final_layernorm.weight": "model.layers.61.shared_head.norm.weight"}
+        direct_name_mapping = {
+            "mtp.layers.0.enorm.weight": "model.layers.61.enorm.weight",
+            "mtp.layers.0.hnorm.weight": "model.layers.61.hnorm.weight",
+            "mtp.layers.0.eh_proj.weight": "model.layers.61.eh_proj.weight",
+            "mtp.layers.0.final_layernorm.weight": "model.layers.61.shared_head.norm.weight",
+        }
         if name in direct_name_mapping:
             return [direct_name_mapping[name]], [params[0]]
         assert "mtp.layers.0.transformer_layer" in name, "only support transformer layer for now"

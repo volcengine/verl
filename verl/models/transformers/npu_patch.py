@@ -23,15 +23,22 @@ from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2RMSNorm
 
 
-# This patch takes effect when using apply_rotary_pos_emb_flashatt on qwen2_5_vl and will be removed in subsequent versions
+# This patch takes effect when using apply_rotary_pos_emb_flashatt on qwen2_5_vl and will be removed in
+# subsequent versions
 # https://github.com/huggingface/transformers/pull/38491
-def apply_rotary_pos_emb_flashatt_npu(q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def apply_rotary_pos_emb_flashatt_npu(
+    q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
     cos = cos.chunk(2, dim=-1)[0].contiguous()
     sin = sin.chunk(2, dim=-1)[0].contiguous()
     cos = cos.repeat(1, 2)
     sin = sin.repeat(1, 2)
-    q_embed = apply_rotary_emb(q.float(), cos.unsqueeze(0).unsqueeze(2).float(), sin.unsqueeze(0).unsqueeze(2).float()).type_as(q)
-    k_embed = apply_rotary_emb(k.float(), cos.unsqueeze(0).unsqueeze(2).float(), sin.unsqueeze(0).unsqueeze(2).float()).type_as(k)
+    q_embed = apply_rotary_emb(
+        q.float(), cos.unsqueeze(0).unsqueeze(2).float(), sin.unsqueeze(0).unsqueeze(2).float()
+    ).type_as(q)
+    k_embed = apply_rotary_emb(
+        k.float(), cos.unsqueeze(0).unsqueeze(2).float(), sin.unsqueeze(0).unsqueeze(2).float()
+    ).type_as(k)
     return q_embed, k_embed
 
 

@@ -95,11 +95,17 @@ class OffloadHandler:
 
     def tensor_push(self, tensor: torch.Tensor, **kwargs) -> Any:
         """Tensor push."""
-        raise NotImplementedError("`tensor_push is not implented in OffloadHandler class. Inherit this class and implement your custom tensor_push.")
+        raise NotImplementedError(
+            "`tensor_push is not implented in OffloadHandler class. Inherit this class and implement your "
+            "custom tensor_push."
+        )
 
     def tensor_pop(self, tensor_tag: Any, **kwargs):
         """Tensor pop."""
-        raise NotImplementedError("`tensor_pop is not implented in OffloadHandler class. Inherit this class and implement your custom tensor_pop.")
+        raise NotImplementedError(
+            "`tensor_pop is not implented in OffloadHandler class. Inherit this class and implement your "
+            "custom tensor_pop."
+        )
 
 
 class GroupCommitFunction(torch.autograd.Function):
@@ -392,7 +398,9 @@ class AsyncDoubleBufferGroupOffloadHandler(SynchronizedGroupOffloadHandler):
             self.offloaded_group_count = 0
 
 
-def get_activation_offload_context(num_layers: int = 1, model_layers: int = 1, tensor_need_offloading_checker=(lambda t: True)):
+def get_activation_offload_context(
+    num_layers: int = 1, model_layers: int = 1, tensor_need_offloading_checker=(lambda t: True)
+):
     cpu_offload_handler = AsyncDoubleBufferGroupOffloadHandler(
         num_offload_group=num_layers,
         num_model_group=model_layers,
@@ -537,7 +545,8 @@ def enable_activation_offloading(model, strategy, enable_ckpt=False):
     tensor_filter = FSDPParameterFilter()
     context, sync_func = get_activation_offload_context(len(layers) - 1, len(layers), tensor_filter)
     if enable_ckpt:
-        # The implementation of activation checkpointing in transformers library is incompatible with activation offloading,
+        # The implementation of activation checkpointing in transformers library is incompatible with
+        # activation offloading,
         # so it will be disabled, but this implementation supports another version of activation checkpointing, so that
         # these two features can be enabled at the same time.
         for module in model.modules():
