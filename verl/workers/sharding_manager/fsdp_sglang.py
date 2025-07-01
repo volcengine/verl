@@ -103,7 +103,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
             loop = asyncio.get_event_loop()
 
-            if self.device_mesh["infer_tp"].get_local_rank() == 0:
+            if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
                 if self.multi_stage_wake_up:
                     loop.run_until_complete(self.inference_engine.resume_memory_occupation(tags=["weights"]))
                     log_gpu_memory_usage("Before resume SGLang weights in sharding manager", logger=logger)
@@ -130,7 +130,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             get_torch_device().empty_cache()
             log_gpu_memory_usage("After del state_dict and empty_cache in sharding manager", logger=logger)
 
-            if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.multi_stage_wake_up:
+            if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.multi_stage_wake_up and self.rollout_config.free_cache_engine:
                 loop.run_until_complete(self.inference_engine.resume_memory_occupation(tags=["kv_cache"]))
                 log_gpu_memory_usage("After resume SGLang kv_cache in sharding manager", logger=logger)
 
@@ -141,10 +141,11 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager exit", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(self.release_memory())
-        log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
+        if self.rollout_config.free_cache_engine:
+            log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.release_memory())
+            log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
 
         self.module.train()
 
@@ -187,7 +188,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
                 )
 
     async def release_memory(self):
-        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.release_memory_occupation()
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
@@ -217,9 +218,10 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager exit", logger=logger)
     async def sleep(self):
-        log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
-        await self.release_memory()
-        log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
+        if self.rollout_config.free_cache_engine:
+            log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
+            await self.release_memory()
+            log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
 
         self.module.train()
 
