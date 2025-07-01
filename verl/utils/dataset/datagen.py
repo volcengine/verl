@@ -43,6 +43,7 @@ class NoOpDataGen(AbstractDataGen):
     A noop data gen class that only reappends the first datapoint.
     This class is useful as a placeholder and testing.
     """
+
     def __init__(self, config: DictConfig = None):
         super().__init__(config)
 
