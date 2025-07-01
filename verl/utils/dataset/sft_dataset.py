@@ -18,10 +18,11 @@ SFT dataset
 Each parquet file contains
 """
 
-from typing import List, Union
+from typing import Union
 
 import pandas as pd
 import torch
+from omegaconf.listconfig import ListConfig
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer
 
@@ -38,7 +39,7 @@ class SFTDataset(Dataset):
         config (OmegaConf): the data config
     """
 
-    def __init__(self, parquet_files: Union[str, List[str]], tokenizer, config):
+    def __init__(self, parquet_files: Union[str, ListConfig], tokenizer, config):
         prompt_key = config.get("prompt_key", "prompt")
         prompt_dict_keys = config.get("prompt_dict_keys", None)
         response_key = config.get("response_key", "response")
@@ -51,7 +52,7 @@ class SFTDataset(Dataset):
         self.truncation = truncation
         self.use_shm = use_shm
 
-        if not isinstance(parquet_files, List):
+        if not isinstance(parquet_files, ListConfig):
             parquet_files = [parquet_files]
 
         self.parquet_files = parquet_files
@@ -146,7 +147,10 @@ class SFTDataset(Dataset):
         # padding to max length
         sequence_length = input_ids.shape[0]
         if sequence_length < self.max_length:
-            padded_input_ids = torch.ones(size=(self.max_length - sequence_length,), dtype=input_ids.dtype) * self.tokenizer.pad_token_id
+            padded_input_ids = (
+                torch.ones(size=(self.max_length - sequence_length,), dtype=input_ids.dtype)
+                * self.tokenizer.pad_token_id
+            )
             padded_attention_mask = torch.zeros(size=(self.max_length - sequence_length,), dtype=attention_mask.dtype)
 
             input_ids = torch.cat((input_ids, padded_input_ids))

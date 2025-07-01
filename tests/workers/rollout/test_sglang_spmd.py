@@ -57,7 +57,9 @@ def test_sglang_spmd():
     hf_response_tokens = generate_hf_output(actor_model, input_ids, attention_mask, tokenizer, max_response_length)
 
     tensor_parallel_size = 2
-    inference_device_mesh_cpu = init_device_mesh("cpu", mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=["dp", "tp", "pp"])
+    inference_device_mesh_cpu = init_device_mesh(
+        "cpu", mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=["dp", "tp", "pp"]
+    )
     tp_rank = inference_device_mesh_cpu["tp"].get_local_rank()
 
     if tp_rank == 0:

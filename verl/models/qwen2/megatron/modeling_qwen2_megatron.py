@@ -89,9 +89,13 @@ class ParallelQwen2Model(nn.Module):
         if megatron_config is not None:
             assert embedding_kwargs.get("config", False), "must have ModelParallelConfig"
             tp_utils.update_kwargs_with_config(embedding_kwargs, megatron_config)
-        self.embed_tokens = tensor_parallel.VocabParallelEmbedding(num_embeddings=config.vocab_size, embedding_dim=config.hidden_size, **embedding_kwargs)
+        self.embed_tokens = tensor_parallel.VocabParallelEmbedding(
+            num_embeddings=config.vocab_size, embedding_dim=config.hidden_size, **embedding_kwargs
+        )
 
-        self.layers = nn.ModuleList([ParallelQwen2DecoderLayer(config, megatron_config) for _ in range(config.num_hidden_layers)])
+        self.layers = nn.ModuleList(
+            [ParallelQwen2DecoderLayer(config, megatron_config) for _ in range(config.num_hidden_layers)]
+        )
         self.norm = ParallelQwen2RMSNorm(config, megatron_config)
 
     # Copied from transformers.models.bart.modeling_bart.BartDecoder._prepare_decoder_attention_mask
@@ -108,8 +112,12 @@ class ParallelQwen2Model(nn.Module):
 
         if attention_mask is not None:
             # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
-            expanded_attn_mask = _expand_mask(attention_mask, inputs_embeds.dtype, tgt_len=input_shape[-1]).to(inputs_embeds.device)
-            combined_attention_mask = expanded_attn_mask if combined_attention_mask is None else expanded_attn_mask + combined_attention_mask
+            expanded_attn_mask = _expand_mask(attention_mask, inputs_embeds.dtype, tgt_len=input_shape[-1]).to(
+                inputs_embeds.device
+            )
+            combined_attention_mask = (
+                expanded_attn_mask if combined_attention_mask is None else expanded_attn_mask + combined_attention_mask
+            )
 
         return combined_attention_mask
 
@@ -231,9 +239,13 @@ class ParallelQwen2ModelRmPad(nn.Module):
         if megatron_config is not None:
             assert embedding_kwargs.get("config", False), "must have ModelParallelConfig"
             tp_utils.update_kwargs_with_config(embedding_kwargs, self.megatron_config)
-        self.embed_tokens = tensor_parallel.VocabParallelEmbedding(num_embeddings=config.vocab_size, embedding_dim=config.hidden_size, **embedding_kwargs)
+        self.embed_tokens = tensor_parallel.VocabParallelEmbedding(
+            num_embeddings=config.vocab_size, embedding_dim=config.hidden_size, **embedding_kwargs
+        )
 
-        self.layers = nn.ModuleList([ParallelQwen2DecoderLayerRmPad(config, megatron_config) for _ in range(config.num_hidden_layers)])
+        self.layers = nn.ModuleList(
+            [ParallelQwen2DecoderLayerRmPad(config, megatron_config) for _ in range(config.num_hidden_layers)]
+        )
         self.norm = ParallelQwen2RMSNorm(config, megatron_config)
 
     def forward(
@@ -327,7 +339,9 @@ class ParallelQwen2ForCausalLMRmPad(nn.Module):
         batch_size, sequence_length = input_ids.shape
 
         # remove padding here
-        input_ids, indices, cu_seqlens, max_seqlen_in_batch, *_ = unpad_input(input_ids.unsqueeze(dim=-1), attention_mask)  # (total_nnz, 1)
+        input_ids, indices, cu_seqlens, max_seqlen_in_batch, *_ = unpad_input(
+            input_ids.unsqueeze(dim=-1), attention_mask
+        )  # (total_nnz, 1)
 
         # pad input_ids to multiple of tp for all tp ranks
         # TODO: for better performance, the sp padding should be removed at each layer. Not sure the performance gap
@@ -356,7 +370,9 @@ class ParallelQwen2ForCausalLMRmPad(nn.Module):
 
         logits = torch.squeeze(logits, dim=1)  # remove the artificial batch dimension
         # add removed padding back
-        logits = pad_input(logits, indices, batch_size, seqlen=sequence_length)  # (batch_size, sequence_length, vocab_size)
+        logits = pad_input(
+            logits, indices, batch_size, seqlen=sequence_length
+        )  # (batch_size, sequence_length, vocab_size)
 
         return CausalLMOutputWithPast(
             loss=None,
@@ -423,7 +439,9 @@ class ParallelQwen2ModelRmPadPP(nn.Module):
             assert embedding_kwargs.get("config", False), "must have ModelParallelConfig"
             tp_utils.update_kwargs_with_config(embedding_kwargs, self.megatron_config)
         if pre_process:
-            self.embed_tokens = tensor_parallel.VocabParallelEmbedding(num_embeddings=config.vocab_size, embedding_dim=config.hidden_size, **embedding_kwargs)
+            self.embed_tokens = tensor_parallel.VocabParallelEmbedding(
+                num_embeddings=config.vocab_size, embedding_dim=config.hidden_size, **embedding_kwargs
+            )
         else:
             self.embed_tokens = None
 
@@ -524,7 +542,9 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
         super().__init__()
         self.config: TransformerConfig = convert_config(config, megatron_config)
         self.megatron_config = megatron_config
-        self.model = ParallelQwen2ModelRmPadPP(config, megatron_config=megatron_config, pre_process=pre_process, post_process=post_process)
+        self.model = ParallelQwen2ModelRmPadPP(
+            config, megatron_config=megatron_config, pre_process=pre_process, post_process=post_process
+        )
         self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
         self.vocab_size = config.vocab_size
         self.pre_process = pre_process
@@ -608,7 +628,8 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
 
     def _forward_head(self, hidden_states):
         # all_gather from sequence parallel region is performed inside lm_head
-        # print(f'logits shape before forward_head: {hidden_states.shape}, vocab_size = {self.config.vocab_size}') # [4, 32, 4096]
+        # print(f'logits shape before forward_head: {hidden_states.shape}, vocab_size = '
+        # f'{self.config.vocab_size}') # [4, 32, 4096]
         output_weight = None
         if self.share_embeddings_and_output_weights:
             output_weight = self.shared_embedding_or_output_weight()
@@ -639,7 +660,9 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
         # In the first pp, input_ids will be used, in other pp layers hidden_states will be used inside self.model
         batch_size, sequence_length = input_ids.shape
         # remove padding here
-        input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch, *_ = unpad_input(input_ids.unsqueeze(dim=-1), attention_mask)  # (total_nnz, 1)
+        input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch, *_ = unpad_input(
+            input_ids.unsqueeze(dim=-1), attention_mask
+        )  # (total_nnz, 1)
 
         # pad input_ids to multiple of tp for all tp ranks
         # TODO: for better performance, the sp padding should be removed at each layer. Not sure the performance gap
@@ -667,7 +690,9 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
                 totol_nnz = cu_seqlens[-1]
                 logits = logits[:totol_nnz]  # (total_nnz_padded)
             # add removed padding back. If input is already rmpad, we let the caller pad_input
-            logits = pad_input(logits, indices, batch_size, seqlen=sequence_length)  # (batch_size, sequence_length, vocab_size)
+            logits = pad_input(
+                logits, indices, batch_size, seqlen=sequence_length
+            )  # (batch_size, sequence_length, vocab_size)
 
             return CausalLMOutputWithPast(
                 loss=None,

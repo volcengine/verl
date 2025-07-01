@@ -37,7 +37,7 @@ Most critic configs are similar to those of actors. Note that the critic model i
 
 - `actor_rollout_ref.actor.ppo_epochs`: Number of epochs for PPO updates on one set of sampled trajectories for actor
 
-- `actor_rollout_ref.actor.ppo_epochs`: Number of epochs for PPO updates on one set of sampled trajectories for critic
+- `critic.ppo_epochs`: Number of epochs for PPO updates on one set of sampled trajectories for critic. Defaults to `actor_rollout_ref.actor.ppo_epochs`
 
 - `algorithm.gemma`: discount factor
 

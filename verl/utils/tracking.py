@@ -117,7 +117,7 @@ class Tracking:
             self.logger["vemlp_wandb"] = vemlp_wandb
 
         if "tensorboard" in default_backend:
-            self.logger["tensorboard"] = _TensorboardAdapter()
+            self.logger["tensorboard"] = _TensorboardAdapter(project_name, experiment_name)
 
         if "console" in default_backend:
             from verl.utils.logger import LocalLogger
@@ -190,19 +190,22 @@ class ClearMLLogger:
                     iteration=step,
                 )
             else:
-                logger.warning(f'Trainer is attempting to log a value of "{v}" of type {type(v)} for key "{k}". This invocation of ClearML logger\'s function is incorrect so this attribute was dropped. ')
+                logger.warning(
+                    f'Trainer is attempting to log a value of "{v}" of type {type(v)} for key "{k}". This '
+                    f"invocation of ClearML logger's function is incorrect so this attribute was dropped. "
+                )
 
     def finish(self):
         self._task.mark_completed()
 
 
 class _TensorboardAdapter:
-    def __init__(self):
+    def __init__(self, project_name, experiment_name):
         import os
 
         from torch.utils.tensorboard import SummaryWriter
 
-        tensorboard_dir = os.environ.get("TENSORBOARD_DIR", "tensorboard_log")
+        tensorboard_dir = os.environ.get("TENSORBOARD_DIR", f"tensorboard_log/{project_name}/{experiment_name}")
         os.makedirs(tensorboard_dir, exist_ok=True)
         print(f"Saving tensorboard log to {tensorboard_dir}.")
         self.writer = SummaryWriter(tensorboard_dir)
@@ -273,12 +276,26 @@ class ValidationGenerationsLogger:
         if "tensorboard" in loggers:
             self.log_generations_to_tensorboard(samples, step)
 
+        if "vemlp_wandb" in loggers:
+            self.log_generations_to_vemlp_wandb(samples, step)
+
+    def log_generations_to_vemlp_wandb(self, samples, step):
+        from volcengine_ml_platform import wandb as vemlp_wandb
+
+        self._log_generations_to_wandb(samples, step, vemlp_wandb)
+
     def log_generations_to_wandb(self, samples, step):
-        """Log samples to wandb as a table"""
         import wandb
 
+        self._log_generations_to_wandb(samples, step, wandb)
+
+    def _log_generations_to_wandb(self, samples, step, wandb):
+        """Log samples to wandb as a table"""
+
         # Create column names for all samples
-        columns = ["step"] + sum([[f"input_{i + 1}", f"output_{i + 1}", f"score_{i + 1}"] for i in range(len(samples))], [])
+        columns = ["step"] + sum(
+            [[f"input_{i + 1}", f"output_{i + 1}", f"score_{i + 1}"] for i in range(len(samples))], []
+        )
 
         if not hasattr(self, "validation_table"):
             # Initialize the table on first call

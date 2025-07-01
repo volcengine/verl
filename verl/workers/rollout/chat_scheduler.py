@@ -32,7 +32,7 @@ from openai.types.chat.chat_completion import ChatCompletion
 from tensordict import TensorDict
 
 from verl.protocol import DataProto
-from verl.tools.base_tool import initialize_tools_from_config
+from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
 
@@ -45,7 +45,7 @@ class CompletionCallback(ABC):
         self.scheduler = scheduler
 
         # Initialize tools from config file
-        self.max_turns = config.actor_rollout_ref.rollout.multi_turn.max_turns
+        self.max_assistant_turns = config.actor_rollout_ref.rollout.multi_turn.max_assistant_turns
         tool_config_path = config.actor_rollout_ref.rollout.multi_turn.tool_config_path
         tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
         self.tools = {tool.name: tool for tool in tool_list}
@@ -88,7 +88,8 @@ class CompletionCallback(ABC):
             n: How many chat completion choices to generate for each input message.
 
         Returns:
-            Batch data, should include ["prompts", "responses", "response_mask", "input_ids", "attention_mask", "position_ids"].
+            Batch data, should include ["prompts", "responses", "response_mask", "input_ids", "attention_mask",
+            "position_ids"].
         """
         raise NotImplementedError
 
@@ -107,7 +108,7 @@ class ToolCompletionCallback(CompletionCallback):
         finish_reason = completions.choices[0].finish_reason
 
         # STEP 0: check if we reach max turns
-        if self.max_turns and len(messages) >= self.max_turns:
+        if self.max_assistant_turns and len(messages) >= self.max_assistant_turns:
             print(f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] Reach max turns, done!")
             return
 
@@ -124,7 +125,10 @@ class ToolCompletionCallback(CompletionCallback):
             tasks.append(self._call_tool(tool_call))
         tool_responses = await asyncio.gather(*tasks)
         if any(isinstance(item, Exception) for item in tool_responses):
-            print(f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] Error when calling tools, done!")
+            print(
+                f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] Error when calling tools, "
+                f"done!"
+            )
             return
         messages.extend(tool_responses)
 
@@ -161,11 +165,21 @@ class ToolCompletionCallback(CompletionCallback):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
 
         # prompts: [prompt] from input dataset
-        prompts = [self.tokenizer.apply_chat_template(prompt, tools=self.tool_schemas, add_generation_prompt=True, tokenize=False) for prompt in batch.non_tensor_batch["raw_prompt"]]
+        prompts = [
+            self.tokenizer.apply_chat_template(
+                prompt, tools=self.tool_schemas, add_generation_prompt=True, tokenize=False
+            )
+            for prompt in batch.non_tensor_batch["raw_prompt"]
+        ]
         assert len(batch_conversations) == len(prompts) * n
 
         # sequences: [prompt + response]
-        sequences = [self.tokenizer.apply_chat_template(conversation, tools=self.tool_schemas, add_generation_prompt=False, tokenize=False) for conversation in batch_conversations]
+        sequences = [
+            self.tokenizer.apply_chat_template(
+                conversation, tools=self.tool_schemas, add_generation_prompt=False, tokenize=False
+            )
+            for conversation in batch_conversations
+        ]
 
         # responses: [response]
         responses = [sequence[len(prompts[i // n]) :] for i, sequence in enumerate(sequences)]
@@ -177,7 +191,12 @@ class ToolCompletionCallback(CompletionCallback):
             prompts["attention_mask"] = prompts["attention_mask"].repeat_interleave(n, dim=0)
 
         # response_mask: response mask with tools calling masked out
-        response_mask = self._mask_out_tools_calling_tokens(batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0), batch_conversations, responses["input_ids"], responses["attention_mask"])
+        response_mask = self._mask_out_tools_calling_tokens(
+            batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0),
+            batch_conversations,
+            responses["input_ids"],
+            responses["attention_mask"],
+        )
 
         input_ids = torch.cat([prompts["input_ids"], responses["input_ids"]], dim=1)
         attention_mask = torch.cat([prompts["attention_mask"], responses["attention_mask"]], dim=1)
@@ -406,7 +425,9 @@ class ChatCompletionScheduler:
         print("[ChatCompletionScheduler] generate_sequences done")
         return output_batch
 
-    async def _submit_chat_completions_semaphore(self, messages: List[Dict[str, str]], request_id: str, sampling_params: Dict[str, Any]):
+    async def _submit_chat_completions_semaphore(
+        self, messages: List[Dict[str, str]], request_id: str, sampling_params: Dict[str, Any]
+    ):
         done = asyncio.Event()
 
         info = {

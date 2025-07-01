@@ -19,5 +19,5 @@ actor_rollout_ref:
     name: sglang_async
     multi_turn:
       enable: True
-      max_turns: 2
+      max_assistant_turns: 2
       format: qwen

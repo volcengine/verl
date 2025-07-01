@@ -43,7 +43,11 @@ def get_aux_metrics(self, test_proto):
     decode_count = []
     for i in range(sequence_ids.size(0)):
         decode_count.append(len(sequence_ids[i].tolist()))
-    ret_proto = DataProto(batch=TensorDict({"sequence_ids": sequence_ids, "decode_count": torch.tensor(decode_count)}, batch_size=sequence_ids.size(0)))
+    ret_proto = DataProto(
+        batch=TensorDict(
+            {"sequence_ids": sequence_ids, "decode_count": torch.tensor(decode_count)}, batch_size=sequence_ids.size(0)
+        )
+    )
     return ret_proto
 
 

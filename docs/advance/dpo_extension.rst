@@ -1,6 +1,8 @@
 Extend to other RL(HF) algorithms
 =================================
 
+Last updated: 02/25/2025.
+
 We already implemented the complete training pipeline of the PPO
 algorithms. To extend to other algorithms, we analyze the high-level
 principle to use verl and provide a tutorial to implement the DPO
