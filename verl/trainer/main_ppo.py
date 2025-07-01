@@ -24,6 +24,8 @@ from omegaconf import OmegaConf
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
+from verl.utils.import_utils import load_extern_type, load_type_from_module
+from verl.utils.dataset.curriculum_sampler import AbstractCurriculumSampler
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
@@ -276,16 +278,18 @@ def create_rl_sampler(data_config, dataset):
         data_config.curriculum is not None
         and data_config.curriculum.get("curriculum_class_path", None) is not None
     ):
-        from verl.utils.import_utils import load_extern_type
-
         train_dataloader_generator = torch.Generator()
         train_dataloader_generator.manual_seed(data_config.get("seed", 1))
 
-        curriculum_class = load_extern_type(
+        curriculum_class = load_type_from_module(
             data_config.curriculum.curriculum_class_path,
             data_config.curriculum.curriculum_class,
         )
-        sampler = curriculum_class()
+        sampler = curriculum_class(
+            data_source=dataset,
+            data_config=data_config,
+        )
+        assert isinstance(sampler, AbstractCurriculumSampler)
 
     # Use a sampler to facilitate checkpoint resumption.
     # If shuffling is enabled in the data configuration, create a random sampler.

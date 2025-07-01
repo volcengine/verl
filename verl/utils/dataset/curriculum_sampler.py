@@ -1,27 +1,32 @@
-from collections import defaultdict
-from typing import Any, Callable, Dict, Iterator
-from collections.abc import Iterable, Iterator, Sequence, Sized
+from omegaconf import DictConfig
+from typing import Iterator
+from collections.abc import Sized
 
-import numpy as np
+
 import torch
-from torch.utils.data import Dataset, Sampler, RandomSampler
-from abc import ABC, abstractmethod
+from torch.utils.data import Sampler, RandomSampler
+from abc import abstractmethod
 
 
 class AbstractCurriculumSampler(Sampler[int]):
     @abstractmethod
-    def __init__(self, config):
+    def __init__(
+        self,
+        data_source: Sized,
+        config: DictConfig,
+    ):
         pass
 
 
 class RandomCurriculumSampler(AbstractCurriculumSampler):
     def __init__(
         self,
-        config: int,
+        data_source: Sized,
+        data_config: DictConfig,
     ):
         train_dataloader_generator = torch.Generator()
         train_dataloader_generator.manual_seed(1)
-        sampler = RandomSampler(generator=train_dataloader_generator)
+        sampler = RandomSampler(data_source=data_source)
         self.sampler = sampler
 
     def __iter__(self):

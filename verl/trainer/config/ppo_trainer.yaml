@@ -55,6 +55,9 @@ data:
   # Whether to shuffle the data in the dataloader.
   shuffle: True
 
+  # num dataloader workers
+  dataloader_num_workers: 8
+
   # Whether to shuffle the validation set.
   validation_shuffle: False
 
