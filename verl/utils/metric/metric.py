@@ -112,7 +112,7 @@ class Metrics:
         """
         name_lower = name.lower()
 
-        if any(word in name_lower for word in ("sum")):
+        if any(word in name_lower for word in ("sum",)):
             agg = MetricAggregationType.SUM
         elif any(word in name_lower for word in ("max", "peak")):
             agg = MetricAggregationType.MAX
@@ -122,7 +122,7 @@ class Metrics:
             # default to mean
             agg = MetricAggregationType.MEAN
 
-        if "lr" in name_lower:
+        if any(word in name_lower for word in ("lr", "learning_rate")):
             fmt = "{:.6f}"
         else:
             # default to 3 decimal places
@@ -207,7 +207,7 @@ class Metrics:
         for name, values in other.data.items():
             if name not in self.data:
                 self.data[name] = deepcopy(values)
-                self.configs[name] = other.configs[name]
+                self.configs[name] = deepcopy(other.configs[name])
             else:
                 if strict_config and self.configs[name] != other.configs[name]:
                     raise ValueError(f"Config for metric {name} is different between self and other")
@@ -241,7 +241,7 @@ class Metrics:
         for name, values in other.data.items():
             if name not in self.data:
                 self.data[name] = deepcopy(values)
-                self.configs[name] = other.configs[name]
+                self.configs[name] = deepcopy(other.configs[name])
             else:
                 if strict_config and self.configs[name] != other.configs[name]:
                     raise ValueError(f"Config for metric {name} is different between self and other")
@@ -283,7 +283,7 @@ class Metrics:
 
         raise ValueError(f"Invalid aggregation type: {agg}")
 
-    def get_aggregated_value(self, name: str, formatted: bool = False):
+    def get_aggregated_value(self, name: str, formatted_str: bool = False):
         """
         Get the aggregated value for a specific metric.
 
@@ -307,7 +307,7 @@ class Metrics:
 
         val = self._aggregate_value(values, agg)
 
-        if formatted:
+        if formatted_str:
             return config.format_str.format(val)
         else:
             return val
