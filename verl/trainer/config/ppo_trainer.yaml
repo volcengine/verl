@@ -98,7 +98,7 @@ data:
     curriculum_class_path: null
 
     # the name of the curriculum class
-    curriculum_class: "BasicCurriculumCheck"
+    curriculum_class: null
 
 # config for actor, rollout and reference model
 actor_rollout_ref:

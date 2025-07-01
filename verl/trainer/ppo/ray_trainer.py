@@ -575,7 +575,7 @@ class RayPPOTrainer:
 
             collate_fn = default_collate_fn
 
-        num_workers = self.config.data.get("dataloader_num_workers", 8)
+        num_workers = self.config.data["dataloader_num_workers"]
         if (
             self.config.data.curriculum is not None
             and self.config.data.curriculum.get("curriculum_class_path", None)
@@ -603,7 +603,7 @@ class RayPPOTrainer:
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             batch_size=val_batch_size,
-            num_workers=self.config.data.get("dataloader_num_workers", 8),
+            num_workers=num_workers,
             shuffle=self.config.data.get("validation_shuffle", True),
             drop_last=False,
             collate_fn=collate_fn,
