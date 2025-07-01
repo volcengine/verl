@@ -72,7 +72,9 @@ class Profiler:
                 self.config.profile_ranks = [0]
             assert self.config.step_start >= 0, "[ERROR] Profile step start must be greater than 0"
             assert self.config.step_end >= 0, "[ERROR] Profile step end must be greater than 0"
-            assert self.config.step_start < self.config.step_end, "[ERROR] Profile step start must be less than step end"
+            assert self.config.step_start < self.config.step_end, (
+                "[ERROR] Profile step start must be less than step end"
+            )
 
     def check(self):
         return self.prof is not None and not self.skip_prof
@@ -112,7 +114,12 @@ class Profiler:
             self.skip_prof = True
 
 
-def mark_start_range(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> None:
+def mark_start_range(
+    message: Optional[str] = None,
+    color: Optional[str] = None,
+    domain: Optional[str] = None,
+    category: Optional[str] = None,
+) -> None:
     """Start a profiling range marker (no-op implementation).
 
     Args:
@@ -133,7 +140,12 @@ def mark_end_range(range_id: str) -> None:
     pass
 
 
-def mark_annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
+def mark_annotate(
+    message: Optional[str] = None,
+    color: Optional[str] = None,
+    domain: Optional[str] = None,
+    category: Optional[str] = None,
+) -> Callable:
     """Decorator to annotate a function with profiling markers (no-op implementation).
 
     Args:
@@ -174,7 +186,12 @@ class DistProfiler:
         pass
 
     @staticmethod
-    def annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
+    def annotate(
+        message: Optional[str] = None,
+        color: Optional[str] = None,
+        domain: Optional[str] = None,
+        category: Optional[str] = None,
+    ) -> Callable:
         def decorator(func):
             return func
 

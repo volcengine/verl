@@ -144,7 +144,13 @@ def simple_timer(name: str, timing_raw: Dict[str, float]):
 
 
 @contextmanager
-def marked_timer(name: str, timing_raw: Dict[str, float], color: str = None, domain: Optional[str] = None, category: Optional[str] = None):
+def marked_timer(
+    name: str,
+    timing_raw: Dict[str, float],
+    color: str = None,
+    domain: Optional[str] = None,
+    category: Optional[str] = None,
+):
     """Context manager for timing with platform markers.
 
     This utility function measures the execution time of code within its context,
