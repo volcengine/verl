@@ -25,12 +25,19 @@ def compute_rloo_advantage_return(data: verl.DataProto, response_mask: torch.Ten
         reward_tensor[~mask_tensor] = 0
         for start_pos in range(0, reward_tensor.shape[0], n_samples):
             cur_rewards_mean = torch.cat(
-                [reward_tensor[pos : pos + 1][mask_tensor[pos : pos + 1]].mean(dim=0, keepdim=True) for pos in range(start_pos, start_pos + n_samples)],
+                [
+                    reward_tensor[pos : pos + 1][mask_tensor[pos : pos + 1]].mean(dim=0, keepdim=True)
+                    for pos in range(start_pos, start_pos + n_samples)
+                ],
                 dim=0,
             )
             cur_rewards_sum = cur_rewards_mean.sum()
             cur_reward_baseline = cur_rewards_sum / (n_samples - 1)
-            reward_tensor[start_pos : start_pos + n_samples][mask_tensor[start_pos : start_pos + n_samples]] = reward_tensor[start_pos : start_pos + n_samples][mask_tensor[start_pos : start_pos + n_samples]] * (n_samples / (n_samples - 1)) - cur_reward_baseline
+            reward_tensor[start_pos : start_pos + n_samples][mask_tensor[start_pos : start_pos + n_samples]] = (
+                reward_tensor[start_pos : start_pos + n_samples][mask_tensor[start_pos : start_pos + n_samples]]
+                * (n_samples / (n_samples - 1))
+                - cur_reward_baseline
+            )
 
         return reward_tensor
 
@@ -112,7 +119,9 @@ def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, response_m
 def compute_dpo_accuracy(token_level_scores, acc, response_mask, n_samples):
     dpo_acc = []
     for start_id in range(0, token_level_scores.shape[0], n_samples):
-        cur_scores = (token_level_scores[start_id : start_id + n_samples] * response_mask[start_id : start_id + n_samples]).sum(dim=1)
+        cur_scores = (
+            token_level_scores[start_id : start_id + n_samples] * response_mask[start_id : start_id + n_samples]
+        ).sum(dim=1)
 
         def get_upper_triangle(tensor_x):
             diff_matrix = tensor_x.unsqueeze(1) - tensor_x.unsqueeze(0)
@@ -125,7 +134,9 @@ def compute_dpo_accuracy(token_level_scores, acc, response_mask, n_samples):
         if cur_acc_diff.abs().sum() == 0:
             cur_acc = torch.zeros_like(cur_score_prediction[0]) + 0.5
         else:
-            cur_acc = (((cur_score_diff > 0) == (cur_acc_diff > 0)).float() * cur_acc_diff.abs()).sum() / cur_acc_diff.abs().sum()
+            cur_acc = (
+                ((cur_score_diff > 0) == (cur_acc_diff > 0)).float() * cur_acc_diff.abs()
+            ).sum() / cur_acc_diff.abs().sum()
 
         dpo_acc.append(cur_acc.unsqueeze(0))
 

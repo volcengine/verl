@@ -47,7 +47,10 @@ def _get_current_mem_info(unit: str = "GB", precision: int = 2) -> Tuple[str]:
 def log_gpu_memory_usage(head: str, logger: logging.Logger = None, level=logging.DEBUG, rank: int = 0):
     if (not dist.is_initialized()) or (rank is None) or (dist.get_rank() == rank):
         mem_allocated, mem_reserved, mem_used, mem_total = _get_current_mem_info()
-        message = f"{head}, memory allocated (GB): {mem_allocated}, memory reserved (GB): {mem_reserved}, device memory used/total (GB): {mem_used}/{mem_total}"
+        message = (
+            f"{head}, memory allocated (GB): {mem_allocated}, memory reserved (GB): {mem_reserved}, "
+            f"device memory used/total (GB): {mem_used}/{mem_total}"
+        )
 
         if logger is None:
             print(message)
@@ -82,13 +85,19 @@ class GPUMemoryLogger(DecoratorLoggerBase):
     def log(self, func, *args, **kwargs):
         name = func.__name__
         mem_allocated, mem_reserved, mem_used, mem_total = _get_current_mem_info()
-        message = f"Before {name}, memory allocated (GB): {mem_allocated}, memory reserved (GB): {mem_reserved}, device memory used/total (GB): {mem_used}/{mem_total}"
+        message = (
+            f"Before {name}, memory allocated (GB): {mem_allocated}, memory reserved (GB): {mem_reserved}, "
+            f"device memory used/total (GB): {mem_used}/{mem_total}"
+        )
         self.logging_function(message)
 
         output = func(*args, **kwargs)
 
         mem_allocated, mem_reserved, mem_used, mem_total = _get_current_mem_info()
-        message = f"After {name}, memory allocated (GB): {mem_allocated}, memory reserved (GB): {mem_reserved}, device memory used/total (GB): {mem_used}/{mem_total}"
+        message = (
+            f"After {name}, memory allocated (GB): {mem_allocated}, memory reserved (GB): {mem_reserved}, "
+            f"device memory used/total (GB): {mem_used}/{mem_total}"
+        )
 
         self.logging_function(message)
         return output
@@ -136,7 +145,13 @@ def simple_timer(name: str, timing_raw: Dict[str, float]):
 
 
 @contextmanager
-def marked_timer(name: str, timing_raw: Dict[str, float], color: str = None, domain: Optional[str] = None, category: Optional[str] = None):
+def marked_timer(
+    name: str,
+    timing_raw: Dict[str, float],
+    color: str = None,
+    domain: Optional[str] = None,
+    category: Optional[str] = None,
+):
     """Context manager for timing with platform markers.
 
     This utility function measures the execution time of code within its context,

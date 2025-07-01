@@ -105,7 +105,9 @@ def test_vllm_spmd():
 
     temperature = 0
     top_p = 1
-    kwargs = dict(n=1, temperature=temperature, top_p=top_p, max_tokens=max_response_length, logprobs=1, ignore_eos=True)
+    kwargs = dict(
+        n=1, temperature=temperature, top_p=top_p, max_tokens=max_response_length, logprobs=1, ignore_eos=True
+    )
 
     tensor_parallel_size = 4
 
@@ -127,7 +129,9 @@ def test_vllm_spmd():
         device_mesh=device_mesh,
     )
 
-    FSDP.set_state_dict_type(fsdp_model, state_dict_type=StateDictType.SHARDED_STATE_DICT, state_dict_config=ShardedStateDictConfig())
+    FSDP.set_state_dict_type(
+        fsdp_model, state_dict_type=StateDictType.SHARDED_STATE_DICT, state_dict_config=ShardedStateDictConfig()
+    )
 
     state_dict = fsdp_model.state_dict()
 
@@ -155,7 +159,9 @@ def test_vllm_spmd():
 
     world_size = torch.distributed.get_world_size()
     model = llm.llm_engine.model_executor.driver_worker.worker.model_runner.model
-    model.load_weights(((name, param.full_tensor() if world_size != 1 else param) for name, param in state_dict.items()))
+    model.load_weights(
+        ((name, param.full_tensor() if world_size != 1 else param) for name, param in state_dict.items())
+    )
 
     outputs = llm.generate(preencode_prompts, sampling_params=sampling_params, use_tqdm=False)
     verl_vllm_response_tokens = []

@@ -116,7 +116,9 @@ def preprocess(
                     for j in range(len(patches[0])):
                         images.append(patches[i][j])
                 if use_image_id:
-                    image_placeholder = f"{tokenizer.im_id_start}{image_id_cnt}{tokenizer.im_id_end}" + image_placeholder
+                    image_placeholder = (
+                        f"{tokenizer.im_id_start}{image_id_cnt}{tokenizer.im_id_end}" + image_placeholder
+                    )
                     image_id_cnt += 1
                 image_placeholder += get_grid_placeholder(tokenizer, best_grid, query_nums, new_schema=new_schema)
             image_placeholder_dict[img_name] = image_placeholder
@@ -341,14 +343,18 @@ def init_minicpmo_config(processor, config):
         "transform": build_transform(),
         "patch_size": config.get("patch_size", 14),
         "query_nums": config.get("query_nums", 64),
-        "slice_config": config.get("slice_config", {"max_slice_nums": 9, "patch_size": config.get("patch_size", 14), "scale_resolution": 448}),
+        "slice_config": config.get(
+            "slice_config", {"max_slice_nums": 9, "patch_size": config.get("patch_size", 14), "scale_resolution": 448}
+        ),
         "llm_type": config.get("llm_type", "qwen"),
         "batch_vision": config.get("batch_vision", True),
     }
     return minicpmo_config
 
 
-def process_minicpmo_data(row_dict, messages, tokenizer, minicpmo_config, image_key, max_prompt_length, truncation, logger):
+def process_minicpmo_data(
+    row_dict, messages, tokenizer, minicpmo_config, image_key, max_prompt_length, truncation, logger
+):
     """Process data for MiniCPM-o model"""
     if len(row_dict[image_key]) == 1:
         multi_modal_data = {}
