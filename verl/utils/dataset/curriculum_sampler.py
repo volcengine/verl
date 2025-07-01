@@ -1,11 +1,9 @@
-from omegaconf import DictConfig
-from typing import Iterator
+from abc import abstractmethod
 from collections.abc import Sized
 
-
 import torch
-from torch.utils.data import Sampler, RandomSampler
-from abc import abstractmethod
+from omegaconf import DictConfig
+from torch.utils.data import RandomSampler, Sampler
 
 
 class AbstractCurriculumSampler(Sampler[int]):

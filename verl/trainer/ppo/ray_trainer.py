@@ -578,18 +578,13 @@ class RayPPOTrainer:
         num_workers = self.config.data["dataloader_num_workers"]
         if (
             self.config.data.curriculum is not None
-            and self.config.data.curriculum.get("curriculum_class_path", None)
-            is not None
+            and self.config.data.curriculum.get("curriculum_class_path", None) is not None
         ):
-            assert (
-                num_workers == 0
-            ), "If using curriculum, num_workers must be 0 to prevent data caching."
+            assert num_workers == 0, "If using curriculum, num_workers must be 0 to prevent data caching."
 
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
-            batch_size=self.config.data.get(
-                "gen_batch_size", self.config.data.train_batch_size
-            ),
+            batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
             num_workers=num_workers,
             drop_last=True,
             collate_fn=collate_fn,
