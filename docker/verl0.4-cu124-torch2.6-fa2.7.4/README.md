@@ -9,9 +9,12 @@ torch==2.6.0
 flash_attn=2.7.4
 sglang==0.4.6.post5
 vllm==0.8.5.post1
+vidia-cudnn-cu12==9.8.0.87
 transformer_engine==2.3
 megatron.core==core_v0.12.1
-vidia-cudnn-cu12==9.8.0.87
+# Preview
+transformer_engine==2.5
+megatron.core==core_r0.13.0
 ```
 
 ## Target

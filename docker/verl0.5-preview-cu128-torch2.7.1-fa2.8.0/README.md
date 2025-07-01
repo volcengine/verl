@@ -3,14 +3,13 @@
 ## Important packages version
 
 ```txt
-cuda==12.4
+cuda==12.8
 cudnn==9.8.0
-torch==2.6.0
+torch==2.7.1
 flash_attn=2.8.0    ##
 sglang==0.4.8
-vllm==0.8.5.post1
-transformer_engine==2.3
-megatron.core==core_v0.12.1
+transformer_engine==2.5
+megatron.core==core_r0.13.0
 vidia-cudnn-cu12==9.8.0.87
 ```
 
