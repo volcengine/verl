@@ -28,20 +28,16 @@ def is_torch_npu_available() -> bool:
 
 def is_torch_tpu_available() -> bool:
     """Check the availability of TPUs"""
-    global _is_tpu_available_cached
-    if _is_tpu_available_cached is not None:
-        return _is_tpu_available_cached
     try:
-        import torch_xla.core.xla_model as xm
-        xm.xla_device()
-        _is_tpu_available_cached = True
+        import torch_xla
+        torch_xla.runtime.device_type()
+        return True
     except:
-        _is_tpu_available_cached = False
-    return _is_tpu_available_cached
+        return False
+
 
 is_cuda_available = torch.cuda.is_available()
 is_npu_available = is_torch_npu_available()
-_is_tpu_available_cached = None
 
 
 def get_device_name() -> str:

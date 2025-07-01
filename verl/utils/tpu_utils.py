@@ -1,5 +1,8 @@
 
 class Tpu:
+    """This is to simulate torch.tpu backend. 
+    Please refer to each individual function in torch.cuda documentation to understand what it does.
+    """
     def __init__(self, device_name):
         import torch_xla
         import torch_xla.core.xla_model as xm
