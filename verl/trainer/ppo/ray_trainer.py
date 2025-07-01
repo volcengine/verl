@@ -51,15 +51,15 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
+from verl.utils.dataset.datagen import AbstractDataGen
 from verl.utils.debug import marked_timer
+from verl.utils.import_utils import load_type_from_module
 from verl.utils.metric import (
     reduce_metrics,
 )
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
-from verl.utils.import_utils import load_type_from_module
-from verl.utils.dataset.datagen import AbstractDataGen
 
 WorkerType = Type[Worker]
 
@@ -1086,7 +1086,10 @@ class RayPPOTrainer:
             # Verify that the custom datagen class inherits from AbstractDataGen
             abs_cls = AbstractDataGen
             if not issubclass(datagen_cls, abs_cls):
-                raise TypeError(f"The custom datagen class '{data_config.datagen.name}' from '{data_config.datagen.path}' must inherit from {abs_cls}")
+                raise TypeError(
+                    f"The custom datagen class '{data_config.datagen.name}' from '{data_config.datagen.path}'"
+                     + " must inherit from {abs_cls}"
+                )
 
             data_generator = datagen_cls(data_config.datagen)
             data_generator.generate(self.train_dataset) 

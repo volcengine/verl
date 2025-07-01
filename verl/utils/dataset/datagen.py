@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+
 from omegaconf import DictConfig
 from torch.utils.data import Dataset
 
@@ -24,7 +25,6 @@ class NoOpDataGen(AbstractDataGen):
 
     def generate(self, dataset: Dataset) -> None:
         print ("NoOpDataGen: No operation performed on the dataset.")
-        from torch.utils.data import Subset
         d = dataset.dataframe.select([0]) 
         # import ipdb; ipdb.set_trace()
         dataset.append_dataframe(d)  # No operation, just re-append the same data
