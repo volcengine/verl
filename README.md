@@ -228,32 +228,10 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [RACRO](https://github.com/gyhdog99/RACRO2): Build multi-modal reasoning models via decoupling it into query-conditioned captioning and text-only reasoning ![GitHub Repo stars](https://img.shields.io/github/stars/gyhdog99/RACRO2)
 
 and many more awesome work listed in [recipe](recipe/README.md).
+
 ## Contribution Guide
 
-Contributions from the community are welcome! Please check out our [project roadmap](https://github.com/volcengine/verl/issues/710) and [good first issues](https://github.com/volcengine/verl/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22) to see where you can contribute.
-
-### Code Linting and Formatting
-
-We use pre-commit to help improve code quality. To initialize pre-commit, run:
-
-```bash
-pip install pre-commit
-pre-commit install
-```
-
-To resolve CI errors locally, you can manually run pre-commit by:
-
-```bash
-pre-commit run
-```
-
-### Adding CI tests
-
-If possible, please add CI test(s) for your new feature:
-
-1. Find the most relevant workflow yml file, which usually corresponds to a `hydra` default config (e.g. `ppo_trainer`, `ppo_megatron_trainer`, `sft_trainer`, etc).
-2. Add related path patterns to the `paths` section if not already included.
-3. Minimize the workload of the test script(s) (see existing scripts for examples).
+See [contributions guide](CONTRIBUTING.md)
 
 ## About [ByteDance Seed Team](https://team.doubao.com/)
 
