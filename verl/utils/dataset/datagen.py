@@ -39,12 +39,15 @@ class AbstractDataGen(ABC):
 
 
 class NoOpDataGen(AbstractDataGen):
+    """
+    A noop data gen class that only reappends the first datapoint.
+    This class is useful as a placeholder and testing.
+    """
     def __init__(self, config: DictConfig = None):
         super().__init__(config)
 
     def generate(self, dataset: Dataset) -> None:
         print("NoOpDataGen: No operation performed on the dataset.")
         d = dataset.dataframe.select([0])
-        # import ipdb; ipdb.set_trace()
         dataset.append_dataframe(d)  # No operation, just re-append the same data
         pass

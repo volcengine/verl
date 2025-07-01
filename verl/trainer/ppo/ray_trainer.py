@@ -1077,6 +1077,7 @@ class RayPPOTrainer:
         self.max_steps_duration = 0
 
         data_config = self.config.data
+        data_generator = None
         if "datagen" in data_config and data_config.datagen.get("path", None) is not None:
             # Dynamically load the custom datagen class
             datagen_cls = load_type_from_module(data_config.datagen.path, data_config.datagen.name)
