@@ -149,6 +149,8 @@ class NPUProfiler(DistProfiler):
     NPU profiler. Initialized in a worker to control the NPU profiler.
     """
 
+    _define_count = 0
+
     def __init__(self, rank: int, config: ProfilerConfig, **kwargs):
         self.this_step: bool = False
         self.discrete: bool = config.discrete
@@ -166,16 +168,18 @@ class NPUProfiler(DistProfiler):
         profile_step = str(profile_step) if profile_step is not None else None
         if self.this_rank:
             self.this_step = True
-            if not self.discrete:
+            if not self.discrete and NPUProfiler._define_count < 1:
                 self.profile_npu = get_npu_profiler(option=self.profile_option, role=role, profile_step=profile_step)
                 self.profile_npu.start()
+                NPUProfiler._define_count += 1
 
     def stop(self):
         if self.this_rank:
             self.this_step = False
-            if not self.discrete:
+            if not self.discrete and NPUProfiler._define_count == 1:
                 self.profile_npu.step()
                 self.profile_npu.stop()
+                NPUProfiler._define_count -= 1
 
     @staticmethod
     def annotate(message: Optional[str] = None, role: Optional[str] = None, **kwargs) -> Callable:
