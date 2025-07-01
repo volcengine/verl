@@ -51,7 +51,10 @@ def prepare_input_dataproto(tokenizer, config, validate):
         [{"role": "user", "content": "The founder of Apple is"}],
         [{"role": "user", "content": "What's your name"}],
     ]
-    formatted_prompts = [tokenizer.apply_chat_template(conversation, tokenize=False, add_generation_prompt=True) for conversation in preencode_prompts]
+    formatted_prompts = [
+        tokenizer.apply_chat_template(conversation, tokenize=False, add_generation_prompt=True)
+        for conversation in preencode_prompts
+    ]
     prompts = tokenizer(formatted_prompts, return_tensors="pt", padding="max_length", max_length=config.prompt_length)
     input_dataproto = DataProto.from_dict(
         {
@@ -88,7 +91,9 @@ def prepare_fsdp_model(model, world_size):
         device_mesh=device_mesh,
     )
 
-    FSDP.set_state_dict_type(fsdp_model, state_dict_type=StateDictType.SHARDED_STATE_DICT, state_dict_config=ShardedStateDictConfig())
+    FSDP.set_state_dict_type(
+        fsdp_model, state_dict_type=StateDictType.SHARDED_STATE_DICT, state_dict_config=ShardedStateDictConfig()
+    )
     return fsdp_model
 
 
@@ -147,7 +152,9 @@ def test_hf_rollout(n: int = 1, do_sample: bool = True, validate: bool = False):
             first_eos_pos = eos_positions[0].item()
             assert response_attention[: first_eos_pos + 1].all(), "Response attention mask should be 1 until EOS"
             if first_eos_pos + 1 < response_length:
-                assert not response_attention[first_eos_pos + 1 :].any(), "Response attention mask should be 0 after EOS"
+                assert not response_attention[first_eos_pos + 1 :].any(), (
+                    "Response attention mask should be 0 after EOS"
+                )
         else:
             assert response_attention.all(), "Response attention mask should be all 1 if no EOS token"
 

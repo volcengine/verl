@@ -33,7 +33,9 @@ def test_update_model_config(override_kwargs):
     handling both plain and nested overrides via parametrization.
     """
     # Create a fresh mock config object for each test case
-    mock_config = SimpleNamespace(param_a=1, nested_params=SimpleNamespace(sub_param_x="original_x", sub_param_y=100), other_param="keep_me")
+    mock_config = SimpleNamespace(
+        param_a=1, nested_params=SimpleNamespace(sub_param_x="original_x", sub_param_y=100), other_param="keep_me"
+    )
     # Apply the updates using the parametrized override_kwargs
     update_model_config(mock_config, override_kwargs)
 
