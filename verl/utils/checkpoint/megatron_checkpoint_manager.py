@@ -291,7 +291,11 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 model_i_keys = sharded_state_dict[f"model{vpp_rank}"].keys()
                 log_with_rank(f"Generated state dict for saving: {model_i_keys}", rank=self.rank, logger=logger)
             else:
-                log_with_rank(f"Generated state dict for saving: {sharded_state_dict['model'].keys()}", rank=self.rank, logger=logger)
+                log_with_rank(
+                    f"Generated state dict for saving: {sharded_state_dict['model'].keys()}",
+                    rank=self.rank,
+                    logger=logger,
+                )
 
         # Load Dist Checkpointing
         state_dict = load_dist_checkpointing(
@@ -300,7 +304,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         )
 
         if self.should_load_model:
-            assert "model" in state_dict or any(f"model{vpp_rank}" in state_dict for vpp_rank in range(len(self.model))), f"Model state dict not found in {state_dict.keys()}. Please check the checkpoint file {local_path}."
+            assert "model" in state_dict or any(
+                f"model{vpp_rank}" in state_dict for vpp_rank in range(len(self.model))
+            ), f"Model state dict not found in {state_dict.keys()}. Please check the checkpoint file {local_path}."
             for vpp_rank, model in enumerate(self.model):
                 if len(self.model) == 1:
                     model_state_dict = state_dict["model"]
@@ -312,19 +318,26 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             log_with_rank(f"Loaded sharded model checkpoint from {local_path}", rank=self.rank, logger=logger)
 
         if self.should_load_optimizer:
-            assert "optimizer" in state_dict, f"Optimizer state dict not found in {state_dict.keys()}. Please check the checkpoint file {local_path}."
+            assert "optimizer" in state_dict, (
+                f"Optimizer state dict not found in {state_dict.keys()}. Please check the checkpoint file {local_path}."
+            )
             optimizer_state_dict = state_dict["optimizer"]
             self.optimizer.load_state_dict(optimizer_state_dict)
             log_with_rank(f"Loaded optimizer checkpoint from {local_path}", rank=self.rank, logger=logger)
             if self.use_checkpoint_opt_param_scheduler:
-                assert "lr_scheduler" in state_dict, f"LR scheduler state dict not found in {state_dict.keys()}. Please check the checkpoint file {local_path}."
+                assert "lr_scheduler" in state_dict, (
+                    f"LR scheduler state dict not found in {state_dict.keys()}. Please check the checkpoint file "
+                    f"{local_path}."
+                )
                 lr_scheduler_state_dict = state_dict["lr_scheduler"]
                 if self.lr_scheduler is not None:
                     self.lr_scheduler.load_state_dict(lr_scheduler_state_dict)
                     log_with_rank(f"Loaded LR scheduler checkpoint from {local_path}", rank=self.rank, logger=logger)
 
         if self.should_load_extra:
-            assert "rng_state" in state_dict, f"RNG state dict not found in {state_dict.keys()}. Please check the checkpoint file {local_path}."
+            assert "rng_state" in state_dict, (
+                f"RNG state dict not found in {state_dict.keys()}. Please check the checkpoint file {local_path}."
+            )
             rng_state = state_dict["rng_state"]
             self.load_rng_states(rng_state)
             log_with_rank(f"Loaded RNG states from {local_path}", rank=self.rank, logger=logger)
@@ -333,14 +346,23 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             try:
                 os.remove(local_path) if is_non_local(local_path) else None
             except Exception as e:
-                log_with_rank(f"remove local resume ckpt file after loading failed, exception {e} will be ignored", rank=self.rank, logger=logger)
+                log_with_rank(
+                    f"remove local resume ckpt file after loading failed, exception {e} will be ignored",
+                    rank=self.rank,
+                    logger=logger,
+                )
 
     def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep=None):
         # record the previous global step
         self.previous_global_step = global_step
 
         # remove previous local_path
-        if max_ckpt_to_keep and isinstance(max_ckpt_to_keep, int) and max_ckpt_to_keep > 0 and len(self.previous_saved_paths) >= max_ckpt_to_keep:
+        if (
+            max_ckpt_to_keep
+            and isinstance(max_ckpt_to_keep, int)
+            and max_ckpt_to_keep > 0
+            and len(self.previous_saved_paths) >= max_ckpt_to_keep
+        ):
             keep_start = len(self.previous_saved_paths) - max_ckpt_to_keep + 1
             self.remove_previous_save_local_path(self.previous_saved_paths[:keep_start])
             self.previous_saved_paths = self.previous_saved_paths[keep_start:]
@@ -356,7 +378,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 model_i_keys = state_dict[f"model{vpp_rank}"].keys()
                 log_with_rank(f"Generated state dict for saving: {model_i_keys}", rank=self.rank, logger=logger)
             else:
-                log_with_rank(f"Generated state dict for saving: {state_dict['model'].keys()}", rank=self.rank, logger=logger)
+                log_with_rank(
+                    f"Generated state dict for saving: {state_dict['model'].keys()}", rank=self.rank, logger=logger
+                )
 
         # Start Async save if enabled
         async_save_request = save_dist_checkpointing(
@@ -386,7 +410,12 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     except Exception:
                         # if the generation config isn't available, we don't save it
                         pass
-                log_with_rank(f"Saved Huggingface config and tokenizer to {hf_config_tokenizer_path}", rank=self.rank, logger=logger, log_only_rank_0=True)
+                log_with_rank(
+                    f"Saved Huggingface config and tokenizer to {hf_config_tokenizer_path}",
+                    rank=self.rank,
+                    logger=logger,
+                    log_only_rank_0=True,
+                )
 
         if self.should_save_extra:
             if self.rank == 0:
@@ -431,26 +460,39 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     if "mistral7b-rm" in self.config.model.path:
                         from transformers import MistralForSequenceClassification
 
-                        model = MistralForSequenceClassification.from_pretrained(self.config.model.path)  # use score head instead of lm_head
+                        model = MistralForSequenceClassification.from_pretrained(
+                            self.config.model.path
+                        )  # use score head instead of lm_head
                         state_dict["score.weight"] = state_dict["score.weight"]
                     else:
                         from transformers import AutoModelForCausalLM
 
                         model = AutoModelForCausalLM.from_pretrained(self.config.model.path, torch_dtype="auto")
                 model.save_pretrained(hf_model_ckpt_path, state_dict=state_dict)
-                log_with_rank(f"Saved Huggingface config and tokenizer to {hf_model_ckpt_path}", rank=self.rank, logger=logger, log_only_rank_0=True)
+                log_with_rank(
+                    f"Saved Huggingface config and tokenizer to {hf_model_ckpt_path}",
+                    rank=self.rank,
+                    logger=logger,
+                    log_only_rank_0=True,
+                )
 
                 if hdfs_path is not None:
-                    log_with_rank(f"Uploading checkpoint to {hdfs_path}", rank=self.rank, logger=logger, log_only_rank_0=True)
+                    log_with_rank(
+                        f"Uploading checkpoint to {hdfs_path}", rank=self.rank, logger=logger, log_only_rank_0=True
+                    )
                     from verl.utils import hdfs_io
 
                     hdfs_io.makedirs(hdfs_path, exist_ok=True)
                     hdfs_io.copy(src=hf_model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
-                    log_with_rank(f"HDFS checkpoint uploaded to {hdfs_path}", rank=self.rank, logger=logger, log_only_rank_0=True)
+                    log_with_rank(
+                        f"HDFS checkpoint uploaded to {hdfs_path}", rank=self.rank, logger=logger, log_only_rank_0=True
+                    )
 
         def finalize_save_fn():
             # Rank 0 uploads checkpoint to HDFS if hdfs_path is provided
-            log_with_rank(f"Dist checkpointing save completed for {dist_checkpoint_path}", rank=self.rank, logger=logger)
+            log_with_rank(
+                f"Dist checkpointing save completed for {dist_checkpoint_path}", rank=self.rank, logger=logger
+            )
             if self.rank == 0:
                 if hdfs_path is not None:
                     log_with_rank(f"Uploading checkpoint to {hdfs_path}", rank=self.rank, logger=logger)

@@ -79,7 +79,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
     ):
         if processing_class is None:
             assert "tokenizer" in kwargs, "tokenizer or processor must be provided"
-            warnings.warn("`tokenizer` is deprecated. use `processing_class` instead.", DeprecationWarning, stacklevel=2)
+            warnings.warn(
+                "`tokenizer` is deprecated. use `processing_class` instead.", DeprecationWarning, stacklevel=2
+            )
             processing_class = kwargs.pop("tokenizer")
 
         super().__init__(
@@ -110,11 +112,21 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         if self.should_load_model:
             assert self.model is not None, "model must be provided when checkpoint_contents.load includes ['model']"
         if self.should_load_optimizer:
-            assert self.optimizer is not None, "optimizer must be provided when checkpoint_contents.load includes ['optimizer']"
+            assert self.optimizer is not None, (
+                "optimizer must be provided when checkpoint_contents.load includes ['optimizer']"
+            )
 
         # every rank download its own checkpoint
-        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True if is_cuda_available else False) if self.should_load_model else None
-        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True if is_cuda_available else False) if self.should_load_optimizer else None
+        state_dict_cfg = (
+            ShardedStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
+            if self.should_load_model
+            else None
+        )
+        optim_cfg = (
+            ShardedOptimStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
+            if self.should_load_optimizer
+            else None
+        )
         with get_fsdp_state_ctx(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
             if self.should_load_model:
                 remote_model_path = os.path.join(local_path, f"model_world_size_{self.world_size}_rank_{self.rank}.pt")
@@ -131,7 +143,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 log_with_rank(f"Loaded optimizer from {remote_optim_path}", rank=self.rank, logger=logger)
 
         if self.should_load_extra:
-            remote_extra_state_path = os.path.join(local_path, f"extra_state_world_size_{self.world_size}_rank_{self.rank}.pt")
+            remote_extra_state_path = os.path.join(
+                local_path, f"extra_state_world_size_{self.world_size}_rank_{self.rank}.pt"
+            )
             local_extra_state_path = copy_to_local(remote_extra_state_path)
             extra_state_dict = torch.load(local_extra_state_path, weights_only=False)
             # recover random state
@@ -151,7 +165,11 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 os.remove(local_optim_path) if is_non_local(local_optim_path) else None
                 os.remove(local_extra_state_path) if is_non_local(local_extra_state_path) else None
             except Exception as e:
-                log_with_rank(f"remove local resume ckpt file after loading failed, exception {e} will be ignored", rank=self.rank, logger=logger)
+                log_with_rank(
+                    f"remove local resume ckpt file after loading failed, exception {e} will be ignored",
+                    rank=self.rank,
+                    logger=logger,
+                )
 
         # wait for everyone to load checkpoints
         torch.distributed.barrier()
@@ -181,7 +199,13 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         self.previous_global_step = global_step
 
         # remove previous local_path, only rank 0 should do this
-        if self.rank == 0 and max_ckpt_to_keep and isinstance(max_ckpt_to_keep, int) and max_ckpt_to_keep > 0 and len(self.previous_saved_paths) >= max_ckpt_to_keep:
+        if (
+            self.rank == 0
+            and max_ckpt_to_keep
+            and isinstance(max_ckpt_to_keep, int)
+            and max_ckpt_to_keep > 0
+            and len(self.previous_saved_paths) >= max_ckpt_to_keep
+        ):
             keep_start = len(self.previous_saved_paths) - max_ckpt_to_keep + 1
             self.remove_previous_save_local_path(self.previous_saved_paths[:keep_start])
             self.previous_saved_paths = self.previous_saved_paths[keep_start:]
@@ -193,7 +217,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         if self.should_save_model:
             assert self.model is not None, "model must be provided when checkpoint_contents.save includes ['model']"
         if self.should_save_optimizer:
-            assert self.optimizer is not None, "optimizer must be provided when checkpoint_contents.save includes ['optimizer']"
+            assert self.optimizer is not None, (
+                "optimizer must be provided when checkpoint_contents.save includes ['optimizer']"
+            )
 
         # every rank will save its own model and optim shard
         state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
@@ -246,7 +272,12 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
             model_config.save_pretrained(hf_config_tokenizer_path)
             self.processing_class.save_pretrained(hf_config_tokenizer_path)
-            log_with_rank(f"Saved model config and tokenizer class to {os.path.abspath(hf_config_tokenizer_path)}", rank=self.rank, logger=logger, log_only_rank_0=True)
+            log_with_rank(
+                f"Saved model config and tokenizer class to {os.path.abspath(hf_config_tokenizer_path)}",
+                rank=self.rank,
+                logger=logger,
+                log_only_rank_0=True,
+            )
 
             # Also save runtime FSDP config
             fsdp_config_path = os.path.join(local_path, "fsdp_config.json")
@@ -292,10 +323,18 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                     if generation_config is not None:
                         save_model.generation_config = generation_config
                     else:
-                        print(f"Warning: {self.__class__.__name__}.save_checkpoint: Generation config file not found in, using a generation config created from the model config when saving hf_model.")
+                        print(
+                            f"Warning: {self.__class__.__name__}.save_checkpoint: Generation config file not found "
+                            f"in, using a generation config created from the model config when saving hf_model."
+                        )
 
                 save_model.save_pretrained(hf_local_path, state_dict=state_dict)
-                log_with_rank(f"Saved hf_model to {os.path.abspath(hf_local_path)}", rank=self.rank, logger=logger, log_only_rank_0=True)
+                log_with_rank(
+                    f"Saved hf_model to {os.path.abspath(hf_local_path)}",
+                    rank=self.rank,
+                    logger=logger,
+                    log_only_rank_0=True,
+                )
                 del state_dict
                 del save_model
 

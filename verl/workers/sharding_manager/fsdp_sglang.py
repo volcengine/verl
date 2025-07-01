@@ -73,7 +73,9 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         # Full params
         self.full_params = full_params
         if full_params and fsdp_version(self.module) == 1:
-            FSDP.set_state_dict_type(self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig())
+            FSDP.set_state_dict_type(
+                self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig()
+            )
         elif fsdp_version(self.module) == 1:
             FSDP.set_state_dict_type(
                 self.module,
@@ -118,7 +120,9 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             params = self.module.state_dict()
             log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
             device = get_device_id()  # used when fsdp2 set cpu_offload_policy
-            params = {k: v.to(device, non_blocking=True) if fsdp_version(self.module) == 2 else v for k, v in params.items()}
+            params = {
+                k: v.to(device, non_blocking=True) if fsdp_version(self.module) == 2 else v for k, v in params.items()
+            }
             params = convert_weight_keys(params, getattr(self.module, "_fsdp_wrapped_module", self.module))
             # Copy, not share memory
             loop.run_until_complete(self.update_weights(params))
@@ -200,7 +204,9 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         params = self.module.state_dict()
         log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
         device = get_device_id()  # used when fsdp2 set cpu_offload_policy
-        params = {k: v.to(device, non_blocking=True) if fsdp_version(self.module) == 2 else v for k, v in params.items()}
+        params = {
+            k: v.to(device, non_blocking=True) if fsdp_version(self.module) == 2 else v for k, v in params.items()
+        }
         # Copy, not share memory
         await self.update_weights(params)
         log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
