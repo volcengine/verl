@@ -11,6 +11,8 @@ ENV PIP_ROOT_USER_ACTION=ignore
 ENV HF_HUB_ENABLE_HF_TRANSFER="1"
 
 # Install sglang-0.4.8 and torch-memory-saver
+# Install FlashInfer Python package
+RUN pip install --resume-retries 999 --no-cache-dir --no-build-isolation flashinfer-python==0.2.6.post1
 RUN pip install --resume-retries 999  --no-cache-dir "sglang[all]==0.4.8" && pip install torch-memory-saver --no-cache-dir
 
 # Fix packages
