@@ -272,12 +272,20 @@ def create_rl_sampler(data_config, dataset):
     """
     import torch
     from torch.utils.data import RandomSampler, SequentialSampler
-    if data_config.curriculum.use_curriculum:
-        from verl.utils.import_utils import load_extern_type
-        train_dataloader_generator = torch.Generator()
-        train_dataloader_generator.manual_seed(data_config.get('seed', 1))
 
-        curriculum_class = load_extern_type(data_config.curriculum.curriculum_class_path, data_config.curriculum.curriculum_class)
+    if (
+        data_config.curriculum is not None
+        and data_config.curriculum.get("curriculum_class_path", None) is not None
+    ):
+        from verl.utils.import_utils import load_extern_type
+
+        train_dataloader_generator = torch.Generator()
+        train_dataloader_generator.manual_seed(data_config.get("seed", 1))
+
+        curriculum_class = load_extern_type(
+            data_config.curriculum.curriculum_class_path,
+            data_config.curriculum.curriculum_class,
+        )
         curriculum_function = curriculum_class(data_config)
 
         sampler = CurriculumSampler(
@@ -287,7 +295,7 @@ def create_rl_sampler(data_config, dataset):
             max_difficulty=data_config.curriculum.max_difficulty,
             generator=train_dataloader_generator,
             shuffle=data_config.shuffle,
-            curriculum_function=curriculum_function, 
+            curriculum_function=curriculum_function,
         )
     else:
         # Use a sampler to facilitate checkpoint resumption.
