@@ -1074,7 +1074,10 @@ class RayPPOTrainer:
         last_val_metrics = None
         self.max_steps_duration = 0
 
-        repeat_sampling_sglang_grpo = self.config.actor_rollout_ref.rollout.name == "sglang" and self.config.actor_rollout_ref.rollout.multi_turn.enable
+        repeat_sampling_sglang_grpo = (
+            self.config.actor_rollout_ref.rollout.name == "sglang"
+            and self.config.actor_rollout_ref.rollout.multi_turn.enable
+        )
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
@@ -1119,7 +1122,9 @@ class RayPPOTrainer:
                     gen_batch.non_tensor_batch["uid"] = uids_for_prompts
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    assert np.array_equal(batch.non_tensor_batch["uid"], gen_batch.non_tensor_batch["uid"]), "UIDs must be identical for SGLang rollout"
+                    assert np.array_equal(batch.non_tensor_batch["uid"], gen_batch.non_tensor_batch["uid"]), (
+                        "UIDs must be identical for SGLang rollout"
+                    )
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
@@ -1152,7 +1157,9 @@ class RayPPOTrainer:
                             del gen_baseline_batch, gen_baseline_output
 
                     if not repeat_sampling_sglang_grpo:
-                        batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+                        batch.non_tensor_batch["uid"] = np.array(
+                            [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
+                        )
                         # repeat to align with repeated responses in rollout
                         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
