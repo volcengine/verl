@@ -11,7 +11,7 @@ ENV PIP_ROOT_USER_ACTION=ignore
 ENV HF_HUB_ENABLE_HF_TRANSFER="1"
 
 # Install sglang-0.4.6.post5 and torch-memory-saver
-RUN pip install --resume-retries 999 "sglang[all]==0.4.6.post5" --no-cache-dir --find-links https://flashinfer.ai/whl/cu126/torch2.6/flashinfer-python && pip install torch-memory-saver --no-cache-dir
+RUN pip install --resume-retries 999 "sglang[all]==0.4.6.post5" --no-cache-dir --find-links https://flashinfer.ai/whl/cu124/torch2.6/flashinfer-python && pip install torch-memory-saver --no-cache-dir
 
 # Fix packages
 RUN pip install --no-cache-dir "tensordict==0.6.2" "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \

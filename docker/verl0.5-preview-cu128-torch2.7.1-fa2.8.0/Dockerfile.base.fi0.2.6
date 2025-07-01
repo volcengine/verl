@@ -50,8 +50,11 @@ RUN pip install --resume-retries 999 --no-cache-dir torch==2.7.1 torchvision==0.
 RUN pip install flashinfer-python==0.2.6.post1
 
 # Install flash-attn-2.8.0.post2 (cxx11abi=True)
-RUN aria2c --max-tries=9999 https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiTRUE-cp312-cp312-linux_x86_64.whl && \
-    pip install --no-cache-dir flash_attn-2.8.0.post2+cu12torch2.7cxx11abiTRUE-cp312-cp312-linux_x86_64.whl 
+RUN ABI_FLAG=$(python -c "import torch; print('TRUE' if torch._C._GLIBCXX_USE_CXX11_ABI else 'FALSE')") && \
+    URL="https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.7cxx11abi${ABI_FLAG}-cp312-cp312-linux_x86_64.whl" && \
+    FILE="flash_attn-2.8.0.post2+cu12torch2.7cxx11abi${ABI_FLAG}-cp312-cp312-linux_x86_64.whl" && \
+    wget -nv "${URL}" && \
+    pip install --no-cache-dir "${FILE}"
 
 # Fix packages
 RUN pip uninstall -y pynvml nvidia-ml-py && \

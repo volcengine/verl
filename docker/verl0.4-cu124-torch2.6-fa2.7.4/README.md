@@ -23,7 +23,6 @@ megatron.core==core_r0.13.0
     - `verlai/verl:base-verl0.4-cu124-cudnn9.8-torch2.6-fa2.7.4`
 - App image:
     - `verlai/verl:app-verl0.4-sglang0.4.6.post5-mcore0.12.1`
-- App image:
     - `verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.1`
 - Preview image:
     - `verlai/verl:app-verl0.4-sglang0.4.6.post5-mcore0.13.0-preview`
