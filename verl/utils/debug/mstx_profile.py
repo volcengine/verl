@@ -16,14 +16,13 @@
 import os
 import functools
 from contextlib import contextmanager
-from typing import Callable, Dict, Optional, List
+from typing import Callable, Dict, Optional
 
 import torch_npu
 from torch_npu.npu import mstx
 from omegaconf import DictConfig
 
 from .profile import DistProfiler, ProfilerConfig
-from verl.single_controller.ray.base import RayWorkerGroup
 
 
 def mark_start_range(message: Optional[str] = None) -> None:
@@ -59,17 +58,6 @@ def mark_annotate(message: Optional[str] = None) -> Callable:
         return mstx.mstx_range(profile_message)(func)
 
     return decorator
-
-
-def start_profiler(profile_wg: List[RayWorkerGroup], **kwargs):
-    actor_rollout_wg = profile_wg[0]
-    profile_step = kwargs.get('profile_step', None)
-    actor_rollout_wg.start_profile(role="end_to_end", profile_step=profile_step)
-
-
-def stop_profiler(profile_wg: List[RayWorkerGroup]):
-    actor_rollout_wg = profile_wg[0]
-    actor_rollout_wg.stop_profile()
 
 
 @contextmanager

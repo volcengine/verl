@@ -61,15 +61,6 @@ def is_nvtx_available():
 
 
 @cache
-def is_mstx_available():
-    try:
-        mstx_spec = importlib.util.find_spec("torch_npu")
-    except ModuleNotFoundError:
-        mstx_spec = None
-    return mstx_spec is not None
-
-
-@cache
 def is_trl_available():
     try:
         trl_spec = importlib.util.find_spec("trl")
