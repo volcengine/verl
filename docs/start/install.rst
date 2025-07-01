@@ -41,7 +41,7 @@ The image types are divided into three large categories:
 - **Base Image**: Without inference and training frameworks, only basic dependencies are installed.
   Can directly install vllm or SGLang on top of it, without need of reinstall torch or CUDA.
 - **Application Image**: Stable version with inference and training frameworks installed.
-- **Preview Image**: Unstable version with the latest frameworks and features.
+- **Community Image**: Unstable version with the latest frameworks and features.
 
 The first two types of images are hosted on dockerhub `verlai/verl <https://hub.docker.com/r/verlai/verl>`_ repository, while the preview images are hosted on community repository.
 
@@ -76,8 +76,10 @@ Docker images with Megatron backends are runnable with large language model like
 
 Application images can be updated frequently, and the Dockerfile can be found in ``docker/v[version]-[packages]/Dockerfile.app.[frameworks]``. Based on the base image, it is easy to build your own application image with the desired inference and training frameworks.
 
-Preview Image
-:::::::::::::
+Community Image
+:::::::::::::::
+
+Community images are provided by the community, including the latest versions of vLLM and SGLang, and may include experimental features or configurations. Also for other hardwares or platforms like AMD GPUs with ROCM or AWS EFA and Sagemaker, .
 
 For latest vLLM with FSDP, please refer to `hiyouga/verl <https://hub.docker.com/r/hiyouga/verl>`_ repository and the latest version is ``hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.4-flashinfer0.2.2-cxx11abi0``.
 
@@ -86,7 +88,7 @@ For latest SGLang with FSDP, please refer to `ocss884/verl-sglang <https://hub.d
 See files under ``docker/`` for NGC-based image or if you want to build your own.
 
 Note that For aws instances with EFA net interface (Sagemaker AI Pod),
-you need to install EFA driver as shown in ``docker/Dockerfile.base.awsefa``
+you need to install EFA driver as shown in ``docker/Dockerfile.extenstion.awsefa``
 
 Installation from Docker
 ::::::::::::::::::::::::

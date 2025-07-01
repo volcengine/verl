@@ -1,5 +1,5 @@
 # Base Docker Image of verl, with CUDA/Torch/FlashAttn/Apex/TransformerEngine, without other frameworks
-# Target: verlai/verl:base-v3-cu126-cudnn9.8-torch2.6-fa2.8.0-te2.3
+# Target: verlai/verl:base-verl0.5-preview-cu128-cudnn9.8-torch2.7.1-fa2.8.0-fi0.2.6
 # Start from the NVIDIA official image (ubuntu-22.04 + cuda-12.6 + python-3.10)
 # https://docs.nvidia.com/deeplearning/frameworks/pytorch-release-notes/rel-24-08.html
 FROM nvcr.io/nvidia/pytorch:25.02-py3
@@ -45,11 +45,13 @@ RUN pip uninstall -y torch torchvision torchaudio \
     pytorch-quantization pytorch-triton torch-tensorrt \
     xgboost transformer_engine flash_attn apex megatron-core grpcio
 
-RUN pip install --resume-retries 999 --no-cache-dir torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 flashinfer-python==0.2.6.post1
+RUN pip install --resume-retries 999 --no-cache-dir torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu128
+
+RUN pip install flashinfer-python==0.2.6.post1
 
 # Install flash-attn-2.8.0.post2 (cxx11abi=True)
-RUN wget -nv https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl && \
-    pip install --no-cache-dir flash_attn-2.8.0.post2+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl 
+RUN aria2c --max-tries=9999 https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiTRUE-cp312-cp312-linux_x86_64.whl && \
+    pip install --no-cache-dir flash_attn-2.8.0.post2+cu12torch2.7cxx11abiTRUE-cp312-cp312-linux_x86_64.whl 
 
 # Fix packages
 RUN pip uninstall -y pynvml nvidia-ml-py && \
