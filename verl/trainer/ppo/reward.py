@@ -22,8 +22,8 @@ from verl import DataProto
 from verl.utils.reward_score import default_compute_score
 
 
-# This function is used to merge additional keyword arguments with the original function's arguments.
 def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
+    """This function is used to merge additional keyword arguments with the original function's arguments."""
     merged_kwargs = {**kwargs, **extra_kwargs}
     return raw_fn(*args, **merged_kwargs)
 
