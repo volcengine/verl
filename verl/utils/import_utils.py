@@ -100,6 +100,7 @@ def load_extern_type(file_path: Optional[str], type_name: Optional[str]):
 
     return getattr(module, type_name)
 
+
 def load_type_from_module(module_path: str, type_name: str) -> Type:
     """
     Load a type from a Python module path.

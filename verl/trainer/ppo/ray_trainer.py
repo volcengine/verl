@@ -1078,8 +1078,6 @@ class RayPPOTrainer:
 
         data_config = self.config.data
         if "datagen" in data_config and data_config.datagen.get("path", None) is not None:
-
-
             # Dynamically load the custom datagen class
             datagen_cls = load_type_from_module(data_config.datagen.path, data_config.datagen.name)
 
@@ -1088,11 +1086,11 @@ class RayPPOTrainer:
             if not issubclass(datagen_cls, abs_cls):
                 raise TypeError(
                     f"The custom datagen class '{data_config.datagen.name}' from '{data_config.datagen.path}'"
-                     + " must inherit from {abs_cls}"
+                    + " must inherit from {abs_cls}"
                 )
 
             data_generator = datagen_cls(data_config.datagen)
-            data_generator.generate(self.train_dataset) 
+            data_generator.generate(self.train_dataset)
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
