@@ -243,6 +243,7 @@ def compute_advantage(
             response_mask=data.batch["response_mask"],
             gamma=gamma,
             lam=lam,
+            multi_turn=multi_turn,
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
@@ -530,9 +531,6 @@ class RayPPOTrainer:
             ), (
                 "tool_config_path or interaction_config_path must be set when enabling multi_turn with tool, "
                 "due to no role-playing support"
-            )
-            assert config.algorithm.adv_estimator in [AdvantageEstimator.GRPO], (
-                "only GRPO is tested for multi-turn with tool"
             )
 
         print("[validate_config] All configuration checks passed successfully!")
