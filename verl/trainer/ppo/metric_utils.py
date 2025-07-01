@@ -159,7 +159,9 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
         "response_length/mean": torch.mean(response_length).detach().item(),
         "response_length/max": torch.max(response_length).detach().item(),
         "response_length/min": torch.min(response_length).detach().item(),
-        "response_length/clip_ratio": torch.mean(torch.eq(response_length, max_response_length).float()).detach().item(),
+        "response_length/clip_ratio": torch.mean(torch.eq(response_length, max_response_length).float())
+        .detach()
+        .item(),
         # prompt length
         "prompt_length/mean": torch.mean(prompt_length).detach().item(),
         "prompt_length/max": torch.max(prompt_length).detach().item(),
@@ -204,7 +206,10 @@ def compute_timing_metrics(batch: DataProto, timing_raw: Dict[str, float]) -> Di
 
     return {
         **{f"timing_s/{name}": value for name, value in timing_raw.items()},
-        **{f"timing_per_token_ms/{name}": timing_raw[name] * 1000 / num_tokens_of_section[name] for name in set(num_tokens_of_section.keys()) & set(timing_raw.keys())},
+        **{
+            f"timing_per_token_ms/{name}": timing_raw[name] * 1000 / num_tokens_of_section[name]
+            for name in set(num_tokens_of_section.keys()) & set(timing_raw.keys())
+        },
     }
 
 
@@ -321,7 +326,9 @@ def calc_maj_val(data: list[dict[str, Any]], vote_key: str, val_key: str) -> flo
     return maj_val
 
 
-def process_validation_metrics(data_sources: list[str], sample_inputs: list[str], infos_dict: dict[str, list[Any]], seed: int = 42) -> dict[str, dict[str, dict[str, float]]]:
+def process_validation_metrics(
+    data_sources: list[str], sample_inputs: list[str], infos_dict: dict[str, list[Any]], seed: int = 42
+) -> dict[str, dict[str, dict[str, float]]]:
     """
     Process validation metrics into a structured format with statistical analysis.
 
@@ -394,7 +401,9 @@ def process_validation_metrics(data_sources: list[str], sample_inputs: list[str]
                     ns.append(n_resps)
 
                     for n in ns:
-                        [(bon_mean, bon_std), (won_mean, won_std)] = bootstrap_metric(data=var_vals, subset_size=n, reduce_fns=[np.max, np.min], seed=seed)
+                        [(bon_mean, bon_std), (won_mean, won_std)] = bootstrap_metric(
+                            data=var_vals, subset_size=n, reduce_fns=[np.max, np.min], seed=seed
+                        )
                         metric[f"best@{n}/mean"], metric[f"best@{n}/std"] = bon_mean, bon_std
                         metric[f"worst@{n}/mean"], metric[f"worst@{n}/std"] = won_mean, won_std
                         if var2vals.get("pred", None) is not None:

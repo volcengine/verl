@@ -31,7 +31,13 @@ API_TIMEOUT = 10
 logger = logging.getLogger(__name__)
 
 
-def call_search_api(retrieval_service_url: str, query_list: List[str], topk: int = 3, return_scores: bool = True, timeout: int = DEFAULT_TIMEOUT) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def call_search_api(
+    retrieval_service_url: str,
+    query_list: List[str],
+    topk: int = 3,
+    return_scores: bool = True,
+    timeout: int = DEFAULT_TIMEOUT,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
     Calls the remote search API to perform retrieval with retry logic for various errors,
     using increasing delay between retries. Logs internal calls with a unique ID.
@@ -59,7 +65,9 @@ def call_search_api(retrieval_service_url: str, query_list: List[str], topk: int
 
     for attempt in range(MAX_RETRIES):
         try:
-            logger.info(f"{log_prefix}Attempt {attempt + 1}/{MAX_RETRIES}: Calling search API at {retrieval_service_url}")
+            logger.info(
+                f"{log_prefix}Attempt {attempt + 1}/{MAX_RETRIES}: Calling search API at {retrieval_service_url}"
+            )
             response = requests.post(
                 retrieval_service_url,
                 headers=headers,
@@ -69,7 +77,10 @@ def call_search_api(retrieval_service_url: str, query_list: List[str], topk: int
 
             # Check for Gateway Timeout (504) and other server errors for retrying
             if response.status_code in [500, 502, 503, 504]:
-                last_error = f"{log_prefix}API Request Error: Server Error ({response.status_code}) on attempt {attempt + 1}/{MAX_RETRIES}"
+                last_error = (
+                    f"{log_prefix}API Request Error: Server Error ({response.status_code}) on attempt "
+                    f"{attempt + 1}/{MAX_RETRIES}"
+                )
                 logger.warning(last_error)
                 if attempt < MAX_RETRIES - 1:
                     delay = INITIAL_RETRY_DELAY * (attempt + 1)
@@ -127,7 +138,13 @@ def _passages2string(retrieval_result):
     return format_reference.strip()
 
 
-def perform_single_search_batch(retrieval_service_url: str, query_list: List[str], topk: int = 3, concurrent_semaphore: Optional[threading.Semaphore] = None, timeout: int = DEFAULT_TIMEOUT) -> Tuple[str, Dict[str, Any]]:
+def perform_single_search_batch(
+    retrieval_service_url: str,
+    query_list: List[str],
+    topk: int = 3,
+    concurrent_semaphore: Optional[threading.Semaphore] = None,
+    timeout: int = DEFAULT_TIMEOUT,
+) -> Tuple[str, Dict[str, Any]]:
     """
     Performs a single batch search for multiple queries (original search tool behavior).
 
@@ -151,9 +168,21 @@ def perform_single_search_batch(retrieval_service_url: str, query_list: List[str
     try:
         if concurrent_semaphore:
             with concurrent_semaphore:
-                api_response, error_msg = call_search_api(retrieval_service_url=retrieval_service_url, query_list=query_list, topk=topk, return_scores=True, timeout=timeout)
+                api_response, error_msg = call_search_api(
+                    retrieval_service_url=retrieval_service_url,
+                    query_list=query_list,
+                    topk=topk,
+                    return_scores=True,
+                    timeout=timeout,
+                )
         else:
-            api_response, error_msg = call_search_api(retrieval_service_url=retrieval_service_url, query_list=query_list, topk=topk, return_scores=True, timeout=timeout)
+            api_response, error_msg = call_search_api(
+                retrieval_service_url=retrieval_service_url,
+                query_list=query_list,
+                topk=topk,
+                return_scores=True,
+                timeout=timeout,
+            )
     except Exception as e:
         error_msg = f"API Request Exception during batch search: {e}"
         logger.error(f"Batch search: {error_msg}")

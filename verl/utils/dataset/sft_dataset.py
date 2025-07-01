@@ -147,7 +147,10 @@ class SFTDataset(Dataset):
         # padding to max length
         sequence_length = input_ids.shape[0]
         if sequence_length < self.max_length:
-            padded_input_ids = torch.ones(size=(self.max_length - sequence_length,), dtype=input_ids.dtype) * self.tokenizer.pad_token_id
+            padded_input_ids = (
+                torch.ones(size=(self.max_length - sequence_length,), dtype=input_ids.dtype)
+                * self.tokenizer.pad_token_id
+            )
             padded_attention_mask = torch.zeros(size=(self.max_length - sequence_length,), dtype=attention_mask.dtype)
 
             input_ids = torch.cat((input_ids, padded_input_ids))

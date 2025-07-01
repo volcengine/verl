@@ -19,7 +19,18 @@ from megatron.core.transformer.transformer_block import *
 
 
 class Qwen2_5VisionTransformerBlock(TransformerBlock):
-    def _checkpointed_forward(self, hidden_states: Tensor, attention_mask: Tensor, context: Tensor, context_mask: Tensor, rotary_pos_emb: Tensor, attention_bias: Tensor, packed_seq_params: PackedSeqParams, packed_seq_params_full: PackedSeqParams, fullatt_block_indexes):
+    def _checkpointed_forward(
+        self,
+        hidden_states: Tensor,
+        attention_mask: Tensor,
+        context: Tensor,
+        context_mask: Tensor,
+        rotary_pos_emb: Tensor,
+        attention_bias: Tensor,
+        packed_seq_params: PackedSeqParams,
+        packed_seq_params_full: PackedSeqParams,
+        fullatt_block_indexes,
+    ):
         """Forward method with activation checkpointing."""
 
         def custom(start: int, end: int):
@@ -75,7 +86,9 @@ class Qwen2_5VisionTransformerBlock(TransformerBlock):
             # A method to further reduce memory usage reducing checkpoints.
             layer_idx = 0
             while layer_idx < self.num_layers_per_pipeline_rank:
-                hidden_states, context = checkpoint_handler(custom(layer_idx, layer_idx + self.config.recompute_num_layers))
+                hidden_states, context = checkpoint_handler(
+                    custom(layer_idx, layer_idx + self.config.recompute_num_layers)
+                )
 
                 layer_idx += self.config.recompute_num_layers
 
@@ -90,10 +103,15 @@ class Qwen2_5VisionTransformerBlock(TransformerBlock):
                 # for re-enterant autograd engine.
                 if self.config.fp8 and not hidden_states.requires_grad:
                     recompute_skip_num_layers += 1
-                if layer_idx >= recompute_skip_num_layers and layer_idx < self.config.recompute_num_layers + recompute_skip_num_layers:
+                if (
+                    layer_idx >= recompute_skip_num_layers
+                    and layer_idx < self.config.recompute_num_layers + recompute_skip_num_layers
+                ):
                     hidden_states, context = checkpoint_handler(custom(layer_idx, layer_idx + 1))
                 else:
-                    hidden_states, context = custom(layer_idx, layer_idx + 1)(hidden_states, attention_mask, context, context_mask, rotary_pos_emb)
+                    hidden_states, context = custom(layer_idx, layer_idx + 1)(
+                        hidden_states, attention_mask, context, context_mask, rotary_pos_emb
+                    )
         else:
             raise ValueError("Invalid activation recompute method.")
 
@@ -207,7 +225,9 @@ class Qwen2_5VisionTransformerBlock(TransformerBlock):
                 )
             else:
                 for l_no, layer in enumerate(self.layers):
-                    inner_fp8_context = get_fp8_context(self.config, layer.layer_number - 1) if use_inner_fp8_context else nullcontext()
+                    inner_fp8_context = (
+                        get_fp8_context(self.config, layer.layer_number - 1) if use_inner_fp8_context else nullcontext()
+                    )
                     if l_no in fullatt_block_indexes:
                         packed_seq_params_now = packed_seq_params_full
                     else:
@@ -227,7 +247,11 @@ class Qwen2_5VisionTransformerBlock(TransformerBlock):
                             sequence_len_offset=sequence_len_offset,
                         )
 
-                    if torch.is_grad_enabled() and self.config.cpu_offloading and self.group_prefetch_offload_commit_async is not None:
+                    if (
+                        torch.is_grad_enabled()
+                        and self.config.cpu_offloading
+                        and self.group_prefetch_offload_commit_async is not None
+                    ):
                         hidden_states = self.group_prefetch_offload_commit_async(hidden_states)
 
         # Final layer norm.
