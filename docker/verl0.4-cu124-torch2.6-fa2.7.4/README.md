@@ -1,4 +1,4 @@
-# verl image v1
+# verl image with verl v0.4.x
 
 ## Important packages version
 
