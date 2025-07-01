@@ -35,7 +35,8 @@ from sglang.srt.managers.tokenizer_manager import (
     ResumeMemoryOccupationReqInput,
     UpdateWeightsFromTensorReqInput,
 )
-from sglang.srt.openai_api.protocol import Tool
+
+# from sglang.srt.openai_api.protocol import Tool
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
@@ -135,9 +136,6 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
 
     async def release_memory_occupation(self, tags: Optional[list[str]] = None):
         """Release GPU occupation temporarily."""
-        if self._need_reload:
-            await self.release_memory_occupation()
-            self._need_reload = False
         if tags is None:
             obj = ReleaseMemoryOccupationReqInput()
         else:
@@ -149,7 +147,9 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
         # because __init__ is a sync method, it can not call the async release_memory_occupation
         # have to move release_memory_occupation from __init__ to here
         # For multi-stage awake, we run release weight and kv_cache when we resume weights for the first time.
-        await self.release_memory_occupation()
+        if self._need_reload:
+            await self.release_memory_occupation()
+            self._need_reload = False
 
         if tags is None:
             obj = ResumeMemoryOccupationReqInput()

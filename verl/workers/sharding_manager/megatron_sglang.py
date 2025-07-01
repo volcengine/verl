@@ -110,6 +110,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             if self.offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
             get_torch_device().empty_cache()
+            torch.distributed.barrier()
 
             if self.multi_stage_wake_up:
                 loop.run_until_complete(self.resume_memory(tags=["kv_cache"]))
