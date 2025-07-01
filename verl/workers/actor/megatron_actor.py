@@ -125,6 +125,12 @@ class MegatronPPOActor(BasePPOActor):
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
         self.prof = Profiler(self.config.profile)
         self.use_fused_kernels = self.config.get("use_fused_kernels", False)
+        if self.use_fused_kernels:
+            from verl.models.mcore.model_forward_fused import patch_fused_forward
+
+            for model in self.actor_module:
+                patch_fused_forward(model)
+
         self.optimizer_step_args = OmegaConf.create(
             {
                 "skip_grad": None,

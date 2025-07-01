@@ -26,12 +26,41 @@ from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.tensor_parallel.mappings import gather_from_sequence_parallel_region
 from torch import Tensor
 
-from verl.models.mcore.util import postprocess_packed_seqs, preprocess_packed_seqs
+from verl.models.mcore.util import preprocess_packed_seqs
 from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
 from verl.utils.megatron_utils import unwrap_model
 from verl.utils.model import CausalLMOutputForPPO
 
 from .qwen2_5_vl.model import Qwen2_5VLModel
+from .util import postprocess_packed_seqs_for_dict_output
+
+
+def patch_fused_forward(model: torch.nn.Module):
+    model = unwrap_model(model)
+    if isinstance(model, GPTModel):
+        model = model
+    elif isinstance(model, Qwen2_5VLModel):
+        if not hasattr(model, "language_model"):
+            # the qwen2.5vl model might only have vision_model
+            return
+        model = model.language_model
+    else:
+        raise ValueError("Model is not a GPTModel or Qwen2_5VLModel")
+    model.forward_backup = model.forward
+    model.forward = _fused_GPTModel_forward.__get__(model, model.__class__)
+    return
+
+
+def unpatch_fused_forward(model: torch.nn.Module):
+    model = unwrap_model(model)
+    if isinstance(model, GPTModel):
+        model = model
+    elif isinstance(model, Qwen2_5VLModel):
+        model = model.language_model
+    else:
+        raise ValueError("Model is not a GPTModel or Qwen2_5VLModel")
+    model.forward = model.forward_backup
+    return
 
 
 def fused_forward_gptmodel(
@@ -45,8 +74,6 @@ def fused_forward_gptmodel(
 ):
     pre_process: bool = unwrap_model(model).pre_process
     post_process: bool = unwrap_model(model).post_process
-    forward_fn = unwrap_model(model).__class__.forward
-    unwrap_model(model).__class__.forward = _fused_GPTModel_forward
 
     batch_size, seq_len = attention_mask.shape[:2]
     input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask, pre_process=pre_process)
@@ -63,7 +90,6 @@ def fused_forward_gptmodel(
         output = postprocess_packed_seqs_for_dict_output(labels_mask_rmpad, output_orig, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
     else:
         output = output_orig
-    unwrap_model(model).__class__.forward = forward_fn
     return output
 
 
@@ -79,10 +105,6 @@ def fused_forward_qwen2_5_vl(
 ):
     # pre_process = unwrap_model(model).pre_process
     post_process = unwrap_model(model).post_process
-    if hasattr(unwrap_model(model), "language_model"):
-        language_model = unwrap_model(model).language_model
-        forward_fn = language_model.__class__.forward
-        language_model.__class__.forward = _fused_GPTModel_forward
 
     pixel_values = multi_modal_inputs["pixel_values"].to(input_ids.device) if "pixel_values" in multi_modal_inputs else None
     image_grid_thw = multi_modal_inputs["image_grid_thw"].to(input_ids.device) if "image_grid_thw" in multi_modal_inputs else None
@@ -108,40 +130,7 @@ def fused_forward_qwen2_5_vl(
         output = postprocess_packed_seqs_for_dict_output(labels_mask_rmpad, output_orig, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
     else:
         output = output_orig
-    if hasattr(unwrap_model(model), "language_model"):
-        language_model.__class__.forward = forward_fn
     return output
-
-
-def postprocess_packed_seqs_for_dict_output(
-    labels_mask: torch.Tensor,
-    output: CausalLMOutputForPPO,
-    packed_seq_params: PackedSeqParams,
-    attention_mask: torch.Tensor,
-    batch_size: int,
-    seq_len: int,
-    post_process: bool = True,
-) -> dict[str, torch.Tensor]:
-    """_summary_
-    For fused kernels, the output is a dictionary with keys like 'log_probs', 'entropy', etc.
-    This function post-processes each tensor in the output dictionary.
-    Args:
-        output (CausalLMOutputForPPO): _description_
-        packed_seq_params (PackedSeqParams): _description_
-        attention_mask (torch.Tensor): _description_
-        batch_size (int): _description_
-        seq_len (int): _description_
-        post_process (bool, optional): _description_. Defaults to True.
-    Returns:
-        CausalLMOutputForPPO: _description_
-    """
-    ret = {}
-    output.entropy = output.entropy.view(1, -1)
-    output.log_probs = output.log_probs.view(1, -1)
-    output.log_probs = output.log_probs.masked_fill(~labels_mask, 0.0)
-    ret["entropy"] = postprocess_packed_seqs(output.entropy, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
-    ret["log_probs"] = postprocess_packed_seqs(output.log_probs, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
-    return ret
 
 
 def _fused_GPTModel_forward(
