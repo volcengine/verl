@@ -1,0 +1,979 @@
+Yuge (Jimmy) Shi
+Senior Research Scientist, Google DeepMind
+
+Follow
+
+A vision researcher’s guide to some RL
+stuff: PPO & GRPO
+20 minute read
+
+ Published: January 31, 2025
+
+First up, some rambles as usual.
+
+It has been a while since I last wrote a blog post. Life has been hectic since I started
+work, and the machine learning world is also not what it was since I graduated in early
+2023. Your average parents having LLM apps installed on their phones is already
+yesterday’s news – I took two weeks off work to spend Lunar New Year in China, which
+only serves to give me plenty of time to scroll on twitter and witness DeepSeek’s (quite
+well-deserved) hype peak on Lunar New Year’s eve while getting completely
+overwhelmed.
+So this feels like a good time to read, learn, do some basic maths, and write some stuff
+down again.
+
+What this blog post covers, and who is it
+for
+This is a deep dive into Proximal Policy Optimization (PPO), which is one of the most
+popular algorithm used in RLHF for LLMs, as well as Group Relative Policy Optimization
+(GRPO) proposed by the DeepSeek folks, and there’s also a quick summary of the tricks
+I find impressive in the DeepSeek R1 tech report in the end.
+
+This is all done by someone who’s mostly worked on vision and doesn’t know much
+about RL. If that’s you too, I hope you will find this helpful.
+
+LLM pre-training and post-training
+The training of an LLM can be separated into a pre-training and post-training phase:
+1. Pre-training: the classic “throw data at the thing” stage where the model is trained
+to do next token prediction using large scale web data;
+2. Post-training: This is where we try to improve the model’s reasoning capability.
+Typically there are two stages to post-training, namely
+Stage 1: SFT (Supervised Finetuning): as the name implies, we use
+supervised learning first by fine-tuning the LLM on a small amount of high
+quality expert reasoning data; think instruction-following, question-answering
+and/or chain-of-thoughts. The hope is, by the end of this training stage, the
+model has learned how to mimic expert demonstrations. This is obviously the
+ideal way to learn if we had unlimited amount of high quality, expert data, but
+since we don’t –
+Stage 2: RLHF (Reinforcement Learning from Human Feedback): Not
+enough human expert reasoning data? This is where
+
+RL
+
+gets to shine!
+
+RLHF uses human feedback to train a reward model, which then guides the
+LLM’s learning via RL. This aligns the model with nuanced human
+preferences, which…I think we all agree is important
+
+.
+
+DeepSeek’s ultra efficient post-training
+Notably, one of the most surprising thing about the DeepSeek R1 tech report is that their
+R1-zero model completely skips the SFT part and applies RL directly to the base model
+(DeepSeek V3). There are a few benefits to this:
+Computational efficiency: skipping one stage of post-training brings
+computational efficiency;
+
+Open-ended learning: Allows the model to “self-evolve” reasoning capabilities
+through exploration;
+Alignment: Avoiding biases introduced by human-curated SFT data.
+Caveat: while it seems like a “duh” moment to see someone saving compute by skipping
+a whole stage of post-training, I suspect you won’t be able to pull it off without a very
+good base model.
+But they didn’t stop there! DeepSeek also make the RLHF part more efficient by
+introducing GRPO to replace PPO, which eliminates the need for a separate critic model
+(typically as large as the policy model), reducing memory and compute overhead by
+~50%. To see why and how they did this, and for our own intellectual indulgence, let’s
+now have a look at exactly how RLHF is done and where these algorithms comes in.
+
+RLHF
+Let’s break down the workflow of RLHF into steps:
+Step 1: For each prompt, sample multiple responses from the model;
+Step 2: Humans rank these outputs by quality;
+Step 3: Train a reward model to predict human preferences / ranking, given any
+model responses;
+Step 4: Use RL (e.g. PPO, GRPO) to fine-tune the model to maximise the reward
+model’s scores.
+As we can see the process here is relatively simple, with two learnable components, i.e.
+the reward model and “the RL”. Now let’s dive into each component with more details.
+
+Reward Model
+
+The reward model is truly on the front-line of automating jobs: realistically, we can’t have
+humans rank all the outputs of the model. A cost-saving approach is to then have
+annotators rate a small portion of the LLM outputs, then train a model to predict these
+annotators’ preferences — and that is where the reward model comes in. With that
+said, now let’s look at some maths:
+Let’s denote our learnable reward model as R ϕ . Given a prompt p, the LLM generate N
+responses r 1 , r 2 , … r N . Then given that a response r i is preferrable to r j according to
+the human rater, the reward model is trained to minimise the following objective:
+L(ϕ) = − log σ(R ϕ (p, r i ) − R ϕ (p, r j )),
+
+where σ denotes the sigmoid function.
+
+Side note: The objective is derived from the Bradley-Terry model, which defines
+the probability that a rater prefers r i over r j as:
+P (r i ≻ r j ) =
+
+exp (R ϕ (p,r i ))
+exp (R ϕ (p,r i ))+exp (R ϕ (p,r j ))
+
+.
+
+Taking the negative log-likelihood of this probability gives the loss L(ϕ) above. The
+sigmoid σ emerges naturally from rearranging the Bradley-Terry ratio.
+
+Note that the reward for a partial response is always 0; only for complete responses
+from the LLM would the reward model return a non-zero scalar score. This important fact
+will become relevant later.
+
+“The RL part”: PPO
+This part is only for the readers who are curious about PPO, and you don’t really
+need to understand this if your goal of opening this blog post is to understand
+GRPO. All I can say is though it brought me great joy to finally understand how PPO
+works, and then great sense of vindication when I realised how much simpler GRPO
+is compared to PPO. So if you’re ready for an emotional rollercoaster – let’s dive in.
+
+First, a high level overview. PPO stands for proximal policy optimization, and it requires
+the following components:
+Policy (π θ ): the LLM that has been pre-trained / SFT’ed;
+Reward model (R ϕ ): a trained and frozen network that provides scalar reward
+given complete response to a prompt;
+Critic (V γ ): also known as value function, which is a learnable network that takes in
+partial response to a prompt and predicts the scalar reward.
+Congratulations – by calling the LLM a “policy” you are now an RL person
+
+! The
+
+purpose of each component becomes a little clearer once we get to know the workflow,
+which contains five stages:
+1. Generate responses: LLM produces multiple responses for a given prompt;
+2. Score responses: The reward model assigns reward for each response;
+3. Compute advantages: Use GAE to compute advantages (more on this later, it’s
+used for training the LLM);
+4. Optimise policy: Update the LLM by optimising the total objective;
+5. Update critic: train the value function to be better at predicting the rewards given
+partial responses.
+Now let’s take a look at some of these stages/components in more details, and then see
+how they all come together.
+
+Terminologies: states and actions
+Some more RL terminologies before we move on. In the discussion of this section we
+are going to use the term state, denote as s t , and action, denote as a t . Note that here
+the subscript t is used to denote the state and action at a token level; in contrast,
+previously when we defined our prompt p and responses r i , the subscript i is used to
+denote the response at an instance level.
+
+To make this a little clearer, let’s say we give our LLM a prompt p. The LLM then starts
+generating a response r i of length T one token at a time:
+: our state is just the prompt, i.e. s 0 = p, and the first action a 0 is just the first
+
+t = 0
+
+word token generated by the LLM;
+: the state becomes s 1 = p, a 0 , as the LLM is generating the next action a 1
+
+t = 1
+
+while conditioned on the state; …
+: the state is s T −1 = p, a 0:T −2 , and the LLM generates the final action
+
+t = T − 1
+a T −1
+
+.
+
+Connecting this to the previous notations again, all the actions stringing together makes
+one response, i.e. r i = a 0 , a 1 , … a T −1 .
+
+General Advantage Estimation (GAE)
+Our policy is updated to optimise advantage – intuitively, it defines how much better a
+specific action a t (i.e. word) is compared to an average action the policy will take in
+state s t (i. e. prompt + generated words so far). Formally:
+A t = Q(s t , a t ) − V (s t )
+
+Where Q(s t , a t ) is the expected cumulative reward of taking a specific action a t in state
+st
+
+, and V (s t ) is the expected cumulative reward of average action the policy takes in
+
+state s t .
+There are two main ways of estimating this advantage, each with their trade-offs,
+namely, 1) Monte-Carlo (MC): Use the reward of the full trajectory (i.e. full responses).
+This approach has high variance due to the sparse reward – it is expensive to take
+enough samples from the LLM to optimise using MC, but it does have low bias as we
+can accurately model the reward; 2) Temporal difference (TD): Use one-step trajectory
+reward (i.e. measure how good is the word that’s just been generated given the prompt).
+By doing so we can compute reward on a token level, which significantly reduces the
+variance, but at the same time the bias goes up as we can’t as accurately anticipate the
+final reward from a partially generated response.
+
+This is where GAE comes in – it is proposed to balance the bias and variance
+through a multi-step TD. However, recall that previously we mentioned that the reward
+model will return 0 if the response was incomplete: how will we compute TD without
+knowing how the reward would change before and after generating a word? We
+therefore introduce a model that does just that, which we call “the critic”.
+
+The critic (value function)
+The critic is trained to anticipate the final reward given only a partial state, so that we
+can compute the TD. Training the critic V γ is fairly straightforward:
+Given a partial state s t , we want to predict the reward model’s output given the full state
+. The objective for the critic can be written as
+
+s T = p, r
+
+2
+
+L(γ) = E t [(V γ (s t ) − sg(R ϕ (s T ))) ],
+
+where sg denotes the stop gradient operation. As we can see, the critic is trained with a
+simple L2 loss to the reward model’s score.
+You might notice that while the reward model R ϕ is trained before PPO and frozen, the
+critic is trained alongside the LLM, even though its job is also just to predict the reward.
+This is because the value function must estimate the reward for partial response given
+the current policy; as a result, it must be updated alongside the LLM, to avoid its
+predictions to become outdated and misaligned. And this, is what they call, actor-critic in
+RL (mic-drop).
+
+Back to GAE
+With the critic V γ , we now have a way to anticipate the reward from a partial state. Now
+let’s get on with GAE, which as mentioned computes a multi-step TD objective:
+K−1
+
+A
+
+GAE
+K
+
+2
+
+= δ 0 + λδ 1 + λ δ 2 . . . +(λ)
+
+K−1
+
+t
+
+δ K−1 = ∑ (λ) δ t ,
+t=0
+
+where K denotes the number of TD steps and K < T (because obviously you can’t
+compute TD beyond the length of the trajectory). δ t denotes the TD error at step t, and
+is computed as:
+δ t = V γ (s t+1 ) − V γ (s t )
+
+To put simply, the TD error computes the difference between expected total reward of
+one time step, and A GAE
+estimates advantage by computing the aggregated single-step
+K
+TD errors over K steps. The λ in the GAE equation controls the trade-off between the
+variance and the bias: when λ = 0, GAE reduces to single-step TD; and when λ = 1,
+GAE becomes MC.
+In RLHF, we want to maximise this advantage term, thereby maximising the reward for
+every token the LLM generates.
+
+Side note: ok, I cut some corners for simplicity here. Originally there is also a
+K−1
+
+discount factor η in GAE: A K
+
+GAE
+
+t
+
+= ∑ (λη) δ t ,
+
+which is also used in the TD error
+
+t=0
+
+δt
+
+, and there is also an extra reward term δ t = R ϕ (s t ) + ηV γ (s t+1 ) − V γ (s t ). But
+
+since we almost always have η = 1, and R ϕ (s t ) = 0 for t < T which is always the
+case, I took a shortcut to simplify and omit those terms.
+
+Putting it together – PPO objective
+There are a few components to the PPO objective, namely 1) the clipped surrogate
+objective, 2) the entropy bonus, 3) the KL penalty.
+
+1. The clipped surrogate objective
+This is where we maximise A GAE
+, so that each token the LLM predicted maximises the
+K
+reward (or, by definition of advantage earlier, each token the LLM predicts should be
+much better than its average prediction). The clipped surrogate objective constrains
+policy updates with a probability ratio c t (π θ ):
+
+L
+
+clip
+
+GAE
+
+(θ) = E t [min(c t (π θ )A t
+
+GAE
+
+, clip(c t (π θ ), 1 − ϵ, 1 + ϵ)A t
+
+)],
+
+where ϵ controls the clipping range, c t (π θ ) the probability ratio of predicting a specific
+token a t at given cumulative state s t , before and after the update:
+
+c t (π θ ) =
+
+π θ (a t |s t )
+
+.
+
+π θ old (a t |s t )
+
+Concrete example:
+Let’s say the LLM assigns the word
+
+unlimited
+
+with the following probabilities:
+
+Before update: 0.1,
+After update: 0.3. Then the probability ratio c t = 0.3/0.1 = 3;
+If we take ϵ = 0.2, c t gets clipped to 1.2;
+The final clipped surrogate loss is L clip (π θ ) = 1.2A GAE
+.
+K
+You can think of clipping as a way to prevent overconfidence – without clipping, a large
+A
+
+GAE
+K
+
+could cause the policy to overcommit to an action.
+
+2. KL divergence penalty
+Additionally, we have the KL divergence penalty which prevents the current policy θ from
+deviating too far from the original model that we are finetuning from θ orig :
+KL(θ) = E s [D KL (π θorig (⋅|s t )||π θ (⋅|s t ))]
+t
+
+The KL is simply estimated by taking the average over sequence and batch.
+Pseudocode:
+
+# Compute KL divergence between original and current policy/model
+logits_orig = original_model(states)
+logits_current = current_model(states)
+
+# Original model's logits
+# Current model's logits
+
+probs_orig = F.softmax(logits_orig, dim=-1)
+log_probs_orig = F.log_softmax(logits_orig, dim=-1)
+log_probs_current = F.log_softmax(logits_current, dim=-1)
+kl_div = (probs_orig * (log_probs_orig - log_probs_current)).sum(dim
+kl_penalty = kl_div.mean()
+
+# Average over sequence and batch
+
+3. Entropy bonus
+The entropy bonus encourages exploration of LLM’s generation by penalising low
+entropy:
+H (θ) = −E a t [log π θ (a t |s t )].
+
+Pseudocode:
+
+# Compute entropy of current policy
+probs_current = F.softmax(logits_current, dim=-1)
+log_probs_current = F.log_softmax(logits_current, dim=-1)
+entropy = -(probs_current * log_probs_current).sum(dim=-1)
+entropy_bonus = entropy.mean()
+
+# Average over sequence and batch
+
+Finally, the PPO objective
+Given the three terms above, in addition to the value function MSE loss (recall it is
+optimised along with the LLM), the PPO objective is defined as follows:
+
+L PPO (θ, γ) =
+L clip (θ)
++
+w 1 H (θ)
+−
+w 2 KL(θ)
+− w 3 L( γ)
+
+
+
+
+
+
+ 
+
+
+
+
+ 
+
+
+
+  
+aaximise reward
+
+Maximise entropy
+
+Penalise KL divergence
+
+A summary of the different terms in this objective is as follows:
+
+Critic L2
+
+Term
+
+Purpose
+
+L clip (θ)
+
+Maximize rewards for high-advantage actions (clipped to avoid instability).
+
+H (θ)
+
+Maximize entropy to encourage exploration.
+
+KL(θ)
+
+Penalize deviations from the reference policy (stability).
+
+L(γ)
+
+Minimize error in value predictions (critic L2 loss).
+
+“The RL part”: GRPO
+It’s super easy to understand GRPO now that we have a good understanding of PPO,
+and the key difference lies in how the two algorithms estimate advantage A: instead of
+estimating advantage through the critic like in PPO, GRPO does so by taking multiple
+samples from the LLM using the same prompt.
+Workflow:
+1. For each prompt p, sample a group of N responses G = r 1 , r 2 , … r N from the
+LLM policy π θ ;
+2. Compute rewards R ϕ (r 1 ), R ϕ (r 2 ), … R ϕ (r N ) for each response using the
+reward model R ϕ ;
+3. Calculate group-normalised advantage for each response:
+R ϕ (r i ) − mean(G)
+Ai =
+
+,
+
+where mean(G) and std(G) denotes the within-
+
+std(G)
+
+group mean and standard deviation, respectively.
+A lot simpler, right? In GRPO, advantage is approximated as the normalised reward of
+each response within its group of responses. This removes the need of a critic network
+calculating per-step rewards, not to mention the mathematical simplicity and elegance. It
+does somewhat beg the question – why didn’t we do this sooner?
+
+I don’t have a good answer to this question due to a lack of hands-on experience:
+I’m guessing this is tied to hardware capabilities, as the modern GPUs/TPUs we
+have access to these days make it possible to sample in a much faster and more
+efficient manner. Again I’m not an expert, so insights on this are very welcomed!
+
+Update: some insights from @him_sahni on this, who “did RL in his past life”: the
+reason “why no one has tried GRPO before” is – we have. In REINFORCE, you
+update the policy by subtracting a baseline (typically the average reward from
+several trajectories) to reduce variability. In fact, theory shows that the ideal baseline
+is the total expected future reward from a state, often called the “value”. Using a
+value function as the baseline is known as the actor-critic approach, and PPO is a
+stable version of that. Now, in traditional REINFORCE, the baseline can be any
+function of the current state, and traditionally is just the reward for the trajectories in
+a single batch; in GRPO, this baseline is computed over 1000 samples generated
+for each prompt, which is
+
+novel
+
+.
+
+The GRPO objective
+Similar to PPO, GRPO still make use of a clipped surrogate loss as well as the KL
+penalty. The entropy bonus term is not used here, as the group-based sampling already
+encourages exploration. The clipped surrogate loss is identical to the one used in PPO,
+but for completeness sake here it is:
+L clip (θ) =
+1
+
+N
+
+∑ (min (
+N
+
+i=1
+
+π θ (r i |p)
+π θ old (r i |p)
+
+A i , clip (
+
+π θ (r i |p)
+π θ old (r i |p)
+
+, 1 − ϵ, 1 + ϵ)A i )),
+
+then with the KL penalty term, the final GRPO objective can be written as:
+
+L GRPO (θ) =
+L clip (θ)
+− w 1 D KL (π θ ||π orig )
+
+
+
+
+  
+
+
+
+Maximise reward
+
+Penalise KL divergence
+
+More thoughts on R1: Brutal Simplicity
+Finally, a few words on R1.
+Overhyped or not, one thing that really stands out about the R1 from reading the paper
+is that it embraces a stripped-down, no-nonsense approach to LLM training,
+prioritising brutal simplicity over sophistication. GRPO is just the tip of the iceberg. Here
+are some more examples on of its brutal simplicity:
+
+1. Rule-Based, Deterministic Rewards
+What: Abandon neural Process Reward Models (PRMs) or Outcome Reward
+Models (ORMs). Use binary checks, including:
+Answer Correctness: Final answer matches ground truth (e.g., math
+solutions, code compilation).
+Formatting: Force answers into
+
+<think>...</think><answer>...</answer>
+
+templates.
+Language Consistency: Penalise mixed-language outputs (e.g., English
+reasoning for Chinese queries).
+Why: Deterministic rules sidestep reward hacking (e.g., models tricking neural
+reward models with plausible-but-wrong steps) and eliminate reward model training
+costs.
+
+2. Cold-Start Data: Minimal Human Touch
+What: Instead of curating massive SFT datasets, collect a few thousand highquality CoT examples via:
+Prompting the base model with few-shot examples.
+Light human post-processing (e.g., adding markdown formatting).
+Why: Avoids costly SFT stages while bootstrapping RL with “good enough” starting
+points.
+
+3. Rejection Sampling: Filter Hard, Train Harder
+What: After RL training, generate 600k reasoning trajectories, then throw away
+all incorrect responses. Only keep the “winners” (correct answers) for supervised
+fine-tuning (SFT). No fancy reranking, no preference pairs. Just survival-of-thefittest filtering.
+Why: It works, why not!
+
+4. Distillation: Copy-Paste Reasoning
+What: To train smaller models, directly fine-tune them on 800k responses
+generated by DeepSeek-R1. No RL, no iterative alignment—just mimicry.
+Why: Smaller models inherit reasoning patterns discovered by the larger model’s
+brute-force RL, bypassing costly RL for small-scale deployments.
+
+DeepSeek-R1’s design reflects a broader trend in AI: scale and simplicity often
+outperform clever engineering. By ruthlessly cutting corners — replacing learned
+components with rules, leveraging massive parallel sampling, and anchoring to pretrained baselines — R1 achieves SOTA results with fewer failure modes. It’s not elegant,
+but it’s effective.
+Who would’ve thought the best way to incentivise good thinking is to
+overthinking it
+
+ Tags:
+
+.
+
+Large Language Models
+
+Previous
+
+Machine Learning
+
+RLHF
+
+Next
+
+stop
+
+LEAVE A COMMENT
+
+The most relaxing Farm Game. No
+Taonga: The Island Farm
+
+Play Now
+
+Sponsored
+
+The most relaxing Farm Game. No Install
+Taonga: The Island Farm
+
+Play Now
+
+Here's The Average Price of Gutter Protection For 2,500 Sq Ft House
+LeafFilter Gutter Protection
+
+Get Quote
+
+Your Best Life Starts Today
+Maximus
+
+Learn More
+
+God’s people need you
+IFCJ | The Fellowship
+
+Donate Now
+
+I’m partnering with IFCJ
+IFCJ | The Fellowship
+
+Donate Now
+
+Get a new gutter system and protect against summer storms​
+LeafFilter Gutter Protection
+
+Get Rates
+
+YugeTen's website Comment Policy
+
+Got it
+
+Please read our Comment Policy before commenting.
+
+1
+Login
+
+
+16 Comments
+
+G
+
+Join the discussion…
+
+LOG IN WITH
+
+OR SIGN UP WITH DISQUS
+
+?
+
+Name
+
+ 7
+
+Share
+
+A
+
+Ameen Ahmed
+
+Best
+
+Newest
+
+Oldest
+
+− ⚑
+
+5 months ago
+
+scale and simplicity often outperform clever engineering
+sounds like another bitter lesson..
+3
+
+F
+
+0
+
+Reply
+
+⥅
+
+− ⚑
+
+FEI Hao
+5 months ago
+
+best essay on ppo and grpo i've read ever
+1
+
+A
+
+0
+
+Reply
+
+⥅
+
+− ⚑
+
+Abdallah
+24 days ago
+
+this is the best intro to PPO and GRPO I came across, kudos Yuge!
+0
+
+Y
+
+0
+
+Reply
+
+⥅
+
+− ⚑
+
+Yongqiang Dou
+a month ago
+
+edited
+
+Thanks for the great post! Just a small heads-up, I think 'General' Advantage Estimation should
+be 'Generalized Advantage Estimation'.
+0
+
+Sh
+
+0
+
+Ch
+
+Reply
+
+⥅
+⚑
+
+− ⚑
+
+Shannon Chen
+a month ago
+
+I think the advantage is computing about the future. The \delta should start from t instead of 0.
+0
+
+E
+
+Reply
+
+0
+
+⥅
+
+− ⚑
+
+Ethan Hellman
+a month ago
+
+Thanks for taking the time to write this up...was super helpful!
+0
+
+X
+
+Reply
+
+0
+
+⥅
+
+− ⚑
+
+XING, Zhenghao (Harry)
+3 months ago
+
+very nice content!!! thanks for the inspiration!
+0
+
+H
+
+Reply
+
+0
+
+⥅
+
+− ⚑
+
+Honghua Yang
+3 months ago
+
+edited
+
+Thanks for the great write up! I really enjoyed reading through. Just a small note that the PPO
+algorithm just uses L^{CLIP} which avoids calculating KL with adaptive beta. Since CLIP already
+constrains how big a step to update, why do we still need KL term in GRPO? Just comparing the
+Loss function to PPO, GRPO replaced entropy term with KL. I wonder why they made such a
+choice to over constraint (adding KL term) and reduce exploration (removing entropy)?
+0
+
+M
+
+0
+
+Reply
+
+⥅
+
+− ⚑
+
+Manish Vidyasagar
+3 months ago
+
+edited
+
+typo "aaximize" -> "maximize" in "Finally, the PPO objective "-> clip loss term
+0
+
+Y
+
+0
+
+Reply
+
+⥅
+
+− ⚑
+
+Yunseok
+4 months ago
+
+Thank you for this great post. I enjoyed a lot! By the way, there is a typo in "Finally, the PPO
+objective" equation "aaximise" -> "Maximise"
+0
+
+J
+
+0
+
+Reply
+
+😉
+
+⥅
+
+− ⚑
+
+James
+4 months ago
+
+So does GRPO have 1 advantage per sequence? Or 1 advantage per token like PPO?
+P.S nice article good coverage of the subject!
+0
+
+0
+
+Reply
+
+⥅
+
+D
+
+> James
+
+Deprecated C
+2 months ago
+
+− ⚑
+
+Looks like there is one advantage per token, and all these advantages are identical.
+0
+
+Z
+
+0
+
+Reply
+
+⥅
+
+− ⚑
+
+Zhang Joyce
+4 months ago
+
+This blog is insightful and, for sure, helpful! Thanks!
+0
+
+A
+
+0
+
+Reply
+
+⥅
+
+− ⚑
+
+Abhinav Rajput
+5 months ago
+
+Thank you, this was an amazing writeup and much needed too!
+0
+
+B
+
+0
+
+Reply
+
+⥅
+
+− ⚑
+
+Bob Joe
+5 months ago
+
+Won't you have the same problem with sparse rewards with GRPO. If you use sampling playouts
+for advantage estimation, yes its unbiased, no it can't be gamed, but unless you do some
+curriculum learning or some other tricks I don't see how you don't have the same issues as doing
+PPO with MCTS?
+0
+
+J
+
+0
+
+Reply
+
+⥅
+
+− ⚑
+
+Jiatong Li
+5 months ago
+
+Great blog for vision researcher like me to get familiar with LLM GPRO, thanks.
+Also when I'm reading Deepsake-R1 paper, I'm thinking about whether it can work on nonreasoning scenarios in either LLM or diffusion generation models (maybe we have to train a
+reward model instead of known correct answer in math).
+0
+
+0
+
+Reply
+
+⥅
+
+Sponsored
+
+The most relaxing Farm Game. No Install
+Taonga: The Island Farm
+
+Play Now
+
+War is not over, enemy has not been defeated
+IFCJ | The Fellowship
+
+Donate Now
+
+Your Best Life Starts Today
+Maximus
+
+Learn More
+
+God’s people need you
+IFCJ | The Fellowship
+
+Donate Now
+
+Here's The Average Price of Gutter Protection For 2,500 Sq Ft House
+LeafFilter Gutter Protection
+
+This Small Business Loan is Worth the Wait
+Lendio SBA
+
+Get Offer
+
+

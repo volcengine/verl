@@ -1,0 +1,2791 @@
+arXiv:2504.21277v2 [cs.AI] 21 May 2025
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in
+Multimodal Large Language Models
+GUANGHAO ZHOU∗ and PANJIA QIU∗ , East China Normal University, China
+CEN CHEN† , East China Normal University, China
+JIE WANG, ByteDance, China
+ZHEMING YANG, ByteDance, China
+JIAN XU, ByteDance, China
+MINGHUI QIU, ByteDance, China
+The application of reinforcement learning (RL) to enhance the reasoning capabilities of Multimodal Large
+Language Models (MLLMs) constitutes a rapidly advancing research area. While MLLMs extend Large Language Models (LLMs) to handle diverse modalities such as vision, audio, and video, enabling robust reasoning
+across multimodal inputs remains challenging. This paper provides a systematic review of recent advances
+in RL-based reasoning for MLLMs, covering key algorithmic designs, reward mechanism innovations, and
+practical applications. We highlight two main RL paradigms, value-model-free and value-model-based methods, and analyze how RL enhances reasoning abilities by optimizing reasoning trajectories and aligning
+multimodal information. Additionally, we provide an extensive overview of benchmark datasets, evaluation
+protocols, and current limitations, and propose future research directions to address challenges such as sparse
+rewards, inefficient cross-modal reasoning, and real-world deployment constraints. Our goal is to provide a
+comprehensive and structured guide to RL-based multimodal reasoning.
+CCS Concepts: • Computing methodologies → Causal reasoning and diagnostics; Computer vision problems; Reinforcement learning.
+Additional Key Words and Phrases: MLLM, RL-Based Reasoning, Chain-of-Thought
+ACM Reference Format:
+Guanghao Zhou, Panjia Qiu, Cen Chen, Jie Wang, Zheming Yang, Jian Xu, and Minghui Qiu. 2025. Reinforced
+MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models. 1, 1 (May 2025), 35 pages.
+https://doi.org/XXXXXXX.XXXXXXX
+
+1
+
+Introduction
+
+The emergence of large language models (LLMs) [29, 30, 123] has ushered in an unprecedented new
+era for the field of artificial intelligence, showcasing exceptional capabilities such as instruction
+following and few-shot learning [5]. However, achieving human-level intelligence requires not only
+∗ Both authors contributed equally to this research.
+† Corresponding author.
+
+Authors’ Contact Information: Guanghao Zhou, ghzhou@stu.ecnu.edu.cn; Panjia Qiu, panjiaqiu@stu.ecnu.edu.cn, East China
+Normal University, Shanghai, China; Cen Chen, East China Normal University, Shanghai, China, cenchen@dase.ecnu.edu.cn;
+Jie Wang, ByteDance, Shanghai, China, wangjie.mayday@bytedance.com; Zheming Yang, ByteDance, Beijing, China,
+yangzheming@bytedance.com; Jian Xu, ByteDance, Shanghai, China, kid44106592@gmail.com; Minghui Qiu, ByteDance,
+Shanghai, China, minghuiqiu@gmail.com.
+Permission to make digital or hard copies of all or part of this work for personal or classroom use is granted without fee
+provided that copies are not made or distributed for profit or commercial advantage and that copies bear this notice and the
+full citation on the first page. Copyrights for components of this work owned by others than the author(s) must be honored.
+Abstracting with credit is permitted. To copy otherwise, or republish, to post on servers or to redistribute to lists, requires
+prior specific permission and/or a fee. Request permissions from permissions@acm.org.
+© 2025 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+ACM XXXX-XXXX/2025/5-ART
+https://doi.org/XXXXXXX.XXXXXXX
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+2
+
+Guanghao Zhou, Panjia Qiu et al.
+
+TinyLLaVA-Video-R1
+R1-SGG
+Skywork R1V2
+Reason-RFT
+Video-R1
+OThink-MR1
+R1-Onevision
+Curr-ReFT
+GFlowVLM
+
+Embodied-R
+InfiGUI-R1
+FAST
+
+R1-AQA
+MetaSpatial
+Skywork R1V
+VisualPRM
+VisRL
+Seg-Zero
+R1-Omni
+
+NoisyRollout
+Relation-R1
+ChestX-Reasoner
+UI-R1
+OpenVLThinker-7B
+R1-VL
+LMM-R1
+MM-Eureka
+Vision-R1
+Visual-RFT
+
+DeepSeek R1
+KIMI K1.5
+PARM / PARM++
+
+PPO
+
+DPO
+
+2025.2
+2025.1
+
+GRPO
+
+2017
+
+2023
+
+2024
+
+MedVLM-R1
+video-SALMONN-o1
+
+2025.4
+VAPO
+Spatial-R1
+Kimi-VL
+VLM-R1
+GUI-R1
+DAPO
+ThinkLite-VL
+Perception-R1
+VideoChat-R1
+VLAA-Thinker
+VL-Rethinker
+R1-Zero-VSI
+
+2025.3
+
+Fig. 1. Timeline of RL-based reasoning methods for MLLM.
+
+surpassing basic perceptual abilities but also developing sophisticated cognitive reasoning skills
+that enable iterative reasoning through contextual understanding and self-correction. Inspired
+by this, in-context learning (ICL) techniques [107, 113] have empowered LLMs with step-by-step
+reasoning abilities, commonly referred to as the Chain-of-Thought (CoT) reasoning mechanism
+[4, 104]. OpenAI’s o1 model [38] has demonstrated remarkable performance in solving reasoning
+tasks, sparking widespread interest across domains in test-time scaling research. By leveraging
+additional computation during inference time to conduct "slow thinking" [42], it further enhances
+the accuracy of responses to complex problems.
+Inspired by the extensive research on the CoT in LLMs, reasoning tasks in multi-modal large
+language models (MLLMs) [2, 91, 100] have experienced rapid advancements. Typical methods
+include Best-of-N, Beam Search, and Monte Carlo Tree Search [8, 118, 125]. These approaches rely on
+intricate search mechanisms to generate large volumes of reasoning data and utilize supervised finetuning (SFT) to enable models to acquire autonomous reasoning capabilities. With the advancement
+of reinforcement learning (RL) theory and technology, DeepSeek R1 [31] demonstrates how large
+language models can autonomously develop complex reasoning abilities through simple rulebased incentive mechanisms and lightweight reinforcement learning (GRPO [81]) algorithms. This
+method enables LLMs to naturally exhibit "Aha Moment" without explicit supervision, characterized
+by self-reflection and spontaneous increases in response length during training. Recent studies
+[36, 61, 72, 147] have extended this approach to MLLMs and applied it to areas such as object
+recognition [61], semantic segmentation [58], and video analysis [86]. These methods significantly
+enhance MLLMs’ capabilities with limited training data, achieving performance comparable to
+SFT in in-domain tests while outperforming SFT models in out-of-distribution (OOD) evaluations.
+However, this rapid progress, as illustrated in Figure 1, presents significant challenges to researchers.
+Although RL-based methods are effective, most of them adhere to text-based thinking practices,
+neglecting the critical role of other modalities in multimodal scenarios. Moreover, current RLbased reasoning methods primarily rely on rule-based reward functions with verifiable answers,
+overlooking broader general-scenario problems where verifiable answers are unavailable.
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+3
+
+Although many existing surveys focus on MLLMs reasoning [50, 105], none of them specifically
+address the issue of RL-based reasoning for MLLMs. To fill this gap, we provide a comprehensive
+and systematic review of reasoning methods for RL-based MLLMs, offering a structured analysis
+of technological advancements, methodologies, practical applications, and future directions. Our
+goal is to provide researchers with a thorough and systematic guide to identifying appropriate
+methods in the rapidly evolving field of MLLM reasoning, thereby promoting further innovation
+and progress in this dynamic area. We first introduce the background of MLLMs, CoT reasoning, and
+reinforcement learning in Section 2. Then, we review key RL algorithm designs and optimizations
+for both LLMs and MLLMs in Section 3. Next, we survey RL-based reasoning methods for MLLMs,
+covering algorithmic strategies, reward mechanisms, and benchmark evaluations in Section 4,
+Section 5 and Section 6. Finally, Section 7 discuss current limitations and future research directions
+in this rapidly evolving field in.
+This paper addresses RL-based reasoning for MLLMs from four key perspectives:
+• Core Designs of RL in LLMs/MLLMs : Analyze value-model-free and value-model-based
+methods, focusing on their innovations in training efficiency, stability, and performance,
+while discussing strengths, weaknesses, and optimization opportunities.
+• Analysis of RL-Based Reasoning Methods : Examine the algorithmic frameworks, the design of reward functions including both accuracy-oriented and structure-oriented approaches,
+and the strategies for integrating multiple modalities. Furthermore, emphasize how each of
+these components contributes to addressing the core challenges of multimodal reasoning.
+• Benchmark Datasets and Evaluation Protocols : Survey datasets and evaluation methods
+for reasoning tasks, covering construction pipelines such as data sources and annotations, as
+well as benchmarks spanning math, science, spatial, and interaction-based domains.
+• Limitations and Future Directions : Highlight unresolved challenges such as sparse
+rewards, inefficient trajectories, and cross-modal coordination. Meanwhile, propose future
+directions including hierarchical reward modeling, vision-guided CoT, and lightweight RL
+frameworks for real-world use.
+2
+2.1
+
+Background and Preliminary
+Multi-Modal Large Language Models and MM-COT
+
+Despite the impressive zero-shot/few-shot reasoning performance of LLMs in most Natural Language Processing (NLP) tasks, they are limited to understanding only discrete textual information. In
+contrast, models for other modalities are capable of integrating information from various modalities
+such as images, audio, and video [2, 44, 86], but often fall short in reasoning capabilities. Given this
+complementarity, the integration of LLMs with other specialized models has led to the emergence
+of multimodal large language models. Representative examples include open-source models such as
+Qwen-VL [2, 100], Intern-VL [15, 150], LLaVA [52, 53], and Valley [66, 112], as well as closed-models
+like GPT-4o [37] and Gemini [89, 90]. These MLLMs leverage LLMs as the core cognitive engine,
+demonstrating exceptional capabilities such as strong language generation, zero-shot transfer, and
+ICL. At the same time, foundational models for other modalities empower a variety of multimodal
+tasks by providing high-quality representations for non-textual data. In summary, mainstream
+MLLMs typically follow a consistent architecture: they process multimodal embeddings or tokens
+through a decoder structure, generating context-aware outputs autoregressively. Some studies have
+attempted to enable MLLMs to handle arbitrary modality conversions [2, 119], further advancing
+the development of "anything-to-anything" paradigm models.
+CoT is a technique that encourages models to generate intermediate reasoning steps 𝑆 =
+(𝑠 1, . . . , 𝑠𝑛 ) before arriving at the final answer 𝐴. In the context of multimodal reasoning tasks,
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+4
+
+Guanghao Zhou, Panjia Qiu et al.
+A
+
+MM
+
+Text
+
+MLLM
+
+Text Thought
+Output
+MM
+
+the line, where AC is located, we need to understand that the rotating body is a cone. The lateral
+area … side BC, which is 3. The slant height of the cone is the length of the hypotenuse of triangle
+ABC. First, we need to find the length of the hypotenuse AB. Using the Pythagorean theorem in
+triangle ABC: . We know AC = 4 and BC = 3, so: . Now, the slant height is 5. The lateral area of
+the cone is: . Therefore, the lateral area of the rotating body is: </think> <answer> B </answer>
+Question: Do we have the same number and same type of item in both images?
+Choices: A: Same number and same type of item
+B: Same number but different type of item
+C: Different number but same type of item D: Different number and different type of item
+
+Text
+
+MLLM
+
+Question: As shown in the figure, rotate triangle ABC around the line where AC is located to obtain a
+4 rotating body, then the lateral area of the rotating body is ()
+
+Coarse Understanding
+C
+Choices: A:12π B:15π C:30π D:60π
+B 3
+Semantic Grounding
+Fine-Grained Understanding <think> To determine the lateral area of the rotating body formed by rotating triangle ABC around
+
+MM Thought
+
+<think> The image contains one knife , one fork , and two spoons of different sizes
+
+Output
+
+. Hence,
+
+the correct answer is D: a different number and different types of items.</think> <answer> D
+</answer>
+
+Fig. 2. Illustration of Different Modalities of CoT. The upper subplot shows a text-only CoT, while the lower
+subplot presents a multimodal CoT.
+
+given a prompt 𝑃 and query 𝑄, each reasoning step 𝑠𝑖 is sampled from the MLLM M:
+𝑝 (𝑆 |𝑃, 𝑄) =
+
+|𝑆 | Ö
+|𝑠𝑖 |
+Ö
+
+M (𝑠𝑖 |𝑃, 𝑄, 𝑆 <𝑖 , 𝑠𝑖< 𝑗 )
+
+(1)
+
+𝑖=1 𝑗=1
+
+𝑃 (𝐴|𝑃, 𝑄, 𝑆) =
+
+|𝐴|
+Ö
+
+M (𝑎𝑖 |𝑃, 𝑄, 𝑆, 𝑎 <𝑖 )
+
+(2)
+
+𝑖=1
+
+Unlike traditional CoT, Multimodal Chain-of-Thought (MM-CoT) attempts to incorporate multimodal information into 𝑃, 𝑆, and 𝐴 to varying degrees. As illustrated in Figure 2, we categorize
+MM-CoT into two distinct scenarios: one that relies solely on linguistic information and another
+that integrates multimodal signals beyond textual content. The former aims to solve tasks involving
+multi-modal inputs using purely text-based CoT, while the latter emphasizes the integration of
+given, retrieved, or generated multi-modal information within the MM-CoT itself. Since most
+popular MLLMs still struggle to generate images or other modalities, recent advancements in
+RL-based reasoning have primarily concentrated on the generation of text-only CoT.
+2.2
+
+Reinforcement Learning
+
+2.2.1 Policy Optimization Methods. Reinforcement Learning is a fundamental approach in machine
+learning where an agent learns to interact with an environment by taking actions, receiving
+rewards, and updating its policy to maximize long-term returns. Reinforcement Learning from
+Human Feedback (RLHF) [3], leveraging algorithms such as Proximal Policy Optimization (PPO)
+[80], guides model behavior to enhance the alignment, coherence, and utility of generated responses.
+Proximal Policy Optimization (PPO). PPO optimizes LLMs by maximizing the following surrogate
+objective:
+𝐽𝑃𝑃𝑂 (𝜃 ) = E[𝑞 ∼ 𝑃 (𝑄), 𝑜 ∼ 𝜋𝜃𝑜𝑙𝑑 (𝑂 |𝑞)]
+
+
+ 
+|𝑜 |
+𝜋𝜃 (𝑜𝑡 |𝑞, 𝑜 <𝑡 )
+𝜋𝜃 (𝑜𝑡 |𝑞, 𝑜 <𝑡 )
+1 ∑︁
+min
+𝐴𝑡 , clip
+, 1 − 𝜀, 1 + 𝜀 𝐴𝑡
+|𝑜 | 𝑡 =1
+𝜋𝜃𝑜𝑙𝑑 (𝑜𝑡 |𝑞, 𝑜 <𝑡 )
+𝜋𝜃𝑜𝑙𝑑 (𝑜𝑡 |𝑞, 𝑜 <𝑡 )
+
+(3)
+
+where 𝜋𝜃 and 𝜋𝜃𝑜𝑙𝑑 denote the current and old policy models, respectively, 𝑞 and 𝑜 represent
+questions sampled from the question dataset and outputs generated by the old policy 𝜋𝜃𝑜𝑙𝑑 . The
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+5
+
+hyperparameter 𝜀 plays a critical role in stabilizing training by introducing a clipping mechanism. 𝐴𝑡 ,
+computed using Generalized Advantage Estimation (GAE) [79], represents the advantage function
+based on a reward model 𝑅 and a learnable critic model.
+In recent years, RL has increasingly been applied to enhance the reasoning capabilities of LLMs
+[31, 91]. By treating reasoning token generation as a Markov Decision Process, models are trained
+to maximize the expected return of reasoning paths, guiding optimization toward more structured
+and coherent reasoning trajectories. In PPO, both the policy and critic models must be trained
+simultaneously, which imposes significant computational demands when model parameters or
+token counts are large. To reduce the resource consumption of PPO while stabilizing the training
+process, some studies have begun exploring ways to simplify the PPO training pipeline.
+REINFORCE Leave-One-Out (RLOO). RLOO [1] omits the use of a critic model and GAE , instead directly employing the Monte Carlo method to compute the baseline. Specifically, for each
+query 𝑥, the model generates 𝐺 responses {𝑜 1, 𝑜 2, . . . , 𝑜𝐺 } and calculates a score for each response
+{𝑟 1, 𝑟 2, . . . , 𝑟𝐺 }. RLOO uses a leave-one-out baseline to reduce the variance in policy gradient
+estimation, with the advantage estimate computed as follows:
+
+𝐴(𝑖) = 𝑟 (𝑖) −
+
+1 ∑︁
+𝑟 ( 𝑗),
+𝐺 − 1 𝑗≠𝑖
+
+𝑖 = 1, . . . , 𝐺 .
+
+(4)
+
+By modeling the entire process as a bandit problem, this method treats the entire response as an
+action, discarding the token-level rewards used in PPO and instead relying solely on sequence-level
+rewards. Although this method introduces higher variance, the authors consider it acceptable given
+the strong performance of pre-trained models.
+Group Relative Policy Optimization (GRPO). GRPO [81] eliminates the need for the critic model
+by directly comparing generated response groups. Its optimization objective is defined as:
+J𝐺𝑅𝑃𝑂 (𝜃 ) = E[𝑞 ∼ 𝑃 (𝑄), {𝑜𝑖 }𝐺
+(5)
+𝑖=1 ∼ 𝜋𝜃𝑜𝑙𝑑 (𝑂 |𝑞)]
+
+
+
+
+
+
+𝐺
+
+𝜋𝜃 (𝑜𝑖 |𝑞)
+𝜋𝜃 (𝑜𝑖 |𝑞)
+1 ∑︁
+min
+𝐴𝑖 , clip
+, 1 − 𝜀, 1 + 𝜀 𝐴𝑖 − 𝛽D𝐾𝐿 𝜋𝜃 ||𝜋𝑟𝑒 𝑓
+𝐺 𝑖=1
+𝜋𝜃𝑜𝑙𝑑 (𝑜𝑖 |𝑞)
+𝜋𝜃𝑜𝑙𝑑 (𝑜𝑖 |𝑞)
+where 𝜀 and 𝛽 are hyperparameters, 𝐴𝑖 is the advantage derived from relative rewards within each
+group, and 𝜋𝑟𝑒 𝑓 is the reference model for computing KL divergence. The core idea of GRPO is to
+evaluate the relative quality of multiple candidate responses within a group. For a question 𝑞, GRPO
+generates 𝐺 distinct responses {𝑜 1, 𝑜 2, . . . , 𝑜𝐺 } using 𝜋𝜃𝑜𝑙𝑑 , computes their rewards {𝑟 1, 𝑟 2, . . . , 𝑟𝐺 }
+via a reward function, and calculates normalized scores to simulate PPO’s advantage function:
+𝐴𝑖 =
+
+𝑟𝑖 − mean({𝑟 1, . . . , 𝑟𝐺 })
+std({𝑟 1, . . . , 𝑟𝐺 })
+
+(6)
+
+This approach not only reduces reliance on external critic models but also enhances the model’s
+ability to distinguish high-quality from low-quality outputs, mitigating hardware constraints for
+reasoning in generating long CoT for self-reflection and correction. Building on this, DeepSeek
+R1 employs verifiable rewards to optimize task models for objectives with objectively verifiable
+results, eliminating the need for intermediate reward modeling. Examples include mathematical
+problem-solving, coding challenges, and domains with well-defined correctness criteria. This
+method addresses reward hacking and establishes a foundational paradigm for RL-based reasoning.
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+6
+
+Guanghao Zhou, Panjia Qiu et al.
+
+2.2.2 Reward Mechanisms. To effectively guide model behavior during inference, particularly in
+complex reasoning tasks, two types of reward mechanisms are commonly used: Outcome Reward
+Mechanisms (ORM), which focus on the correctness of final outputs, and Process Reward Mechanisms (PRM), which emphasize the quality of intermediate reasoning steps. These mechanisms
+offer distinct advantages and pose different challenges in model training and alignment.
+Outcome Reward Mechanisms. ORM primarily focus on evaluating an agent based on the final
+outcome or result achieved after executing a sequence of actions. These mechanisms typically
+assess policy performance according to the terminal state of the task or the total accumulated
+reward throughout the process. The reward signals in such settings are generally sparse and
+delayed, providing feedback only upon task completion or successful attainment of the final goal.
+In the context of model reasoning tasks, ORM refers to assessing and optimizing the model based
+on the correctness of its final output. The reward is thus conditioned solely on the correctness
+of the answer, without regard for the model’s intermediate reasoning behavior. For instance, in
+mathematical problem-solving or question answering tasks, the model receives a positive reward
+only when the final answer is correct [31, 81]. Due to its simplicity and the absence of complex
+reward model training, ORM has become a widely adopted strategy for RL-based reasoning in
+LLMs and MLLMs. However, ORM inherently suffers from the temporal credit assignment problem,
+where the agent struggles to discern which specific actions contributed positively or negatively to
+the final outcome [87]. This issue is particularly pronounced in environments with long temporal
+horizons or high-dimensional action spaces, where it significantly impedes learning efficiency.
+Furthermore, the sparse and delayed nature of the reward signal can lead to low sample efficiency
+and unstable gradient updates during training.
+Process Reward Mechanisms. In contrast to ORM, PRM place emphasis on evaluating the model’s
+intermediate behaviors during the reasoning process, thereby encouraging the incremental formation of coherent and logically sound CoT. Rather than focusing solely on task completion, PRM
+rewards intermediate behaviors that align with desirable reasoning patterns, even in cases where
+the final objective is not fully achieved. In model inference tasks, this approach is commonly
+employed to promote the generation of logically consistent intermediate reasoning steps, plausible
+deductive structures, or the use of credible sources from external knowledge bases. Recent research has proposed the incorporation of process-level reward signals—such as logical consistency,
+informational completeness, or citation reliability for each reasoning step—into the fine-tuning
+process, thereby improving model interpretability and enhancing user trust [25, 139]. Compared to
+outcome-based rewards, process-level mechanisms offer finer-grained supervision, facilitating more
+effective debugging and alignment of model behavior. Nevertheless, the design of process rewards
+depends heavily on the accurate evaluation of intermediate reasoning steps, which poses significant
+challenges for automation. Moreover, the absence of standardized and robust evaluation criteria
+limits the scalability and generalizability of PRMs across diverse tasks and model architectures.
+2.2.3 Training Efficiency. Improving training efficiency has become a critical focus in RL, particularly for real-world applications where computational resources and data are limited. Two
+prominent strategies for enhancing training efficiency are curriculum reinforcement learning and
+data-efficient learning techniques.
+Curriculum reinforcement learning draws inspiration from the human learning process by
+introducing tasks in a structured progression, starting from easier subtasks and gradually moving to
+more complex ones [19, 69]. This staged training paradigm allows agents to accumulate knowledge
+incrementally, leading to faster convergence and improved performance on challenging tasks. It is
+particularly effective in environments with a clear task difficulty hierarchy.
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+Aspect
+
+LLMs
+
+7
+
+MLLMs
+
+Architecture
+Transformer (text-only)
+Transformer (multimodal)
+CoT Structure Text-based reasoning
+Cross-modal reasoning
+Input Modality Text-only
+Text, image, audio, video, etc
+Reasoning
+Linear textual steps
+Integrated reasoning across multiple modalities
+Grounding
+Language-based knowledge Visual, textual, or other sensory data
+Applications
+Text-based tasks
+Multimodal tasks
+Training Data Text corpora
+Multimodal datasets
+Interpretability Textual reasoning steps
+Multimodal reasoning steps
+Complexity
+Simpler (text-only)
+Higher complexity (multimodal fusion)
+Table 1. Differences in reasoning between LLMs and MLLMs
+
+Data-efficient learning aims to maximize performance with minimal data. Two commonly adopted
+approaches in this category include: (1) Prioritized Sampling [91]: Rather than uniformly sampling
+from experience replay buffers, prioritized sampling selects transitions based on their learning
+potential. This strategy focuses updates on informative samples, accelerating learning and improving policy quality. (2) High-Quality Samples [40]: Leveraging samples with higher utility—such as
+trajectories with higher rewards or successful episodes—can significantly improve sample efficiency.
+By concentrating training on more informative experiences, the agent learns more effectively while
+reducing unnecessary computational overhead.
+2.3
+
+MLLM Reasoning
+
+2.3.1 Differences and Similarities of Reasoning in LLMs and MLLMs. LLMs and MLLMs both employ
+CoT-based reasoning to address complex tasks, with the core principle being the decomposition
+of intricate problems into intermediate steps that guide the model toward a solution. Whether
+prompted through textual examples for LLMs or multimodal inputs for MLLMs, the CoT process
+remains fundamentally similar: the model systematically builds its reasoning based on prior steps,
+providing transparency into its internal processes. This transparency is particularly valuable for
+tasks like mathematical reasoning and code generation, where intermediate steps are crucial for
+interpreting outputs. However, significant differences arise due to the types of inputs processed.
+We summarize the main differences in CoT-based reasoning between LLMs and MLLMs in Table
+1. In LLMs, CoT reasoning is confined to linguistic operations, involving logical deduction, arithmetic computation, or language clarification within a linear, text-centric framework. Conversely,
+MLLMs engage in more dynamic and nonlinear reasoning by alternating between textual and other
+modalities, such as visual perception. For instance, an MLLM might first reason about visual input
+such as identifying "a blue car" in an image, and then integrate this with textual reasoning, such
+as referencing typical car colors. This integration of modalities makes MLLMs’ CoT reasoning
+inherently multidimensional but introduces challenges like cross-modal alignment, accurate incorporation of visual features, and avoiding modality bias. Grounding further differentiates the two, as
+MLLMs anchor reasoning in real-world knowledge, such as visual objects or spatial relationships,
+while LLMs rely solely on textual and abstract concepts. In summary, while both models leverage
+CoT reasoning, LLMs excel in text-centered reasoning, whereas MLLMs expand this capability
+by integrating multimodal data, necessitating tailored approaches that account for their unique
+characteristics and enable nonlinear interactions across modalities in MM-CoT reasoning.
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+8
+
+Guanghao Zhou, Panjia Qiu et al.
+
+2.3.2 Methodologies in MLLM Reasoning. Inspired by the significant potential of reasoning in NLP
+for solving complex language tasks [31, 38], recent studies have sought to enhance the reasoning
+capabilities of MLLMs. Broadly, current MLLM reasoning methods fall into two main categories:
+SFT-Based. The first method focuses on guiding models to generate high-quality CoT data that
+adheres to specific steps. This can be achieved either through structured reasoning templates—such
+as summaries, descriptions, logical reasoning, and conclusions—or by leveraging advanced search
+algorithms. Notable examples include CoT prompting techniques [26, 145], planning-based approaches like Best-of-N [8, 118], Monte Carlo Tree Search (MCTS) [117, 125], and Beam Search
+[111, 126]. The generated CoT data is then utilized for SFT, enabling MLLMs to emulate high-quality,
+structured reasoning. While this approach ensures the quality of CoT data and enables effective
+integration of multi-modal information, it suffers from two key limitations: the labor-intensive
+nature of CoT annotation and the risk of catastrophic forgetting during fine-tuning.
+RL-Based. The second category builds on the DeepSeek R1 [31] reinforcement learning paradigm,
+which integrates large-scale RL with structured and outcome-driven reward functions. This framework enables large language models to automatically generate human-like reasoning processes
+with remarkable complexity [61, 69, 74, 91, 144], eliminating the need for labor-intensive CoT
+annotations. Additionally, it demonstrates strong generalization capabilities when handling OOD
+data.However, current RL-based reasoning methods for MLLMs are primarily adapted from NLP,
+with the generated reasoning trajectories predominantly presented in textual form, neglecting
+interactions among diverse modalities such as images, videos, and audio in MM-CoT. Additionally,
+the lack of effective reasoning path rewards in current RL-based reasoning often leads to CoT
+outputs containing excessive redundant tokens.
+2.3.3 SFT Memory, RL Generalization. SFT-based reasoning methods activate the model’s inherent
+reasoning capabilities by identifying precise cognitive templates and directly constructing highquality reasoning trajectories. In contrast, RL-based approaches focus on leveraging RL to search
+for optimal reasoning paths among numerous possibilities, treating the cultivation of reasoning
+abilities as a process that requires extensive training to explore effective reasoning patterns. This
+distinction is now widely recognized by the principle: SFT for memory, RL for generalization [17].
+SFT offers strong inductive biases and precise knowledge injection, whereas RL unleashes the
+model’s potential for abstract, adaptive, and robust reasoning under uncertainty. In the context
+of MLLMs, where cross-modal alignment and dynamic understanding are critical, this dichotomy
+becomes even more pronounced. Therefore, advancing RL-based reasoning adaptation techniques
+tailored for multimodal scenarios is essential. This study contributes to this direction by providing
+a comprehensive review and analysis of RL-based reasoning strategies in MLLMs.
+3
+
+Key Design and Optimization of RL Algorithms in LLMs/MLLMs
+
+In RL for LLMs, methods can be classified into value-model-free such as GRPO [81] and valuemodel-based such as PPO [80] approaches, depending on whether a value model is learned [131].
+While GRPO exhibits entropy collapse and instability, PPO faces challenges in long-chain reasoning.
+Recent optimizations address these limitations, demonstrating improved performance in LLMs,
+with potential applicability to MLLMs for enhanced training efficiency and stability.
+3.1
+
+Value-Model-Free
+
+Value-model-free RL methods, such as GRPO [81], have demonstrated remarkable effectiveness in
+LLM training by eliminating the need for value model computation. Instead, these approaches derive
+advantages from trajectory-level rewards uniformly assigned to each token, providing stability
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+9
+
+through group-based reward averaging. This characteristic proves particularly valuable in scenarios
+where training value models is challenging, making value-model-free methods highly successful in
+complex tasks like long-chain reasoning. While these methods offer implementation simplicity and
+robustness, they also reveal fundamental limitations, such as entropy collapse and reward noise,
+which recent advancements aim to address through novel optimization techniques.
+3.1.1 DAPO. Dynamic sAmpling Policy Optimization (DAPO) [130] significantly improves the
+model’s generation diversity and RL training efficiency by introducing an asymmetric clipping
+strategy, a dynamic sampling mechanism, a token-level policy gradient loss, and extended reward
+shaping. The optimization formula is as follows:
+𝐽DAPO (𝜃 ) = E (𝑞,𝑎)∼𝐷,{𝑜𝑖 }𝐺 ∼𝜋𝜃 (· |𝑞)
+𝑖=1
+old
+"
+#
+𝐺 ∥𝑜
+𝑖∥
+
+
+∑︁
+∑︁
+1
+ˆ
+ˆ
+min 𝑟𝑖,𝑡 (𝜃 )𝐴𝑖,𝑡 , clip(𝑟𝑖,𝑡 (𝜃 ), 1 − 𝜖low, 1 + 𝜖high )𝐴𝑖,𝑡
+Í𝐺
+𝑖=1 ∥𝑜 𝑖 ∥ 𝑖=1 𝑡 =1
+s.t.
+
+(7)
+
+0 < |{𝑜𝑖 | is_equivalent(𝑎, 𝑜𝑖 )}| < 𝐺,
+
+𝑟 −mean( {𝑅 }𝐺 )
+
+where 𝐴ˆ𝑖,𝑡 = 𝑖 std( {𝑅 }𝐺𝑖 )𝑖=1 , and the other symbols are consistent with those in Equation 5.
+𝑖 𝑖=1
+
+Clip-Higher Strategy. In GRPO, the clipping range is typically symmetric, i.e., 𝜖low = 𝜖high . However, this symmetric clipping strategy limits the exploration of low-probability tokens, potentially
+leading to entropy collapse. To address this issue, DAPO introduces the Clip-Higher strategy in
+Equation 7, decoupling the clipping bounds into 𝜖low and 𝜖high . This asymmetric clipping strategy
+significantly increases the value of 𝜖high , thereby allowing for greater flexibility in enhancing
+low-probability tokens.
+Dynamic Sampling. To address the issue where gradient signals vanish if all samples in a batch
+have accuracy rates of either 1 or 0, DAPO proposes a dynamic sampling strategy. By filtering out
+samples with accuracy rates of 0 or 1, this strategy ensures that every batch contains samples with
+valid gradient signals, represented as: 0 < |{𝑜𝑖 |is equivalent(𝑎, 𝑜𝑖 )}| < 𝐺 . The authors demonstrate
+that dynamic sampling can substantially improve training efficiency.
+Token-Level Policy Gradient Loss. GRPO computes loss at the sample level, averaging losses
+across tokens within each sample before aggregating across different samples. This approach poses
+challenges in long-chain reasoning scenarios, as the contribution of tokens in longer sequences to
+the overall loss is diluted, making it difficult for the model to learn high-quality reasoning patterns.
+To address this, DAPO proposes token-level policy gradient loss, which ensures that tokens in
+longer sequences contribute gradients more fairly.
+Overlong Reward Shaping. To address reward noise caused by improper shaping of truncated
+samples, the Overlong Reward Shaping strategy introduces a progressive length-dependent penalty
+mechanism. This adjusts rewards for truncated outputs and discourages excessive verbosity by
+applying scaled punishments proportional to response lengths beyond a threshold, as follows:
+
+𝑅length (𝑦) =
+
+
+
+0,
+
+ (𝐿
+
+
+max −𝐿cache ) − ∥𝑦 ∥
+
+
+
+ −1,
+
+
+𝐿cache
+
+∥𝑦 ∥ ≤ 𝐿max − 𝐿cache,
+, 𝐿max − 𝐿cache < ∥𝑦 ∥ ≤ 𝐿max,
+∥𝑦 ∥ > 𝐿max .
+
+(8)
+
+Where 𝐿cache is the buffer length, and 𝐿max is the maximum allowable output length for the model.
+This mechanism significantly reduces the impact of reward noise, stabilizing the training process.
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+10
+
+Guanghao Zhou, Panjia Qiu et al.
+
+3.1.2 Dr.GRPO. Dr.GRPO [59] highlights that GRPO exhibits two biases: a response length bias
+and a problem difficulty bias. Specifically, GRPO introduces normalization terms for output length
+and reward standard deviation when computing the advantage function. These terms cause the
+model to favor generating longer incorrect responses during optimization and assign different
+weights to problems of varying difficulty. To address these issues, the proposed method eliminates
+these biases by removing the normalization terms. The objective function of Dr.GRPO is as follows:
+𝐽Dr.GRPO (𝜋𝜃 ) = E𝑞∼𝑝𝑄 ,{𝑜𝑖 }𝐺 ∼𝜋𝜃 (· |𝑞)
+(9)
+𝑖=1
+old
+" 𝐺 ∥𝑜 ∥
+#
+
+
+
+
+𝑖
+𝜋𝜃 (𝑜𝑖,𝑡 |𝑞, 𝑜𝑖,<𝑡 ) ˜
+𝜋𝜃 (𝑜𝑖,𝑡 |𝑞, 𝑜𝑖,<𝑡 )
+1 ∑︁ ∑︁
+min
+𝐴𝑖,𝑡 , clip
+, 1 − 𝜖, 1 + 𝜖 𝐴˜𝑖,𝑡 ,
+𝐺 𝑖=1 𝑡 =1
+𝜋𝜃 old (𝑜𝑖,𝑡 |𝑞, 𝑜𝑖,<𝑡 )
+𝜋𝜃 old (𝑜𝑖,𝑡 |𝑞, 𝑜𝑖,<𝑡 )
+where the advantage function is defined as: 𝐴˜𝑖,𝑡 = 𝑅(𝑞, 𝑜𝑖 ) − mean({𝑅(𝑞, 𝑜 1 ), . . . , 𝑅(𝑞, 𝑜𝐺 )}).
+Removal of Length Normalization. Compared to Equation 5, the authors remove the normalization
+term ∥𝑜𝑖 ∥, which avoids the preference for longer incorrect responses and prevents the model from
+generating increasingly lengthy errors.
+Removal of Standard Deviation Normalization. For the advantage in Equation 5, the authors
+eliminate the normalization term std({𝑅(𝑞, 𝑜 1 ), . . . , 𝑅(𝑞, 𝑜𝐺 )}). This removes the problem difficulty
+bias, ensuring that problems of different difficulties are weighted equally during optimization.
+3.1.3 CPPO. Completion Pruning Policy Optimization (CPPO) [51] is a novel approach designed to
+accelerate the training of inference models based on GRPO. Compared to GRPO, CPPO introduces
+several improvements, primarily focusing on reducing computational overhead, enhancing training
+efficiency, and maintaining or even improving model performance. The objective function of CPPO
+builds upon GRPO by incorporating pruning conditions, defined as follows:
+"
+|𝑜𝑖 |
+𝜋𝜃 (𝑜𝑖,𝑡 |𝑞, 𝑜𝑖,<𝑡 )
+1 ∑︁ 1 ∑︁
+𝐽𝐶𝑃𝑃𝑂 (𝜃 ) =E𝑞∼𝑃 (𝑄 ),{𝑜𝑖 }𝐺 ∼𝜋𝜃 𝐼𝑑 (𝑜 |𝑞)
+min
+𝐴𝑖 ,
+𝑖=1
+0
+𝑘 𝑖 ∈𝐼 |𝑜𝑖 | 𝑡 =1
+𝜋𝜃 0 𝐼𝑑 (𝑜𝑖,𝑡 |𝑞, 𝑜𝑖,<𝑡 )
+!)
+
+
+
+
+𝜋𝜃 (𝑜𝑖,𝑡 |𝑞, 𝑜𝑖,<𝑡 )
+, 1 − 𝜖, 1 + 𝜖 𝐴𝑖 − 𝛽D𝐾𝐿 𝜋𝜃 ∥𝜋𝑟𝑒 𝑓
+,
+clip
+𝜋𝜃 0 𝐼𝑑 (𝑜𝑖,𝑡 |𝑞, 𝑜𝑖,<𝑡 )
+(
+
+(10)
+
+where I = {𝑖 ∈ {1, . . . , 𝐺 } | |𝐴𝑖 | is among the top 𝑘 values}, meaning only the top 𝑘 completions
+with the highest absolute advantage values are retained for gradient updates.
+Strategy to Reduce Computational Overhead. CPPO identifies that the contribution of completions
+to training is closely related to their absolute advantage values. Completions with low advantage
+values contribute minimally to the training signal and may even introduce noise. Therefore, in
+Equation (5), CPPO retains only the top 𝑘 completions with the highest absolute advantage values
+for gradient updates, pruning the others to reduce redundant computations.
+Dynamic Completion Allocation Strategy. While the completion pruning strategy reduces computational overhead, it causes underutilization of GPU resources. After pruning, the reduced number
+of retained completions fails to fully leverage the parallel computing capabilities of GPUs. To
+address this, CPPO combines the remaining pruned completions with high-quality completions
+from new queries, filling the GPU processing pipeline. This ensures that each GPU device operates
+at full capacity, thereby maximizing the utilization of GPU parallel computing power.
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+11
+
+3.1.4 GPG. Group Policy Gradient (GPG) [18] eliminates the reliance on a reference model and
+avoids KL divergence constraints by directly optimizing the original RL objective, thereby simplifying the training process and reducing computational costs. Additionally, GPG introduces
+an Accurate Gradient Estimation (AGE) technique and a group reward normalization method,
+effectively addressing issues related to advantage function and gradient estimation bias. These
+innovations enhance training stability and performance.
+Direct Optimization of the Original RL Objective. Methods like GRPO typically rely on surrogate
+loss functions to approximate policy optimization. By contrast, GPG directly optimizes the original
+RL objective, avoiding biases that surrogate loss functions might introduce. Its core optimization
+objective is formulated as follows:
+"
+#
+𝐺 ∥𝑜
+𝑖∥
+∑︁
+∑︁
+
+1
+− log 𝜋𝜃 (𝑜𝑖,𝑡 |𝑞, 𝑜𝑖,<𝑡 )𝐴𝑖,𝑡 ,
+(11)
+𝐽GPG (𝜃 ) = E (𝑞,𝑎)∼𝐷,{𝑜𝑖 }𝐺 Í𝐺
+𝑖=1
+𝑖=1 ∥𝑜 𝑖 ∥ 𝑖=1 𝑡 =1
+where 𝐴𝑖,𝑡 is the normalized intra-group advantage function.
+Elimination of the Reference Model. As shown in Equation 5, GRPO stabilizes training by using a
+reference model and KL divergence constraints, whereas in Equation 11 GPG completely removes
+these components. This results in a more concise loss function for GPG.
+Addressing Advantage Function and Gradient Estimation Bias. GPG proposes an Accurate Gradient
+Estimation (AGE) technique, which effectively resolves the issue of reward bias, formulated as:
+Í𝐵
+𝑔𝑖
+𝐵
+𝑔ˆ = 𝑖=𝑀+1 = 𝑔 · 𝛼, 𝛼 =
+,
+(12)
+𝐵−𝑀
+𝐵−𝑀
+where 𝑀 represents the number of invalid samples (i.e., samples with zero gradients), and 𝛼 is a
+dynamic adjustment factor used to correct gradient estimation bias.
+3.2
+
+Value-Model-Based
+
+Value-model-based methods, exemplified by PPO,excel by enabling precise, step-wise credit assignment—an especially crucial feature for complex reasoning tasks, where minor errors at individual
+steps can propagate into catastrophic failures. In contrast to the advantage estimates from Monte
+Carlo methods in value-model-free approaches, a well-trained value model not only provides lowervariance token-level value estimates for enhanced training stability, but also exhibits inherent
+generalization capabilities that improve online sample utilization efficiency[131]. While training
+value models for long CoT reasoning remains challenging, recent studies have introduced innovative
+optimization techniques that significantly improve both stability and overall performance.
+3.2.1 ORZ. Open-Reasoner-Zero (ORZ) [35] demonstrates through extensive experiments that
+by using the vanilla PPO algorithm combined with GAE (𝜆 = 1, 𝛾 = 1) and a simple rule-based
+reward function, significant improvements in response length and benchmark performance can
+be achieved without any KL regularization. Additionally, the authors highlight the importance
+of increasing both the quantity and diversity of training data for enhancing model performance.
+Compared to DeepSeek-R1-Zero, ORZ achieves comparable performance with only one-tenth of
+the training steps.
+3.2.2 VC-PPO. To enable traditional reinforcement learning algorithms like PPO to handle long
+CoT tasks, Value-Calibrated PPO (VC-PPO) [132] introduces optimizations in two key areas: value
+initialization bias and Decoupled-GAE.
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+12
+
+Guanghao Zhou, Panjia Qiu et al.
+
+Value Initialization Bias. The value function 𝑉 (𝑠) in PPO is typically initialized using a reward
+model during the early stages of training. However, this initialization method can lead to significant
+bias, especially in long-sequence tasks. In the initial phase, since the reward model tends to
+underestimate the scores of earlier tokens, the advantage function 𝐴𝑡 exhibits a positive bias when
+estimating the contributions of these tokens. This bias encourages the policy to favor shorter
+outputs, thereby undermining the model’s ability to generate long CoT sequences. To address this
+issue, VC-PPO proposes Value Pretraining. By offline training the value model under a fixed policy
+and using GAE with 𝜆 = 1.0 to ensure unbiased returns, the value model achieves a more accurate
+estimation of expected rewards.
+Decoupled-GAE. In long-sequence tasks, reward signals are often concentrated at the end of the
+sequence. While conventional RL tasks typically employ GAE (𝜆 = 0.95) to mitigate variance in
+cumulative rewards, RLHF fundamentally differs due to its trajectory-level reward signals. When
+𝜆 < 1.0, these reward signals decay rapidly as they propagate backward through the sequence, which
+significantly hampers the learning effectiveness of the value model. Decoupled-GAE addresses the
+distinct variance reduction needs in RLHF by decoupling 𝜆 values for policy and value optimization.
+Here, 𝜆 < 1.0 induces severe signal attenuation across long trajectories, making unbiased value
+estimation (𝜆 = 1.0) essential while retaining 𝜆 = 0.95 for stable policy updates. This dual-𝜆
+mechanism independently optimizes the bias-variance trade-off for each component, achieving
+superior training efficiency over standard GAE methods, the formula is expressed as follows:
+(Í
+𝑇 −𝑡 −1 𝑙
+𝜆 (𝑟𝑡 +𝑙 + 𝑉 (𝑠𝑡 +𝑙+1 ) − 𝑉 (𝑠𝑡 +𝑙 )) + 𝑉 (𝑠𝑡 ), 𝜆 < 1.0
+𝑉target (𝑠𝑡 ) = Í𝑇𝑙=0
+(13)
+−𝑡 −1
+𝑟𝑡 +𝑙 ,
+𝜆 = 1.0
+𝑙=0
+With this design, the value model estimates expected rewards with reduced bias, while the policy
+model accelerates convergence by reducing variance.
+3.2.3 VAPO. Value-model-based Augmented Proximal Policy Optimization (VAPO) [131] enhances
+the training stability of PPO in long-chain CoT reasoning tasks. It adopts several tricks from DAPO
+[130] and VC-PPO [132], such as the Clip-Higher Strategy, Token-Level Policy Gradient Loss,
+and Decoupled-GAE, while introducing Length-Adaptive GAE, Positive Example LM Loss, and
+Group-Sampling to achieve balanced optimization across varying sequence lengths and mitigate
+the issue of sparse rewards.
+Length-Adaptive GAE. Building on the Decoupled-GAE method in VC-PPO, VAPO introduces
+a Length-Adaptive GAE approach that dynamically adjusts the 𝜆 parameter to balance the biasvariance tradeoff for sequences of varying lengths. The specific formula is as follows:
+1
+𝜆policy = 1 − ,
+(14)
+𝛼𝑙
+where 𝑙 denotes the sequence length and 𝛼 is a hyperparameter that controls the overall biasvariance trade-off. This formula ensures a more uniform distribution of the TD-error coefficients,
+preventing the excessive decay of reward signals in long sequences.
+Positive Example LM Loss. VAPO incorporates the Positive Example LM Loss, which leverages
+the negative log-likelihood (NLL) of the correct answers to improve the utilization efficiency of
+positive samples. The corresponding formula is:
+LNLL (𝜃 ) = − Í
+
+1
+
+𝑖∥
+∑︁ ∥𝑜
+∑︁
+
+𝑜𝑖 ∈𝑇 ∥𝑜 𝑖 ∥ 𝑜𝑖 ∈𝑇 𝑡 =1
+
+log 𝜋𝜃 (𝑎𝑡 | 𝑠𝑡 ),
+
+(15)
+
+where 𝑇 denotes the set of correct answers, and ∥𝑜𝑖 ∥ represents the length of the sequence 𝑜𝑖 .
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+13
+
+Group-Sampling. VAPO employs Group-Sampling to extract discriminative positive and negative
+samples within the same prompt. It highlights that, given a fixed computational budget, reducing
+the number of distinct prompts per batch and reallocating resources for repeated generations
+improves performance. This is attributed to the introduction of richer contrastive signals, which
+enhances the learning capability of the policy model.
+4
+
+RL-Based MLLM Reasoning
+
+Deepseek-R1 [31] demonstrates that the reasoning capabilities of LLMs can be activated through
+pure RL. Current RL-based reasoning methods model the reasoning process as a Markov Decision
+Process (MDP). The core objective is to enhance the model’s reasoning capability by maximizing
+the expected reward of the reasoning path 𝑆. Recently, researchers have begun exploring how
+to apply the R1 training paradigm to MLLMs to further improve their reasoning performance in
+complex tasks. In Table 2, we summarize the current research progress of reasoning methods based
+on RL in the multimodal domain. In Section 4.1, we review recent efforts to adapt the R1 training
+paradigm from LLMs to MLLMs, highlighting key challenges and corresponding solutions. Section
+4.2 categorizes reward mechanisms in multimodal settings into Outcome-supervised and Processsupervised types. Section 4.3 discusses methods that enhance training efficiency and stability
+through data utilization. Finally, Section 4.4 summarizes prevalent RLHF frameworks that support
+rapid iteration of RL-based reasoning approaches.
+4.1
+
+RL Training Paradim: From LLM to MLLM
+
+4.1.1 Standardized R1 Training Paradigm in LLM. The success of Kimi K1.5 [91] and DeepSeek R1
+[31] in enhancing model reasoning capabilities through RL has driven the rise of the R1 training
+paradigm in the field of model reasoning.
+R1-Zero: Large Scale RL on Base Model. Kimi K1.5 [91] and Kimi-VL [92] employs a variant of the
+online policy mirror descent (OPMD) algorithm [68, 95] to apply RL to MLLMs, thereby enhancing
+their reasoning capabilities. Additionally, it adopts a length penalty mechanism to prevent the
+model from overthinking. This represents a successful attempt in the direction of MLLM reasoning
+based on RL. Meanwhile, DeepSeek R1 [31] introduces a key innovation by validating that RL with
+Verifiable Reward (RLVR) is sufficient to effectively elicit reasoning capabilities in LLMs. The core
+of RLVR lies in its rule-driven reward mechanism, which optimizes model performance efficiently
+and reliably. Compared to traditional SFT and process supervision methods, RLVR demonstrates
+significant advantages when handling verifiable tasks, such as mathematical problem-solving and
+code generation: it eliminates the need for labor-intensive data generation and annotation while
+significantly improving model performance with limited training data. Additionally, by avoiding
+the complex training of reward models, RLVR effectively mitigates the issue of reward hacking.
+Given an input question 𝑞, a policy model 𝜋𝜃 , and its generated response 𝑜, RLVR evaluates the
+generated response using a verifiable reward function 𝑅(𝑞, 𝑜). The key role of this reward function
+is to determine whether the generated output is correct and assign a binary score:
+(
+1, if 𝑜 == ground truth,
+𝑅(𝑞, 𝑜) =
+(16)
+0, otherwise.
+In DeepSeek R1, the reward model is designed as follows:
+𝑅 = 𝑅𝑎𝑐𝑐 + 𝜆𝑅 𝑓 𝑜𝑟𝑚𝑎𝑡 ,
+
+(17)
+
+where 𝑅 𝑓 𝑜𝑟𝑚𝑎𝑡 evaluates whether the output of the policy model 𝜋𝜃 adheres to predefined template specifications. In DeepSeek R1, the template may require the output to follow the format
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+14
+Model
+
+Guanghao Zhou, Panjia Qiu et al.
+Base Models
+
+Strategy
+
+Algorithm
+
+Applications
+
+MM-CoT
+
+SFT&RL
+RL
+RL
+RL
+SFT&RL
+SFT&RL
+RL
+SFT&RL
+RL
+RL
+RL
+SFT&RL
+SFT&RL
+
+OPMD
+GRPO
+GRPO
+GRPO
+GRPO&PTST
+GRPO
+GRPO
+GFlowNet
+RLOO
+GRPO
+PPO
+GPRO
+StepGRPO
+
+Univ. Reason
+T
+Medical
+T
+Detection&CLS
+T
+Spatial Reason
+T
+Univ. Reason
+T
+Detection
+T
+Segmentation
+T
+Univ. Reason
+T
+Math
+T
+Univ. Reason
+T
+Univ. Reason
+T
+Univ. Reason
+T&I Desc
+Univ. Reason
+T&I Desc
+
+Image-Based
+KIMI K1.5 [91]
+MedVLM-R1 [72]
+Visual-RFT [61]
+VisualThinker-R1-Zero [147]
+Vision-R1 [36]
+Vision-R1 [136]
+Seg-Zero [58]
+GFlowVLM [40]
+MM-Eureka [69]
+Curr-ReFT [19]
+LMM-R1 [74]
+R1-Onevision [124]
+R1-VL [139]
+Skywork R1V [128]
+OThink-MR1 [62]
+OpenVLThinker [21]
+MetaSpatial [73]
+UI-R1 [65]
+Reason-RFT [88]
+Q-Insight [47]
+Kimi-VL [92]
+ThinkLite-VL [103]
+Perception-R1 [129]
+VLAA-Thinker [9]
+VL-Rethinker [97]
+VLM-R1 [82]
+GUI-R1 [114]
+InfiGUI-R1 [57]
+NoisyRollout [55]
+R1-SGG [14]
+Relation-R1 [45]
+Skywork R1V2 [108]
+FAST [115]
+ChestX-Reasoner [25]
+
+KIMI K1.5
+Qwen2-VL-2B
+Qwen2-VL-2B
+Qwen2-VL-2B
+Qwen-2.5-VL-7B-Instruct
+Qwen2.5-VL-7B, Griffon-G-7B [135]
+Qwen2.5-VL-3B
+LLaVA-v1.6-Mistral-7B
+InternVL2.5-Instruct-8/38B
+Qwen2.5-VL-3/7B
+Qwen2.5-VL-Instruct-3B
+Qwen2.5-VL-3/7B
+Qwen2.5-VL-7B
+DeepSeek-R1-Distill-Qwen-32B/
+QwQ-32B&InternViT-6B-448px-V2_5
+Qwen2-VL-Instruct-2/7B
+Qwen2.5-VL-Instruct-7B
+Qwen-VL-3B/7B
+Qwen2.5-VL-3B
+Qwen2-VL-Instruct-3/7B
+Qwen-2.5-VL-7B
+Kimi-VL
+Qwen2.5-VL-Instruct-7B
+Qwen2-VL-Instruct-2B
+Qwen2-VL-2/7B, Qwen2.5-VL-3/7B
+Qwen2.5-VL-7/72B
+Qwen2.5-VL-Instruct-3/7/32B
+Qwen2.5-VL-3/7B
+Qwen2.5-VL-3B-Instruct
+Qwen2.5-VL-7B-Instruct
+Qwen2-VL-2/7B
+Qwen2.5-VL-3B
+InternViT-6B, QwQ-32B
+Qwen2.5-VL-3/7B
+Qwen2-VL-7B
+
+SFT&RL
+
+GRPO
+
+Univ. Reason
+
+T
+
+RL
+SFT&RL
+RL
+RL
+RL
+RL
+SFT&RL
+RL
+RL
+RL
+RL
+RL
+SFT&RL
+SFT&RL
+RL
+SFT&RL
+SFT&RL
+MPO&RL
+RL
+SFT&RL
+
+GRPO-D
+GRPO
+GRPO
+GRPO
+GRPO
+GRPO
+OPMD
+GRPO
+GRPO
+GRPO
+GRPO-SSR
+GRPO
+GRPO
+RLOO
+GRPO
+GRPO
+GRPO
+GRPO-SSB
+Fast-GRPO
+GRPO
+
+Univ. Reason
+Math
+Univ. Reason
+GUI
+Univ. Reason
+Image Quality
+Univ. Reason
+Univ. Reason
+Univ. Reason
+Univ. Reason
+Univ. Reason
+Univ. Reason
+GUI
+GUI
+Math
+Generation
+Spatial Reason
+Univ. Reason
+Univ. Reason
+Medical
+
+T
+T
+T
+T
+T
+T&I Desc
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+
+SFT&RL
+RL
+RL
+
+T-GRPO
+GRPO
+GRPO
+
+Univ. Reason
+Spatial Reason
+Spatial Reason
+
+T
+T&I Desc
+T
+
+RL
+
+GRPO
+
+Spatial Reason
+
+T
+
+RL
+RL
+
+GRPO
+GRPO
+
+ST-Perception
+ST-Perception
+
+T
+T
+
+Video-Based
+Video-R1 [27]
+R1-Zero-VSI [49]
+Spatial-R1 [70]
+Embodied-R [143]
+TinyLLaVA-Video-R1 [142]
+VideoChat-R1 [48]
+
+Qwen2.5-VL-7B
+Qwen2-VL-2/72B
+Qwen2.5-VL-7B-Instruct
+Qwen2.5-3B-Instruct
+Qwen2.5-VL-72B-Instruct
+Qwen2.5-3B&SigLIP
+Qwen2/2.5-VL-7B
+Audio-Based
+
+R1-AQA [44]
+SARI [109]
+
+Qwen2-Audio-7B-Instruct
+Qwen2-Audio-7B-Instruct
+Qwen2.5-Omni
+
+RL
+
+GRPO
+
+Audio QA
+
+T
+
+SFT&RL
+
+GRPO
+
+Audio QA
+
+T
+
+SFT&RL
+
+GRPO
+
+Emotion
+
+T
+
+Omni
+R1-Omni [144]
+
+HumanOmni-0.5B
+
+Table 2. Overview of multimodal reasoning models employing reinforcement learning strategies. Univ. Reason
+denotes general-purpose reasoning across diverse tasks, Image Quality refers to the image quality understanding task, Emotion represents the emotion recognition task and ST-Perception refers to the spatio-temporal
+perception tasks. In the MM-CoT column, T indicates support for the text modality, I for the image modality.
+
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+15
+
+<think></think><answer></answer>, where <think></think> contains the model’s reasoning
+process, and <answer></answer> includes the final result. On the other hand, 𝑅𝑎𝑐𝑐 focuses on
+assessing whether the output in the <answer></answer> matches the ground truth. Through this
+design, RLVR not only ensures the accuracy of the model’s output but also guides the model to
+generate structured and interpretable reasoning content, thereby enhancing both performance and
+explainability. In this survey, we refer to the method of using only the format reward and accuracy
+reward during the RL phase, as defined in Equation 17, as the R1 training paradigm.
+R1: RL for Reasoning with Cold Start. While RL has shown promise in improving the reasoning
+abilities of LLMs, relying solely on large-scale RL is insufficient for robust reasoning development.
+A fundamental challenge is that reinforcement learning algorithms often require a reasonably good
+initialization to function effectively. In reasoning tasks, the combinatorial nature of the action space
+makes it difficult to define intermediate rewards. Consequently, without a meaningful starting
+policy, exploration becomes inefficient, leading to excessively sparse rewards. This frequently
+causes training to collapse into trivial or degenerate behaviors. Cold-start methods address this
+challenge by providing initial scaffolding, including techniques such as curriculum design, synthetic
+demonstrations, weak supervision, or structured exploration, to bootstrap the model into a regime
+where RL can be effectively applied. DeepSeek R1 collected thousands of cold-start data to finetune the base model, enhancing the readability of reasoning CoT and the potential for RL. Thus,
+successful reasoning training typically involves a hybrid approach: cold start strategies to seed
+useful reasoning behaviors, followed by RL to refine and optimize them over time.
+4.1.2 R1 Training Paradim for MLLM. Inspired by the design of format reward and accuracy reward
+mechanisms in Equation 17 within DeepSeek R1, researchers began attempting to transfer this
+successful experience to multimodal tasks.
+MLLM-R1-Zero. MedVLM-R1 [72] extended the DeepSeek R1 training paradigm to visual questionanswering (VQA) tasks in the medical domain, guiding the model to answer medical multiplechoice questions through explicit reasoning paths, thereby improving prediction accuracy and
+OOD generalization performance. Similarly, VisualThinker-R1-Zero [147] and MM-Eureka [69]
+successfully replicated DeepSeek R1’s long CoT characteristics, including the "Aha Moment,"
+self-reflection mechanisms, and dynamic adjustment of response length, in spatial reasoning
+and mathematical VQA tasks, respectively. These features demonstrate that the experience of
+DeepSeek R1 can be effectively transferred to complex multimodal reasoning tasks. OThink-MR1
+[62] improved the widely used GRPO algorithm by introducing dynamic weighting for the KL
+divergence term, balancing exploration in the early training stages with exploitation in later stages.
+To filter data with appropriate difficulty levels for RL training, ThinkLite-VL [103] proposes a sample
+selection method based on MCTS. This method quantifies the difficulty of each sample by the
+number of iterations required for the VLM to solve the problem. Despite these efforts achieving the
+application of the R1 training paradigm in multimodal tasks, they remain constrained by Equation
+17 format rewards and accuracy rewards, somewhat neglecting the unique characteristics of tasks
+in the multimodal domain.
+MLLM-R1. To improve the stability of the RL training process and the upper limit of the model’s
+inference performance, some methods have begun constructing multi-modal SFT data to coldstart the base model. Vision-R1 [36] first leverages VLM and DeepSeek R1 to construct reasoning
+cold-start data and performs SFT. Subsequently, it employs Progressive Thinking Suppression
+Training (PTST), a staged RL strategy that incrementally extends the length of CoT reasoning
+while mitigating overthinking from the early stages. Due to the relative scarcity of image-text data
+compared to pure text data, LMM-R1 [74] proposes a two-stage training strategy to make efficient
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+16
+
+Guanghao Zhou, Panjia Qiu et al.
+
+use of textual CoT data: the first stage involves RL training on pure text data to enhance MLLM’s
+foundational text reasoning abilities, while the second stage incorporates image-text data to further
+improve the model’s generalization capabilities. R1-Onevision [124] highlights that long reasoning
+paths may cause the model to overlook visual information. In the SFT stage, R1-Onevision constructs
+a reasoning dataset incorporating formalized image descriptions. By standardizing the model’s
+reasoning paths, it enables the model to actively integrate multimodal information during the
+reasoning process. In the RL stage, the model’s reasoning capabilities and generalization are further
+strengthened. Skywork R1V [128] proposes a lightweight R1 paradigm training method to alleviate
+the high consumption of hardware resources. This approach combines a visual encoder with a
+reasoning-capable LLM backbone through a lightweight visual projection module. The module
+is iteratively trained using SFT and the R1 paradigm to enhance the reasoning performance of
+MLLMs. Unlike cold-starting with SFT, Skywork R1V2 [108] employs MPO for model cold-starting
+to address the issue where SFT undermines the performance of subsequent reinforcement learning
+or reasoning processes. Additionally, a Selective Sample Buffer (SSB) mechanism is designed to
+address the "vanishing advantage" problem in GRPO. To address the diversity of mathematical
+problems, Reason-RFT [88] designed customized reward mechanisms for various problems. Each
+mechanism is tailored to the unique characteristics of its respective problem category, ensuring
+precise and fair evaluations.
+MLLM-R1 for Other Modalities. Beyond image-text interactions, some research has explored
+applying the R1 training paradigm to tasks involving other modalities. R1-Omni [144] conducted
+preliminary explorations in mixed-modality tasks involving video and audio. It first performs SFT
+cold-start with a small amount of reasoning data, then utilized the R1 training paradigm to explore
+the application of reasoning models in emotion recognition tasks. Spatial-R1 [70] extends the R1
+training paradigm to the field of video spatial reasoning. Additionally, R1-AQA [44], SARI [109]
+and R1-Zero-VSI [49] have conducted a series of reinforcement learning-related explorations in
+audio understanding and video spatial reasoning tasks, respectively. These efforts provide new
+insights for the further development of multimodal reasoning.
+4.2
+
+Reward Mechanism Design for Multimodal Perception
+
+4.2.1 Outcome-supervised reward Mechanism. Outcome-supervised reward mechanisms represent
+an advancement in aligning RL with complex, multimodal tasks by leveraging task-specific and
+cross-modal feedback. These mechanisms not only enhance model performance through structured
+and hierarchical rewards but also pave the way for more interpretable and generalizable reasoning
+across diverse modalities. We summarize the reward functions of different reward strategies in
+Table 3, Table 4, and Table 5, respectively.
+Task-Oriented Reward Strategy. Given the complexity and diversity of multimodal tasks, recent
+studies have explored reward designs that leverage the intrinsic properties of each modality to
+broaden the applicability of RL. Visual-RFT [61] targets fundamental computer vision problems
+such as image classification, object detection, and image-text grounding, introducing task-specific
+visual rewards. All of these rewards are based on the final prediction accuracy, providing clear
+label supervision signals within the visual modality. Seg-Zero [58] extends this concept to the field
+of visual segmentation. In addition to pixel-level IoU and L1 distance metrics used for evaluating
+segmentation quality, this method introduces model-generated CoT responses as part of the output,
+enabling partial supervision of the reasoning trajectory. Similarly, VLM-R1 [82] designs reward
+functions for referring expression comprehension and open-vocabulary object detection. To address
+the multi-agent attributes in visual perception tasks, Perception-R1 [129] formulates the reward
+matching problem as a bipartite graph matching task and employs the Hungarian algorithm [43] to
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+Model
+
+17
+
+Reward
+
+Visual-RFT [61]
+
+Detection Tasks: 𝑅 = 𝑟 𝐼𝑜𝑈 + 𝑟𝑐𝑜𝑛𝑓 + 𝑟 𝑓 𝑜𝑟𝑚𝑎𝑡
+Classification Task:𝑅 = 𝑟 𝑎𝑐𝑐 + 𝑟 𝑓 𝑜𝑟𝑚𝑎𝑡
+
+Seg-Zero [58]
+
+𝑅 = 𝑟 𝐵𝐼𝑜𝑈 + 𝑟 𝐵𝐿1 + 𝑟 𝑃𝐿1 + 𝑟 𝑆𝐹𝑜𝑟𝑚𝑎𝑡 + 𝑟 𝑓 𝑜𝑟𝑚𝑎𝑡
+𝐿
+
+VLM-R1 [82]
+Perception-R1 [129]
+R1-SGG [14]
+
+VideoChat-R1 [48]
+
+TinyLLaVA-Video-R1 [142]
+
+𝑔𝑡
+𝑟𝑒𝑐 (𝑞, 𝑜) = IoU(𝑏 ∗, 𝑓
+𝑅𝑎𝑐𝑐
+𝑟𝑒𝑐 (𝑜)), 𝑠𝑜𝑣𝑑 = min(1, 𝐿𝑝𝑟𝑒𝑑 )
+𝑜𝑣𝑑 (𝑞, 𝑜) = 𝑠
+𝑅𝑎𝑐𝑐
+𝑜𝑣𝑑 · mAP(b𝑝𝑟𝑒𝑑 , b𝑔𝑡 )
+
+1 Í𝑁
+𝑟 answer = 𝑁 𝑖=1 Φ 𝑦𝑖 , 𝑧𝜎ˆ (𝑖 ) , 𝑅total = 𝑟 format + 𝑟 answer
+
+𝑅total = 𝑅format + 𝑅node + 𝑅edge ,
+𝑅node = 𝜆1 · Sim(𝑐𝑖 , 𝑐˜ 𝑗 ) + 𝜆2 · IoU(𝑏𝑖 , 𝑏˜ 𝑗 ) + 𝜆3 · exp(−∥𝑏𝑖 − 𝑏˜ 𝑗 ∥ 1 )
+𝑅edge = Sim(𝑣𝑖 , 𝑣˜𝑘 ) · Sim(𝑣 𝑗 , 𝑣˜𝑙 ) · Sim(𝑝𝑖 𝑗 , 𝑝˜𝑘𝑙 )
+𝑅st = 𝑅format + 𝑅IoU , 𝑅qa = 𝑅format + 𝑅accuracy
+𝑅gqa = 𝑅format + 𝑅IoU + 𝑅accuracy , 𝑅cap = 𝑅format + 𝑅recall
+
+Len
+𝐹𝑅 = 𝑟 0 + 𝐿𝑅,
+( 𝐿𝑅 = min 1, ML · 𝑟 1
+𝑟 2, if 𝑜 is correct
+𝐴𝑅 =
+0, otherwise
+
+
+𝐴𝑅 + 𝐹 𝑅,
+if 𝐹𝑅 > 0 and 𝐴𝑅 = 𝑟 2
+
+
+
+𝑅 = −𝐹𝑅,
+if 𝐹 𝑅 > 0 and 𝐴𝑅 = 0
+
+
+ −(𝑟 0 + 𝑟 1 + 𝑟 2 ), if 𝐹 𝑅 = 0
+
+
+Table 3. Reward function of RL-Based MLLM reasoning methods for Task-Oriented Reward Strategies.
+
+maximize the overall reward. This ensures that each predicted attribute is accurately matched to
+its corresponding ground truth, thereby optimizing the reward calculation process. R1-SGG [14]
+and VideoChat-R1 [48] both employ modular reward functions, tailored for structured scene graph
+generation and spatiotemporal video tasks, respectively. They design composite rewards—covering
+format, node/edge alignment, IoU, and task-specific correctness—to guide model outputs toward
+structured, temporally grounded responses. In contrast, TinyLLaVA-Video-R1 [142] applies a
+lightweight reward scheme combining answer correctness, format adherence, and reasoning length,
+enabling small models to exhibit interpretable rationales under limited supervision. In addition
+to designing rewards for single-modality characteristics, some methods have begun to consider
+cross-modal interactions, representing a transitional phase in the broader shift from single-modality
+to multi-modality reward modeling.
+Cross-Modal Interaction Reward Strategy. To address the non-linear interactions in multimodal
+reasoning, recent studies assign modality-specific rewards to promote more active cross-modal
+interactions. Q-Insight [47] employs GRPO to jointly optimize score accuracy and distortion classification, enabling perceptual reasoning with minimal supervision and strong zero-shot generalization.
+Building on this, VLAA-Thinker [9] introduces a mixed reward module combining rule-based and
+open-ended signals to guide adaptive, realistic reasoning. Relation-R1 [45] targets complex visual
+relations by designing Binary and N-ary Relation Rewards, emphasizing visual-semantic grounding
+over linguistic bias. To counter overthinking, Fast [115] introduces a complexity-aware thinking
+reward and adaptively adjusts the KL coefficient based on visual and semantic difficulty. Some
+methods extend RL to temporal reasoning via audio–visual modeling. Video-R1 [27] introduces
+a reward based on temporal consistency by comparing predicted and ground-truth frame orders,
+guiding causal inference across time. While the reward remains output-based and coarse-grained,
+it marks a step toward RL-driven multimodal temporal understanding.
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+18
+
+Guanghao Zhou, Panjia Qiu et al.
+
+Model
+Q-Insight [47]
+VLAA-Thinker [9]
+
+Relation-R1 [45]
+
+FAST [115]
+
+Video-R1 [27]
+
+Reward
+(𝑖 )
+(𝑖 )
+𝑟 (𝑖 ) = 𝑟 fmt
++ 1scr · 𝑟 scr
++ 1deg ·
+
+
+
+(𝑖 )
+(𝑖 )
+𝛼 1 · 𝑟 deg
++ 𝛼 2 · 𝑟 lev
+
+𝑅 = 𝑟 𝑎𝑐𝑐 + 𝜆𝑟 𝑓 𝑜𝑟𝑚𝑎𝑡
+ˆ − 𝑆𝜃 (𝑦)) × 𝛽) if 𝑓𝜃 (𝑦)
+ˆ > 𝑓𝜃 (𝑦) else 0
+𝑅𝑜𝑝𝑒𝑛 = 1 − exp(−(𝑆𝜃 (𝑦)
+(
+1 if 𝑜𝑖 adheres to the format,
+𝑟 form (𝑜𝑖 ) =
+0 otherwise.
+𝑟 binary (𝑜) = 𝛼 · 𝑅𝑒𝑐𝑎𝑙𝑙 + (1 − 𝛼) · 𝑚𝑅𝑒𝑐𝑎𝑙𝑙
+𝑟 n−ary (𝑜) = 𝛽 · 𝐴𝑐𝑐 𝑣 + (1 − 𝛽) · 𝐴𝑐𝑐𝑛
+(
+1.0 if 𝐴𝑝𝑟𝑒𝑑 ≡ 𝐴𝑔𝑡
+𝑟 𝑎 = I(𝐴𝑝𝑟𝑒𝑑 ≡ 𝐴𝑔𝑡 ) =
+0.0 otherwise
+𝑟 𝑓 = Ithink-tags · Ianswer-tags
+𝐿
+
+inf 𝑆 comp. < 𝜃𝑐𝑜𝑚𝑝. and 𝑟 𝑎 = 1
+ 1 − 𝐿𝑎𝑣𝑔
+
+
+
+𝐿
+𝑟𝑡 = 𝑚𝑖𝑛( 𝐿𝑎𝑣𝑔
+− 1, 1) inf 𝜃𝑐𝑜𝑚𝑝. ≤ 𝑆 comp. and 𝑟 𝑎 = 0
+
+
+0
+otherwise
+
+(
+(
+𝛼, if 𝑝 > 𝜇 · 𝑝˜ T−GRPO
+𝑟𝑖 + 𝑟𝑡 , if 𝑜𝑖 is correct
+, 𝑟𝑖
+=
+𝑟𝑡 =
+𝑟𝑖 ,
+otherwise
+0, otherwise
+(
+𝑟𝑖 + 𝜔, if 𝑜𝑖 is correct and 𝑙 min ≤ len(𝑜𝑖 ) ≤ 𝑙 max
+𝑟𝑖 =
+𝑟𝑖 ,
+otherwise
+
+MetaSpatial [73]
+
+𝑅physics = −𝛼 · CollisionRatio − 𝛽 · ConstraintRatio
+1 Í5
+𝑅render = 50
+𝑖=1 Grade𝑖 , 𝑅 = 𝜆1𝑟 format + 𝜆2𝑟 physics + 𝜆3𝑟 render
+
+GFlowVLM [40]
+
+NumberLine:𝑅(𝑥) = 𝑅(𝑐, 𝑦𝑡 ) = |𝑐 −𝑦𝑙 𝑡 |+1 , where 𝑙 = 100
+
+BlackJack: 𝑅(𝑥) = max 1 × 10−10, (𝑟 (𝑥) + 1) × 10
+ALFWorld: 𝑅(𝑠𝑡 , 𝑎𝑡 , 𝑠𝑡 +1 | 𝑔task ) = 50 · 1{𝑠𝑡 +1 = 𝑔task } + 1{𝑠𝑡 +1 ∈ subgoals}
+
+Table 4. Reward function of RL-Based MLLM reasoning methods for Cross-Modal Interaction Reward
+Strategies.
+
+As reinforcement learning extends to spatial reasoning, reward design must accommodate not
+only semantic alignment across modalities but also reasoning over actions, layouts, and 3D constraints. MetaSpatial [73] introduces a multi-tier reward system for 3D scene generation, combining
+format validation, physics-based verification, and GPT-4o-driven perceptual scoring. This hierarchical structure enables dense, cross-modal feedback and supports grounded scene generation.
+GFlowVLM [40] further advances process-level modeling using GFlowNets to sample reasoning
+trajectories with probabilities aligned to structured rewards. It employs Trajectory-, Subtrajectory, and Detailed-Balanced losses to optimize coherence at both local and global levels, enabling
+fine-grained reward propagation throughout multimodal inference.
+Curriculum-Based Reward Strategy. In addition to adopting the standard R1 training paradigm,
+Curr-ReFT [19] employs a three-stage curriculum consisting of binary classification, multiplechoice selection, and open-ended question answering, with each stage guided by task-specific
+rewards to progressively build reasoning ability. Embodied-R [143] also adopts a staged training
+approach, introducing different weights for 𝜔 across training phases. Additionally, it incorporates
+a logical consistency reward to align the reasoning process with the final answer in spatial tasks.
+NoisyRollout [55] enhances exploration by mixing clean and noisy visual inputs, using a noise
+annealing schedule to guide training from early diversity to stable convergence.
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+Model
+
+19
+
+Reward
+(
+
+(
+if o𝑠𝑡𝑑 = o𝑔𝑡
+1, o𝑠𝑡𝑑 = o𝑔𝑡
+, R𝑠 (o𝑠𝑡𝑑 , o𝑔𝑡 ) =
+otherwise
+0, otherwise
+
+
+1,
+o
+=
+o
+𝑔𝑡
+𝑠𝑡𝑑
+
+
+
+R𝑚 (o𝑠𝑡𝑑 , o𝑔𝑡 ) = 0.2, o𝑠𝑡𝑑 ⊂ o𝑔𝑡 , |o𝑠𝑡𝑑 | > 0 ,
+
+
+ 0,
+otherwise
+
+| {𝑐𝑖 |𝑐𝑖 ∈𝑃 and 𝑐𝑖 ∈𝐺 } |
+|𝑃 ∩𝐺 |
+R𝑎𝑐𝑐_𝑐𝑙𝑠 = |𝑃 ∪𝐺 | = | {𝑐 1,...,𝑐𝑚 }∪{𝑔1,...,𝑔𝑛 } | , R𝑑𝑒𝑡 = R𝑎𝑐𝑐_𝑑𝑒𝑡 + R 𝑓 𝑜𝑟𝑚𝑎𝑡
+
+1,
+RBinary (o𝑠𝑡𝑑 , o𝑔𝑡 ) =
+0,
+Curr-ReFT [19]
+
+Embodied-R [143]
+NoisyRollout [55]
+
+accuracy
+
+logic
+
+𝑟𝑖 = 𝜔 1 · 𝑟𝑖format + 𝜔 2 · 𝑟𝑖
++ 𝜔 3 · 𝑟𝑖
+(
+1, if 𝑜𝑖 is correct ¯
+1 Í𝑛 1 +𝑛 2
+𝑅𝑖 =
+, 𝑅 = 𝑛1 +𝑛
+𝑖=1 𝑅𝑖
+2
+0, otherwise
+
+Table 5. Reward function of RL-Based MLLM reasoning methods for Curriculum-Based Reward Strategy.
+
+4.2.2 Process-Supervised Reward Mechanism. To mitigate sparse feedback and improve structural
+reasoning, recent studies adopt process-based rewards to enhance logical coherence. R1-VL [139]
+serves as a representative example of this direction. It introduces Step-wise Group Relative Policy
+Optimization (StepGRPO), an online reinforcement learning framework that incorporates two structurally grounded reward components designed to operate over the reasoning process: StepRAR
+evaluates whether the model’s output includes key intermediate reasoning steps, while StepRVR
+assesses the logical coherence and completeness of the overall reasoning chain. These rewards are
+anchored at intermediate states and span the entire vision–language–reasoning trajectory, significantly improving the model’s ability to maintain logical consistency in complex tasks. Similarly,
+ChestX-Reasoner [25] introduces a process reward based on clinical reports, evaluating the factual
+accuracy of intermediate reasoning steps to enhance diagnostic coherence and reasoning quality.
+4.3
+
+Training Efficiency and Stability
+
+Training efficiency and stability are critical in the development of robust reasoning models, particularly in complex multimodal settings. By leveraging strategies such as curriculum learning, sample
+efficiency optimization, and techniques to mitigate catastrophic forgetting, researchers can enhance
+both the speed and reliability of model training while preserving previously acquired knowledge.
+4.3.1 Curriculum Learning. Curriculum learning is a training strategy that emulates the human
+learning process by organizing tasks in an order of increasing difficulty, allowing models to first
+acquire basic skills before advancing to more complex reasoning abilities. In RL, especially for
+multimodal reasoning tasks, curriculum learning helps mitigate training instability and accelerates
+convergence by providing structured, progressively challenging learning stages. Kimi K1.5 [91]
+adopts curriculum and prioritized sampling to expose the model to increasingly difficult examples
+while focusing on weak areas, enhancing overall training efficiency. Curr-ReFT [19] introduces
+difficulty-aware reward shaping to stage the learning process, facilitating stable reward-based training. Beyond data and reward curricula, Embodied-R [143] implements a three-stage RL schedule that
+gradually shifts reward weights from format to accuracy and logical consistency, guiding the model
+toward coherent embodied reasoning. NoisyRollout [55] implicitly applies curriculum via a noise
+annealing schedule—starting with distorted visual inputs and gradually reducing noise—promoting
+early exploration and stable convergence without added cost.
+4.3.2 Sample Efficiency. RL-based reasoning heavily relies on high-quality samples to guide effective policy optimization. Insufficient or unreliable samples can lead to slow convergence and
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+20
+
+Guanghao Zhou, Panjia Qiu et al.
+
+Framework
+
+Models
+
+Algorithm
+
+DeepSpeed-Chat [77]
+OpenRLHF [34]
+LLaMA-Factory [146]
+TRL [96]
+ColossalAI [46]
+VeRL [83]
+Open-R1 [23]
+R1-V [11]
+EasyR1 [127]
+
+LLM
+LLM
+LLM
+MLLM
+MLLM
+MLLM
+LLM
+MLLM
+MLLM
+
+PPO
+GRPO, PPO, REINFORCE++, RLOO, etc
+PPO, DPO, KTO, ORPO, etc
+GRPO, PPO, ORPO, RLOO, etc
+GRPO, PPO, DPO, KTO, etc
+GRPO, DAPO, PPO, RLOO, etc
+GRPO
+GRPO
+GRPO, REINFORCE++, RLOO, ReMax
+
+Table 6. Overview of RLHF frameworks with supported models and RL algorithms.
+
+suboptimal performance, ultimately impairing reasoning and generalization. Skywork R1V [128]
+improves sample efficiency via Adaptive-Length CoT Distillation, which adjusts reasoning chain
+length to reduce computation, and a Hybrid Optimization Framework that iteratively refines the
+model using both high-confidence and error samples, reducing dependence on large-scale annotations. MM-Eureka [69] proposes a two-stage training strategy, with the second stage focusing on
+enhancing the model using domain-specific data. Additionally, the authors introduce the MMK12
+1 multimodal mathematical reasoning dataset to highlight the importance of high-quality data.
+GFlowVLM [40] adopts generative flow networks to sample and learn from high-value reasoning
+trajectories, enabling efficient off-policy training and promoting diverse yet meaningful exploration.
+LMM-R1 [74] employs a two-stage method, FRE followed by MGT, where the model is first trained
+on textual data to enhance reasoning and then generalized to other modalities, thereby mitigating
+the scarcity of high-quality multimodal data. MetaSpatial [73] introduces a GRPO-based multi-turn
+refinement strategy, selecting higher-quality grouped trajectories to accelerate spatial reasoning.
+NoisyRollout [55] demonstrates strong generalization with only 2.1K samples by mixing clean and
+noisy rollouts, enhancing learning through visual diversity at no extra cost.
+4.3.3 Catastrophic forgetting. Catastrophic forgetting refers to the phenomenon where models,
+after fine-tuning on new tasks, lose previously acquired abilities. SFT often induces catastrophic
+forgetting by overwriting prior capabilities, whereas RL, by optimizing reward signals rather than
+explicit outputs, better preserves general reasoning skills [58, 74]. In addition to the inherent
+advantages of RL, the mainstream solution in current RL-based methods to mitigate this issue is to
+incorporate a KL regularization term, which helps prevent excessive parameter drift [62, 72, 91].
+Curr-ReFT [19] proposes Rejected Sample-based Self-improvement, a method that selectively learns
+from high-quality multimodal and textual examples to maintain the fundamental capabilities of
+MLLMs. This approach ensures that while enhancing the model’s ability to perform new tasks, it
+retains its original knowledge and skills.
+4.4
+
+RLHF Training Framework
+
+In recent years, the rise of RLHF and reward learning has led to the emergence of various open-source
+libraries that lower research barriers and enhance development efficiency. Table 6 summarizes
+major RLHF frameworks and their supported algorithms. DeepSpeed-Chat [77] enables efficient,
+cost-effective ChatGPT-style model training. OpenRLHF [34] supports distributed training for
+1 https://huggingface.co/datasets/FanqingM/MMK12
+
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+21
+
+large models and integrates with HuggingFace. LLaMA-Factory [146] offers broad model and
+training method support with a visual interface. TRL [96] focuses on post-training techniques
+like PPO and DPO with distributed support. Colossal-AI [46] simplifies large-scale training with
+parallel strategies. VeRL [83] targets multimodal and vision-language tasks with modular design.
+Open-R1 [23] and its fork EasyR1 [127] replicate and extend the DeepSeek-R1 pipeline. R1-V [11]
+emphasizes long-chain reasoning in vision-language models. Together, these frameworks offer
+diverse capabilities that accelerate innovation in RLHF research.
+5
+
+Applications with RL-Based MLLM Reasoning
+
+RL has substantially expanded the application boundaries of MLLMs across diverse domains. By
+enhancing the structured reasoning ability of MLLMs through optimized reward mechanisms and
+policy improvements, RL-based methods enable models to adapt to increasingly complex real-world
+tasks. In this section, we categorize the emerging applications of RL-based MLLM reasoning into
+three major areas: Embodied AI, MLLM Agentic Systems, and Domain-Specific Applications of
+RL-Based Multimodal Reasoning.
+5.1 Embodied AI
+Embodied AI focuses on enabling MLLMs to perceive, reason, and act in physical or simulated
+environments. RL-based multimodal reasoning methods have become pivotal in improving models’
+ability to interpret multimodal inputs and to generate action-oriented reasoning strategies. Models
+such as MetaSpatial [73] demonstrate the capability of integrating physics-based rewards and
+perceptual feedback to support three-dimensional scene understanding and object manipulation.
+Similarly, Video-R1 [27] extends reasoning into the temporal domain, enabling video-based agents
+to infer causal relationships between sequential frames, a critical aspect for embodied perception
+in dynamic environments. Embodied-R [143] proposes a collaborative RL framework that activates
+embodied spatial reasoning by decoupling perception and reasoning, achieving superior performance and generalization with a logical consistency reward. The reinforcement learning framework
+facilitates iterative learning of spatial, temporal, and causal relations, allowing embodied MLLMs
+to achieve stronger generalization and physical realism. Autonomous driving can also be viewed as
+a representative embodied scenario, where RL-enhanced MLLMs hold promise for future advances
+in spatial-temporal reasoning and decision-making.
+5.2
+
+MLLM Agentic System
+
+As MLLMs evolve beyond passive perception and generation, a critical frontier lies in the development of agentic systems—models capable of goal-directed reasoning, autonomous decision-making,
+and interaction with dynamic environments. An agentic MLLM is expected not only to understand
+multimodal contexts but also to proactively plan, act, and adapt based on evolving task demands. RL
+provides a natural framework for cultivating such capabilities, by treating reasoning and interaction
+as sequential decision processes.
+In interactive scenarios such as GUI-based task execution, UI-R1 [65] demonstrates the importance
+of multimodal action reasoning. By jointly optimizing rewards for action type prediction, argument
+selection, and output formatting, the model effectively learns to perform sequences of operations,
+aligning its outputs with human-intended goals. GUI-R1 [114] enhances the GUI capabilities
+of MLLM in advanced real-world task scenarios by unifying action types, input text, and click
+coordinates into a standardized action space framework. InfiGUI-R1 [57] advances GUI agents from
+reactive execution to deliberative reasoning via a two-stage RL framework, enhancing planning
+and error recovery through sub-goal guidance and reflective correction.
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+22
+
+5.3
+
+Guanghao Zhou, Panjia Qiu et al.
+
+Domain-Specific Applications of RL-Based Multimodal Reasoning
+
+Beyond general embodied and agentic capabilities, RL–based multimodal reasoning has been
+increasingly applied to a range of specialized real-world domains that demand high levels of
+perception and decision-making under complex conditions. By leveraging structured rewards and
+sequential learning frameworks, these methods enable MLLMs to move beyond static understanding
+toward dynamic, context-sensitive behavior. Domains such as medical and healthcare, as well as
+human-centered interaction, serve as critical testbeds for evaluating and advancing the robustness,
+generalization, and interpretability of RL-empowered multimodal systems.
+5.3.1 Medical and Healthcare. The medical and healthcare domains present unique demands for
+high-stakes reasoning, interpretability, and generalization. RL-based multimodal reasoning methods
+have shown promising progress in tasks such as medical visual question answering and clinical
+decision support. MedVLM-R1 [72] improves answer verifiability by rewarding structured reasoning
+traces for multiple-choice tasks. ChestX-Reasoner [25] applies process-supervised reinforcement
+learning to align model reasoning with clinical workflows, using supervision signals extracted from
+radiology reports. This approach enhances factuality, completeness, and diagnostic relevance of
+generated reasoning chains, while also improving outcome accuracy across diverse tasks such as
+disease classification, anomaly detection, and temporal comparison.
+5.3.2 Social and Human. Understanding human behavior, emotions, and social interactions is
+an emerging frontier for RL-based multimodal reasoning. R1-Omni [144] integrates audio, video,
+and text to enhance emotional recognition via RL, enabling structured socio-emotional reasoning.
+Similarly, R1-AQA [44] trains MLLMs to interpret acoustic signals for auditory reasoning. These
+capabilities support empathetic AI agents and socially adaptive systems, where RL facilitates
+robustness, error recovery, and personalized interaction.
+6
+
+Datasets and Benchmark
+
+To comprehensively evaluate the reasoning capabilities of MLLMs, researchers have developed a variety of benchmark datasets spanning different reasoning paradigms and modalities. In this section,
+we categorize these datasets into three high-level domains: Reasoning over Structured Knowledge
+Domains, Contextual and Perceptual Reasoning in Real-World Scenarios, and Generalization and
+Multi-Task Reasoning Benchmarks, with each domain encompassing several sub-domains that
+reflect distinct types of knowledge, reasoning structures, or contextual challenges. An overview
+of these representative benchmarks is illustrated in Figure 3. We summarize the performance of
+current open-source and closed-source reasoning models on mainstream reasoning benchmarks in
+Table 7. Among these, Mulberry [125], LLaVA-CoT [118], Insight-V [22], and LLaVA-Reasoner [141]
+are mainstream reasoning models that do not rely on RL, while the remaining models are RL-based.
+From Table 7, it is evident that a significant portion of current evaluations is concentrated in the first
+domain, particularly in mathematical, scientific, and chart-based reasoning tasks. This focus reveals
+a fundamental limitation: the dominance of well-structured, mathematically grounded benchmarks
+leaves open the question of whether these models can generalize to more complex, open-ended,
+and perceptually rich scenarios. Tasks that require interaction with dynamic environments, spatial
+abstraction, multimodal alignment, or socio-cultural reasoning are underrepresented, despite being
+critical for real-world applications. To address this limitation, we further include a range of benchmarks under the latter two categories, covering diverse scenarios such as user interface action
+prediction, 6D spatial reasoning, visual-to-code generation, and culturally grounded multimodal
+understanding. These datasets provide a more comprehensive lens for evaluating MLLMs’ reasoning
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+23
+
+Mathematical
+
+WE-MATH [76]; Mathvista [63]; MathVerse [140];
+MATH-Vision [99]; MathScape [148]; CMM-Math
+[54]; OlympiadBench [33]; MV-MATH [101]
+
+Chart
+
+ChartBench [122]; MultiChartQA [151]; Charxiv
+[106]
+
+Scientific
+
+M4U [98]; MMMU [133]; MMMU-Pro [134]; ScienceQA [64]; TheoremQA [13]; EMMA [32];
+GAOKAO-MM [152]; CMMMU [28]; MM-Star [10];
+MDK12-Bench [149]
+
+Code Generation
+
+ChartMimic [84]; Plot2Code [110]; HumanEval-V
+[138]
+
+Reasoning over
+Structured Knowledge Domains
+
+Algorithmic
+Problem
+
+NPHardEval4V [24]
+
+Social and Cultural
+Knowledge
+
+II-Bench [60]; CII-Bench [137]; PunchBench [71];
+GeoComp [85]
+
+Action Prediction
+
+InfiGUIAgent-Data [56]; Mind2Web [20]; SeeClick
+[16]; Driving-Hazard-Prediction-and-Reasoning [7];
+
+Spatial Reasoning
+
+iVISPAR [67]; PulseCheck457 [102]; VisuLogic [121];
+GeoSense [120]
+
+Multi-Image Based
+Inductive Reasoning
+
+MM-IQ [6]; LogicVista [116]; PuzzleTest [94]
+
+Other Composite
+Benchmarks
+
+VRC-Bench [93]; M3CoT [12]; MLLM-COMPBench
+[41]; MME-CoT [39]; ZeroBench [78]; VCR-Bench
+[75]
+
+Benchmark
+Contextual and Perceptual Reasoning in
+Real-World Scenarios
+
+Generalization and
+Multi-Task Reasoning Benchmarks
+
+Fig. 3. Multimodal Reasoning Benchmarks.
+
+abilities beyond traditional symbolic domains. In the following, we present a detailed analysis of
+representative benchmarks within each sub-domain.
+6.1
+
+Reasoning over Structured Knowledge Domains
+
+This category encompasses benchmarks that evaluate reasoning within structured and well-defined
+knowledge domains, such as mathematics, science, and programming. These tasks typically involve
+symbolic inputs and domain-specific visuals, including equations, diagrams, or structured textual
+prompts. The benchmarks are designed to assess whether MLLMs can perform formal symbolic
+manipulation, conduct multi-step logical inference, and abstract visual-textual relationships within
+highly regular and semantically rich contexts.
+Mathematical Reasoning. A broad range of benchmarks have been proposed to assess the mathematical reasoning capabilities of multimodal large language models, with tasks that require precise
+alignment between symbolic understanding, visual interpretation, and logical deduction. MathVista
+[63], MathVerse [140], and WE-MATH [76] focus on school-level mathematical problems presented
+in multimodal formats, including equation solving, geometric diagrams, and accompanying textual
+prompts. These datasets test models’ abilities to interpret structured mathematical content, navigate
+spatial relationships, and perform multi-step numeric reasoning. MATH-Vision [99] and MV-MATH
+[101] extend this paradigm by transforming LaTeX-based mathematical expressions into images,
+evaluating whether models can comprehend symbolic structures purely from visual representations.
+OlympiadBench [33] introduces high-difficulty problems drawn from math olympiads, emphasizing
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+24
+
+Guanghao Zhou, Panjia Qiu et al.
+
+Model
+
+MathVista
+
+MathVision
+
+MM-Star
+
+MME
+
+HallBench
+
+MMVet
+
+OpenAI o1
+GPT-4o 0513
+Claude-3.5-snooet-1022
+
+71.0
+63.8
+65.3
+
+30.4
+35.6
+
+MathVerse MMMU-Val
+39.4
+-
+
+77.3
+69.1
+66.4
+
+63.9
+62.2
+
+2329.0
+1920.0
+
+ChartQA DynaMath
+85.7
+90.8
+
+63.7
+64.8
+
+55.0
+55.0
+
+-
+
+QVQ-72B-Preview
+Mulberry-7B
+LLaVA-CoT-11B
+Insight-V
+LLaVA-Reasoner
+Kimi K1.5-Long CoT
+Kimi K1.5-Short CoT
+Kimi-VL-A3B
+Vision-R1-7B
+Vision-R1-LlamaV-CI-11B
+MM-Eureka-8B
+Curr-ReFT-3B
+Curr-ReFT-7B
+LMM-R1: MGT-Multi
+LMM-R1: MGT-PerceReson
+R1-Onevision-7B
+R1-VL-2B
+R1-VL-7B
+Skywork R1V
+ThinkLite-VL-7B
+VLAA-Thinker-Qwen2.5-3B
+VLAA-Thinker-Qwen2.5-7B
+VL-Rethinker-7B
+VL-Rethinker-72B
+Skywork R1V2
+FAST-3B
+FAST-7B
+NoisyRollout
+
+71.4
+63.1
+54.8
+59.9
+50.6
+74.9
+70.1
+68.7
+73.5
+62.7
+67.1
+58.6
+64.5
+59.0
+63.2
+64.1
+52.1
+63.5
+67.5
+75.1
+61.0
+68.0
+74.9
+80.3
+74.0
+66.2
+73.8
+69.6
+
+35.9
+38.6
+31.0
+21.4
+22.2
+26.8
+26.4
+29.9
+17.1
+24.7
+32.9
+24.4
+26.4
+32.3
+43.9
+49.0
+26.8
+30.6
+28.5
+
+52.4
+27.1
+40.4
+41.8
+41.6
+40.0
+26.2
+40.0
+50.7
+36.4
+48.2
+54.2
+61.7
+43.0
+50.6
+53.2
+
+70.3
+55.0
+50.2
+70.0
+68.0
+57.0
+69.0
+54.6
+56.7
+68.8
+73.6
+-
+
+61.3
+57.6
+61.5
+61.3
+61.4
+54.4
+58.03
+49.8
+60.0
+65.00
+-
+
+2396.0
+1685.1
+2190.0
+2048.0
+2376.0
+-
+
+83.9
+81.50
+83.00
+83.9
+75.2
+83.9
+-
+
+45.1
+29.4
+45.2
+54.4
+58.3
+-
+
+54.1
+49.5
+44.0
+54.7
+-
+
+66.7
+29.9
+35.6
+67.8
+64.0
+71.2
+-
+
+Table 7. Performance of RL-Based MLLMs on Reasoning Benchmarks.
+
+abstract reasoning and competition-level problem-solving that often requires multi-hop inference.
+The uniqueness of MathScape [148] lies in its vision-centered, open-ended question design, which
+integrates abstract symbolic reasoning with contextual visual cues. This setting encourages models
+to transcend direct computation and fosters the development of analogy-based and relational
+understanding capabilities. CMM-Math [54] further incorporates CoT prompting into multimodal
+mathematical reasoning, providing structured intermediate steps to assess whether models can
+generate interpretable reasoning paths across both vision and language modalities.
+Chart Reasoning. Chart-based reasoning benchmarks evaluate the ability of MLLMs to extract
+structured information from visual plots and perform quantitative analysis grounded in natural
+language. ChartBench [122] and MultiChartQA [151] present a wide range of questions over diverse
+chart types, such as bar graphs, pie charts, and line plots, requiring aggregation, comparison,
+or prediction over visual data. CharXiv [106] adopts a more challenging evaluation setting by
+sourcing all charts from real-world scientific publications. The benchmark incorporates complex
+domain-specific notations, multi-subplot layouts, and visually dense figures, as well as semantically
+ambiguous or unanswerable questions, thereby substantially increasing the task complexity.
+Scientific Reasoning. Scientific reasoning benchmarks aim to assess a model’s ability to integrate domain-specific visual information with conceptual understanding across disciplines such
+as physics, chemistry, and biology. MMMU [133] and MMMU-Pro [134] provide large-scale multimodal assessments based on academic exam questions, with inputs that include circuit diagrams,
+biological illustrations, and chemical reaction graphs. These benchmarks demand subject-specific
+knowledge and cross-modal multi-hop inference. M4U [98] extends this direction by constructing
+a a multilingual benchmark that covers 64 disciplines. Its tasks feature rich visual materials such as
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+25
+
+graphs, experimental setups, and symbolic content, paired with multilingual questions designed to
+test the deep scientific understanding, multilingual alignment, and multimodal reasoning capabilities of MLLMs in real-world educational settings. MDK12-Bench [149] complements these efforts
+by focusing on structured academic reasoning across core school subjects, while incorporating
+dynamic evaluation to enhance robustness. ScienceQA [64] and TheoremQA [13] offer grade-school
+to high-school level science problems that emphasize explanation and factual integration, often
+including illustrated contexts or structured diagrams. GAOKAO-MM [152] and CMMMU [28]
+reflect the format of high-stakes standardized tests, containing visually dense problem structures
+with minimal textual scaffolding. EMMA [32] further enhances the realism of scientific instruction
+by combining textual questions with experimental setups or process diagrams, requiring temporal
+reasoning and procedural interpretation. To address the issue of visual leakage in multimodal
+evaluation datasets, MM-Star [10] assesses the multimodal capabilities of LVLM by constructing a
+carefully balanced and purified sample selection process, with the aim of benchmarking six core
+competencies and 18 detailed axes.
+Code Generation. Benchmarks in this category evaluate the ability of MLLMs to generate code
+based on multimodal visual prompts, such as plots or interface sketches. ChartMimic [84] and
+Plot2Code [110] require models to produce plotting scripts such as matplotlib that replicate the
+semantics and structure of a given graph. These tasks test visual layout parsing, semantic inference,
+and parameter mapping between modalities. HumanEval-V [138] extends this framework by offering
+open-ended coding tasks guided by visual problem descriptions, where models must synthesize
+intent, logic, and implementation through image-grounded reasoning.
+Algorithmic Problem. The NPHardEval4V [24] benchmark focuses on visually rendered algorithmic reasoning tasks, including classical problems such as graph coloring, knapsack optimization,
+and shortest path computation. The tasks require interpreting structured visual representations
+and aim to explore the model’s ability to map visual configurations to algorithmic abstractions and
+perform reasoning within computationally complex solution spaces.
+Social and Cultural Knowledge Reasoning. This subcategory evaluates MLLMs’ ability to reason
+about sociocultural, geographic, and symbolic content presented in visual form. II-Bench [60],
+CII-Bench [137], PunchBench [71], and GeoComp [85] introduce tasks involving photographs,
+illustrations, posters, and maps, where models must interpret not only the visual content but also
+its embedded cultural or societal implications. CII-Bench [137] features Chinese cultural imagery
+including traditional art and contemporary symbolism, probing metaphor understanding and
+emotional alignment. PunchBench [71] and GeoComp [85] emphasize spatial-social reasoning
+grounded in world knowledge and demographic cues. These datasets evaluate whether models can
+go beyond surface-level perception to perform culturally and contextually sensitive reasoning.
+6.2
+
+Contextual and Perceptual Reasoning in Real-World Scenarios
+
+This category focuses on benchmarks that simulate real-world scenarios where reasoning is
+grounded in contextual understanding and perceptual input. Tasks often involve dynamic visual
+contexts, user interfaces, or spatiotemporal environments that require MLLMs to interpret situational cues, predict goal-directed actions, or reason about spatial relationships. These benchmarks
+evaluate whether models can align visual perception, linguistic instructions, and environmental
+constraints to perform coherent reasoning in interactive or temporally evolving settings.
+Action Prediction. Benchmarks in this subcategory simulate scenarios where agents must make
+predictions or decisions based on dynamic visual contexts. Driving-Hazard-Prediction-and-Reasoning
+[7] presents real-world traffic images and sequential scenarios to assess hazard identification and
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+26
+
+Guanghao Zhou, Panjia Qiu et al.
+
+behavioral prediction. InfiGUIAgent-Data [56], Mind2Web [20], and SeeClick [16] extend this to
+user-interface environments, requiring models to reason about user intent and anticipate interactions with graphical user interfaces. Mind2Web [20] further introduces a broad set of high-level
+web-based tasks grounded in real-world websites, evaluating models on instruction following,
+multi-step planning, and interface understanding.
+Spatial Reasoning. Spatial reasoning benchmarks target the model’s understanding of object layout, spatial relationships, and three-dimensional scene structure. iVISPAR [67] evaluates MLLMs on
+spatial visual question answering tasks involving object localization, spatial relation inference, and
+layout understanding in cluttered indoor scenes. It emphasizes relational reasoning and occlusion
+modeling based on realistic 2D imagery. PulseCheck457 [102] advances this work by introducing
+the first benchmark explicitly designed for 6D spatial reasoning. It assesses models on multi-object
+recognition, 2D and 3D positioning, and 3D orientation within a synthetic, unbiased environment,
+covering five difficulty levels and seven question types. This provides structured diagnostics for
+spatial abstraction capabilities in embodied robotics and AR/VR applications. GeoSense [120]
+further emphasizes symbolic-visual integration by evaluating geometric principle identification
+and application in diagram-based reasoning. VisuLogic [121] targets core visual reasoning skills,
+focusing on symmetry, rotation, folding, and positional changes in structured visual puzzles.
+6.3
+
+Generalization and Multi-Task Reasoning Benchmarks
+
+This category includes composite benchmarks designed to assess MLLMs’ abilities in multi-task
+reasoning, cross-domain generalization, and zero-shot adaptation. These datasets typically aggregate diverse tasks across modalities, testing whether models can perform structured inference
+with minimal supervision. Tasks range from multimodal CoT generation to inductive abstraction
+and analogical reasoning, providing a comprehensive evaluation of models’ capacity to generalize
+beyond domain-specific constraints and perform flexible reasoning over heterogeneous inputs.
+Multi-Image Based Inductive Reasoning. To evaluate inductive abstraction and rule discovery,
+benchmarks like MM-IQ [6], LogicVista [116], and PuzzleTest [94] present visual matrix-style
+puzzles inspired by Raven’s Progressive Matrices. These benchmark challenge models to infer
+abstract transformations, detect visual analogies, and fill in missing patterns by synthesizing
+structural invariants across multiple image frames. They emphasize high-level visual abstraction
+and the ability to generalize across non-linguistic reasoning patterns.
+Multi-Task and Generalization-Oriented Benchmarks. A growing number of composite benchmarks have been proposed to evaluate generalized multimodal reasoning across varied tasks and
+domains. Representative datasets such as VRC-Bench [93] and MLLM-COMPBench [41] aggregate
+subtasks including visual QA, multi-hop reasoning, and tool-based inference, offering a unified
+setup for multi-skill evaluation. VCR-Bench [75] further extends this line into the video domain
+by incorporating annotated CoT steps and assessing both answer and reasoning quality across
+temporal tasks. Notably, M3CoT [12] and MME-CoT [39] include multimodal CoT annotations,
+enabling fine-grained process supervision during inference. Meanwhile, ZeroBench [78] targets
+zero-shot generalization across unseen tasks and modalities, testing model transferability and
+robustness without instruction tuning. Together, these benchmarks offer a comprehensive suite for
+evaluating holistic, structured, and cross-modal reasoning under diverse and complex inputs.
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+7
+7.1
+
+27
+
+Limitations, Challenges and Future Directions
+Limitations and Challenges
+
+7.1.1 Limitations. Despite the remarkable progress of RL-based reasoning methods in enhancing
+MLLMs, current research still faces multiple structural and theoretical limitations that hinder both
+generalization and scalability.
+Sparsity of reward signals. One of the most pressing issues is the sparsity and delayed nature
+of reward signals. To avoid reward hacking, most RL-enhanced MLLMs are trained using scalar
+final-task rewards—such as answer correctness or classification accuracy—that only reflect task
+outcomes but offer no intermediate feedback throughout the reasoning process. This leaves the
+model blind to structural errors in earlier reasoning steps. The most immediate consequence of this
+issue is overthinking, where the model generates excessively long or redundant reasoning paths,
+with intermediate steps potentially including irrelevant visual or textual cues. Although recent
+works [19, 139] have introduced process-oriented feedback through intermediate step verification or
+curriculum-style stage partitioning, these designs are often handcrafted, task-specific, and difficult
+to generalize across unseen modalities or new domains.
+Evaluation paradigms. Another limitation lies in the benchmark-centric and static nature of
+current evaluation paradigms. Many RL-based MLLMs are trained and tested on a limited range of
+benchmarks, which are typically narrow in scope and fail to reflect the complexity and unpredictability of real-world multimodal reasoning. As a result, models trained on such benchmarks, especially
+smaller-scale ones, tend to exhibit poor transferability when applied to dynamic environments or
+introduced to new modalities like audio or 3D spatial layouts.
+Real-time adaptivity and interactivity. Furthermore, current approaches lack real-time adaptivity
+and interactivity. Most reinforcement signals are generated offline and assume static input-output
+mappings. In contrast, realistic deployments—such as embodied agents, web assistants, or interactive tutoring systems—require continuous feedback loops, the ability to revise reasoning, and
+responsiveness to user corrections. Without such interactive adaptability, many current MLLMs
+cannot bridge the gap between simulation-based training and open-world reasoning tasks.
+7.1.2 Challenges. Beyond structural limitations, MLLM-RL pipelines face key challenges in optimization, multimodal alignment, and training infrastructure. A central issue is aligning diverse
+modalities such as images, text, audio, and spatial layouts under weak supervision. Real-world
+tasks often require complex cross-modal mappings with limited direct supervision, and designing
+reward functions to support consistent alignment, especially in open-ended scenarios, remains
+unsolved. Another challenge is modeling non-Markovian dependencies in reasoning trajectories.
+Unlike traditional RL, MLLM reasoning requires long-term consistency across modalities and steps.
+Although some work [40, 73] has addressed this, optimization in non-Markovian spaces is prone to
+instability, noisy gradients, and unclear credit assignment. Finally, training-inference mismatch persists: models trained with fixed prompts and deterministic rewards are evaluated on unpredictable
+inputs, variable reasoning lengths, and ambiguous outputs—compromising real-world performance
+despite strong benchmarks.
+7.2
+
+Future Directions
+
+To overcome these limitations and challenges, we propose several concrete directions for future
+research that can contribute to more robust, generalizable, and interactive RL in MLLMs:
+Unified and hierarchical reward frameworks. Future work should focus on designing multi-level
+reward signals that capture not only task outcomes but also the fidelity of reasoning and cross-modal
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+28
+
+Guanghao Zhou, Panjia Qiu et al.
+
+coherence. For example, hybrid rewards can integrate accuracy, structure, and quality, thereby
+improving sample efficiency, interpretability, and policy stability.
+Reward generalization across modalities. To move beyond handcrafted or task-specific rewards,
+future models should adopt modular or learnable reward functions that generalize across images,
+videos, audio, and 3D modalities. Meta-learned reward functions or reward transformers that map
+trajectories to score distributions could reduce the reliance on extensive human supervision.
+Scalable and lightweight reinforcement optimization. A promising research direction is the development of lightweight RL techniques suitable for resource-constrained models. This includes
+curriculum learning, KL-regularized off-policy methods, and contrastive reward estimation. Such
+strategies can facilitate broader adoption in scenarios where deploying large models is infeasible.
+Interactive reinforcement via user feedback. Incorporating real-time user preferences, corrections,
+and demonstrations during test-time can help create continuously adapting MLLMs. Instead of
+relying on synthetic reward approximators, future systems could be equipped with interfaces for
+interactive reward elicitation, expanding the scope of RL in dynamic, user-centered settings.
+Embodied and grounded multimodal environments. Deploying MLLMs in spatially grounded
+environments such as robotics and AR/VR requires reinforcement learning strategies capable of
+handling physical constraints, causal relationships, and temporal dynamics. This includes integrating spatial consistency checks, collision detection, and user affordance modeling into the reward
+computation pipeline, as seen in MetaSpatial.
+8
+
+Conclusion
+
+In this survey, we presented a comprehensive overview of RL-based reasoning methods in MLLMs.
+We analyzed recent progress in RL optimization strategies, categorized value-model-free and valuemodel-based approaches, and discussed reward mechanism designs that enable MLLMs to reason
+across text, vision, audio, and video modalities. By summarizing benchmark datasets, evaluation
+protocols, and practical applications, we provided a structured understanding of how RL is shaping
+the development of multimodal reasoning. While significant advancements have been made, RLbased multimodal reasoning still faces critical challenges. Current methods often rely on text-centric
+reasoning paths, underutilize multimodal information, and depend heavily on simple, verifiable
+reward designs. Furthermore, issues such as sparse and delayed rewards, inefficient exploration
+strategies, and limited generalization to open-ended tasks remain key obstacles. Looking ahead,
+future research should explore hierarchical and structured reward models, dynamic cross-modal
+CoT generation, and lightweight, scalable RL frameworks. Addressing these challenges is crucial
+for enabling MLLMs to perform more robust, interpretable, and generalized reasoning across realworld multimodal tasks. We hope this survey will serve as a valuable reference for researchers and
+practitioners, and inspire further innovation in this rapidly evolving field.
+References
+[1] Arash Ahmadian, Chris Cremer, Matthias Gallé, Marzieh Fadaee, Julia Kreutzer, Olivier Pietquin, Ahmet Üstün, and
+Sara Hooker. 2024. Back to basics: Revisiting reinforce style optimization for learning from human feedback in llms.
+arXiv preprint arXiv:2402.14740 (2024).
+[2] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun
+Tang, et al. 2025. Qwen2. 5-vl technical report. arXiv preprint arXiv:2502.13923 (2025).
+[3] Yuntao Bai, Andy Jones, Kamal Ndousse, Amanda Askell, Anna Chen, Nova DasSarma, Dawn Drain, Stanislav Fort,
+Deep Ganguli, Tom Henighan, et al. 2022. Training a helpful and harmless assistant with reinforcement learning
+from human feedback. arXiv preprint arXiv:2204.05862 (2022).
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+29
+
+[4] Maciej Besta, Nils Blach, Ales Kubicek, Robert Gerstenberger, Michal Podstawski, Lukas Gianinazzi, Joanna Gajda,
+Tomasz Lehmann, Hubert Niewiadomski, Piotr Nyczyk, et al. 2024. Graph of thoughts: Solving elaborate problems
+with large language models. In Proceedings of the AAAI Conference on Artificial Intelligence, Vol. 38. 17682–17690.
+[5] Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan,
+Pranav Shyam, Girish Sastry, Amanda Askell, et al. 2020. Language models are few-shot learners. Advances in neural
+information processing systems 33 (2020), 1877–1901.
+[6] Huanqia Cai, Yijun Yang, and Winston Hu. 2025. MM-IQ: Benchmarking Human-Like Abstraction and Reasoning in
+Multimodal Models. arXiv preprint arXiv:2502.00698 (2025).
+[7] Korawat Charoenpitaks, Van-Quang Nguyen, Masanori Suganuma, Masahiro Takahashi, Ryoma Niihara, and Takayuki
+Okatani. 2024. Exploring the Potential of Multi-Modal AI for Driving Hazard Prediction. IEEE Transactions on Intelligent
+Vehicles (2024).
+[8] Guoxin Chen, Minpeng Liao, Chengxi Li, and Kai Fan. 2024. Alphamath almost zero: process supervision without
+process. arXiv preprint arXiv:2405.03553 (2024).
+[9] Hardy Chen, Haoqin Tu, Fali Wang, Hui Liu, Xianfeng Tang, Xinya Du, Yuyin Zhou, and Cihang Xie. 2025. SFT
+or RL? An Early Investigation into Training R1-Like Reasoning Large Vision-Language Models. arXiv preprint
+arXiv:2504.11468 (2025).
+[10] Lin Chen, Jinsong Li, Xiaoyi Dong, Pan Zhang, Yuhang Zang, Zehui Chen, Haodong Duan, Jiaqi Wang, Yu Qiao, Dahua
+Lin, et al. 2024. Are we on the right way for evaluating large vision-language models? arXiv preprint arXiv:2403.20330
+(2024).
+[11] Liang Chen, Lei Li, Haozhe Zhao, Yifan Song, and Vinci. 2025. R1-V: Reinforcing Super Generalization Ability in
+Vision-Language Models with Less Than $3. https://github.com/Deep-Agent/R1-V. Accessed: 2025-02-02.
+[12] Qiguang Chen, Libo Qin, Jin Zhang, Zhi Chen, Xiao Xu, and Wanxiang Che. 2024. M 3 CoT: A Novel Benchmark for
+Multi-Domain Multi-step Multi-modal Chain-of-Thought. arXiv preprint arXiv:2405.16473 (2024).
+[13] Wenhu Chen, Ming Yin, Max Ku, Pan Lu, Yixin Wan, Xueguang Ma, Jianyu Xu, Xinyi Wang, and Tony Xia. 2023.
+Theoremqa: A theorem-driven question answering dataset. arXiv preprint arXiv:2305.12524 (2023).
+[14] Zuyao Chen, Jinlin Wu, Zhen Lei, Marc Pollefeys, and Chang Wen Chen. 2025. Compile Scene Graphs with Reinforcement Learning. arXiv preprint arXiv:2504.13617 (2025).
+[15] Zhe Chen, Jiannan Wu, Wenhai Wang, Weijie Su, Guo Chen, Sen Xing, Muyan Zhong, Qinglong Zhang, Xizhou Zhu,
+Lewei Lu, et al. 2024. Internvl: Scaling up vision foundation models and aligning for generic visual-linguistic tasks. In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. 24185–24198.
+[16] Kanzhi Cheng, Qiushi Sun, Yougang Chu, Fangzhi Xu, Yantao Li, Jianbing Zhang, and Zhiyong Wu. 2024. Seeclick:
+Harnessing gui grounding for advanced visual gui agents. arXiv preprint arXiv:2401.10935 (2024).
+[17] Tianzhe Chu, Yuexiang Zhai, Jihan Yang, Shengbang Tong, Saining Xie, Dale Schuurmans, Quoc V Le, Sergey Levine,
+and Yi Ma. 2025. Sft memorizes, rl generalizes: A comparative study of foundation model post-training. arXiv preprint
+arXiv:2501.17161 (2025).
+[18] Xiangxiang Chu, Hailang Huang, Xiao Zhang, Fei Wei, and Yong Wang. 2025. GPG: A Simple and Strong Reinforcement
+Learning Baseline for Model Reasoning. arXiv preprint arXiv:2504.02546 (2025).
+[19] Huilin Deng, Ding Zou, Rui Ma, Hongchen Luo, Yang Cao, and Yu Kang. 2025. Boosting the generalization and
+reasoning of vision language models with curriculum reinforcement learning. arXiv preprint arXiv:2503.07065 (2025).
+[20] Xiang Deng, Yu Gu, Boyuan Zheng, Shijie Chen, Sam Stevens, Boshi Wang, Huan Sun, and Yu Su. 2023. Mind2web:
+Towards a generalist agent for the web. Advances in Neural Information Processing Systems 36 (2023), 28091–28114.
+[21] Yihe Deng, Hritik Bansal, Fan Yin, Nanyun Peng, Wei Wang, and Kai-Wei Chang. 2025. OpenVLThinker: An Early
+Exploration to Complex Vision-Language Reasoning via Iterative Self-Improvement. arXiv preprint arXiv:2503.17352
+(2025).
+[22] Yuhao Dong, Zuyan Liu, Hai-Long Sun, Jingkang Yang, Winston Hu, Yongming Rao, and Ziwei Liu. 2024. Insight-v:
+Exploring long-chain visual reasoning with multimodal large language models. arXiv preprint arXiv:2411.14432
+(2024).
+[23] Hugging Face. 2025. Open R1: A fully open reproduction of DeepSeek-R1. https://github.com/huggingface/open-r1
+[24] Lizhou Fan, Wenyue Hua, Xiang Li, Kaijie Zhu, Mingyu Jin, Lingyao Li, Haoyang Ling, Jinkui Chi, Jindong Wang,
+Xin Ma, et al. 2024. Nphardeval4v: A dynamic reasoning benchmark of multimodal large language models. arXiv
+preprint arXiv:2403.01777 (2024).
+[25] Ziqing Fan, Cheng Liang, Chaoyi Wu, Ya Zhang, Yanfeng Wang, and Weidi Xie. 2025. ChestX-Reasoner: Advancing
+Radiology Foundation Models with Reasoning through Step-by-Step Verification. arXiv preprint arXiv:2504.20930
+(2025).
+[26] Hao Fei, Shengqiong Wu, Wei Ji, Hanwang Zhang, Meishan Zhang, Mong-Li Lee, and Wynne Hsu. 2024. Video-ofthought: Step-by-step video reasoning from perception to cognition. arXiv preprint arXiv:2501.03230 (2024).
+
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+30
+
+Guanghao Zhou, Panjia Qiu et al.
+
+[27] Kaituo Feng, Kaixiong Gong, Bohao Li, Zonghao Guo, Yibing Wang, Tianshuo Peng, Benyou Wang, and Xiangyu Yue.
+2025. Video-R1: Reinforcing Video Reasoning in MLLMs. arXiv preprint arXiv:2503.21776 (2025).
+[28] Zhang Ge, D Xinrun, C Bei, L Yiming, L Tongxu, Z Tianyu, Z Kang, C Yuyang, X Chunpu, G Shuyue, et al. 2024.
+Cmmmu: A chinese massive multi-discipline multimodal understanding benchmark. arXiv preprint arXiv:2401.20847
+(2024).
+[29] Team GLM, Aohan Zeng, Bin Xu, Bowen Wang, Chenhui Zhang, Da Yin, Dan Zhang, Diego Rojas, Guanyu Feng,
+Hanlin Zhao, et al. 2024. Chatglm: A family of large language models from glm-130b to glm-4 all tools. arXiv preprint
+arXiv:2406.12793 (2024).
+[30] Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha
+Letman, Akhil Mathur, Alan Schelten, Alex Vaughan, et al. 2024. The llama 3 herd of models. arXiv preprint
+arXiv:2407.21783 (2024).
+[31] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi Wang,
+Xiao Bi, et al. 2025. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint
+arXiv:2501.12948 (2025).
+[32] Yunzhuo Hao, Jiawei Gu, Huichen Will Wang, Linjie Li, Zhengyuan Yang, Lijuan Wang, and Yu Cheng. 2025.
+Can MLLMs Reason in Multimodality? EMMA: An Enhanced MultiModal ReAsoning Benchmark. arXiv preprint
+arXiv:2501.05444 (2025).
+[33] Chaoqun He, Renjie Luo, Yuzhuo Bai, Shengding Hu, Zhen Leng Thai, Junhao Shen, Jinyi Hu, Xu Han, Yujie Huang,
+Yuxiang Zhang, et al. 2024. Olympiadbench: A challenging benchmark for promoting agi with olympiad-level bilingual
+multimodal scientific problems. arXiv preprint arXiv:2402.14008 (2024).
+[34] Jian Hu, Xibin Wu, Zilin Zhu, Xianyu, Weixun Wang, Dehao Zhang, and Yu Cao. 2024. OpenRLHF: An Easy-to-use,
+Scalable and High-performance RLHF Framework. arXiv preprint arXiv:2405.11143 (2024).
+[35] Jingcheng Hu, Yinmin Zhang, Qi Han, Daxin Jiang, Xiangyu Zhang, and Heung-Yeung Shum. 2025. Open-reasonerzero: An open source approach to scaling up reinforcement learning on the base model. arXiv preprint arXiv:2503.24290
+(2025).
+[36] Wenxuan Huang, Bohan Jia, Zijie Zhai, Shaosheng Cao, Zheyu Ye, Fei Zhao, Yao Hu, and Shaohui Lin. 2025. Vision-r1:
+Incentivizing reasoning capability in multimodal large language models. arXiv preprint arXiv:2503.06749 (2025).
+[37] Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perelman, Aditya Ramesh, Aidan Clark, AJ Ostrow, Akila Welihinda,
+Alan Hayes, Alec Radford, et al. 2024. Gpt-4o system card. arXiv preprint arXiv:2410.21276 (2024).
+[38] Aaron Jaech, Adam Kalai, Adam Lerer, Adam Richardson, Ahmed El-Kishky, Aiden Low, Alec Helyar, Aleksander
+Madry, Alex Beutel, Alex Carney, et al. 2024. Openai o1 system card. arXiv preprint arXiv:2412.16720 (2024).
+[39] Dongzhi Jiang, Renrui Zhang, Ziyu Guo, Yanwei Li, Yu Qi, Xinyan Chen, Liuhui Wang, Jianhan Jin, Claire Guo, Shen
+Yan, et al. 2025. MME-CoT: Benchmarking Chain-of-Thought in Large Multimodal Models for Reasoning Quality,
+Robustness, and Efficiency. arXiv preprint arXiv:2502.09621 (2025).
+[40] Haoqiang Kang, Enna Sachdeva, Piyush Gupta, Sangjae Bae, and Kwonjoon Lee. 2025. GFlowVLM: Enhancing
+Multi-step Reasoning in Vision-Language Models with Generative Flow Networks. arXiv preprint arXiv:2503.06514
+(2025).
+[41] Jihyung Kil, Zheda Mai, Justin Lee, Arpita Chowdhury, Zihe Wang, Kerrie Cheng, Lemeng Wang, Ye Liu, and WeiLun Harry Chao. 2024. Mllm-compbench: A comparative reasoning benchmark for multimodal llms. Advances in
+Neural Information Processing Systems 37 (2024), 28798–28827.
+[42] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao, Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer
+Whitehead, Alexander C Berg, Wan-Yen Lo, et al. 2023. Segment anything. In Proceedings of the IEEE/CVF international
+conference on computer vision. 4015–4026.
+[43] Harold W Kuhn. 1955. The Hungarian method for the assignment problem. Naval research logistics quarterly 2, 1-2
+(1955), 83–97.
+[44] Gang Li, Jizhong Liu, Heinrich Dinkel, Yadong Niu, Junbo Zhang, and Jian Luan. 2025. Reinforcement Learning
+Outperforms Supervised Fine-Tuning: A Case Study on Audio Question Answering. arXiv preprint arXiv:2503.11197
+(2025).
+[45] Lin Li, Wei Chen, Jiahui Li, and Long Chen. 2025. Relation-R1: Cognitive Chain-of-Thought Guided Reinforcement
+Learning for Unified Relational Comprehension. arXiv preprint arXiv:2504.14642 (2025).
+[46] Shenggui Li, Hongxin Liu, Zhengda Bian, Jiarui Fang, Haichen Huang, Yuliang Liu, Boxiang Wang, and Yang You. 2023.
+Colossal-AI: A Unified Deep Learning System For Large-Scale Parallel Training. In Proceedings of the 52nd International
+Conference on Parallel Processing (Salt Lake City, UT, USA) (ICPP ’23). Association for Computing Machinery, New
+York, NY, USA, 766–775. doi:10.1145/3605573.3605613
+[47] Weiqi Li, Xuanyu Zhang, Shijie Zhao, Yabin Zhang, Junlin Li, Li Zhang, and Jian Zhang. 2025. Q-Insight: Understanding
+Image Quality via Visual Reinforcement Learning. arXiv preprint arXiv:2503.22679 (2025).
+
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+31
+
+[48] Xinhao Li, Ziang Yan, Desen Meng, Lu Dong, Xiangyu Zeng, Yinan He, Yali Wang, Yu Qiao, Yi Wang, and Limin
+Wang. 2025. VideoChat-R1: Enhancing Spatio-Temporal Perception via Reinforcement Fine-Tuning. arXiv preprint
+arXiv:2504.06958 (2025).
+[49] Zhenyi Liao, Qingsong Xie, Yanhao Zhang, Zijian Kong, Haonan Lu, Zhenyu Yang, and Zhijie Deng. 2025. Improved
+visual-spatial reasoning via r1-zero-like training. arXiv preprint arXiv:2504.00883 (2025).
+[50] Yujie Lin, Ante Wang, Moye Chen, Jingyao Liu, Hao Liu, Jinsong Su, and Xinyan Xiao. 2025. Investigating Inferencetime Scaling for Chain of Multi-modal Thought: A Preliminary Study. arXiv preprint arXiv:2502.11514 (2025).
+[51] Zhihang Lin, Mingbao Lin, Yuan Xie, and Rongrong Ji. 2025. Cppo: Accelerating the training of group relative policy
+optimization-based reasoning models. arXiv preprint arXiv:2503.22342 (2025).
+[52] Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. 2024. Improved baselines with visual instruction tuning. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. 26296–26306.
+[53] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. 2023. Visual instruction tuning. Advances in neural
+information processing systems 36 (2023), 34892–34916.
+[54] Wentao Liu, Qianjun Pan, Yi Zhang, Zhuo Liu, Ji Wu, Jie Zhou, Aimin Zhou, Qin Chen, Bo Jiang, and Liang He.
+2024. Cmm-math: A chinese multimodal math dataset to evaluate and enhance the mathematics reasoning of large
+multimodal models. arXiv preprint arXiv:2409.02834 (2024).
+[55] Xiangyan Liu, Jinjie Ni, Zijian Wu, Chao Du, Longxu Dou, Haonan Wang, Tianyu Pang, and Michael Qizhe Shieh.
+2025. NoisyRollout: Reinforcing Visual Reasoning with Data Augmentation. arXiv preprint arXiv:2504.13055 (2025).
+[56] Yuhang Liu, Pengxiang Li, Zishu Wei, Congkai Xie, Xueyu Hu, Xinchen Xu, Shengyu Zhang, Xiaotian Han, Hongxia
+Yang, and Fei Wu. 2025. InfiGUIAgent: A Multimodal Generalist GUI Agent with Native Reasoning and Reflection.
+arXiv preprint arXiv:2501.04575 (2025).
+[57] Yuhang Liu, Pengxiang Li, Congkai Xie, Xavier Hu, Xiaotian Han, Shengyu Zhang, Hongxia Yang, and Fei Wu. 2025.
+InfiGUI-R1: Advancing Multimodal GUI Agents from Reactive Actors to Deliberative Reasoners. arXiv preprint
+arXiv:2504.14239 (2025).
+[58] Yuqi Liu, Bohao Peng, Zhisheng Zhong, Zihao Yue, Fanbin Lu, Bei Yu, and Jiaya Jia. 2025. Seg-zero: Reasoning-chain
+guided segmentation via cognitive reinforcement. arXiv preprint arXiv:2503.06520 (2025).
+[59] Zichen Liu, Changyu Chen, Wenjun Li, Penghui Qi, Tianyu Pang, Chao Du, Wee Sun Lee, and Min Lin. 2025.
+Understanding r1-zero-like training: A critical perspective. arXiv preprint arXiv:2503.20783 (2025).
+[60] Ziqiang Liu, Feiteng Fang, Xi Feng, Xeron Du, Chenhao Zhang, Noah Wang, Qixuan Zhao, Liyang Fan, CHENGGUANG
+GAN, Hongquan Lin, et al. 2024. Ii-bench: An image implication understanding benchmark for multimodal large
+language models. Advances in Neural Information Processing Systems 37 (2024), 46378–46480.
+[61] Ziyu Liu, Zeyi Sun, Yuhang Zang, Xiaoyi Dong, Yuhang Cao, Haodong Duan, Dahua Lin, and Jiaqi Wang. 2025.
+Visual-rft: Visual reinforcement fine-tuning. arXiv preprint arXiv:2503.01785 (2025).
+[62] Zhiyuan Liu, Yuting Zhang, Feng Liu, Changwang Zhang, Ying Sun, and Jun Wang. 2025. OThink-MR1: Stimulating multimodal generalized reasoning capabilities through dynamic reinforcement learning. arXiv preprint
+arXiv:2503.16081 (2025).
+[63] Pan Lu, Hritik Bansal, Tony Xia, Jiacheng Liu, Chunyuan Li, Hannaneh Hajishirzi, Hao Cheng, Kai-Wei Chang, Michel
+Galley, and Jianfeng Gao. 2023. Mathvista: Evaluating math reasoning in visual contexts with gpt-4v, bard, and other
+large multimodal models. CoRR (2023).
+[64] Pan Lu, Swaroop Mishra, Tanglin Xia, Liang Qiu, Kai-Wei Chang, Song-Chun Zhu, Oyvind Tafjord, Peter Clark, and
+Ashwin Kalyan. 2022. Learn to explain: Multimodal reasoning via thought chains for science question answering.
+Advances in Neural Information Processing Systems 35 (2022), 2507–2521.
+[65] Zhengxi Lu, Yuxiang Chai, Yaxuan Guo, Xi Yin, Liang Liu, Hao Wang, Guanjing Xiong, and Hongsheng Li. 2025.
+UI-R1: Enhancing Action Prediction of GUI Agents by Reinforcement Learning. arXiv preprint arXiv:2503.21620
+(2025).
+[66] Ruipu Luo, Ziwang Zhao, Min Yang, Junwei Dong, Da Li, Pengcheng Lu, Tao Wang, Linmei Hu, Minghui Qiu, and
+Zhongyu Wei. 2023. Valley: Video assistant with large language model enhanced ability. arXiv preprint arXiv:2306.07207
+(2023).
+[67] Julius Mayer, Mohamad Ballout, Serwan Jassim, Farbod Nosrat Nezami, and Elia Bruni. 2025. iVISPAR–An Interactive
+Visual-Spatial Reasoning Benchmark for VLMs. arXiv preprint arXiv:2502.03214 (2025).
+[68] Jincheng Mei, Chenjun Xiao, Ruitong Huang, Dale Schuurmans, and Martin Müller. 2019. On principled entropy
+exploration in policy optimization. In Proceedings of the 28th International Joint Conference on Artificial Intelligence.
+3130–3136.
+[69] Fanqing Meng, Lingxiao Du, Zongkai Liu, Zhixiang Zhou, Quanfeng Lu, Daocheng Fu, Botian Shi, Wenhai Wang,
+Junjun He, Kaipeng Zhang, et al. 2025. MM-Eureka: Exploring Visual Aha Moment with Rule-based Large-scale
+Reinforcement Learning. arXiv preprint arXiv:2503.07365 (2025).
+[70] Kun Ouyang. 2025. Spatial-R1: Enhancing MLLMs in Video Spatial Reasoning. arXiv preprint arXiv:2504.01805 (2025).
+
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+32
+
+Guanghao Zhou, Panjia Qiu et al.
+
+[71] Kun Ouyang, Yuanxin Liu, Shicheng Li, Yi Liu, Hao Zhou, Fandong Meng, Jie Zhou, and Xu Sun. 2024. PunchBench:
+Benchmarking MLLMs in Multimodal Punchline Comprehension. arXiv preprint arXiv:2412.11906 (2024).
+[72] Jiazhen Pan, Che Liu, Junde Wu, Fenglin Liu, Jiayuan Zhu, Hongwei Bran Li, Chen Chen, Cheng Ouyang, and
+Daniel Rueckert. 2025. Medvlm-r1: Incentivizing medical reasoning capability of vision-language models (vlms) via
+reinforcement learning. arXiv preprint arXiv:2502.19634 (2025).
+[73] Zhenyu Pan and Han Liu. 2025. MetaSpatial: Reinforcing 3D Spatial Reasoning in VLMs for the Metaverse. arXiv
+preprint arXiv:2503.18470 (2025).
+[74] Yingzhe Peng, Gongrui Zhang, Miaosen Zhang, Zhiyuan You, Jie Liu, Qipeng Zhu, Kai Yang, Xingzhong Xu, Xin Geng,
+and Xu Yang. 2025. Lmm-r1: Empowering 3b lmms with strong reasoning abilities through two-stage rule-based rl.
+arXiv preprint arXiv:2503.07536 (2025).
+[75] Yukun Qi, Yiming Zhao, Yu Zeng, Xikun Bao, Wenxuan Huang, Lin Chen, Zehui Chen, Jie Zhao, Zhongang Qi, and
+Feng Zhao. 2025. VCR-Bench: A Comprehensive Evaluation Framework for Video Chain-of-Thought Reasoning.
+arXiv preprint arXiv:2504.07956 (2025).
+[76] Runqi Qiao, Qiuna Tan, Guanting Dong, Minhui Wu, Chong Sun, Xiaoshuai Song, Zhuoma GongQue, Shanglin Lei,
+Zhe Wei, Miaoxuan Zhang, et al. 2024. We-math: Does your large multimodal model achieve human-like mathematical
+reasoning? arXiv preprint arXiv:2407.01284 (2024).
+[77] Jeff Rasley, Samyam Rajbhandari, Olatunji Ruwase, and Yuxiong He. 2020. Deepspeed: System optimizations enable
+training deep learning models with over 100 billion parameters. In Proceedings of the 26th ACM SIGKDD international
+conference on knowledge discovery & data mining. 3505–3506.
+[78] Jonathan Roberts, Mohammad Reza Taesiri, Ansh Sharma, Akash Gupta, Samuel Roberts, Ioana Croitoru, Simion-Vlad
+Bogolin, Jialu Tang, Florian Langer, Vyas Raina, et al. [n. d.]. ZeroBench: An impossible visual benchmark for
+contemporary large multimodal models, 2025. URL https://arxiv. org/abs/2502.09696 ([n. d.]).
+[79] John Schulman, Philipp Moritz, Sergey Levine, Michael Jordan, and Pieter Abbeel. 2015. High-dimensional continuous
+control using generalized advantage estimation. arXiv preprint arXiv:1506.02438 (2015).
+[80] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. 2017. Proximal policy optimization
+algorithms. arXiv preprint arXiv:1707.06347 (2017).
+[81] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li,
+Y Wu, et al. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv
+preprint arXiv:2402.03300 (2024).
+[82] Haozhan Shen, Peng Liu, Jingcheng Li, Chunxin Fang, Yibo Ma, Jiajia Liao, Qiaoli Shen, Zilun Zhang, Kangjia Zhao,
+Qianqian Zhang, et al. 2025. Vlm-r1: A stable and generalizable r1-style large vision-language model. arXiv preprint
+arXiv:2504.07615 (2025).
+[83] Guangming Sheng, Chi Zhang, Zilingfeng Ye, Xibin Wu, Wang Zhang, Ru Zhang, Yanghua Peng, Haibin Lin, and
+Chuan Wu. 2024. HybridFlow: A Flexible and Efficient RLHF Framework. arXiv preprint arXiv: 2409.19256 (2024).
+[84] Chufan Shi, Cheng Yang, Yaxin Liu, Bo Shui, Junjie Wang, Mohan Jing, Linran Xu, Xinyu Zhu, Siheng Li, Yuxiang
+Zhang, et al. 2024. Chartmimic: Evaluating lmm’s cross-modal reasoning capability via chart-to-code generation.
+arXiv preprint arXiv:2406.09961 (2024).
+[85] Zirui Song, Jingpu Yang, Yuan Huang, Jonathan Tonglet, Zeyu Zhang, Tao Cheng, Meng Fang, Iryna Gurevych,
+and Xiuying Chen. 2025. Geolocation with Real Human Gameplay Data: A Large-Scale Dataset and Human-Like
+Reasoning Framework. arXiv preprint arXiv:2502.13759 (2025).
+[86] Guangzhi Sun, Yudong Yang, Jimin Zhuang, Changli Tang, Yixuan Li, Wei Li, Zejun MA, and Chao Zhang. 2025.
+video-SALMONN-o1: Reasoning-enhanced Audio-visual Large Language Model. arXiv preprint arXiv:2502.11775
+(2025).
+[87] Richard S Sutton, Andrew G Barto, et al. 1998. Reinforcement learning: An introduction. Vol. 1. MIT press Cambridge.
+[88] Huajie Tan, Yuheng Ji, Xiaoshuai Hao, Minglan Lin, Pengwei Wang, Zhongyuan Wang, and Shanghang Zhang. 2025.
+Reason-RFT: Reinforcement Fine-Tuning for Visual Reasoning. arXiv preprint arXiv:2503.20752 (2025).
+[89] Gemini Team, Rohan Anil, Sebastian Borgeaud, Jean-Baptiste Alayrac, Jiahui Yu, Radu Soricut, Johan Schalkwyk,
+Andrew M Dai, Anja Hauth, Katie Millican, et al. 2023. Gemini: a family of highly capable multimodal models. arXiv
+preprint arXiv:2312.11805 (2023).
+[90] Gemini Team, Petko Georgiev, Ving Ian Lei, Ryan Burnell, Libin Bai, Anmol Gulati, Garrett Tanzer, Damien Vincent,
+Zhufeng Pan, Shibo Wang, et al. 2024. Gemini 1.5: Unlocking multimodal understanding across millions of tokens of
+context. arXiv preprint arXiv:2403.05530 (2024).
+[91] Kimi Team, Angang Du, Bofei Gao, Bowei Xing, Changjiu Jiang, Cheng Chen, Cheng Li, Chenjun Xiao, Chenzhuang
+Du, Chonghua Liao, et al. 2025. Kimi k1. 5: Scaling reinforcement learning with llms. arXiv preprint arXiv:2501.12599
+(2025).
+[92] Kimi Team, Angang Du, Bohong Yin, Bowei Xing, Bowen Qu, Bowen Wang, Cheng Chen, Chenlin Zhang, Chenzhuang
+Du, Chu Wei, et al. 2025. Kimi-vl technical report. arXiv preprint arXiv:2504.07491 (2025).
+
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+33
+
+[93] Omkar Thawakar, Dinura Dissanayake, Ketan More, Ritesh Thawkar, Ahmed Heakl, Noor Ahsan, Yuhao Li, Mohammed Zumri, Jean Lahoud, Rao Muhammad Anwer, et al. 2025. Llamav-o1: Rethinking step-by-step visual reasoning
+in llms. arXiv preprint arXiv:2501.06186 (2025).
+[94] Vernon YH Toh, Yew Ken Chia, Deepanway Ghosal, and Soujanya Poria. 2025. The Jumping Reasoning Curve?
+Tracking the Evolution of Reasoning Performance in GPT-[n] and o-[n] Models on Multimodal Puzzles. arXiv preprint
+arXiv:2502.01081 (2025).
+[95] Manan Tomar, Lior Shani, Yonathan Efroni, and Mohammad Ghavamzadeh. 2020. Mirror descent policy optimization.
+arXiv preprint arXiv:2005.09814 (2020).
+[96] Leandro von Werra, Younes Belkada, Lewis Tunstall, Edward Beeching, Tristan Thrush, Nathan Lambert, Shengyi
+Huang, Kashif Rasul, and Quentin Gallouédec. 2020. TRL: Transformer Reinforcement Learning. https://github.com/
+huggingface/trl.
+[97] Haozhe Wang, Chao Qu, Zuming Huang, Wei Chu, Fangzhen Lin, and Wenhu Chen. 2025. VL-Rethinker: Incentivizing
+Self-Reflection of Vision-Language Models with Reinforcement Learning. arXiv preprint arXiv:2504.08837 (2025).
+[98] Hongyu Wang, Jiayu Xu, Senwei Xie, Ruiping Wang, Jialin Li, Zhaojie Xie, Bin Zhang, Chuyan Xiong, and Xilin
+Chen. 2024. M4u: Evaluating multilingual understanding and reasoning for large multimodal models. arXiv preprint
+arXiv:2405.15638 (2024).
+[99] Ke Wang, Junting Pan, Weikang Shi, Zimu Lu, Houxing Ren, Aojun Zhou, Mingjie Zhan, and Hongsheng Li. 2024.
+Measuring multimodal mathematical reasoning with math-vision dataset. Advances in Neural Information Processing
+Systems 37 (2024), 95095–95169.
+[100] Peng Wang, Shuai Bai, Sinan Tan, Shijie Wang, Zhihao Fan, Jinze Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin
+Ge, et al. 2024. Qwen2-vl: Enhancing vision-language model’s perception of the world at any resolution. arXiv
+preprint arXiv:2409.12191 (2024).
+[101] Peijie Wang, Zhongzhi Li, Fei Yin, Dekang Ran, and Chenglin Liu. 2025. MV-MATH: Evaluating Multimodal Math
+Reasoning in Multi-Visual Contexts. arXiv preprint arXiv:2502.20808 (2025).
+[102] Xingrui Wang, Wufei Ma, Tiezheng Zhang, Celso M de Melo, Jieneng Chen, and Alan Yuille. 2025. PulseCheck457:
+A Diagnostic Benchmark for Comprehensive Spatial Reasoning of Large Multimodal Models. arXiv preprint
+arXiv:2502.08636 (2025).
+[103] Xiyao Wang, Zhengyuan Yang, Chao Feng, Hongjin Lu, Linjie Li, Chung-Ching Lin, Kevin Lin, Furong Huang,
+and Lijuan Wang. 2025. SoTA with Less: MCTS-Guided Sample Selection for Data-Efficient Visual Reasoning
+Self-Improvement. arXiv preprint arXiv:2504.07934 (2025).
+[104] Xuezhi Wang and Denny Zhou. 2024. Chain-of-thought reasoning without prompting. arXiv preprint arXiv:2402.10200
+(2024).
+[105] Yaoting Wang, Shengqiong Wu, Yuecheng Zhang, William Wang, Ziwei Liu, Jiebo Luo, and Hao Fei. 2025. Multimodal
+chain-of-thought reasoning: A comprehensive survey. arXiv preprint arXiv:2503.12605 (2025).
+[106] Zirui Wang, Mengzhou Xia, Luxi He, Howard Chen, Yitao Liu, Richard Zhu, Kaiqu Liang, Xindi Wu, Haotian Liu,
+Sadhika Malladi, et al. 2024. Charxiv: Charting gaps in realistic chart understanding in multimodal llms. Advances in
+Neural Information Processing Systems 37 (2024), 113569–113697.
+[107] Jason Wei, Yi Tay, Rishi Bommasani, Colin Raffel, Barret Zoph, Sebastian Borgeaud, Dani Yogatama, Maarten Bosma,
+Denny Zhou, Donald Metzler, et al. 2022. Emergent abilities of large language models. arXiv preprint arXiv:2206.07682
+(2022).
+[108] Yichen Wei, Yi Peng, Xiaokun Wang, Weijie Qiu, Wei Shen, Tianyidan Xie, Jiangbo Pei, Jianhao Zhang, Yunzhuo Hao,
+Xuchen Song, et al. 2025. Skywork R1V2: Multimodal Hybrid Reinforcement Learning for Reasoning. arXiv preprint
+arXiv:2504.16656 (2025).
+[109] Cheng Wen, Tingwei Guo, Shuaijiang Zhao, Wei Zou, and Xiangang Li. 2025. SARI: Structured Audio Reasoning via
+Curriculum-Guided Reinforcement Learning. arXiv preprint arXiv:2504.15900 (2025).
+[110] Chengyue Wu, Yixiao Ge, Qiushan Guo, Jiahao Wang, Zhixuan Liang, Zeyu Lu, Ying Shan, and Ping Luo. 2024.
+Plot2code: A comprehensive benchmark for evaluating multi-modal large language models in code generation from
+scientific plots. arXiv preprint arXiv:2405.07990 (2024).
+[111] Penghao Wu and Saining Xie. 2024. V?: Guided visual search as a core mechanism in multimodal llms. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. 13084–13094.
+[112] Ziheng Wu, Zhenghao Chen, Ruipu Luo, Can Zhang, Yuan Gao, Zhentao He, Xian Wang, Haoran Lin, and Minghui Qiu.
+2025. Valley2: Exploring Multimodal Models with Scalable Vision-Language Design. arXiv preprint arXiv:2501.05901
+(2025).
+[113] Zhiyong Wu, Yaoxiang Wang, Jiacheng Ye, and Lingpeng Kong. 2022. Self-adaptive in-context learning: An information
+compression perspective for in-context example selection and ordering. arXiv preprint arXiv:2212.10375 (2022).
+[114] Xiaobo Xia and Run Luo. 2025. GUI-R1: A Generalist R1-Style Vision-Language Action Model For GUI Agents. arXiv
+preprint arXiv:2504.10458 (2025).
+
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+34
+
+Guanghao Zhou, Panjia Qiu et al.
+
+[115] Wenyi Xiao, Leilei Gan, Weilong Dai, Wanggui He, Ziwei Huang, Haoyuan Li, Fangxun Shu, Zhelun Yu, Peng
+Zhang, Hao Jiang, et al. 2025. Fast-Slow Thinking for Large Vision-Language Model Reasoning. arXiv preprint
+arXiv:2504.18458 (2025).
+[116] Yijia Xiao, Edward Sun, Tianyu Liu, and Wei Wang. 2024. Logicvista: Multimodal llm logical reasoning benchmark in
+visual contexts. arXiv preprint arXiv:2407.04973 (2024).
+[117] Yuxi Xie, Anirudh Goyal, Wenyue Zheng, Min-Yen Kan, Timothy P Lillicrap, Kenji Kawaguchi, and Michael Shieh.
+2024. Monte carlo tree search boosts reasoning via iterative preference learning. arXiv preprint arXiv:2405.00451
+(2024).
+[118] Guowei Xu, Peng Jin, Li Hao, Yibing Song, Lichao Sun, and Li Yuan. 2024. Llava-o1: Let vision language models
+reason step-by-step. arXiv preprint arXiv:2411.10440 (2024).
+[119] Jin Xu, Zhifang Guo, Jinzheng He, Hangrui Hu, Ting He, Shuai Bai, Keqin Chen, Jialin Wang, Yang Fan, Kai Dang,
+et al. 2025. Qwen2. 5-Omni Technical Report. arXiv preprint arXiv:2503.20215 (2025).
+[120] Liangyu Xu, Yingxiu Zhao, Jingyun Wang, Yingyao Wang, Bu Pi, Chen Wang, Mingliang Zhang, Jihao Gu, Xiang Li,
+Xiaoyong Zhu, et al. 2025. GeoSense: Evaluating Identification and Application of Geometric Principles in Multimodal
+Reasoning. arXiv preprint arXiv:2504.12597 (2025).
+[121] Weiye Xu, Jiahao Wang, Weiyun Wang, Zhe Chen, Wengang Zhou, Aijun Yang, Lewei Lu, Houqiang Li, Xiaohua
+Wang, Xizhou Zhu, et al. 2025. VisuLogic: A Benchmark for Evaluating Visual Reasoning in Multi-modal Large
+Language Models. arXiv preprint arXiv:2504.15279 (2025).
+[122] Zhengzhuo Xu, Sinan Du, Yiyan Qi, Chengjin Xu, Chun Yuan, and Jian Guo. 2023. Chartbench: A benchmark for
+complex visual reasoning in charts. arXiv preprint arXiv:2312.15915 (2023).
+[123] An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang,
+Haoran Wei, et al. 2024. Qwen2. 5 technical report. arXiv preprint arXiv:2412.15115 (2024).
+[124] Yi Yang, Xiaoxuan He, Hongkun Pan, Xiyan Jiang, Yan Deng, Xingtao Yang, Haoyu Lu, Dacheng Yin, Fengyun
+Rao, Minfeng Zhu, et al. 2025. R1-onevision: Advancing generalized multimodal reasoning through cross-modal
+formalization. arXiv preprint arXiv:2503.10615 (2025).
+[125] Huanjin Yao, Jiaxing Huang, Wenhao Wu, Jingyi Zhang, Yibo Wang, Shunyu Liu, Yingjie Wang, Yuxin Song, Haocheng
+Feng, Li Shen, et al. 2024. Mulberry: Empowering mllm with o1-like reasoning and reflection via collective monte
+carlo tree search. arXiv preprint arXiv:2412.18319 (2024).
+[126] Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Tom Griffiths, Yuan Cao, and Karthik Narasimhan. 2023. Tree of
+thoughts: Deliberate problem solving with large language models. Advances in neural information processing systems
+36 (2023), 11809–11822.
+[127] Shenzhi Wang Zhangchi Feng Dongdong Kuang Yuwen Xiong Yaowei Zheng, Junting Lu. 2025. EasyR1: An Efficient,
+Scalable, Multi-Modality RL Training Framework. https://github.com/hiyouga/EasyR1.
+[128] Xiaokun Wang Yichen Wei Jiangbo Pei Weijie Qiu Ai Jian Yunzhuo Hao Jiachun Pan Tianyidan Xie Li Ge Rongxian
+Zhuang Xuchen Song Yang Liu Yahui Zhou Yi Peng, Chris. 2025. Skywork R1V: Pioneering Multimodal Reasoning
+with Chain-of-Thought. (2025).
+[129] En Yu, Kangheng Lin, Liang Zhao, Jisheng Yin, Yana Wei, Yuang Peng, Haoran Wei, Jianjian Sun, Chunrui Han,
+Zheng Ge, et al. 2025. Perception-R1: Pioneering Perception Policy with Reinforcement Learning. arXiv preprint
+arXiv:2504.07954 (2025).
+[130] Qiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yu Yue, Tiantian Fan, Gaohong Liu, Lingjun Liu,
+Xin Liu, et al. 2025. Dapo: An open-source llm reinforcement learning system at scale. arXiv preprint arXiv:2503.14476
+(2025).
+[131] Yufeng Yuan, Qiying Yu, Xiaochen Zuo, Ruofei Zhu, Wenyuan Xu, Jiaze Chen, Chengyi Wang, TianTian Fan, Zhengyin
+Du, Xiangpeng Wei, et al. 2025. VAPO: Efficient and reliable reinforcement learning for advanced reasoning tasks.
+arXiv preprint arXiv:2504.05118 (2025).
+[132] Yufeng Yuan, Yu Yue, Ruofei Zhu, Tiantian Fan, and Lin Yan. 2025. What’s Behind PPO’s Collapse in Long-CoT?
+Value Optimization Holds the Secret. arXiv preprint arXiv:2503.01491 (2025).
+[133] Xiang Yue, Yuansheng Ni, Kai Zhang, Tianyu Zheng, Ruoqi Liu, Ge Zhang, Samuel Stevens, Dongfu Jiang, Weiming
+Ren, Yuxuan Sun, et al. 2024. Mmmu: A massive multi-discipline multimodal understanding and reasoning benchmark
+for expert agi. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. 9556–9567.
+[134] Xiang Yue, Tianyu Zheng, Yuansheng Ni, Yubo Wang, Kai Zhang, Shengbang Tong, Yuxuan Sun, Botao Yu, Ge Zhang,
+Huan Sun, et al. 2024. Mmmu-pro: A more robust multi-discipline multimodal understanding benchmark. arXiv
+preprint arXiv:2409.02813 (2024).
+[135] Yufei Zhan, Hongyin Zhao, Yousong Zhu, Fan Yang, Ming Tang, and Jinqiao Wang. 2024. Griffon-G: Bridging
+Vision-Language and Vision-Centric Tasks via Large Multimodal Models. arXiv preprint arXiv:2410.16163 (2024).
+[136] Yufei Zhan, Yousong Zhu, Shurong Zheng, Hongyin Zhao, Fan Yang, Ming Tang, and Jinqiao Wang. 2025. Vision-r1:
+Evolving human-free alignment in large vision-language models via vision-guided reinforcement learning. arXiv
+
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+Reinforced MLLM: A Survey on RL-Based Reasoning in Multimodal Large Language Models
+
+35
+
+preprint arXiv:2503.18013 (2025).
+[137] Chenhao Zhang, Xi Feng, Yuelin Bai, Xinrun Du, Jinchang Hou, Kaixin Deng, Guangzeng Han, Qinrui Li, Bingli
+Wang, Jiaheng Liu, et al. 2024. Can MLLMs Understand the Deep Implication Behind Chinese Images? arXiv preprint
+arXiv:2410.13854 (2024).
+[138] Fengji Zhang, Linquan Wu, Huiyu Bai, Guancheng Lin, Xiao Li, Xiao Yu, Yue Wang, Bei Chen, and Jacky Keung.
+2024. HumanEval-V: Evaluating Visual Understanding and Reasoning Abilities of Large Multimodal Models Through
+Coding Tasks. arXiv preprint arXiv:2410.12381 (2024).
+[139] Jingyi Zhang, Jiaxing Huang, Huanjin Yao, Shunyu Liu, Xikun Zhang, Shijian Lu, and Dacheng Tao. 2025. R1-vl:
+Learning to reason with multimodal large language models via step-wise group relative policy optimization. arXiv
+preprint arXiv:2503.12937 (2025).
+[140] Renrui Zhang, Dongzhi Jiang, Yichi Zhang, Haokun Lin, Ziyu Guo, Pengshuo Qiu, Aojun Zhou, Pan Lu, Kai-Wei
+Chang, Yu Qiao, et al. 2024. Mathverse: Does your multi-modal llm truly see the diagrams in visual math problems?.
+In European Conference on Computer Vision. Springer, 169–186.
+[141] Ruohong Zhang, Bowen Zhang, Yanghao Li, Haotian Zhang, Zhiqing Sun, Zhe Gan, Yinfei Yang, Ruoming Pang, and
+Yiming Yang. 2024. Improve vision language model chain-of-thought reasoning. arXiv preprint arXiv:2410.16198
+(2024).
+[142] Xingjian Zhang, Siwei Wen, Wenjun Wu, and Lei Huang. 2025. TinyLLaVA-Video-R1: Towards Smaller LMMs for
+Video Reasoning. arXiv preprint arXiv:2504.09641 (2025).
+[143] Baining Zhao, Ziyou Wang, Jianjie Fang, Chen Gao, Fanhang Man, Jinqiang Cui, Xin Wang, Xinlei Chen, Yong Li, and
+Wenwu Zhu. 2025. Embodied-R: Collaborative Framework for Activating Embodied Spatial Reasoning in Foundation
+Models via Reinforcement Learning. arXiv preprint arXiv:2504.12680 (2025).
+[144] Jiaxing Zhao, Xihan Wei, and Liefeng Bo. 2025. R1-Omni: Explainable Omni-Multimodal Emotion Recognition with
+Reinforcing Learning. arXiv preprint arXiv:2503.05379 (2025).
+[145] Qi Zhao, Shijie Wang, Ce Zhang, Changcheng Fu, Minh Quan Do, Nakul Agarwal, Kwonjoon Lee, and Chen Sun. 2023.
+Antgpt: Can large language models help long-term action anticipation from videos? arXiv preprint arXiv:2307.16368
+(2023).
+[146] Yaowei Zheng, Richong Zhang, Junhao Zhang, Yanhan Ye, Zheyan Luo, Zhangchi Feng, and Yongqiang Ma. 2024.
+LlamaFactory: Unified Efficient Fine-Tuning of 100+ Language Models. In Proceedings of the 62nd Annual Meeting
+of the Association for Computational Linguistics (Volume 3: System Demonstrations). Association for Computational
+Linguistics, Bangkok, Thailand. http://arxiv.org/abs/2403.13372
+[147] Hengguang Zhou, Xirui Li, Ruochen Wang, Minhao Cheng, Tianyi Zhou, and Cho-Jui Hsieh. 2025. R1-Zero’s" Aha
+Moment" in Visual Reasoning on a 2B Non-SFT Model. arXiv preprint arXiv:2503.05132 (2025).
+[148] Minxuan Zhou, Hao Liang, Tianpeng Li, Zhiyu Wu, Mingan Lin, Linzhuang Sun, Yaqi Zhou, Yan Zhang, Xiaoqin
+Huang, Yicong Chen, et al. 2024. Mathscape: Evaluating mllms in multimodal math scenarios through a hierarchical
+benchmark. arXiv preprint arXiv:2408.07543 (2024).
+[149] Pengfei Zhou, Fanrui Zhang, Xiaopeng Peng, Zhaopan Xu, Jiaxin Ai, Yansheng Qiu, Chuanhao Li, Zhen Li, Ming Li,
+Yukang Feng, et al. 2025. MDK12-Bench: A Multi-Discipline Benchmark for Evaluating Reasoning in Multimodal
+Large Language Models. arXiv preprint arXiv:2504.05782 (2025).
+[150] Jinguo Zhu, Weiyun Wang, Zhe Chen, Zhaoyang Liu, Shenglong Ye, Lixin Gu, Yuchen Duan, Hao Tian, Weijie Su,
+Jie Shao, et al. 2025. InternVL3: Exploring Advanced Training and Test-Time Recipes for Open-Source Multimodal
+Models. arXiv preprint arXiv:2504.10479 (2025).
+[151] Zifeng Zhu, Mengzhao Jia, Zhihan Zhang, Lang Li, and Meng Jiang. 2024. Multichartqa: Benchmarking vision-language
+models on multi-chart problems. arXiv preprint arXiv:2410.14179 (2024).
+[152] Yi Zong and Xipeng Qiu. 2024. GAOKAO-MM: A Chinese Human-Level Benchmark for Multimodal Models Evaluation.
+arXiv preprint arXiv:2402.15745 (2024).
+
+Received 20 February 2007; revised 12 March 2009; accepted 5 June 2009
+
+, Vol. 1, No. 1, Article . Publication date: May 2025.
+
+

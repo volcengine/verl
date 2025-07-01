@@ -1,0 +1,942 @@
+arXiv:2506.08440v1 [cs.RO] 10 Jun 2025
+
+TGRPO: Fine-tuning Vision-Language-Action Model
+via Trajectory-wise Group Relative Policy
+Optimization
+
+Zengjue Chen∗, Runliang Niu, He Kong, Qi Wang†
+School of Artificial Intelligence, Jilin University
+ChangChun, China.
+
+Abstract
+Recent advances in Vision-Language-Action (VLA) model have demonstrated
+strong generalization capabilities across diverse scenes, tasks, and robotic platforms
+when pretrained at large-scale datasets. However, these models still require taskspecific fine-tuning in novel environments, a process that relies almost exclusively
+on supervised fine-tuning (SFT) using static trajectory datasets. Such approaches
+neither allow robot to interact with environment nor do they leverage feedback
+from live execution. Also, their success is critically dependent on the size and
+quality of the collected trajectories. Reinforcement learning (RL) offers a promising
+alternative by enabling closed-loop interaction and aligning learned policies directly
+with task objectives. In this work, we draw inspiration from the ideas of GRPO and
+propose the Trajectory-wise Group Relative Policy Optimization (TGRPO) method.
+By fusing step-level and trajectory-level advantage signals, this method improves
+GRPO’s group-level advantage estimation, thereby making the algorithm more
+suitable for online reinforcement learning training of VLA. Experimental results on
+ten manipulation tasks from the libero-object benchmark demonstrate that TGRPO
+consistently outperforms various baseline methods, capable of generating more
+robust and efficient policies across multiple tested scenarios. Our source codes are
+available at: https://github.com/hahans/TGRPO
+
+1
+
+Introduction
+
+The Vision-Language-Action (VLA) model [2, 3, 20, 22, 10, 4, 6] has been demonstrated multiple
+times to be one of the effective approaches to general robotic policies. After being integrated with
+large language models, foundational vision models [27, 36], and other components, and pre-trained on
+large-scale robotic datasets [19, 28, 11, 5], VLA demonstrates excellent performance across different
+scenarios, robots, and tasks. Despite its successes, VLA has notable limitations. When applied to
+new tasks, robots, or scenarios, specifically, situations not encountered in its pre-training data—it
+cannot match the zero-shot performance capabilities of large language models. In other words,
+VLA still requires fine-tuning when tackling unfamiliar tasks. Current fine-tuning methods rely on
+Supervised Fine-Tuning (SFT), a process heavily reliant on the quality and quantity of the dataset
+used during training. If the collected trajectories lack diversity, VLA often fails when encountering
+varied circumstances within the same task or environment. More crucially, SFT does not enable
+robots to interact dynamically with their environments in real time. Instead, it relies on human
+operation, which can lead VLA to merely memorize actions rather than learn to align its action with
+environmental context [9].
+1
+2
+
+Email: zengjue24@mails.jlu.edu.cn
+Corresponding author, email: qiwang@jlu.edu.cn
+
+Preprint. Under review.
+
+Figure 1: Overview of TGRPO. (a) We utilize the large language model (Claude 3.7 Sonnet) to
+generate multi-stage reward functions based on task descriptions and the code of the Libero simulation
+environment.In training, for the same task, we deploy multiple identical environments following
+uniform task instructions, continuously sampling actions until termination conditions are met, thereby
+obtaining one trajectory per environment. (b) In TGRPO, these trajectories are then grouped into a
+set, where we calculate both trajectory-level advantages and step-level advantages. The two types of
+advantages are fused into a relative advantage metric, which is used for online reinforcement learning
+training to update VLA.
+
+In traditional robot learning, Reinforcement Learning (RL) has been a highly suitable training method
+for enabling robots to interact with their environment [25, 24, 37, 16, 23]. Algorithms like Proximal
+Policy Optimization (PPO) [32] and Soft Actor-Critic (SAC) [14] have been widely used in robotic
+training. However, PPO requires simultaneously training a value function network (Critic) to estimate
+state values and balances bias and variance through Generalized Advantage Estimation (GAE) [31],
+which can hinder training efficiency and effectiveness. The recent introduction of DeepSeek R1 [12]
+has highlighted the power of the GRPO (Group Relative Policy Optimization) [33] algorithm. Unlike
+PPO, GRPO does not rely on a value function network. Instead, it generates multiple outputs for the
+same input and trains by comparing relative advantages within the group, significantly improving
+training efficiency and stability.
+Therefore, inspired by the GRPO algorithm, our work aims to devise an efficient approach for finetuning VLAs to enhance their performance on new tasks. In this process, we identified that the original
+GRPO framework is poorly adapted to robotic tasks, as it operates at the step level while robotic tasks
+inherently involve temporal dynamics and require trajectory-level analysis. To address this mismatch,
+we enhance GRPO by integrating trajectory-level advantage calculations into its intra-group relative
+advantage computation, thereby proposing Trajectory-wise Group Relative Policy Optimization
+(TGRPO). Prior related studies, such as GRAPE [38] and ConRFT [7], have utilized reinforcement
+learning to fine-tune VLA and made significant contributions to this area. However, ConRFT requires
+two-stage training and additional human involvement, whereas our approach is more end-to-end and
+eliminates the need for manual intervention. GRAPE is more similar to our work, but it resembles
+offline training: it first collects a large volume of trajectories and then trains using methods akin to
+Direct Policy Optimization (DPO) [30]. This creates a substantial discrepancy between the model
+used for data sampling and the one used for training. In contrast, the faster alternation between data
+collection and training in our approach ensures that model training stays more closely aligned with the
+real-time environment, making it better suited for online training. We primarily conduct evaluation in
+the LIBERO simulation environment [21], using OpenVLA as our VLA model. Similar to GRAPE,
+we first use OpenVLA weights that have undergone LoRA fine-tuning [15] on the corresponding
+2
+
+task dataset, and then perform TGRPO training based on these weights. Since GRAPE uses iterative
+training while we directly train the VLA through online interaction with the environment, our training
+efficiency is twice to three times that of GRAPE. Additionally, in the 10 tasks of libero-object, our
+method outperforms the baseline.The main contributions of our work are summarized as follows:
+• We propose a novel reinforcement learning framework that brings online fine-tuning to the posttraining stage of large-scale pre-trained VLA, enabling continuous adaptation to distribution shifts,
+higher sample efficiency through live feedback that offline RL methods, constrained by static
+datasets, cannot offer.
+• Inspired by the GRPO algorithm, we propose a new RL algorithm that fuses trajectory relative advantage and step relative advantage within an online reinforcement learning framework, enhancing
+the fine-tuning performance of VLA on new tasks.
+• Through experiments on the LIBERO-Obejct tasks, we find that TGRPO can achieve better finetuning performance than baselines while maintaining a certain level of training efficiency.
+
+2
+
+Related Work
+
+Vision-Language-Action Models: With the rise of large language models (LLMs), numerous
+works have sought to introduce them into the robotics field. These can be mainly categorized into
+hierarchical robotic models and end-to-end robotic models. Hierarchical models, such as Rekep [18],
+VoxPoser [17], Omnimanip [29] and Hi Robot [34], advocate dividing robotic models into high-level
+policies and low-level policies. The high-level policy handles understanding and reasoning about
+complex tasks, decomposing them into executable instructions for low-level policies, which then
+translate these instructions into corresponding robotic actions. In contrast, VLA (Visual-LanguageAction model) more commonly refers to end-to-end robotic models. Classic end-to-end VLA models
+like PaLM-E [10], RT-2 [4], and OpenVLA [20] typically use autoregressive large language models as
+their backbone, outputting discrete action tokens. OpenVLA employs SigLip [36] and DINOv2 [27]
+as its vision encoders and Llama2-7B [35] as its backbone. Through large-scale pre-training on the
+OXE open-source robotic dataset [28], the model gains the ability to comprehend both the current
+scene images and task-specific language instructions, subsequently generating corresponding action
+tokens as outputs. Recently, as diffusion policy [8] have gained attention, many works have focused
+on integrating them into VLAs—examples include π0 [2], GO-1 [5], and RDT-1B [22].The π0
+architecture builds on a pre-trained vision-language model (VLM) backbone (e.g.PaliGemma [1])
+augmented with an "action expert" that uses flow matching to generate continuous action distributions
+for dexterous robotic control. Although these VLA models have demonstrated promising performance
+in many task scenarios, they still exhibit limitations when applied to out-of-domain tasks or robotic
+systems. The models often require fine-tuning on robot datasets specific to the task at hand. Currently,
+these end-to-end VLAs are natively compatible only with SFT. However, SFT does not enable
+robots to interact with the environment in real-time during training, thus failing to fully unleash the
+underlying capabilities of the base VLA.
+Reinforcement Learning Fine-tuning: Due to the limitations of SFT, many studies have gradually
+turned their attention to using reinforcement learning to fine-tune VLA. Yuhui Chen et al. proposed
+a VLA model fine-tuning method called ConRFT [7], which combines offline behavior cloning,
+Q-learning, and online consistency policy training, and introduces human intervention to improve
+exploration efficiency and safety. Yanjiang Guo et al. proposed the iRe-VLA framework [13], which
+iterates between reinforcement learning and supervised learning to enhance the performance of the
+VLA model, taking into account both the exploration ability of RL and the stability of SFT. Zijian
+Zhang et al. proposed the GRAPE framework [38], which implicitly models rewards for successful
+and failed trials at the trajectory level to improve the generalization ability of the VLA model for
+new tasks. At the same time, it splits complex operation tasks into several stages and uses key
+points generated by large vision-language models and customized spatio-temporal constraints to
+automatically guide preference modeling, which can be flexibly adjusted according to goals such as
+safety, efficiency, or completion. Different from the above works, our work does not require excessive
+human intervention, nor does it need to accumulate a large amount of offline datasets. It focuses more
+on online training with the robot, and the training time is also significantly reduced.
+3
+
+3
+
+TGRPO
+
+3.1
+
+Group Relative Policy Optimization (GRPO)
+
+Our overall work builds on GRPO (Group Relative Policy Optimization) [33]. Following the
+emergence of DeepSeek R1 [12], which drew attention for its ability to elicit thinking and reasoning
+capabilities in large language models (LLMs), we noted that the primary backbone of VLA (VisionLanguage-Action models) is also composed of LLMs. Inspired by GRPO, our work aims to assess
+whether it can similarly improve the task execution performance of VLAs. Therefore, it is necessary
+to first introduce the fundamental concepts of GRPO.
+Group Relative Policy Optimization (GRPO) is primarily developed based on the Proximal Policy
+Optimization (PPO) [32] algorithm. PPO incorporates the Actor-Critic [26] architecture, restricting
+the difference between the new policy and the old policy during training to avoid instability caused by
+overly large policy updates, and uses the advantage function to guide policy learning. The difference
+between the new policy and the old policy is represented by the following formula:
+πθ (ot |q, o<t )
+πθold (ot |q, o<t )
+
+rt =
+
+(1)
+
+It optimizes policy by maximizing the following objective:
+|o|
+
+JPPO (θ) = E [q ∼ P (Q), o ∼ πθold (O|q)]
+
+1 X
+min [rt At , clip (rt , 1 − ε, 1 + ε) At ]
+|o| t=1
+
+(2)
+
+Here, πθ and πθold denote the current and old policy models, respectively. The q and o are sampled
+from the question data set and the old policy πθold , while ε is a clipping hyperparameter in PPO for
+training stability. The advantage At is calculated using the generalized advantage estimate, using
+rewards and a learned value function.Therefore, PPO typically trains the value function alongside
+the policy during training. However, training a value function is not straightforward—especially
+for LLMs, where training usually only rewards the final output token, whereas the value function
+computes rewards for each token. To address this, Zhihong Shao et al. proposed Group Relative
+Policy Optimization (GRPO), which eliminates the need for the extra value function approximation
+required in PPO. Instead, GRPO uses the average reward of multiple outputs generated for the same
+input question as the baseline.It optimizes policy by maximizing the following objective:
+
+
+JGRPO (θ) = E q ∼ P (Q), {oi }G
+i=1 ∼ πθold (O|q)
+#
+)
+(
+"
+!
+|oi |
+G
+(3)
+1 X 1 X
+min ri,t Âi,t , clip ri,t , 1 − ε, 1 + ε Âi,t − βDKL [πθ ||πref ]
+G i=1 |oi | t=1
+ri,t =
+
+πθ (oi,t |q, oi,<t )
+πθold (oi,t |q, oi,<t )
+
+(4)
+
+Here, ε and β are hyperparameters, and Âi,t denotes the advantage calculated using only the relative
+rewards of the output within each group. How is the advantage calculated in GRPO? For a given
+question, the policy model samples multiple outputs, and a reward model assigns a reward score to
+each output. These outputs form a "group." To compute the advantage, we first calculate the mean
+and standard deviation of all reward scores within the group, then determine the relative advantage
+for each output’s reward score individually, as shown in the following formula.
+Âi,t =
+
+Ri − mean (R)
+std (R)
+
+(5)
+
+Here, Ri denotes the reward for each output within the group, while R represents the total sum of the
+rewards within the group.
+4
+
+3.2
+
+Trajectory-wise Group Relative Policy Optimization
+
+When applying the GRPO algorithm to the robotics field, particularly in pre-trained VLA model,
+two key considerations need to be emphasized: 1) how to form groups; 2) how to compute relative
+advantages within each group.
+For grouping, LLM training is typically divided by problems, but in robotic tasks, since the actions or
+visual inputs at each step may differ, this division is not applicable. Therefore, grouping can be done
+by task or trajectory stage. This study adopts task-level grouping, where all steps of the same task
+are categorized into one group. Regarding the calculation of relative advantages, GRPO processes
+step-by-step in its native scenario, while robots execute continuous trajectories with strong temporal
+dependencies. Single-step advantages are insufficient to reflect their impact on the final task success
+or failure. We first adopt the single-step relative advantage from GRPO:
+Pn
+Ri,t − n1 i=1 Ri,t
+Si,t = q
+Pn
+Pn
+1
+1
+2
+i=1 (Ri,t − n
+i=1 Ri,t ) )
+n−1
+
+(6)
+
+Where Ri,t is the instantaneous reward at the t-th step of the i-th trajectory. In the Libero simulation
+environment, we use a multi-stage, dense reward function to score each step. However, if all
+environments synchronously obtain the same reward (e.g., all being 2), the single-step advantage
+remains zero even if some trajectories have already completed the task, failing to reveal the importance
+of critical steps.
+To address this, we introduce the relative advantage of the entire trajectory:
+Pn
+Ri − n1 i=1 Ri
+Ti = q
+Pn
+Pn
+1
+1
+2
+i=1 (Ri − n
+i=1 Ri ) )
+n−1
+
+(7)
+
+Where Ri is the total reward of the i-th trajectory. Combining the two and weighting them with
+hyperparameters α1 and α2 , we obtain the new relative advantage:
+Pn
+Pn
+Ri,t − n1 i=1 Ri,t
+Ri − n1 i=1 Ri
+Adv i,t = α1 q
++ α2 q
+Pn
+Pn
+Pn
+Pn
+1
+1
+1
+1
+2)
+2
+(R
+−
+R
+)
+i,t
+i,t
+i=1
+i=1
+i=1 (Ri − n
+i=1 Ri ) )
+n−1
+n
+n−1
+
+(8)
+
+= α1 Si,t + α2 Ti
+Thus, the loss update at each step not only considers the relative performance of instantaneous rewards
+but also implicitly captures the impact of that step on the overall task outcome. When using the
+TGRPO algorithm, we only conduct online reinforcement learning training for a single task, so our
+optimization objective is also targeted at multiple identical environments for a single task. In terms of
+the optimization objective, we optimizes policy by maximizing the following objective:
+"
+JGRPO (θ) = E{oi }M
+i=1 ∼πθ
+
+old
+
+(·|q)
+
+#
+|oi |
+M
+
+
+1 X 1 X
+ri,t Adv i,t − β DKL πθ ∥ πref
+M i=1 |oi | t=1
+
+(9)
+
+Where M denotes the number of parallel environments, {oi } are the M trajectories generated in
+these environments, and ri,t , similarly to Equation 4, represents the difference ratio between the old
+and new policies.
+3.3
+
+Online Training With TGRPO
+
+After improving our computation of relative advantage, we integrated it into a complete online
+reinforcement learning algorithm. A key requirement is a multi-stage reward function. In the original
+GRPO framework, the reward is binary—1 for a correct response and 0 otherwise. While this suffices
+for language models, it yields prohibitively sparse feedback in robotics: success can only be evaluated
+5
+
+at the end of a trajectory, which hampers learning, particularly in single-step VLA where step-by-step
+feedback is essential. To address this, we designed a multi-stage reward scheme. For instance, the
+robot earns incremental rewards as it approaches the target object, providing informative, stage-wise
+guidance throughout training. To maintain consistency with GRPO, we assign discrete scores to each
+stage—every step within a given stage shares the same reward value. During the construction of the
+reward function, we primarily use Claude 3.7 sonnet to generate multi-stage reward functions based
+on the description of the task itself. Further implementation details are provided in the Appendix.
+Our overall framework trains a VLA model using reinforcement learning across multiple identical
+environments for a single task. In this setup, the VLA samples actions step by step within each
+environment until either the task is completed or the maximum number of steps is reached, at which
+point the trajectory terminates. A collection of such trajectories sampled in parallel constitutes a
+Group. Once a Group is formed, the VLA model is updated as follows: first, relative advantages
+between trajectories within the Group are computed to obtain trajectory-level advantages. Given that
+all trajectories terminate simultaneously and therefore share the same length, we extract step-level
+data (e.g., rewards, log probabilities of actions) across trajectories at each time step. These are
+then used to compute step level relative advantages. The advantages of the trajectory level and
+the step level are combined according to Equation 8, and the final loss is calculated by Equation 9
+to update the model parameters. This framework involves two manually tunable hyperparameters,
+which we found to be highly task-dependent. Determining how to adequately balance the advantages
+of the trajectory and the step level remains an open research question. Specific hyperparameter
+values for each task are provided in the Appendix. Notably, our experimental results suggest that
+trajectory-level advantages generally exert a greater influence on performance, as detailed in the
+experimental section.The pseudocode for the overall training algorithm is shown in Algorithm 1.
+Algorithm 1: Trajectory-wise Group Relative Policy Optimization
+Input: Base VLA model πθ , a collection of parallel environments M = {mi }, max iterations
+K,and multi-stage reward function Rmsf
+Output: VLA model πθ optimized towards task’s objective
+for k = 1 to K do
+Sample trajectories O = {oi }M
+i=1 using πθ with M and Rmsf ;
+Calculate the relative advantage between trajectories Ti ;
+for t = 1 to |oi | do
+for i = 1 to M do
+Extract t step from oi ;
+Calculate step relative advantage Si,t ;
+Fuse Si,t and Ti using Equation 8;
+Compute and accumulate the step loss;
+end
+Update the VLA model using loss;
+end
+end
+
+4
+
+Experiment
+
+In the experimental section, we investigate two key questions: (1) As an online reinforcementlearning method, does TGRPO more effectively fine-tune a pre-trained VLA on new tasks? (2) Does
+incorporating relative trajectory advantages into TGRPO improve its performance?
+4.1
+
+Experimental Setups
+
+We conduct our experiments using OpenVLA-7B [20] as the base VLA model, and fine-tune it
+via LoRA during reinforcement-learning training. All RL updates are performed with the AdamW
+optimizer at a fixed learning rate of 1 × 10−5 ; further hyperparameter settings and implementation
+details are provided in the Appendix. Consistent with the setup of Zijian Zhang et al. [38], we
+chose the LIBERO [21] robotics simulator as our testbed. LIBERO’s clean, Python-style API gives
+us direct access to object states, robot joint angles, and other scene information—enabling us to
+construct dense, informative reward functions with ease. In the LIBERO environment, we focus
+6
+
+Figure 2: TGRPO Evaluation On LIBERO-Obejct. We compare OpenVLA trained with TGRPO
+against vanilla SFT and PPO, and TGRPO outperforms these methods in overall performance. For
+details of all tasks, please refer to the Appendix.
+
+on ten manipulation tasks selected from the LIBERO-Object benchmark. The ten tasks collectively
+involve ten distinct objects and a single basket, with each task presenting the robot with a subset
+of these items (including distractors). The robot must locate the target item, grasp it, and place it
+into the basket. The primary significance of these tasks lies in evaluating the model’s generalization
+to distribution shifts in object types, including its ability to recognize and successfully grasp/place
+items of various shapes, sizes, and functions into the basket—even when objects appear in novel
+configurations or as part of different task subsets. An important point is that we both follow the
+original GRPO algorithm’s procedure of using supervised learning to fine-tune the LLM and, in
+line with the experimental setup of Zijian Zhang et al. [38], employ the weights obtained from
+task-specific supervised fine-tuning of OpenVLA-7B. We conducted these experiments on a single
+NVIDIA A100 GPU.
+
+4.2
+
+TGRPO Evaluation On LIBERO
+
+We individually trained TGRPO on each of the 10 tasks in LIBERO-Object and then conducted
+testing. The baseline methods selected were SFT and PPO [32]. As vividly depicted in Figure 2,
+our training algorithm, TGRPO, demonstrated remarkable superiority over SFT and PPO in most
+tasks. For the average success rates of the 10 tasks, SFT achieved 86.4%, PPO reached 86.6%, while
+our TGRPO attained an average success rate of 91.0%, significantly outperforming both baselines.
+Looking at each task, in Task 1, where the goal is ’pick up the alphabet soup and place it in the
+basket’, TGRPO outperformed both SFT and PPO. Task 2 saw TGRPO taking a notable lead. In Task
+3, TGRPO performance exceeded that of PPO (which already outperformed SFT). Task 4 highlighted
+TGRPO’s advantage even as SFT and PPO showed lower rates. From Task 5 to Task 10, TGRPO
+maintained a competitive edge in most cases, either leading or demonstrating strong performance,
+collectively contributing to its higher average. This comprehensive analysis-covering individual
+tasks and average success rates-clearly underscores TGRPO’s superiority in these object-to-basket
+tasks within the LIBERO-Object environment. The overall effectiveness of TGRPO hinges heavily
+on the selection of two critical hyperparameters. As shown in Figure 3, improper hyperparameter
+settings can lead to suboptimal performance or even failure. Detailed hyperparameter analysis is
+provided in the Appendix. So, to answer the first question mentioned before, TGRPO does enhance
+the fine-tuning effect of VLA on new tasks.
+7
+
+Figure 3: Task 10, trained using TGRPO with different hyperparameters, exhibits varying success
+rates across training episodes. The training outcomes for Task 10 differ significantly depending on
+the hyperparameter settings.
+Table 1: Ablation study results. The experimental results of SFT, TGRPO, and the ablation of TGRPO
+are listed. Among them, the third row denotes the experimental effect of TGRPO with only the step
+advantage, and the fourth row represents the experimental effect of TGRPO with only the trajectory
+advantage.
+Method
+
+Task1
+
+Task2
+
+Task3
+
+Task4
+
+Task5
+
+Task6
+
+Task7
+
+Task8
+
+Task9
+
+Task10
+
+SFT
+TGRPO
+w/o Ti
+w/o Si,t
+
+76%
+78%
+88%
+78%
+
+70%
+86%
+60%
+78%
+
+90%
+92%
+86%
+98%
+
+74%
+76%
+18%
+58%
+
+92%
+98%
+92%
+94%
+
+90%
+94%
+82%
+82%
+
+98%
+98%
+92%
+96%
+
+92%
+98%
+92%
+96%
+
+90%
+94%
+92%
+92%
+
+92%
+96%
+34%
+96%
+
+4.3
+
+Ablation Study
+
+To answer the second question, namely the comparison of the importance of step advantage and
+trajectory advantage in TGRPO, we conducted some ablation experiments. We adopted the controlvariate method for each task, separately removing step advantage and trajectory advantage for TGRPO
+training. That is, during training, for the same task, we experimented with using only step advantage
+and only trajectory advantage, and obtained the comparison of VLA’s success rates on 10 tasks in
+LIBERO-Object.
+Table 1 summarizes the detailed ablation results. As the table makes clear, our full TGRPO algorithm—combining both step-level and trajectory-level advantages—consistently outperforms variants
+that employ only one form of advantage. This strongly validates our design: by fusing local transition
+rewards (step advantage) with global, episodic feedback (trajectory advantage) during training, we
+unlock superior learning dynamics. Concretely, the step-only variant of TGRPO achieves an average
+success rate of 73.6% across ten benchmark tasks, whereas the trajectory-only variant reaches 86.8%.
+This gap suggests that trajectory advantage exerts a more pronounced effect on overall performance,
+likely because it captures the agent’s holistic behavior over an entire trial and thus steers learning
+toward long-term objectives. As shown in Figure 4, we can also compare how different levels of
+advantages influence the log probabilities of action tokens and policy entropy changes in the VLA’s
+output during TGRPO training. When training with both levels of advantages (step and trajectory),
+the changes in these two metrics are more convergent and stable. That said, there are noteworthy
+exceptions that illustrate the complementary strengths of each component. In Task 1, the step-only
+8
+
+Figure 4: Training Task 6 with TGRPO: Log Probabilities of Action Tokens and Corresponding
+Policy Entropy Output by VLA under Three Different Relative Advantage Calculations.
+variant achieves peak performance due to the task’s brevity, where transition-level rewards suffice.
+Conversely, in Task 3, characterized by inefficiency and multiple subtasks, the trajectory-only variant
+outperforms, as step-level feedback risks trapping the agent in local optima. These complementary
+outcomes highlight the critical synergy of integrating granular and holistic reward signals, which not
+only enhances policy robustness across diverse robotic tasks but also informs future hybrid advantage
+designs in reinforcement learning.
+
+5
+
+Limitations
+
+In the experiments, we observed some interesting phenomena. Although our proposed method
+incorporates both step relative advantage and trajectory relative advantage and has achieved notable
+improvements, it still has significant limitations. We have not yet been able to scientifically characterize the relative relationship between step relative advantage and trajectory relative advantage, nor
+their respective relationships with different tasks. As can be seen, we still need to manually adjust hyperparameters for different tasks, and many tasks exhibit no consistent patterns, lacking a discernible
+regularity. Therefore, exploring how to better integrate these two relative advantages represents a
+promising direction for future research. Additionally, regarding how to perform grouping efficiently:
+currently, we only conduct simple grouping of the same tasks. There may be more effective grouping
+strategies, such as dividing different phases within multiple trajectories for grouping, which could
+potentially lead to better performance.
+
+6
+
+Conclusion
+
+In this paper, we propose a reinforcement learning algorithm named Trajectory-wise Group Relative
+Policy Optimization (TGRPO), which primarily focuses on optimizing the online reinforcement
+learning fine-tuning of pre-trained VLA (Visual-Language Agent) during real-time interaction with
+the environment. In our approach, we introduce trajectory-wise relative advantage and fuse it
+with the original step-wise relative advantage, elevating the optimization method to the trajectory
+level. By incorporating more global reward information during training, our method achieves better
+performance than simple SFT (Supervised Fine-Tuning) or PPO (Proximal Policy Optimization).
+However, our algorithm (or framework) still has many limitations. In the future, we will further
+investigate how to scientifically integrate the two relative advantages and how to efficiently perform
+grouped optimization training on robot trajectories.
+9
+
+References
+[1] L. Beyer, A. Steiner, A. S. Pinto, A. Kolesnikov, X. Wang, D. Salz, M. Neumann, I. Alabdulmohsin, M. Tschannen, E. Bugliarello, et al. Paligemma: A versatile 3b vlm for transfer. arXiv
+preprint arXiv:2407.07726, 2024. 3
+[2] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Hausman,
+B. Ichter, et al. π0 : A vision-language-action flow model for general robot control. arXiv
+preprint arXiv:2410.24164, 2024. 1, 3
+[3] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, J. Dabis, C. Finn, K. Gopalakrishnan, K. Hausman, A. Herzog, J. Hsu, et al. Rt-1: Robotics transformer for real-world control at scale. arXiv
+preprint arXiv:2212.06817, 2022. 1
+[4] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, X. Chen, K. Choromanski, T. Ding, D. Driess,
+A. Dubey, C. Finn, et al. Rt-2: Vision-language-action models transfer web knowledge to
+robotic control. arXiv preprint arXiv:2307.15818, 2023. 1, 3
+[5] Q. Bu, J. Cai, L. Chen, X. Cui, Y. Ding, S. Feng, S. Gao, X. He, X. Huang, S. Jiang, et al. Agibot
+world colosseo: A large-scale manipulation platform for scalable and intelligent embodied
+systems. arXiv preprint arXiv:2503.06669, 2025. 1, 3
+[6] Q. Bu, Y. Yang, J. Cai, S. Gao, G. Ren, M. Yao, P. Luo, and H. Li. Univla: Learning to act
+anywhere with task-centric latent actions. arXiv preprint arXiv:2505.06111, 2025. 1
+[7] Y. Chen, S. Tian, S. Liu, Y. Zhou, H. Li, and D. Zhao. Conrft: A reinforced fine-tuning method
+for vla models via consistency policy. arXiv preprint arXiv:2502.05450, 2025. 2, 3
+[8] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song. Diffusion
+policy: Visuomotor policy learning via action diffusion. The International Journal of Robotics
+Research, page 02783649241273668, 2023. 3
+[9] T. Chu, Y. Zhai, J. Yang, S. Tong, S. Xie, D. Schuurmans, Q. V. Le, S. Levine, and Y. Ma.
+Sft memorizes, rl generalizes: A comparative study of foundation model post-training. arXiv
+preprint arXiv:2501.17161, 2025. 1
+[10] D. Driess, F. Xia, M. S. M. Sajjadi, C. Lynch, A. Chowdhery, B. Ichter, A. Wahid, J. Tompson,
+Q. H. Vuong, T. Yu, W. Huang, Y. Chebotar, P. Sermanet, D. Duckworth, S. Levine, V. Vanhoucke, K. Hausman, M. Toussaint, K. Greff, A. Zeng, I. Mordatch, and P. R. Florence. Palm-e:
+An embodied multimodal language model. In International Conference on Machine Learning,
+2023. URL https://api.semanticscholar.org/CorpusID:257364842. 1, 3
+[11] H.-S. Fang, H. Fang, Z. Tang, J. Liu, C. Wang, J. Wang, H. Zhu, and C. Lu. Rh20t: A comprehensive robotic dataset for learning diverse skills in one-shot. arXiv preprint arXiv:2307.00595,
+2023. 1
+[12] D. Guo, D. Yang, H. Zhang, J. Song, R. Zhang, R. Xu, Q. Zhu, S. Ma, P. Wang, X. Bi, et al.
+Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv
+preprint arXiv:2501.12948, 2025. 2, 4
+[13] Y. Guo, J. Zhang, X. Chen, X. Ji, Y.-J. Wang, Y. Hu, and J. Chen. Improving vision-languageaction model with online reinforcement learning. arXiv preprint arXiv:2501.16664, 2025.
+3
+[14] T. Haarnoja, A. Zhou, K. Hartikainen, G. Tucker, S. Ha, J. Tan, V. Kumar, H. Zhu, A. Gupta,
+P. Abbeel, et al. Soft actor-critic algorithms and applications. arXiv preprint arXiv:1812.05905,
+2018. 2
+[15] E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, W. Chen, et al. Lora:
+Low-rank adaptation of large language models. ICLR, 1(2):3, 2022. 2
+[16] S. Huang, Z. Zhang, T. Liang, Y. Xu, Z. Kou, C. Lu, G. Xu, Z. Xue, and H. Xu. Mentor:
+Mixture-of-experts network with task-oriented perturbation for visual reinforcement learning.
+arXiv preprint arXiv:2410.14972, 2024. 2
+10
+
+[17] W. Huang, C. Wang, R. Zhang, Y. Li, J. Wu, and L. Fei-Fei. Voxposer: Composable 3d value
+maps for robotic manipulation with language models. arXiv preprint arXiv:2307.05973, 2023.
+3
+[18] W. Huang, C. Wang, Y. Li, R. Zhang, and L. Fei-Fei. Rekep: Spatio-temporal reasoning of
+relational keypoint constraints for robotic manipulation. arXiv preprint arXiv:2409.01652, 2024.
+3
+[19] A. Khazatsky, K. Pertsch, S. Nair, A. Balakrishna, S. Dasari, S. Karamcheti, S. Nasiriany, M. K.
+Srirama, L. Y. Chen, K. Ellis, et al. Droid: A large-scale in-the-wild robot manipulation dataset.
+arXiv preprint arXiv:2403.12945, 2024. 1
+[20] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. Foster,
+G. Lam, P. Sanketi, et al. Openvla: An open-source vision-language-action model. arXiv
+preprint arXiv:2406.09246, 2024. 1, 3, 6
+[21] B. Liu, Y. Zhu, C. Gao, Y. Feng, Q. Liu, Y. Zhu, and P. Stone. Libero: Benchmarking knowledge
+transfer for lifelong robot learning. arXiv preprint arXiv:2306.03310, 2023. 2, 6
+[22] S. Liu, L. Wu, B. Li, H. Tan, H. Chen, Z. Wang, K. Xu, H. Su, and J. Zhu. Rdt-1b: a diffusion
+foundation model for bimanual manipulation. arXiv preprint arXiv:2410.07864, 2024. 1, 3
+[23] J. Luo, C. Xu, J. Wu, and S. Levine. Precise and dexterous robotic manipulation via human-inthe-loop reinforcement learning. arXiv preprint arXiv:2410.21845, 2024. 2
+[24] S. McIlvanna, N. N. Minh, Y. Sun, M. Van, and W. Naeem. Reinforcement learning-enhanced
+control barrier functions for robot manipulators. arXiv preprint arXiv:2211.11391, 2022. 2
+[25] S. A. Mehta, S. Habibian, and D. P. Losey. Waypoint-based reinforcement learning for robot
+manipulation tasks. In 2024 IEEE/RSJ International Conference on Intelligent Robots and
+Systems (IROS), pages 541–548. IEEE, 2024. 2
+[26] V. Mnih, A. P. Badia, M. Mirza, A. Graves, T. Lillicrap, T. Harley, D. Silver, and K. Kavukcuoglu.
+Asynchronous methods for deep reinforcement learning. In International conference on machine
+learning, pages 1928–1937. PmLR, 2016. 4
+[27] M. Oquab, T. Darcet, T. Moutakanni, H. Vo, M. Szafraniec, V. Khalidov, P. Fernandez, D. Haziza,
+F. Massa, A. El-Nouby, et al. Dinov2: Learning robust visual features without supervision.
+arXiv preprint arXiv:2304.07193, 2023. 1, 3
+[28] A. O’Neill, A. Rehman, A. Maddukuri, A. Gupta, A. Padalkar, A. Lee, A. Pooley, A. Gupta,
+A. Mandlekar, A. Jain, et al. Open x-embodiment: Robotic learning datasets and rt-x models:
+Open x-embodiment collaboration 0. In 2024 IEEE International Conference on Robotics and
+Automation (ICRA), pages 6892–6903. IEEE, 2024. 1, 3
+[29] M. Pan, J. Zhang, T. Wu, Y. Zhao, W. Gao, and H. Dong. Omnimanip: Towards general robotic
+manipulation via object-centric interaction primitives as spatial constraints. arXiv preprint
+arXiv:2501.03841, 2025. 3
+[30] R. Rafailov, A. Sharma, E. Mitchell, C. D. Manning, S. Ermon, and C. Finn. Direct preference
+optimization: Your language model is secretly a reward model. Advances in Neural Information
+Processing Systems, 36:53728–53741, 2023. 2
+[31] J. Schulman, P. Moritz, S. Levine, M. Jordan, and P. Abbeel. High-dimensional continuous
+control using generalized advantage estimation. arXiv preprint arXiv:1506.02438, 2015. 2
+[32] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov. Proximal policy optimization
+algorithms. arXiv preprint arXiv:1707.06347, 2017. 2, 4, 7
+[33] Z. Shao, P. Wang, Q. Zhu, R. Xu, J. Song, X. Bi, H. Zhang, M. Zhang, Y. Li, Y. Wu, et al.
+Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv
+preprint arXiv:2402.03300, 2024. 2, 4
+11
+
+[34] L. X. Shi, B. Ichter, M. Equi, L. Ke, K. Pertsch, Q. Vuong, J. Tanner, A. Walling, H. Wang,
+N. Fusai, et al. Hi robot: Open-ended instruction following with hierarchical vision-languageaction models. arXiv preprint arXiv:2502.19417, 2025. 3
+[35] H. Touvron, L. Martin, K. Stone, P. Albert, A. Almahairi, Y. Babaei, N. Bashlykov, S. Batra,
+P. Bhargava, S. Bhosale, et al. Llama 2: Open foundation and fine-tuned chat models. arXiv
+preprint arXiv:2307.09288, 2023. 3
+[36] X. Zhai, B. Mustafa, A. Kolesnikov, and L. Beyer. Sigmoid loss for language image pretraining. In Proceedings of the IEEE/CVF international conference on computer vision, pages
+11975–11986, 2023. 1, 3
+[37] J. Zhang, N. Gireesh, J. Wang, X. Fang, C. Xu, W. Chen, L. Dai, and H. Wang. Gamma:
+Graspability-aware mobile manipulation policy learning based on online grasping pose fusion.
+In 2024 IEEE International Conference on Robotics and Automation (ICRA), pages 1399–1405.
+IEEE, 2024. 2
+[38] Z. Zhang, K. Zheng, Z. Chen, J. Jang, Y. Li, S. Han, C. Wang, M. Ding, D. Fox, and H. Yao.
+Grape: Generalizing robot policy via preference alignment. arXiv preprint arXiv:2411.19309,
+2024. 2, 3, 6, 7
+
+12
+
+A
+
+Appendix
+
+A.1
+
+Simulation Environment Experimental Details
+
+A.1.1
+
+LIBERO
+
+In our experiment, we use the LIBERO simulation environment as the main training and testing
+environment. LIBERO is a benchmark environment specifically designed for the field of robot
+lifelong learning, aiming to systematically evaluate and promote robots’ ability of knowledge transfer
+during continuous learning. LIBERO includes 130 tasks divided into four suites: LIBERO-Spatial,
+LIBERO-Object, LIBERO-Goal, and LIBERO-100. Each suite is designed to test different types of
+knowledge transfer capabilities. Among them, the LIBERO-Object suite focuses on studying robots’
+knowledge transfer ability when manipulating varying objects, which is of great significance for
+enhancing robots’ generalization ability in complex scenarios. The specific tasks of LIBERO-Object
+are shown in the following table:
+Table 2: LIBERO-Object Task List
+
+A.1.2
+
+Task1
+
+pick up the alphabet soup and place it in the basket
+
+Task2
+
+pick up the cream cheese and place it in the basket
+
+Task3
+
+pick up the salad dressing and place it in the basket
+
+Task4
+
+pick up the bbq sauce and place it in the basket
+
+Task5
+
+pick up the ketchup and place it in the basket
+
+Task6
+
+pick up the tomato sauce and place it in the basket
+
+Task7
+
+pick up the butter and place it in the basket
+
+Task8
+
+pick up the milk and place it in the basket
+
+Task9
+
+pick up the chocolate pudding and place it in the basket
+
+Task10
+
+pick up the orange juice and place it in the basket
+
+Experimental Setup
+
+For both PPO experiments and TGRPO experiments, we use the AdamW optimizer. The learning rate
+for TGRPO is set to 1-e5, while for PPO it ranges between 1-e6 and 1-e8 (excessively high learning
+rates in PPO experiments can cause gradient explosion). Each task in the experiment is trained for 30
+episodes, with a maximum of 200 steps per episode. To ensure fairness, the training duration setup
+Table 3: Hyperparameter Configuration
+Task1
+
+α1 = 10
+
+α2 = 1
+
+Task2
+
+α1 = 1
+
+α2 = 0.1
+
+Task3
+
+α1 = 10
+
+α2 = 5
+
+Task4
+
+α1 = 0.35
+
+α2 = 0.65
+
+Task5
+
+α1 = 0.3
+
+α2 = 0.7
+
+Task6
+
+α1 = 0.3
+
+α2 = 0.7
+
+Task7
+
+α1 = 10
+
+α2 = 1
+
+Task8
+
+α1 = 10
+
+α2 = 1
+
+Task9
+
+α1 = 0.3
+
+α2 = 0.7
+
+Task10
+
+α1 = 0.3
+
+α2 = 0.7
+
+for PPO experiments is consistent with that of TGRPO. Each training session ends when either the
+step count reaches the maximum of 200 or one of the tasks is completed. This approach not only
+facilitates the calculation of relative advantages but also effectively encourages the model to act faster
+13
+
+rather than slower. In the experimental testing, we followed the testing conventions of OpenVLA in
+the LIBERO experimental environment, where each task was tested 50 times and the average success
+rate was calculated. For TGRPO, the specific settings of the two hyperparameters for each task are
+shown in the table 3.
+A.1.3
+
+Results
+
+Here we present some successful examples in Figure 5. It should be noted that although our
+experiments achieved good results, we selected the best performance score among multiple TGRPO
+trainings for each individual task—this best result from multiple test iterations is what we report as
+the performance scores mentioned in the main text.
+
+Figure 5: Success Case Illustrations for Task1, Task2, and Task3.
+A.2
+
+Hyperparameter Analysis
+
+From the experimental results, our hyperparameter pairs (e.g., (10,1), (10,5), (0.3,0.7), (1,0.1))
+showed distinct statistical patterns. α1 exhibited a bimodal distribution with a mean of 4.30 (SD=4.92)
+spanning 0.3-10, forming two modes at "low-values" (0.3-1) and "high-values" (10). α2 centered
+around 1.16 (SD=1.38) with a narrow range of 0.65-0.7, except for outliers at 0.1 and 5. The moderate
+Pearson correlation (r=0.52) between α1 and α2 was driven by the extreme pair (10,5), as other
+combinations showed no linear trend. Cluster analysis revealed three distinct groups: 1) high-α1 /lowα2 clusters (10,1), 2) low-α1 /moderate-α2 clusters (0.3-1, 0.65-0.7), and 3) isolated extreme clusters
+like (10,5). PCA confirmed these structures, with PC1 separating the "10" and "0.3-1" groups along
+α1 , while PC2 distinguished α2 variations (0.1, 0.65-0.7, 5). These spatial patterns were validated by
+Task 10’s performance variations under different hyperparameter combinations (Figures 6-7).
+The dendrogram of hierarchical clustering further supports this structure: identical [0.3, 0.7] combinations merge at zero distance, followed by [0.35, 0.65], while [1, 0.1] and [0.7, 0.7] first form a group.
+The three [10, 1] combinations form an independent large cluster, with the farthest merging distance
+from other clusters, confirming the significant difference of the high α1 and low α2 combinations. In
+summary, the parameter optimization strategy can focus on three representative clusters: the "lowvalue cluster" (α1 =0.3–1, α2 =0.65–0.7), the "high-low cluster" (α1 =10, α2 =1), and the "extreme
+cluster" (10, 5), using local fine-tuning instead of full-range search. For new tasks, the optimal
+parameters of the corresponding cluster can be directly reused based on clustering membership.
+If new extreme combinations (such as larger α2 ) emerge in the future, their similarity to existing
+clusters can be quickly determined through the same process. Combining experimental results with
+3D surface and contour heatmap analyses, the success rate of Task10 exhibits a significant bimodal
+14
+
+Figure 6: Analysis figures of PCA clustering distribution and hierarchical clustering for these multiple
+pairs of hyperparameters.
+relationship with hyperparameters α1 and α2 : two peak regions with approximately 96% success rate
+exist in the low-parameter area (α1 =0.7, α2 =0.3) and the mixed-parameter area (α1 =1.0, α2 =10.0),
+corresponding to the optimal performance of experimental configurations (0.7, 0.3) and (1, 10).
+The smooth surface around the two peaks forms clear robust intervals: the success rate remains at
+88%–96% when α1 ranges from 0.3 to 1.0 and α2 from 0.1 to 1.0 in the low-parameter area, and
+stability is significant when α2 is within 8–10 in the mixed-parameter area, both demonstrating
+tolerance to parameter fluctuations. Meanwhile, when α1 and α2 take large values simultaneously
+(e.g., (10, 5) or (10, 1)), the 3D surface drops sharply, and contour lines contract significantly below
+75% success rate, indicating that extreme parameter combinations cause the success rate to plummet
+to 76%–84%. The 90% and 95% success rate contours in the heatmap outline connected regions
+centered on the two peaks, providing clear boundaries for parameter tuning: prioritizing searches
+within these two regions for a success rate >90%, and locking in on the core peak intervals (e.g.,
+α1 ±0.2, α2 ±0.5) for >95%. Based on this, two tuning strategies are recommended: a conservative
+approach using the low-parameter combination (0.7, 0.3) to reduce computational overhead, and an
+aggressive approach using the mixed-parameter combination (1.0, 10.0) with strict control of α2
+within ±0.5 fluctuations. Additionally, exceeding 10 for either hyperparameter should be avoided
+to prevent entering inefficient regions. This bimodal characteristic provides two efficient tuning
+pathways for Task10, allowing fine-grained optimization within the corresponding areas to stably
+achieve a success rate >95% based on resource constraints and precision requirements.
+A.3
+
+Prompt Template And Reward Function
+
+We utilize LLMs to generate multi-stage reward functions based on task descriptions to assist in the
+TGRPO training of the VLA model. The prompt template provided to the LLM was:
+"Based on this task description, the code of the LIBERO simulation environment, and the characteristics of reinforcement learning for robotic tasks, please generate a task-specific multi-stage reward
+function. When the robot reaches a specific stage (determined by proximity thresholds), the reward
+for that stage remains fixed at a constant value. The reward value increases progressively with each
+stage, and completing the task yields a significantly higher reward."
+A Pseudocode of the LLM-generated reward function is illustrated in Algorithm 2 below.
+
+15
+
+Figure 7: For Task 10, 3D analysis plot and heatmap view obtained through training by focusing on
+different hyperparameters.
+
+Algorithm 2: PickAndPlaceInBasketReward
+Function PickAndPlaceInBasketReward(env, state):
+Calculate distance_to_target, distance_to_basket
+Check is_target_lifted, is_target_grasped, is_above_basket
+if not is_target_lifted then
+if far from target then
+reward_stage = 0, reward = -2 // Far from target
+else if approaching target then
+reward_stage = 1, reward = 2 // Approaching target
+else
+reward_stage = 2, reward = 4 // Ready to grasp
+else if target grasped then
+reward_stage = 3, reward = 8 // Object lifted
+Add rewards for approaching and being above basket
+if object in basket then
+reward_stage = 4, reward = 16 // Successfully placed
+if object dropped after being lifted then
+reward = -4 // Penalty for dropping
+return reward, info
+
+16
+
+

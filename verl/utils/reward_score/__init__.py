@@ -131,4 +131,7 @@ def _default_compute_score(
     )
 
 
-__all__ = ["default_compute_score"]
+# Import Arc Vision reward model
+from .arc_vision_reward import ArcVisionRewardScore, compute_score as arc_vision_compute_score
+
+__all__ = ["default_compute_score", "ArcVisionRewardScore", "arc_vision_compute_score"]

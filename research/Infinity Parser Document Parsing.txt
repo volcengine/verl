@@ -1,0 +1,2740 @@
+Infinity-Parser: Layout-Aware Reinforcement Learning
+for Scanned Document Parsing
+Baode Wang∗1‡ , Biao Wu∗2 , Weizhen Li∗1‡ , Meng Fang∗3
+
+arXiv:2506.03197v1 [cs.CV] 1 Jun 2025
+
+Yanjie Liang1‡ , Zuming Huang1† , Haozhe Wang1 , Jun Huang1 , Ling Chen2
+Wei Chu1 , Yuan Qi1§
+1
+
+∗
+
+INFLY Tech, 2 Australian Artificial Intelligence Institute, 3 University of Liverpool
+
+Equal contribution, ‡ Work was done during their internship, † Project Lead, § Corresponding Author
+
+Abstract
+Automated parsing of scanned documents into richly structured, machine-readable formats remains a critical bottleneck in Document AI, as traditional multi-stage pipelines suffer from error
+propagation and limited adaptability to diverse layouts. We introduce layoutRL, an end-to-end
+reinforcement-learning framework that trains models to be explicitly layout-aware by optimizing a
+composite reward of normalized edit-distance, paragraph-count accuracy, and reading-order preservation. Leveraging our newly released dataset—Infinity-Doc-55K, which combines 55K high-fidelity
+synthetic scanned document parsing data with expert-filtered real-world documents—we instantiate
+layoutRL in a vision-language-model–based parser called Infinity-Parser. Evaluated on English
+and Chinese benchmarks for OCR, table and formula extraction, and reading-order detection,
+Infinity-Parser achieves new state-of-the-art performance in both accuracy and structural fidelity,
+outpacing specialist pipelines and general-purpose vision-language models. We will publicly release
+our code and dataset to accelerate progress in robust document understanding.
+Project Page: https://github.com/infly-ai/INF-MLLM/tree/main/Infinity-Parser
+
+1
+
+Introduction
+
+Automating the parsing of scanned documents into layout, machine-readable formats is a longstanding challenge
+in Document AI [19, 52, 59, 62, 69]. While scanned documents provide fine-grained control over visual layouts,
+they lack explicit semantic markers for essential elements such as paragraphs, headings, tables, and lists.
+This absence introduces structural ambiguity, making it difficult to recover the hierarchical organization
+of documents and limiting the scalability of traditional rule-based or multi-stage parsing systems [37, 52].
+Conventional approaches typically rely on a sequence of supervised tasks—including layout detection, optical
+character recognition (OCR), table recognition and math formula recognition —followed by heuristic or
+scripted post-processing to reconstruct document layout [2, 6, 8, 25, 59, 61]. These pipelines not only demand
+extensive annotated resources but also suffer from error propagation and limited adaptability to diverse or
+unseen layouts.
+Recent advances in vision-language models (VLMs) have enabled end-to-end approaches that directly map
+visual document inputs to layout outputs such as Markdown [3, 8, 48, 63]. However, off-the-shelf pretraining
+objectives—focused on image–text alignment or language modeling—do not inherently encourage preserving a
+1
+
+Overview Diagram
+Real-world
+Data Pipeline
+
+Training dataset
+
+Synthetic Data
+Pipeline
+
+Reinforcement
+Finetuning
+
+Images Markdowns
+
+Rewards
+Edit dist
+reward
+
+Count
+reward
+
+Order
+reward
+
+2.Layout-Aware Reinforcement Learning
+
+1.Data collection and preprocess
+
+InfinityParser
+
+Figure 1 Overview of the layout-aware reinforcement learning framework. It includes data preparation, reinforcement
+(a) Real-world Data Pipeline
+finetuning, and reward calculation based on edit distance, count, and order to enhance structural understanding.
+filter duplicates files
+
+Title
+
+Text
+
+Table
+
+Formula
+
+Figure
+
+Pseudo labels
+Train dataset
+
+Internet
+
+Formula Table OCR
+document’s spatial arrangement or reading order. These approaches
+simplify traditional multi-stage pipelines
+Expert models
+Filter
+and Images
+offer new possibilities
+for document parsing, existing models still struggle to generalize
+effectively
+on
+Images
+Markdowns
+End-to-End LVLM
+downstream tasks [52, 59]. A key reason lies in the fundamental mismatch between pretraining objectives
+5. Get ground truth
+2.
+Low-quality imagerequired
+filtering for
+3.Layout
+analysisparsing—most
+collection
+4. Crosspretraining
+validation
+and1.Data
+the structural
+understanding
+document
+focuses
+on image-text
+alignment
+and reading
+comprehension,
+without optimizing for the structural complexities inherent in documents.
+(b) Synthetic
+Data
+Pipeline
+5. Get ground truth
+4. Filter images
+3.injection elements
+Compared to standard text, documents exhibit
+richer, more intricate layouts, characterized
+by hierarchical
+Train dataset
+layouts, nested elements, and multimodal
+content [17,… 44, 64, 65]. This …complexity introduces challenges
+Jinja
+thatInternet
+conventional
+token-level supervision cannot Datas
+address: prediction Images
+errors on a fewImages
+criticalMarkdowns
+tokens can
+Images Tables
+Random Inject
+propagate into substantial structural deviations, Render
+and
+current
+methodsRender
+lack into
+fine-grained,
+layout-aware
+signals
+to
+HTML
+Exactly
+match
+images
+…
+to guide models toward outputs that are both semantically
+accurate and
+structurally
+faithful
+[11,
+24,
+42].
+…
+HTML parsing
+Chrome
+Wikipedia
+Corpus
+Templates
+script
+browser
+Recent
+studies
+show
+that
+reinforcement
+learning
+(RL)
+achieves
+stronger
+generalization
+in
+rule-based
+and
+Html
+pages
+1.Data collection
+2.Template design
+visual reasoning tasks [9]. Existing RL approaches remain constrained by coarse-grained, binary outcome
+rewards that fail to provide the fine-grained, layout-aware supervision needed for modeling complex document
+layouts [29, 32, 56, 73]. Designing effective layout-aware reward functions tailored for document parsing
+remains an underexplored challenge.
+
+To address these limitations, we propose layoutRL, the first end-to-end reinforcement-learning framework
+that makes document parsers explicitly layout-aware, and construct a new dataset, as shown in Figure 1.
+Specially, first, to overcome the generalization gap caused by the mismatch between pretraining objectives
+and structural understanding, we incorporate verifiable rewards [24, 42, 43, 66] that provide document-level
+supervision beyond token-level signals, encouraging the model to learn transferable structural representations.
+Second, to mitigate structural hallucination under complex layouts, we design Edit Distance Reward [21]
+and Layout Parsing Reward signals, including count and order that enforce fine-grained alignment between
+predictions and ground-truth layouts, improving layout coherence. Additionally, to train our RL model
+we construct Infinity-Doc-55K, a 55 K-document corpus providing large-scale, high-quality supervision. It
+combines (1) high-fidelity synthetic scanned document parsing data—generated via HTML templates and
+browser rendering—and (2) expert-filtered real-world samples, pseudo-labeled through a cross-model agreement
+pipeline to capture genuine layout diversity. Finally, we train a vision-language-model–based parser, InfinityParser, achieves state-of-the-art results across English and Chinese benchmarks—covering OCR, table and
+formula extraction, and reading-order detection—and consistently outperforms both specialist pipelines and
+leading vision-language models.
+We make the following contributions:
+• We propose layoutRL, a new reinforcement learning framework for end-to-end scanned document parsing,
+which explicitly trains models to be layout-aware by optimizing verifiable, multi-aspect rewards. Our
+multi-aspect reward design combines normalized edit distance, paragraph count accuracy, and reading
+order preservation, enabling stable training and improved structural robustness.
+• We introduce Infinity-Doc-55K, a large-scale dataset of 55,066 scanned documents that combines highquality synthetic data with diverse real-world samples. The dataset features rich layout variations and
+comprehensive structural annotations, enabling robust training of document parsing models.
+• We train a VLM based model, Infinity-Parser, which sets new state-of-the-art performance across
+English and Chinese benchmarks for OCR, table and formula extraction, and reading-order detec2
+
+tion—demonstrating substantial gains in both structural fidelity and semantic accuracy over specialist
+pipelines and general-purpose vision-language models.
+Benchmark
+
+Document
+Domain
+
+Annotation Type
+
+BBox
+
+Text
+
+Table
+
+Formula
+
+"
+
+"
+
+"
+"
+"
+"
+
+"
+"
+"
+
+"
+"
+"
+
+"
+
+"
+"
+"
+
+"
+"
+
+"
+"
+
+End-to-End Task
+
+Exactly Match
+
+Attributes
+
+OCR
+
+TR
+
+MFR
+
+ROD
+
+"
+
+"
+"
+"
+"
+
+"
+"
+"
+
+"
+"
+"
+
+"
+
+"
+"
+
+"
+
+"
+"
+"
+
+"
+"
+
+"
+"
+
+"
+"
+
+"
+
+End-to-end Eval Benchmarks
+
+Fox [25]
+Nougat [6]
+GOT OCR 2.0 [59]
+OmniDocBench [36]
+
+2
+1
+2
+9
+
+End-to-end Train Dataset
+
+DocStruct4M [13]
+olmOCR-mix [39]
+Infinity-Doc-55K
+
+7
+
+Table 1 A comparison between Infinity-Doc-55K and existing datasets. BBox : Bounding boxes. Text: Text in Unicode.
+Table: Table in LaTeX/HTML/Markdown. Formula: Formula in LaTeX. Attributes: Page- and BBox-Level Attributes.
+OCR: Optical Character Recognition; TR: Table Recognition; MFR: Math Formula Recognition; ROD: Reading Order
+Detection. Multi-Type Doc: Whether the dataset includes documents from multiple domains or categories.
+
+2
+
+Methodology
+
+In this section, we first introduce Infinity-Doc-55K, our large-scale multimodal dataset for end-to-end scanned
+document parsing. We then describe our rule-based multi-aspect reward framework, which integrates edit
+distance, paragraph count, and order criteria under a unified reinforcement learning objective optimized via
+Group Relative Policy Optimization (GRPO).
+
+2.1
+
+Infinity-Doc-55K and Generation Pipelines
+
+We introduce Infinity-Doc-55K, a large-scale, multimodal dataset of 55,066 richly annotated documents for
+end-to-end scanned document parsing. Unlike prior benchmarks that target isolated subtasks (e.g., layout
+detection, OCR, or table recognition), Infinity-Doc-55K provides holistic supervision by pairing rendered
+scanned documents pages with their ground-truth Markdown representations. This design enables training and
+evaluating models that directly translate visual inputs to layout outputs without relying on brittle, multi-stage
+pipelines. As shown in Table 1, compared to existing works, Infinity-Doc-55K not only significantly enhances
+task diversity but also substantially improves overall data quality through our proposed synthetic generation
+mechanism. More details on the data distribution are provided in the Data Details section of the Appendix.
+To construct Infinity-Doc-55K, we design a dual-pipeline framework that integrates both synthetic and realworld document generation, as illustrated in Figure 2. This design addresses a critical limitation of traditional
+data construction pipelines, which often rely on weak supervision and pseudo-labeling from a single model
+applied to crawled scanned documents. These pipelines frequently suffer from noisy, misaligned, or incomplete
+annotations, especially in complex layouts or multilingual content, thus hindering model performance and
+generalization. To overcome these issues, our dual-pipeline framework is motivated by the need to balance
+annotation quality and structural diversity. The synthetic branch provides highly accurate, clean, and precisely
+aligned annotations at scale, while the real-world branch introduces naturally occurring layout variability and
+semantic richness, which are essential for building models that generalize robustly in practical applications.
+Real-World Data We develop a real-world data construction pipeline to capture the structural complexity and
+
+natural layout variability of documents across practical domains. We collect diverse scanned documents from
+sources such as financial reports, medical records, academic papers, books, magazines, and web pages, covering
+both dense and sparse content layouts. To generate structural annotations, we adopt a multi-expert strategy,
+where specialized models handle different structural elements, such as layout blocks, texts, formulas, and
+tables. For example, overall layouts are analyzed by visual layout model [18], formula regions are processed
+3
+
+(a) Real-world Data Pipeline
+Title
+
+filter duplicates files
+
+Text
+
+Table
+
+Formula
+
+Figure
+
+Pseudo labels
+Training dataset
+
+Internet
+
+Formula Table OCR
+Expert models
+
+Filter
+
+Images
+
+Images
+
+End-to-End VLM
+
+1.Data collection
+
+2. Low-quality image filtering
+
+3.Layout analysis
+
+4. Cross validation
+
+Markdowns
+
+5. Annotation
+
+(b) Synthetic Data Pipeline
+Training dataset
+
+Jinja
+Internet
+
+Images Tables
+
+Corpus
+
+1.Data collection
+
+Datas
+
+Random Inject
+Render to HTML
+…
+
+Wikipedia
+
+…
+
+…
+
+Templates
+
+Html pages
+
+2.Template design
+
+3.Injection elements
+
+…
+
+Images
+Render into images
+Chrome
+browser
+
+4. Filter images
+
+Images
+
+Markdowns
+
+Exactly match
+HTML parsing
+script
+
+5. Annotation
+
+Figure 2 Data construction pipelines for document parsing. (a) Real-world pipeline enhance quality by combining
+multiple expert models and layout analysis, yielding better-aligned supervision through intersection and reading order
+reasoning. (b) Synthetic pipeline leverages structured HTML templates and browser rendering to generate clean,
+exactly-aligned scanned document parsing data, ensuring high-quality supervision for end-to-end parsing.
+
+by dedicated formula recognition model [50], tables are parsed by transformer-based table extractor [6]. A
+cross-validation mechanism is then applied to filter out inconsistencies by comparing the outputs of expert
+models and VLM [1]. Only regions with consistent predictions across models are retained as high-confidence
+pseudo-ground-truth annotations. This layout-aware filtering results in a rich and reliable dataset that reflects
+the complexity of real-world documents and supports robust document parsing model training.
+Synthetic Data We design a synthetic data construction pipeline. We collect text and images from sources such
+
+as Wikipedia, web crawlers, and online corpora, and use Jinja [34] templates to inject sampled content into
+predefined single-, double-, or triple-column HTML layouts. These pages are rendered into scanned documents
+using a browser engine, followed by automated filtering to remove low-quality or overlapping images. Groundtruth annotations are extracted by parsing the original HTML to produce aligned Markdown representations.
+This synthetic approach not only significantly reduces construction costs and ensures annotation accuracy
+and structural diversity, but more importantly, it addresses the longstanding issue of imprecise or inconsistent
+supervision commonly found in pseudo-labeled datasets, providing high-quality and well-aligned supervision
+for training end-to-end models.
+Data Details As illustrated in Figure 3, the dataset spans seven diverse document domains, making it one
+
+of the most richly annotated and structurally varied resources to date. Each domain is represented by two
+sample pages, highlighting the broad variability in layout design, content structure, and semantic density.
+For instance, Medical Reports typically contain structured tables with clinical measurements and diagnostic
+notes. Synthetic Documents are algorithmically generated to replicate real-world formats, providing layout
+diversity for training robust parsers. Financial Reports feature dense tables and formal accounting records,
+while Academic Papers often follow two-column layouts with references, equations, and figures. Books
+combine narrative content with visual illustrations, and Magazines blend images and stylized text for reader
+engagement. Finally, Web Pages, when saved as PDFs, preserve HTML-based structures that integrate tables,
+lists, and dynamic elements. This visual taxonomy exemplifies the structural and semantic diversity present
+in real-world documents, highlighting the core challenge faced by document AI systems: reliably parsing
+heterogeneous layouts and extracting structured information across a wide variety of formats.
+Table 13 provides an overview of the document types included in the Infinity-Doc-55K dataset, detailing the
+composition across both real-world and synthetic sources. The real-world portion consists of 48.6k documents
+spanning six domains: financial reports, medical reports, academic papers, books, magazines, and web pages.
+These documents were collected from the web and annotated using a pseudo-labeling pipeline based on expert
+model agreement. While this approach enables large-scale data acquisition, the resulting label quality is
+
+4
+
+PDF Types
+
+Medical Reports
+
+Synthetic Documents Financial Reports
+
+Academic Papers
+
+Books
+
+Magazines
+
+Web Pages
+
+Figure 3 This figure illustrates a diverse collection of PDF document types commonly encountered in Infinity-Doc-55K,
+grouped into seven categories: Medical Reports, Synthetic Documents, Financial Reports, Academic Papers, Books,
+Magazines, and Web Pages.
+
+relatively low due to occasional inconsistencies across models. Additionally, real-world data collection incurs a
+high cost, especially in terms of manual filtering, formatting normalization, and layout validation.
+
+2.2
+
+RL with Layout-Aware Rewards
+
+As illustrated in Figure 4, we employ a RL framework to directly optimize scanned document parsers, aiming
+to enhance both structural fidelity and semantic accuracy. To achieve this, we utilize GRPO [42], which
+enables learning from rule-based reward signals without relying on absolute values.
+GRPO operates by generating a set of candidate Markdown outputs for each document and evaluating them
+using a multi-aspect reward, denoted as RMulti-Aspect , which integrates multiple rule-based criteria into a
+unified supervisory signal. These raw rewards are then converted into relative advantage scores by comparing
+each candidate against others within the same group. This relative evaluation promotes training stability and
+encourages the selection of higher-quality outputs, eliminating the need for a learned value function or critic.
+The multi-aspect reward RMulti-Aspect consists of three complementary components, each capturing a different
+aspect of parsing quality:
+1. Edit Distance Reward (Rdist ) We define the edit distance reward based on the normalized Levenshtein
+distance D(y, ŷ) between the predicted output ŷ and the reference output y:
+Rdist = 1 −
+
+D(y, ŷ)
+,
+max(N, M )
+
+where N = |y| and M = |ŷ| are the lengths of the reference and predicted sequences, respectively. The
+distance D(y, ŷ) measures the minimum number of single-character insertions, deletions, or substitutions
+required to convert ŷ into y, thereby capturing both semantic and formatting discrepancies. This reward
+is bounded within [0, 1], with higher values indicating better alignment between prediction and reference.
+Meanwhile, the reference output y is synthesized through two data generation pipelines proposed in this
+work. It is produced with rigorous rule-based filtering and consistency validation, and serves as a high-quality
+surrogate for ground-truth annotations in evaluating the quality of the model output.
+
+5
+
+Training
+Framework
+
+𝑫𝑭𝑮𝑯
+𝑫𝑬𝑭𝑯
+
+KL
+Output 𝑶𝟏
+Output 𝑶𝟐
+
+…
+
+Training dataset
+
+Policy Model
+
+c a p i
+
+t a
+
+Prediction:
+
+c a p
+
+𝑪𝑫𝑬𝑭𝑮
+
+𝑹𝒆𝒅𝒊𝒕
+
+Insert
+
+𝟏
+
+t a
+𝟑
+𝟕
+
+l
+i
+
+n
+
+Replace Delete
+
+Edit dist reward
+
+…
+
++
+
+…
+Count:10
+
+Count:9
+
+𝑹𝒄𝒐𝒖𝒏𝒕
+
+𝟏
+
+|𝟗
+
+Count reward
+
+𝟏𝟎|
+𝟗
+
++
+
+𝑨𝟐
+
+… 𝑨
+
+𝑮
+
+Group
+Computation
+
+Layout-Aware
+Reward
+
+Output 𝑶𝑮
+
+Ground Truth:
+
+𝑨𝟏
+
+Reference
+Model
+
+𝒓𝟏
+
+𝒓𝟐
+
+…
+
+𝐦𝐚𝐱
+
+𝒊𝒏𝒗
+
+𝑹𝒐𝒓𝒅𝒆𝒓
+
+𝒓𝑮
+
+𝟗 𝟗 𝟏
+𝟐
+𝟏
+
+𝟏
+𝟑𝟔
+
+Order reward
+
+Figure 4 Overview of the Infinity-Parser training framework. Our model is optimized via reinforcement fine-tuning
+with
+and order-based rewards. The detailed formulations of these reward functions are provided
+𝒀 edit
+𝒚𝟏 ,distance,
+𝒚𝟐 , … , 𝒚𝑵layout,
+𝒀
+𝑵𝒀 𝑵 𝒀 𝟏
+in Section 2.2.
+𝐦𝐚𝐱
+𝒀
+𝒚𝟏 , 𝒚𝟐 , … , 𝒚𝑵𝒀
+𝒊𝒏𝒗
+𝑫 𝒚, 𝒚
+𝒎𝒊𝒏 𝑬 : 𝑬 ∈ 𝜺 𝒚, 𝒚
+𝟐
+𝑫𝒐𝒓𝒅𝒆𝒓
+|𝑵𝒀 𝑵𝒀 |
+𝑫
+𝒚,
+𝒚
+Count𝟏 Reward (Rcount ) To encourage accurate paragraph
+segmentation,
+let NY and NŶ 𝑹
+be𝒐𝒓𝒅𝒆𝒓
+the numbers
+𝟏
+𝑹2.
+𝒄𝒐𝒖𝒏𝒕
+𝟏
+𝑹𝒅𝒊𝒔𝒕
+𝒎𝒂𝒙
+𝑵𝒀
+𝒊𝒏𝒗
+𝒎𝒂𝒙 𝑵, 𝑴
+of reference and predicted paragraphs. We define:
+
+Rcount = 1 −
+
+|NY − NŶ |
+,
+NY
+
+which penalizes missing or spurious paragraphs.
+3. Order Reward (Rorder ) We measure sequence-level fidelity by counting pairwise inversions Dorder between
+reference and predicted paragraphs. with maxinv = NY (NY − 1)/2, we set:
+Rorder = 1 −
+
+Dorder
+,
+maxinv
+
+rewarding preservation of the original reading order.
+The final multi-aspect reward is a weighted combination of these three components. Specifically, we begin by
+applying the Hungarian algorithm [20] to establish the optimal one-to-one matching between predicted and
+ground-truth segments, identifying both pairings and their relative order. Based on the matched segment
+count, we compute the count reward to reflect alignment in the number of segments. Using the relative
+sequence of matched pairs, we calculate the order reward to measure structural consistency. On top of these
+matchings, we compute the edit reward by averaging the edit similarities of each matched segment pair.
+Combining these terms yields the final reward:
+RMulti-Aspect = Rdist + Rcount + Rorder
+This multi-aspect design balances content fidelity with structural correctness and order preservation, providing
+rich supervision for end-to-end document parsing.
+
+3
+
+Experiments
+
+We fine-tune the Qwen2.5-VL-7B model using GRPO within a distributed training setup based on Verl [45, 66],
+utilizing 8 A100 GPUs (80GB). Throughout our experiments, we set the KL coefficient β = 1.0 × 10−2 .
+And for each problem instance, we sample 8 responses, each with a maximum length of 8192 tokens and a
+temperature of 1.0. Both the rollout batch size and the global batch size are set to 128. The actor model is
+updated using the AdamW optimizer with parameters (β1 = 0.9, β2 = 0.99) and a learning rate 1.0 × 10−6 .
+The model is trained for 1.0 epoch for all experiments.
+6
+
+Methods
+
+TextEdit ↓
+
+Form.Edit ↓
+
+Form.CDM ↑
+
+TableTEDS ↑
+
+TableEdit ↓
+
+Read OrderEdit ↓
+
+OverallEdit ↓
+
+EN
+
+ZH
+
+EN
+
+ZH
+
+EN
+
+ZH
+
+EN
+
+ZH
+
+EN
+
+ZH
+
+EN
+
+ZH
+
+EN
+
+ZH
+
+Based on Pipeline Tools
+MinerU [52]
+0.061
+Marker [37]
+0.080
+Mathpix
+0.105
+Docling [30]
+0.416
+Pix2Text [12]
+0.138
+Unstructured-0.17.2 0.198
+OpenParse-0.7.0
+0.681
+
+0.215
+0.315
+0.384
+0.987
+0.356
+0.481
+0.974
+
+0.278
+
+0.577
+0.883
+
+42.9
+11.7
+62.1
+–
+39.6
+-
+
+78.6
+67.6
+77.0
+61.3
+73.6
+64.8
+
+62.1
+49.2
+67.1
+25.0
+66.2
+27.5
+
+0.18
+0.619
+0.243
+0.627
+0.584
+1.000
+0.284
+
+0.344
+0.685
+0.320
+0.810
+0.645
+0.998
+0.639
+
+0.114
+0.108
+0.313
+0.281
+0.145
+0.595
+
+0.292
+0.340
+0.304
+0.837
+0.499
+0.387
+0.641
+
+0.15
+
+1.000
+0.611
+1.000
+1.000
+
+57.3
+17.6
+62.7
+–
+78.4
+-
+
+0.079
+
+0.530
+0.306
+0.999
+0.276
+0.999
+0.996
+
+0.336
+0.191
+0.589
+0.320
+0.586
+0.646
+
+0.357
+0.556
+0.365
+0.909
+0.528
+0.716
+0.814
+
+Based on Expert VLMs
+GOT-OCR [59]
+0.189
+Nougat [6]
+0.365
+Mistral OCR
+0.072
+OLMOCR-sglang
+0.097
+SmolDocling-256M
+0.262
+
+0.315
+0.998
+0.325
+0.293
+0.838
+
+0.360
+0.488
+0.318
+0.455
+0.753
+
+0.528
+0.941
+0.495
+0.655
+0.997
+
+74.3
+15.1
+64.6
+74.3
+32.1
+
+45.3
+16.8
+45.9
+43.2
+55.1
+
+53.2
+39.9
+75.8
+68.1
+44.9
+
+47.2
+0.0
+63.6
+61.3
+16.5
+
+0.459
+0.572
+0.600
+0.608
+0.729
+
+0.520
+1.000
+0.650
+0.652
+0.907
+
+0.141
+0.382
+0.083
+0.145
+0.227
+
+0.280
+0.954
+0.284
+0.277
+0.522
+
+0.287
+0.452
+0.268
+0.326
+0.493
+
+0.411
+0.973
+0.439
+0.469
+0.816
+
+Based on General VLMs
+GPT-4o [1]
+0.144
+Qwen2-VL-72B [55] 0.096
+InternVL2-76B [8]
+0.353
+Qwen2.5-VL-7B [4]
+0.222
+InternVL3-8B [75]
+0.315
+
+0.409
+0.218
+0.290
+0.236
+0.345
+
+0.425
+0.404
+0.543
+0.394
+0.714
+
+0.606
+0.487
+0.701
+0.587
+0.729
+
+72.8
+
+42.8
+61.2
+44.1
+45.1
+72.3
+
+72.0
+76.8
+63.0
+71.5
+59.0
+
+62.9
+76.4
+60.2
+75.7
+71.5
+
+0.234
+0.387
+0.547
+0.465
+0.352
+
+0.329
+0.408
+0.555
+0.294
+0.211
+
+0.128
+0.119
+0.317
+0.246
+0.324
+
+0.251
+0.193
+0.228
+0.207
+0.257
+
+0.233
+0.252
+0.440
+0.332
+0.426
+
+0.399
+0.327
+0.443
+0.331
+0.385
+
+Based on Reinforcement Learning
+Infinity-Parser-7B
+0.093 0.156
+
+0.363
+
+0.822
+
+70.5
+
+43.5
+
+81.6
+
+79.0
+
+0.142
+
+0.156
+
+0.126
+
+0.162
+
+0.181
+
+0.324
+
+0.454
+
+82.2
+
+67.4
+68.4
+59.4
+
+Table 2 Comprehensive evaluation of document parsing algorithms on OmniDocBench: performance metrics for text,
+formula, table, and reading order extraction, with overall scores derived from ground truth comparisons.
+
+3.1
+
+Evaluation and Metrics
+
+OmniDocBench [36] We introduces an end-to-end evaluation pipeline to ensure fair and unified assessment
+of document parsing models. It processes model-generated markdown by cleaning, extracting key elements
+(tables, formulas, code), standardizing inline formulas, and recording positions for reading order evaluation.
+This comprehensive pipeline enables reliable, multi-level evaluation across diverse document types. We
+evaluate different content types using tailored metrics :
+• Pure Text: Normalized edit distance (NED) is computed and averaged at the sample level to obtain the
+final scores.
+• Tables: Tables are converted to HTML, then evaluated using TEDS [71] and NED.
+• Formulas: Evaluation is based on CDM [51], NED, and BLEU.
+• Reading Order: Evaluated by NED, considering only text and excluding other components.
+Fox [26] A multilingual benchmark for fine-grained, text-centric document understanding, covering 9 subtasks such as OCR, translation, summarization, layout analysis, and captioning. It includes 212 bilingual
+pages (112 English, 100 Chinese) with diverse layouts, evaluated using task-specific metrics like NED, F1,
+BLEU, METEOR, and ROUGE-L.
+PubTabNet [71] A widely used benchmark for table recognition, containing 500,777 training and 9,115
+validation images with diverse scientific table structures. Evaluation is conducted on the validation set.
+FinTabNet [70] Focused on financial documents, this dataset includes 112,000 single-page scanned documents,
+with 92,000 cropped training images and 10,656 for testing. It features dense layouts and detailed annotations
+for both structure and content evaluation.
+
+7
+
+Model
+
+Language
+
+Table Frame Type
+
+Special Situation (+/-)
+
+EN ZH Mixed Full Omission Three Zero MergeCell
+
+PaddleOCR [22]
+76.8 71.8
+RapidTable [40]
+80.0 83.2
+StructEqTable [74] 72.8 75.9
+GOT-OCR [59]
+72.2 75.5
+Qwen2-VL-7B [55] 70.2 70.7
+InternVL2-8B [8]
+70.9 71.5
+Qwen2.5-VL-7B [55] 87.4 80.7
+InternVL3-8B [75]
+79.5 86.0
+Infinity-Parser-7B
+84.7 86.7
+
+80.1
+91.2
+83.4
+85.4
+82.4
+77.4
+93.5
+91.7
+94.8
+
+67.9
+83.0
+72.9
+73.1
+70.2
+69.5
+86.4
+85.5
+85.5
+
+74.3
+79.7
+76.2
+72.7
+62.8
+69.2
+85.1
+80.7
+
+81.1
+83.4
+76.9
+78.2
+74.5
+74.8
+84.1
+83.9
+
+74.5
+78.4
+88.0
+75.7
+80.3
+75.8
+88.7
+85.9
+
+86.5
+
+87.4
+
+89.4
+
+Form.
+
+Colorful
+
+Rotate
+
+70.6/75.2
+77.1/85.4
+64.5/81.0
+65.0/80.2
+60.8/76.5
+58.7/78.4
+77.5/89.8
+71.9/90.9
+
+71.3/74.1 72.7/74.0 23.3/74.6
+76.7/83.9 77.6/84.9 25.2/83.7
+69.2/76.6 72.8/76.4 30.5/76.2
+64.3/77.3 70.8/76.9 8.5/76.3
+63.8/72.6 71.4/70.8 20.0/72.1
+62.4/73.6 68.2/73.1 20.4/72.6
+82.1/87.2 77.1/87.5 56.5/86.0
+74.0/86.7 82.1/85.3 12.6/85.5
+78.6/90.7 81.9/ 87.5 83.2/88.0 68.8/86.7
+
+Overall ↑
+
+73.6
+82.5
+75.8
+74.9
+71.0
+71.5
+85.5
+84.3
+86.4
+
+Table 3 Component-level Table Recognition evaluation on OmniDocBench table subset. (+/-) means with/without
+special situation.
+
+olmOCR-Bench [39] This is a benchmark developed to automatically and reliably evaluate documentlevel OCR performance across a wide range of tools. Unlike traditional evaluation metrics such as edit
+distance—which may penalize valid variations or fail to capture critical semantic errors—olmOCR-Bench
+focuses on verifying simple, unambiguous, and machine-checkable “facts” about each document page, similar
+to unit tests. For instance, it checks whether a specific sentence appears exactly in the OCR output. The
+benchmark operates directly on single-page PDFs to preserve digital metadata, which can be beneficial
+for certain OCR systems, and to maintain the integrity of the original document format. Designed for
+flexibility, olmOCR-Bench supports outputs in Markdown or plain text, allowing for seamless evaluation of
+both open-source and custom OCR pipelines.
+
+3.2
+
+Main Results
+
+In this section, we evaluate the model’s performance in document parsing, table recognition, and Documentlevel OCR. In this work, we ensure that the test data for each benchmark undergoes rigorous text similarity
+filtering to prevent any overlap with the training data.
+Overall Evaluation on OmniDocBench As shown in Table 2, pipeline-based methods such as MinerU [52]
+
+and Mathpix achieve superior performance across individual sub-tasks including text recognition, formula
+recognition, and table recognition. Meanwhile, general-purpose vision-language models like Qwen2-VL and
+GPT-4o also demonstrate competitive results. Notably, most methods perform better on English pages
+compared to Chinese pages, reflecting language-dependent challenges. In contrast, our proposed InfinityParser-7B achieves a more balanced performance across all sub-tasks and languages, setting new SOTA results
+in table recognition and maintaining competitive accuracy in text, formula, and reading order extraction. This
+highlights the advantage of reinforcement learning with multi-aspect rewards in enabling robust, end-to-end
+document parsing.
+Table Recognition Evaluation To evaluate the
+
+model’s generalization ability, we introduce
+task-specific test cases. In Table 4, we compare
+Infinity-Parser-7B with end-to-end table recognition models on PubTabNet and FinTabNet
+using the TEDS metric, which evaluates both
+structure and content. We also report TEDSS for structure-only assessment. The evaluation results for InternVL3, Qwen2.5-VL, and
+GPT-4o were generated through our standardized benchmarking pipeline. Infinity-Parser-7B
+achieves the highest TEDS-S and TEDS scores
+on both datasets.
+
+Model
+
+EDD [72]
+OmniParser [49]
+InternVL3-8B [75]
+InternVL3-78B [75]
+Qwen2.5-VL-7B [3]
+Qwen2.5-VL-72B [3]
+GPT-4o [1]
+Infinity-Parser-7B
+
+PubTabNet [71]
+
+FinTabNet [70]
+
+TEDS-S
+
+TEDS
+
+TEDS-S
+
+TEDS
+
+89.9
+90.45
+87.48
+89.63
+86.78
+87.91
+86.16
+91.90
+
+88.3
+88.83
+83.02
+82.11
+81.60
+84.39
+76.53
+89.25
+
+90.6
+91.55
+86.73
+92.51
+87.46
+87.13
+87.00
+97.25
+
+89.75
+84.01
+89.21
+82.58
+82.90
+83.96
+96.47
+
+Table 4 Comparisons of end-to-end table recognition methods
+on PubTabNet and FinTabNet.
+
+Table 3 summarizes the performance of various models on the OmniDocBench table subset, evaluated along
+8
+
+F1-score↑
+
+Precision↑
+
+Recall↑
+
+BLEU↑
+
+METEOR↑ Edit Distance↓
+
+en
+
+en
+
+en
+
+en
+
+zh
+
+en
+
+UReader [67]
+7B 0.344
+0.296
+0.469
+0.103
+LLaVA-NeXT [27]
+34B 0.647
+0.573
+0.881
+0.478
+InternVL-ChatV1.5 [7] 26B 0.751 0.816 0.698 0.784 0.917 0.866 0.568 0.622
+Nougat [5]
+250M 0.745
+0.720
+0.809
+0.665
+TextMonkey [28]
+7B 0.821
+0.778
+0.906
+0.671
+DocOwl1.5 [14]
+7B 0.862
+0.835
+0.962
+0.788
+Vary [57]
+7B 0.918 0.952 0.906 0.961 0.956 0.944 0.885 0.754
+Vary-toy [58]
+1.8B 0.924 0.914 0.919 0.928 0.938 0.907 0.889 0.718
+Qwen-VL-Plus [2]
+0.931 0.895 0.921 0.903 0.950 0.890 0.893 0.684
+Qwen-VL-Max [2]
+>72B 0.964 0.931 0.955 0.917 0.977 0.946 0.942 0.756
+Fox [26]
+1.8B 0.952 0.954 0.957 0.964 0.948 0.946 0.930 0.842
+GOT [60]
+580M 0.972 0.980 0.971 0.982 0.973 0.978 0.947 0.878
+Infinity-Parser-7B
+7B 0.955 0.984 0.968 0.987 0.942 0.980 0.923 0.952
+
+0.287
+0.582
+0.663
+0.761
+0.762
+0.858
+0.926
+0.929
+0.936
+
+Size
+
+Method
+
+zh
+
+zh
+
+zh
+
+zh
+
+en
+
+zh
+
+0.717
+0.873
+0.832
+0.828
+0.971 0.885
+0.954 0.908
+0.958 0.939
+0.950 0.974
+
+0.718
+0.430
+0.393
+0.255
+0.265
+0.258
+0.092
+0.082
+0.096
+0.057
+0.046
+0.035
+
+0.265
+0.113
+0.142
+0.121
+0.091
+0.061
+0.038
+
+0.023
+
+0.017
+
+Table 5 Performance comparison of dense English and Chinese OCR on document-level pages.
+
+three dimensions: language diversity, table frame types, and special layout conditions. Notably, InfinityParser-7B achieves the best overall performance with an impressive score of 86.4, outperforming all other
+models across most individual metrics. It leads in nearly every category, including mixed-language settings
+(94.8), complex frame layouts (e.g., omission and three-line formats), and challenging special situations such
+as merged cells, formulas, and rotations. This demonstrates its strong generalization ability and robustness
+across diverse and noisy table formats.
+Document-level OCR Evaluation As shown in Table 5, Infinity-Parser-7B achieves the best edit distance among
+
+all evaluated models, scoring 0.023 for English and 0.017 for Chinese, outperforming all baselines including
+large-scale models such as Qwen-VL-Max [2] and Fox [26]. This result suggests that Infinity-Parser-7B can
+reconstruct dense document text with exceptional precision and minimal character-level errors.
+Exam
+Paper
+
+Magazine
+
+0.319
+0.216
+
+0.159
+0.452
+0.278
+
+0.072
+0.153
+0.147
+
+0.067
+1.000
+
+0.132
+0.820
+
+0.204
+0.930
+
+0.098
+0.131
+0.233
+
+0.348
+0.047
+0.162
+0.194
+0.320
+
+0.187
+0.149
+0.184
+0.268
+0.222
+
+0.281
+0.195
+0.247
+0.203
+0.238
+
+Based on Reinforcement Learning
+Infinity-Parser-7B 0.116 0.116
+
+0.115
+
+0.136
+
+0.143
+
+Models
+
+Financial
+Report
+
+Textbook
+
+Book
+
+Slides
+
+Based on Pipeline Tools
+MinerU
+0.055
+Marker
+0.074
+Mathpix
+0.131
+
+0.124
+0.34
+0.22
+
+0.033
+
+0.102
+
+0.089
+0.202
+
+Based on Expert VLMs
+GOT-OCR
+0.111
+Nougat
+0.734
+
+0.222
+0.958
+0.163
+
+Based on General VLMs
+GPT-4o
+0.157
+Qwen2-VL-72B
+0.096
+InternVL2-76B
+0.216
+Qwen2.5-VL-7B
+0.222
+InternVL3-8B
+0.311
+
+0.061
+
+Academic
+Papers
+
+Notes
+
+Newspaper
+
+Overall ↓
+
+0.059
+0.091
+
+0.984
+0.651
+0.634
+
+0.171
+0.192
+0.69
+
+0.206
+0.274
+0.3
+
+0.198
+0.83
+
+0.179
+0.214
+
+0.388
+0.991
+
+0.771
+0.871
+
+0.267
+0.806
+
+0.173
+0.150
+0.230
+0.157
+
+0.146
+0.085
+0.419
+0.195
+0.438
+
+0.607
+0.168
+0.226
+0.249
+0.268
+
+0.751
+0.676
+0.903
+0.394
+0.726
+
+0.316
+0.179
+0.3
+0.230
+0.328
+
+0.105
+
+0.090
+
+0.127
+
+0.259
+
+0.134
+
+0.071
+
+0.025
+
+Table 6 End-to-end text recognition performance on OmniDocBench: evaluation using edit distance across 9
+PDF page types. We compare with Mathpix, MinerU [52], Marker [37], GOT-OCR [59], Nougat [6], GPT-4o [1],
+Qwen2-VL-72B [55], InternVL2-76B [8], Qwen2.5-VL-7B [4], InternVL3-8B [75].
+Diverse Page Types Evaluation To further investigate model behavior across diverse document types, we
+
+evaluated text recognition performance on nine distinct page categories. As shown in Table 6, pipeline-based
+systems such as MinerU [52] and Mathpix achieved strong results on structured formats like academic papers
+9
+
+Model
+
+GOT OCR
+Marker v1.6.2
+MinerU v1.3.10
+Mistral OCR API
+GPT-4o
+GPT-4o
+Gemini Flash 2
+Gemini Flash 2
+Qwen 2 VL
+Qwen 2.5 VL
+olmOCR v0.1.68
+olmOCR v0.1.68
+Infinity-Parser-7B
+
+Anchor
+
+!
+!
+
+!
+
+ArXiv
+
+Math
+
+Tables
+
+Scans
+
+H&F
+
+MultiCol
+
+TinyText
+
+Base
+
+Overall
+
+52.7
+24.3
+75.4
+77.2
+51.5
+53.5
+32.1
+54.5
+19.7
+63.1
+72.1
+75.6
+
+52.0
+22.1
+47.4
+67.5
+
+0.2
+69.8
+60.9
+60.6
+69.1
+70.0
+61.4
+
+22.1
+24.3
+17.3
+29.3
+40.9
+40.7
+27.8
+34.2
+17.1
+38.6
+43.7
+44.5
+
+93.6
+87.1
+
+42.0
+71.0
+59.0
+71.3
+68.9
+69.3
+58.7
+61.5
+8.3
+68.3
+78.5
+79.4
+
+29.9
+76.9
+39.1
+77.1
+54.1
+60.6
+84.4
+71.5
+6.8
+49.1
+80.5
+81.7
+
+94.0
+
+48.3
+59.4
+61.5
+72.0
+68.9
+69.9
+57.8
+63.8
+31.5
+65.5
+76.3
+77.4
+
+82.9
+
+84.6
+
+87.2
+
+75.5
+
+74.5
+56.3
+56.1
+31.7
+65.7
+74.7
+75.1
+69.0
+
+72.1
+
+24.2
+67.3
+71.5
+70.2
+69.3
+
+48.5
+
+96.6
+
+93.6
+94.2
+93.8
+48.0
+64.7
+88.9
+73.6
+91.6
+93.4
+92.5
+
+99.5
+
+96.6
+99.4
+96.7
+96.8
+94.0
+95.6
+55.5
+98.3
+98.1
+99.0
+98.9
+
+79.1
+
+Table 7 Performance comparison on the olmOCR [39] benchmark across diverse document structures. ArXiv: scientific
+articles. Math: scanned mathematical content. Scans: historical scanned documents. H&F: headers and footers.
+MultiCol: multi-column layout. TinyText: long lines or extremely small text. Base: base text recognition accuracy.
+Higher is better. The Anchor column indicates whether external PDF metadata (e.g., layout hints) is used to assist
+layout prediction.
+
+and financial reports. General-purpose vision-language models (VLMs) demonstrated better generalization on
+less formal page types, including presentation slides and handwritten notes. However, for challenging formats
+such as newspapers, most VLMs underperformed, while pipeline tools maintained relatively lower error rates.
+Notably, our proposed Infinity-Parser-7B achieved consistently low edit distances across all document types,
+outperforming both pipeline-based systems and general-purpose VLMs in overall accuracy. This highlights
+the robustness and adaptability of our reinforcement learning approach across diverse and complex document
+layouts.
+Document-Level OCR Evaluation on olmOCR-Bench Table 7 reports performance on the olmOCR-Bench
+
+benchmark, which evaluates document-level OCR across diverse layouts and domains. Infinity-Parser-7B
+achieves the highest overall score (79.1), followed closely by olmOCR v0.1.68 (Anchored) (77.4), both
+demonstrating strong performance in complex categories like multi-column layouts and scanned math content.
+The results highlight the effectiveness of anchored prompting, with anchored versions of models (e.g., GPT-4o,
+olmOCR) significantly outperforming their non-anchored counterparts—especially on tables and old scans.
+This underscores the importance of layout-aware extraction techniques. In contrast, traditional pipelines
+like Marker and GOT OCR lag behind in structural accuracy, reinforcing the value of modern VLM-based
+approaches in high-fidelity PDF understanding.
+
+3.3
+
+Ablation Study
+
+We perform ablation experiments to evaluate the individual contributions of our three core design choices:
+(1) data quality verification and (2) multi-aspect rewards. We report all ablation results using two primary
+evaluation metrics: OverallEdit and OverallCat. . OverallEdit represents the average edit-based overall score
+across English and Chinese pages, as shown in Table 2. In contrast, OverallCat. reflects the mean category-level
+performance across nine types of scanned documents pages, following the same evaluation setting as Table 10
+in the Appendix. To save computational resources, the ablation studies are conducted on a randomly selected
+subset of 22K samples, rather than using the full 55K dataset as in the final results.
+Effect of Data Validity Table 8 highlights two important findings regarding data effectiveness and the
+
+limitations of the SFT paradigm. First, increasing the size of training data improves performance in terms
+of OverallCat. , which drops significantly from 0.257 at 5k to 0.166 at 22k, confirming the value of larger
+datasets in enhancing content categorization accuracy. However, the OverallEdit metric shows a non-monotonic
+trend: while initial gains are observed from 5k to 10k, performance begins to degrade as the dataset size
+10
+
+increases further. This suggests that beyond a certain point, the SFT paradigm struggles to maintain
+structural precision, possibly due to the lack of layout-aware supervision, revealing its limitations in scaling
+for layout-sensitive document parsing.
+As shown in Table 9, we evaluate the impact of data scale on RL training with layout-aware rewards. The
+zero-shot baseline performs worst, highlighting the importance of training data. From 5k to 15k, category
+error steadily decreases and edit distance improves, indicating better generalization. At 22k, performance
+peaks, though minor edit distance fluctuations suggest possible noise. These results show that scaling data
+enhances RL’s structural modeling capabilities.
+Method
+
+Data Size
+
+OverallEdit ↓
+
+OverallCat. ↓
+
+Method
+
+Data Size
+
+OverallEdit ↓
+
+OverallCat. ↓
+
+Zero Shot
+SFT
+SFT
+SFT
+SFT
+
+–
+5k
+10k
+15k
+22k
+
+0.346
+0.332
+0.353
+0.374
+0.375
+
+0.259
+0.257
+0.167
+0.179
+0.166
+
+Zero-Shot
+RL
+RL
+RL
+RL
+
+5k
+10k
+15k
+22k
+
+0.346
+0.275
+0.310
+0.324
+0.260
+
+0.259
+0.168
+0.153
+0.147
+0.123
+
+Table 8 Results with different data sizes.
+
+Table 9 Results with different data types.
+
+Effect of Data Construction Methods Table 10 demon-
+
+strates that synthetic data serves as an effective complement to real-world data for document parsing. Under
+both SFT and RL settings, synthetic data consistently
+achieves lower scores in OverallEdit and OverallCat. ,
+indicating better structural alignment and parsing accuracy. Notably, combining real and synthetic data
+under the RL setup yields the best overall performance,
+
+Method
+
+Data Type
+
+OverallEdit ↓
+
+OverallCat. ↓
+
+SFT
+SFT
+RL
+RL
+RL
+
+Real
+Synth
+Real
+Synth
+Synth+Real
+
+0.337
+0.290
+0.285
+0.262
+0.273
+
+0.279
+0.214
+0.164
+0.156
+0.155
+
+Table 10 Results with different data sizes.
+
+especially in OverallCat. (0.155), suggesting that the structural precision of synthetic documents enhances the
+diversity and complexity offered by real-world samples. These results highlight the importance of leveraging
+both data sources to achieve robust and layout-aware document understanding.
+Method
+
+Edit Dist. Reward
+
+Count Reward
+
+Order Reward
+
+SFT
+
+RL
+
+OverallEdit ↓
+
+OverallCat. ↓
+
+Zero Shot
+SFT
+SFT + RL
+Zero + RL
+Zero + RL
+Zero + RL
+
+"
+"
+"
+"
+
+"
+"
+
+"
+
+22k
+5k
+-
+
+17k
+22k
+22k
+22k
+
+0.346
+0.375
+0.345
+0.287
+0.280
+0.260
+
+0.259
+0.166
+0.244
+0.156
+0.141
+0.123
+
+Table 11 Results under different reward designs.
+Effect of Multi-Aspect Rewards Table 11 shows that reinforcement learning consistently outperforms supervised
+
+fine-tuning, particularly under layout-aware reward designs. Compared to the SFT baseline (0.375 / 0.166),
+the RL method with distance-based reward (Zero + Rdist ) achieves better OverallEdit (0.287) and comparable
+OverallCat. (0.156). Further introducing count and order rewards leads to significant improvements in structural
+consistency, with Zero + Rdist + Rcount achieving 0.280 / 0.141, and the full reward setting reaching 0.260
+/ 0.123. These results highlight RL’s ability to incorporate structural inductive biases via reward design,
+enabling better alignment with task-specific goals and reducing overfitting to token-level patterns. The
+improvements across reward configurations confirm the effectiveness of multi-aspect rewards in enhancing
+layout-aware generalization.
+
+11
+
+(a) Origin pdf
+
+(b) Ground truth
+
+(c) Zero shot
+Ignore title
+Missing content
+
+Redundant recognition
+
+(d) SFT Only
+Correct title
+
+(e) Layout-Aware RL
+Correct title
+
+symbol error
+Redundant recognition
+
+Correct content
+
+unwanted category
+and repeated output
+
+(a) Comparison of four Markdown generation results on a single case, illustrating progressive improvement from direct
+inference to full reward integration.
+(b) Ground truth
+
+(c) MinerU
+
+(a) Origin pdf
+
+Ignore space
+
+(d) GPT-4o
+
+Format Error
+
+(e) Infinity-Parser
+
+Correct format
+
+sy
+
+(b) Markdown extraction from a PowerPoint-style PDF slide. The figure includes the original slide (a), humanannotated ground truth (b), and outputs from MinerU, GPT-4o, and Infinity-Parser (c–e). MinerU and GPT-4o
+introduce spacing and formatting errors. In contrast, Infinity-Parser accurately preserves dialogue structure and layout
+fidelity.
+
+12
+
+(a) Origin pdf
+
+(b) Ground truth
+
+(c) MinerU
+Redundant contents
+
+(d) GPT-4o Missing content
+
+(e) Infinity-Parser
+Correct title
+Correct content
+
+sy
+
+Redundant recognition
+
+(a) Comparison of Markdown extraction from academic literature. The figure shows the original PDF (a), ground
+truth annotations (b), and extraction results from MinerU, GPT-4o, and Infinity-Parser (c–e). Infinity-Parser produces
+the most accurate output.
+(a) Origin pdf
+
+(b) Ground truth
+
+(c) MinerU
+
+Ignore newline
+Redundant recognition
+
+(d) GPT-4o
+
+(e) Infinity-Parser
+
+Error recognition
+Redundant recognition
+
+Correct newline
+
+Missing newline
+Error recognition
+Correct content
+
+(b) Comparison of Markdown extraction from a book-style PDF. GPT-4o introduces multiple errors; MinerU retains
+unnecessary line breaks; Infinity-Parser produces clean and accurate output.
+
+13
+
+(a) Origin pdf
+
+(b) Ground truth
+
+(c) MinerU
+Redundant contents
+Ignore space
+
+(d) GPT-4o
+
+(e) Infinity-Parser
+
+Redundant contents
+Redundant contents
+
+Correct content
+Correct title
+
+Correct content
+
+Redundant bold
+sy
+
+(a) Markdown extraction from a colorful textbook-style PDF. The figure displays the original illustrated page (a),
+ground truth annotations (b), and outputs from MinerU, GPT-4o, and Infinity-Parser (c–e). MinerU and GPT-4o
+introduce issues such as redundant content, missed spacing, and incorrect formatting. In contrast, Infinity-Parser
+accurately identifies section titles and body text, preserving the structure and semantics of the original content.
+(a) Origin pdf
+
+(b) Ground truth
+
+(c) MinerU
+
+Redundant contents
+
+Format error
+
+(d) GPT-4o
+
+(e) Infinity-Parser
+
+Title level error
+Correct title
+
+Redundant recognition
+
+Correct content
+
+sy
+
+Redundant recognition
+
+(b) Markdown extraction from an exam-style PDF. The figure presents the original exam document (a), ground truth
+annotations (b), and the extraction results from MinerU, GPT-4o, and Infinity-Parser (c–e). GPT-4o and MinerU
+both introduce redundant text and formatting errors, such as incorrect title levels and misplaced content. In contrast,
+Infinity-Parser accurately captures the heading hierarchy and structured list format.
+
+14
+
+(a) Origin pdf
+
+(b) Ground truth
+
+(c) MinerU
+
+Correct format
+
+(d) GPT-4o
+
+format error
+
+(e) Infinity-Parser
+
+Correct format
+
+format error
+Correct format
+
+(a) Markdown extraction from a magazine-style PDF. The figure shows the original visually-rich page (a), ground
+truth annotations (b), and results from MinerU, GPT-4o, and Infinity-Parser (c–e). GPT-4o suffers from significant
+formatting errors, while Infinity-Parser accurately preserves the structural hierarchy and formatting.
+(a) Origin pdf
+
+(b) Ground truth
+
+(c) MinerU
+
+Title level error
+
+(d) GPT-4o
+Redundant recognition
+
+(e) Infinity-Parser
+Correct title
+
+Title recognition error
+Correct format
+Format error
+
+sy
+
+Error recognition
+
+Correct content
+
+(b) Markdown extraction from a newspaper-style PDF. This figure presents the original densely formatted page (a),
+ground truth annotations (b), and the results from MinerU, GPT-4o, and Infinity-Parser (c–e). Both MinerU and
+GPT-4o exhibit issues such as incorrect title levels, redundant content, and format errors. In contrast, Infinity-Parser
+accurately identifies the main title, maintains structural formatting, and preserves content integrity.
+
+15
+
+3.4
+
+Result Analysis
+
+Figure 5a illustrates a progressive improvement in Markdown generation quality across different training
+strategies. The zero-shot model fails to capture key structural elements, omitting titles and producing
+redundant or incomplete content. With SFT, the model better identifies section headers and general layout
+but still suffers from symbol-level errors and repeated outputs. In contrast, the layout-aware RL model
+demonstrates the most accurate and coherent result, successfully preserving the document hierarchy and
+eliminating redundancy. This highlights the effectiveness of layout-aware rewards in guiding the model toward
+semantically and structurally faithful document parsing. Infinity-Parser consistently outperforms baselines
+across a wide range of document types, including academic papers, books, textbooks, exams, magazines,
+government notices, newspapers, and slides. It excels in structure parsing, content recognition, and formatting
+accuracy, demonstrating strong generalization and layout robustness (Figures 5b - 8b).
+
+4
+
+Related Work
+
+4.1
+
+Reinforcement Learning for Language Models
+
+Recent advancements in Large Language Models (LLMs) such as OpenAI’s GPT series [35]), DeepSeek-R1 [11],
+and Gemini [47] have highlighted the significant potential of Reinforcement Learning (RL) in enhancing
+their reasoning capabilities. This RL paradigm has been successfully extended to other domains demanding
+sophisticated reasoning, including code generation [23, 68], autonomous tool utilization [41, 53], and information
+retrieval [33]. Similarly, RL has demonstrated its efficacy in the domain of Visual Language Models (VLMs),
+including precise object counting [38], nuanced visual perception [29], and complex multimodal reasoning (e.g.,
+Pixel Reasoner [46], VL-Rethinker [54], Vision-R1 [16]). These pioneering works have predominantly relied on
+binary outcome rewards to guide RL training. Complementary to these efforts, our work demonstrates the
+effectiveness of incorporating layout-aware and layout-based rewards for document parsing, offering a more
+granular and contextually relevant feedback mechanism.
+
+4.2
+
+VLM-based Document Parsing
+
+Recent advancements in document understanding and optical character recognition (OCR) have highlighted
+their importance as critical benchmarks for evaluating the perceptual capabilities of vision-language models
+(VLMs). By incorporating large-scale OCR corpora during pretraining, models such as GPT-4o [1] and
+Qwen2-VL [2] have achieved competitive performance on document content extraction tasks. Building upon
+these foundations, the emergence of VLMs has further accelerated the progress of end-to-end document parsing,
+giving rise to a range of models such as Donut [6], Nougat [5], Kosmos-2.5 [31], Vary [61], mPLUG-DocOwl [15],
+Fox [25], and GOT [59]. These models have continued to improve their understanding of visual layouts
+and textual content by leveraging advancements in visual encoders [10], language decoders [2], and data
+construction pipelines. Despite the success of these VLM-based approaches in enabling end-to-end document
+parsing, they still face generalization challenges on downstream layout parsing tasks [52, 59]. To address this
+issue, we propose leveraging reinforcement learning to provide a more effective training paradigm that better
+aligns with the demands of document parsing.
+
+5
+
+Conclusion
+
+In this work, we presented layoutRL, the first end-to-end reinforcement-learning framework that makes
+document parsers explicitly layout-aware by optimizing a multi-aspect reward—combining normalized editdistance, paragraph-count accuracy, and reading-order preservation. To support this training paradigm,
+we released Infinity-Doc-55K, a 55K document corpus blending high-fidelity synthetic scanned document
+parsing data with expert-filtered real-world samples, providing the large-scale, precise supervision end-to-end
+models require. We implement the proposed method as a vision-language-model–based parser, Infinity-Parser.
+Powered by layoutRL, it achieves new state-of-the-art performance among end-to-end models on English
+and Chinese tasks, including OCR, table and formula extraction, and reading order detection. By releasing
+our code, dataset, and trained model, we hope to catalyze further advances in robust, reliable document
+understanding.
+16
+
+References
+[1] Open AI. Hello gpt 4o, 2024. URL https://openai.com/index/hello-gpt-4o/. Accessed July 24, 2024.
+[2] Jinze Bai, Shuai Bai, Shusheng Yang, Shijie Wang, Sinan Tan, Peng Wang, Junyang Lin, Chang Zhou, and
+Jingren Zhou. Qwen-vl: A versatile vision-language model for understanding, localization, text reading, and
+beyond. arXiv:2308.12966, 2024.
+[3] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang,
+Jun Tang, et al. Qwen2. 5-vl technical report. arXiv preprint arXiv:2502.13923, 2025.
+[4] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang,
+Jun Tang, et al. Qwen2. 5-vl technical report. arXiv preprint arXiv:2502.13923, 2025.
+[5] Lukas Blecher, Guillem Cucurull, Thomas Scialom, and Robert Stojnic. Nougat: Neural optical understanding for
+academic documents. arXiv preprint arXiv:2308.13418, 2023.
+[6] Lukas Blecher, Guillem Cucurull, Thomas Scialom, and Robert Stojnic. Nougat: Neural optical understanding for
+academic documents. arXiv:2308.13418, 2024.
+[7] Zhe Chen, Weiyun Wang, Hao Tian, Shenglong Ye, Zhangwei Gao, Erfei Cui, Wenwen Tong, Kongzhi Hu, Jiapeng
+Luo, Zheng Ma, et al. How far are we to gpt-4v? closing the gap to commercial multimodal models with
+open-source suites. arXiv preprint arXiv:2404.16821, 2024.
+[8] Zhe Chen, Jiannan Wu, Wenhai Wang, Weijie Su, Guo Chen, Sen Xing, Muyan Zhong, Qinglong Zhang, Xizhou
+Zhu, Lewei Lu, Bin Li, Ping Luo, Tong Lu, Yu Qiao, and Jifeng Dai. Internvl: Scaling up vision foundation
+models and aligning for generic visual-linguistic tasks. In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, pages 24185–24198, June 2024.
+[9] Tianzhe Chu, Yuexiang Zhai, Jihan Yang, Shengbang Tong, Saining Xie, Dale Schuurmans, Quoc V Le, Sergey
+Levine, and Yi Ma. Sft memorizes, rl generalizes: A comparative study of foundation model post-training. arXiv
+preprint arXiv:2501.17161, 2025.
+[10] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, et al. An image is worth 16x16 words:
+Transformers for image recognition at scale. arXiv preprint arXiv:2010.11929, 2020.
+[11] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi
+Wang, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv
+preprint arXiv:2501.12948, 2025.
+[12] Daniil Gurgurov and Aleksey Morshnev. Image-to-latex converter for mathematical formulas and text. arXiv
+preprint arXiv:2408.04015, 2024.
+[13] Anwen Hu, Haiyang Xu, Jiabo Ye, Ming Yan, Liang Zhang, Bo Zhang, Chen Li, Ji Zhang, Qin Jin, Fei
+Huang, et al. mplug-docowl 1.5: Unified structure learning for ocr-free document understanding. arXiv preprint
+arXiv:2403.12895, 2024.
+[14] Anwen Hu, Haiyang Xu, Jiabo Ye, Ming Yan, Liang Zhang, Bo Zhang, Chen Li, Ji Zhang, Qin Jin, Fei
+Huang, et al. mplug-docowl 1.5: Unified structure learning for ocr-free document understanding. arXiv preprint
+arXiv:2403.12895, 2024.
+[15] Anwen Hu, Haiyang Xu, Liang Zhang, Jiabo Ye, Ming Yan, Ji Zhang, Qin Jin, Fei Huang, and Jingren Zhou.
+mplug-docowl2: High-resolution compressing for ocr-free multi-page document understanding. arXiv preprint
+arXiv:2409.03420, 2024.
+[16] Wenxuan Huang, Bohan Jia, Zijie Zhai, Shaosheng Cao, Zheyu Ye, Fei Zhao, Yao Hu, and Shaohui Lin. Vision-r1:
+Incentivizing reasoning capability in multimodal large language models. arXiv preprint arXiv:2503.06749, 2025.
+[17] Yongshuai Huang, Ning Lu, Dapeng Chen, Yibo Li, Zecheng Xie, Shenggao Zhu, Liangcai Gao, and Wei Peng.
+Improving table structure recognition with visual-alignment sequential coordinate modeling. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 11134–11143, 2023.
+[18] Yupan Huang, Tengchao Lv, Lei Cui, Yutong Lu, and Furu Wei. Layoutlmv3: Pre-training for document ai with
+unified text and image masking, 2022. URL https://arxiv.org/abs/2204.08387.
+
+17
+
+[19] Wonseok Hwang, Jinyeong Yim, Seunghyun Park, Sohee Yang, and Minjoon Seo. Spatial dependency parsing for
+semi-structured document information extraction. In Findings of the Association for Computational Linguistics:
+ACL-IJCNLP, pages 330–343. Association for Computational Linguistics (ACL), 2021.
+[20] Harold W Kuhn. The hungarian method for the assignment problem. Naval research logistics quarterly, 2(1-2):
+83–97, 1955.
+[21] Vladimir I Levenshtein et al. Binary codes capable of correcting deletions, insertions, and reversals. In Doklady
+Physics, volume 10, pages 707–710. Soviet Union, 1966.
+[22] Chenxia Li, Weiwei Liu, Ruoyu Guo, Xiaoting Yin, Kaitao Jiang, Yongkun Du, Yuning Du, Lingfeng Zhu,
+Baohua Lai, Xiaoguang Hu, Dianhai Yu, and Yanjun Ma. Pp-ocrv3: More attempts for the improvement of ultra
+lightweight ocr system, 2022. URL https://arxiv.org/abs/2206.03001.
+[23] Yujia Li, David Choi, Junyoung Chung, Nate Kushman, Julian Schrittwieser, Rémi Leblond, Tom Eccles, James
+Keeling, Felix Gimeno, Agustin Dal Lago, et al. Competition-level code generation with alphacode. Science, 378
+(6624):1092–1097, 2022.
+[24] Aixin Liu, Bei Feng, Bing Xue, Bingxuan Wang, Bochao Wu, Chengda Lu, Chenggang Zhao, Chengqi Deng,
+Chenyu Zhang, Chong Ruan, et al. Deepseek-v3 technical report. arXiv preprint arXiv:2412.19437, 2024.
+[25] Chenglong Liu, Haoran Wei, Jinyue Chen, Lingyu Kong, Zheng Ge, Zining Zhu, Liang Zhao, Jianjian Sun, Chunrui
+Han, and Xiangyu Zhang. Focus anywhere for fine-grained multi-page document understanding. arXiv:2405.14295,
+2024.
+[26] Chenglong Liu, Haoran Wei, Jinyue Chen, Lingyu Kong, Zheng Ge, Zining Zhu, Liang Zhao, Jianjian Sun, Chunrui
+Han, and Xiangyu Zhang. Focus anywhere for fine-grained multi-page document understanding. arXiv preprint
+arXiv:2405.14295, 2024.
+[27] Haotian Liu, Chunyuan Li, Yuheng Li, Bo Li, Yuanhan Zhang, Sheng Shen, and Yong Jae Lee. Llavanext: Improved reasoning, ocr, and world knowledge, January 2024. URL https://llava-vl.github.io/
+blog/2024-01-30-llava-next/.
+[28] Yuliang Liu, Biao Yang, Qiang Liu, Zhang Li, Zhiyin Ma, Shuo Zhang, and Xiang Bai. Textmonkey: An ocr-free
+large multimodal model for understanding document. arXiv preprint arXiv:2403.04473, 2024.
+[29] Ziyu Liu, Zeyi Sun, Yuhang Zang, Xiaoyi Dong, Yuhang Cao, Haodong Duan, Dahua Lin, and Jiaqi Wang.
+Visual-rft: Visual reinforcement fine-tuning. arXiv preprint arXiv:2503.01785, 2025.
+[30] Nikolaos Livathinos, Christoph Auer, Maksym Lysak, Ahmed Nassar, Michele Dolfi, Panos Vagenas, Cesar Berrospi
+Ramis, Matteo Omenetti, Kasper Dinkla, Yusik Kim, et al. Docling: An efficient open-source toolkit for ai-driven
+document conversion. arXiv preprint arXiv:2501.17887, 2025.
+[31] Tengchao Lv, Yupan Huang, Jingye Chen, Yuzhong Zhao, Yilin Jia, Lei Cui, Shuming Ma, Yaoyao Chang,
+Shaohan Huang, Wenhui Wang, Li Dong, Weiyao Luo, Shaoxiang Wu, Guoxin Wang, Cha Zhang, and Furu Wei.
+Kosmos-2.5: A multimodal literate model, 2024. URL https://arxiv.org/abs/2309.11419.
+[32] Fanqing Meng, Lingxiao Du, Zongkai Liu, Zhixiang Zhou, Quanfeng Lu, Daocheng Fu, Tiancheng Han, Botian
+Shi, Wenhai Wang, Junjun He, et al. Mm-eureka: Exploring the frontiers of multimodal reasoning with rule-based
+reinforcement learning. arXiv preprint arXiv:2503.07365, 2025.
+[33] Reiichiro Nakano, Jacob Hilton, Suchir Balaji, Jeff Wu, Long Ouyang, Christina Kim, Christopher Hesse,
+Shantanu Jain, Vineet Kosaraju, William Saunders, et al. Webgpt: Browser-assisted question-answering with
+human feedback. arXiv preprint arXiv:2112.09332, 2021.
+[34] Tobias Nipkow. Jinja: Towards a comprehensive formal semantics for a java-like language. In Proc. Marktobderdorf
+Summer School. IOS Press Amsterdam, 2003.
+[35] OpenAI. Gpt-4o system card, 2024. URL https://arxiv.org/abs/2410.21276.
+[36] Linke Ouyang, Yuan Qu, Hongbin Zhou, Jiawei Zhu, Rui Zhang, Qunshu Lin, Bin Wang, Zhiyuan Zhao, Man
+Jiang, Xiaomeng Zhao, et al. Omnidocbench: Benchmarking diverse pdf document parsing with comprehensive
+annotations. arXiv preprint arXiv:2412.07626, 2024.
+[37] Vik Paruchuri. Marker, 2024. URL https://github.com/VikParuchuri/marker.
+
+18
+
+[38] Yi Peng, Xiaokun Wang, Yichen Wei, Jiangbo Pei, Weijie Qiu, Ai Jian, Yunzhuo Hao, Jiachun Pan, Tianyidan Xie,
+Li Ge, et al. Skywork r1v: pioneering multimodal reasoning with chain-of-thought. arXiv preprint arXiv:2504.05599,
+2025.
+[39] Jake Poznanski, Jon Borchardt, Jason Dunkelberger, Regan Huff, Daniel Lin, Aman Rangapur, Christopher
+Wilhelm, Kyle Lo, and Luca Soldaini. olmocr: Unlocking trillions of tokens in pdfs with vision language models.
+arXiv preprint arXiv:2502.18443, 2025.
+[40] RapidAI. Rapidtable. https://github.com/RapidAI/RapidTable, 2023. URL https://github.com/RapidAI/
+RapidTable.
+[41] Timo Schick, Jane Dwivedi-Yu, Roberto Dessì, Roberta Raileanu, Maria Lomeli, Eric Hambro, Luke Zettlemoyer,
+Nicola Cancedda, and Thomas Scialom. Toolformer: Language models can teach themselves to use tools. Advances
+in Neural Information Processing Systems, 36:68539–68551, 2023.
+[42] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang,
+YK Li, Y Wu, et al. Deepseekmath: Pushing the limits of mathematical reasoning in open language models.
+arXiv preprint arXiv:2402.03300, 2024.
+[43] Haozhan Shen, Peng Liu, Jingcheng Li, Chunxin Fang, Yibo Ma, Jiajia Liao, Qiaoli Shen, Zilun Zhang, Kangjia
+Zhao, Qianqian Zhang, et al. Vlm-r1: A stable and generalizable r1-style large vision-language model. arXiv
+preprint arXiv:2504.07615, 2025.
+[44] Zejiang Shen, Kyle Lo, Lucy Lu Wang, Bailey Kuehl, Daniel S Weld, and Doug Downey. Vila: Improving
+structured content extraction from scientific pdfs using visual layout groups. Transactions of the Association for
+Computational Linguistics, 10:376–392, 2022.
+[45] Guangming Sheng, Chi Zhang, Zilingfeng Ye, Xibin Wu, Wang Zhang, Ru Zhang, Yanghua Peng, Haibin Lin, and
+Chuan Wu. Hybridflow: A flexible and efficient rlhf framework. arXiv preprint arXiv: 2409.19256, 2024.
+[46] Alex Su, Haozhe Wang, Weimin Ren, Fangzhen Lin, and Wenhu Chen. Pixel reasoner: Incentivizing pixel-space
+reasoning with curiosity-driven reinforcement learning. arXiv preprint arXiv:2505.15966, 2025.
+[47] Gemini Team, Rohan Anil, Sebastian Borgeaud, Jean-Baptiste Alayrac, Jiahui Yu, Radu Soricut, Johan Schalkwyk,
+Andrew M Dai, Anja Hauth, Katie Millican, et al. Gemini: a family of highly capable multimodal models. arXiv
+preprint arXiv:2312.11805, 2023.
+[48] Omkar Thawakar, Dinura Dissanayake, Ketan More, Ritesh Thawkar, Ahmed Heakl, Noor Ahsan, Yuhao Li,
+Mohammed Zumri, Jean Lahoud, Rao Muhammad Anwer, et al. Llamav-o1: Rethinking step-by-step visual
+reasoning in llms. arXiv preprint arXiv:2501.06186, 2025.
+[49] Jianqiang Wan, Sibo Song, Wenwen Yu, Yuliang Liu, Wenqing Cheng, Fei Huang, Xiang Bai, Cong Yao, and
+Zhibo Yang. Omniparser: A unified framework for text spotting key information extraction and table recognition.
+In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 15641–15653,
+2024.
+[50] Bin Wang, Zhuangcheng Gu, Guang Liang, Chao Xu, Bo Zhang, Botian Shi, and Conghui He. Unimernet: A
+universal network for real-world mathematical expression recognition, 2024. URL https://arxiv.org/abs/2404.
+15254.
+[51] Bin Wang, Fan Wu, Linke Ouyang, Zhuangcheng Gu, Rui Zhang, Renqiu Xia, Bo Zhang, and Conghui He. Cdm:
+A reliable metric for fair and accurate formula recognition evaluation. arXiv:2409.03643, 2024.
+[52] Bin Wang, Chao Xu, Xiaomeng Zhao, Linke Ouyang, Fan Wu, Zhiyuan Zhao, Rui Xu, Kaiwen Liu, Yuan Qu,
+Fukai Shang, Bo Zhang, Liqun Wei, Zhihao Sui, Wei Li, Botian Shi, Yu Qiao, Dahua Lin, and Conghui He.
+Mineru: An open-source solution for precise document content extraction. arXiv:2409.18839, 2024.
+[53] Haozhe Wang, Long Li, Chao Qu, Fengming Zhu, Weidi Xu, Wei Chu, and Fangzhen Lin. To code or not
+to code? adaptive tool integration for math language models via expectation-maximization. arXiv preprint
+arXiv:2502.00691, 2025.
+[54] Haozhe Wang, Chao Qu, Zuming Huang, Wei Chu, Fangzhen Lin, and Wenhu Chen. Vl-rethinker: Incentivizing
+self-reflection of vision-language models with reinforcement learning. arXiv preprint arXiv:2504.08837, 2025.
+
+19
+
+[55] Peng Wang, Shuai Bai, Sinan Tan, Shijie Wang, Zhihao Fan, Jinze Bai, Keqin Chen, Xuejing Liu, Jialin Wang,
+Wenbin Ge, et al. Qwen2-vl: Enhancing vision-language model’s perception of the world at any resolution. arXiv
+preprint arXiv:2409.12191, 2024.
+[56] Weiyun Wang, Zhangwei Gao, Lianjie Chen, Zhe Chen, Jinguo Zhu, Xiangyu Zhao, Yangzhou Liu, Yue Cao,
+Shenglong Ye, Xizhou Zhu, et al. Visualprm: An effective process reward model for multimodal reasoning. arXiv
+preprint arXiv:2503.10291, 2025.
+[57] Haoran Wei, Lingyu Kong, Jinyue Chen, Liang Zhao, Zheng Ge, Jinrong Yang, Jianjian Sun, Chunrui Han,
+and Xiangyu Zhang. Vary: Scaling up the vision vocabulary for large vision-language models. arXiv preprint
+arXiv:2312.06109, 2023.
+[58] Haoran Wei, Lingyu Kong, Jinyue Chen, Liang Zhao, Zheng Ge, En Yu, Jianjian Sun, Chunrui Han, and Xiangyu
+Zhang. Small language model meets with reinforced vision vocabulary. arXiv preprint arXiv:2401.12503, 2024.
+[59] Haoran Wei, Chenglong Liu, Jinyue Chen, Jia Wang, Lingyu Kong, Yanming Xu, Zheng Ge, Liang Zhao, Jianjian
+Sun, Yuang Peng, et al. General ocr theory: Towards ocr-2.0 via a unified end-to-end model. arXiv:2409.01704,
+2024.
+[60] Haoran Wei, Chenglong Liu, Jinyue Chen, Jia Wang, Lingyu Kong, Yanming Xu, Zheng Ge, Liang Zhao, Jianjian
+Sun, Yuang Peng, et al. General ocr theory: Towards ocr-2.0 via a unified end-to-end model. 2024.
+[61] Haoran Wei, Lingyu Kong, Jinyue Chen, Liang Zhao, Zheng Ge, Jinrong Yang, Jianjian Sun, Chunrui Han, and
+Xiangyu Zhang. Vary: Scaling up the vision vocabulary for large vision-language model. In European Conference
+on Computer Vision, pages 408–424. Springer, 2025.
+[62] Renqiu Xia, Song Mao, Xiangchao Yan, Hongbin Zhou, Bo Zhang, Haoyang Peng, Jiahao Pi, Daocheng Fu, Wenjie
+Wu, Hancheng Ye, et al. Docgenome: An open large-scale scientific document benchmark for training and testing
+multi-modal large language models. arXiv preprint arXiv:2406.11633, 2024.
+[63] Guowei Xu, Peng Jin, Li Hao, Yibing Song, Lichao Sun, and Li Yuan. Llava-o1: Let vision language models
+reason step-by-step. arXiv preprint arXiv:2411.10440, 2024.
+[64] Shuo Yang, Siwen Luo, and Soyeon Caren Han. Multimodal commonsense knowledge distillation for visual question
+answering. In Proceedings of the AAAI conference on artificial intelligence, volume 39, pages 29545–29547, 2025.
+[65] Shuo Yang, Siwen Luo, Soyeon Caren Han, and Eduard Hovy. Magic-vqa: Multimodal and grounded inference
+with commonsense knowledge for visual question answering. arXiv preprint arXiv:2503.18491, 2025.
+[66] Junting Lu Yaowei Zheng. Easyr1: An efficient, scalable, multi-modality rl training framework. https://github.
+com/hiyouga/EasyR1, 2025.
+[67] Jiabo Ye, Anwen Hu, Haiyang Xu, Qinghao Ye, Ming Yan, Guohai Xu, Chenliang Li, Junfeng Tian, Qi Qian,
+Ji Zhang, et al. Ureader: Universal ocr-free visually-situated language understanding with multimodal large
+language model. arXiv preprint arXiv:2310.05126, 2023.
+[68] Huaye Zeng, Dongfu Jiang, Haozhe Wang, Ping Nie, Xiaotong Chen, and Wenhu Chen. Acecoder: Acing coder rl
+via automated test-case synthesis. arXiv preprint arXiv:2502.01718, 2025.
+[69] Qintong Zhang, Victor Shea-Jay Huang, Bin Wang, Junyuan Zhang, Zhengren Wang, Hao Liang, Shawn Wang,
+Matthieu Lin, Wentao Zhang, and Conghui He. Document parsing unveiled: Techniques, challenges, and prospects
+for structured information extraction. arXiv preprint arXiv:2410.21169, 2024.
+[70] Xinyi Zheng, Douglas Burdick, Lucian Popa, Xu Zhong, and Nancy Xin Ru Wang. Global table extractor (gte):
+A framework for joint table identification and cell structure recognition using visual context. In Proceedings of
+the IEEE/CVF winter conference on applications of computer vision, pages 697–706, 2021.
+[71] Xu Zhong, Elaheh ShafieiBavani, and Antonio Jimeno Yepes. Image-based table recognition: data, model, and
+evaluation. In European conference on computer vision, pages 564–580, 2020.
+[72] Xu Zhong, Elaheh ShafieiBavani, and Antonio Jimeno Yepes. Image-based table recognition: data, model, and
+evaluation. In European conference on computer vision, pages 564–580. Springer, 2020.
+[73] Hengguang Zhou, Xirui Li, Ruochen Wang, Minhao Cheng, Tianyi Zhou, and Cho-Jui Hsieh. R1-zero’s" aha
+moment" in visual reasoning on a 2b non-sft model. arXiv preprint arXiv:2503.05132, 2025.
+
+20
+
+[74] Hongbin Zhou, Xiangchao Yan, and Bo Zhang. Structeqtable-deploy: A high-efficiency open-source toolkit for
+table-to-latex transformation. https://github.com/UniModal4Reasoning/StructEqTable-Deploy, 2024. URL
+https://github.com/UniModal4Reasoning/StructEqTable-Deploy.
+[75] Jinguo Zhu, Weiyun Wang, Zhe Chen, Zhaoyang Liu, Shenglong Ye, Lixin Gu, Yuchen Duan, Hao Tian, Weijie
+Su, Jie Shao, et al. Internvl3: Exploring advanced training and test-time recipes for open-source multimodal
+models. arXiv preprint arXiv:2504.10479, 2025.
+
+21
+
+Appendix
+A
+
+Prompt Strategy for Parsing Tasks.
+
+Table 12 presents the prompt design used for two key parsing tasks: document parsing and table parsing.
+Both tasks employ a prompt variation strategy—randomly selecting one of several instructions during training.
+For document parsing, we guide the model to identify visual regions and convert their contents into structured
+Markdown, with each block encapsulated in <ele></ele> tags to preserve reading order. This ensures
+consistent region-wise extraction across diverse layouts.
+For table parsing, although the prompts are phrased differently, they share the same objective: transforming
+table content from images into HTML. This diversity encourages the model to generalize across variations in
+phrasing and reduces overfitting to a single instruction template. Notably, HTML is used here to match the
+evaluation format, but the resulting outputs can be easily converted to Markdown if needed for downstream
+use.
+Prompt Type
+
+Prompt Content
+
+Please transform the document’s contents into Markdown format. First
+analyze the document layout, then identify and extract the content of
+each region. Output every region’s content wrapped in <ele></ele> tags
+in reading order.
+Extract the core information of the document and present it in markdown
+form. First analyze the document layout, then identify and extract
+the content of each region. Output every region’s content wrapped in
+<ele></ele> tags in reading order.
+
+Document Parsing
+
+Reconstruct the document in markdown format, paying attention to title
+hierarchy and list usage. First analyze the document layout, then
+identify and extract the content of each region. Output every region’s
+content wrapped in <ele></ele> tags in reading order.
+Task: Parse the main body of the document and convert it to markdown.
+Requirements: Retain the original logical structure, use elements such
+as titles, lists, and quotes appropriately, and ensure that the output
+document is clear and easy to read. First analyze the document layout,
+then identify and extract the content of each region. Output every
+region’s content wrapped in <ele></ele> tags in reading order.
+Reorganize the document using markdown syntax, ensuring clear structure
+and logical coherence. First analyze the document layout, then
+identify and extract the content of each region. Output every region’s
+content wrapped in <ele></ele> tags in reading order.
+
+Table Parsing
+
+Please encode the table from the image into HTML format.
+Render the table in the image as HTML code, please.
+Please transform the table from the image into HTML format.
+Convert the image’s table data into the HTML structure.
+Transform the image’s table into the HTML format, please.
+Convert the table found in the image into HTML format.
+Table 12 Prompt design for two parsing tasks.
+
+22
+
+B
+
+Data Details
+
+Table 13 provides an overview of the document types included in the Infinity-Doc-55K dataset, detailing the
+composition across both real-world and synthetic sources. The real-world portion consists of 48.6k documents
+spanning six domains: financial reports, medical reports, academic papers, books, magazines, and web pages.
+These documents were collected from the web and annotated using a pseudo-labeling pipeline based on expert
+model agreement. While this approach enables large-scale data acquisition, the resulting label quality is
+relatively low due to occasional inconsistencies across models. Additionally, real-world data collection incurs a
+high cost, especially in terms of manual filtering, formatting normalization, and layout validation.
+Data Source
+
+Document Types
+
+Size
+
+Annotation Method
+
+Cost
+
+Real-World Doc
+Real-World Doc
+Real-World Doc
+Real-World Doc
+Real-World Doc
+Real-World Doc
+
+Financial Reports
+Medical Reports
+Academic Papers
+Books
+Magazines
+Web Pages
+
+14.2k
+5.0k
+8.9k
+12.5k
+3.0k
+5.0k
+
+Web + Pseudo-Label
+Web + Pseudo-Label
+Web + Pseudo-Label
+Web + Pseudo-Label
+Web + Pseudo-Label
+Web + Pseudo-Label
+
+High
+High
+High
+High
+High
+High
+
+Synthetic Documents
+
+6.5k
+
+CC3M + Web + Wiki
+
+Low
+
+Synthetic
+
+Table 13 Overview of document types in the Infinity-Doc-55K dataset, including data source, document type,
+annotation method, and collection cost.
+
+23
+
+

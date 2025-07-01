@@ -1,0 +1,1760 @@
+Advancing Multimodal Reasoning via
+Reinforcement Learning with Cold Start
+
+Yuting Li1
+1
+
+70
+60
+
+Kaipeng Zheng1,2 Chen Wang3 Yue Wang3
+Lichao Sun4 Weiran Huang1,2∗
+
+80
+
+Qwen2.5-VL-3B
+LMM-R1-3B
+TBAC-VLR1-3B
+VLAA-Thinker-3B
+Ours (3B)
+
+68.2
+
+64.1
+
+60
+44.0
+
+40
+30
+
+73.4
+
+70.4
+
+55.7
+48.6
+
+50
+40
+30.3
+
+30
+
+27.0
+
+20
+10
+
+Qwen2.5-VL-7B
+MM-Eureka-7B
+ThinkLite-VL-7B
+VLAA-Thinker-7B
+Ours (7B)
+
+70
+
+50.8
+
+50
+
+Linghe Kong1
+
+School of Computer Science, Shanghai Jiao Tong University
+2
+Shanghai Innovation Institute
+3
+Zhongguancun Academy 4 Lehigh University
+
+Score
+
+80
+
+Score
+
+arXiv:2505.22334v1 [cs.CL] 28 May 2025
+
+Lai Wei1,3
+
+20
+
+MathVision MathVerse MathVista We-Math
+
+Average
+
+10
+
+MathVision MathVerse MathVista We-Math
+
+Average
+
+Figure 1: Performance comparison between our models and other advanced models on different
+multimodal reasoning benchmarks at both the 3B and 7B scales.
+
+Abstract
+Recent advancements in large language models (LLMs) have demonstrated impressive chain-of-thought reasoning capabilities, with reinforcement learning (RL)
+playing a crucial role in this progress. While “aha moment” patterns–where models
+exhibit self-correction through reflection–are often attributed to emergent properties from RL, we first demonstrate that these patterns exist in multimodal LLMs
+(MLLMs) prior to RL training but may not necessarily correlate with improved
+reasoning performance. Building on these insights, we present a comprehensive
+study on enhancing multimodal reasoning through a two-stage approach: (1) supervised fine-tuning (SFT) as a cold start with structured chain-of-thought reasoning
+patterns, followed by (2) reinforcement learning via GRPO to further refine these
+capabilities. Our extensive experiments show that this combined approach consistently outperforms both SFT-only and RL-only methods across challenging
+multimodal reasoning benchmarks. The resulting models achieve state-of-the-art
+performance among open-source MLLMs at both 3B and 7B scales, with our 7B
+model showing substantial improvements over base models (e.g., 66.3%→73.4%
+on MathVista, 62.9%→70.4% on We-Math) and our 3B model achieving performance competitive with several 7B models. Overall, this work provides practical
+guidance for building advanced multimodal reasoning models. Our code is available at https://github.com/waltonfuture/RL-with-Cold-Start.
+∗
+
+Correspondence to Weiran Huang (weiran.huang@outlook.com).
+
+1
+
+Introduction
+
+LLMs have demonstrated remarkable progress in chain-of-thought reasoning, most notably exemplified by OpenAI’s o1, o3, and o4 models [19]. Follow-up studies have sought to replicate and extend
+these complex reasoning abilities, revealing that targeted post-training methods can further improve
+model performance on challenging tasks [13, 14, 44, 63]. Among these, DeepSeek-R1-Zero [14]
+demonstrated that an “aha moment” can autonomously emerge during reinforcement learning (RL),
+showcasing advanced problem-solving strategies. DeepSeek-R1 [14] further showed that RL with
+supervised fine-tuning (SFT) as a cold start is particularly effective at enhancing the overall reasoning
+ability of LLMs. While these advances predominantly focus on text-only models, the potential of
+incorporating similarly complex reasoning strategies within Multimodal Large Language Models
+(MLLMs) has remained relatively underexplored.
+Recent follow-up works have attempted to advance the reasoning ability in MLLMs [10, 34, 54, 58,
+60, 69] using various techniques, including SFT and RL scaling. Many works focus on Zero RL (i.e.,
+directly applying RL without cold start) training, claiming that the “aha moment” can emerge through
+Zero RL [34, 69] in MLLMs, which indicate improved reasoning ability. Some concurrent works
+assert that Zero RL outperforms the combination of SFT and RL [4, 61].
+In this paper, we first observe that the so-called “aha moment” pattern already exists in MLLMs before
+RL training, but this presence does not necessarily correlate with improved reasoning capabilities.
+Our analysis reveals that, while RL may increase the frequency of such a reflective pattern, it may
+be more of a mirage rather than an indicator of genuine improvements in reasoning capability. This
+finding challenges the prevailing assumptions about emergent reasoning in MLLMs and suggests a
+need for more deliberate approaches to enhancing multimodal reasoning.
+Motivated by DeepSeek-R1’s approach of collecting cold-start data to fine-tune the model as the
+initial RL actor, we conduct a comprehensive empirical study of SFT and RL in a unified framework
+in multimodal domain. Our methodology consists of two stages: (1) a cold start phase where
+we develop multimodal Chain-of-Thought [51] (CoT) patterns for supervised fine-tuning, and (2) a
+reinforcement learning phase using GRPO [40] to further enhance reasoning capabilities. In particular,
+we systematically investigate how different cold start strategies during SFT affect downstream RL
+performance in the multimodal domain, aiming to establish a robust foundation for the subsequent
+RL training.
+Our experiments demonstrate that SFT-based cold start provides a strong basis for RL scaling. Our
+approach achieves state-of-the-art results among open-source models at both parameter scales, as
+illustrated in Figure 1. For the 7B model, we observe substantial improvements over the base models
+(e.g., 66.3%→73.4% on MathVista, 62.9%→70.4% on We-Math), surpassing all models at the same
+scale and even outperforming some larger models, including GPT-4o and Skywork R1V-38B. Notably,
+our best 7B model achieves an average score improvement of +6.19 points across all benchmarks
+compared to the base model. Similarly, our 3B model demonstrates significant gains, achieving an
+average improvement of +10.84 points and performance competitive with, or even exceeding, several
+7B models such as Qwen2.5-VL-7B and VLAA-Thinker-7B–highlighting the effectiveness of our
+training paradigm.
+To further elucidate the interplay between SFT and RL, we conduct extensive ablation studies
+exploring how various SFT strategies and data qualities impact subsequent RL performance. Our
+findings reveal that while both SFT-only and RL-only approaches yield notable improvements over
+base models, their combination consistently delivers superior performance across a wide range
+of experiments. Furthermore, we observe a strong positive correlation between cold start (SFT)
+performance and final model quality after RL, suggesting that investing in high-quality supervision
+during the initial stage is crucial for maximizing overall gains. Our deeper analysis indicates that the
+structural patterns present in Chain-of-Thought reasoning can be learned independently of solution
+correctness, underscoring the importance of reasoning format, while the presence of the “aha moment”
+pattern does not necessarily correlate with enhanced reasoning ability.
+Our contribution can be summarized as follows:
+• We empirically investigate the prevalence and effectiveness of “aha moment” patterns in MLLMs,
+demonstrating that these reflective patterns exist prior to RL but may not necessarily indicate
+enhanced reasoning capabilities.
+2
+
+Frequency
+11.98
+
+Frequency (%)
+
+12
+
+95
+94
+
+11
+
+93
+
+10
+
+92
+
+9
+
+91
+
+8
+
+90
+
+7
+6
+
+6.07
+
+6.59
+
+Accuracy
+Without 'aha moment'
+93.96
+
+With 'aha moment'
+20.25
+
+93.41
+
+Accuracy (%)
+
+13
+
+With 'aha moment'
+
+89
+
+88.02
+
+88
+
+20.00
+
+27
+
+19.75
+
+26
+
+19.50
+
+25
+
+19.25
+19.00
+18.75
+
+Qwen2.5-VL
+
+VLAA-Thinker
+
+27.56
+
+24
+
+18.98
+18.68
+
+18.50
+
+87
+
+5
+
+Without 'aha moment'
+28
+
+20.17
+
+23
+22
+
+23.02
+22.24
+
+MM-EUREKA
+
+Figure 2: The frequency and accuracy of models’ responses with and without “aha moment”. The
+results show that the presence of “aha moment” does not necessarily correlate with higher accuracy.
+
+• Based on the above insights, we present the first comprehensive study of the impact of supervised
+fine-tuning as a cold start for reinforcement learning in the multimodal domain, exploring diverse
+SFT strategies to enhance reasoning abilities.
+• Empirical results demonstrate that an SFT-based cold start provides a robust foundation for RL
+scaling. The combination of targeted SFT and subsequent RL yields substantial improvements
+across challenging multimodal reasoning benchmarks. Using this simple yet effective approach,
+we train state-of-the-art models at both the 3B and 7B parameter scales.
+
+2
+
+Related Work
+
+Recently, the mathematical reasoning abilities of MLLMs have become a central focus of research [11, 12, 15–17, 23, 57, 67, 70]. In contrast to traditional LLM-based mathematical reasoning [32, 62], which primarily relies on text, multimodal approaches must both process and interpret
+visual inputs, significantly increasing the complexity of tasks such as geometric problem-solving and
+chart interpretation [5, 33]. Several works in this field have sought to collect or synthesize a large scale
+of math-centric multimodal data with explicit reasoning steps [9, 35, 42, 65]. Notably, the recent emergence of o1-like reasoning models [19] represents an initial step toward activating the slow-thinking
+capabilities of MLLMs, as demonstrated by several SFT-based methods, such as LLaVA-CoT [54],
+LLaVA-Reasoner [66], MAmmoTH-VL [15], and Mulberry [58]. Moreover, some concurrent works
+have further explored reinforcement learning approaches, particularly GRPO, in the post-training
+stage of MLLMs to enhance performance on multimodal reasoning tasks [6, 10, 34, 36, 41, 50, 60, 69].
+These approaches typically follow these strategies: either directly applying supervised fine-tuning
+(SFT) with long reasoning data or reinforcement learning (RL) to train models from scratch, or first
+performing SFT before applying RL. In contrast, our work explores a different direction by focusing
+on how the cold start stage impacts the subsequent RL stage for MLLMs in the unified two-stage
+post-training (SFT+RL) process. We systematically study various cold start strategies during the SFT
+phase and empirically demonstrate how they build strong reasoning foundations before applying RL,
+resulting in more effective multimodal reasoning capabilities.
+
+3
+
+Observation: Aha Moment Already Exists but May Not Indicate Advanced
+Reasoning Ability
+
+Recent works claim that reinforcement learning (usually GRPO [40]) can trigger reflective thinking
+patterns, often characterized as an “aha moment” and considered an emergent phenomenon, which
+showcases the improved reasoning ability of the models [34, 69]. In our study, we observe that such
+reflective patterns—indicative of an aha moment—can actually be found in Qwen2.5-VL [2] before
+conducting GRPO. Specifically, we sample the model’s responses 16 times for each query in the
+MathVision dataset [49] and analyze the presence of keywords such as “re-evaluate” and “re-check”
+in the responses.
+Interestingly, our analysis reveals that while these reflective expressions already exist, their presence
+does not necessarily correlate with improved reasoning capabilities. In particular, we conduct
+3
+
+experiments on Qwen2.5-VL-7B and other two models tuned using GRPO based on Qwen2.5-VL-7B:
+MM-EUREKA [34] and VLAA-Thinker [4]. According to Figure 2, we find that the frequency of
+“aha moment”-like expressions increases from 6.07 in Qwen2.5-VL to 6.59 in VLAA-Thinker and
+11.98 in MM-EUREKA. However, the associated accuracies when such expressions appear actually
+drop. Specifically, the accuracy is 20.17 for Qwen2.5-VL, but only 18.98 for VLAA-Thinker and
+18.68 for MM-EUREKA in these “aha moment” cases.
+These findings suggest that the so-called “aha moment” may be more of a mirage than a reliable
+indicator of genuine reasoning ability. While GRPO can increase the frequency of such patterns,
+they may not correlate with actual enhancement of reasoning performance. In many cases, these
+reflective patterns are ineffective or even misleading, sometimes introducing hallucinations rather
+than improving solution quality. We illustrate this issue with a representative example below, where
+the model does begin to reflect and re-evaluate—but its reasoning remains flawed and hallucinatory.
+We also provide more case studies in Appendix D.1.
+Demo: An example of “Aha Moment” which does not indicate effective reflection pattern.
+Question: In the given parallelogram ABCD, if the sum of angle B and angle D measures 100◦ , what is the
+measure of angle A?
+Qwen2.5-VL’s Response:
+To solve this problem, we need to use the properties of a parallelogram.
+...
+Now, assume: angle B = x, angle D = 180◦ − x. Given: x + (180◦ − x) = 100◦ ⇒ 180◦ =
+100◦
+This is incorrect, so we need to re-evaluate the problem. The correct interpretation should be that the sum of
+angle B and angle D is 180◦ , not 100◦ .
+Therefore, the measure of angle A is: 140
+
+◦
+
+To address this, we argue that reinforcement learning alone may struggle to induce new and effective
+reasoning strategies. Instead, we propose a two-stage approach: (1) supervised fine-tuning (SFT) to
+initialize the model with high-quality, reasoning-rich patterns, followed by (2) reinforcement learning
+to activate and refine these patterns.
+
+4
+
+Reinforcement Learning with Cold Start
+
+In this section, we present our methodology for enhancing multimodal reasoning capabilities via
+reinforcement learning with cold start. Our method consists of two main stages: (1) a cold start phase
+where we explore to construct diverse reasoning patterns in Chain-of-Thought [51] (CoT) data for
+supervised fine-tuning, and (2) a reinforcement learning phase to further activate and improve the
+model’s reasoning capability.
+4.1
+
+Cold Start
+
+As demonstrated in the previous section, we observe that the current aha-moment like reflection
+patterns may not be effective, and directly applying RL does not sufficiently enable models to acquire
+strong reasoning capabilities in multimodal domain. We argue that it is crucial to first conduct
+supervised fine-tuning (SFT) as a cold start to equip the model with strong reasoning abilities before
+introducing RL. In our study, we focus on exploring efficient ways to construct multimodal cold-start
+data for advanced reasoning. Specifically, we leverage synthetic data to generate different types of
+CoT reasoning patterns via distillation.
+Distilled-CoT. Synthesizing data using model distillation is a powerful and widely-used technique [7, 24, 25]. Here, we use larger models (Qwen2.5-VL-7B [2] and Qwen2.5-VL-32B [2])
+to generate CoT responses from a seed dataset with ground truth annotations by rejection sampling [46, 47]. These distilled datasets are used for the supervised fine-tuning that serves as a cold
+start stage. More details of the distillation are shown in Appendix A.2.
+Reflection-CoT. Recent studies highlight the great potential in solving challenging problems
+through explicit reflection [9, 14, 39]. To explore this, we consider two reflection-based CoT settings.
+Reflection-CoT (v1): In the rejection sampling process, we obtain both correct and incorrect responses,
+denoted as y + and y − . We explore a simple two-step reasoning pattern inspired by prior work [9]:
+4
+
+Teacher MLLM
+
+RL Dataset
+
+SFT Dataset
+
+Supervised Fine-Tuning
+(Cold Start)
+
+Reinforcement Learning
+MLLM (SFT)
+
+MLLM (SFT+RL)
+
+Distillation
+RL Dataset
+
+Seed Dataset
+
+Reinforcement Learning
+MLLM
+
+MLLM (RL)
+
+Figure 3: Method overview. Our approach consists of two stages: (1) a cold start phase using
+supervised fine-tuning with Chain-of-Thought data, and (2) a reinforcement learning phase using
+GRPO to further enhance reasoning capabilities.
+y − + “Wait, perhaps we could consider it from a different perspective. Let’s
+re-evaluate the problem step by step to ensure accuracy.” + y +
+This approach combines the incorrect response with the correct one, and resembles the Best-of-N
+test-time scaling strategy (with N=2), where the model selects the best response during multiple
+generations via reflection.
+Reflection-CoT (v2): As noted in Section 3, we find that aha moment already exists before RL
+training. Building on this, we conduct further rejection sampling using Qwen2.5-VL-32B to collect
+correct responses that exhibit such reflection pattern.
+Caption-CoT. We utilize a classical multimodal CoT pattern [11, 45, 54], where the model first
+describes an image and then provides an answer. This approach aims to encourage the model to focus
+on image details before engaging in reasoning. Specifically, we generate a caption for each image
+using Qwen2.5-VL-7B [2] and concatenate the caption with the previously sampled correct response.
+Self-Critic-CoT. Additionally, we adopt the prompting strategy in Wen et al. [53] to collect SelfCritic-CoT via rejection sampling. Specifically, Self-Critic-CoT is an iterative reasoning structure
+where models engage in self-comment and refinement of their initial responses. In this process, the
+model first generates a draft answer, then critically evaluates its own response by providing detailed
+comments, before producing a refined final output. The prompt used for this process is detailed in
+Appendix A.1.
+Generally, we explore several popular and straightforward methods to construct the CoT datasets for
+cold start. By conducting SFT on the aforementioned datasets, we aim to establish a robust cold start
+foundation for subsequent RL training stages.
+4.2
+
+Reinforcement Learning
+
+After the cold start stage, we employ reinforcement learning using GRPO algorithm [40], following
+the strategy in DeepSeek-R1 [14], to further activate the reasoning ability of the models. In particular,
+GRPO optimizes computational efficiency by eliminating the need for a separate value model; instead,
+it directly utilizes group-normalized rewards to estimate advantages. Specifically, for a question q and
+the correlated image I from the training dataset Q, GRPO samples a group of responses O = {oi }G
+i=1
+from the old policy πold and then optimizes the policy model by maximizing the following objective:
+J (θ) = E(q,I)∼Q,{oi }G
+i=1 ∼πθold (O|q,I)
+(
+"
+#
+)
+|oi |
+G
+h
+i
+1 X 1 X
+min γi,t (θ)Âi,t , clip (γi,t (θ), 1 − ϵ, 1 + ϵ) Âi,t − βDKL πθ ∥πref ,
+G i=1 |oi | t=1
+
+5
+
+Table 1: Performance comparison on different multimodal reasoning benchmarks. Our models
+achieve state-of-the-art performance at the scale of 3B and 7B.
+Models
+
+Size
+
+MathVision
+
+MathVerse
+
+MathVista
+
+We-Math
+
+Average
+
+59.50
+68.20
+
+65.00
+73.05
+
+51.82
+61.34
+
+65.29
+60.06
+
+55.72
+51.95
+
+62.87
+66.03
+63.91
+67.99
+66.49
+70.40 (+7.53)
+
+49.47
+53.58
+49.03
+53.03
+51.70
+55.66 (+6.19)
+
+50.63
+63.91
+63.28
+56.03
+64.08 (+13.45)
+
+40.00
+49.03
+46.57
+43.32
+50.84 (+10.84)
+
+Close-Source Models
+GPT-4o [18]
+Claude-3.5-Sonnet [1]
+
+-
+
+33.95
+46.48
+
+QvQ-Preview [2]
+Skywork R1V [36]
+
+72B
+38B
+
+48.83
+57.64
+
+Open-Source Multi-Modal Large Reasoning Models
+35.56
+39.31
+
+52.81
+40.91
+
+69.20
+67.50
+
+Open-Source 7B Multi-Modal Models
+Qwen2.5-VL [2]
+MM-Eureka [34]
+OpenVLThinker [10]
+ThinkLite-VL [50]
+VLAA-Thinker [4]
+Ours
+
+7B
+7B
+7B
+7B
+7B
+7B
+
+24.87
+28.36
+25.30
+27.71
+26.61
+30.26 (+5.39)
+
+Qwen2.5-VL [2]
+LMM-R1 [60]
+TBAC-VLR1 [55]
+VLAA-Thinker [4]
+Ours
+
+3B
+3B
+3B
+3B
+3B
+
+19.47
+25.30
+25.03
+22.41
+27.04 (+7.57)
+
+43.83
+49.52
+42.79
+47.41
+47.49
+48.58 (+4.75)
+
+66.30
+70.40
+64.10
+69.00
+66.20
+73.40 (+7.10)
+
+Open-Source 3B Multi-Modal Models
+
+π (o
+
+|q,o
+
+33.58
+42.79
+38.17
+35.44
+44.03 (+10.45)
+
+56.30
+64.10
+59.80
+59.40
+68.20 (+11.90)
+
+)
+
+where γi,t (θ) = πθ θ (oi,ti,t |q,oi,<t
+, πref represents the reference model, and the term DKL introduces
+i,<t )
+old
+a KL divergence constraint to limit how much the model can deviate from this reference. The
+advantage estimate Âi measures how much better the response oi is compared to the average
+response, which is computed using a group of rewards {r1 , r2 , . . . , rG } for the responses in set O:
+1 ,r2 ,...,rG })
+Âi = ri −mean({r
+.
+std({r1 ,r2 ,...,rG })
+
+5
+
+Experiments
+
+To validate the effectiveness of our method, we demonstrate our experimental setup and main results
+in the following sections.
+5.1
+
+Experimental Setup
+
+Training Datasets. For the cold start training phase, we curate a diverse dataset of 50k examples
+from established open-source resources, including Geometry3K [27], GeoQA [5], GeoQA-Plus [3],
+Geos [38], AI2D [21], TQA [22], FigureQA [20], TabMWP [30], ChartQA [33], IconQA [28],
+Clevr-Math [26], M3CoT [8], and ScienceQA [29]. These datasets cover a range of tasks, such as
+chart understanding, scientific question answering, and geometric reasoning. We apply different
+sampling strategies to construct Chain-of-Thought trajectories following the methodology described
+in Section 4.1. For the subsequent reinforcement learning phase after cold start, we apply the same
+dataset as the cold start phase.
+Baselines. We compare our models with a series of advanced multimodal large language models.
+GPT-4o [18] and Claude-3.5-Sonnet [1] are advanced close-source MLLMs. QvQ-Preview-72B [2]
+and Skywork R1V-32B [36] are multimodal large reasoning models specifically designed for R1-like
+chain-of-thought capabilities. As for 3B models, we compare with LMM-R1-3B [60], TBACVLR1-3B [55], and VLAA-Thinker-Qwen2.5VL-3B [4]. For models at 7B scale, our comparisons
+include MM-Eureka-7B [34], OpenVLThinker-7B [10], ThinkLite-VL-7B [50], and VLAA-ThinkerQwen2.5VL-7B [4]. These 3B and 7B models are all trained from Qwen2.5-VL that are enhanced
+6
+
+Table 2: Effective rank and ∆eRank of our models before and after post-training on four multimodal
+reasoning benchmarks.
+Effective Rank [52]
+
+MathVision
+
+MathVerse
+
+MathVista
+
+We-Math
+
+Qwen2.5-VL-3B [2]
+Ours (3B)
+Difference of Effective Rank (∆eRank)
+
+74.30
+101.68
++27.38
+
+66.25
+85.91
++19.66
+
+66.43
+79.59
++13.16
+
+60.21
+79.96
++19.75
+
+Qwen2.5-VL-7B [2]
+Ours (7B)
+Difference of Effective Rank (∆eRank)
+
+73.58
+90.67
++17.09
+
+62.35
+77.16
++14.81
+
+63.85
+75.85
++12.00
+
+60.14
+73.16
++13.02
+
+multimodal reasoning through various techniques such as fine-tuning, reinforcement learning, and
+iterative self-improvement for mathematical reasoning.
+Evaluation Benchmarks. We evaluate the MLLMs on four prominent multimodal mathematical
+reasoning benchmarks: MathVision [48], MathVista [31], MathVerse [64], and We-Math [37].
+These benchmarks offer comprehensive evaluations with diverse problem types, including geometry,
+charts, and tables, featuring multi-subject math problems and meticulously categorized visual math
+challenges across various knowledge concepts and granularity levels. We provide our evaluation
+details in Appendix A.3.
+5.2
+
+Main Results
+
+In our experiments, we conduct reinforcement learning (RL) using GRPO [40] with a cold-start
+strategy. Specifically, we begin with supervised fine-tuning (SFT) on a distilled dataset generated
+from Qwen2.5-VL-32B [2], which serves as a strong teacher model. This distilled data is then used to
+initialize smaller Qwen2.5-VL variants at both the 7B and 3B scales as the cold start stage. Following
+this initialization, we apply GRPO to further enhance the models’ multimodal reasoning capabilities.
+The performance of our models is summarized in Table 1. Our approach yields consistently strong
+performance across all four multimodal reasoning benchmarks, demonstrating the effectiveness of
+our training paradigm. In particular, our 7B model delivers an overall average improvement of a
++6.19 score over the base model (Qwen2.5-VL-7B). It also achieves state-of-the-art performance
+among all open-source 7B-scale models, outperforming strong baselines such as MM-Eureka [34],
+VLAA-Thinker [4], and ThinkLite-VL [50]. Furthermore, our model surpasses many larger models,
+such as GPT-4o [18] and Skywork R1V [36]. It is also competitive with QvQ-72B [43]. Besides, the
+3B variant of our model also sets a new state-of-the-art among open-source 3B multimodal models.
+It outperforms all existing 3B baselines, including LMM-R1, TBAC-VLR1, and VLAA-Thinker,
+by significant margins on all four benchmarks. Notably, our 3B model can achieve competitive
+results on par with, and in some cases surpassing, larger 7B models such as Qwen2.5-VL-7B and
+VLAA-Thinker-7B. In addition, we also calculate the effective rank and the difference (∆eRank) [52]
+for models before and after post-training in Table 2. On a fix-sized model, the value of effective rank
+usually correlates with the amount of knowledge the model comprehends. After post-training (SFT
+and RL), extra knowledge is injected into the model, which leads to a consistent increase in effective
+rank on different benchmarks. Overall, these results highlight the effectiveness of our cold-start RL
+pipeline in enhancing reasoning capabilities. They also demonstrate the potential of scalable training
+strategies in narrowing the performance gap between small and large multimodal language models.
+
+6
+
+Ablation Studies
+
+We conduct various ablation studies to explore the interplay between supervised fine-tuning (SFT)
+and reinforcement learning (RL). The experiments below are conducted based on Qwen2.5-VL-3B.
+6.1
+
+The Effectiveness of Cold Start
+
+To better understand the impact of our cold-start strategy, we conduct an ablation study comparing
+four variants: the base model, RL-only training, SFT-only training (cold start), and the full pipeline
+7
+
+Table 3: Ablation study comparing the effectiveness of different training strategies: Supervised
+Fine-Tuning (SFT) only, Reinforcement Learning (RL) only, and the combined SFT+RL approach on
+Qwen2.5-VL models at 3B and 7B scales.
+Method
+
+MathVision
+
+MathVerse
+
+MathVista
+
+We-Math
+
+Average
+
+Qwen2.5-VL-3B [2]
++ SFT
++ RL
++ SFT and RL
+
+19.47
+25.20
+25.10
+27.04
+
+33.58
+44.39
+39.95
+44.03
+
+56.30
+67.60
+66.50
+68.20
+
+50.63
+60.63
+63.62
+64.08
+
+40.00
+49.46
+48.79
+50.84
+
+Qwen2.5-VL-7B [2]
++ SFT
++ RL
++ SFT and RL
+
+24.87
+28.62
+29.80
+30.26
+
+43.83
+46.90
+49.29
+48.58
+
+66.30
+71.20
+73.50
+73.40
+
+62.87
+67.76
+67.82
+70.40
+
+49.47
+53.62
+55.10
+55.66
+
+Table 4: Ablation study on different cold-start strategies for Qwen2.5-VL-3B. We find that the cold
+start performance correlates well with the final performance.
+Strategies
+
+MathVision MathVerse
+
+MathVista
+
+We-Math
+
+Average
+
+None (Base model)
++ RL
+
+19.47
+25.10
+
+33.58
+39.95
+
+56.30
+66.50
+
+50.63
+63.62
+
+40.00
+48.79
+
+Cold Start (32B-Distilled-CoT)
++ RL
+
+25.20
+27.04
+
+44.39
+44.03
+
+67.60
+68.20
+
+60.63
+64.08
+
+49.46
+50.84
+
+Cold Start (7B-Distilled-CoT)
++ RL
+
+24.40
+25.86
+
+41.95
+43.65
+
+64.30
+66.40
+
+59.14
+64.13
+
+47.45
+50.01
+
+Cold Start (Caption-CoT)
++ RL
+
+22.83
+25.26
+
+40.74
+42.23
+
+62.70
+65.10
+
+58.97
+63.16
+
+46.31
+48.94
+
+Cold Start (Reflection-CoT v1)
++ RL
+
+23.98
+24.21
+
+40.43
+41.98
+
+65.00
+66.10
+
+60.17
+62.59
+
+47.39
+48.72
+
+Cold Start (Self-Critic-CoT)
++ RL
+
+23.22
+25.46
+
+40.91
+41.72
+
+61.40
+66.90
+
+57.76
+64.08
+
+45.87
+49.54
+
+combining SFT and RL. The results are presented in Table 3. In particular, for 3B models, SFT
+provides a substantial boost in performance over the base model, improving the average score from
+40.00 to 49.46. While RL alone also improves performance to 48.79, it is slightly less effective than
+SFT. This suggests that RL without advanced reasoning prior is less effective at guiding the model
+toward structured problem-solving. When SFT is followed by RL, the model achieves a new peak of
+50.84, demonstrating that the cold-start stage equips the model with strong reasoning patterns, which
+are further refined by RL. The 7B models follow a similar trend. Starting from a stronger base (49.47),
+both SFT (+4.15) and RL (+5.63) lead to notable improvements. The best performance is achieved
+through the combination of SFT and RL, which yields an average score of 55.66, outperforming
+either individual component.
+These results collectively highlight that cold-start (SFT) plays a crucial role in unlocking the full
+potential of reinforcement learning for multimodal reasoning. SFT with high-quality CoT data
+represents a more direct and effective approach to enhancing a model’s fundamental reasoning
+capabilities, rather than relying solely on RL. When combined, SFT and RL offer a complementary
+and scalable path to enhance multimodal reasoning.
+6.2
+
+Different Types of CoT Data in SFT
+
+We explore various cold-start strategies beyond direct distillation from a 32B teacher model (Qwen2.5VL-32B), focusing specifically on the 3B student model. These other strategies are detailed in
+Section 4.1 based on rejection sampling using Qwen2.5-VL-7B. As shown in Table 4, the choice of
+cold-start strategy significantly influences final model performance. Among all strategies, using CoT
+data distilled from a strong 32B teacher model yields the best results, achieving an average score
+of 49.46 after SFT and 50.84 after subsequent RL. Direct distillation from Qwen2.5-VL-7B also
+provides substantial improvements over the base model, but is slightly less effective than the 32B
+teacher, suggesting that the quality and scale of the teacher model are important for constructing highquality cold start data. Other strategies, such as Caption-CoT, Reflection-CoT, and Self-Critic-CoT,
+8
+
+Base Model
+
+Accuracy (%)
+
+MathVision
+26
+24
+
+Data with Aha Moment
+
+MathVerse
+66
+
+40
+
+64
+62
+
+38
+
+22
+
+60
+
+36
+
+20
+
+MathVista
+
+42
+
+58
+
+34
+
+56
+
+Randomly Selected Data
+65.0
+62.5
+60.0
+57.5
+55.0
+52.5
+50.0
+
+Average
+
+We-Math
+50
+48
+46
+44
+42
+40
+
+Figure 4: Comparison of model performance when trained on data with “aha moment” patterns
+(Reflection-CoT v2) versus randomly selected 32B-distilled data. Model trained on randomly selected
+data consistently outperform that trained on “aha moment” data, suggesting that these reflective
+patterns do not necessarily correlate with advanced reasoning capabilities.
+Table 5: Impact of data quality on model performance. Results show that while rejection sampling
+(correct data) yields the best performance, models trained on unjudged or even incorrect data still
+outperform the base model.
+Strategies
+
+MathVista
+
+We-Math
+
+Average
+
+None (Base model)
++ RL
+
+MathVision MathVerse
+19.47
+25.10
+
+33.58
+39.95
+
+56.30
+66.50
+
+50.63
+63.62
+
+40.00
+48.79
+
+Cold Start (Correct Data)
++ RL
+
+25.20
+27.04
+
+44.39
+44.03
+
+67.60
+68.20
+
+60.63
+64.08
+
+49.46
+50.84
+
+Cold Start (Unjudged Data)
++ RL
+
+25.59
+27.83
+
+42.08
+42.44
+
+65.80
+67.10
+
+60.06
+62.64
+
+48.38
+50.00
+
+Cold Start (Wrong Data)
++ RL
+
+24.41
+24.44
+
+37.77
+40.38
+
+63.30
+64.70
+
+55.40
+63.51
+
+45.22
+48.26
+
+also lead to notable gains compared to the base model, but their improvements are generally smaller
+than those achieved by simple teacher distillation. For example, Caption-CoT and Reflection-CoT
+(v1) achieve average scores of 46.31 and 47.39 after SFT, respectively, while Self-Critic-CoT yields
+45.87. Nevertheless, all these strategies benefit from additional RL, with performance consistently
+increasing after the RL stage. In addition, we observe a strong positive correlation between the
+performance of the cold start stage (SFT) and the final model performance after conducting RL. This
+suggests that selecting an effective cold start strategy is crucial for maximizing the overall benefits.
+In practice, investing effort in constructing strong SFT data may yield greater performance gains than
+relying on RL alone to enhance the model’s reasoning capabilities.
+6.3
+
+Revisiting “Aha Moment”
+
+As we observe in Section 3, the so-called “aha moment” in MLLMs does not necessarily correspond
+to genuinely useful reasoning patterns. To further investigate this, we conduct a targeted experiment.
+As described in Section 4.1, we build a dataset by applying rejection sampling to Qwen2.5-VL-32B,
+retaining only correct responses that exhibit the “aha moment” pattern. This yields 10K samples,
+referred to as Reflection-CoT (v2). For comparison, we also randomly sample 10K instances from the
+32B-distilled dataset. We then perform SFT on each dataset, followed by GRPO. Results in Figure 4
+reveal that the model trained on “aha moment” data actually underperforms the model trained on
+randomly selected data. This suggests that the presence of the “aha moment” in the responses does
+not necessarily translate into improved reasoning performance.
+6.4
+
+Data Quality in SFT
+
+We investigate the impact of data quality on model performance by examining different sampling
+strategies for SFT data collection: (1) Rejection Sampling: Selecting only responses that yield correct
+answers (our default approach). (2) Wrong-Only Sampling: Deliberately selecting responses that lead
+to incorrect answers. (3) Unjudged Sampling: Randomly selecting responses without considering
+correctness. As shown in Table 5, the highest performance is achieved with rejection sampling,
+9
+
+where only correct data is used. Interestingly, models trained on unjudged data—where correctness
+is not considered—still demonstrate notable improvements in reasoning ability. Even when trained
+exclusively on incorrect data, the model outperforms the base model after the cold start phase and
+continues to benefit from subsequent RL. These results suggest that the structural patterns present in
+Chain-of-Thought reasoning can be learned independently of solution correctness, highlighting the
+importance of reasoning format in addition to answer accuracy.
+
+7
+
+Conclusion
+
+In this paper, we demonstrate that “aha moment” patterns already exist in MLLMs before RL training
+but may not necessarily correlate with improved reasoning capabilities. We propose a two-stage
+approach to enhance multimodal reasoning: first conducting supervised fine-tuning (SFT) with
+high-quality Chain-of-Thought data to establish a strong foundation, followed by reinforcement
+learning (RL) to further refine these capabilities. Our extensive experiments show that this combined
+approach consistently outperforms both SFT-only and RL-only methods, achieving state-of-the-art
+performance among open-source MLLMs at both 3B and 7B scales.
+
+Acknowledgement
+This project is supported by the National Natural Science Foundation of China (No. 62406192), Opening Project of the State Key Laboratory of General Artificial Intelligence (No. SKLAGI2024OP12),
+Tencent WeChat Rhino-Bird Focused Research Program, and Doubao LLM Fund.
+
+References
+[1] Anthropic. The claude 3 model family: Opus, sonnet, haiku. https://www-cdn.anthropic.com/
+de8ba9b01c9ab7cbabf5c33b80b7bbc618857627/Model_Card_Claude_3.pdf, 2024. Preprint.
+[2] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie
+Wang, Jun Tang, et al. Qwen2. 5-vl technical report. arXiv preprint arXiv:2502.13923, 2025.
+[3] Jie Cao and Jing Xiao. An augmented benchmark dataset for geometric question answering through dual
+parallel text encoding. In Proceedings of the 29th international conference on computational linguistics,
+pages 1511–1520, 2022.
+[4] Hardy Chen, Haoqin Tu, Fali Wang, Hui Liu, Xianfeng Tang, Xinya Du, Yuyin Zhou, and Cihang
+Xie. Sft or rl? an early investigation into training r1-like reasoning large vision-language models.
+https://github.com/UCSC-VLAA/VLAA-Thinking, 2025.
+[5] Jiaqi Chen, Jianheng Tang, Jinghui Qin, Xiaodan Liang, Lingbo Liu, Eric Xing, and Liang Lin. Geoqa: A
+geometric question answering benchmark towards multimodal numerical reasoning. In Findings of the
+Association for Computational Linguistics: ACL-IJCNLP 2021, pages 513–523, 2021.
+[6] Liang Chen, Lei Li, Haozhe Zhao, Yifan Song, and Vinci. R1-v: Reinforcing super generalization ability in
+vision-language models with less than $3. https://github.com/Deep-Agent/R1-V, 2025. Accessed:
+2025-02-02.
+[7] Lin Chen, Jinsong Li, Xiaoyi Dong, Pan Zhang, Conghui He, Jiaqi Wang, Feng Zhao, and Dahua Lin.
+Sharegpt4v: Improving large multi-modal models with better captions. In European Conference on
+Computer Vision, pages 370–387. Springer, 2024.
+[8] Qiguang Chen, Libo Qin, Jin Zhang, Zhi Chen, Xiao Xu, and Wanxiang Che. M3cot: A novel benchmark
+for multi-domain multi-step multi-modal chain-of-thought. arXiv preprint arXiv:2405.16473, 2024.
+[9] Kanzhi Cheng, Yantao Li, Fangzhi Xu, Jianbing Zhang, Hao Zhou, and Yang Liu. Vision-language models
+can self-improve reasoning via reflection. arXiv preprint arXiv:2411.00855, 2024.
+[10] Yihe Deng, Hritik Bansal, Fan Yin, Nanyun Peng, Wei Wang, and Kai-Wei Chang. Openvlthinker: An
+early exploration to complex vision-language reasoning via iterative self-improvement. arXiv preprint
+arXiv:2503.17352, 2025.
+[11] Yuhao Dong, Zuyan Liu, Hai-Long Sun, Jingkang Yang, Winston Hu, Yongming Rao, and Ziwei Liu.
+Insight-v: Exploring long-chain visual reasoning with multimodal large language models. arXiv preprint
+arXiv:2411.14432, 2024.
+
+10
+
+[12] Dawei Gao, Haibin Wang, Yaliang Li, Xiuyu Sun, Yichen Qian, Bolin Ding, and Jingren Zhou. Text-to-sql
+empowered by large language models: A benchmark evaluation. arXiv preprint arXiv:2308.15363, 2023.
+[13] Google. Introducing gemini 2.0: our new ai model for the agentic era, 2024. URL https:
+//blog.google/technology/google-deepmind/google-gemini-ai-update-december-2024/
+#ceo-message.
+[14] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong
+Ma, Peiyi Wang, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement
+learning. arXiv preprint arXiv:2501.12948, 2025.
+[15] Jarvis Guo, Tuney Zheng, Yuelin Bai, Bo Li, Yubo Wang, King Zhu, Yizhi Li, Graham Neubig, Wenhu
+Chen, and Xiang Yue. Mammoth-vl: Eliciting multimodal reasoning with instruction tuning at scale. arXiv
+preprint arXiv:2412.05237, 2024.
+[16] Xiaotian Han, Yiren Jian, Xuefeng Hu, Haogeng Liu, Yiqi Wang, Qihang Fan, Yuang Ai, Huaibo Huang,
+Ran He, Zhenheng Yang, et al. Infimm-webmath-40b: Advancing multimodal pre-training for enhanced
+mathematical reasoning. In The 4th Workshop on Mathematical Reasoning and AI at NeurIPS’24, 2024.
+[17] Yushi Hu, Weijia Shi, Xingyu Fu, Dan Roth, Mari Ostendorf, Luke Zettlemoyer, Noah A Smith, and
+Ranjay Krishna. Visual sketchpad: Sketching as a visual chain of thought for multimodal language models.
+arXiv preprint arXiv:2406.09403, 2024.
+[18] Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perelman, Aditya Ramesh, Aidan Clark, AJ Ostrow,
+Akila Welihinda, Alan Hayes, Alec Radford, et al. Gpt-4o system card. arXiv preprint arXiv:2410.21276,
+2024.
+[19] Aaron Jaech, Adam Kalai, Adam Lerer, Adam Richardson, Ahmed El-Kishky, Aiden Low, Alec Helyar, Aleksander Madry, Alex Beutel, Alex Carney, et al. Openai o1 system card. arXiv preprint
+arXiv:2412.16720, 2024.
+[20] Samira Ebrahimi Kahou, Vincent Michalski, Adam Atkinson, Ákos Kádár, Adam Trischler, and Yoshua
+Bengio. Figureqa: An annotated figure dataset for visual reasoning. arXiv preprint arXiv:1710.07300,
+2017.
+[21] Aniruddha Kembhavi, Mike Salvato, Eric Kolve, Minjoon Seo, Hannaneh Hajishirzi, and Ali Farhadi. A
+diagram is worth a dozen images. In Computer Vision–ECCV 2016: 14th European Conference, Amsterdam,
+The Netherlands, October 11–14, 2016, Proceedings, Part IV 14, pages 235–251. Springer, 2016.
+[22] Daesik Kim, Seonhoon Kim, and Nojun Kwak. Textbook question answering with multi-modal context
+graph understanding and self-supervised open-set comprehension. arXiv preprint arXiv:1811.00232, 2018.
+[23] Bo Li, Yuanhan Zhang, Dong Guo, Renrui Zhang, Feng Li, Hao Zhang, Kaichen Zhang, Peiyuan Zhang,
+Yanwei Li, Ziwei Liu, et al. Llava-onevision: Easy visual task transfer. arXiv preprint arXiv:2408.03326,
+2024.
+[24] Dacheng Li, Shiyi Cao, Tyler Griggs, Shu Liu, Xiangxi Mo, Eric Tang, Sumanth Hegde, Kourosh
+Hakhamaneshi, Shishir G Patil, Matei Zaharia, et al. Llms can easily learn to reason from demonstrations
+structure, not content, is what matters! arXiv preprint arXiv:2502.07374, 2025.
+[25] Yuetai Li, Xiang Yue, Zhangchen Xu, Fengqing Jiang, Luyao Niu, Bill Yuchen Lin, Bhaskar Ramasubramanian, and Radha Poovendran. Small models struggle to learn from strong reasoners. arXiv preprint
+arXiv:2502.12143, 2025.
+[26] Adam Dahlgren Lindström and Savitha Sam Abraham. Clevr-math: A dataset for compositional language,
+visual and mathematical reasoning. arXiv preprint arXiv:2208.05358, 2022.
+[27] Pan Lu, Ran Gong, Shibiao Jiang, Liang Qiu, Siyuan Huang, Xiaodan Liang, and Song-Chun Zhu. Intergps: Interpretable geometry problem solving with formal language and symbolic reasoning. arXiv preprint
+arXiv:2105.04165, 2021.
+[28] Pan Lu, Liang Qiu, Jiaqi Chen, Tony Xia, Yizhou Zhao, Wei Zhang, Zhou Yu, Xiaodan Liang, and
+Song-Chun Zhu. Iconqa: A new benchmark for abstract diagram understanding and visual language
+reasoning. arXiv preprint arXiv:2110.13214, 2021.
+[29] Pan Lu, Swaroop Mishra, Tanglin Xia, Liang Qiu, Kai-Wei Chang, Song-Chun Zhu, Oyvind Tafjord, Peter
+Clark, and Ashwin Kalyan. Learn to explain: Multimodal reasoning via thought chains for science question
+answering. Advances in Neural Information Processing Systems, 35:2507–2521, 2022.
+
+11
+
+[30] Pan Lu, Liang Qiu, Kai-Wei Chang, Ying Nian Wu, Song-Chun Zhu, Tanmay Rajpurohit, Peter Clark, and
+Ashwin Kalyan. Dynamic prompt learning via policy gradient for semi-structured mathematical reasoning.
+arXiv preprint arXiv:2209.14610, 2022.
+[31] Pan Lu, Hritik Bansal, Tony Xia, Jiacheng Liu, Chunyuan Li, Hannaneh Hajishirzi, Hao Cheng, Kai-Wei
+Chang, Michel Galley, and Jianfeng Gao. Mathvista: Evaluating mathematical reasoning of foundation
+models in visual contexts. arXiv preprint arXiv:2310.02255, 2023.
+[32] Haipeng Luo, Qingfeng Sun, Can Xu, Pu Zhao, Jianguang Lou, Chongyang Tao, Xiubo Geng, Qingwei
+Lin, Shifeng Chen, and Dongmei Zhang. Wizardmath: Empowering mathematical reasoning for large
+language models via reinforced evol-instruct. arXiv preprint arXiv:2308.09583, 2023.
+[33] Ahmed Masry, Do Xuan Long, Jia Qing Tan, Shafiq Joty, and Enamul Hoque. Chartqa: A benchmark for
+question answering about charts with visual and logical reasoning. arXiv preprint arXiv:2203.10244, 2022.
+[34] Fanqing Meng, Lingxiao Du, Zongkai Liu, Zhixiang Zhou, Quanfeng Lu, Daocheng Fu, Botian Shi,
+Wenhai Wang, Junjun He, Kaipeng Zhang, Ping Luo, Yu Qiao, Qiaosheng Zhang, and Wenqi Shao.
+Mm-eureka: Exploring visual aha moment with rule-based large-scale reinforcement learning, 2025. URL
+https://github.com/ModalMinds/MM-EUREKA.
+[35] Shuai Peng, Di Fu, Liangcai Gao, Xiuqin Zhong, Hongguang Fu, and Zhi Tang. Multimath: Bridging
+visual and mathematical reasoning for large language models. arXiv preprint arXiv:2409.00147, 2024.
+[36] Yi Peng, Xiaokun Wang, Yichen Wei, Jiangbo Pei, Weijie Qiu, Ai Jian, Yunzhuo Hao, Jiachun Pan,
+Tianyidan Xie, Li Ge, et al. Skywork r1v: Pioneering multimodal reasoning with chain-of-thought. arXiv
+preprint arXiv:2504.05599, 2025.
+[37] Runqi Qiao, Qiuna Tan, Guanting Dong, Minhui Wu, Chong Sun, Xiaoshuai Song, Zhuoma GongQue,
+Shanglin Lei, Zhe Wei, Miaoxuan Zhang, et al. We-math: Does your large multimodal model achieve
+human-like mathematical reasoning? arXiv preprint arXiv:2407.01284, 2024.
+[38] Minjoon Seo, Hannaneh Hajishirzi, Ali Farhadi, Oren Etzioni, and Clint Malcolm. Solving geometry
+problems: Combining text and diagram interpretation. In Proceedings of the 2015 conference on empirical
+methods in natural language processing, pages 1466–1476, 2015.
+[39] Darsh J Shah, Peter Rushton, Somanshu Singla, Mohit Parmar, Kurt Smith, Yash Vanjani, Ashish Vaswani,
+Adarsh Chaluvaraju, Andrew Hojel, Andrew Ma, et al. Rethinking reflection in pre-training. arXiv preprint
+arXiv:2504.04022, 2025.
+[40] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan
+Zhang, YK Li, Y Wu, et al. Deepseekmath: Pushing the limits of mathematical reasoning in open language
+models. arXiv preprint arXiv:2402.03300, 2024.
+[41] Haozhan Shen, Zilun Zhang, Qianqian Zhang, Ruochen Xu, and Tiancheng Zhao. Vlm-r1: A stable and
+generalizable r1-style large vision-language model. https://github.com/om-ai-lab/VLM-R1, 2025.
+Accessed: 2025-02-15.
+[42] Wenhao Shi, Zhiqiang Hu, Yi Bin, Junhua Liu, Yang Yang, See-Kiong Ng, Lidong Bing, and Roy Ka-Wei
+Lee. Math-llava: Bootstrapping mathematical reasoning for multimodal large language models. arXiv
+preprint arXiv:2406.17294, 2024.
+[43] Qwen Team. Qvq: To see the world with wisdom, December 2024. URL https://qwenlm.github.io/
+blog/qvq-72b-preview/.
+[44] Qwen Team. Qwq: Reflect deeply on the boundaries of the unknown, November 2024. URL https:
+//qwenlm.github.io/blog/qwq-32b-preview/.
+[45] Omkar Thawakar, Dinura Dissanayake, Ketan More, Ritesh Thawkar, Ahmed Heakl, Noor Ahsan, Yuhao
+Li, Mohammed Zumri, Jean Lahoud, Rao Muhammad Anwer, et al. Llamav-o1: Rethinking step-by-step
+visual reasoning in llms. arXiv preprint arXiv:2501.06186, 2025.
+[46] Yuxuan Tong, Xiwen Zhang, Rui Wang, Ruidong Wu, and Junxian He. Dart-math: Difficulty-aware
+rejection tuning for mathematical problem-solving. Advances in Neural Information Processing Systems,
+37:7821–7846, 2024.
+[47] Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay
+Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti Bhosale, et al. Llama 2: Open foundation and
+fine-tuned chat models. arXiv preprint arXiv:2307.09288, 2023.
+
+12
+
+[48] Ke Wang, Junting Pan, Weikang Shi, Zimu Lu, Houxing Ren, Aojun Zhou, Mingjie Zhan, and Hongsheng Li. Measuring multimodal mathematical reasoning with math-vision dataset. Advances in Neural
+Information Processing Systems, 37:95095–95169, 2025.
+[49] Peiyi Wang, Lei Li, Zhihong Shao, Runxin Xu, Damai Dai, Yifei Li, Deli Chen, Yu Wu, and Zhifang Sui.
+Math-shepherd: Verify and reinforce llms step-by-step without human annotations. In Proceedings of the
+62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages
+9426–9439, 2024.
+[50] Xiyao Wang, Zhengyuan Yang, Chao Feng, Hongjin Lu, Linjie Li, Chung-Ching Lin, Kevin Lin, Furong
+Huang, and Lijuan Wang. Sota with less: Mcts-guided sample selection for data-efficient visual reasoning
+self-improvement. arXiv preprint arXiv:2504.07934, 2025.
+[51] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny
+Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. Advances in Neural
+Information Processing Systems, 35:24824–24837, 2022.
+[52] Lai Wei, Zhiquan Tan, Chenghai Li, Jindong Wang, and Weiran Huang. Large language model evaluation
+via matrix entropy. arXiv preprint arXiv:2401.17139, 2024.
+[53] Pengcheng Wen, Jiaming Ji, Chi-Min Chan, Juntao Dai, Donghai Hong, Yaodong Yang, Sirui Han, and
+Yike Guo. Thinkpatterns-21k: A systematic study on the impact of thinking patterns in llms. arXiv preprint
+arXiv:2503.12918, 2025.
+[54] Guowei Xu, Peng Jin, Hao Li, Yibing Song, Lichao Sun, and Li Yuan. Llava-cot: Let vision language
+models reason step-by-step. CoRR, abs/2411.10440, 2024.
+[55] Junzhe Xu and Yuyang yin. Tbac-vlr1-3b-preview, 2025.
+TencentBAC/TBAC-VLR1-3B-preview.
+
+URL https://huggingface.co/
+
+[56] An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng
+Liu, Fei Huang, Haoran Wei, et al. Qwen2. 5 technical report. arXiv preprint arXiv:2412.15115, 2024.
+[57] Zhen Yang, Jinhao Chen, Zhengxiao Du, Wenmeng Yu, Weihan Wang, Wenyi Hong, Zhihuan Jiang, Bin
+Xu, Yuxiao Dong, and Jie Tang. Mathglm-vision: Solving mathematical problems with multi-modal large
+language model. arXiv preprint arXiv:2409.13729, 2024.
+[58] Huanjin Yao, Jiaxing Huang, Wenhao Wu, Jingyi Zhang, Yibo Wang, Shunyu Liu, Yingjie Wang, Yuxin
+Song, Haocheng Feng, Li Shen, et al. Mulberry: Empowering mllm with o1-like reasoning and reflection
+via collective monte carlo tree search. arXiv preprint arXiv:2412.18319, 2024.
+[59] Zheng Yaowei, Lu Junting, Wang Shenzhi, Feng Zhangchi, Kuang Dongdong, and Xiong Yuwen. Easyr1:
+An efficient, scalable, multi-modality rl training framework. https://github.com/hiyouga/EasyR1,
+2025.
+[60] Peng Yingzhe, Zhang Gongrui, Zhang Miaosen, You Zhiyuan, Liu Jie, Zhu Qipeng, Yang Kai,
+Xu Xingzhong, Geng Xin, and Yang Xu. Lmm-r1: Empowering 3b lmms with strong reasoning abilities
+through two-stage rule-based rl, 2025.
+[61] En Yu, Kangheng Lin, Liang Zhao, Jisheng Yin, Yana Wei, Yuang Peng, Haoran Wei, Jianjian Sun, Chunrui
+Han, Zheng Ge, et al. Perception-r1: Pioneering perception policy with reinforcement learning. arXiv
+preprint arXiv:2504.07954, 2025.
+[62] Longhui Yu, Weisen Jiang, Han Shi, Jincheng Yu, Zhengying Liu, Yu Zhang, James T Kwok, Zhenguo
+Li, Adrian Weller, and Weiyang Liu. Metamath: Bootstrap your own mathematical questions for large
+language models. arXiv preprint arXiv:2309.12284, 2023.
+[63] Di Zhang, Jianbo Wu, Jingdi Lei, Tong Che, Jiatong Li, Tong Xie, Xiaoshui Huang, Shufei Zhang, Marco
+Pavone, Yuqiang Li, et al. Llama-berry: Pairwise optimization for o1-like olympiad-level mathematical
+reasoning. arXiv preprint arXiv:2410.02884, 2024.
+[64] Renrui Zhang, Dongzhi Jiang, Yichi Zhang, Haokun Lin, Ziyu Guo, Pengshuo Qiu, Aojun Zhou, Pan Lu,
+Kai-Wei Chang, Yu Qiao, et al. Mathverse: Does your multi-modal llm truly see the diagrams in visual
+math problems? In European Conference on Computer Vision, pages 169–186. Springer, 2024.
+[65] Renrui Zhang, Xinyu Wei, Dongzhi Jiang, Ziyu Guo, Shicheng Li, Yichi Zhang, Chengzhuo Tong, Jiaming
+Liu, Aojun Zhou, Bin Wei, et al. Mavis: Mathematical visual instruction tuning with an automatic data
+engine. arXiv preprint arXiv:2407.08739, 2024.
+
+13
+
+[66] Ruohong Zhang, Bowen Zhang, Yanghao Li, Haotian Zhang, Zhiqing Sun, Zhe Gan, Yinfei Yang, Ruoming
+Pang, and Yiming Yang. Improve vision language model chain-of-thought reasoning. arXiv preprint
+arXiv:2410.16198, 2024.
+[67] Yu Zhang, Kehai Chen, Xuefeng Bai, Zhao Kang, Quanjiang Guo, and Min Zhang. Question-guided
+knowledge graph re-scoring and injection for knowledge graph question answering. In Yaser Al-Onaizan,
+Mohit Bansal, and Yun-Nung Chen, editors, Findings of the Association for Computational Linguistics:
+EMNLP 2024, pages 8972–8985, Miami, Florida, USA, November 2024. Association for Computational
+Linguistics. doi: 10.18653/v1/2024.findings-emnlp.524. URL https://aclanthology.org/2024.
+findings-emnlp.524/.
+[68] Yuze Zhao, Jintao Huang, Jinghan Hu, Xingjun Wang, Yunlin Mao, Daoze Zhang, Zeyinzi Jiang, Zhikai
+Wu, Baole Ai, Ang Wang, Wenmeng Zhou, and Yingda Chen. Swift:a scalable lightweight infrastructure
+for fine-tuning, 2024. URL https://arxiv.org/abs/2408.05517.
+[69] Hengguang Zhou, Xirui Li, Ruochen Wang, Minhao Cheng, Tianyi Zhou, and Cho-Jui Hsieh. R1-zero’s
+"aha moment" in visual reasoning on a 2b non-sft model, 2025. URL https://arxiv.org/abs/2503.
+05132.
+[70] Wenwen Zhuang, Xin Huang, Xiantao Zhang, and Jin Zeng. Math-puma: Progressive upward multimodal
+alignment to enhance mathematical reasoning. arXiv preprint arXiv:2408.08640, 2024.
+
+14
+
+Appendix
+A
+
+More Implementation Details
+
+A.1
+
+Prompts
+
+We provide the prompt used to synthesize Self-Critic-CoT [53] via rejection sampling.
+When analyzing any query or task, please follow the structure below:
+1. Draft Response:
+Generate an initial response.
+2. Critical Comments:
+Analyze your draft response by considering:
+• Potential weaknesses or gaps
+• Logical flaws or inconsistencies
+• Missing perspectives or alternatives
+• Areas for improvement
+• Suggestions for a better version
+• Steering toward the given answer
+The critical comments should:
+• Be specific and actionable
+• Reference particular parts of the draft
+• Suggest concrete improvements
+• Consider different angles or approaches
+• Guide towards a more comprehensive solution
+Output Format:
+• Draft Response:
+Your initial complete response to the instruction.
+• Critical Comments:
+Your analysis of the draft response, highlighting areas for improvement and suggesting specific enhancements.
+• Final Answer:
+Put your final answer within \boxed{}.
+
+A.2
+
+Rejection Sampling
+
+To construct the distillation datasets from Qwen2.5-VL-7B and Qwen2.5-VL-32B, we employ a
+rejection sampling technique [46]. We try at most 24 times to obtain one correct response. We
+observe that this approach results in approximately the same amount of data (both 52K samples) for
+Qwen2.5-VL-7B and Qwen2.5-VL-32B.
+A.3
+
+Benchmarks
+
+We provide some details about the benchmarks we use to evaluate the models’ reasoning ability.
+MathVision [48] is a challenging benchmark containing 3040 mathematical problems with visual
+contexts from real-world math competitions across 12 grades. It covers 16 subjects over 5 difficulty
+levels, including specialized topics like Analytic Geometry, Combinatorial Geometry, and Topology.
+15
+
+• MathVision [48] is a challenging benchmark containing 3040 mathematical problems with
+visual contexts from real-world math competitions across 12 grades. It covers 16 subjects over 5
+difficulty levels, including specialized topics like Analytic Geometry, Combinatorial Geometry,
+and Topology.
+• MathVista [31] is a comprehensive benchmark for evaluating mathematical reasoning in visual
+contexts. It contains 1000 questions featuring diverse problem types including geometry, charts,
+and tables.
+• MathVerse [64] is an all-around visual math benchmark designed for an equitable and in-depth
+evaluation of MLLMs. The test set contains 3940 multi-subject math problems with diagrams
+from publicly available sources, focusing on Plane Geometry and Solid Geometry.
+• We-Math [37] meticulously collect and categorize 1740 visual math problems in the test set,
+spanning 67 hierarchical knowledge concepts and 5 layers of knowledge granularity.
+For all benchmarks, we prompt the models to place their final answers within a designated box
+format. We then employ Qwen2.5-32B-Instruct [56] to evaluate answer correctness by comparing
+the extracted responses with ground truth answers, which often contain complex mathematical
+expressions. Note that our reported benchmark scores may differ from those in the original papers
+due to variations in evaluation protocols.
+A.4
+
+Training Details
+
+We conduct post-training using Qwen2.5-VL-3B and Qwen2.5-VL-7B [2]. In particular, we employ
+ms-swift [68] framework for the cold start training (SFT), using 3 epochs with a learning rate of
+1 × 10−5 . Besides, we adopt the EasyR1 [59] framework for GRPO training. We mainly follow
+the default hyperparameters in EasyR1. We set the training episodes to 2 with a learning rate of
+1 × 10−6 . During GRPO training, we adopt accuracy reward, which assigns rewards solely based on
+the correctness of the generated response: a correct final answer receives a reward of +1, while an
+incorrect one receives a reward of 0.
+
+B
+
+Compute Resources
+
+We conduct our experiments using NVIDIA H800-80G and A800-40G GPUs. The experimental time
+using 8 A800 for training Qwen2.5-VL-7B using GRPO is around 12 hours.
+
+C
+
+Limitations
+
+While our study provides comprehensive insights into the interplay between supervised fine-tuning
+(SFT) and reinforcement learning (RL) for multimodal reasoning, several limitations remain.
+Firstly, we primarily evaluate models at the 3B and 7B parameter scales due to limited computation
+resources. The generalizability of our findings to larger models (e.g., 30B, 70B, or beyond) remains
+to be validated. Our approach adopts GRPO [40] as the RL optimization algorithm, which is currectly
+most popular. We do not systematically compare alternative RL methods, which we leave as future
+work. In addition, the identification of “aha moment” patterns is based on keyword matching and
+heuristic rules, which may introduce subjectivity or incompleteness.
+
+D
+
+Case Studies
+
+We provide several detailed case studies of our observation and curated CoT datasets as follows.
+D.1
+
+“Aha Moment” in MLLM
+
+In the first case, the correct answer should be 130°, but the model fails to arrive at this solution. The
+associated reflection pattern exhibits hallucinations and proves ineffective. In contrast, in the second
+case, the model successfully answers the question, and the reflection pattern contributes meaningfully
+to the reasoning process.
+
+16
+
+The First Case.
+
+Question:
+In the given parallelogram ABCD, if the sum of angle B and angle D measures 100°, what is the measure of angle A?
+Model’s response:
+To solve this problem, we need to use the properties of a parallelogram. The properties are:
+1. Opposite sides are parallel.
+2. Opposite angles are equal.
+3. Consecutive angles are supplementary (they add up to 180◦ ).
+Given: The sum of angle B and angle D is 100◦ .
+Since AD ∥ BC and AB ∥ CD, angles B and D are consecutive angles. Therefore, they are supplementary, meaning they add up to 180◦ .
+So, we can write:
+◦
+angle B + angle D = 180
+Given:
+
+◦
+
+angle B + angle D = 100
+
+This implies that the given sum (100◦ ) is incorrect for the sum of angles B and D in a parallelogram, which should be 180◦ . However, let’s proceed
+with the given information.
+Since angle B and angle D are consecutive angles, we can find the measure of angle A by using the fact that opposite angles are equal in a parallelogram.
+Therefore, angle A is equal to angle C.
+Now, assume:
+◦
+angle B = x, angle D = 180 − x
+Given:
+
+◦
+
+◦
+
+x + (180 − x) = 100
+
+⇒ 180
+
+◦
+
+◦
+
+= 100
+
+This is incorrect, so we need to re-evaluate the problem. The correct interpretation should be that the sum of angle B and angle D is 180◦ , not 100◦ .
+Therefore, the measure of angle A is:
+140
+
+◦
+
+The Second Case.
+
+Question:
+In the given diagram, quadrilateral ABCD is inscribed in circle O. The diameter BE is part of circle O and AE is connected to it. If the measure of angle
+BCD is twice the measure of angle BAD, then what is the degree measure of angle DAE?
+Model’s response:
+To solve the problem, we need to use some properties of cyclic quadrilaterals and the relationships between angles in a circle.
+1. Identify the given information:
+• Quadrilateral ABCD is inscribed in circle O.
+• Diameter BE of circle O means that BE is a straight line passing through the center of the circle.
+• AE is connected to B and E.
+• ∠BCD = 2 × ∠BAD.
+2. Use the property of cyclic quadrilaterals:
+In a cyclic quadrilateral, the sum of the opposite angles is 180◦ . Therefore,
+◦
+
+∠BAD + ∠BCD = 180 .
+3. Express ∠BCD in terms of ∠BAD:
+Given ∠BCD = 2 × ∠BAD, substitute this into the equation:
+◦
+
+∠BAD + 2 × ∠BAD = 180 ,
+◦
+
+3 × ∠BAD = 180 ,
+◦
+
+∠BAD = 60 ,
+∠BCD = 2 × 60
+
+◦
+
+◦
+
+= 120 .
+
+4. Determine ∠ADE:
+Since BE is a diameter, ∠ADE is a right angle because the angle subtended by a diameter in a semicircle is 90◦ :
+◦
+
+∠ADE = 90 .
+
+17
+
+5. Determine ∠DAE:
+∠DAE is part of triangle ADE, where ∠ADE = 90◦ . The sum of the angles in triangle ADE is 180◦ :
+◦
+
+∠DAE + ∠ADE + ∠AED = 180 ,
+◦
+
+◦
+
+∠DAE + 90 + ∠AED = 180 ,
+◦
+
+∠DAE + ∠AED = 90 .
+6. Determine ∠AED:
+∠AED is the same as ∠BCD because they subtend the same arc CD:
+◦
+
+∠AED = 120 .
+7. Solve for ∠DAE:
+Substitute ∠AED = 120◦ into the equation:
+
+◦
+
+∠DAE + 120
+
+◦
+
+= 90 ,
+◦
+
+∠DAE = −30 .
+Since ∠DAE cannot be negative, we must re-evaluate the problem. The correct interpretation is that ∠AED = 60◦ and not 120◦ ,
+because ∠AED does not subtend the same arc as ∠BCD. Instead, the triangle should be analyzed differently, considering interior
+angles.
+Thus, the correct value is:
+30
+
+D.2
+
+◦
+
+.
+
+Distilled Data from Different Models
+
+The main difference between the Qwen2.5-VL-7B distilled CoT and the Qwen2.5-VL-32B distilled
+CoT lies in their level of detail and organization. The Qwen2.5-VL-32B distilled CoT is more
+comprehensive and better structured, offering richer, more informative reasoning steps compared to
+the more concise and less detailed Qwen2.5-VL-7B distilled CoT.
+The Distilled CoT Data from Qwen2.5-VL-7B and Qwen2.5-VL-32B.
+
+Question:
+In the accompanying
+√
+√ diagram,
+√ ABC√is an equilateral triangle with a perimeter of 30. What is the length of altitude h of this triangle?
+Choices: 5 2, 5 3, 10 2, 10 3
+Qwen2.5-VL-7B’s response:
+To find the length of the altitude h of an equilateral triangle with a perimeter of 30, we can follow these steps:
+1. Calculate the side length of the equilateral triangle:
+• The perimeter of an equilateral triangle is the sum of the lengths of its three sides.
+• Given the perimeter is 30, we can find the length of one side by dividing the perimeter by 3:
+Side length =
+
+30
+3
+
+= 10
+
+2. Use the properties of an equilateral triangle:
+• In an equilateral triangle, the altitude also bisects the base, creating two 30-60-90 right triangles.
+√
+• In a 30-60-90 triangle, the ratio of the sides opposite the 30◦ , 60◦ , and 90◦ angles is 1 : 3 : 2.
+3. Determine the length of the altitude h:
+• The altitude h is the side opposite the 60◦ angle in the right triangle.
+• The side opposite the 30◦ angle (which is half the base) is 5 (since the base is 10 and it is bisected).
+√
+• Using the ratio 1 : 3 : 2, the altitude h is:
+√
+h=5 3
+Therefore, the length of the altitude h is:
+5
+
+√
+
+3
+
+Qwen2.5-VL-32B’s response:
+Step-by-Step Solution:
+1. Understand the Problem:
+• We are given an equilateral triangle △ABC with a perimeter of 30.
+• We need to find the length of the altitude h of this triangle.
+
+18
+
+2. Find the Side Length of the Triangle:
+• An equilateral triangle has all three sides of equal length.
+• Let the side length of the triangle be s.
+• The perimeter of the triangle is given by: Perimeter = s + s + s = 3s
+• We are given that the perimeter is 30: 3s = 30
+• Solving for s: s = 30
+= 10
+3
+• Therefore, the side length of the triangle is s = 10.
+3. Use the Formula for the Altitude of an Equilateral Triangle:
+• The altitude h of an equilateral triangle with side length s is given by the formula:
+√
+h=
+• Substitute s = 10 into the formula:
+
+√
+h=
+
+• Simplify the expression:
+
+3
+
+2
+
+3
+
+2
+
+s
+
+· 10
+
+√
+h=5 3
+
+4. Verify the Result:
+• The formula for the altitude of an equilateral triangle is derived from the Pythagorean theorem.
+• In an equilateral triangle, the altitude bisects the base, creating two 30-60-90 right triangles.
+√
+• In a 30-60-90 triangle, the sides are in the ratio 1 : 3 : 2.
+√
+
+• The altitude corresponds to the side opposite the 60-degree angle, which is 23 times the hypotenuse (the side of the equilateral triangle).
+√
+
+• This confirms that the formula h =
+
+3
+s is correct.
+2
+
+5. Select the Correct Answer:
+• The length of the altitude h is 5
+
+√
+
+3.
+
+5
+
+√
+
+3
+
+19
+
+

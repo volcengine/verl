@@ -1,0 +1,330 @@
+Solutions 
+
+March 6, 2025
+
+Use Cases
+
+Products 
+
+Developers 
+
+Resources 
+
+Pricing
+
+Login
+
+Schedule a demo
+
+Machine learning
+
+GRPO for vision - Teaching an LLM to
+reason about images
+The Groundlight team explores training VLMs for visual reasoning using RL, solving cryptograms,
+and optimizing efficiency.
+
+Author(s):
+
+Sunil Kumar
+
+Leo Dirac
+
+Machine Learning Engineer
+
+CTO & Co-founder
+
+Bowen Zhao
+Applied Scientist
+We’ve been inspired by the research published by the Deepseek team and subsequent
+open source contributions like OpenR1 and TRL, which has enabled anyone with a GPU
+to train an LLM to <think> and reason about a problem before answering
+
+questions. However, we noticed that very little open source work existed trying to
+extend Deepseek’s results to the visual domain. OpenR1 and TRL only support language
+models, not LLMs that support visual input, sometimes called multimodal or VisionLanguage Models (VLMs). We believe that vision is a natural domain for reasoning, as
+images are extremely information-rich, and state-of-the-art performance without
+reasoning on many vision datasets is surprisingly weak. So, we’re proud to share and
+open source some of our work on building visual reasoning models.
+
+Task: Solving a Cryptogram
+We designed a simple visual reasoning task that requires the model to combine vision
+and text modalities in order to effectively solve the problem. The mode must solve a
+cryptogram – a puzzle where one must decode a scrambled message. We provide the
+model with the encoded message and a decoder image. This decoder is generated
+randomly, and provides the substitution cipher necessary to recover the message.
+Here’s how our model solves this task where the secret message is “visual reasoning”:
+
+Our model has been trained to solve cryptograms that are at most 3 words long. After
+training, our model performed better than expected on our evaluation set, achieving
+96% accuracy with just a 3B parameter model. (We're pretty sure if we trained a larger
+model it would ace this task, but we love small models because you're not gonna run a
+
+70B parameter beast on a little edge device.) You can try it for yourself in a live demo
+here.
+
+Is the model even looking at the image?
+Solving a cryptogram is technically possible without a decoder. People have written
+algorithms that can solve them directly. And surprisingly often VLMs will answer
+questions without using the image. However, we have evidence that our model is using
+the decoder. Below, we’ve visualized where the model is “looking” when solving a
+cryptogram, by averaging the attention scores across all attention heads from one of
+the intermediate layers in the model. Red means low attention and green means high
+attention. You can see its attention to the image is relatively diffuse initially, and then
+becomes hyper focused on the relevant region of the decoder as it decodes each letter
+in sequence. In effect, the model has learned to “read” the relevant regions of the
+decoder as it needs them.
+
+Technical Challenges
+At first blush, it doesn't sound too difficult to apply the GRPO algorithm to training a
+VLM. But of course once you get into it, things always get complicated. Here are some
+things we learned as we worked on this project.
+
+Tokenization matters
+You might recall that for a long time, even the best LLMs like GPT 4 could not correctly
+count the number of R's in the word "strawberry". This is because modern LLM's
+represent text in tokens which are often several characters long. e.g. the word
+strawberry gets split into three tokens: st + raw + berry. This is important for
+
+speed and efficiency, but makes some tasks difficult that seem like they should be trivial.
+
+For our experiment, we use Qwen2.5-VL-3B-Instruct as our base model, which is a small
+vision language model. Since we're dealing with a small model, we did not want to
+burden it with the task of thinking through how to de-tokenize the words it is dealing
+with. So, we add spaces in between each letter to make the decoding process simpler.
+Similarly, we replace spaces in the message with the underscore character. For
+example, if the message was “i can see”, we would represent the message as “i _ c a n _
+s e e”.
+
+Reward Design
+In any Reinforcement Learning (RL) training process, the reward design is the key to
+making the model work. Smoothness and sparseness of the reward functions are
+important considerations. If the system sees zero reward unless they get the answer
+exactly right, then the model will have trouble learning, as there are no hints as to when
+it is heading in the right direction. As such, we used three complementary reward
+functions:
+
+Format Reward
+The format reward ensures the model explicitly shows its reasoning process and
+provides an answer inside the <answer>...</answer> tags. This forces the model to
+"show its work" rather than jumping straight to any conclusion. This is an easy part of
+the task, and is generally mastered quite quickly during a training run. However,
+ensuring the model’s output is consistent is important to ensure other rewards are
+computed properly. Without a formatting reward, the model might provide its answer in
+an inconsistent format.This makes it difficult to design subsequent rewards properly.
+
+Decoding Reward
+We ask the model to provide an intermediate answer in <chars></chars> tags with
+the decoded characters in order, e.g. <chars> p e r c e p t i o n </chars>. We
+provide the model a reward proportional to the normalized edit distance to the correct
+answer. Interestingly, we found that the model originally learned to “hack” this reward.
+Instead of trying to solve the problem, it learned that presenting the scrambled
+message in <chars> would result in a reasonable reward, eventually causing training
+to collapse. To prevent this, we had to add a “gate” on the reward: the decoding
+proposed by the model must be closer to the correct answer than the coded message
+was to the correct answer, by edit distance. Intuitively, this rewards the model only if it
+
+transforms the input in a way that gets it closer to the correct answer. We found that
+this was extremely effective in teaching the model to use the decoder.
+
+Correctness Reward
+The correctness reward evaluates the accuracy of the decoded message. Originally,
+this reward was very simple: the model achieves a reward of 1.0 for an exact match and
+0.0 otherwise. For simpler versions of this task (single words), we found that this was
+acceptable. However, we discovered that the model struggled with combining decoded
+letters into words as the message grew longer. As this reward was sparse, the model
+received a weak learning signal when attempting this part of the task. For example, if
+the correct answer was “sight”, the sparse reward would give the same 0.0 score to
+“sights” and “vision”, despite the fact that one answer is clearly more correct than the
+other. As a result, we adjusted the reward to use the normalized edit distance. Just like
+the decoding reward, we gate the reward. The model must transform the <chars> data
+in a way that gets it closer to the correct answer. Additionally, we found it beneficial to
+condition this reward on achieving full credit on the decoding reward. This helped
+prevent the model from achieving a high reward from examples where it made a
+mistake earlier on in the problem solving process and then compensated for it later.
+
+Relative Advantages in GRPO
+In GRPO (Group Relative Policy Optimization), the reward is not directly used to compute
+the gradient. Instead we ask the model the same question multiple times (the "Group"
+part of GRPO) and compute a gradient based on which completions give higher rewards
+(the "Relative" part of GRPO). Increasing the size of the group provides a smoother
+gradient signal, which makes training much more reliable, but requires more memory,
+because every completion needs to be backpropagated through the model. If you can
+use multiple GPUs, this can be a big help to stability. We used vLLM to generate model
+completions on a single GPU, and distributed the results to others in our cluster for
+backpropagation, which was a huge boost to training speed.
+The relative rewards are called "advantages" and are the normalized z-scores ( (score
+- mean) / stdev ) of the rewards within the group. Since every completion is back-
+
+propagated in the same batch, their contributions to the loss function are summed,
+leading to a funny and confusing side-effect: the total loss for the group is always
+exactly zero! We experimented with shaping the advantages with a cubic nonlinearity to
+accelerate early learning, and it helped a bit, but probably not worth the complexity. It
+did make the loss curves less painful to look at.
+
+Intuition and interpretability
+
+We iterated on training strategy a lot for this work. According to our logs, we attempted
+hundreds of training runs across this task and a couple others. Unlike supervised
+learning, we found that it was often much easier to interpret model performance during
+training - we would just go look at the completions. We were able to determine if and
+how the model was hacking a reward or diagnose where in the problem solving process
+the model was having trouble. For example, we found that our model would learn how to
+“read” the decoder, and then slowly regress as it shifted to learn the downstream
+rewards. Eventually, it started to make small mistakes when decoding the letters,
+destabilizing training. We were able to solve this by increasing the image size and thus
+the number of image tokens in the input.
+
+Watch those training curves
+When training a modern neural network, you're inundated with charts showing
+different metrics of the process. With standard supervised learning techniques, these
+charts generally all look like some kind of hockey-stick, but with RL they can be all over
+the place. E.g. the KL-divergence penalty (shown below) measures how much the output
+of the model-being-trained differs from the "reference model" as a way of keeping the
+system from going off the rails (a real problem with RL), but the reference model gets
+updated every 64 steps, leading to funny sawtooth patterns. We found that a multiple
+orders of magnitude increase in average KL-divergence was a good signal that model
+training had gone awry.
+
+Open Source Visual Reasoning
+We’re happy to share our code with the community. Here are all the relevant git
+repositories:
+r1_vlm - Our package, which makes it easy to train a VLM with GRPO.
+
+Our fork of TRL - Where we implement a GRPO trainer that handles image tokens.
+Our fork of verifiers - This library helped us define clean abstractions for reward
+design.
+
+The future of Visual AI
+Foundation models for vision will soon rely heavily on reasoning. We've just dipped our
+toes in these waters to show what's possible and help pave the way. But even now there
+are clear implications for what's in store.
+
+Reasoning models are expensive!
+Using a big VLM to analyze an image is already expensive, without any reasoning.
+Getting a commercial VLM to analyze an image and compare it to reference images
+(critical for good results) already costs several pennies per image, which translates to
+hundreds of dollars per hour for a full video stream. Also, the research shows that
+today's VLMs have trouble on simple tasks. Reasoning lets us trade off cost for
+accuracy - better results for more money. Paying fractions of a dollar to analyze each
+image is clearly impractical for real-world video analytics.
+Groundlight's escalation technology makes it possible to use VLMs in a cost-efficient
+manner, by only asking the expensive models (or humans) on the edge cases where the
+correct answer is unclear. These answers are quickly trained into an efficient and
+accurate task-specific model which can be deployed on an edge device like the
+Groundlight Hub. This is a key reason why we're excited to improve the accuracy of
+VLMs, even though it's going to make them even more expensive to operate.
+
+Visual Reasoning with Tools
+
+Another development in VLMs which isn't here yet is tool use. Agentic applications built
+on LLMs often incorporate tools for things like RAG, web search, or interacting with
+external systems. In the visual domain, the tools we're working to incorporate into the
+reasoning process are basic visual processors, using tried-and-true task-specific
+computer vision models:
+Open Domain Object Detection Models like GroundingDINO
+Segmentation models such as SAM which separate different objects pixel-by-pixel
+Domain-specific models for pose-estimation or key-point estimation for important
+objects like people or cars
+3D estimation models such as depth and normal
+Simply zooming into a portion of an image to get more detail
+
+We're developing a VLM which wields these external models as tools as part of the
+reasoning process. This approach is more akin to a Mixture-of-Experts (MoE) than the
+currently-popular academic approach of trying to train all the world's knowledge into a
+single giant transformer. But using pre-trained models as tools is vastly simpler and
+more scalable than training an MoE system. We believe this path will lead to high quality
+results using much smaller models and faster results than the brute-force approaches
+(just throw another 100B parameters at it!) that are all too popular these days.
+
+Stay tuned for more updates as they're ready for sharing.
+
+Citation
+If you'd like to cite the ideas in this post please use:
+@online{vlm_visual_reasoning,
+author = {Kumar, Sunil and Zhao, Bowen and Dirac, Leo},
+title = {GRPO for Vision - Teaching an LLM to Reason about Images
+year = {2025},
+organization = {Groundlight AI},
+url = {https://www.groundlight.ai/blog/visual-reasoning-models},
+urldate = {2025-03-06}
+}
+
+Solutions
+
+Products
+
+Developers
+
+Resources
+
+Manufacturing
+
+Groundlight
+Hub
+
+Documentation
+
+Blog
+
+Guides
+
+FA Q
+
+SDK
+
+News
+
+Github
+
+Te a m
+
+System Status
+
+Events
+
+Retail
+Facilities
+Management
+Security
+
+Universal
+Robots
+Computer
+Vision
+To o l s
+Python SDK
+
+Use Cases
+
+Pricing
+
+Sign up to
+receive
+Groundlight
+news &
+updates.
+Email address
+
+Careers
+
+ROS
+
+Submit
+
+Terms of
+
+Privacy
+
+Security and
+
+© 2025 Groundlight. All Rights
+
+Service
+
+Policy
+
+Privacy
+
+Reserved.
+
+

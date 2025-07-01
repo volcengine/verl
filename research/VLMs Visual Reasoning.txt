@@ -1,0 +1,739 @@
+Reinforcing VLMs to Use Tools for Detailed Visual
+Reasoning Under Resource Constraints
+Sunil Kumar∗, Bowen Zhao∗, Leo Dirac, Paulina Varshavskaya
+
+arXiv:2506.14821v1 [cs.LG] 10 Jun 2025
+
+Groundlight AI, Seattle WA
+
+Abstract
+Despite tremendous recent advances in large model reasoning ability, visionlanguage models (VLMs) still struggle with detailed visual reasoning, especially
+when compute resources are limited. To address this challenge, we draw inspiration
+from methods like Deepseek-r1 for VLMs and train smaller-scale models with
+Group Relative Policy Optimization (GRPO) to use external tools such as zoom.
+The greatest benefit is obtained with a combination of GRPO learning, a simple
+reward structure, a simplified tool-calling interface, allocating additional tokens to
+the result of the tool call, and a training data mix that over-represents visually difficult examples. Compared to similarly-sized baseline models, our method achieves
+better performance on some visual question-answering (VQA) tasks, thanks to the
+detailed visual information gathered from the external tool.
+
+1
+
+Introduction
+
+Recent advances in vision-language models (VLMs) have significantly improved performance across
+a spectrum of multimodal tasks. However, despite the superb capabilities of state-of-the-art models,
+VLMs suffer from notable limitations in processing fine-grained visual details [18]. Recent studies
+highlight that VLMs often struggle with tasks requiring detailed visual understanding, where the
+subtle visual details that humans can easily interpret are neglected by VLMs [24]. This issue is further
+amplified with high-resolution image inputs [29, 27].
+To overcome this challenge, previous research has explored the incorporation of visual search and
+multiresolution processing techniques into VLM-based systems. Although visual search systems
+provide additional information on keypoints in images in the VLM, they can suffer from error
+propagation due to their complex system design [29, 20]. Multiresolution processing methods, on
+the other hand, add extra visual tokens which represent the crops of the original input image at
+different resolutions [23]. While those methods may confer a performance boost, they also introduce
+computational overhead due to additional image tokens. And the multiresolution image tokens
+themselves still represent general information about the image, and not necessarily the pertinent
+details of the specific region of interest (ROI) in the image that would be most helpful for the task.
+In this paper, we take inspiration from recent demonstrations of tool use in large language models
+(LLMs) via reinforcement learning (RL) and extend this approach to multimodal VLMs with a
+particular focus on efficient use of limited resources. In particular, we efficiently train smaller VLMs
+via GRPO to capture visual details from task-specific ROIs in real-world images by appropriately
+calling a zoom-in tool. We choose an RL approach also due to a lack of existing data with annotated
+tool-use trajectory traces that could act as ground truth for supervised fine-tuning of a vision model
+for detailed visual reasoning.
+Our contributions are as follows:
+∗
+
+Equal contribution
+
+Preprint. Under review.
+
+RL with zoom-in tool use
+
+Direct prompt
+
+From the information on that advertising
+board, what is the type of this shop?
+resize
+
+4240×2832
+
+VLM
+
+I want to know what is the type of this shop from the
+information on that advertising board. To do that, I
+should zoom in on the advertising board so that I can
+read the text clearly. Let's use the zoom tool to zoom in
+on the advertising board.
+
+1024×684
+
+VLM
+400×400 crop
+resize
+1024×1024
+
+<tool>
+
+name: zoom
+
+keypoint: [1015, 710]
+
+</tool>
+I zoomed in on the advertising board so I can read the
+text clearly. Now I can see that the text says "corepower
+YOGA". This means the type of shop is a yoga studio.
+
+The image shows a pathway with
+landscaping that leads to a storefront with a
+small advertising board. From what's visible,
+it appears to be a cafe, based on the
+chalkboard sign visible in the distance...
+
+VLM
+
+<answer>
+
+Yoga studio
+
+</answer>
+
+Figure 1: In contrast to direct prompting where the model fails to capture the visual details in
+high-resolution images, RL incentivizes the VLM to use a zoom-in tool to get extra information from
+the specific ROI to answer vision-oriented questions correctly (bottom). Resizing the image makes
+the training efficient while preserving the visual details to be noticeable to the VLM.
+
+• We propose a recipe for extending GRPO to tool use in the visual domain with efficiency
+under constrained resources.
+• We establish a set of parameters that enable a small VLM to learn tool use for visual detail
+understanding under resource constraints; and we find that the structure of the reward
+function and the data mix significantly impact success.
+• We present experimental results showing improvement on small-model SOTA on highresolution VQA datasets.
+• We discuss how the choice of external tool interface, including tokens allocated to the
+representation of the results of external tool calls, affects performance.
+Our ideas and results were developed independently and simultaneously with those reported by [36],
+which corroborate some of our findings. Although both works describe a method to train a VLM to
+zoom in, our work uniquely focuses on overcoming the challenges introduced in the small resource
+regime.
+
+2
+
+Method
+
+Our approach is to teach a VLM to use external tools to enhance detailed image understanding via
+an agentic take on reinforcement learning. In particular, we train a small Qwen2.5-VL-3B-Instruct1
+model with Group Relative Policy Optimization (GRPO) [6, 19] to use a zoom tool in order to find
+relevant information in a curated set of training examples. At the time of writing, this model is among
+the smallest state of the art VLMs. We operate under a limited computational and memory budget
+of four A100 80 GPUs. Therefore, our method emphasizes efficient use of limited resources for
+maximum visual understanding. This necessitates limiting training image resolution, the number of
+tool calls, and an easy-to-learn tool interface. Note that our method does not rely on ground truth
+trajectories of tool use, since none are generally available for visual detail data. Instead, given the
+option of calling on a tool and a reward signal, the model learns how to effectively use the tool to
+solve the problem.
+1
+
+All references to the Qwen2.5-VL models in this paper, whether ours or baselines, refer to the instructiontuned version of these models.
+
+2
+
+2.1
+
+Efficient tool use under limited resources
+
+Image resolution In order to limit the memory footprint during training, we downsize images such
+that the long side does not exceed 1024 pixels. Note that when using the zoom tool the model only
+has access to this resized image and not the original higher-resolution one. To make sure the model
+is able to capture the details in the zoomed-in image, we further upscale the zoomed-in crop to the
+same size as the downsized input image. We find that this strategy helps the model generalize well
+on high-resolution visual tasks at inference time, which will be discussed in the following sections.
+In contrast, during evaluation we do not resize images: the zoom-in tool is directly applied to the
+original high-resolution image to give the model more visual detail.
+Limited tool use Additionally, to reduce memory load, we limit the number of zoom-in tool use
+calls to 1 at both training and inference times. This limits our approach, as implemented, to tasks
+that require at most one detailed ROI per image. We enforce this constraint via structured decoding.
+When sampling responses from the model at both RL training and inference time, we use the regular
+expression ([ˆ<]*)</think>([ˆ<]*)<answer>([ˆ<]*)</answer> to guide the decoding of the
+model’s second response. This both prevents the model from invoking the tool, and ensures that
+there is an <answer> field in the response and an end to the conversation. Limiting the number of
+tool calls prevents out-of-memory errors from multiple sequences of image tokens appended to the
+conversation.
+Easy-to-learn tool interface We find that under limited
+resource constraints, an easy-to-learn tool interface is essential. Our preliminary experiments were performed with
+a tool invoked with a complex format (JSON) accepting
+a bounding box in pixel coordinates as a parameter. We
+found that this approach did not produce any improvements over the baseline model with no tools. The model
+learned to zoom into very small and often meaningless re- Figure 2: Our YAML-like interface for
+gions of the image. We hypothesized that a simpler format tool-use calls uses fewer tokens than
+would be easier to learn. We achieved this in two ways. standard JSON, and is easier for small
+First, we adopted a YAML-like tool use interface that is models to format correctly.
+less brittle and more concise than JSON (Figure 2). This
+format contains fewer tokens, helping the model learn tool use more efficiently. Additionally, we
+changed the tool to accept a keypoint defined in pixel coordinates instead of a bounding box. The
+tool then returns a fixed crop centered at the keypoint. This allows for the model to be less precise in
+its localization and increases the likelihood that the tool’s output contains information that is useful
+to the query.
+JSON tool-use interface
+
+Easy-to-learn tool interface
+
+<tool>
+
+
+{
+
+
+“name”: “zoom”,
+
+
+<tool>
+
+
+“boudning box”: [
+
+
+name: zoom
+
+
+910, 665, 1000, 795
+
+
+]
+
+
+keypoint: [1015, 710]
+
+</tool>
+
+}
+
+
+</tool>
+
+#tokens: 48
+
+2.2
+
+#tokens: 24
+
+Training
+
+Targeting model efficiency, we train a small Qwen2.5-VL-3B-Instruct model with GRPO on a subset
+of the training data from the TextVQA [22] dataset. This task was chosen as representative of the
+sort of images that require zooming in on a particular detail in order to find the answer: in this case,
+to read the characters in a specific location in the image. Note that the model is not exposed to any
+high-resolution images during the training stage, but our approach helps the model generalize well on
+such visual tasks at inference time. The system prompt gives the model the option of calling a zoom
+tool anchored at a point of interest in the image with a fixed bounding box.
+Reward shaping The rewards for a successful visual reasoning trace are sparse as the answer
+follows from multiple reasoning steps with potential calls to external tools. Therefore, following
+existing practice, we incentivize what we believe to be the correct system behavior by providing a
+structured reward: we reward the model for the correct answer, separately for proper formatting, and
+separately again for successfully invoking the external zoom tool. In particular, R = αRc + βRf +
+γRt , where the correctness reward Rc = λRa + (1 − λ)Re is a combination of a reward for the
+exact correct answer and a soft reward based on the average edit distance from the top three closest
+human answers; Rf is the format reward; and Rt = # successful tool calls / # attempted tool calls.
+Our most successful run had α = 1, β = 1, γ = 0.1 and λ = 0.5.
+3
+
+Data mix We train our model on a curated mix of images from datasets where zooming in to see
+visual detail is beneficial. We find that the nature of the training data matters in obtaining the best
+results when it comes to teaching VLMs tool use. It is important to prioritize training on those images
+and tasks that are most difficult for the base model without access to our tool. We found the most
+success when the model was trained on the subset of the TextVQA training data for which the base
+Qwen2.5-VL-3B-Instruct model gets an average VQA score of < 0.5 from an 8-shot evaluation on
+the training set. This evaluation was carried out at a temperature of 1.0 and with at most 10 tokens
+generated per query.
+We originally explored training on the full TextVQA task, but found that tool use was not necessary
+for a large number of the images. We hypothesize that our base model was trained on this task already,
+although the exact data mix is not specified in [2]. Additionally, we observe that the model could
+directly read the text from the full image at the downsized resolution. Based on these results, we
+attempted to train on only the most difficult images in the training set, where the base model gets an
+average VQA score of 0 from an 8-shot evaluation. This results in effective learning to use zoom,
+even in the absence of extrinsic tool use reward, but suffers from poor generalization. These results
+drove our final mix described above – we overrepresent difficult examples while maintaining some
+easier ones representative of the full task distribution.
+
+3
+
+Experiments
+Table 1: Results on evaluation benchmarks.
+Model
+
+V ∗ Bench
+Spatial
+Overall
+
+TextVQAval
+VQA Score
+
+Attr
+
+61.5
+77.4
+
+-
+
+-
+
+66.0
+
+65.0
+70.0
+
+52.0
+48.0
+
+58.5
+59.0
+
+54.0
+62.0
+
+51.0
+49.0
+
+52.5
+55.5
+
+-
+
+74.8
+93.9
+
+76.3
+85.5
+
+75.4
+90.6
+
+53.0
+84.3
+
+47.0
+55.0
+
+50.0
+69.6
+
+40.5
+88.5
+
+45.0
+50.0
+
+42.3
+69.3
+
+Open-source VLMs
+LLaVA-HR-X-7B [15]
+Qwen2.5-VL-7B [2]
+Qwen2.5-VL-3B [2]
+
+67.1
+84.9
+79.3
+
+51.3
+80.9
+81.3
+
+64.5
+76.3
+63.2
+
+56.5
+79.1
+74.4
+
+57.8
+85.2
+81.8
+
+46.3
+52.2
+48.5
+
+52.0
+68.8
+65.1
+
+42.0
+78.8
+80.5
+
+41.3
+51.8
+47.3
+
+41.6
+65.3
+63.8
+
+Ours
+∆ v.s. Qwen2.5-VL-3B
+
+73.4
+-5.9
+
+82.4
++1.1
+
+76.3
++13.1
+
+80.1
++5.7
+
+81.8
++0.0
+
+48.8
++0.3
+
+65.3
++0.2
+
+69.5
+-11.0
+
+46.8
+-0.5
+
+58.1
+-5.7
+
+Closed-source VLMs
+Qwen-VL-max [1]
+GPT4-o [9]
+Visual Search
+SEAL [29]
+DC2 [27]
+ZoomEye [20]
+
+3.1
+
+FSP
+
+HR-Bench 4K
+FCP
+Overall
+
+FSP
+
+HR-Bench 8K
+FCP
+Overall
+
+Experimental Setup
+
+Evaluation benchmarks We evaluate our models against baselines on both in-domain and outof-domain high resolution benchmarks. The in-domain reasoning capabilities are evaluated on the
+validation set of TextVQA. The out-of-domain benchmarks are V ∗Bench [29] and HR-bench [27],
+used to assess the models’ generalization capabilities.
+Baselines We compare our model to three categories of VLMs: 1) Proprietary VLMs, including
+Qwen-VL-Max [1] and GPT4-o [9]; 2) visual search methods that engineered for high-resolution
+tasks, namely SEAL [29], DC2 [27], and ZoomEye [20]; 3) open-source VLMs, such as LLaVA-HRX-7B [35] and Qwen2.5-VL-Instruct [2] series models.
+Training details We run our training on 4 A100 80GB GPUs. To control the training memory
+footprint, we limit the rollouts to 3 and the maximum tool calls to 1, while the global batch size is set
+to 4. We train for 800 steps with a maximum of 2 images per prompt, a completion length of 2048,
+Adam with β2 = 0.98, a cosine learning rate at 1e − 6 with 10 warm-up steps, a maximum grad
+norm of 1.0, no KL regularization and a clip-higher strategy [33] with ϵlow = 0.2 and ϵhigh = 0.28.
+4
+
+3.2
+
+Results
+
+RL substantially improves VLMs’ performance on some high-resolution tasks As shown in
+Table 1, compared to the Qwen2.5-VL-3B baseline, our model achieves 5.7% overall accuracy
+improvement on V ∗Bench. At the same time, the 3B model trained with GRPO achieves similar
+performance to the 7B base model, demonstrating greater parameter efficiency given the comparable
+end-task accuracy. However, our approach decreases in-domain performance on the validation set of
+TextVQA and does not improve results on HR-Bench. We will discuss these limitations in section 3.3.
+End-to-end RL is parameter-efficient compared to visual search methods Compared to some
+heavily engineered visual search methods, such as SEAL, our GRPO-trained VLM achieves a similar
+end-task performance on the V ∗ Bench. Note that SEAL uses Vicuna-7B as the LLM backbone,
+whereas our model has only 3 billion parameters, demonstrating superior inference efficiency. Our
+tool use formulation also results in less complexity at inference time: where visual search methods
+rely on hierarchical search strategies on images, our method calls the zoom tool to the specific relevant
+ROI only once.
+Low-resolution training does not generalize to 4K & 8K images at inference time Results in
+Table 1 show that the performance of the model trained after GRPO is indifferent to the base model,
+suggesting that such performance gains shown on V ∗ Bench are not achieved on higher-resolution
+tasks, namely the HR-bench 4K and 8K tasks. We conjecture that the resolution gap between training
+and inference makes RL generalize poorly, and our future work will focus on curating training data
+that is beneficial for models to perform well on ultra-high-resolution tasks.
+3.3
+
+Discussion and analysis
+
+We analyze our results in more depth and discuss the contributions of design choices in this section.
+Effect of structured reward Figure 3 shows how the structured reward creates an advantage for
+successful tool use during training. We plot the log of the average advantage for the following
+three categories of responses: 1) no tool use; 2) successful tool use; 3) failed tool use. Our training
+paradigm ensures that successful tool-use calls will be reliably rewarded as training progresses.
+Moreover, we find that responses without any tool use will receive a negative advantage compared to
+failed tool-use calls. This supports our belief that our reward structure contains a good signal for the
+model to tackle tasks that require understanding of visual details in high-resolution images.
+Base model
+RL with zoom-in tool use
+RL with zoom-in tool use w/o crop upscale
+
+V* bench accuracy (%)
+
+80
+70
+60
+50
+512
+
+800
+
+1024
+
+2048
+
+Input Image Resolution
+
+Figure 3: Accumulated GRPO advantage for policy trajecto- Figure 4: Overall accuracy of VLMs
+ries with successful tool use (orange), failed tool use or no on V ∗ Bench with varied input image
+tool use during a training run.
+resolutions.
+Effect of data mix choice Before using the training examples where the base model achieves < 0.5
+VQA score from 8-shot evaluation, we also explored training the model with difficult data only, where
+only the examples for which the base model gets an average of 0 VQA score are selected, as detailed
+5
+
+in 2.1. We find that this data selection strategy hurts rather than helping the model’s performance,
+resulting in 71.7% accuracy on V ∗ Bench, which is lower than the baseline. We conjecture that the
+training model generates too few responses that receive rewards other than for format. Therefore, the
+training fails to provide any signal for the model to answer those tough questions correctly.
+Effect of inference time image resolution As shown in Figure 4, we notice that using RL to train
+the VLM for tool-use substantially improves the model’s performance on V ∗ Bench, even if image
+resolution is reduced at inference time. This implies that a potential application of our model is to
+perform low-resolution inference and use a zoom-in tool on high-resolution tasks, thereby improving
+the system’s inference efficiency. Furthermore, we also notice that resizing the crop dimension to
+match the input image plays an essential role in accuracy improvements. Without applying this
+technique, the model’s performance degrades to baseline level.
+
+4
+
+Related Work
+
+4.1
+
+Reasoning with VLMs
+
+As VLMs naturally inherit the reasoning capabilities from their LLM backbone, researchers attempt
+to teach VLMs with chain-of-thought reasoning traces to ask the model to think before answer [14, 2].
+Since the breakthrough of Deepseek-r1 [19, 6], researchers have been focusing on bringing the success
+of r1-like GRPO training paradigms to VLMs to improve models’ visual reasoning performance.
+Recent research found that VLMs can achieve superior reasoning capabilities in vision-intensive
+mathematical tasks through GRPO [8, 34, 21, 30, 4, 26]. However, existing work often requires
+expensive human annotation or distillation from larger models for generalization. In the meantime,
+limited effort has been spent on improving VLMs’ vision-oriented reasoning capabilities, where the
+model can leverage task-specific details residing in images.
+4.2
+
+Fine-grained Processing of VLMs
+
+Recent research has pointed out that VLMs often neglect detailed information in images [5], and
+have blind faith in textual modality [18, 3]. To address this issue, inspired by humans’ behavior in
+recognizing information from images [32], a series of visual search-based improvements on VLMs
+have been proposed. Even though such methods can inject additional information of salient regions
+in images to the VLM, they rely on extrinsic visual search components with complex searching
+algorithms [29, 20, 11], thus limiting the efficiency of the system. Meanwhile, another line of
+research attempts to convert the input image into multi-resolution crops and feed them to the VLM
+end-to-end [23, 13, 35, 27]. Although these methods successfully provide the VLM with image
+details to tackle downstream tasks, there is computational overhead introduced by the image tokens
+of the cropped patches. At the same time, these solutions crop the original image generally without
+recognizing the importance of specific regions in the image to tackle downstream tasks, which may
+limit their ability to help VLMs solve real-world problems.
+4.3
+
+Multimodal Tool use with LLMs
+
+Researchers have been attempting to enable language models to do multimodal tasks by designing
+language model tool-use systems, i.e., developing systems that treat language models as black boxes
+to call APIs or use various tools [12, 16]. Without training multimodal foundational models from
+scratch, previous research has found that iteratively prompting LLMs with vision foundation models
+can successfully perform numerous vision-language tasks [31, 28, 7]. However, there is only limited
+research into applying the same approach to vision language models to enhance their vision-oriented
+reasoning capabilities [25]. A number of researchers have recently applied reinforcement learning
+to LLMs, including with successful tool-use learning [10, 17]. These efforts have been primarily
+limited to text-only models, leaving much to be explored in the multimodal domain.
+The ideas and results presented in this paper were developed independently and concurrently with
+those of DeepEyes [36], which corroborate some of our findings. However, our focus is primarily on
+efficient understanding of visual detail with tool use under constrained resources.
+6
+
+5
+
+Conclusion
+
+We have presented a method for efficiently training small VLMs to understand visual details via
+GRPO-based reinforcement learning with an option to call external tools, namely to zoom into a
+region of interest on an image for a closer look. We have shown that this approach allows VLMs
+to see finer detail where it matters, thereby improving performance on some high-resolution visual
+understanding benchmarks compared to baselines on the same parameter scale, and even some larger
+engineered visual search architectures. We have also given a recipe for success involving the right
+data mix, reward structure, tool interface, and allocation of tokens to external tool results.
+
+References
+[1] Jinze Bai, Shuai Bai, Yunfei Chu, Zeyu Cui, Kai Dang, Xiaodong Deng, Yang Fan, Wenbin Ge,
+Yu Han, Fei Huang, et al. Qwen technical report. arXiv preprint arXiv:2309.16609, 2023.
+[2] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang,
+Shijie Wang, Jun Tang, et al. Qwen2. 5-vl technical report. arXiv preprint arXiv:2502.13923,
+2025.
+[3] Ailin Deng, Tri Cao, Zhirui Chen, and Bryan Hooi. Words or vision: Do vision-language
+models have blind faith in text? arXiv preprint arXiv:2503.02199, 2025.
+[4] Yihe Deng, Hritik Bansal, Fan Yin, Nanyun Peng, Wei Wang, and Kai-Wei Chang. Openvlthinker: An early exploration to complex vision-language reasoning via iterative selfimprovement. arXiv preprint arXiv:2503.17352, 2025.
+[5] Chenhui Gou, Abdulwahab Felemban, Faizan Farooq Khan, Deyao Zhu, Jianfei Cai, Hamid
+Rezatofighi, and Mohamed Elhoseiny. How well can vision language models see image details?
+arXiv preprint arXiv:2408.03940, 2024.
+[6] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu,
+Shirong Ma, Peiyi Wang, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in
+llms via reinforcement learning. arXiv preprint arXiv:2501.12948, 2025.
+[7] Tanmay Gupta and Aniruddha Kembhavi. Visual programming: Compositional visual reasoning
+without training. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), pages 14953–14962, June 2023.
+[8] Wenxuan Huang, Bohan Jia, Zijie Zhai, Shaosheng Cao, Zheyu Ye, Fei Zhao, Zhe Xu, Yao Hu,
+and Shaohui Lin. Vision-r1: Incentivizing reasoning capability in multimodal large language
+models. arXiv preprint arXiv:2503.06749, 2025.
+[9] Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perelman, Aditya Ramesh, Aidan Clark,
+AJ Ostrow, Akila Welihinda, Alan Hayes, Alec Radford, et al. Gpt-4o system card. arXiv
+preprint arXiv:2410.21276, 2024.
+[10] Bowen Jin, Hansi Zeng, Zhenrui Yue, Jinsung Yoon, Sercan Arik, Dong Wang, Hamed Zamani, and Jiawei Han. Search-r1: Training llms to reason and leverage search engines with
+reinforcement learning. arXiv preprint arXiv:2503.09516, 2025.
+[11] Geng Li, Jinglin Xu, Yunzhen Zhao, and Yuxin Peng. Dyfo: A training-free dynamic focus visual search for enhancing lmms in fine-grained visual understanding. arXiv preprint
+arXiv:2504.14920, 2025.
+[12] Minghao Li, Yingxiu Zhao, Bowen Yu, Feifan Song, Hangyu Li, Haiyang Yu, Zhoujun Li, Fei
+Huang, and Yongbin Li. API-bank: A comprehensive benchmark for tool-augmented LLMs. In
+Houda Bouamor, Juan Pino, and Kalika Bali, editors, Proceedings of the 2023 Conference on
+Empirical Methods in Natural Language Processing, pages 3102–3116, Singapore, December
+2023. Association for Computational Linguistics. doi: 10.18653/v1/2023.emnlp-main.187.
+URL https://aclanthology.org/2023.emnlp-main.187/.
+7
+
+[13] Haogeng Liu, Quanzeng You, Xiaotian Han, Yiqi Wang, Bohan Zhai, Yongfei Liu, Yunzhe Tao,
+Huaibo Huang, Ran He, and Hongxia Yang. Infimm-hd: A leap forward in high-resolution
+multimodal understanding. arXiv preprint arXiv:2403.01487, 2024.
+[14] Bozhi Luan, Hao Feng, Hong Chen, Yonghui Wang, Wengang Zhou, and Houqiang Li.
+Textcot: Zoom in for enhanced multimodal text-rich image understanding. arXiv preprint
+arXiv:2404.09797, 2024.
+[15] Gen Luo, Yiyi Zhou, Yuxin Zhang, Xiawu Zheng, Xiaoshuai Sun, and Rongrong Ji. Feast your
+eyes: Mixture-of-resolution adaptation for multimodal large language models. arXiv preprint
+arXiv:2403.03003, 2024.
+[16] Yun Peng, Shuqing Li, Wenwei Gu, Yichen Li, Wenxuan Wang, Cuiyun Gao, and Michael R.
+Lyu. Revisiting, benchmarking and exploring api recommendation: How far are we? IEEE
+Transactions on Software Engineering, 49(4):1876–1897, 2023. doi: 10.1109/TSE.2022.
+3197063.
+[17] Cheng Qian, Emre Can Acikgoz, Qi He, Hongru Wang, Xiusi Chen, Dilek Hakkani-Tür, Gokhan
+Tur, and Heng Ji. Toolrl: Reward is all tool learning needs. arXiv preprint arXiv:2504.13958,
+2025.
+[18] Pooyan Rahmanzadehgervi, Logan Bolton, Mohammad Reza Taesiri, and Anh Totti Nguyen.
+Vision language models are blind. In Proceedings of the Asian Conference on Computer Vision
+(ACCV), pages 18–34, December 2024.
+[19] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang,
+Mingchuan Zhang, YK Li, Y Wu, et al. Deepseekmath: Pushing the limits of mathematical
+reasoning in open language models. arXiv preprint arXiv:2402.03300, 2024.
+[20] Haozhan Shen, Kangjia Zhao, Tiancheng Zhao, Ruochen Xu, Zilun Zhang, Mingwei Zhu, and
+Jianwei Yin. Zoomeye: Enhancing multimodal llms with human-like zooming capabilities
+through tree-based image exploration. arXiv preprint arXiv:2411.16044, 2024.
+[21] Haozhan Shen, Peng Liu, Jingcheng Li, Chunxin Fang, Yibo Ma, Jiajia Liao, Qiaoli Shen, Zilun
+Zhang, Kangjia Zhao, Qianqian Zhang, et al. Vlm-r1: A stable and generalizable r1-style large
+vision-language model. arXiv preprint arXiv:2504.07615, 2025.
+[22] Amanpreet Singh, Vivek Natarjan, Meet Shah, Yu Jiang, Xinlei Chen, Dhruv Batra, Devi
+Parikh, and Marcus Rohrbach. Towards vqa models that can read. In Proceedings of the IEEE
+Conference on Computer Vision and Pattern Recognition, pages 8317–8326, 2019.
+[23] Rahul Thapa, Kezhen Chen, Ian Covert, Rahul Chalamala, Ben Athiwaratkun, Shuaiwen Leon
+Song, and James Zou. Dragonfly: Multi-resolution zoom-in encoding enhances vision-language
+models. arXiv preprint arXiv:2406.00977, 2024.
+[24] Shengbang Tong, Zhuang Liu, Yuexiang Zhai, Yi Ma, Yann LeCun, and Saining Xie. Eyes
+Wide Shut? Exploring the Visual Shortcomings of Multimodal LLMs. pages 9568–9578, 2024.
+URL https://openaccess.thecvf.com/content/CVPR2024/html/Tong_Eyes_Wide_
+Shut_Exploring_the_Visual_Shortcomings_of_Multimodal_LLMs_CVPR_2024_
+paper.html.
+[25] Chenyu Wang, Weixin Luo, Sixun Dong, Xiaohua Xuan, Zhengxin Li, Lin Ma, and Shenghua
+Gao. Mllm-tool: A multimodal large language model for tool agent learning. In 2025 IEEE/CVF
+Winter Conference on Applications of Computer Vision (WACV), pages 6678–6687, 2025. doi:
+10.1109/WACV61041.2025.00650.
+[26] Haozhe Wang, Chao Qu, Zuming Huang, Wei Chu, Fangzhen Lin, and Wenhu Chen. Vlrethinker: Incentivizing self-reflection of vision-language models with reinforcement learning.
+arXiv preprint arXiv:2504.08837, 2025.
+[27] Wenbin Wang, Liang Ding, Minyan Zeng, Xiabin Zhou, Li Shen, Yong Luo, Wei Yu, and
+Dacheng Tao. Divide, conquer and combine: A training-free framework for high-resolution
+image perception in multimodal large language models. Proceedings of the AAAI Conference
+on Artificial Intelligence, 39(8):7907–7915, Apr. 2025. doi: 10.1609/aaai.v39i8.32852. URL
+https://ojs.aaai.org/index.php/AAAI/article/view/32852.
+8
+
+[28] Chenfei Wu, Shengming Yin, Weizhen Qi, Xiaodong Wang, Zecheng Tang, and Nan Duan.
+Visual chatgpt: Talking, drawing and editing with visual foundation models. arXiv preprint
+arXiv:2303.04671, 2023.
+[29] Penghao Wu and Saining Xie. V?: Guided visual search as a core mechanism in multimodal
+llms. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition
+(CVPR), pages 13084–13094, June 2024.
+[30] Yi Yang, Xiaoxuan He, Hongkun Pan, Xiyan Jiang, Yan Deng, Xingtao Yang, Haoyu Lu,
+Dacheng Yin, Fengyun Rao, Minfeng Zhu, et al. R1-onevision: Advancing generalized
+multimodal reasoning through cross-modal formalization. arXiv preprint arXiv:2503.10615,
+2025.
+[31] Zhengyuan Yang, Linjie Li, Jianfeng Wang, Kevin Lin, Ehsan Azarnasab, Faisal Ahmed,
+Zicheng Liu, Ce Liu, Michael Zeng, and Lijuan Wang. Mm-react: Prompting chatgpt for
+multimodal reasoning and action. arXiv preprint arXiv:2303.11381, 2023.
+[32] Zhibo Yang, Lihan Huang, Yupei Chen, Zijun Wei, Seoyoung Ahn, Gregory Zelinsky, Dimitris
+Samaras, and Minh Hoai. Predicting goal-directed human attention using inverse reinforcement
+learning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), June 2020.
+[33] Qiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yu Yue, Weinan Dai,
+Tiantian Fan, Gaohong Liu, Lingjun Liu, Xin Liu, Haibin Lin, Zhiqi Lin, Bole Ma, Guangming
+Sheng, Yuxuan Tong, Chi Zhang, Mofan Zhang, Wang Zhang, Hang Zhu, Jinhua Zhu, Jiaze
+Chen, Jiangjie Chen, Chengyi Wang, Hongli Yu, Yuxuan Song, Xiangpeng Wei, Hao Zhou,
+Jingjing Liu, Wei-Ying Ma, Ya-Qin Zhang, Lin Yan, Mu Qiao, Yonghui Wu, and Mingxuan
+Wang. Dapo: An open-source llm reinforcement learning system at scale, 2025. URL https:
+//arxiv.org/abs/2503.14476.
+[34] Yufei Zhan, Yousong Zhu, Shurong Zheng, Hongyin Zhao, Fan Yang, Ming Tang, and Jinqiao
+Wang. Vision-r1: Evolving human-free alignment in large vision-language models via visionguided reinforcement learning. arXiv preprint arXiv:2503.18013, 2025.
+[35] Yipeng Zhang, Yifan Liu, Zonghao Guo, Yidan Zhang, Xuesong Yang, Chi Chen, Jun Song,
+Bo Zheng, Yuan Yao, Zhiyuan Liu, et al. Llava-uhd v2: an mllm integrating high-resolution
+feature pyramid via hierarchical window transformer. arXiv preprint arXiv:2412.13871, 2024.
+[36] Ziwei Zheng, Michael Yang, Jack Hong, Chenxiao Zhao, Guohai Xu, Le Yang, Chao Shen, and
+Xing Yu. Deepeyes: Incentivizing "thinking with images" via reinforcement learning, 2025.
+URL https://arxiv.org/abs/2505.14362.
+
+A
+
+System and user prompts
+
+We used the following system prompt:
+You may call any of the tools exactly one time. You have access to the
+following tools to help solve problems:
+{tool_descriptions}
+For each step:
+1. Start by thinking through your reasoning inside <think> tags. Then
+either return your answer inside <answer> tags, or use a tool inside
+<tool> tags.
+2. If needed, use a tool by writing its arguments inside <tool> tags.
+Use one line for each argument in the format ’key: value’. The first
+line must be ’name: <tool_name>’.
+3. You will see the tool’s output inside <result> tags.
+4. Continue until you can give the final answer inside <answer> tags.
+9
+
+Tools expect specific arguments. Follow the examples carefully for the
+required keys and expected value formats.
+Do not make up tools or arguments that aren’t listed.
+We used the following user prompt:
+The image size is { image_size }.
+Please thoroughly think through the question and refine your
+answer while thinking . You should try to collect the visual
+evidence you need to support your answer . Then , provide
+your answer . The answer ( which you will provide in the <
+answer > </ answer > tags ) should be a single word or phrase
+directly answering the question .
+Question : { question }
+
+10
+
+

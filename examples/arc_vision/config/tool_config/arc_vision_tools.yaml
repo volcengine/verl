@@ -1,0 +1,70 @@
+tools:
+  - class_name: "verl.tools.arc_vision_tools.ZoomTool"
+    config:
+      type: native
+      default_zoom_factor: 2.0
+      max_zoom_factor: 4.0
+    tool_schema:
+      type: "function"
+      function:
+        name: "zoom_ui_element"
+        description: "Zoom into a specific region of the UI to see small or unclear elements better"
+        parameters:
+          type: "object"
+          properties:
+            region:
+              type: "array"
+              description: "Normalized bounding box [x1, y1, x2, y2] of the region to zoom into (values 0-1)"
+              items:
+                type: "number"
+              minItems: 4
+              maxItems: 4
+            zoom_factor:
+              type: "number"
+              description: "Zoom magnification factor (default: 2.0, max: 4.0)"
+              minimum: 1.0
+              maximum: 4.0
+          required: ["region"]
+
+  - class_name: "verl.tools.arc_vision_tools.WaitTool"
+    config:
+      type: native
+      max_wait_time: 5.0
+    tool_schema:
+      type: "function"
+      function:
+        name: "wait_for_ui"
+        description: "Wait for UI elements to finish loading or animations to complete"
+        parameters:
+          type: "object"
+          properties:
+            duration:
+              type: "number"
+              description: "Time to wait in seconds (max: 5.0)"
+              minimum: 0.1
+              maximum: 5.0
+          required: ["duration"]
+
+  - class_name: "verl.tools.arc_vision_tools.InspectTool"
+    config:
+      type: native
+    tool_schema:
+      type: "function"
+      function:
+        name: "inspect_element"
+        description: "Get additional information about UI elements that may not be visible"
+        parameters:
+          type: "object"
+          properties:
+            region:
+              type: "array"
+              description: "Normalized bounding box [x1, y1, x2, y2] of the region to inspect"
+              items:
+                type: "number"
+              minItems: 4
+              maxItems: 4
+            type:
+              type: "string"
+              description: "Type of inspection to perform"
+              enum: ["structure", "properties", "accessibility"]
+          required: ["region"]

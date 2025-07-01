@@ -1,0 +1,1383 @@
+CLGRPO: Reasoning Ability Enhancement for Small VLMs
+
+arXiv:2506.18048v1 [cs.CV] 22 Jun 2025
+
+Fanyi Wang∗1 , Binzhi Dong1 , Haotian Hu2 , Jinjin Xu3 , Zhiwang Zhang4
+Honor AI Center1 , Zhejiang University2 , Bytedance3 , Ningbo Tech University4
+{wangfanyi,dongbinzhi}@honor.com , hht1996ok@zju.edu.cn ,
+jin.xu@mail.ecust.edu.cn , zhiwang.zhang@nit.zju.edu.cn
+
+Abstract
+Small Vision Language Models (SVLMs) generally refer to models with parameter sizes less than or equal to 2B.
+Their low cost and power consumption characteristics confer high commercial value. However, their reasoning abilities are limited by the number of parameters. To address this issue, this paper proposes a post-training optimization
+paradigm called the Incremental Training Strategy to enhance the reasoning ability of SVLMs. Firstly, we constructed
+a Self-Supervised Chain-of-Thought (COT) Data Construction System, which leverages multiple LVLMs with 7B parameters or more to transform original data into COT data in a self-supervised manner. Our proposed Incremental
+Training Strategy consists of four stages. Stage 1 injects domain knowledge by performing Supervised Fine-Tuning
+(SFT) to the pretrained model on the COT data. Stage 2 aligns the COT data format by conducting a small amount of
+Group Relative Policy Optimization (GRPO) training constrained only by format rewards on the COT data. Stage 3
+enhances reasoning ability by applying GRPO training on the COT data with constraints on both format and accuracy
+rewards. The resulting model shows significant improvement compared to the baseline. Stage 4 addresses the limited
+capacity of the SVLMs and the weak ability to capture complex patterns by proposing ClipLow GRPO (CLGRPO) to
+constrain the capture space of the training process. We conducted extensive comparative and ablation experiments on
+the abstract semantic recognition dataset EMOSet-118K. Experimental results demonstrate that our method significantly improves the reasoning ability of 1B SVLM. Compared to the baseline model fine-tuned on the original data,
+accuracy increased by 2.77 and recall by 0.69, achieving performance comparable to that of 8B models.
+
+1
+
+Introduction
+
+With the success of the Qwen series [3][2][1][22], InternVL series [6][13][23][4], and DeepSeek series [7][8][10][9] Vision
+Language Models in both academia and industry, an increasing number of researchers have joined the wave of VLM research.
+Model lightweighting and miniaturization [11] [18] to adapt to edge-side private and personalized deployment have become one
+of the research hotspots. For terminal manufacturers, small Vision Language Models (SVLMs) with parameter sizes less than or
+equal to 2B possess extremely high commercial value due to their relatively low cost, low power consumption, and customizable
+attributes. However, SVLMs have limited model capacity and relatively weak reasoning capabilities, and currently, there are
+few targeted methods proposed to enhance the reasoning ability of SVLMs. To address this situation, we propose a posttraining optimization paradigm called the Incremental Training Strategy to improve the reasoning ability of SVLMs. We select
+the abstract semantic understanding task as the entry point and conduct experiments on the EmoSet-118K dataset [12], choosing
+InternVL-1B [6] as the baseline model. We construct a Self-Supervised Chain-of-Thought (COT) Data Construction system
+that uses multiple LVLMs with 7B parameters or more to convert the EmoSet-118K dataset into COT-formatted data, which
+is then self-supervisedly verified. Our proposed Incremental Training Strategy consists of four main training stages. Stage 1:
+Perform SFT to the pretrained model on the COT data to inject prior knowledge. The model obtained in this step performs
+worse on metrics compared to the baseline model fine-tuned on the original data. Stage 2: Based on the model from Stage 1,
+conduct GRPO fine-tuning on the COT data, constrained only by the format reward to achieve format alignment. Stage 3: Use
+GRPO to simultaneously constrain both format reward and accuracy reward, aiming to enhance reasoning ability. The model
+obtained in this step shows significant improvement over the baseline, indicating that after stepwise knowledge injection and
+reasoning enhancement, SVLM preliminarily possesses the ability to further improve through extended reasoning. Stage 4:
+To address the small capacity and weak complex pattern capture ability of SVLMs, we further propose the ClipLow GRPO
+method to constrain the SVLMs’ capture space. Experimental results demonstrate that our proposed CLGRPO further benefits
+the reasoning ability of SVLMs, with significant metric improvements over Stage 3. Our contributions are as follows.
+• We designed a Self-Supervised COT Data Construction System that automatically processes the EmoSet-118K dataset
+into high-quality COT-formatted data.
+
+• We propose a four-stage post-training optimization paradigm, the Incremental Training Strategy, to enhance the reasoning
+ability of SVLMs.
+• To address the limited capacity and weak complex pattern capture ability of SVLMs, we introduce the ClipLow GRPO
+method, which constrains the SVLM’s capture space during training. On the EmoSet-118K benchmark, this approach
+improves domain-specific capabilities of SVLM, achieving performance comparable to that of LVLMs with eight times
+the number of parameters after SFT.
+
+2
+
+Related Work
+
+With the continuous enhancement of Vision-Language Model (VLM) capabilities and knowledge density, these models have
+been increasingly applied across a wide range of domains. Among the currently open-source VLM series, the leading ones in
+terms of performance are primarily the InternVL series [6][13][23][4]and Qwen series [3][2][1][22]. The core contribution of
+InternVL1.0 [6] was to scale the visual encoder’s parameter size to be comparable with that of the text encoder. InternVL1.1
+focused on improving Chinese language understanding and OCR capabilities. InternVL1.2 integrated multiple models to
+strengthen the visual encoder and replaced the text encoder with the larger Nous-Hermes-2-Yi-34B. InternVL1.5 [13] employed a more powerful visual encoder and upgraded the text encoder to InternLM2-20B. InternVL2 replaced the heavy 6B
+visual encoder with a lightweight 300M ViT, covering a parameter range from 2B to 108B, where the 2B model enables potential deployment on edge devices. InternVL2.5 [23] introduced JPEG compression and loss function reweighting techniques.
+InternVL3 [4] further incorporated variable visual encoding, native multimodal pretraining, and hybrid preference optimization
+modules, achieving superior long-context understanding capabilities.
+The success of the Qwen series relies on several key technologies, including the autoregressive generation mechanism, multihead self-attention, feed-forward neural networks (FFN) with residual connections, as well as the implementation of positional
+encoding and input embeddings. These techniques not only enhance the model’s generative ability but also optimize efficiency
+and scalability. The Qwen1.5 series includes models of various scales, with the largest reaching 110B parameters. Some models
+adopt Grouped Query Attention (GQA) to improve inference speed and reduce memory consumption. The Qwen2 series[2]
+represents a significant upgrade, supporting much longer context lengths up to 128K tokens. This series comprises multiple
+pretrained and instruction-tuned models, such as Qwen2-0.5B, Qwen2-1.5B, Qwen2-7B, Qwen2-57B-A14B, and Qwen2-72B.
+All model sizes utilize GQA technology to further enhance inference efficiency. Building upon Qwen2, the Qwen2.5 series[1]
+extends multimodal capabilities and supports even larger context windows, releasing high-performance models like Qwen2.572B-Instruct. The latest Qwen3 series[22] further advances inference capabilities and multimodal fusion, enabling support for
+larger-scale context inputs and more complex task handling.
+
+2.1
+
+Efficient Vision Language Models
+
+As VLM technology matures, there is an increasing demand for lightweight and personalized edge deployment, which has
+sparked a surge of research on efficient VLMs. Xiangxiang Chu et al. proposed MobileVLM [16], a multimodal vision-language
+model tailored for edge scenarios. Their lightweight downsampling projector, LDPv2, compresses the number of image tokens
+to 1/9 of traditional approaches, effectively addressing the issue of visual feature dimensionality explosion. FastVLM [11]
+introduced a novel hybrid visual encoder, FastViTHD, which employs a hybrid hierarchical design and multi-scale feature
+fusion techniques. This approach significantly reduces the encoding time for high-resolution images while maintaining the
+accuracy of the visual encoder. BlueLM-V-3B [21] proposed a relaxed aspect ratio matching method, enabling more efficient
+inference on mobile devices. Flash-VL2B [18] utilizes implicit semantic concatenation to solve the semantic discontinuity
+problem in image patch processing, greatly enhancing the model’s performance in tasks such as document understanding and
+OCR.
+
+2.2
+
+Reinforcement Learning
+
+Reinforcement learning [26] [27] [28], as a means to further enhance the capabilities of VLMs, has also attracted extensive
+research attention. DeepSeekMath introduced GRPO [14], which directly uses the average reward of multiple sampled outputs
+as the baseline without requiring an additional value function approximation, significantly reducing the training resources
+needed. Dr.GRPO [29] optimizes GRPO by addressing length bias and difficulty bias introduced during the optimization
+process, it removes the normalization factor for response length and instead employs Monte Carlo average return to estimate
+the advantage value, enabling the model to balance optimization across tasks of varying difficulty. DAPO [15] significantly
+improves training efficiency, stability, and output quality of large models on complex tasks by decoupling the upper and lower
+clipping ranges, dynamically sampling effective gradient data, introducing token-level policy optimization, and applying a soft
+penalty mechanism.
+
+3
+
+Methods
+
+Extensive research has shown that Chain-of-Thought (COT) reasoning can effectively enhance the reasoning capabilities of
+Large Vision Language Models (LVLMs). However, there is relatively limited research on COT for small Vision Language
+
+Self-Supervised COT Data Construction System
+COT Prompt: …... strictly follow the format with four specific sections:
+
+ORI Data
+awe
+Multi-Large VLM
+COT Prompt + Question
+
+Next VLM
+No
+
+Large VLM
+Judge Prompt
+
+GT==SP
+Yes
+
+COT Data
+
+Reformat
+
+SUMMARY, CAPTION, REASONING, CONCLUSION. It is crucial that you
+adhere to this structure exactly as outlined and that the final answer in
+the CONCLUSION matches the standard correct answer precisely……
+Question: Please select the emotion closest to the image from the
+following options: amusement, anger, awe, contentment, disgust,
+excitement, fear and sadness……
+
+Judge Prompt: Evaluate whether the assistant's response is valid.
+Respond with 'valid' if the assistant's response is not a refusal and it aligns
+with the standard answer in meaning. Respond with 'invalid' if the
+response is a refusal or differs from the standard answer in a meaningful
+way. A refusal means the assistant states it cannot recognize a specific
+person/object or refuses to answer the question. Do not consider a
+response to be a refusal just because it includes the word 'no' or other
+negative terms.
+Standard answer: {Ground Truth(GT)}
+Assistant's response: {System Pred(SP)}
+
+<think> …… I will first describe the key elements of the image to understand its context. Then, I will analyze
+the emotions that the image evokes by considering the visual cues such as the setting, atmosphere, and
+overall mood. Finally, I will match the evoked emotion to the provided options.
+The image depicts a snowy landscape during twilight or early evening. The sky is painted with hues of pink
+and purple, suggesting either sunrise or sunset. The foreground shows a cluster of buildings with snowcovered roofs, indicating a cold climate. The architecture appears to be traditional, possibly in a
+mountainous region. The background features rugged, snow-capped hills, adding to the serene and majestic
+atmosphere.
+1. **Setting and Atmosphere**: The image captures a tranquil and picturesque scene with a serene
+atmosphere. The twilight sky and the snow-covered landscape evoke a sense of calm and wonder.
+2. **Emotional Cues**: The combination of the beautiful sky, the traditional architecture, and the natural
+beauty of the snowy hills creates a feeling of awe. There is no indication of amusement, anger, contentment,
+disgust, excitement, fear, or sadness; these emotions do not align with the peaceful and majestic setting.
+3. **Matching Emotion to Options**: Given the options provided, \"awe\" is the emotion that best fits the
+image due to the breathtaking and majestic nature of the scene.</think>
+<answer>awe</answer>
+
+Incremental Training Strategy
+Base model ≤ 1B
+Domain knowledge Injection
+Stage 1
+COT data SFT
+Format Alignment
+Stage 2
+COT data GRPO (format reward)
+Reasoning Ability Enhancement
+Stage 3
+COT data GRPO (format&acc reward)
+
+Capture Space Constrain
+Stage 4
+COT data CLGRPO (format&acc reward)
+
+Figure 1: Overview of Self-Supervised COT Data Construction System and our Incremental Training Strategy. Green is SUMMARY
+part, Blue is CAPTION part, Purple is RESASONING part, Red is CONCLUSION part.
+
+Models (SVLMs) with parameter sizes less than or equal to 2B [24] [25]. Many perspectives suggest that the COT ability of
+SVLMs is constrained by their number of parameters and knowledge density, making it difficult to fully activate.
+To address this issue, based on extensive experience, this paper explores a multistage training strategy that fundamentally
+and effectively improves the COT reasoning ability of SVLMs on domain-specific tasks.
+Our experiments are conducted on the image abstract semantic recognition task, using the EmoSet-118K [12] as benchmark.
+We first design a Self-Supervised COT Data Construction System based on multiple large VLMs to automatically process
+EmoSet-118K into COT-formatted data. The specific processing procedure is illustrated on the left side of Figure. 1 and will be
+introduced in Section 3.1. Subsequently, we perform a four-stage Incremental Training Strategy based on the COT data. The
+detailed steps are shown on the right side of Figure. 1 and will be introduced in Section 3.2.
+
+3.1
+
+Self-Supervised COT Data Construction System
+
+The benchmark we selected, EmoSet-118K [12], presents certain challenges in the field of image abstract semantic recognition.
+The original dataset consists of pairs of image-emotion annotations, with emotions finely categorized into eight classes: sadness, amusement, awe, disgust, anger, excitement, fear, and contentment. We constructed a Self-Supervised Chain-of-Thought
+(COT) Data Construction System based on LVLMs. As illustrated on the left side of Figure. 1, the entire self-supervised
+process is divided into two stages. In the first stage, LVLMs are guided jointly by a COT Prompt and a Question to generate data with reasoning steps. The inputs to this process include images and emotion labels from the original dataset. The
+COT Prompt instructs the LVLM to generate responses following the ”SUMMARY, CAPTION, REASONING, CONCLUSION” sequences, and the generated conclusion must be consistent with the emotion label. In the second stage, a Judge
+Prompt is used to have the large VLM verify whether the generated response’s CONCLUSION(System Pred) matches the
+Ground Truth. If inconsistency is detected, the process returns to the first stage, where a larger VLM is employed for regeneration. The pool of LVLMs used in the first stage includes InternVL2.5-7B/32B/72B-Instruct, called iteratively from
+smaller to larger. Considering processing efficiency and the relatively lower difficulty of the second stage, InternVL2.5-7BInstruct is chosen for verification. After the second stage verification, the generated results are reformatted into the following
+structure:”<think>SUMMARY,CAPTION,REASONING</think><answer>CONCLUSION</answer>”. In practice, most
+data are annotated successfully after one round of the first stage. After three rounds of iterative self-supervision, 78 data samples were filtered out by the Self-Supervised COT Data Construction System. Upon inspection of the filtered data, as shown in
+Figure. 2, we think it may well be caused by the fact that those data are easy to confuse.
+
+failure
+
+Anger->Excitement
+
+Anger->Awe
+
+Excitement->Awe
+
+Excitement->Contentment
+
+Figure 2: Failure cases of Self-Supervised COT Data Construction System. The label bellow image above is ”Ground Truth->System Pred”.
+The emotions expressed in these images are to some extent really easy to confuse.
+
+3.2
+
+Incremental Training Strategy
+
+We chose the InternVL2.5-1B [17] as the baseline to validate the effectiveness of our Incremental Training Strategy. The entire
+strategy is divided into four stages, as illustrated on the right of the Figure. 1. Each stage corresponds to a specific objective:
+Domain Knowledge Injection, Format Alignment, Reasoning Ability Enhancement, and Capture Space Constraint. Among
+these, Stage 2 and Stage 4 are specially designed to address the capability characteristics of SVLMs.
+Stage 1: Domain knowledge injection
+The purpose of the first training stage is to inject domain knowledge into the small model. For LVLMs, it has been validated
+that fine-tuning with COT data which contains richer information can improve their performance in the corresponding domain.
+However, for SVLMs, their limited parameter capacity constrain their COT capabilities to some extent. The COT reasoning
+process can be divided into two stages: knowledge extraction and reasoning. We believe that SVLMs can achieve performance
+comparable to LVLMs in vertical domains by first injecting domain knowledge and then enhancing reasoning ability.
+The goal of this stage is to enable the SVLMs to learn to extract knowledge from domain-specific COT data. After the
+knowledge injection in the first stage, the SVLM has initially acquired domain-specific reasoning ability, enabling it to first
+understand image content, then analyze, and finally answer. However, as shown in Table. 2, 3, there remains a gap in objective
+metrics compared to models fine-tuned directly on the original data, indicating the need for further enhancement of reasoning
+ability.
+Stage 2: Format Alignment
+Reinforcement learning is one of the core approaches to enhancing model reasoning capabilities. In our work, we leverage
+GRPO [14] to improve the reasoning ability, where the feedback primarily consists of two components: format reward and accuracy reward. Compared to previous reinforcement learning algorithms [19][20], GRPO offers advantages such as eliminating
+the need for a separate value network, thereby reducing computational overhead, and employing group-structured advantage
+estimation, which leads to more stable training.
+In practical experiments,
+we observed that SVLM exhibit weaker learning ability for the
+”<think></think><answer></answer>” format. The format reward fluctuates persistently during training and fails
+to reach 100% accuracy. Consequently, some correctly formatted responses inadvertently become the focus of reinforcement
+learning process, which biases the model’s attention and causes confusion for the parameter-limited SVLM. Corresponding
+experimental results can be found in the ablation study, specifically in Table. 4, 5.
+Stage 3: Reasoning Ability Enhancement
+After Stage 2, the model acquires the ability to respond in a fixed format. The focus of Stage 3 training process is Reasoning
+Ability Enhancement. This stage is also based on GRPO, with the corresponding objective function shown in Equation 1.
+G
+
+LGRPO =
+
+1 X
+πθ (oi |q)
+πθ (oi |q)
+(min (
+· Ai , clip (
+, 1 − ϵl , 1 + ϵh ) · Ai ) + β · KL(πθ ∥ πref )) , ϵl = ϵh = 0.2,
+G i=1
+πθold (oi |q)
+πθold (oi |q)
+
+(1)
+
+where ϵl and ϵh are the clipping hyper-parameters, β is the coefficient controlling the Kullback–Leibler (KL) penalty, G
+r(q,og )−mean(r1 ,r2 ,...,rG )
+is the group number, respectively, and Ai =
+is the computed advantage using the group rewards
+std(r1 ,r2 ,...,rG )
+{r1 , r2 , , rG }. For each question q, GRPO samples a group of outputs {o1 , o2 , , oG } from the old policy πθold and then optimizes
+the policy model πθ by maximizing the objective function above.
+During Stage 3, both the format reward and accuracy reward are activated. The accuracy reward incentivizes the correctness
+of the model’s responses. Both rewards are positively correlated with the correctness of the model’s output. As shown in
+Table. 2, 3, Stage 3 achieves significant improvements in accuracy and recall compared to Stage 1. However, compared to the
+model directly SFT on the original data , accuracy improves, but recall decreases. To analyze this phenomenon, the higher
+
+<think>……I will first describe the image to understand its context and then
+analyze the emotions displayed by the people in the image. Based on the
+analysis, I will select the emotion closest to the image from the provided
+options.
+The image shows a group of people participating in what appears to be a
+parade or festival. They are wearing colorful, elaborate costumes with
+large, feather-like structures attached to their heads. The costumes are
+vibrant and eye-catching, featuring bright colors such as red, yellow, green,
+and blue. The participants seem to be enjoying themselves, and the
+atmosphere looks lively and festive.
+1. The image depicts a parade or festival setting, which typically involves
+celebration and enjoyment.
+2. The participants are wearing elaborate and colorful costumes, which
+often symbolize fun and festivity.
+3. Their body language and the overall atmosphere suggest they are
+engaged and happy. Among the given options, \"excitement\" best fits the
+lively and joyful environment depicted in the image. Based on these
+observations, the emotion closest to the image is excitement.</think>
+<answer>excitement</answer>
+
+<think>……The steps involve analyzing the facial expressions
+and body language of the individuals in the image to determine
+which emotion best fits the scene.
+The image shows a woman sitting on a bench holding a baby,
+while two other children sit beside her. The child on the right
+appears to be crying, with tears visible and a distressed
+expression. The other children seem calm, with no obvious signs
+of distress or happiness.
+1. The woman is holding a baby, suggesting she might be a
+caregiver or parent.
+2. The child on the right is crying, indicating sadness or distress.
+3. The other children appear calm and do not show signs of
+amusement, anger, awe, contentment, disgust, excitement, or
+fear.
+4. Given the context and the visible emotion of the crying child,
+the closest emotion to the image is sadness.</think>
+<answer>sadness</answer>
+
+Figure 3: COT Data produced by our Self-Supervised COT Data Construction System. Green is SUMMARY part, Blue is CAPTION part,
+Purple is RESASONING part, Red is CONCLUSION part.
+
+accuracy but lower recall indicates that the overall prediction reliability is high, but there are more false negatives on difficult
+samples. Considering the relatively weaker capability of SVLMs, we believe it is necessary to constrain the reinforcement
+learning capture space, enabling the small model to search more rigorously for correct answers within a smaller capture space.
+This insight motivated the design of the fourth training stage.
+Stage 4: Capture Space Constrain
+We achieve the goal of constraining the reinforcement learning capture space by restricting ϵl and ϵh to a smaller range. Based
+on empirical experiments, we adjust ϵl and ϵh from 0.2 in the stage 3 to 0.1, and conduct ablation studies to compare with the
+approach of increasing ϵh as mentioned in ByteDance’s DAPO [15]. The experimental results in Table. 2, 3 demonstrate the
+effectiveness of constraining the reinforcement learning capture space for SVLMs. To further verify that the performance gains
+are indeed due to the reduction of ϵl and ϵh , we conducted additional ablation experiments shown in Table. 6, 7, which also
+provide positive validation.
+ORI Train Data
+
+COT Train Data
+
+ORI/COT Test Data
+
+ORI/COT Eval Data
+
+94481
+
+94403
+
+17716
+
+5905
+
+Table 1: Data set partitioning
+
+Method
+
+dataset
+
+strategy
+
+amuse
+
+content
+
+excite
+
+awe
+
+disgust
+
+anger
+
+f ear
+
+sad
+
+avg
+
+InternVL2.5-1B
+InternVL2.5-2B
+InternVL2.5-4B
+
+-
+
+-
+
+37.49
+45.96
+34.79
+
+32.32
+35.92
+48.67
+
+61.08
+70.75
+49.55
+
+66.42
+65.31
+54.55
+
+72.06
+82.45
+70.23
+
+82.27
+84.13
+87.84
+
+48.65
+54.43
+50.24
+
+72.57
+69.76
+81.46
+
+59.11
+63.59
+59.67
+
+InternVL2.5-1B-a(baseline)
+InternVL2.5-4B-a
+InternVL2.5-8B-a
+InternVL2.5-1B-a-G
+InternVL2.5-1B-a-D
+InternVL2.5-1B-b
+
+ORI
+ORI
+ORI
+ORI
+ORI
+ORI
+
+SFT
+SFT
+SFT
+GRPO
+Dr.GRPO
+GRPO
+
+69.42
+73.02
+71.97
+69.12
+66.13
+67.18
+
+64.75
+67.61
+67.74
+64.94
+67.11
+65.38
+
+80.97
+81.44
+84.82
+81.24
+76.96
+79.35
+
+80.14
+80.11
+80.03
+79.54
+91.11
+89.92
+
+87.40
+87.59
+87.81
+87.41
+84.79
+85.81
+
+88.11
+84.33
+88.72
+89.10
+85.36
+85.49
+
+76.78
+81.09
+79.48
+77.51
+87.36
+82.75
+
+81.92
+84.05
+84.10
+82.86
+71.38
+82.11
+
+78.68
+79.91
+80.58
+78.97
+78.78
+79.75
+
+InternVL2.5-1B-c
+InternVL2.5-1B(stage1)
+InternVL2.5-1B(stage2)
+InternVL2.5-1B(stage3)
+InternVL2.5-1B(stage4-v1)
+InternVL2.5-1B(stage4-v2)
+
+COT
+COT
+COT
+COT
+COT
+COT
+
+GRPO
+SFT
+GRPO
+GRPO
+CLGRPO
+CLGRPO
+
+66.62
+64.40
+64.18
+80.00
+83.67
+82.89
+
+54.84
+52.84
+52.67
+54.43
+58.49
+58.83
+
+72.47
+73.30
+73.26
+77.31
+76.13
+76.68
+
+71.46
+70.64
+69.94
+83.92
+86.90
+85.06
+
+85.08
+84.86
+83.41
+88.17
+88.17
+88.37
+
+86.98
+86.99
+86.08
+91.25
+91.86
+91.09
+
+74.65
+73.86
+74.96
+83.60
+84.32
+83.64
+
+80.54
+80.00
+81.80
+82.76
+82.09
+83.08
+
+74.08
+73.36
+73.29
+80.31
+81.45
+81.20
+
+Table 2: Accuracy comparison experiments between different scale base models and different fintuning schedule models. In the Method
+column, the suffix “-a” indicates SFT on the ORI data. “-a-G” denotes GRPO training based on the SFT results “-a”. “-a-D” denotes
+Dr.GRPO training based on the SFT results “-a”. “-b” indicates direct GRPO training on the ORI data. and “-c” indicates direct GRPO
+training on the COT data.
+
+Method
+
+dataset
+
+strategy
+
+amuse
+
+content
+
+excite
+
+awe
+
+disgust
+
+anger
+
+f ear
+
+sad
+
+avg
+
+InternVL2.5-1B
+InternVL2.5-2B
+InternVL2.5-4B
+
+-
+
+-
+
+11.95
+25.27
+17.00
+
+90.98
+62.51
+53.14
+
+63.54
+62.51
+67.78
+
+36.15
+31.90
+65.04
+
+41.00
+55.15
+54.97
+
+40.75
+34.13
+22.83
+
+43.67
+49.75
+31.66
+
+50.19
+75.28
+51.92
+
+47.28
+53.05
+45.54
+
+InternVL2.5-1B-a(baseline)
+InternVL2.5-4B-a
+InternVL2.5-8B-a
+InternVL2.5-1B-a-G
+InternVL2.5-1B-a-D
+InternVL2.5-1B-b
+
+ORI
+ORI
+ORI
+ORI
+ORI
+ORI
+
+SFT
+SFT
+SFT
+GRPO
+Dr.GRPO
+GRPO
+
+68.34
+69.37
+71.08
+67.08
+63.65
+63.39
+
+65.14
+66.65
+67.11
+66.75
+64.41
+69.81
+
+83.01
+84.97
+84.17
+83.48
+88.98
+84.51
+
+79.47
+82.06
+83.50
+79.47
+66.24
+63.19
+
+83.08
+87.93
+86.33
+84.89
+87.24
+80.79
+
+88.06
+89.34
+89.34
+87.06
+87.76
+83.84
+
+77.71
+74.32
+79.48
+77.86
+67.58
+70.47
+
+83.25
+86.10
+84.01
+83.31
+91.11
+80.87
+
+78.51
+80.09
+80.63
+78.74
+77.12
+74.61
+
+InternVL2.5-1B-c
+InternVL2.5-1B(stage1)
+InternVL2.5-1B(stage2)
+InternVL2.5-1B(stage3)
+InternVL2.5-1B(stage4-v1)
+InternVL2.5-1B(stage4-v2)
+
+COT
+COT
+COT
+COT
+COT
+COT
+
+GRPO
+SFT
+GRPO
+GRPO
+CLGRPO
+CLGRPO
+
+48.77
+50.87
+51.23
+51.70
+52.53
+52.31
+
+72.26
+72.30
+71.86
+85.71
+83.21
+83.17
+
+82.71
+79.79
+79.16
+88.29
+91.34
+90.54
+
+74.12
+74.29
+72.79
+71.81
+73.36
+74.29
+
+82.06
+78.99
+80.49
+87.96
+88.38
+88.26
+
+71.19
+69.67
+70.61
+78.16
+81.91
+81.38
+
+69.81
+67.83
+67.33
+71.53
+74.67
+75.38
+
+77.83
+75.45
+76.48
+85.09
+88.18
+88.08
+
+72.34
+71.15
+71.24
+77.53
+79.20
+79.18
+
+Table 3: Recall comparison experiments between different scale base models and different fintuning schedule models. In the Method column,
+the suffix “-a” indicates SFT on the ORI data. “-a-G” denotes GRPO training based on the SFT results “-a”. “-a-D” denotes Dr.GRPO training
+based on the SFT results “-a”. “-b” indicates direct GRPO training on the ORI data. and “-c” indicates direct GRPO training on the COT
+data.
+
+Method
+
+Stage2
+
+amuse
+
+content
+
+excite
+
+awe
+
+disgust
+
+anger
+
+f ear
+
+sad
+
+avg
+
+InternVL2.5-1B(stage1)
+InternVL2.5-1B(stage3)
+InternVL2.5-1B(stage3)(ours)
+
+%
+✓
+
+64.40
+67.16
+80.00
+
+52.84
+54.15
+54.43
+
+73.30
+75.98
+77.31
+
+70.64
+72.62
+83.92
+
+84.86
+84.71
+88.17
+
+86.99
+86.79
+91.25
+
+73.86
+75.70
+83.60
+
+80.00
+82.88
+82.76
+
+73.36
+75.00
+80.31
+
+Table 4: Accuracy ablation study of Stage2 Format Alignment.
+
+Method
+
+Stage2
+
+amuse
+
+content
+
+excite
+
+awe
+
+disgust
+
+anger
+
+f ear
+
+sad
+
+avg
+
+InternVL2.5-1B(stage1)
+InternVL2.5-1B(stage3)
+InternVL2.5-1B(stage3)(ours)
+
+%
+✓
+
+50.87
+52.20
+51.70
+
+72.30
+73.51
+85.71
+
+79.79
+80.79
+88.29
+
+74.29
+73.58
+71.81
+
+78.99
+83.02
+87.96
+
+69.67
+73.48
+78.16
+
+67.83
+71.63
+71.53
+
+75.45
+78.48
+85.09
+
+71.15
+73.34
+77.53
+
+Table 5: Recall ablation study of Stage2 Format Alignment.
+
+Figure 4: Confusion matrix of InternVL-2.5-8B-Instruct SFT on ORI Data and our CLGRPO result train on COT Data.
+
+4
+
+Experiments
+
+This chapter first provides a detailed description of the training configurations for all comparative experiments, as well as the
+training configurations for the four stages of the proposed Incremental Training Strategy. Next, to validate the overall effectiveness of the Incremental Training Strategy, we conducted a series of comparative experiments. The comparative experiments,
+shown in Table. 2, 3, including comparisons with InternVL-2.5-1B/2B/4B-Instruct base models; InternVL-2.5-1B/4B/8B finetuned on the original dataset; InternVL-2.5-1B trained with SFT followed by GRPO and Dr.GRPO [29] on the original dataset;
+InternVL-2.5-1B directly trained with GRPO on the original or COT dataset.
+Furthermore, to verify the effectiveness of Stage 2 and Stage 4, which are specifically designed for the characteristics of
+SVLMs, we conducted two groups of ablation studies, as shown in Table. 4, 5, and Table. 6, 7, respectively. The first group
+ablates the execution of format alignment of Stage 2, while the second group ablates the values of ϵl and ϵh . Through rigorous comparative and ablation experiments, we thoroughly validate that the proposed Incremental Training Strategy is indeed
+effective in enhancing the domain-specific COT capabilities of small Vision Language Models.
+
+4.1
+
+Implementation details
+
+We selected InternVL2.5-1B-Instruct as the baseline. All experiments were conducted on 8×A800 GPUs, and inferences were
+performed on 8×L20 GPUs. All SFT experiments were trained for 3 epochs on either the ORI data or the COT data. For
+the 1B and 4B models, the training batch size was set to 8, while for the 8B model, the batch size was set to 2. Gradient
+accumulation steps were set to 8, weight decay to 0.05, warmup ratio to 0.03, and learning rate to 1e-5. During testing, the
+best-performing weights on the evaluation data were selected, and the testing data format was consistent with the training data
+format. For all reinforcement learning experiments (GRPO, Dr.GRPO, DAPO), except for InternVL2.5-1B-b and InternVL2.51B-c in Table. 2, 3 which were trained for 3 epochs on the ORI data, the rest were trained for 1 epoch on either ORI or COT
+data. The batch size was set to 8, gradient accumulation steps to 8, group size to 8, β to 0.04, and learning rate to 1e-6. The
+default values of ϵl and ϵh in GRPO were 0.2, while in ClipLow GRPO (CLGRPO), both were set to 0.1.
+In the four-stage Incremental Training Strategy, each stage was trained for 3 epochs, 10 iterations, 1 epoch, and 500 iterations
+respectively. In Stages 2 and 3, ϵl and ϵh were set to 0.2, while in Stage 4, both were set to the empirical value of 0.1. The
+experimental data is EmoSet-118K [12]. During the COT data construction process, 78 samples were filtered out by the SelfSupervised COT Data Construction System. The data were split into training, testing, and evaluation sets in a 16:3:1 ratio, with
+specific data volumes shown in Table 1. The evaluation and test data volumes for both ORI and COT formats were consistent,
+while the ORI training data contained 78 more samples than the COT training data.
+
+4.2
+
+Comparison Experiments
+
+To validate the effectiveness of the Incremental Training Strategy, we conducted a series of comparative experiments as shown
+in Table. 2, 3. The experiments are divided into two groups based on whether training is involved: tuning-free and tuning-based
+control groups. In the Method column of Table. 2, 3, the first row corresponds to tuning-free experiments, the second row
+to tuning-based experiments, and the third row to the four stages of the proposed Strategy. For Stage 4, both the best and
+second-best results are listed.
+
+81.45
+
+81.5
+
+81.20
+
+81.0
+
+Accuracy/Recall
+
+80.5
+
+80.31
+
+80.0
+
+Stage4:Accuracy
+Stage4:Recall
+Stage3:Accuracy
+Stage3:Recall
+
+79.5
+79.0
+
+79.20
+
+79.18
+
+300
+
+400
+
+78.5
+78.0
+77.5
+
+77.53
+
+0
+
+100
+
+200
+Iterations
+
+Figure 5: Accuracy and recall metrics results during Stage4 training process compared with results of Stage3.
+
+In the tuning-free control group, we directly tested the base models on the test data split described in Table. 1 without
+any domain-specific fine-tuning. These models performed relatively poorly. For the tuning-based control group, training
+and testing were conducted on the ORI training and test data, with the best-performing weights selected based on evaluation
+data performance. Since training was performed on ORI data without format constraints, GRPO training in the tuning-based
+experiments used only the accuracy reward for supervision. In our Incremental Training Strategy experimental group, Stage
+1 involved SFT training on the COT data, Stage 2 focused solely on format alignment training on the COT data, and Stage
+3 performed full GRPO training on the COT data, resulting in significant metric improvements. From this, we draw the
+preliminary conclusion that by Stage 3, the model has acquired initial COT reasoning ability, achieving performance comparable
+to that of an 8B LVLM trained for 3 epochs on ORI data.
+However, not satisfied with this, and based on the analysis of SVLMs characteristics in the previous chapter, we further
+designed the Stage 4 experiment. The two best-performing weights on the test data are listed in Table. 2, 3. It can be observed
+that the final results show significant improvement over Stage 3. Compared to the 8B model trained for 3 epochs on ORI data,
+the accuracy metric is superior, while recall shows some decline. Figure. 4 illustrates the confusion matrix of InternVL-8BInstruct trained on the original data and best results of Stage4. Based on the experimental results in Table. 2, 3, we summarize
+the observed phenomena on the EmoSet benchmark for SVLM as follows:
+• The GRPO training results show higher accuracy compared to SFT on the original data, but recall decreases.(InternVL2.51B-a(baseline) vs InternVL2.5-1B-b)
+• Performing SFT as a cold start before GRPO training further improves the metrics. Compared to directly training with GRPO, this approach achieves a more balanced accuracy and recall, with a significant improvement in recall.(InternVL2.5-1B-a-G vs InternVL2.5-1B-b)
+• Dr.GRPO, originally validated for mathematical reasoning ability, performs worse than GRPO when transferred to the
+visual abstract semantic understanding task according to experimental results.(InternVL2.5-1B-a-G vs InternVL2.5-1Ba-D)
+• Without knowledge injection, directly training with GRPO on the COT data results in a significant performance drop
+compared to directly training with GRPO on the original data.(InternVL2.5-1B-b vs InternVL2.5-1B-c)
+
+4.3
+
+Ablation Experiments
+
+To verify the necessity of the Stage 2 and Stage 4 training phases designed specifically for small Vision Language Models, we
+conducted two groups of ablation studies. The experimental results are shown in Table. 4, 5 and Table. 6, 7, respectively.
+
+Method
+
+strategy
+
+ϵl , ϵh
+
+amuse
+
+content
+
+excite
+
+awe
+
+disgust
+
+anger
+
+f ear
+
+sad
+
+avg
+
+InternVL2.5-1B(stage1)
+InternVL2.5-1B(stage3)
+InternVL2.5-1B(stage4)
+InternVL2.5-1B(stage4)(ours)
+
+SFT
+GRPO
+GRPO
+CLGRPO
+
+0.2,0.2
+0.2,0.28
+0.1,0.1
+
+64.40
+80.00
+76.48
+83.67
+
+52.84
+54.43
+56.44
+58.49
+
+73.30
+77.31
+77.02
+76.13
+
+70.64
+83.92
+85.17
+86.90
+
+84.86
+88.17
+87.84
+88.17
+
+86.99
+91.25
+90.92
+91.86
+
+73.86
+83.60
+82.04
+84.32
+
+80.00
+82.76
+82.19
+82.09
+
+73.36
+80.31
+79.76
+81.45
+
+Table 6: Accuracy ablation study of Stage4 CLGRPO.
+Method
+
+strategy
+
+ϵl , ϵh
+
+amuse
+
+content
+
+excite
+
+awe
+
+disgust
+
+anger
+
+f ear
+
+sad
+
+avg
+
+InternVL2.5-1B(stage1)
+InternVL2.5-1B(stage3)
+InternVL2.5-1B(stage4)
+InternVL2.5-1B(stage4)(ours)
+
+SFT
+GRPO
+GRPO
+CLGRPO
+
+0.2,0.2
+0.2,0.28
+0.1,0.1
+
+50.87
+51.70
+53.75
+52.53
+
+72.30
+85.71
+84.46
+83.21
+
+79.79
+88.29
+87.06
+91.34
+
+74.29
+71.81
+71.90
+73.36
+
+78.99
+87.96
+86.51
+88.38
+
+69.67
+78.16
+77.93
+81.91
+
+67.83
+71.53
+72.44
+74.67
+
+75.45
+85.09
+84.28
+88.18
+
+71.15
+77.53
+77.29
+79.20
+
+Table 7: Recall ablation study of Stage4 CLGRPO.
+
+First, the purpose of Stage 2 is to enhance the format alignment capability of SVLMs and avoid confusion during training
+process. In Table. 4, 5, the second-to-last row shows the results of directly proceeding to Stage 3 without executing Stage 2,
+where GRPO was trained using both format reward and accuracy reward. Although this shows improvement compared to the
+Stage 1 baseline, there remains a performance gap compared to models fine-tuned on the ORI data as shown in Table. 2, 3. The
+last row presents the results of performing Stage 2 with only format reward constrained training for 10 iterations, followed by
+Stage 3 training. It can be observed that the accuracy metric significantly improves compared to baseline trained on ORI data.
+These results validate that, for SVLMs, it is necessary to perform format alignment before enhancing reasoning ability. Due to
+training resource limitations, we did not verify whether larger models will benifit from format alignment pre-training.
+To verify the effectiveness of ClipLow operation in stage 4, we performed ablation experiments as shown in Table 6, 7.
+And Figure. 5 illustrates the change in metrics evaluated in the test data during the training process of Stage 4. In Stage 3, ϵl
+and ϵh were set to 0.2. We performed a set of experiments increasing the thresholds ϵl and ϵh , with values referenced from
+DAPO [15] where ϵl =0.2 and ϵh =0.28. These experiments were conducted by training for 500 iterations on the best weights
+obtained from Stage 3. From the experimental results, it can be observed that, as shown in the second-to-last row, setting
+ϵh to 0.28 leads to a decline in metrics compared to the Stage 3. The last row presents the results of our proposed ClipLow
+operation tailored for SVLMs, which shows significant improvement over the Stage 3. This experimental phenomenon further
+supports our hypothesis that constraining the capture space of SVLMs to reduce the search difficulty can further enhance the
+Chain-of-Thought (COT) reasoning ability of small models in vertical domain tasks.
+
+5
+
+Limitations
+
+Due to computational resource limitations, our experiments were conducted only on the abstract semantic understanding task
+using the EmoSet-118K benchmark [12], and we have not yet validated the effectiveness of the Incremental Training Strategy on
+other SVLMs. Additionally, there is a lack of in-depth analysis of some phenomena observed in the experiments. For example,
+in Table. 2, 3, for the emotion subclass ”amuse”, our proposed method achieves a significant improvement in accuracy compared
+to the model trained on ORI data, but recall decreases noticeably. We speculate that this emotion category is more prone to
+confusion. During the Stage 1 knowledge injection phase, the SVLM may not clearly delineate boundaries between closely
+related concepts. This hypothesis is supported by the experimental results showing that SFT LVLMs have a clear advantage in
+recall. However, we currently lack concrete experimental validation for this point.
+
+6
+
+Analysis and Conclusions
+
+This paper posits that SVLMS can also achieve reasoning capabilities comparable to LVLMs through stepwise domain-specific
+knowledge injection and reasoning ability enhancement. We propose an Incremental Training Strategy specifically designed to
+improve the reasoning ability of SVLMs, and validate it experimentally on the abstract semantic sentiment recognition dataset
+EmoSet-118K. Additionally, we developed a Self-Supervised COT Data Construction System to automatically convert the
+EmoSet dataset into a Chain-of-Thought formatted data type. Comparative experimental results demonstrate that our proposed
+Incremental Training Strategy significantly enhances the reasoning ability of SVLM, InternVL2.5-1B-Instruct, achieving performance metrics comparable to those of 8B SFT models. Ablation studies on Stage 2 indicate that a small amount of format
+alignment training for SVLM can substantially improve reinforcement learning-based reasoning capabilities. Ablation studies
+on Stage 4 show that constraining the capture space during reinforcement learning to reduce search difficulty enables SVLMs
+to more accurately locate better solutions within a smaller search space. We hope our work serves as a pioneering effort to
+attract more researchers to the study of SVLMs, thereby empowering industrial applications such as autonomous driving on
+edge devices.
+
+References
+[1] S. Bai, K. Chen, X. Liu, J. Wang, W. Ge, S. Song, K. Dang, P. Wang, S. Wang, J. Tang, H. Zhong, Y. Zhu, M. Yang,
+Z. Li, J. Wan, P. Wang, W. Ding, Z. Fu, Y. Xu, J. Ye, X. Zhang, T. Xie, Z. Cheng, H. Zhang, Z. Yang, H. Xu, and J. Lin,
+“Qwen2.5-vl technical report,” arXiv preprint arXiv:2502.13923, 2025.
+[2] P. Wang, S. Bai, S. Tan, S. Wang, Z. Fan, J. Bai, K. Chen, X. Liu, J. Wang, W. Ge, Y. Fan, K. Dang, M. Du, X. Ren,
+R. Men, D. Liu, C. Zhou, J. Zhou, and J. Lin, “Qwen2-vl: Enhancing vision-language model’s perception of the world at
+any resolution,” arXiv preprint arXiv:2409.12191, 2024.
+[3] J. Bai, S. Bai, S. Yang, S. Wang, S. Tan, P. Wang, J. Lin, C. Zhou, and J. Zhou, “Qwen-vl: A versatile vision-language
+model for understanding, localization, text reading, and beyond,” arXiv preprint arXiv:2308.12966, 2023.
+[4] J. Zhu, W. Wang, Z. Chen, Z. Liu, S. Ye, L. Gu, H. Tian, Y. Duan, W. Su, J. Shao, Z. Gao, E. Cui, X. Wang, Y. Cao,
+Y. Liu, X. Wei, H. Zhang, H. Wang, W. Xu, H. Li, J. Wang, N. Deng, S. Li, Y. He, T. Jiang, J. Luo, Y. Wang, C. He,
+B. Shi, X. Zhang, W. Shao, J. He, Y. Xiong, W. Qu, P. Sun, P. Jiao, H. Lv, L. Wu, K. Zhang, H. Deng, J. Ge, K. Chen,
+L. Wang, M. Dou, L. Lu, X. Zhu, T. Lu, D. Lin, Y. Qiao, J. Dai, and W. Wang, “Internvl3: Exploring advanced training
+and test-time recipes for open-source multimodal models,” 2025. [Online]. Available: https://arxiv.org/abs/2504.10479
+[5] Z. Gao, Z. Chen, E. Cui, Y. Ren, W. Wang, J. Zhu, H. Tian, S. Ye, J. He, X. Zhu et al., “Mini-internvl: a flexible-transfer
+pocket multi-modal model with 5% parameters and 90% performance,” Visual Intelligence, vol. 2, no. 1, pp. 1–17, 2024.
+[6] Z. Chen, J. Wu, W. Wang, W. Su, G. Chen, S. Xing, M. Zhong, Q. Zhang, X. Zhu, L. Lu et al., “Internvl: Scaling up
+vision foundation models and aligning for generic visual-linguistic tasks,” in Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, 2024, pp. 24 185–24 198.
+[7] DeepSeek-AI, “Deepseek-v3 technical report,” 2024. [Online]. Available: https://arxiv.org/abs/2412.19437
+[8] DeepSeek-AI, “Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning,” 2025. [Online].
+Available: https://arxiv.org/abs/2501.12948
+[9] Z. Wu, X. Chen, Z. Pan, X. Liu, W. Liu, D. Dai, H. Gao, Y. Ma, C. Wu, B. Wang, Z. Xie, Y. Wu, K. Hu, J. Wang,
+Y. Sun, Y. Li, Y. Piao, K. Guan, A. Liu, X. Xie, Y. You, K. Dong, X. Yu, H. Zhang, L. Zhao, Y. Wang, and C. Ruan,
+“Deepseek-vl2: Mixture-of-experts vision-language models for advanced multimodal understanding,” 2024. [Online].
+Available: https://arxiv.org/abs/2412.10302
+[10] H. Lu, W. Liu, B. Zhang, B. Wang, K. Dong, B. Liu, J. Sun, T. Ren, Z. Li, H. Yang, Y. Sun, C. Deng, H. Xu, Z. Xie, and
+C. Ruan, “Deepseek-vl: Towards real-world vision-language understanding,” 2024.
+[11] P. K. A. Vasu, F. Faghri, C.-L. Li, C. Koc, N. True, A. Antony, G. Santhanam, J. Gabriel et al., “Fastvlm: Efficient vision
+encoding for vision language models,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), June 2025.
+[12] J. Yang, Q. Huang, T. Ding, D. Lischinski, D. Cohen-Or, and H. Huang, “Emoset: A large-scale visual emotion dataset
+with rich attributes,” in ICCV, 2023.
+[13] Z. Chen, W. Wang, H. Tian, S. Ye, Z. Gao, E. Cui, W. Tong, K. Hu, J. Luo, Z. Ma et al., “How far are we to gpt-4v?
+closing the gap to commercial multimodal models with open-source suites,” Science China Information Sciences, vol. 67,
+no. 12, p. 220101, 2024.
+[14] Z. Shao, P. Wang, Q. Zhu, R. Xu, J. Song, M. Zhang, Y. Li, Y. Wu, and D. Guo, “Deepseekmath: Pushing the limits of
+mathematical reasoning in open language models,” 2024. [Online]. Available: https://arxiv.org/abs/2402.03300
+[15] Q. Yu, Z. Zhang, R. Zhu, Y. Yuan, X. Zuo, Y. Yue, T. Fan, G. Liu, L. Liu, X. Liu et al., “Dapo: An open-source llm
+reinforcement learning system at scale,” arXiv preprint arXiv:2503.14476, 2025.
+[16] X. Chu, L. Qiao, X. Lin, S. Xu, Y. Yang, Y. Hu, F. Wei, X. Zhang, B. Zhang, X. Wei et al., “Mobilevlm: A fast,
+reproducible and strong vision language assistant for mobile devices,” arXiv preprint arXiv:2312.16886, 2023.
+[17] W. Wang, Z. Chen, W. Wang, Y. Cao, Y. Liu, Z. Gao, J. Zhu, X. Zhu, L. Lu, Y. Qiao, and J. Dai, “Enhancing the reasoning
+ability of multimodal large language models via mixed preference optimization,” arXiv preprint arXiv:2411.10442, 2024.
+[18] B. Zhang, S. Li, R. Tian, Y. Yang, J. Tang, J. Zhou, and L. Ma, “Flash-vl 2b: Optimizing vision-language model performance for ultra-low latency and high throughput,” arXiv preprint arXiv:2505.09498, 2025.
+[19] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov, “Proximal policy optimization algorithms,” arXiv
+preprint arXiv:1707.06347, 2017.
+[20] R. Rafailov, A. Sharma, E. Mitchell, C. D. Manning, S. Ermon, and C. Finn, “Direct preference optimization: Your
+language model is secretly a reward model,” in Thirty-seventh Conference on Neural Information Processing Systems,
+2023. [Online]. Available: https://arxiv.org/abs/2305.18290
+[21] B. Team, “Bluelm: An open multilingual 7b language model,” https://github.com/vivo-ai-lab/BlueLM, 2023.
+
+[22] A. Yang, A. Li, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Gao, C. Huang, C. Lv et al., “Qwen3 technical report,”
+arXiv preprint arXiv:2505.09388, 2025.
+[23] Z. Chen, W. Wang, Y. Cao, Y. Liu, Z. Gao, E. Cui, J. Zhu, S. Ye, H. Tian, Z. Liu et al., “Expanding performance boundaries
+of open-source multimodal models with model, data, and test-time scaling,” arXiv preprint arXiv:2412.05271, 2024.
+[24] H. Shao, S. Qian, H. Xiao, G. Song, Z. Zong, L. Wang, Y. Liu, and H. Li, “Visual cot: Advancing multi-modal language
+models with a comprehensive dataset and benchmark for chain-of-thought reasoning,” Advances in Neural Information
+Processing Systems, vol. 37, pp. 8612–8642, 2024.
+[25] Q. Zhao, Y. Lu, M. J. Kim, Z. Fu, Z. Zhang, Y. Wu, Z. Li, Q. Ma, S. Han, C. Finn et al., “Cot-vla: Visual chain-ofthought reasoning for vision-language-action models,” in Proceedings of the Computer Vision and Pattern Recognition
+Conference, 2025, pp. 1702–1713.
+[26] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov, “Proximal policy optimization algorithms,” arXiv
+preprint arXiv:1707.06347, 2017.
+[27] R. Rafailov, A. Sharma, E. Mitchell, C. D. Manning, S. Ermon, and C. Finn, “Direct preference optimization: Your
+language model is secretly a reward model,” Advances in Neural Information Processing Systems, vol. 36, pp. 53 728–
+53 741, 2023.
+[28] X. Su, Y. Wang, J. Zhu, M. Yi, F. Xu, Z. Ma, and Y. Liu, “Reveal the mystery of dpo: The connection between dpo and rl
+algorithms,” arXiv preprint arXiv:2502.03095, 2025.
+[29] Z. Liu, C. Chen, W. Li, P. Qi, T. Pang, C. Du, W. S. Lee, and M. Lin, “Understanding r1-zero-like training: A critical
+perspective,” arXiv preprint arXiv:2503.20783, 2025.
+
+

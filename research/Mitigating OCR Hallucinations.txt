@@ -1,0 +1,1032 @@
+Seeing is Believing? Mitigating OCR Hallucinations in
+Multimodal Large Language Models
+
+Zhentao He1,† Can Zhang1,† Ziheng Wu1,
+Zhenghao Chen1
+1,2
+1,3
+1
+Yufei Zhan
+Yifan Li
+Zhao Zhang Xian Wang1 Minghui Qiu1
+
+arXiv:2506.20168v1 [cs.CV] 25 Jun 2025
+
+1
+
+ByteDance
+
+2
+
+CASIA 3 RUC
+
+Abstract
+Recent advancements in multimodal large language models (MLLMs) have enhanced document understanding by integrating textual and visual information.
+However, existing models exhibit incompleteness within their paradigm in realworld scenarios, particularly under visual degradation (e.g., blur, occlusion, low
+contrast). In such conditions, the current response paradigm often fails to adequately perceive visual degradation and ambiguity, leading to overreliance on
+linguistic priors or misaligned visual-textual reasoning. This difficulty in recognizing uncertainty frequently results in the generation of hallucinatory content,
+especially when a precise answer is not feasible. To better demonstrate and analyze
+this phenomenon and problem, we propose KIE-HVQA, the first benchmark dedicated to evaluating OCR hallucination in degraded document understanding. This
+dataset includes test samples spanning identity cards, invoices, and prescriptions,
+with simulated real-world degradations and pixel-level annotations for OCR reliability. This setup allows for evaluating models’ capacity, under degraded input, to
+distinguish reliable visual information and answer accordingly, thereby highlighting
+the challenge of avoiding hallucination on uncertain data. To achieve vision-faithful
+reasoning and thereby avoid the aforementioned issues, we further introduce a
+Group Relative Policy Optimization (GRPO)-based framework featuring a novel
+reward mechanism. By incorporating a self-awareness of visual uncertainty and an
+analysis method that initiates refusal to answer to increase task difficulty within
+our supervised fine-tuning and reinforcement learning framework, we successfully mitigated hallucinations in ambiguous regions. Experiments on Qwen2.5-VL
+demonstrate that our 7B-parameter model achieves a ∼28% absolute improvement
+in hallucination-free accuracy over GPT-4o on KIE-HVQA and there is no significant performance drop in standard tasks, highlighting both effectiveness and
+robustness. This work advances the development of reliable MLLMs for real-world
+document analysis by addressing critical challenges in visual-linguistic alignment
+under degradation. Data is available at https://github.com/2bgm/KIE-HVQA.
+
+1
+
+Introduction
+
+In recent years, there have been significant advancements in MLLMs [1, 9, 32, 4] for document
+understanding [11, 18]. These models integrate textual semantics with visual features, offering new
+paradigms for automated processing of identity cards, invoices, contracts, and similar applications.
+MLLMs demonstrate near-human performance in documents understanding across several domains.
+Enhancements in language models have improved multilingual support and incorporated prior
+knowledge, leading to more accurate text parsing. Advancements in visual encoders [31, 16, 15],
+such as increased resolution, have enhanced the ability to capture image details. Additionally,
+† Equal contribution.
+
+Corresponding author.
+
+Prompt
+
+Prompt
+
+What is the value for total
+carbohydrate of per 100g/ml?
+
+What is the value for Sodium
+of per 100g/ml?
+GPT-4o
+224mg
+
+Qwen2-VL-7B
+54.1g
+
+( Unrecognized Degradation )
+
+( Hallucination )
+
+Our Model
+
+Our Model
+
+5<occluded>.1g
+
+2<part_occluded>[2]4mg
+
+Figure 1: The performance of Qwen2.5-VL-7B (left) and GPT-4o (right) in interpreting degraded
+text images. The Qwen2.5-VL-7B model may experience hallucinations, identifying values not
+present in the image, while the GPT-4o model struggles with unrecognized degradation due to partial
+text occlusion. Previous models have not thoroughly addressed these issues, whereas the model
+proposed in this paper effectively resolves them, providing more accurate recognition results.
+
+refined layout-based instructions [34, 20] have enabled systems to better understand document
+structures. In particular, current MLLMs [4, 39] exhibit strong cross-modal reasoning capabilities
+when working with high-quality images and standardized layouts. However, current research has
+not yet fully addressed the incompleteness within their paradigm in real-world scenarios. The core
+challenge stems from models’ inability to enforce strict adherence to visual signals. When confronted
+with practical complexities—including image blurring or unconventional formatting—the models
+frequently generate cross-modal hallucinatory content that deviates substantially from input data.
+The OCR hallucination issue in MLLMs stems from three critical challenges across the model
+development process. First, during the pre-training phase, there is a significant lack of key information
+extraction (KIE) data and clear annotations related to degraded visual scenarios, which limits the
+model’s ability to process challenging visual inputs. Second, in the instruction fine-tuning phase, the
+paradigm for handling degraded visual scenarios is often overlooked, as researchers generally assume
+OCR tasks involve non-degraded inputs [17, 8, 21, 14]. Even MLLMs with strong visual capabilities
+fail to demonstrate the necessary reasoning abilities for real-world degraded documents. Third,
+in the evaluation phase, the absence of dedicated benchmarks for quantifying OCR hallucination
+in document understanding tasks impedes progress, as the field lacks both comprehensive metrics
+and sufficient annotated data due to the inherent challenges in collecting and labeling degraded
+samples. As a result, when confronted with visually compromised inputs like glare-obstructed
+identity cards or low-contrast reports, models exhibit cognitive bias by defaulting to linguistic priors
+rather than anchoring decisions to observable visual evidence, leading to potentially catastrophic
+misinterpretations in critical applications [6]. The examples are illustrated in Figure 1.
+To address these pressing challenges, this paper introduces a comprehensive benchmark and a novel
+framework designed to tackle the critical issues of vision-faithful reasoning in degraded document
+understanding. We present KIE-HVQA, the first benchmark specifically designed to evaluate OCR
+hallucination under real-world noise conditions. This dataset includes 2,000 annotated training
+samples and 400 rigorously curated test instances spanning diverse document types, including identity
+cards, receipts, and invoices. Each sample is carefully designed to simulate real degradation scenarios,
+such as motion blur and low contrast, necessitating fine-grained visual-textual alignment for accurate
+key information retrieval. For instance, the task may involve extracting ID numbers from partially
+occluded cards or resolving ambiguous dosage entries in faded prescriptions.
+Inspired by the successful practices of reinforcement learning in computer vision tasks [39, 19],
+we employ reinforcement learning as a tool to provide a feasible approach to addressing this issue.
+Unlike typical MLLM tasks such as VQA [2], the KIE [38] task benefits from having quantifiable
+standard answers, which allows for the construction of precise foundational rewards and the design
+of appropriate rewards for various degradation scenarios. By employing Group Relative Policy
+Optimization (GRPO) algorithm [10], we can supervise the model to enhance its existing OCR
+capabilities and develop a self-reflective KIE instruction paradigm that addresses visual degradation.
+This approach encourages models to prioritize visual evidence over linguistic priors, ensuring that
+decisions are more robustly anchored to observable data, marking a significant advancement in
+overcoming the challenges of vision-faithful reasoning and cross-modal OCR hallucination.
+2
+
+To validate the efficacy of our training methodology and dataset, we implemented our proposed
+approach to enhance Qwen2.5-VL [4] and conducted comprehensive experiments to benchmark our
+method against state-of-the-art multimodal models. Our method achieves a notable ∼28% absolute
+improvement in hallucination-free accuracy on the KIE-HVQA benchmark. The contributions of this
+paper are summarized as follows:
+• We propose KIE-HVQA, the first benchmark for evaluating hallucinations in degraded documents.
+This benchmark simulates real-world degradations with pixel-level annotations and OCR reliability
+scores, enabling a comprehensive assessment of OCR hallucinations under degraded conditions.
+• Based on the characteristics of the KIE task, we designed precise reward modeling for the GRPO
+algorithm. By integrating this with an appropriate coldstart, we successfully enhanced the model’s
+ability to reason effectively with degraded visual input, significantly reducing hallucination without
+sacrificing its original OCR capabilities.
+• Through extensive experiments, our model demonstrates superior reasoning capabilities. Our
+model achieves a ∼28% improvement in hallucination suppression compared to GPT-4o.
+
+2
+
+Related Work
+
+2.1
+
+Reasoning in Multimodal Large Language Models
+
+Recent developments in large language models (LLMs) [1, 30, 5] demonstrate that simulating humanlike thought processes and implementing sequential reasoning strategies can significantly improve
+performance on complex problem-solving tasks. A significant innovation [10, 29] involves DeepSeekR1’s implementation of extensive reinforcement learning [22, 24] techniques to foster self-evolving
+cognitive pathways in LLMs, substantially enhancing their performance on sophisticated reasoning
+challenges. Inspired by advancements in LLM reasoning, researchers [35, 7, 39, 28] have applied
+CoT prompting and developed SFT datasets with step-level reasoning for MLLMs.
+Despite recent advancements, there remains a paucity of research focused on applying reasoning to
+OCR tasks, particularly in addressing hallucination issues. To our best knowledge, our approach is
+the first to utilize RL training to effectively tackle hallucination problems in OCR tasks.
+2.2
+
+OCR benchmarks
+
+In the early era of deep learning, a variety of specialized benchmarks emerged to address different
+challenges, such as natural-scene text [13], web-scene text [25], and multi-directional and curved
+text recognition. The current OCRBench [17, 8, 36] for evaluating MLMMs primarily targets linegranularity recognition. Other benchmarks, such as DocLocal4K [11] and FOX [14], curate data
+mainly from document images.
+Currently, these OCR benchmarks predominantly focus on document understanding and key information retrieval, often neglecting issues such as hallucinations and misrecognitions caused by
+image degradation. Our newly proposed benchmark KIE-HVQA takes a significant step forward by
+addressing these overlooked challenges for the first time.
+
+3
+
+KIE-HVQA
+
+3.1
+
+Task Description
+
+To provide a comprehensive evaluation framework for degraded document hallucination tasks, the
+KIE-HVQA benchmark introduces a visually-grounded question answering task. This task demands
+precise alignment between textual semantics and degraded visual evidence in real-world documents.
+When presented with a degraded document image, such as a blurred ID card or occluded images,
+and a question, models are required to perform several key tasks. Initially, they must identify text
+elements relevant to the question through multi-modal grounding. Subsequently, they need to assess
+recognition confidence at the character level by analyzing edge sharpness, measuring contrast ratios,
+and verifying contextual coherence. Finally, models should generate answers based on visually
+verifiable content, while clearly indicating regions of uncertainty.
+3
+
+Receipt
+
+Document
+[Q] What is the sodium
+
+[Q] How much sodium
+
+[G] 1<part_occluded>[5]
+
+[G] <occluded>5mg
+
+[P] 150mg
+
+[P] 15mg
+
+amount per serving of
+this product?
+
+0<part_occluded>[m]g
+
+is in one cup popped?
+
+[Q] What is the price of the Maker's Mark
+ordered by Guest 4?
+[G] $<occluded>.00
+
+[P] $5.00
+
+[Q] What time was the transaction completed?
+[G] 21:<part_occluded>[3]3:22 [P] 21:33:22
+
+Card
+
+[Q] What is the FN value on the card?
+[G] <part_occluded>[E]mi<occluded><occluded>
+[P] Emily
+
+[Q] What is the issue date of this visa?
+[G] 2025-<part_occluded>[0]2-01
+[P] 2025-02-01
+
+Figure 2: Visualization of the three types of data in our KIE-HVQA benchmark. [Q] represents the
+question, [G] denotes the ground truth, and [P] indicates the prediction generated by Qwen2.5-VL
+with zero-shot prompt. The data exhibit varying degrees of degradation, such as blurriness or damage,
+which affect the model’s predictive accuracy.
+The benchmark focuses on evaluating models’ ability to minimize reliance on parametric knowledge
+biases in situations of partial legibility, such as medical prescriptions where dosage units are clear,
+but frequencies are not. This requires that models adhere strictly to the available visual evidence,
+ensuring accurate interpretation and response based on the information present in the document.
+3.2
+
+Annotation Curation
+
+This section presents the curation of annotations in three stages: dataset collection, instruction
+formulation, and manual verification of results.
+To tackle the challenge of vision-faithful reasoning in degraded document understanding, we assembled a diverse dataset from three main sources: OCRBench [8], WildReceipt [27], and GPT-4ogenerated images. Each source was carefully chosen to simulate realistic degradation scenarios and
+test the robustness of MLLMs.
+OCRBench. We utilized 100 key information queries from OCRBench, preserving the original
+questions. We combined text detection models with a character localization model to extract the
+coordinates of the answers. The character localization model [3] was trained using a weak supervision
+framework to develop a character-level end-to-end regression model detector. After extracting the
+coordinates, we used GPT-4o to match the character order due to the potential randomness in the
+reading order of image characters. These coordinates were then subjected to random degradation
+processes. To ensure accuracy and prevent hallucinations, we employed multiple MLLM, including
+GPT and Qwen2.5-VL-72B, to evaluate the degraded results. The evaluation involved extracting each
+degraded character from the original image to allow the large models to determine if the character
+was visible, ensuring the correctness. The format of these answers is detailed in Section 4.
+WildReceipt. From the WildReceipt dataset, We extracted entity-type answers from the original
+dataset and used MLLMs to generate corresponding questions. The images were modified using the
+same techniques applied to OCRBench, and the answers were reconstructed in a similar manner.
+GPT-4o-generated Images. We used GPT-4o image generator 1 to create 200 synthetic templates
+of IDs and documents with fictional information, ensuring privacy compliance. The information on
+these IDs was generated by GPT-4o and then added using Photoshop. Based on this, we designed
+corresponding question-and-answer pairs. To evaluate the model’s performance in handling complex
+1
+
+https://openai.com/index/introducing-4o-image-generation/
+
+4
+
+visual information, we applied degradation techniques to the answers, including adding obfuscation
+and blur effects.
+We provide some samples from the KIE-HVQA dataset in Figure 2. This comprehensive dataset
+allows for rigorous testing of the ability to maintain visual-textual alignment and avoid hallucinations,
+even under conditions of visual degradation.
+3.3
+
+Evaluation Criteria
+
+To assess the performance of our model in understanding degraded documents, we have developed
+three comprehensive evaluation metrics. These metrics are designed to capture various aspects of
+OCR performance under different visual conditions.
+Legible Character Accuracy. This metric measures the character-level accuracy in regions of
+the document with high visibility. It serves as a indicator for the model’s basic OCR capabilities,
+reflecting its ability to accurately recognize text in ideal conditions. A high score indicates that the
+model can perform near-perfect recognition when the text is clearly visible, thus setting a standard
+for its performance under optimal conditions.
+Degraded Character Accuracy. This metric evaluates the recognition accuracy in predefined regions
+that have been annotated as degraded due to factors such as motion blur, occlusion, or low contrast.
+It is specifically designed to test the model’s robustness against visual ambiguities and its ability
+to maintain accuracy in challenging conditions. For words that are degraded but do not pose a risk
+of hallucination, the model should output the corresponding characters. However, for areas with a
+high risk of hallucination, the model should demonstrate awareness to appropriately reject providing
+an answer. This metric ensures that the model can effectively handle and interpret text in degraded
+circumstances while minimizing errors due to hallucinations.
+Global OCR Performance. Focuses on task-specific text extraction quality through two critical
+metrics: Accuracy of OCR results for question-critical text regions referenced in VQA answers and
+Normalized Levenshtein distance between the OCR-extracted text and ground truth specifically for
+information required to answer the question.
+
+4
+
+Method
+
+In this section, we systematically model the OCR hallucination issue as a fundamental problem with
+precise rewards, reflecting various degradation issues through different reward functions. We then
+extend this framework by introducing a new reward paradigm and aligning model behavior using
+reinforcement learning. In Section 4.1, we provide an overview of the rule-based GRPO algorithm,
+which serves as the basis for our approach. In Section 4.2, the cold-start initialization method and the
+data generation process are elaborated in detail. In Section 4.3, we present the GRPO algorithm and
+the degradation-based OCR reward function, explaining their roles in the training process.
+4.1
+
+Preliminaries
+
+The training of DeepSeek-R1 [10] employs Group Relative Policy Optimization (GRPO), a novel
+reinforcement learning algorithm that differs from conventional methods like PPO [23]. GRPO
+assesses strategies by comparing groups of generated responses, eliminating the need for a critic
+model and simplifying the training process.
+For a given input q, GRPO generates G responses {o1 , o2 , . . . , oG } using the current policy πθold . It
+then evaluates each response via a predefined reward function to obtain rewards {r1 , r2 , . . . , rG }. To
+determine the relative quality of each response, GRPO normalizes the rewards:
+Ai =
+
+ri − mean({r1 , . . . , rG })
+,
+std({r1 , . . . , rG })
+
+(1)
+
+In the training procedure, GRPO initializes a trainable policy model πθ and a frozen reference model
+πref . The policy model πθ is optimized by maximizing the following objective function of G.
+
+N 
+1 X πθ (oi |q)
+J GRPO(θ) =
+Ai − β · KL(πθ (oi |q)∥πref (oi |q))
+(2)
+N i=1 πθold (oi |q)
+5
+
+Figure 3: Overview of our framework: The cross-modal reasoning pipeline begins with comprehensive data collection, incorporating visual formal descriptions to enhance reasoning capabilities.
+We utilize a multimodal approach to generate training data. After training, the process includes
+supervised fine-tuning to address OCR hallucination issues and improve reasoning accuracy. Finally,
+rule-based reinforcement learning is applied to enhance generalization across multimodal tasks.
+
+Here, N represents the number of completions in a group, and β is a hyperparameter. This objective
+function encourages the model to prioritize completions with higher advantages within the group
+while maintaining proximity to the initial model.
+
+4.2
+
+Cold-start Initialization
+
+Recent studies have focused on developing multimodal reasoning datasets that build upon existing
+fine-tuned data, with the objective of enhancing the reasoning capabilities of MLLMs and improving
+their overall performance. This paper built a multimodal CoT-OCR dataset that encompasses complex
+OCR degradation scenarios, enabling models to reason in a human-like manner. Several reasoning
+models, such as DeepSeek-R1 [10] and Kimi K1.5 [29], already possess the capability to perform
+natural cognitive processes using CoT reasoning. These models can generate high-quality CoT data
+that includes human-like self-reflection processes. However, these models are purely language-based
+and cannot directly process multimodal data to produce CoT data.
+To address the challenge of processing multimodal data with language-based models, we integrate
+existing MLLMs with DeepSeek-R1. First, we convert multimodal information, such as images and
+text, into purely textual information using GPT-4o. This involves inputting image-question-answer
+pairs and prompts into GPT-4o to generate a pseudo-CoT that includes both image descriptions and
+reasoning processes. Next, we merge these image-question pairs with the generated pseudo-CoT
+and prompts, and feed them back into the MLLM to produce detailed image descriptions. These
+descriptions are then combined with the textual information and input into DeepSeek-R1, allowing it
+to execute a high-quality CoT process. This approach ensures that the resulting CoT data captures
+complex reasoning in a way that mimics human cognitive processes.
+Finally, we pair the pure textual CoT data generated by DeepSeek-R1 with the corresponding images
+to create an integrated multimodal CoT dataset for cold-start initialization, as illustrated in the data
+generation process shown in Figure 3. The CoT data obtained through this method closely aligns with
+human cognitive behavior, allowing the reasoning process to exhibit natural and logical thinking.
+6
+
+4.3
+
+RL with OCR reward
+
+We implement GRPO with hard formatting result rewards to enhance the self-learning capabilities
+of the model. For each question q, GRPO samples a group of generated output set {o1 , o2 , · · · , oG }
+from policy model πθold . Then GRPO maximizes the objective function in Eqn. 2 and optimizes the
+model πθ . Specifically, we introduce a rule-based reward for degraded OCR scenarios. This reward
+function is designed to ensure that OCR models maintain fidelity to visual input when generating
+textual output. It is specifically tailored to handle varying levels of character clarity within visual data,
+categorizing them into three distinct cases for accurate recognition and transcription. The criteria and
+objectives of our reward function are as follows:
+Legible Character: For characters that are entirely clear and unambiguous, the model is required to
+accurately recognize and retain these characters in the final OCR output. This ensures that any fully
+legible text is preserved without alteration.
+Partially Obscured but Human-Recognizable Characters: In cases where the characters are partially
+obscured or blurred but still recognizable by a human observer, the model should identify these as
+“anomalous” characters. Although these characters lack perfect clarity, they must be included in the
+final OCR output, reflecting the human ability to infer their identity.
+Unrecognizable Characters: Characters that are entirely obscured and cannot be identified should
+not be included in the OCR output. Instead, these should be represented by a space to prevent any
+hallucination or erroneous inference by the model.
+For the degraded input text in Figure 4:
+“B<part_occluded>[e]au<occluded>[ti]ful”.
+The reward function enforces visual-textual
+fidelity through a multi-stage analytical process.
+During the character-level classification phase,
+clear characters (“B, a, u, f, u, l”) are preserved
+verbatim, moderately blurred characters such as
+“e” (marked with tags) are retained as partially
+occluded anomalies, while severely obscured
+Figure 4: The figure illustrates the degrade criteria
+character clusters like “t, i” are classified as
+of each letter in the word “Beautiful”. The letters
+unrecognizable units. Building upon these
+“B, a, u, f, u, l” are clearly visible; the letter “e” is
+assessments, quantitative evaluations yield 6
+partially occluded; the letter “t, i” is completely
+legible characters, 1 partial occlusion instance,
+obscured.
+and 2 completely obscured characters.
+Algorithm 1 Reward Function for OCR Task
+1: function CALCULATE _ METRICS(pred, truth)
+2:
+if len(pred) = 0 and len(truth) = 0 then
+3:
+return 1.0
+4:
+end if
+5:
+edit_dist ← levenshtein_distance(pred, truth)
+6:
+max_len ← max(len(pred), len(truth))
+7:
+similarity ← 1 − (edit_dist/max_len)
+8:
+return similarity
+9: end function
+10: function R EWARD(answer, gt)
+11:
+(not_clear_metric, f inal_metric, clear_metric) ← calculate_metrics(answer, gt)
+12:
+bs ← c1 × not_clear_metric + c2 × clear_metric + c3 × f inal_metric
+13:
+return bs
+14: end function
+This reward function is integrated into the GRPO training objective to systematically guide the
+learning process of the model. The reward calculation is formalized as:
+X
+X
+F =
+fi (Ai , Gi ) · (1 −
+gj (Aj , Gj ))
+(3)
+i
+
+j
+
+7
+
+Models
+
+OCRbench-KIE subset
+
+Wildreceipt subset
+
+Card subset
+
+Average
+
+Clr
+
+Nc
+
+Final
+
+Avg
+
+Clr
+
+Nc
+
+Final
+
+Avg
+
+Clr
+
+Nc
+
+Final
+
+Avg
+
+Clr
+
+Nc
+
+Final
+
+Avg
+
+GPT-4o (1120) [1]
+Claude3.5-Sonnet
+Claude3.7-Sonnet
+Gemini2.5-pro
+
+24.41
+24.30
+25.76
+55.34
+
+34.18
+29.49
+40.63
+53.85
+
+29.39
+27.13
+33.95
+56.18
+
+29.33
+26.97
+33.45
+55.12
+
+18.17
+23.13
+15.52
+27.33
+
+34.61
+18.75
+31.2
+24.22
+
+28.55
+24.54
+23.57
+29.13
+
+27.11
+22.14
+23.43
+26.89
+
+33.86
+30.24
+26.32
+47.71
+
+41.86
+22.92
+34.87
+46.94
+
+42.28
+29.98
+26.77
+26.77
+
+39.33
+27.71
+29.32
+40.47
+
+22.78
+24.92
+19.77
+36.94
+
+36.13
+21.63
+33.73
+34.64
+
+31.74
+26.22
+26.17
+33.53
+
+30.21
+24.25
+26.56
+35.03
+
+InternVL3-8B [42]
+InternVL3-38B [42]
+InternVL3-78B [42]
+Qwen2.5-VL-8B [4]
+Qwen2.5-VL-32B [4]
+Qwen2.5-VL-72B [4]
+
+4.05
+9.34
+1.90
+29.08
+28.54
+29.08
+
+4.42
+14.29
+2.00
+37.68
+42.31
+37.68
+
+4.09
+9.00
+2.00
+26.84
+29.43
+26.84
+
+4.19
+10.88
+1.97
+31.20
+33.43
+31.20
+
+7.26
+10.97
+5.00
+14.69
+10.34
+14.69
+
+7.61
+18.93
+7.60
+19.16
+30.12
+19.16
+
+7.46
+11.20
+6.00
+15.66
+10.66
+15.66
+
+7.44
+13.70
+6.20
+16.50
+17.04
+16.50
+
+12.49
+21.96
+12.49
+26.95
+23.86
+26.95
+
+16.65
+26.45
+16.65
+26.70
+32.28
+26.70
+
+11.22
+21.03
+11.22
+27.74
+23.65
+27.74
+
+13.45
+23.15
+13.45
+27.13
+26.60
+27.13
+
+7.83
+13.11
+6.09
+20.02
+16.64
+20.02
+
+9.03
+19.75
+8.59
+24.19
+32.81
+24.19
+
+7.68
+12.98
+6.43
+20.37
+16.95
+20.37
+
+8.18
+15.28
+7.04
+21.53
+22.14
+21.53
+
+Our Model + SFT
+Our Model + SFT+RL
+
+52.41
+57.52
+
+68.33
+74.03
+
+51.02
+57.59
+
+57.25
+63.05
+
+50.52
+56.54
+
+57.01
+59.31
+
+49.21
+58.41
+
+52.25
+58.09
+
+45.03
+50.82
+
+48.78
+56.38
+
+50.01
+54.29
+
+47.94
+53.83
+
+49.65
+55.45
+
+57.25
+61.34
+
+49.72
+57.35
+
+52.20
+58.05
+
+Table 1: Evaluation results of closed-sourced, open-sourced and our models on KIE-HVQA benchmark. Clr, Nc, Final, Avg represent clear characters, not clear characters, final OCR and average
+results, respectively.
+
+Here, i represents different categories or types of OCR results, including clear characters, unclear
+characters, and the final answer. j involves counting specific elements within the OCR results. A
+and G represent the model’s output and the ground truth, respectively. f and g denote the OCR
+edit distance evaluation metric and the numerical calculation evaluation metric, respectively. The
+structured reward signals enable precise alignment between visual faithfulness and textual accuracy,
+with error type differentiation driving targeted model improvement. The training loop continuously
+evaluates the model’s performance against a diverse set of degraded OCR samples, allowing for
+iterative improvement. As the model encounters varied visual challenges, the reward function
+dynamically adjusts, promoting adaptability and robustness in handling real-world OCR scenarios.
+In summary, this enhanced GRPO framework, featuring a novel reward function, enables a more
+balanced training approach. By guiding the model to prioritize both high textual accuracy and
+faithfulness to visual input, this methodology leads to more reliable and trustworthy outputs.
+
+5
+
+Experiment
+
+5.1
+
+Experiment Settings
+
+Training Dataset. To obtain the cold-start dataset, we created custom data by generating word
+images using random fonts and varying degrees of degradation. We utilized the bounding boxes from
+TextOCR [26] to acquire relatively accurate character-by-character coordinates, thereby generating
+a set of cold start data with a “think” phase. In the GRPO phase, we mixed part of TextOCR [26],
+WildReceipt [27], and other OCR datasets [12, 33] as our reinforcement learning training dataset.
+Implementation Details. For the cold-start dataset preparation, we utilized GPT-4o and the reasoning
+LLM DeepSeek-R1. We then processed the VQA datasets using GPT-4o and DeepSeek-R1 over
+approximately 12 hours. For the cold-start initialization, we used Qwen-2.5-VL-7B-Instruct as the
+base model and performed supervised fine-tuning for 5 epochs with a learning rate of 1e-6 and a data
+rollout batch size of 512. This process required approximately 4 hours, using the LLaMA-Factory
+framework [41]. Following the cold-start phase, we trained the model using the collected dataset with
+the GPRO method over several hours, employing the Easy-R1 framework [40].
+5.2
+
+Main Results
+
+Table 1 provides a detailed evaluation of document understanding performance on the KIE-HVQA
+benchmark. Our model sets a new standard with an average distance score of 58.05%, outperforming
+close-sourced models GPT-4o, Claude and Gemini. This substantial improvement underscores our
+model’s superior ability to maintain visual-textual alignment even under challenging degradation
+conditions.
+In scenarios simulating partial occlusion, our model achieves a remarkable 61.34% accuracy in
+not clear character-level OCR distance evaluations, surpassing GPT-4o’s 36.13%. This success is
+attributed to our uncertainty-aware grounding mechanism, which effectively reduces hallucination.
+8
+
+The results validate the robustness of our approach across various metrics, including average distance,
+clear character recognition, and handling of occluded text. Our model demonstrates balanced
+performance across all dimensions, proving its capability to adapt to different levels of text degradation
+and complexity. Crucially, these findings highlight a path towards more robust and trustworthy OCR
+by addressing the inherent limitations of previous methods. Rather than simply relying on featurebased estimation prone to critical errors under degradation, this work enables a more nuanced
+understanding and processing of real-world documents, particularly in challenging scenarios
+5.3
+
+Abalation Study
+
+Analysis of Training Strategy. To evaluate the effectiveness of training data, we compared the
+model’s performance under two training strategies: (1) applying Supervised Fine-Tuning on our
+dataset, and (2) optimizing the SFT-trained model with Reinforcement Learning. As shown in Table 1,
+SFT significantly improved the model’s performance on the KIE-HVQA benchmark while applying
+RL afterward led to additional performance gains, enabling the model to tackle more complex
+problems. This study demonstrates that our training data is crucial for enhancing model performance,
+and the combination of SFT and RL is a powerful and effective strategy for maximizing reasoning
+and thinking capabilities in KIE-HVQA
+Analysis of General OCR Capability PreservaModel
+Scene Doc Info
+tion. To investigate whether our enhanced degradaGPT-4o (1120) [1]
+180
+167
+163
+tion handling will affect general OCR capabilities, we
+Claude3.7-Sonnet
+159
+130
+125
+conducted comparative evaluations in three standard
+OCR domains of OCRbench [17]: Scene Text-centric
+Qwen2.5-VL-7B [4]
+181
+181
+182
+VQA, Doc-oriented VQA, and Key Information ExMiniCPM-o-2.6 [37]
+187
+182
+187
+traction. As shown in Table 2, our model achieves
+Our Model
+180
+179
+183
+comparable performance to specialized baseline models. This demonstrates that our uncertainty-aware
+grounding mechanism specifically targets degraded Table 2: Ablation studies demonstrating the
+regions without affecting general text recognition ca- preservation of general OCR capabilities.
+pabilities.
+Analysis of Reward setting. Ablation studies on
+Reward setting
+Clr
+Nc
+Final
+our dataset demonstrate the necessity of integrating
+only clear
+50.64 44.15 53.34
+composite rewards, as shown in Table 3. The format
+only final
+51.06 54.06 54.24
+reward primarily ensures that the model adheres to
+all rewards
+55.45 61.34 57.35
+the expected format in its responses. Therefore, the
+ablation experiments focus mainly on the character
+matching aspect of the final reward. When considTable 3: Ablation on reward setting.
+ering only the clear character reward, the model’s
+performance on not clear characters significantly declines. Similarly, when focusing solely on the
+final character reward, the results are inferior compared to the combination of all rewards. Our
+framework significantly outperforms single-reward variants, showing marked improvements across
+all evaluation dimensions. This validates that multi-objective reward synthesis is crucial for handling
+real-world document degradation patterns.
+
+6
+
+Conclusion
+
+This paper addresses the challenge of cross-modal OCR hallucination in degraded document understanding by introducing KIE-HVQA, the first benchmark designed to evaluate vision-faithful
+reasoning under real-world noise conditions. Our benchmark simulates practical degradation scenarios, facilitating a comprehensive assessment of MLLMs’ performance in challenging environments.
+We propose a novel GRPO-based framework with a multi-objective reward mechanism to enforce
+vision-faithful reasoning. This framework incorporates uncertainty-driven rejection behaviors, effectively suppressing hallucinations in ambiguous regions and enhancing adaptability to complex
+tasks. Extensive experiments demonstrate the efficacy of our approach, with our 7B-parameter
+model achieving ∼28% absolute improvement in hallucination-free accuracy over GPT-4o on the
+KIE-HVQA benchmark. This highlights our model’s robustness and computational efficiency in
+maintaining visual-textual alignment under visual degradation.
+9
+
+References
+[1] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni
+Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al. Gpt-4
+technical report. arXiv preprint arXiv:2303.08774, 2023.
+[2] Stanislaw Antol, Aishwarya Agrawal, Jiasen Lu, Margaret Mitchell, Dhruv Batra, C Lawrence
+Zitnick, and Devi Parikh. Vqa: Visual question answering. In Proceedings of the IEEE
+international conference on computer vision, pages 2425–2433, 2015.
+[3] Youngmin Baek, Bado Lee, Dongyoon Han, Sangdoo Yun, and Hwalsuk Lee. Character region
+awareness for text detection. In Proceedings of the IEEE/CVF conference on computer vision
+and pattern recognition, pages 9365–9374, 2019.
+[4] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang,
+Shijie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang
+Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen
+Cheng, Hang Zhang, Zhibo Yang, Haiyang Xu, and Junyang Lin. Qwen2.5-vl technical report.
+arXiv preprint arXiv:2502.13923, 2025.
+[5] Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal,
+Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. Language models are
+few-shot learners. Advances in neural information processing systems, 33:1877–1901, 2020.
+[6] Shuo Chen, Zhen Han, Bailan He, Jianzhe Liu, Mark Buckley, Yao Qin, Philip Torr, Volker
+Tresp, and Jindong Gu. Can multimodal large language models truly perform multimodal
+in-context learning? In 2025 IEEE/CVF Winter Conference on Applications of Computer Vision
+(WACV), pages 6000–6010. IEEE, 2025.
+[7] Zhangquan Chen, Xufang Luo, and Dongsheng Li. Visrl: Intention-driven visual perception via
+reinforced reasoning. arXiv preprint arXiv:2503.07523, 2025.
+[8] Ling Fu, Biao Yang, Zhebin Kuang, Jiajun Song, Yuzhe Li, Linghao Zhu, Qidi Luo, Xinyu Wang,
+Hao Lu, Mingxin Huang, et al. Ocrbench v2: An improved benchmark for evaluating large
+multimodal models on visual text localization and reasoning. arXiv preprint arXiv:2501.00321,
+2024.
+[9] Akash Ghosh, Arkadeep Acharya, Sriparna Saha, Vinija Jain, and Aman Chadha. Exploring the
+frontier of vision-language models: A survey of current methodologies and future directions,
+2024.
+[10] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu,
+Shirong Ma, Peiyi Wang, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in
+llms via reinforcement learning. arXiv preprint arXiv:2501.12948, 2025.
+[11] Anwen Hu, Haiyang Xu, Jiabo Ye, Ming Yan, Liang Zhang, Bo Zhang, Chen Li, Ji Zhang,
+Qin Jin, Fei Huang, et al. mplug-docowl 1.5: Unified structure learning for ocr-free document
+understanding. arXiv preprint arXiv:2403.12895, 2024.
+[12] Guillaume Jaume, Hazim Kemal Ekenel, and Jean-Philippe Thiran. Funsd: A dataset for form
+understanding in noisy scanned documents. In 2019 International Conference on Document
+Analysis and Recognition Workshops (ICDARW), volume 2, pages 1–6. IEEE, 2019.
+[13] Dimosthenis Karatzas, Lluis Gomez-Bigorda, Anguelos Nicolaou, Suman Ghosh, Andrew
+Bagdanov, Masakazu Iwamura, Jiri Matas, Lukas Neumann, Vijay Ramaseshan Chandrasekhar,
+Shijian Lu, et al. Icdar 2015 competition on robust reading. In 2015 13th international
+conference on document analysis and recognition (ICDAR), pages 1156–1160. IEEE, 2015.
+[14] Chenglong Liu, Haoran Wei, Jinyue Chen, Lingyu Kong, Zheng Ge, Zining Zhu, Liang Zhao,
+Jianjian Sun, Chunrui Han, and Xiangyu Zhang. Focus anywhere for fine-grained multi-page
+document understanding. arXiv preprint arXiv:2405.14295, 2024.
+[15] Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. Improved baselines with visual
+instruction tuning, 2023.
+10
+
+[16] Haotian Liu, Chunyuan Li, Yuheng Li, Bo Li, Yuanhan Zhang, Sheng Shen, and Yong Jae Lee.
+Llava-next: Improved reasoning, ocr, and world knowledge, January 2024.
+[17] Yuliang Liu, Zhang Li, Mingxin Huang, Biao Yang, Wenwen Yu, Chunyuan Li, Xu-Cheng Yin,
+Cheng-Lin Liu, Lianwen Jin, and Xiang Bai. Ocrbench: on the hidden mystery of ocr in large
+multimodal models. Science China Information Sciences, 67(12):220102, 2024.
+[18] Yuliang Liu, Biao Yang, Qiang Liu, Zhang Li, Zhiyin Ma, Shuo Zhang, and Xiang Bai.
+Textmonkey: An ocr-free large multimodal model for understanding document. arXiv preprint
+arXiv:2403.04473, 2024.
+[19] Ziyu Liu, Zeyi Sun, Yuhang Zang, Xiaoyi Dong, Yuhang Cao, Haodong Duan, Dahua Lin, and
+Jiaqi Wang. Visual-rft: Visual reinforcement fine-tuning. arXiv preprint arXiv:2503.01785,
+2025.
+[20] Chuwei Luo, Yufan Shen, Zhaoqing Zhu, Qi Zheng, Zhi Yu, and Cong Yao. Layoutllm: Layout
+instruction tuning with large language models for document understanding. In Proceedings of
+the IEEE/CVF conference on computer vision and pattern recognition, pages 15630–15640,
+2024.
+[21] Tengchao Lv, Yupan Huang, Jingye Chen, Yuzhong Zhao, Yilin Jia, Lei Cui, Shuming Ma,
+Yaoyao Chang, Shaohan Huang, Wenhui Wang, et al. Kosmos-2.5: A multimodal literate model.
+arXiv preprint arXiv:2309.11419, 2023.
+[22] Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, and
+Chelsea Finn. Direct preference optimization: Your language model is secretly a reward model.
+Advances in Neural Information Processing Systems, 36:53728–53741, 2023.
+[23] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal
+policy optimization algorithms. arXiv preprint arXiv:1707.06347, 2017.
+[24] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang,
+Mingchuan Zhang, YK Li, Y Wu, et al. Deepseekmath: Pushing the limits of mathematical
+reasoning in open language models. arXiv preprint arXiv:2402.03300, 2024.
+[25] Baoguang Shi, Cong Yao, Minghui Liao, Mingkun Yang, Pei Xu, Linyan Cui, Serge Belongie,
+Shijian Lu, and Xiang Bai. Icdar2017 competition on reading chinese text in the wild (rctw-17).
+In 2017 14th iapr international conference on document analysis and recognition (ICDAR),
+volume 1, pages 1429–1434. IEEE, 2017.
+[26] Amanpreet Singh, Guan Pang, Mandy Toh, Jing Huang, Wojciech Galuba, and Tal Hassner. Textocr: Towards large-scale end-to-end reasoning for arbitrary-shaped scene text. In Proceedings
+of the IEEE/CVF conference on computer vision and pattern recognition, pages 8802–8812,
+2021.
+[27] Hongbin Sun, Zhanghui Kuang, Xiaoyu Yue, Chenhao Lin, and Wayne Zhang. Spatial dualmodality graph reasoning for key information extraction. arXiv preprint arXiv:2103.14470,
+2021.
+[28] Huajie Tan, Yuheng Ji, Xiaoshuai Hao, Minglan Lin, Pengwei Wang, Zhongyuan Wang, and
+Shanghang Zhang. Reason-rft: Reinforcement fine-tuning for visual reasoning. arXiv preprint
+arXiv:2503.20752, 2025.
+[29] Kimi Team, Angang Du, Bohong Yin, Bowei Xing, Bowen Qu, Bowen Wang, Cheng Chen,
+Chenlin Zhang, Chenzhuang Du, Chu Wei, et al. Kimi-vl technical report. arXiv preprint
+arXiv:2504.07491, 2025.
+[30] Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei,
+Nikolay Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti Bhosale, et al. Llama 2: Open
+foundation and fine-tuned chat models. arXiv preprint arXiv:2307.09288, 2023.
+[31] Michael Tschannen, Alexey Gritsenko, Xiao Wang, Muhammad Ferjad Naeem, Ibrahim Alabdulmohsin, Nikhil Parthasarathy, Talfan Evans, Lucas Beyer, Ye Xia, Basil Mustafa, et al. Siglip
+2: Multilingual vision-language encoders with improved semantic understanding, localization,
+and dense features. arXiv preprint arXiv:2502.14786, 2025.
+11
+
+[32] Ziheng Wu, Zhenghao Chen, Ruipu Luo, Can Zhang, Yuan Gao, Zhentao He, Xian Wang,
+Haoran Lin, and Minghui Qiu. Valley2: Exploring multimodal models with scalable visionlanguage design. arXiv preprint arXiv:2501.05901, 2025.
+[33] Yiheng Xu, Tengchao Lv, Lei Cui, Guoxin Wang, Yijuan Lu, Dinei Florencio, Cha Zhang, and
+Furu Wei. Xfund: a benchmark dataset for multilingual visually rich form understanding. In
+Findings of the association for computational linguistics: ACL 2022, pages 3214–3224, 2022.
+[34] Tao Yang, Yingmin Luo, Zhongang Qi, Yang Wu, Ying Shan, and Chang Wen Chen. Posterllava:
+Constructing a unified multi-modal layout generator with llm. arXiv preprint arXiv:2406.02884,
+2024.
+[35] Yi Yang, Xiaoxuan He, Hongkun Pan, Xiyan Jiang, Yan Deng, Xingtao Yang, Haoyu Lu,
+Dacheng Yin, Fengyun Rao, Minfeng Zhu, et al. R1-onevision: Advancing generalized
+multimodal reasoning through cross-modal formalization. arXiv preprint arXiv:2503.10615,
+2025.
+[36] Zhibo Yang, Jun Tang, Zhaohai Li, Pengfei Wang, Jianqiang Wan, Humen Zhong, Xuejing Liu,
+Mingkun Yang, Peng Wang, Yuliang Liu, et al. Cc-ocr: A comprehensive and challenging ocr
+benchmark for evaluating large multimodal models in literacy. arXiv preprint arXiv:2412.02210,
+2024.
+[37] Yuan Yao, Tianyu Yu, Ao Zhang, Chongyi Wang, Junbo Cui, Hongji Zhu, Tianchi Cai, Haoyu
+Li, Weilin Zhao, Zhihui He, et al. Minicpm-v: A gpt-4v level mllm on your phone. arXiv
+preprint arXiv:2408.01800, 2024.
+[38] Wenwen Yu, Ning Lu, Xianbiao Qi, Ping Gong, and Rong Xiao. Pick: processing key information extraction from documents using improved graph learning-convolutional networks. In 2020
+25th International conference on pattern recognition (ICPR), pages 4363–4370. IEEE, 2021.
+[39] Yufei Zhan, Yousong Zhu, Shurong Zheng, Hongyin Zhao, Fan Yang, Ming Tang, and Jinqiao
+Wang. Vision-r1: Evolving human-free alignment in large vision-language models via visionguided reinforcement learning. arXiv preprint arXiv:2503.18013, 2025.
+[40] Yaowei Zheng, Junting Lu, Shenzhi Wang, Zhangchi Feng, Dongdong Kuang, and Yuwen
+Xiong. Easyr1: An efficient, scalable, multi-modality rl training framework. https://github.
+com/hiyouga/EasyR1, 2025.
+[41] Yaowei Zheng, Richong Zhang, Junhao Zhang, Yanhan Ye, Zheyan Luo, Zhangchi Feng, and
+Yongqiang Ma. Llamafactory: Unified efficient fine-tuning of 100+ language models. arXiv
+preprint arXiv:2403.13372, 2024.
+[42] Jinguo Zhu, Weiyun Wang, Zhe Chen, Zhaoyang Liu, Shenglong Ye, Lixin Gu, Yuchen Duan,
+Hao Tian, Weijie Su, Jie Shao, et al. Internvl3: Exploring advanced training and test-time
+recipes for open-source multimodal models. arXiv preprint arXiv:2504.10479, 2025.
+
+12
+
+
