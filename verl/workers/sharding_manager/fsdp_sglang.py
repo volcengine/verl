@@ -134,7 +134,11 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             get_torch_device().empty_cache()
             log_gpu_memory_usage("After del state_dict and empty_cache in sharding manager", logger=logger)
 
-            if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.multi_stage_wake_up and self.rollout_config.free_cache_engine:
+            if (
+                self.device_mesh["infer_tp"].get_local_rank() == 0
+                and self.multi_stage_wake_up
+                and self.rollout_config.free_cache_engine
+            ):
                 loop.run_until_complete(self.inference_engine.resume_memory_occupation(tags=["kv_cache"]))
                 log_gpu_memory_usage("After resume SGLang kv_cache in sharding manager", logger=logger)
 
