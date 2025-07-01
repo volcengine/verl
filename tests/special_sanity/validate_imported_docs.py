@@ -76,7 +76,9 @@ def _check_file(py_file: pathlib.Path, project_root: pathlib.Path, allow_list: l
         module_name = "." * node.level + (node.module or "")
         for alias in node.names:
             if alias.name == "*":
-                problems.append(f"{py_file}:{node.lineno} - wildcard import `from {module_name} import *` cannot be verified.")
+                problems.append(
+                    f"{py_file}:{node.lineno} - wildcard import `from {module_name} import *` cannot be verified."
+                )
                 continue
 
             imported_name = alias.name
@@ -98,7 +100,9 @@ def _check_file(py_file: pathlib.Path, project_root: pathlib.Path, allow_list: l
                 doc = inspect.getdoc(obj)
                 if not (doc and doc.strip()):
                     kind = "class" if inspect.isclass(obj) else "function"
-                    problems.append(f"{py_file}:{node.lineno} - {kind} `{module_name}.{imported_name}` is missing a docstring.")
+                    problems.append(
+                        f"{py_file}:{node.lineno} - {kind} `{module_name}.{imported_name}` is missing a docstring."
+                    )
 
     return problems
 

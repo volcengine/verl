@@ -107,7 +107,9 @@ def _split_args_kwargs_data_proto_with_auto_padding(chunks, *args, **kwargs):
                 padding_size = (chunks - (data_proto_len % chunks)) if (data_proto_len % chunks > 0) else 0
                 splitted_kwargs[_padding_size_key] = padding_size
             else:
-                assert data_proto_len == len(arg), f"expecting all arg share same length of {data_proto_len}, but got {len(arg)}"
+                assert data_proto_len == len(arg), (
+                    f"expecting all arg share same length of {data_proto_len}, but got {len(arg)}"
+                )
                 data_proto_len = len(arg)
             arg.padding(padding_size=padding_size)
 
@@ -122,7 +124,9 @@ def _split_args_kwargs_data_proto_with_auto_padding(chunks, *args, **kwargs):
                 padding_size = chunks - (data_proto_len % chunks)
                 splitted_kwargs[_padding_size_key] = padding_size
             else:
-                assert data_proto_len == len(val), f"expecting all arg share same length of {data_proto_len}, but got {len(val)}"
+                assert data_proto_len == len(val), (
+                    f"expecting all arg share same length of {data_proto_len}, but got {len(val)}"
+                )
                 data_proto_len = len(val)
         splitted_kwargs[key] = val.chunk(chunks=chunks)
 
@@ -153,7 +157,9 @@ def dispatch_megatron_compute(worker_group, *args, **kwargs):
     """
     from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
 
-    assert isinstance(worker_group, MegatronWorkerGroup), f"worker_group must be MegatronWorkerGroup, Got {type(worker_group)}"
+    assert isinstance(worker_group, MegatronWorkerGroup), (
+        f"worker_group must be MegatronWorkerGroup, Got {type(worker_group)}"
+    )
 
     # ray put all the args in advance to avoid duplicate serialization cost
     import ray
@@ -266,7 +272,8 @@ def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
             local_pp_rank = worker_group.get_megatron_rank_info(rank=i).pp_rank
             local_cp_rank = worker_group.get_megatron_rank_info(rank=i).cp_rank
             # compute the rank in arg. Note that the order is dp then cp then pp
-            # Also note that the outputs within a pp group will be firstly allgathered, then only the output of pp0 will be collected.
+            # Also note that the outputs within a pp group will be firstly allgathered, then only the
+            # output of pp0 will be collected.
             # For pp=2 dp=4, a batch of data "ABCDEFGH" should be dispatched and collected in below order:
             #    dispatch:       pp_allgther:        collect:
             #   dp 0 1 2 3      dp  0  1  2  3
@@ -482,7 +489,9 @@ def get_predefined_execute_fn(execute_mode):
 
 
 def _check_dispatch_mode(dispatch_mode):
-    assert isinstance(dispatch_mode, (Dispatch, Dict)), f"dispatch_mode must be a Dispatch or a Dict. Got {dispatch_mode}"
+    assert isinstance(dispatch_mode, (Dispatch, Dict)), (
+        f"dispatch_mode must be a Dispatch or a Dict. Got {dispatch_mode}"
+    )
     if isinstance(dispatch_mode, Dict):
         necessary_keys = ["dispatch_fn", "collect_fn"]
         for key in necessary_keys:
