@@ -2,10 +2,16 @@
 test create_rl_sampler
 """
 
+import pytest
 from omegaconf import OmegaConf
 from torch.utils.data import Dataset
 
 from verl.trainer.main_ppo import create_rl_sampler
+
+
+class FakeIncorrectSampler:
+    def __init__(self, data_source, data_config):
+        pass
 
 
 class FakeChatDataset(Dataset):
@@ -28,8 +34,7 @@ class FakeChatDataset(Dataset):
         return len(self.data)
 
 
-def test_multiturn_sft_dataset():
-    print("Starting test...")
+def test_create_custom_curriculum_samper():
     data_config = OmegaConf.create(
         {
             "curriculum": {
@@ -40,4 +45,23 @@ def test_multiturn_sft_dataset():
     )
 
     dataset = FakeChatDataset()
+
+    # doesn't raise
     create_rl_sampler(data_config, dataset)
+
+
+def test_create_custom_curriculum_samper_wrong_class():
+    data_config = OmegaConf.create(
+        {
+            "curriculum": {
+                "curriculum_class_path": "tests.utils.dataset.test_create_rl_sampler",
+                "curriculum_class": "FakeIncorrectSampler",
+            }
+        }
+    )
+
+    dataset = FakeChatDataset()
+
+    # FakeIncorrectSampler is not an instance of AbstractCurriculumSampler, so raises
+    with pytest.raises(AssertionError):
+        create_rl_sampler(data_config, dataset)
