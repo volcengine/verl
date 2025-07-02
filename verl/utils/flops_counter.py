@@ -16,7 +16,17 @@ from transformers import PretrainedConfig
 
 from verl.utils.device import get_torch_device
 
-VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen2_vl", "qwen2_5_vl", "qwen3", "qwen3_moe", "deepseek_v3", "minicpmv", "minicpmo"}
+VALID_CONFIG_TYPE = {
+    "llama",
+    "qwen2",
+    "qwen2_vl",
+    "qwen2_5_vl",
+    "qwen3",
+    "qwen3_moe",
+    "deepseek_v3",
+    "minicpmv",
+    "minicpmo",
+}
 
 
 def get_device_flops(unit="T"):
@@ -65,7 +75,10 @@ class FlopsCounter:
 
     def __init__(self, config: PretrainedConfig):
         if config.model_type not in VALID_CONFIG_TYPE:
-            print(f"Only support config type of {VALID_CONFIG_TYPE}, but got {config.model_type}. MFU will always be zero.")
+            print(
+                f"Only support config type of {VALID_CONFIG_TYPE}, but got {config.model_type}. MFU will always be "
+                f"zero."
+            )
 
         self.estimate_func = {
             "qwen2": self._estimate_qwen2_flops,
@@ -144,11 +157,19 @@ class FlopsCounter:
             attn_linear_N += num_query_heads * q_head_dim * self.config.q_lora_rank
 
         attn_linear_N += hidden_size * (self.config.kv_lora_rank + self.config.qk_rope_head_dim)
-        attn_linear_N += num_query_heads * (q_head_dim - self.config.qk_rope_head_dim + self.config.v_head_dim) * self.config.kv_lora_rank
+        attn_linear_N += (
+            num_query_heads
+            * (q_head_dim - self.config.qk_rope_head_dim + self.config.v_head_dim)
+            * self.config.kv_lora_rank
+        )
         attn_linear_N += num_query_heads * self.config.v_head_dim * hidden_size
         emd_and_lm_head_N = vocab_size * hidden_size * 2
         # non-attn all_layer parm
-        moe_N = (moe_gata_N + moe_expertmlp_N + attn_linear_N) * (num_hidden_layers - first_k_dense_replace) + (hidden_size * self.config.intermediate_size * 3 + attn_linear_N) * first_k_dense_replace + emd_and_lm_head_N
+        moe_N = (
+            (moe_gata_N + moe_expertmlp_N + attn_linear_N) * (num_hidden_layers - first_k_dense_replace)
+            + (hidden_size * self.config.intermediate_size * 3 + attn_linear_N) * first_k_dense_replace
+            + emd_and_lm_head_N
+        )
         # non-attn all_layer & all_token fwd & bwd flops
         dense_N_flops = 6 * moe_N * tokens_sum
 
@@ -205,7 +226,8 @@ class FlopsCounter:
         Estimate the FLOPS based on the number of valid tokens in the current batch and the time taken.
 
         Args:
-            batch_seqlens (List[int]): A list where each element represents the number of valid tokens in the current batch.
+            batch_seqlens (List[int]): A list where each element represents the number of valid tokens in the
+                current batch.
             delta_time (float): The time taken to process the batch, in seconds.
 
         Returns:

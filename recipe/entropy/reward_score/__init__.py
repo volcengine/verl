@@ -18,7 +18,9 @@ import traceback
 from . import entropy_math
 
 
-def _default_compute_score(data_source, solution_str, ground_truth, extra_info=None, sandbox_fusion_url=None, concurrent_semaphore=None):
+def _default_compute_score(
+    data_source, solution_str, ground_truth, extra_info=None, sandbox_fusion_url=None, concurrent_semaphore=None
+):
     try:
         res = entropy_math.compute_score(solution_str, str(ground_truth))
         # print(f"data_source: {data_source}")

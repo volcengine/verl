@@ -62,7 +62,9 @@ def test_vocab_parallel_entropy():
     from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy
     from verl.utils.torch_functional import entropy_from_logits
 
-    mpu.initialize_model_parallel(tensor_model_parallel_size=2, pipeline_model_parallel_size=1, virtual_pipeline_model_parallel_size=None)
+    mpu.initialize_model_parallel(
+        tensor_model_parallel_size=2, pipeline_model_parallel_size=1, virtual_pipeline_model_parallel_size=None
+    )
 
     batch_size = 2
     seqlen = 128
@@ -72,14 +74,20 @@ def test_vocab_parallel_entropy():
     target = torch.randint(low=0, high=vocab_size, size=(batch_size * seqlen,), device="cuda", dtype=torch.int64)
 
     # broadcast across tp
-    torch.distributed.broadcast(logits, mpu.get_tensor_model_parallel_src_rank(), group=mpu.get_tensor_model_parallel_group())
-    torch.distributed.broadcast(target, mpu.get_tensor_model_parallel_src_rank(), group=mpu.get_tensor_model_parallel_group())
+    torch.distributed.broadcast(
+        logits, mpu.get_tensor_model_parallel_src_rank(), group=mpu.get_tensor_model_parallel_group()
+    )
+    torch.distributed.broadcast(
+        target, mpu.get_tensor_model_parallel_src_rank(), group=mpu.get_tensor_model_parallel_group()
+    )
 
     tp_rank = mpu.get_tensor_model_parallel_rank()
     vocab_size_per_tp = vocab_size // mpu.get_tensor_model_parallel_world_size()
 
     # get the local logits of each tp
-    vocab_parallel_logits = logits.clone().detach()[:, tp_rank * vocab_size_per_tp : (tp_rank + 1) * vocab_size_per_tp].requires_grad_()
+    vocab_parallel_logits = (
+        logits.clone().detach()[:, tp_rank * vocab_size_per_tp : (tp_rank + 1) * vocab_size_per_tp].requires_grad_()
+    )
     logits.grad = None
     vocab_parallel_logits.grad = None
 
@@ -93,9 +101,13 @@ def test_vocab_parallel_entropy():
     target_entropy = entropy_from_logits(logits)
     torch.testing.assert_close(output_entropy, target_entropy)
     target_entropy.backward(grad_output)
-    torch.testing.assert_close(logits.grad[:, tp_rank * vocab_size_per_tp : (tp_rank + 1) * vocab_size_per_tp], vocab_parallel_logits.grad)
+    torch.testing.assert_close(
+        logits.grad[:, tp_rank * vocab_size_per_tp : (tp_rank + 1) * vocab_size_per_tp], vocab_parallel_logits.grad
+    )
     # make sure logits is not altered
-    torch.testing.assert_close(logits[:, tp_rank * vocab_size_per_tp : (tp_rank + 1) * vocab_size_per_tp], vocab_parallel_logits)
+    torch.testing.assert_close(
+        logits[:, tp_rank * vocab_size_per_tp : (tp_rank + 1) * vocab_size_per_tp], vocab_parallel_logits
+    )
 
     if mpu.get_tensor_model_parallel_rank() == 0:
         print("test_vocab_parallel_entropy passes")

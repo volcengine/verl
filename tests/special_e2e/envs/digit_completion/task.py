@@ -54,7 +54,11 @@ class DigitCompletion:
         self.np_rng = np.random.default_rng(seed=seed)
 
     def __str__(self):
-        return f"Prompt length: {self.prompt_length}. Response length: {self.response_length}, Max number: {self.max_number}. Max diff: {self.max_diff}, Max number in response: {self.max_num_in_response}"
+        return (
+            f"Prompt length: {self.prompt_length}. Response length: {self.response_length}, "
+            f"Max number: {self.max_number}. Max diff: {self.max_diff}, "
+            f"Max number in response: {self.max_num_in_response}"
+        )
 
     def get_state(self):
         return {"rng": self.np_rng}

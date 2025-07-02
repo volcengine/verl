@@ -100,11 +100,15 @@ def main():
         device_mesh=device_mesh,
     )
 
-    FSDP.set_state_dict_type(fsdp_model, state_dict_type=StateDictType.SHARDED_STATE_DICT, state_dict_config=ShardedStateDictConfig())
+    FSDP.set_state_dict_type(
+        fsdp_model, state_dict_type=StateDictType.SHARDED_STATE_DICT, state_dict_config=ShardedStateDictConfig()
+    )
 
     state_dict = fsdp_model.state_dict()
 
-    sampling_params = SamplingParams(temperature=0, top_p=1, n=1, max_tokens=response_length, logprobs=1, ignore_eos=True, detokenize=False)
+    sampling_params = SamplingParams(
+        temperature=0, top_p=1, n=1, max_tokens=response_length, logprobs=1, ignore_eos=True, detokenize=False
+    )
 
     print(actor_model_config)
     llm = LLM(

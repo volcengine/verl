@@ -85,7 +85,9 @@ class BaseModelInitializer(ABC):
         if post_process and value:
             from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
 
-            model.output_layer = LinearForLastLayer(input_size=self.tfconfig.hidden_size, output_size=1, config=self.tfconfig)
+            model.output_layer = LinearForLastLayer(
+                input_size=self.tfconfig.hidden_size, output_size=1, config=self.tfconfig
+            )
 
         return model
 
@@ -221,7 +223,11 @@ class Qwen25VLModel(BaseModelInitializer):
         vision_transformer_config.pipeline_model_parallel_size = 1
         vision_transformer_config.first_pipeline_num_layers = None
 
-        vision_projection_config = get_vision_projection_config(deepcopy(tfconfig), vision_transformer_config.hidden_size, spatial_merge_size=hf_config.vision_config.spatial_merge_size)
+        vision_projection_config = get_vision_projection_config(
+            deepcopy(tfconfig),
+            vision_transformer_config.hidden_size,
+            spatial_merge_size=hf_config.vision_config.spatial_merge_size,
+        )
         vision_projection_layer_spec = MLPSubmodules(
             linear_fc1=TEColumnParallelLinear,
             linear_fc2=TERowParallelLinear,
@@ -250,6 +256,8 @@ class Qwen25VLModel(BaseModelInitializer):
         if post_process and value:
             from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
 
-            qwen25_vl_model.language_model.output_layer = LinearForLastLayer(input_size=tfconfig.hidden_size, output_size=1, config=tfconfig)
+            qwen25_vl_model.language_model.output_layer = LinearForLastLayer(
+                input_size=tfconfig.hidden_size, output_size=1, config=tfconfig
+            )
 
         return qwen25_vl_model

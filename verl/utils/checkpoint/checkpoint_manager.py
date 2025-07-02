@@ -93,7 +93,8 @@ class BaseCheckpointManager:
     @property
     def should_save_hf_model(self) -> bool:
         """
-        Returns True if 'hf_model' is in checkpoint_save_contents, indicating the model should be converted to hf model and saved.
+        Returns True if 'hf_model' is in checkpoint_save_contents, indicating the model should be converted to hf
+        model and saved.
         """
         return "hf_model" in self.checkpoint_save_contents
 
@@ -121,7 +122,9 @@ class BaseCheckpointManager:
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load: bool = False):
         raise NotImplementedError
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep: int = None):
+    def save_checkpoint(
+        self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep: int = None
+    ):
         raise NotImplementedError
 
     @staticmethod
@@ -219,7 +222,11 @@ def should_save_ckpt_esi(max_steps_duration: float, save_ckpt_duration: float = 
             remaining = float(exp_ts_mlp) - time.time()
         except ValueError:
             return False
-        return remaining > 0 and max_steps_duration > 0 and remaining <= save_ckpt_duration + max_steps_duration + redundant_time
+        return (
+            remaining > 0
+            and max_steps_duration > 0
+            and remaining <= save_ckpt_duration + max_steps_duration + redundant_time
+        )
     elif exp_ts_aws:
         from datetime import datetime, timedelta
 
