@@ -28,6 +28,9 @@ python3 -m verl.trainer.main_ppo \
     data.train_files=${DATA_DIR}/train.parquet \
     data.val_files=${DATA_DIR}/validation.parquet \
     actor_rollout_ref.rollout.name=$ENGINE \
+    actor_rollout_ref.rollout.multi_turn.enable=True \
+    actor_rollout_ref.rollout.multi_turn.max_turns=2 \
+    actor_rollout_ref.rollout.tool_kwargs.tools_config_file=examples/arc_vision/config/tool_config/arc_vision_tools.yaml \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.default_local_dir=outputs/arc_vision \
