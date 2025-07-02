@@ -18,7 +18,7 @@ import socket
 import threading
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Tuple, Type, Optional
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 import fastapi
 import ray
@@ -142,9 +142,7 @@ class AsyncLLMServerManager:
                 rollout_backend_class=self.config.rollout.custom_async_server.name,
             )
         else:
-            server_class = async_server_class(
-                rollout_backend=self.config.rollout.name
-            )
+            server_class = async_server_class(rollout_backend=self.config.rollout.name)
 
         # Start all server instances, restart if address already in use.
         unready_dp_ranks = set(range(self.rollout_dp_size))
@@ -240,7 +238,9 @@ class AsyncLLMServerManager:
         return future.result()
 
 
-def async_server_class(rollout_backend: str, rollout_backend_module: Optional[str] = None, rollout_backend_class: Optional[str] = None) -> Type[AsyncServerBase]:
+def async_server_class(
+    rollout_backend: str, rollout_backend_module: Optional[str] = None, rollout_backend_class: Optional[str] = None
+) -> Type[AsyncServerBase]:
     """Get async server class.
 
     Args:
@@ -271,4 +271,5 @@ def async_server_class(rollout_backend: str, rollout_backend_module: Optional[st
         raise ValueError("rollout_backend_module and rollout_backend_class must be both provided for customization")
 
     from verl.utils.import_utils import load_extern_type
+
     return load_extern_type(rollout_backend_module, rollout_backend_class)
