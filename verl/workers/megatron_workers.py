@@ -189,35 +189,33 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         )
         self.generation_config = get_generation_config(self.local_path)
 
-        def megatron_actor_model_provider(pre_process, post_process):
-            from verl.models.mcore import init_mcore_model
-
-            parallel_model = init_mcore_model(
-                self.tf_config,
-                self.hf_config,
-                pre_process,
-                post_process,
-                share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
-                value=False,
-                freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False),
-            )
-            parallel_model.to(get_device_name())
-            return parallel_model
-
-        if self.bridge is not None:
-            from verl.models.mcore.mbridge import freeze_moe_router
-
-            post_model_creation_callbacks = []
-            if override_model_config.get("moe_config", {}).get("freeze_moe_router", False):
-                post_model_creation_callbacks.append(freeze_moe_router)
-
-        # Step 3: initialize the megatron model
         def make_model(wrap_with_ddp=False):
             if self.bridge is not None:
+                from verl.models.mcore.mbridge import freeze_moe_router
+
+                post_model_creation_callbacks = []
+                if override_model_config.get("moe_config", {}).get("freeze_moe_router", False):
+                    post_model_creation_callbacks.append(freeze_moe_router)
                 return self.bridge.get_model(
                     post_model_creation_callbacks=post_model_creation_callbacks, wrap_with_ddp=wrap_with_ddp
                 )
             else:
+
+                def megatron_actor_model_provider(pre_process, post_process):
+                    from verl.models.mcore import init_mcore_model
+
+                    parallel_model = init_mcore_model(
+                        self.tf_config,
+                        self.hf_config,
+                        pre_process,
+                        post_process,
+                        share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
+                        value=False,
+                        freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False),
+                    )
+                    parallel_model.to(get_device_name())
+                    return parallel_model
+
                 return get_model(
                     megatron_actor_model_provider,
                     wrap_with_ddp=wrap_with_ddp,
