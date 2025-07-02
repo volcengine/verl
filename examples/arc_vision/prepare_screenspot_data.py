@@ -103,9 +103,10 @@ def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str, imag
     # Create VERL-compatible record
     record = {
         "data_source": "rootsautomation/ScreenSpot",
-        "prompt": json.dumps(messages),  # Serialize to JSON string
+        "prompt": messages,  # Store as list, not JSON string
         "images": [image_path],  # Store path instead of PIL object
         "ability": "ui_detection",
+        "ground_truth": bbox_normalized,  # Add at top level for reward function
         "reward_model": json.dumps({  # Serialize entire dict
             "style": "arc_vision",
             "ground_truth": bbox_normalized,
