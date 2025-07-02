@@ -103,7 +103,7 @@ def _fsdp_activation_offloading_test(rank, world_size, rendezvous_file, strategy
     # Save checkpoint after first update
     temp_dir = tempfile.mkdtemp()
     checkpoint_path = os.path.join(temp_dir, "checkpoint")
-    checkpoint_manager.save_checkpoint(local_path=checkpoint_path, hdfs_path=None, global_step=0)
+    checkpoint_manager.save_checkpoint(local_path=checkpoint_path, remote_path=None, global_step=0)
 
     # Step 2: Second update and forward pass
     outputs2 = model(input_ids=input_ids2, attention_mask=attention_mask2)

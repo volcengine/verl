@@ -1022,6 +1022,9 @@ trainer:
   # Default local directory for saving checkpoints
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
 
+  # Remote S3 checkpoint saving directory
+  s3_checkpoint_dir: null
+
   # Maximum number of actor checkpoints to keep
   max_actor_ckpt_to_keep: null
 

@@ -20,27 +20,31 @@ import hashlib
 import os
 import shutil
 import tempfile
+from typing import Optional
 
 try:
     from hdfs_io import copy, exists, makedirs  # for internal use only
 except ImportError:
     from .hdfs_io import copy, exists, makedirs
 
+from verl.utils.s3_io import bulk_download, file_download, file_upload, parse_uri, s3_key_exists
+
 __all__ = ["copy", "exists", "makedirs"]
 
 _HDFS_PREFIX = "hdfs://"
+_S3_PREFIX = "s3://"
 
 
 def is_non_local(path):
-    """Check if a path is a non-local (HDFS) path.
+    """Check if a path is a non-local (HDFS, S3) path.
 
     Args:
         path (str): The path to check.
 
     Returns:
-        bool: True if the path is an HDFS path, False otherwise.
+        bool: True if the path is an HDFS or S3 path, False otherwise.
     """
-    return path.startswith(_HDFS_PREFIX)
+    return path.startswith(_HDFS_PREFIX) or path.startswith(_S3_PREFIX)
 
 
 def md5_encode(path: str) -> str:
@@ -192,9 +196,7 @@ def _check_directory_structure(folder_path, record_file):
     return existing_entries == recorded_entries
 
 
-def copy_to_local(
-    src: str, cache_dir=None, filelock=".file.lock", verbose=False, always_recopy=False, use_shm: bool = False
-) -> str:
+def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False, recursive: Optional[bool]=None, local_path= None, always_recopy=False, use_shm:bool=False) -> str:
     """Copy files/directories from HDFS to local cache with validation.
 
     Args:
@@ -208,12 +210,11 @@ def copy_to_local(
     Returns:
         str: Local filesystem path to copied resource
     """
-    # Save to a local path for persistence.
-    local_path = copy_local_path_from_hdfs(src, cache_dir, filelock, verbose, always_recopy)
-    # Load into shm to improve efficiency.
-    if use_shm:
-        return copy_to_shm(local_path)
-    return local_path
+    if src.startswith(_HDFS_PREFIX) or src.startswith(_S3_PREFIX):
+        return copy_local_path_from_remote(src, cache_dir, filelock, verbose, recursive=recursive, local_path =local_path)
+
+    return src
+
 
 
 def copy_local_path_from_hdfs(
@@ -290,3 +291,63 @@ def local_mkdir_safe(path):
         os.makedirs(path, exist_ok=True)
 
     return path
+
+
+def copy_local_path_from_remote(src: str, cache_dir=None, filelock='.file.lock', verbose=False, recursive: Optional[bool]=None, local_path: Optional[str]=None) -> str:
+    """
+    Used to download files from a remote source (S3 or HDFS).
+
+    Deprecated. Please use copy_to_local which calls this function.
+    """
+    from filelock import FileLock
+
+    assert src[-1] != '/', f'Make sure the last char in src is not / because it will cause error. Got {src}'
+
+    if is_non_local(src):
+        # download from hdfs to local
+        if cache_dir is None:
+            # get a temp folder
+            cache_dir = tempfile.gettempdir()
+        os.makedirs(cache_dir, exist_ok=True)
+        assert os.path.exists(cache_dir)
+        if not local_path:
+            local_path = get_local_temp_path(src, cache_dir)
+        # get a specific lock
+        filelock = md5_encode(src) + '.lock'
+        lock_file = os.path.join(cache_dir, filelock)
+        with FileLock(lock_file=lock_file):
+            if not os.path.exists(local_path):
+                if verbose:
+                    print(f'Copy from {src} to {local_path}')
+                if src.startswith(_S3_PREFIX):
+                    bucket, key_or_prefix, recursive = parse_uri(src, is_dir=recursive)
+
+                    if recursive:
+                        bulk_download(bucket, key_or_prefix, local_path)
+                    else:
+                        file_download(bucket, key_or_prefix, local_path)
+                else:
+                    copy(src, local_path)
+        return local_path
+    else:
+        return src
+
+
+def upload_local_file_to_s3(s3_path: str, local_path: str, cache_dir=None, filelock='.file.lock', verbose=False) -> None:
+    from filelock import FileLock
+
+    assert s3_path[-1] != '/', f'Make sure the last char in s3_path is not / because it will cause error. Got {s3_path}'
+    assert s3_path.startswith(_S3_PREFIX), f'Path must be an s3 path with the s3:// prefix instead got: {s3_path}'
+    assert  os.path.exists(local_path), 'Local copy path not found'
+
+    filelock = md5_encode(s3_path) + '.lock'
+    lock_file = os.path.join(os.path.dirname(local_path), filelock)
+    with FileLock(lock_file=lock_file):
+        bucket, key, _ = parse_uri(s3_path, is_dir=False)
+        if not s3_key_exists(bucket, key):
+            if verbose:
+                print(f'Copy from {local_path} to {s3_path}')
+
+            file_upload(bucket, local_path, dest_path=key)
+        else:
+            print(f"File {s3_path} already exists in S3, not uploading.")
