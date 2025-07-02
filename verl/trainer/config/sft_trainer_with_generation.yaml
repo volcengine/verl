@@ -1,0 +1,22 @@
+# Example configuration for SFT trainer with validation generation
+# This extends the base sft_trainer.yaml with generation parameters
+
+defaults:
+  - sft_trainer
+  - _self_
+
+# Generation parameters for validation
+generation:
+  temperature: 1.0
+  top_k: 50
+  top_p: 0.7
+  do_sample: true
+  max_new_tokens: 100
+
+# Trainer configuration
+trainer:
+  # Number of validation samples to generate (default: 5)
+  max_val_samples: 5
+  # Other trainer settings...
+  project_name: "sft_with_generation"
+  experiment_name: "example_run" 

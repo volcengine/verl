@@ -16,6 +16,12 @@ A lightweight one-file FSDP SFT Trainer
 TODO(zhangchi.usc1992)
 - Add calculation of mfu
 - Add validation
+
+Features:
+- FSDP training with sequence parallelism support
+- Validation with sample generation
+- Configurable generation parameters for validation
+- Logging of generated samples to tracking systems
 """
 
 import os
@@ -39,7 +45,7 @@ from torch.distributed.fsdp import CPUOffload, MixedPrecision, ShardingStrategy
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 from tqdm import tqdm
-from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
+from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel, GenerationConfig
 
 import verl.utils.hdfs_io as hdfs_io
 from verl.utils.dataset import SFTDataset
@@ -409,6 +415,77 @@ class FSDPSFTTrainer:
             torch.distributed.all_reduce(loss, op=torch.distributed.ReduceOp.AVG)
         return loss
 
+    def generate_samples(self, batch: TensorDict, max_new_tokens=None):
+        """Generate samples from the model for validation
+        
+        Args:
+            batch: Input batch containing input_ids, attention_mask, position_ids
+            max_new_tokens: Maximum number of tokens to generate
+            
+        Returns:
+            tuple: (prompt_texts, generated_texts) - Lists of decoded text
+        """
+        if max_new_tokens is None:
+            max_new_tokens = int(os.getenv("VERL_GENERATION_MAX_NEW_TOKENS", 100))
+        self.fsdp_model.eval()
+        
+        with torch.no_grad():
+            # Extract input data
+            input_ids = batch["input_ids"].cuda()
+            attention_mask = batch["attention_mask"].cuda()
+            position_ids = batch["position_ids"].cuda()
+            
+            # Get generation parameters from environment variables or config or use defaults
+            generation_config = getattr(self.config, "generation", {}) if hasattr(self.config, "generation") else {}
+            temperature = float(os.getenv("VERL_GENERATION_TEMPERATURE", generation_config.get("temperature", 1.0)))
+            top_k = int(os.getenv("VERL_GENERATION_TOP_K", generation_config.get("top_k", 50)))
+            top_p = float(os.getenv("VERL_GENERATION_TOP_P", generation_config.get("top_p", 0.7)))
+            do_sample = os.getenv("VERL_GENERATION_DO_SAMPLE", str(generation_config.get("do_sample", True))).lower() == "true"
+            
+            # Create generation config
+            from transformers import GenerationConfig
+            gen_config = GenerationConfig(
+                do_sample=do_sample,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                max_new_tokens=max_new_tokens,
+                eos_token_id=self.tokenizer.eos_token_id,
+                pad_token_id=self.tokenizer.pad_token_id,
+                num_return_sequences=1,
+            )
+            
+            # Generate sequences
+            output = self.fsdp_model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                generation_config=gen_config,
+                use_cache=True,
+            )
+            
+            # Extract generated sequences
+            prompt_length = input_ids.shape[1]
+            generated_sequences = output[:, prompt_length:]
+            
+            # Decode the generated sequences
+            generated_texts = []
+            for seq in generated_sequences:
+                # Remove padding tokens
+                seq = seq[seq != self.tokenizer.pad_token_id]
+                text = self.tokenizer.decode(seq, skip_special_tokens=True)
+                generated_texts.append(text)
+            
+            # Decode the original prompts for reference
+            prompt_texts = []
+            for seq in input_ids:
+                # Remove padding tokens
+                seq = seq[seq != self.tokenizer.pad_token_id]
+                text = self.tokenizer.decode(seq, skip_special_tokens=True)
+                prompt_texts.append(text)
+            
+            return prompt_texts, generated_texts
+
     def save_checkpoint(self, step):
         # save checkpoint
         from torch.distributed.fsdp import FullStateDictConfig, StateDictType
@@ -438,6 +515,9 @@ class FSDPSFTTrainer:
                 experiment_name=self.config.trainer.experiment_name,
                 default_backend=self.config.trainer.logger,
             )
+            # Initialize validation generations logger for proper media logging
+            from verl.utils.tracking import ValidationGenerationsLogger
+            val_generations_logger = ValidationGenerationsLogger()
 
         global_step = 0
         # compute the total training steps.
@@ -470,13 +550,55 @@ class FSDPSFTTrainer:
                 if global_step >= self.total_training_steps:
                     # Perform final validation
                     val_losses = []
+                    all_prompts = []
+                    all_generations = []
+                    
+                    # Collect a few samples for generation
+                    max_samples_to_generate = int(os.getenv("VERL_MAX_VAL_SAMPLES", 
+                        getattr(self.config.trainer, "max_val_samples", 5) if hasattr(self.config.trainer, "max_val_samples") else 5))
+                    samples_generated = 0
+                    
                     for val_data in self.val_dataloader:
                         val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
                         val_loss = self.validation_step(val_data)
                         val_losses.append(val_loss)
+                        
+                        # Generate samples for the first few batches
+                        if samples_generated < max_samples_to_generate:
+                            try:
+                                prompts, generations = self.generate_samples(val_data, max_new_tokens=100)
+                                all_prompts.extend(prompts)
+                                all_generations.extend(generations)
+                                samples_generated += len(prompts)
+                            except Exception as e:
+                                if rank == 0:
+                                    print(f"Warning: Failed to generate samples during final validation: {e}")
+                    
                     if rank == 0:
                         avg_val_loss = torch.mean(torch.stack(val_losses))
                         metric = {"val/loss": avg_val_loss.detach().item()}
+                        
+                        # Log sample generations if available using proper media logging
+                        if all_prompts and all_generations:
+                            # Prepare samples for the validation logger (input, output, score format)
+                            samples = []
+                            num_samples_to_log = min(3, len(all_prompts))
+                            for i in range(num_samples_to_log):
+                                # Truncate long texts for display
+                                prompt_text = all_prompts[i][:200] + "..." if len(all_prompts[i]) > 200 else all_prompts[i]
+                                generation_text = all_generations[i][:200] + "..." if len(all_generations[i]) > 200 else all_generations[i]
+                                samples.append([prompt_text, generation_text, "N/A"])  # No score available
+                            
+                            # Log using the proper validation generations logger
+                            val_generations_logger.log(tracking.logger.keys(), samples, global_step)
+                            
+                            # Also print some samples to console
+                            print(f"\n=== Final Validation Samples (Step {global_step}) ===")
+                            for i in range(min(2, len(all_prompts))):
+                                print(f"Prompt {i+1}: {all_prompts[i]}")
+                                print(f"Generation {i+1}: {all_generations[i]}")
+                                print("-" * 50)
+                        
                         tracking.log(data=metric, step=global_step)
                     torch.distributed.barrier()
 
@@ -486,13 +608,55 @@ class FSDPSFTTrainer:
 
             # validation
             val_losses = []
+            all_prompts = []
+            all_generations = []
+            
+            # Collect a few samples for generation (limit to avoid too much output)
+            max_samples_to_generate = int(os.getenv("VERL_MAX_VAL_SAMPLES", 
+                getattr(self.config.trainer, "max_val_samples", 5) if hasattr(self.config.trainer, "max_val_samples") else 5))
+            samples_generated = 0
+            
             for data in self.val_dataloader:
                 data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
                 val_loss = self.validation_step(data)
                 val_losses.append(val_loss)
+                
+                # Generate samples for the first few batches
+                if samples_generated < max_samples_to_generate:
+                    try:
+                        prompts, generations = self.generate_samples(data, max_new_tokens=100)
+                        all_prompts.extend(prompts)
+                        all_generations.extend(generations)
+                        samples_generated += len(prompts)
+                    except Exception as e:
+                        if rank == 0:
+                            print(f"Warning: Failed to generate samples during validation: {e}")
+            
             if rank == 0:
                 val_loss = torch.mean(torch.stack(val_losses))
                 metric = {"val/loss": val_loss.detach().item()}
+                
+                # Log sample generations if available using proper media logging
+                if all_prompts and all_generations:
+                    # Prepare samples for the validation logger (input, output, score format)
+                    samples = []
+                    num_samples_to_log = min(3, len(all_prompts))
+                    for i in range(num_samples_to_log):
+                        # Truncate long texts for display
+                        prompt_text = all_prompts[i][:200] + "..." if len(all_prompts[i]) > 200 else all_prompts[i]
+                        generation_text = all_generations[i][:200] + "..." if len(all_generations[i]) > 200 else all_generations[i]
+                        samples.append([prompt_text, generation_text, "N/A"])  # No score available
+                    
+                    # Log using the proper validation generations logger
+                    val_generations_logger.log(tracking.logger.keys(), samples, global_step)
+                    
+                    # Also print some samples to console
+                    print(f"\n=== Validation Samples (Step {global_step}) ===")
+                    for i in range(min(2, len(all_prompts))):
+                        print(f"Prompt {i+1}: {all_prompts[i]}")
+                        print(f"Generation {i+1}: {all_generations[i]}")
+                        print("-" * 50)
+                
                 tracking.log(data=metric, step=global_step)
             torch.distributed.barrier()
 
