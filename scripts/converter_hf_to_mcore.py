@@ -43,7 +43,8 @@ def _init_args():
     1. single rank conversion for any model:
         > python converter_hf_to_mcore.py --hf_model_path %{hf_model} --output_path ${output_path}
     2. distributed conversion for DeepseekV3 671B:
-        > torchrun --nproc_per_node 1 --nnodes 4 --node_rank ${RANK} converter_hf_to_mcore.py --hf_model_path %{hf_model} --output_path ${output_path}
+        > torchrun --nproc_per_node 1 --nnodes 4 --node_rank ${RANK} converter_hf_to_mcore.py \
+          --hf_model_path %{hf_model} --output_path ${output_path}
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--hf_model_path", type=str, required=True, help="The path for the huggingface model")
