@@ -65,6 +65,7 @@ on:
       - ".github/workflows/sgl.yml"
       - "tests/rollout/*sglang*"
       - "tests/rollout/async_rollout_utils.py"
+      - "tests/workers/rollout/*interaction*"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -100,11 +101,20 @@ jobs:
       - name: Download Model to Use
         run: |
           huggingface-cli download 'Qwen/Qwen2-7B-Instruct'
+          huggingface-cli download 'Qwen/Qwen2.5-0.5B'
           export HF_HUB_OFFLINE=1
       - name: Test the latest SGLang
         run: |
           cd tests/workers/rollout
           torchrun --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_sglang_spmd.py
+      - name: Test the latest SGLang Rollout async with interaction
+        run: |
+          cd tests/workers/rollout
+          torchrun --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_sglang_async_rollout_w_interaction.py
+      - name: Test the latest SGLang Multi Interaction
+        run: |
+          cd tests/workers/rollout
+          torchrun --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_sglang_multi_interaction.py
       - name: Test the latest SGLang Rollout async with tool
         run: |
           cd tests/workers/rollout

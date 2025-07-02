@@ -12,31 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
+
 import torch
 import torch.distributed
-from omegaconf import DictConfig, OmegaConf
-from transformers import AutoConfig, AutoTokenizer
-from vllm import LLM, SamplingParams
-from vllm.distributed import parallel_state as vllm_ps
-import torch
+import torch.distributed as dist
 from omegaconf import OmegaConf
-from torch.distributed.fsdp import CPUOffload, MixedPrecision
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.api import ShardedStateDictConfig, ShardingStrategy, StateDictType
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer
 
-import gc, torch, torch.distributed as dist
-
-from verl.third_party.vllm import vllm_version
-from verl.workers.rollout.vllm_rollout.vllm_rollout_spmd import vLLMRollout
 from verl import DataProto
 from verl.utils.distributed import initialize_global_process_group
-from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
-from verl.workers.rollout.hf_rollout import HFRollout
-from verl.utils.distributed import initialize_global_process_group
-
-
+from verl.workers.rollout.vllm_rollout.vllm_rollout_spmd import vLLMRollout
 
 
 def test_vllm_rollout_with_yarn_position_embeddings():
@@ -56,7 +43,7 @@ def test_vllm_rollout_with_yarn_position_embeddings():
             "enable_chunked_prefill": False,
             "free_cache_engine": False,
             "disable_log_stats": True,
-            "max_model_len":35000+512,
+            "max_model_len": 35000 + 512,
             "load_format": "auto",
             "val_kwargs": {
                 "top_k": -1,
@@ -70,7 +57,7 @@ def test_vllm_rollout_with_yarn_position_embeddings():
             "calculate_log_probs": False,
             "do_sample": False,
             "temperature": 0.0,
-            "max_num_batched_tokens": 35000+512,
+            "max_num_batched_tokens": 35000 + 512,
         }
     )
 
@@ -80,7 +67,6 @@ def test_vllm_rollout_with_yarn_position_embeddings():
 
     # do_sample=False for temperate=0 deterministic
     input_dataproto = prepare_input_dataproto(tokenizer, config, validate=True, do_sample=False)
-
 
     vllm_rollout = vLLMRollout(
         model_path=config.model_path,
@@ -97,25 +83,32 @@ def test_vllm_rollout_with_yarn_position_embeddings():
         print("VLLM Rollout Outputs:")
         print(tokenizer.batch_decode(rollout_response.batch["responses"][:], skip_special_tokens=False))
         for response in rollout_response.batch["responses"]:
-            assert "<|im_end|>" in tokenizer.decode(response, skip_special_tokens=False), "Response should contain <|im_end|> token"
+            assert "<|im_end|>" in tokenizer.decode(response, skip_special_tokens=False), (
+                "Response should contain <|im_end|> token"
+            )
     print("Checks passed.")
-    vllm_rollout.inference_engine.sleep(level=2)  
+    vllm_rollout.inference_engine.sleep(level=2)
 
     del vllm_rollout
     gc.collect()
     torch.cuda.empty_cache()
     torch.cuda.ipc_collect()
-    dist.barrier() 
+    dist.barrier()
     torch.distributed.destroy_process_group()
-    
+
 
 def prepare_input_dataproto(tokenizer, config, validate, do_sample=False):
+    base_phrase = "Roses are red, sky is blue. " * 4096
     preencode_prompts = [
-        [{"role": "user", "content": "Roses are red, sky is blue. "*4096+"Who won the Champions League in 2019?"}], # 32810 tokens > 32768 tokens
-        [{"role": "user", "content": "Roses are red, sky is blue."*4096+ "The founder of Apple is"}],
-        [{"role": "user", "content": "Roses are red, sky is blue."*4096+"What's your name"}], 
+        # 32810 tokens > 32768 tokens
+        [{"role": "user", "content": base_phrase + "Who won the Champions League in 2019?"}],
+        [{"role": "user", "content": base_phrase + "The founder of Apple is"}],
+        [{"role": "user", "content": base_phrase + "What's your name"}],
     ]
-    formatted_prompts = [tokenizer.apply_chat_template(conversation, tokenize=False, add_generation_prompt=True) for conversation in preencode_prompts]
+    formatted_prompts = [
+        tokenizer.apply_chat_template(conversation, tokenize=False, add_generation_prompt=True)
+        for conversation in preencode_prompts
+    ]
     prompts = tokenizer(formatted_prompts, return_tensors="pt", padding="max_length", max_length=config.prompt_length)
     input_dataproto = DataProto.from_dict(
         {
@@ -136,7 +129,5 @@ def prepare_input_dataproto(tokenizer, config, validate, do_sample=False):
     return input_dataproto
 
 
-
 if __name__ == "__main__":
-
     test_vllm_rollout_with_yarn_position_embeddings()

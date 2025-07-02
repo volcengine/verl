@@ -28,7 +28,10 @@ from verl.utils.model import compute_position_id_with_mask
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-BASE_CHAT_HISTORY = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": "I am a user."}]
+BASE_CHAT_HISTORY = [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": "I am a user."},
+]
 
 
 class FinishReasonTypeEnum(str, Enum):
@@ -81,6 +84,7 @@ class AsyncRolloutRequest(BaseModel):
     batch_data_id: int = 0
     rollout_offset: int = 0
     request_id: str
+    uid: str | None = ""
     state: AsyncRolloutRequestStateEnum
     messages: List[Message]
     multi_modal_keys: Optional[List[str]] = None
@@ -135,24 +139,68 @@ class AsyncRolloutRequest(BaseModel):
                 if key not in values["multi_modal_data"]:
                     values["multi_modal_data"][key] = []
 
-        tools = [tool.model_dump() for tool in tool_schemas] if (tool_schemas := values.get("tool_schemas", [])) else None
+        tools = (
+            [tool.model_dump() for tool in tool_schemas] if (tool_schemas := values.get("tool_schemas", [])) else None
+        )
 
         multi_modal_data = values["multi_modal_data"]
-        tokens_without_prompt = cls._handle_apply_chat_template(processing_class, messages, multi_modal_data=multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True)
+        tokens_without_prompt = cls._handle_apply_chat_template(
+            processing_class,
+            messages,
+            multi_modal_data=multi_modal_data,
+            tools=tools,
+            add_generation_prompt=False,
+            tokenize=True,
+        )
         if not values.get("input_ids") or not values.get("attention_mask"):
-            tokenization_dict_with_prompt = cls._handle_apply_chat_template(processing_class, messages, multi_modal_data=multi_modal_data, tools=tools, add_generation_prompt=True, tokenize=True, return_dict=True)
+            tokenization_dict_with_prompt = cls._handle_apply_chat_template(
+                processing_class,
+                messages,
+                multi_modal_data=multi_modal_data,
+                tools=tools,
+                add_generation_prompt=True,
+                tokenize=True,
+                return_dict=True,
+            )
 
-            values["input_ids"], values["attention_mask"] = tokenization_dict_with_prompt["input_ids"], tokenization_dict_with_prompt["attention_mask"]
+            values["input_ids"], values["attention_mask"] = (
+                tokenization_dict_with_prompt["input_ids"],
+                tokenization_dict_with_prompt["attention_mask"],
+            )
             if len(values["input_ids"]) > max_prompt_len:
-                # Only log the warning to avoid truncating in the middle of generation prompt. Consider raising an error for this case in the future.
-                logger.warning(f"Prompt {values['batch_data_id']} length {len(values['input_ids'])} greater than max_prompt_len {max_prompt_len} after applied chat template with tools.")
+                # Only log the warning to avoid truncating in the middle of generation prompt. Consider raising an
+                # error for this case in the future.
+                logger.warning(
+                    f"Prompt {values['batch_data_id']} length {len(values['input_ids'])} greater than max_prompt_len "
+                    f"{max_prompt_len} after applied chat template with tools."
+                )
 
         values["prompt_ids"], values["prompt_attention_mask"] = values["input_ids"], values["attention_mask"]
-        values["position_ids"] = values["prompt_position_ids"] = compute_position_id_with_mask(torch.tensor(values["attention_mask"])).tolist()
+        values["position_ids"] = values["prompt_position_ids"] = compute_position_id_with_mask(
+            torch.tensor(values["attention_mask"])
+        ).tolist()
         values["loss_mask"] = values["prompt_loss_mask"] = [0] * len(values["input_ids"])
         values["generation_prompt_ids"] = values["input_ids"][len(tokens_without_prompt) :]
-        values["base_conv_wo_gen_prompt_end_pos"] = len(cls._handle_apply_chat_template(processing_class, BASE_CHAT_HISTORY, multi_modal_data=multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True))
-        values["base_conv_with_gen_prompt_end_pos"] = len(cls._handle_apply_chat_template(processing_class, BASE_CHAT_HISTORY, multi_modal_data=multi_modal_data, tools=tools, add_generation_prompt=True, tokenize=True))
+        values["base_conv_wo_gen_prompt_end_pos"] = len(
+            cls._handle_apply_chat_template(
+                processing_class,
+                BASE_CHAT_HISTORY,
+                multi_modal_data=multi_modal_data,
+                tools=tools,
+                add_generation_prompt=False,
+                tokenize=True,
+            )
+        )
+        values["base_conv_with_gen_prompt_end_pos"] = len(
+            cls._handle_apply_chat_template(
+                processing_class,
+                BASE_CHAT_HISTORY,
+                multi_modal_data=multi_modal_data,
+                tools=tools,
+                add_generation_prompt=True,
+                tokenize=True,
+            )
+        )
 
         return values
 
@@ -168,10 +216,20 @@ class AsyncRolloutRequest(BaseModel):
     ):
         if isinstance(processing_class, PreTrainedTokenizer) or isinstance(processing_class, PreTrainedTokenizerFast):
             if any(len(values) > 0 for values in multi_modal_data.values()):
-                logger.warning("There is multi_modal_data but you are not using a processor. Multi-modal data will be ignored.")
-            return processing_class.apply_chat_template(messages, tools=tools, add_generation_prompt=add_generation_prompt, tokenize=tokenize, return_dict=return_dict)
+                logger.warning(
+                    "There is multi_modal_data but you are not using a processor. Multi-modal data will be ignored."
+                )
+            return processing_class.apply_chat_template(
+                messages,
+                tools=tools,
+                add_generation_prompt=add_generation_prompt,
+                tokenize=tokenize,
+                return_dict=return_dict,
+            )
         elif isinstance(processing_class, ProcessorMixin):
-            raw_prompt = processing_class.apply_chat_template(messages, tools=tools, add_generation_prompt=add_generation_prompt, tokenize=False)
+            raw_prompt = processing_class.apply_chat_template(
+                messages, tools=tools, add_generation_prompt=add_generation_prompt, tokenize=False
+            )
             if not tokenize:
                 return raw_prompt
 
@@ -196,20 +254,37 @@ class AsyncRolloutRequest(BaseModel):
         attention_mask = [int(attention_mask)] * len(new_input_ids)
         self.attention_mask += attention_mask
         self.loss_mask += [int(loss_mask)] * len(new_input_ids)
-        self.position_ids += (compute_position_id_with_mask(torch.tensor(attention_mask)) + (self.position_ids[-1] + 1)).tolist()
+        self.position_ids += (
+            compute_position_id_with_mask(torch.tensor(attention_mask)) + (self.position_ids[-1] + 1)
+        ).tolist()
 
-        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
+        assert (
+            len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask)
+        ), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
             {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
 
-    def get_generation_prompt_ids(self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin]) -> list[int]:
-        generation_prompt_ids = [] if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids else self.generation_prompt_ids
+    def get_generation_prompt_ids(
+        self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin]
+    ) -> list[int]:
+        generation_prompt_ids = (
+            []
+            if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids
+            else self.generation_prompt_ids
+        )
         if generation_prompt_ids:
             self._update_input_ids(generation_prompt_ids, attention_mask=True, loss_mask=False)
 
         if self.use_inference_chat_template:
             messages = [msg.model_dump() for msg in self.messages]
             tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
-            generation_prompt_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=True, tokenize=True)
+            generation_prompt_ids = self._handle_apply_chat_template(
+                processing_class,
+                messages,
+                multi_modal_data=self.multi_modal_data,
+                tools=tools,
+                add_generation_prompt=True,
+                tokenize=True,
+            )
             return generation_prompt_ids
         else:
             return self.input_ids
@@ -223,8 +298,11 @@ class AsyncRolloutRequest(BaseModel):
         messages = [*BASE_CHAT_HISTORY, self.messages[-1]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
 
-        # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine Inference, it is pure text.
-        content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_wo_gen_prompt_end_pos :]
+        # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine
+        # Inference, it is pure text.
+        content_ids = self._handle_apply_chat_template(
+            processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True
+        )[self.base_conv_wo_gen_prompt_end_pos :]
         self._update_input_ids(content_ids, attention_mask=True, loss_mask=False)
 
     def add_assistant_message(
@@ -238,11 +316,16 @@ class AsyncRolloutRequest(BaseModel):
         messages = [*BASE_CHAT_HISTORY, self.messages[-1]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
 
-        # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine Inference, it is pure text.
-        content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_with_gen_prompt_end_pos :]
+        # We don't need to pass multi_modal_data here because we don't have any multi-modal data from Engine
+        # Inference, it is pure text.
+        content_ids = self._handle_apply_chat_template(
+            processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True
+        )[self.base_conv_with_gen_prompt_end_pos :]
         self._update_input_ids(content_ids, attention_mask=True, loss_mask=True)
 
-    def add_tool_response_messages(self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin], contents: list[str]) -> None:
+    def add_tool_response_messages(
+        self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin], contents: list[str]
+    ) -> None:
         if not contents:
             return
 
@@ -252,7 +335,9 @@ class AsyncRolloutRequest(BaseModel):
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
 
         # Currently we don't support tool creates multi-modal data
-        content_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True)[self.base_conv_wo_gen_prompt_end_pos :]
+        content_ids = self._handle_apply_chat_template(
+            processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True
+        )[self.base_conv_wo_gen_prompt_end_pos :]
         self._update_input_ids(content_ids, attention_mask=True, loss_mask=False)
 
     def update_metrics(self, metrics: Any, tool_id: str) -> None:
@@ -263,7 +348,13 @@ class AsyncRolloutRequest(BaseModel):
             self.metrics[tool_id] = []
         self.metrics[tool_id].append(metrics)
 
-    def _get_prompt_diffs(self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin], full_prompt_ids: List[int], current_prompt_ids: List[int], diff_surrounding_chars: int = 10) -> List[Dict[str, Any]]:
+    def _get_prompt_diffs(
+        self,
+        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
+        full_prompt_ids: List[int],
+        current_prompt_ids: List[int],
+        diff_surrounding_chars: int = 10,
+    ) -> List[Dict[str, Any]]:
         """Get differences between full prompt and current prompt with surrounding context.
 
         This function helps debug tokenization mismatches by showing the differences between
@@ -326,29 +417,51 @@ class AsyncRolloutRequest(BaseModel):
 
             messages = [msg.model_dump() for msg in self.messages]
             tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
-            full_prompt_ids = self._handle_apply_chat_template(processing_class, messages, multi_modal_data=self.multi_modal_data, tools=tools, add_generation_prompt=False, tokenize=True)
+            full_prompt_ids = self._handle_apply_chat_template(
+                processing_class,
+                messages,
+                multi_modal_data=self.multi_modal_data,
+                tools=tools,
+                add_generation_prompt=False,
+                tokenize=True,
+            )
 
-            if diffs := self._get_prompt_diffs(processing_class, full_prompt_ids, self.input_ids, diff_surrounding_chars=diff_surrounding_chars):
+            if diffs := self._get_prompt_diffs(
+                processing_class, full_prompt_ids, self.input_ids, diff_surrounding_chars=diff_surrounding_chars
+            ):
                 log_warning = False
                 if self.tokenization_sanity_check_mode == TokenizationSanityCheckModeEnum.STRICT:
                     log_warning = True
                 elif self.tokenization_sanity_check_mode == TokenizationSanityCheckModeEnum.IGNORE_STRIPPABLE:
-                    non_strippable_diffs_exist = any(d["full_prompt_chunk"].strip() or d["current_prompt_chunk"].strip() for d in diffs)
+                    non_strippable_diffs_exist = any(
+                        d["full_prompt_chunk"].strip() or d["current_prompt_chunk"].strip() for d in diffs
+                    )
                     if non_strippable_diffs_exist:
                         log_warning = True
 
                 if log_warning:
                     mode_str = f" ({self.tokenization_sanity_check_mode.value})"
-                    logger.warning(f"Inconsistent training and inference tokenization detected{mode_str}. This may lead to unexpected behavior during training. Please review your chat template to determine if this is intentional. For more information, refer to the multiturn README.md.")
-                    logger.warning(f"Showing {diff_surrounding_chars} characters before and after the diffs for context and better readability.")
+                    logger.warning(
+                        f"Inconsistent training and inference tokenization detected{mode_str}. This may lead to "
+                        f"unexpected behavior during training. Please review your chat template to determine if this "
+                        f"is intentional. For more information, refer to the multiturn README.md."
+                    )
+                    logger.warning(
+                        f"Showing {diff_surrounding_chars} characters before and after the diffs for context and "
+                        f"better readability."
+                    )
                     diff_details_list = []
                     for d in diffs:
                         i1, i2, j1, j2 = d["indices"]
-                        diff_details_list.append(f"idx {i1}:{i2} -> {j1}:{j2} | full_prompt_chunk: {repr(d['full_prompt_chunk'])} | current_prompt_chunk: {repr(d['current_prompt_chunk'])}")
+                        diff_details_list.append(
+                            f"idx {i1}:{i2} -> {j1}:{j2} | full_prompt_chunk: {repr(d['full_prompt_chunk'])} | "
+                            f"current_prompt_chunk: {repr(d['current_prompt_chunk'])}"
+                        )
                     diff_details = "\n".join(diff_details_list)
                     logger.warning(f"Found differences:\n{diff_details}")
 
-        # In case we failed to generate the assistant message and the generation prompt ids were already added to input_ids, remove them from the end of input_ids
+        # In case we failed to generate the assistant message and the generation prompt ids were already added to
+        # input_ids, remove them from the end of input_ids
         if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids:
             self.input_ids = self.input_ids[: -len(self.generation_prompt_ids)]
             self.attention_mask = self.attention_mask[: -len(self.generation_prompt_ids)]
@@ -363,10 +476,14 @@ class AsyncRolloutRequest(BaseModel):
         else:
             raise ValueError(f"Unsupported finalize finish reason type: {finish_reason_type}")
         self.truncate_output_ids(processing_class)
-        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
+        assert (
+            len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask)
+        ), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
             {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
 
-    def truncate_output_ids(self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin]) -> None:
+    def truncate_output_ids(
+        self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin]
+    ) -> None:
         self.input_ids = self.input_ids[: self.max_model_len]
         self.attention_mask = self.attention_mask[: self.max_model_len]
         self.position_ids = self.position_ids[: self.max_model_len]

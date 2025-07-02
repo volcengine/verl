@@ -18,10 +18,13 @@ from megatron.core import parallel_state as mpu
 from megatron.core.packed_seq_params import PackedSeqParams
 
 
-def preprocess_packed_seqs(input_ids: torch.Tensor, attention_mask: torch.Tensor, pre_process: bool = True) -> tuple[torch.Tensor, PackedSeqParams]:
+def preprocess_packed_seqs(
+    input_ids: torch.Tensor, attention_mask: torch.Tensor, pre_process: bool = True
+) -> tuple[torch.Tensor, PackedSeqParams]:
     """
     Preprocess packed sequences
-    CP splits sequence into CP*2 chunks, and each GPU gets 2 chunks (GPU0 gets first and last chunks, GPU1 gets second and second last chunks, and so on), this is for load balancing with causal masking.
+    CP splits sequence into CP*2 chunks, and each GPU gets 2 chunks (GPU0 gets first and last chunks, GPU1
+    gets second and second last chunks, and so on), this is for load balancing with causal masking.
     See https://github.com/NVIDIA/TransformerEngine/issues/1368
     """
     batch_size = input_ids.shape[0]
@@ -54,14 +57,18 @@ def preprocess_packed_seqs(input_ids: torch.Tensor, attention_mask: torch.Tensor
             start_idx = cu_seqlens_padded[i] // cp_size
             # split to 2 chunks
             d = input_ids[i, attention_mask[i]]
-            input_ids_rmpad[start_idx : start_idx + half_seqlen] = d[half_seqlen * cp_rank : half_seqlen * (cp_rank + 1)]
+            input_ids_rmpad[start_idx : start_idx + half_seqlen] = d[
+                half_seqlen * cp_rank : half_seqlen * (cp_rank + 1)
+            ]
 
             remain_start = seqlens_in_batch_padded[i] - half_seqlen * (cp_rank + 1)
             remain_end = seqlens_in_batch_padded[i] - half_seqlen * cp_rank
             remain_end = min(remain_end, d.shape[0])
             remain_len = remain_end - remain_start
             if remain_len > 0:
-                input_ids_rmpad[start_idx + half_seqlen : start_idx + half_seqlen + remain_len] = d[remain_start:remain_end]
+                input_ids_rmpad[start_idx + half_seqlen : start_idx + half_seqlen + remain_len] = d[
+                    remain_start:remain_end
+                ]
 
     packed_seq_params = PackedSeqParams(
         qkv_format="thd",
@@ -107,9 +114,13 @@ def postprocess_packed_seqs(
     for i in range(batch_size):
         if cp_size <= 1:
             s = attention_mask[i].sum().item()
-            output_new[i, attention_mask[i]] = output[0][packed_seq_params.cu_seqlens_q_padded[i] : packed_seq_params.cu_seqlens_q_padded[i] + s]
+            output_new[i, attention_mask[i]] = output[0][
+                packed_seq_params.cu_seqlens_q_padded[i] : packed_seq_params.cu_seqlens_q_padded[i] + s
+            ]
             continue
-        s_len_padded_chunk = (packed_seq_params.cu_seqlens_q_padded[i + 1] - packed_seq_params.cu_seqlens_q_padded[i]) // cp_size
+        s_len_padded_chunk = (
+            packed_seq_params.cu_seqlens_q_padded[i + 1] - packed_seq_params.cu_seqlens_q_padded[i]
+        ) // cp_size
         half_seqlen = s_len_padded_chunk // 2
         s_len = attention_mask[i].sum().item()
         s_len_padded = s_len_padded_chunk * cp_size
@@ -155,7 +166,9 @@ def remove_left_padding(
     shape[1] = seq_len
     if pre_process:
         new_input_ids = torch.zeros(dtype=input_ids.dtype, device=input_ids.device, size=shape)
-    new_attention_mask = torch.zeros(dtype=attention_mask.dtype, device=attention_mask.device, size=(batch_size, seq_len))
+    new_attention_mask = torch.zeros(
+        dtype=attention_mask.dtype, device=attention_mask.device, size=(batch_size, seq_len)
+    )
     new_position_ids = torch.zeros(dtype=position_ids.dtype, device=position_ids.device, size=(batch_size, seq_len))
     for i in range(batch_size):
         if pre_process:

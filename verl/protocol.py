@@ -104,12 +104,16 @@ def unpad_dataproto(data: "DataProto", pad_size):
 
 def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> TensorDict:
     """Union two tensordicts."""
-    assert tensor_dict1.batch_size == tensor_dict2.batch_size, f"Two tensor dict must have identical batch size. Got {tensor_dict1.batch_size} and {tensor_dict2.batch_size}"
+    assert tensor_dict1.batch_size == tensor_dict2.batch_size, (
+        f"Two tensor dict must have identical batch size. Got {tensor_dict1.batch_size} and {tensor_dict2.batch_size}"
+    )
     for key in tensor_dict2.keys():
         if key not in tensor_dict1.keys():
             tensor_dict1[key] = tensor_dict2[key]
         else:
-            assert tensor_dict1[key].equal(tensor_dict2[key]), f"{key} in tensor_dict1 and tensor_dict2 are not the same object"
+            assert tensor_dict1[key].equal(tensor_dict2[key]), (
+                f"{key} in tensor_dict1 and tensor_dict2 are not the same object"
+            )
 
     return tensor_dict1
 
@@ -120,7 +124,9 @@ def union_numpy_dict(tensor_dict1: dict[str, np.ndarray], tensor_dict2: dict[str
             assert isinstance(tensor_dict2[key], np.ndarray)
             assert isinstance(tensor_dict1[key], np.ndarray)
             # to properly deal with nan and object type
-            assert pd.DataFrame(tensor_dict2[key]).equals(pd.DataFrame(tensor_dict1[key])), f"{key} in tensor_dict1 and tensor_dict2 are not the same object"
+            assert pd.DataFrame(tensor_dict2[key]).equals(pd.DataFrame(tensor_dict1[key])), (
+                f"{key} in tensor_dict1 and tensor_dict2 are not the same object"
+            )
         tensor_dict1[key] = val
 
     return tensor_dict1
@@ -274,7 +280,11 @@ class DataProto:
 
         batch_deserialized_bytes, non_tensor_batch, meta_info = data
         batch_deserialized = io.BytesIO(initial_bytes=batch_deserialized_bytes)
-        batch = torch.load(batch_deserialized, weights_only=False, map_location="cpu" if not get_torch_device().is_available() else None)
+        batch = torch.load(
+            batch_deserialized,
+            weights_only=False,
+            map_location="cpu" if not get_torch_device().is_available() else None,
+        )
         self.batch = batch
         self.non_tensor_batch = non_tensor_batch
         self.meta_info = meta_info
@@ -324,8 +334,13 @@ class DataProto:
 
             batch_size = self.batch.batch_size[0]
             for key, val in self.non_tensor_batch.items():
-                assert isinstance(val, np.ndarray), f"data in the non_tensor_batch must be a numpy.array with dtype=object, but for {key=}, got {type(val)=}"
-                assert val.shape[0] == batch_size, f"key {key} length {len(val)} is not equal to batch size {batch_size}"
+                assert isinstance(val, np.ndarray), (
+                    f"data in the non_tensor_batch must be a numpy.array with dtype=object, but for "
+                    f"{key=}, got {type(val)=}"
+                )
+                assert val.shape[0] == batch_size, (
+                    f"key {key} length {len(val)} is not equal to batch size {batch_size}"
+                )
 
     @classmethod
     def from_single_dict(cls, data: Dict[str, Union[torch.Tensor, np.ndarray]], meta_info=None, auto_padding=False):
@@ -344,7 +359,14 @@ class DataProto:
         return cls.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info, auto_padding=auto_padding)
 
     @classmethod
-    def from_dict(cls, tensors: Optional[Dict[str, torch.Tensor]] = None, non_tensors=None, meta_info=None, num_batch_dims=1, auto_padding=False):
+    def from_dict(
+        cls,
+        tensors: Optional[Dict[str, torch.Tensor]] = None,
+        non_tensors=None,
+        meta_info=None,
+        num_batch_dims=1,
+        auto_padding=False,
+    ):
         """Create a DataProto from a dict of tensors. This assumes that
         1. All the tensor in tensors have the same dim0
         2. Only dim0 is the batch dim
@@ -372,7 +394,10 @@ class DataProto:
                 pivot_key = key
             else:
                 current_batch = tensor.shape[:num_batch_dims]
-                assert batch_size == current_batch, f"Not all the tensor in tensors have the same batch size with batch_dims={num_batch_dims}. Got {pivot_key} has {batch_size}, {key} has {current_batch}"
+                assert batch_size == current_batch, (
+                    f"Not all the tensor in tensors have the same batch size with batch_dims={num_batch_dims}. "
+                    f"Got {pivot_key} has {batch_size}, {key} has {current_batch}"
+                )
 
         for key, val in non_tensors.items():
             if not isinstance(val, np.ndarray):
@@ -458,7 +483,11 @@ class DataProto:
 
         if self.batch is not None:
             # Use TensorDict's built-in indexing capabilities
-            selected_batch = TensorDict(source={key: tensor[idxs_torch] for key, tensor in self.batch.items()}, batch_size=(batch_size,), device=self.batch.device)
+            selected_batch = TensorDict(
+                source={key: tensor[idxs_torch] for key, tensor in self.batch.items()},
+                batch_size=(batch_size,),
+                device=self.batch.device,
+            )
         else:
             selected_batch = None
 
@@ -566,7 +595,9 @@ class DataProto:
         new_keys = validate_input(new_keys)
 
         if len(new_keys) != len(old_keys):
-            raise ValueError(f"new_keys and old_keys must have the same length, but got {len(new_keys)} and {len(old_keys)}")
+            raise ValueError(
+                f"new_keys and old_keys must have the same length, but got {len(new_keys)} and {len(old_keys)}"
+            )
 
         self.batch.rename_key_(tuple(old_keys), tuple(new_keys))
 
@@ -597,12 +628,15 @@ class DataProto:
 
 
         Args:
-            mini_batch_size (int): mini-batch size when iterating the dataset. We require that ``batch.batch_size[0] % mini_batch_size == 0``.
+            mini_batch_size (int): mini-batch size when iterating the dataset. We require that
+                ``batch.batch_size[0] % mini_batch_size == 0``.
             epochs (int): number of epochs when iterating the dataset.
-            dataloader_kwargs (Any): internally, it returns a DataLoader over the batch. The dataloader_kwargs is the kwargs passed to the DataLoader.
+            dataloader_kwargs (Any): internally, it returns a DataLoader over the batch. The
+                dataloader_kwargs is the kwargs passed to the DataLoader.
 
         Returns:
-            Iterator: an iterator that yields a mini-batch data at a time. The total number of iteration steps is ``self.batch.batch_size * epochs // mini_batch_size``
+            Iterator: an iterator that yields a mini-batch data at a time. The total number of iteration
+                steps is ``self.batch.batch_size * epochs // mini_batch_size``
         """
         assert self.batch.batch_size[0] % mini_batch_size == 0, f"{self.batch.batch_size[0]} % {mini_batch_size} != 0"
         # we can directly create a dataloader from TensorDict
@@ -616,7 +650,9 @@ class DataProto:
             generator = None
 
         assert isinstance(dataloader_kwargs, Dict)
-        train_dataloader = DataLoader(dataset=self, batch_size=mini_batch_size, collate_fn=collate_fn, generator=generator, **dataloader_kwargs)
+        train_dataloader = DataLoader(
+            dataset=self, batch_size=mini_batch_size, collate_fn=collate_fn, generator=generator, **dataloader_kwargs
+        )
 
         def get_data():
             for _ in range(epochs):
@@ -660,7 +696,9 @@ class DataProto:
             List[DataProto]: a list of DataProto after splitting
         """
         if not self.is_padding_enabled():
-            assert len(self) % chunks == 0, f"only support equal chunk. Got size of DataProto {len(self)} and chunk {chunks}."
+            assert len(self) % chunks == 0, (
+                f"only support equal chunk. Got size of DataProto {len(self)} and chunk {chunks}."
+            )
 
         bsz_in_batch = None
         if self.batch is not None:
@@ -683,7 +721,9 @@ class DataProto:
 
         output = []
         for i in range(chunks):
-            output.append(type(self)(batch=batch_lst[i], non_tensor_batch=non_tensor_batch_lst[i], meta_info=self.meta_info))
+            output.append(
+                type(self)(batch=batch_lst[i], non_tensor_batch=non_tensor_batch_lst[i], meta_info=self.meta_info)
+            )
 
         return output
 
@@ -732,10 +772,15 @@ class DataProto:
         if self.batch is not None:
             if interleave:
                 # Interleave the data
-                repeated_tensors = {key: tensor.repeat_interleave(repeat_times, dim=0) for key, tensor in self.batch.items()}
+                repeated_tensors = {
+                    key: tensor.repeat_interleave(repeat_times, dim=0) for key, tensor in self.batch.items()
+                }
             else:
                 # Stack the data
-                repeated_tensors = {key: tensor.unsqueeze(0).expand(repeat_times, *tensor.shape).reshape(-1, *tensor.shape[1:]) for key, tensor in self.batch.items()}
+                repeated_tensors = {
+                    key: tensor.unsqueeze(0).expand(repeat_times, *tensor.shape).reshape(-1, *tensor.shape[1:])
+                    for key, tensor in self.batch.items()
+                }
 
             repeated_batch = TensorDict(
                 source=repeated_tensors,
@@ -774,7 +819,9 @@ class DataProto:
                 else:
                     unfolded_batch[key] = torch.repeat_interleave(self.batch[key], n_split, dim=0)
             # locate the `unfolded_batch` as a TensorDict on the same device as the original batch
-            unfolded_batch = TensorDict(source=unfolded_batch, batch_size=(self.batch.batch_size[0] * n_split,), device=self.batch.device)
+            unfolded_batch = TensorDict(
+                source=unfolded_batch, batch_size=(self.batch.batch_size[0] * n_split,), device=self.batch.device
+            )
         else:
             unfolded_batch = None
 
@@ -813,12 +860,16 @@ class DataProto:
             assert len(repeat_times.shape) == 1
             repeat_times = repeat_times.tolist()
         else:
-            assert isinstance(repeat_times, list), f"repeat_times type must be in [list, torch.Tensor, np.ndarray, tuple], got {type(repeat_times)}"
+            assert isinstance(repeat_times, list), (
+                f"repeat_times type must be in [list, torch.Tensor, np.ndarray, tuple], got {type(repeat_times)}"
+            )
         repeat_times = torch.tensor(repeat_times)
 
         if self.batch is not None:
             # Interleave the data
-            repeated_tensors = {key: tensor.repeat_interleave(repeat_times, dim=0) for key, tensor in self.batch.items()}
+            repeated_tensors = {
+                key: tensor.repeat_interleave(repeat_times, dim=0) for key, tensor in self.batch.items()
+            }
 
             repeated_batch = TensorDict(
                 source=repeated_tensors,
@@ -846,7 +897,8 @@ class DataProtoFuture:
     for data so that asynchronous execution becomes possible.
     DataProtoFuture contains a list of futures from another WorkerGroup of size world_size.
     - collect_fn is a Callable that reduces the list of futures to a DataProto
-    - dispatch_fn is a Callable that partitions the DataProto into a list of DataProto of size world_size and then select
+    - dispatch_fn is a Callable that partitions the DataProto into a list of DataProto of size world_size
+        and then select
 
     Potential issue: we can optimize dispatch_fn(collect_fn) such that only needed data is fetched on destination
     - DataProtoFuture only supports directly passing from the output of a method to another input. You can't perform any
@@ -871,7 +923,9 @@ class DataProtoFuture:
             def dispatch_fn(x, i, chunks):
                 return x.chunk(chunks=chunks)[i]
 
-            arg_future = DataProtoFuture(collect_fn=self.collect_fn, dispatch_fn=partial(dispatch_fn, i=i, chunks=chunks), futures=self.futures)
+            arg_future = DataProtoFuture(
+                collect_fn=self.collect_fn, dispatch_fn=partial(dispatch_fn, i=i, chunks=chunks), futures=self.futures
+            )
             arg_future_lst.append(arg_future)
         return arg_future_lst
 

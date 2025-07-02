@@ -23,7 +23,12 @@ import torch
 from .profile import DistProfiler, ProfilerConfig
 
 
-def mark_start_range(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> None:
+def mark_start_range(
+    message: Optional[str] = None,
+    color: Optional[str] = None,
+    domain: Optional[str] = None,
+    category: Optional[str] = None,
+) -> None:
     """Start a mark range in the profiler.
 
     Args:
@@ -49,7 +54,12 @@ def mark_end_range(range_id: str) -> None:
     return nvtx.end_range(range_id)
 
 
-def mark_annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
+def mark_annotate(
+    message: Optional[str] = None,
+    color: Optional[str] = None,
+    domain: Optional[str] = None,
+    category: Optional[str] = None,
+) -> Callable:
     """Decorate a function to annotate a mark range along with the function life cycle.
 
     Args:
@@ -71,7 +81,13 @@ def mark_annotate(message: Optional[str] = None, color: Optional[str] = None, do
 
 
 @contextmanager
-def marked_timer(name: str, timing_raw: Dict[str, float], color: str = None, domain: Optional[str] = None, category: Optional[str] = None):
+def marked_timer(
+    name: str,
+    timing_raw: Dict[str, float],
+    color: str = None,
+    domain: Optional[str] = None,
+    category: Optional[str] = None,
+):
     """Context manager for timing with NVTX markers.
 
     This utility function measures the execution time of code within its context,
@@ -122,10 +138,16 @@ class NsightSystemsProfiler(DistProfiler):
                 torch.cuda.profiler.stop()
 
     @staticmethod
-    def annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
+    def annotate(
+        message: Optional[str] = None,
+        color: Optional[str] = None,
+        domain: Optional[str] = None,
+        category: Optional[str] = None,
+    ) -> Callable:
         """Decorate a Worker member function to profile the current rank in the current training step.
 
-        Requires the target function to be a member function of a Worker, which has a member field `profiler` with NightSystemsProfiler type.
+        Requires the target function to be a member function of a Worker, which has a member field `profiler` with
+        NightSystemsProfiler type.
 
         Args:
             message (str, optional):

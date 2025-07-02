@@ -9,7 +9,7 @@ on:
       - v0.*
     paths:
       - "**/*.py"
-        # Other entrypoints
+      # Other entrypoints
       - "!examples/**"
       - "!tests/**"
       - "!verl/trainer/main_*.py"
@@ -30,7 +30,7 @@ on:
       - v0.*
     paths:
       - "**/*.py"
-        # Other entrypoints
+      # Other entrypoints
       - "!examples/**"
       - "!tests/**"
       - "!verl/trainer/main_*.py"

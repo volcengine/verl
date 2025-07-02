@@ -21,7 +21,7 @@ python3 -m verl.trainer.main_generation \
     rollout.gpu_memory_utilization=0.95 \
     rollout.max_num_batched_tokens=65536 \
     rollout.enforce_eager=False \
-    rollout.free_cache_engine=False
+    rollout.free_cache_engine=True
 
 python3 -m recipe.r1.main_eval \
     data.path=$HOME/data/r1/test-output-k1.parquet \

@@ -1,6 +1,8 @@
 PPO Ray Trainer
 ===============
 
+Last updated: 02/12/2025.
+
 We implement the RayPPOTrainer, which is a trainer runs on the driver
 process on a single CPU/GPU node (default is CPU).
 

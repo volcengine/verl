@@ -1,5 +1,7 @@
 # Group Relative Policy Optimization (GRPO)
 
+Last updated: 05/31/2025.
+
 In reinforcement learning, classic algorithms like PPO rely on a "critic" model to estimate the value of actions, guiding the learning process. However, training this critic model can be resource-intensive. 
 
 GRPO simplifies this process by eliminating the need for a separate critic model. Instead, it operates as follows:
