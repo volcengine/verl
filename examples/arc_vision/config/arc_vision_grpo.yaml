@@ -1,124 +1,31 @@
-# Arc Vision GRPO Configuration
-# Self-contained configuration without inheritance
+# @package _global_
 
-# Data configuration for multi-modal inputs
+defaults:
+  - /ppo_trainer@_here_
+
+# Override defaults for Arc Vision GRPO training
 data:
-  train_files: ~/data/arc_vision/screenspot/train.parquet
-  val_files: ~/data/arc_vision/screenspot/validation.parquet
+  # Data files will be overridden by command line
+  train_files: placeholder
+  val_files: placeholder
+  
+  # Core data configuration
   train_batch_size: 64
-  val_batch_size: 32  # Validation batch size
+  val_batch_size: 32
   max_prompt_length: 1024
   max_response_length: 512
-  return_raw_chat: True
-  image_key: images  # Key for image data in parquet
-  filter_overlong_prompts: True
-  truncation: 'error'
-  reward_fn_key: ground_truth  # Key in parquet for ground truth bboxes
-  data_source: arc_vision  # Identifier for reward scoring (matches custom function)
+  return_raw_chat: true
+  image_key: images
+  filter_overlong_prompts: true
+  truncation: error
+  reward_fn_key: ground_truth
 
-# Model configuration - using Qwen2.5-VL-3B
-actor_rollout_ref:
-  model:
-    path: Qwen/Qwen2.5-VL-3B-Instruct
-    trust_remote_code: true
-    use_gradient_checkpointing: true
-    custom_chat_template: "{% set image_count = namespace(value=0) %}{% set video_count = namespace(value=0) %}{%- if tools %}{{- '<|im_start|>system\\n' }}{%- if messages[0]['role'] == 'system' %}{{- messages[0]['content'] }}{%- else %}{{- 'You are a helpful assistant.' }}{%- endif %}{{- \"\\n\\n# Tools\\n\\nYou may call one or more functions to assist with the user query.\\n\\nYou are provided with function signatures within <tools></tools> XML tags:\\n<tools>\" }}{%- for tool in tools %}{{- \"\\n\" }}{{- tool | tojson }}{%- endfor %}{{- \"\\n</tools>\\n\\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\\n<tool_call>\\n{\\\"name\\\": <function-name>, \\\"arguments\\\": <args-json-object>}\\n</tool_call><|im_end|>\\n\" }}{% for message in messages %}{% if message['role'] != 'system' or loop.first == false %}{%- if (message.role == \"user\") or (message.role == \"system\" and not loop.first) or (message.role == \"assistant\" and not message.tool_calls) %}<|im_start|>{{ message['role'] }}\n{% if message['content'] is string %}{{ message['content'] }}<|im_end|>\n{% else %}{% for content in message['content'] %}{% if content['type'] == 'image' or 'image' in content or 'image_url' in content %}{% set image_count.value = image_count.value + 1 %}{% if add_vision_id %}Picture {{ image_count.value }}: {% endif %}<|vision_start|><|image_pad|><|vision_end|>{% elif content['type'] == 'video' or 'video' in content %}{% set video_count.value = video_count.value + 1 %}{% if add_vision_id %}Video {{ video_count.value }}: {% endif %}<|vision_start|><|video_pad|><|vision_end|>{% elif 'text' in content %}{{ content['text'] }}{% endif %}{% endfor %}<|im_end|>\n{% endif %}{%- elif message.role == \"assistant\" %}{{- '<|im_start|>' + message.role }}{%- if message.content %}{{- '\\n' + message.content }}{%- endif %}{%- for tool_call in message.tool_calls %}{%- if tool_call.function is defined %}{%- set tool_call = tool_call.function %}{%- endif %}{{- '\\n<tool_call>\\n{\"name\": \"' }}{{- tool_call.name }}{{- '\", \"arguments\": ' }}{{- tool_call.arguments | tojson }}{{- '}\\n</tool_call>' }}{%- endfor %}{{- '<|im_end|>\\n' }}{%- elif message.role == \"tool\" %}{%- if (loop.index0 == 0) or (messages[loop.index0 - 1].role != \"tool\") %}{{- '<|im_start|>user' }}{%- endif %}{{- '\\n<tool_response>\\n' }}{% if message['content'] is string %}{{ message.content }}{% else %}{% for content in message['content'] %}{% if content['type'] == 'image' or 'image' in content or 'image_url' in content %}{% set image_count.value = image_count.value + 1 %}{% if add_vision_id %}Picture {{ image_count.value }}: {% endif %}<|vision_start|><|image_pad|><|vision_end|>{% elif content['type'] == 'video' or 'video' in content %}{% set video_count.value = video_count.value + 1 %}{% if add_vision_id %}Video {{ video_count.value }}: {% endif %}<|vision_start|><|video_pad|><|vision_end|>{% elif content['type'] == 'text' or 'text' in content %}{{ content['text'] }}{% endif %}{% endfor %}{% endif %}{{- '\\n</tool_response>' }}{%- if loop.last or (messages[loop.index0 + 1].role != \"tool\") %}{{- '<|im_end|>\\n' }}{%- endif %}{%- endif %}{% endif %}{% endfor %}{%- else %}{% for message in messages %}{% if loop.first and message['role'] != 'system' %}<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n{% endif %}{%- if (message.role == \"user\") or (message.role == \"system\" and not loop.first) or (message.role == \"assistant\" and not message.tool_calls) %}<|im_start|>{{ message['role'] }}\n{% if message['content'] is string %}{{ message['content'] }}<|im_end|>\n{% else %}{% for content in message['content'] %}{% if content['type'] == 'image' or 'image' in content or 'image_url' in content %}{% set image_count.value = image_count.value + 1 %}{% if add_vision_id %}Picture {{ image_count.value }}: {% endif %}<|vision_start|><|image_pad|><|vision_end|>{% elif content['type'] == 'video' or 'video' in content %}{% set video_count.value = video_count.value + 1 %}{% if add_vision_id %}Video {{ video_count.value }}: {% endif %}<|vision_start|><|video_pad|><|vision_end|>{% elif 'text' in content %}{{ content['text'] }}{% endif %}{% endfor %}<|im_end|>\n{% endif %}{%- elif message.role == \"assistant\" %}{{- '<|im_start|>' + message.role }}{%- if message.content %}{{- '\\n' + message.content }}{%- endif %}{%- for tool_call in message.tool_calls %}{%- if tool_call.function is defined %}{%- set tool_call = tool_call.function %}{%- endif %}{{- '\\n<tool_call>\\n{\"name\": \"' }}{{- tool_call.name }}{{- '\", \"arguments\": ' }}{{- tool_call.arguments | tojson }}{{- '}\\n</tool_call>' }}{%- endfor %}{{- '<|im_end|>\\n' }}{%- elif message.role == \"tool\" %}{%- if (loop.index0 == 0) or (messages[loop.index0 - 1].role != \"tool\") %}{{- '<|im_start|>user' }}{%- endif %}{{- '\\n<tool_response>\\n' }}{% if message['content'] is string %}{{ message.content }}{% else %}{% for content in message['content'] %}{% if content['type'] == 'image' or 'image' in content or 'image_url' in content %}{% set image_count.value = image_count.value + 1 %}{% if add_vision_id %}Picture {{ image_count.value }}: {% endif %}<|vision_start|><|image_pad|><|vision_end|>{% elif content['type'] == 'video' or 'video' in content %}{% set video_count.value = video_count.value + 1 %}{% if add_vision_id %}Video {{ video_count.value }}: {% endif %}<|vision_start|><|video_pad|><|vision_end|>{% elif content['type'] == 'text' or 'text' in content %}{{ content['text'] }}{% endif %}{% endfor %}{% endif %}{{- '\\n</tool_response>' }}{%- if loop.last or (messages[loop.index0 + 1].role != \"tool\") %}{{- '<|im_end|>\\n' }}{%- endif %}{%- endif %}{% endfor %}{%- endif %}{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}"
-  
-  # Actor training configuration
-  actor:
-    optim:
-      lr: 5e-7
-      weight_decay: 0.1
-    ppo_epochs: 2
-    ppo_mini_batch_size: 64
-    ppo_micro_batch_size_per_gpu: 1
-    use_kl_loss: true
-    kl_loss_coef: 0.04
-    kl_loss_type: low_var_kl
-    entropy_coeff: 0.02  # Prevent mode collapse
-    fsdp_config:
-      param_offload: False
-      optimizer_offload: False
-  
-  # Rollout configuration with multi-turn for tools
-  rollout:
-    name: sglang
-    dtype: bfloat16  # Data type for rollout model
-    multi_turn:
-      enable: True
-      max_turns: 2  # Initial attempt + one tool use
-      tool_config_path: "examples/arc_vision/config/tool_config/arc_vision_tools.yaml"
-    n: 3  # Number of candidates per prompt
-    temperature: 0.8
-    log_prob_micro_batch_size_per_gpu: 10
-    tensor_model_parallel_size: 1  # Adjust based on GPU
-    gpu_memory_utilization: 0.6  # Increased for better performance
-    enable_chunked_prefill: True  # Better memory efficiency
-    enforce_eager: False
-    free_cache_engine: True
-    engine_kwargs:
-      vllm:
-        disable_mm_preprocessor_cache: True
-  
-  # Reference model configuration
-  ref:
-    log_prob_micro_batch_size_per_gpu: 10
-    fsdp_config:
-      param_offload: True
-
-# Algorithm configuration
-algorithm:
-  adv_estimator: grpo  # Group Relative Policy Optimization
-  gamma: 1.0
-  lam: 0.95
-  adv_norm: true
-  use_kl_in_reward: False
-
-# Critic configuration (not used for GRPO but required by VERL)
-critic:
-  strategy: fsdp  # Required even if not used
-  optim:
-    lr: 0.0  # No critic for GRPO
-  model:
-    path: Qwen/Qwen2.5-VL-3B-Instruct  # Same as actor for initialization
-
-# Reward model configuration - using custom function instead of neural model
-reward_model:
-  enable: false  # Disable neural reward model completely
-  reward_manager: naive  # Use naive reward manager for custom functions
-
-# Custom reward function configuration (at top level for VERL)
+# Custom reward function configuration
 custom_reward_function:
-  path: examples/arc_vision/arc_vision_custom_reward.py
+  path: placeholder  # Will be overridden by command line
   name: arc_vision_compute_reward
-  reward_kwargs:
-    confidence_threshold: 0.7
-    reward_weights:
-      task: 0.6    # IoU-based task performance
-      tool: 0.3    # Tool effectiveness
-      gate: 0.1    # Gating penalty
-    tool_penalties:
-      unnecessary_tool: -0.5
-      missed_opportunity: -0.3
-      ineffective_tool: -0.2
-      excessive_tools: -0.4
 
-# Trainer configuration
-trainer:
-  total_epochs: 5
-  save_freq: 25
-  test_freq: 5
-  critic_warmup: 0  # No critic for GRPO
-  logger: ['console']  # Disabled wandb to avoid API key requirement
-  project_name: 'arc_vision_rl'
-  experiment_name: 'qwen2.5_vl_3b_screenspot_grpo'
-  n_gpus_per_node: 2
-  nnodes: 1
-  default_local_dir: outputs/arc_vision/
-
-# Logging configuration
-logging:
-  track_tool_metrics: true
-  track_confidence_metrics: true
-  log_sample_predictions: true
-  log_frequency: 100
+# Disable neural reward model  
+reward_model:
+  enable: false
+  reward_manager: naive
