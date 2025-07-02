@@ -442,8 +442,9 @@ def arc_vision_compute_reward(data_source: str,
             penalty = tool_penalties["ineffective_tool"]
             gate_penalties.append(("ineffective_tool", penalty))
     
-    # Penalty 4: Excessive tool use (too many tools)
-    if tool_metrics["tool_invocations"] > 3:
+    # Penalty 4: Excessive tool use (more than 2 tools)
+    # Note: max_assistant_turns=2 in our config, so this triggers for >2 tools
+    if tool_metrics["tool_invocations"] > 2:
         penalty = tool_penalties["excessive_tools"]
         gate_penalties.append(("excessive_tools", penalty))
     
@@ -459,8 +460,7 @@ def arc_vision_compute_reward(data_source: str,
         reward_weights["gate"] * r_gate
     )
     
-    # Ensure reward is not negative (clamp to minimum of 0)
-    final_reward = max(0.0, final_reward)
+    # Do not clamp - allow negative rewards to propagate for proper RL signal
     
     # ==============================================================================
     # DETAILED LOGGING INTEGRATION - Log all monitoring data
