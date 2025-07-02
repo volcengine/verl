@@ -29,10 +29,8 @@ CONFIG_PATH="$BASE_DIR/examples/arc_vision/config"
 # Number of GPUs
 N_GPUS=${N_GPUS:-2}
 
-# Launch VERL PPO training with GRPO algorithm  
+# Launch VERL PPO training with GRPO algorithm
 python3 -m verl.trainer.main_ppo \
-    --config-path="$CONFIG_PATH" \
-    --config-name='arc_vision_grpo' \
     algorithm.adv_estimator=grpo \
     algorithm.gamma=1.0 \
     algorithm.lam=0.95 \

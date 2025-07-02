@@ -1,24 +1,30 @@
-# @package _global_
+hydra:
+  searchpath:
+    - file://verl/trainer/config
 
 defaults:
-  - /ppo_trainer@_here_
+  - ppo_trainer
+  - _self_
 
 # Override defaults for Arc Vision GRPO training
 data:
-  # Data files will be overridden by command line
-  train_files: placeholder
-  val_files: placeholder
-  
-  # Core data configuration
-  train_batch_size: 64
-  val_batch_size: 32
   max_prompt_length: 1024
   max_response_length: 512
+  train_batch_size: 64
+  val_batch_size: 32
   return_raw_chat: true
   image_key: images
   filter_overlong_prompts: true
   truncation: error
   reward_fn_key: ground_truth
+
+# Multi-turn tool configuration
+actor_rollout_ref:
+  rollout:
+    name: sglang
+    multi_turn:
+      enable: true
+      max_assistant_turns: 2
 
 # Custom reward function configuration
 custom_reward_function:
