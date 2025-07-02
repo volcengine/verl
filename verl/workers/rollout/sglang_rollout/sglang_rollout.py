@@ -1065,10 +1065,11 @@ class SGLangRollout(BaseRollout):
 
         for req in sorted_output_req_list:
             assert req.state == AsyncRolloutRequestStateEnum.COMPLETED, f"Request {req.request_id} is not completed"
+            position_ids_seq_len = len(req.position_ids[0]) if req.position_ids.dim() == 3 else len(req.position_ids)
             assert (
-                len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask)
+                len(req.input_ids) == len(req.attention_mask) == position_ids_seq_len == len(req.loss_mask)
             ), f"""Request {req.request_id} has different length of 
-                {len(req.input_ids)=}, {len(req.attention_mask)=}, {len(req.position_ids)=}, {len(req.loss_mask)=}"""
+                {len(req.input_ids)=}, {len(req.attention_mask)=}, {position_ids_seq_len=}, {len(req.loss_mask)=}"""
             error_message_lines = [
                 f"""Request {req.request_id} has input_ids length {len(req.input_ids)}
                     greater than max_model_len {self.config.max_model_len}""",
@@ -1124,15 +1125,24 @@ class SGLangRollout(BaseRollout):
         response_attention_mask = pad_sequence(response_attention_mask, batch_first=True, padding_value=0)
         if response_attention_mask.shape[1] < self.config.response_length:
             response_attention_mask = pad_sequence_to_length(response_attention_mask, self.config.response_length, 0)
+
+        # padding position_ids
         prompt_position_ids = pad_sequence(prompt_position_ids, batch_first=True, padding_value=0, padding_side="left")
-        if prompt_position_ids.shape[1] < self.config.prompt_length:
+        response_position_ids = pad_sequence(response_position_ids, batch_first=True, padding_value=0)
+        prompt_position_ids_seq_len = (
+            prompt_position_ids.shape[2] if prompt_position_ids.dim() == 3 else prompt_position_ids.shape[1]
+        )
+        response_position_ids_seq_len = (
+            response_position_ids.shape[2] if response_position_ids.dim() == 3 else response_position_ids.shape[1]
+        )
+
+        if prompt_position_ids_seq_len < self.config.prompt_length:
             prompt_position_ids = pad_sequence_to_length(
                 prompt_position_ids, self.config.prompt_length, 0, left_pad=True
             )
-        response_length = response_ids.size(1)
-        delta_position_id = torch.arange(1, response_length + 1, device=response_ids.device)
-        delta_position_id = delta_position_id.unsqueeze(0).repeat(len(sorted_output_req_list), 1)
-        response_position_ids = prompt_position_ids[:, -1:] + delta_position_id
+        if response_position_ids_seq_len < self.config.response_length:
+            response_position_ids = pad_sequence_to_length(response_position_ids, self.config.response_length, 0)
+
         prompt_loss_mask = pad_sequence(prompt_loss_mask, batch_first=True, padding_value=0, padding_side="left")
         if prompt_loss_mask.shape[1] < self.config.prompt_length:
             prompt_loss_mask = pad_sequence_to_length(prompt_loss_mask, self.config.prompt_length, 0, left_pad=True)
