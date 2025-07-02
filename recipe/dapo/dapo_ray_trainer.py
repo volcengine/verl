@@ -181,7 +181,7 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                         new_batch.batch["token_level_scores"] = reward_tensor
 
-                        if reward_extra_infos_dict:                        
+                        if reward_extra_infos_dict:
                             new_batch.non_tensor_batch.update(
                                 {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
                             )
@@ -231,7 +231,13 @@ class RayDAPOTrainer(RayPPOTrainer):
                             if std > 0 or len(prompt_uid2metric_vals[uid]) == 1
                         ]
                         num_prompt_in_batch += len(kept_prompt_uids)
-                        filtered_prompt_metrics.extend([np.mean(metric_val) for uid, metric_val in prompt_uid2metric_vals.items() if uid not in kept_prompt_uids])
+                        filtered_prompt_metrics.extend(
+                            [
+                                np.mean(metric_val)
+                                for uid, metric_val in prompt_uid2metric_vals.items()
+                                if uid not in kept_prompt_uids
+                            ]
+                        )
 
                         kept_traj_idxs = []
                         for idx, traj_from_prompt_uid in enumerate(new_batch.non_tensor_batch["uid"]):
@@ -304,7 +310,9 @@ class RayDAPOTrainer(RayPPOTrainer):
                     with marked_timer("adv", timing_raw, color="brown"):
                         # compute advantages, executed on the driver process
 
-                        norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)  # GRPO adv normalization factor
+                        norm_adv_by_std_in_grpo = self.config.algorithm.get(
+                            "norm_adv_by_std_in_grpo", True
+                        )  # GRPO adv normalization factor
 
                         batch = compute_advantage(
                             batch,
@@ -341,7 +349,11 @@ class RayDAPOTrainer(RayPPOTrainer):
                             inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
                             outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
                             scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
-                            reward_extra_infos_dict = {k: batch.non_tensor_batch[k] for k in reward_extra_infos_dict_keys if k in batch.non_tensor_batch}
+                            reward_extra_infos_dict = {
+                                k: batch.non_tensor_batch[k]
+                                for k in reward_extra_infos_dict_keys
+                                if k in batch.non_tensor_batch
+                            }
                             self._dump_generations(
                                 inputs=inputs,
                                 outputs=outputs,
