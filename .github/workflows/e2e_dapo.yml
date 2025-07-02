@@ -42,7 +42,7 @@ on:
       - main
       - v0.*
     paths:
-      - "**/*.py"
+      - "verl/*.py"
       # Other entrypoints
       - "!examples/*trainer*"
       - "!tests/**"
@@ -50,6 +50,8 @@ on:
       - "!verl/trainer/fsdp_sft_trainer.py"
       # Megatron
       - "!verl/workers/**/megatron_*.py"
+      - "!recipe/**"
+      - "recipe/dapo"
   pull_request:
     branches:
       - main

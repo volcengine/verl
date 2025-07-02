@@ -1,5 +1,7 @@
 # Training DeepSeek 671b
 
+Last updated: 06/13/2025.
+
 verl integrates Megatron to support large MoE models such as `Qwen3-235B-A22B` and `deepseek-ai/DeepSeek-V3`. This is an ongoing community effort.
 
 In the journey the community added the following features and optimizations that enable verl with larger models:

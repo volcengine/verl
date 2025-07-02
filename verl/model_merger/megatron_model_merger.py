@@ -104,7 +104,8 @@ class MegatronModelMerger(BaseModelMerger):
 
         self.params_mapping = {
             # megatron core gpt model name, huggingface model name
-            # NOTICE: It's a little bit tricky, when 2 keys have the same prefix, we need to make sure the longer key within the containing relationship is processed first.
+            # NOTICE: It's a little bit tricky, when 2 keys have the same prefix, we need to make sure the
+            # longer key within the containing relationship is processed first.
             "embedding.word_embeddings": "model.embed_tokens",
             # attn
             "self_attention.linear_qkv.layer_norm_weight": "input_layernorm.weight",
@@ -169,7 +170,9 @@ class MegatronModelMerger(BaseModelMerger):
             )
             return parallel_model
 
-        context: Callable[..., ContextManager] = init_empty_weights if self.config.use_cpu_initialization else noop_context
+        context: Callable[..., ContextManager] = (
+            init_empty_weights if self.config.use_cpu_initialization else noop_context
+        )
         with context():
             whole_model = get_model(
                 model_provider_func=megatron_model_provider,
@@ -205,7 +208,10 @@ class MegatronModelMerger(BaseModelMerger):
         Shall not use key starts with "model."
         """
         if key.startswith("model."):
-            raise ValueError(f"Invalid key {key} in Megatron state_dict. Expected keys to start with 'decoder/embedding/output_layer' in TransformerLayer.")
+            raise ValueError(
+                f"Invalid key {key} in Megatron state_dict. Expected keys to start with "
+                f"'decoder/embedding/output_layer' in TransformerLayer."
+            )
 
         skip_checking_keys = ["embedding.word_embeddings", "output_layer"]
         for skip_key in skip_checking_keys:
@@ -215,9 +221,13 @@ class MegatronModelMerger(BaseModelMerger):
 
         # Exclude extra state keys
         if not key.startswith("decoder"):
-            raise ValueError(f"Invalid key {key} in Megatron state_dict. Expected keys to start with 'decoder' in TransformerLayer.")
+            raise ValueError(
+                f"Invalid key {key} in Megatron state_dict. Expected keys to start with 'decoder' in TransformerLayer."
+            )
 
-    def _split_tensors(self, key: str, tensor: torch.Tensor, config: PretrainedConfig, is_value_model: bool = False) -> list[torch.Tensor]:
+    def _split_tensors(
+        self, key: str, tensor: torch.Tensor, config: PretrainedConfig, is_value_model: bool = False
+    ) -> list[torch.Tensor]:
         """
         Splits a tensor into multiple tensors based on the name.
         This is used to handle qkv and gate_up tensors.
@@ -238,7 +248,9 @@ class MegatronModelMerger(BaseModelMerger):
             q_lst, k_lst, v_lst = [], [], []
             assert config.num_attention_heads % config.num_key_value_heads == 0
             num_q_per_kv = config.num_attention_heads // config.num_key_value_heads
-            assert tensor.shape[0] % (num_q_per_kv + 2) == 0, f"Tensor shape {tensor.shape} is not divisible by {num_q_per_kv + 2}"
+            assert tensor.shape[0] % (num_q_per_kv + 2) == 0, (
+                f"Tensor shape {tensor.shape} is not divisible by {num_q_per_kv + 2}"
+            )
             kv_size = tensor.shape[0] // (num_q_per_kv + 2)
             split_size = [kv_size * num_q_per_kv, kv_size, kv_size]
 
@@ -286,7 +298,9 @@ class MegatronModelMerger(BaseModelMerger):
                     warnings.warn(f"hf_name {hf_name} will not be fixed with layer number", stacklevel=2)
 
                 tensor = model_state_dict[key]
-                split_tensor = self._split_tensors(key, tensor, self.hf_config, is_value_model=self.config.is_value_model)
+                split_tensor = self._split_tensors(
+                    key, tensor, self.hf_config, is_value_model=self.config.is_value_model
+                )
 
                 if len(split_tensor) == 1:
                     state_dict[hf_name] = split_tensor[0]
@@ -298,7 +312,10 @@ class MegatronModelMerger(BaseModelMerger):
                     # split gate up
                     state_dict[hf_name.replace("gate_up", "gate")] = split_tensor[0]
                     state_dict[hf_name.replace("gate_up", "up")] = split_tensor[1]
-                print(f"converted {key} to {hf_name} with shape {split_tensor.shape if isinstance(split_tensor, torch.Tensor) else [t.shape for t in split_tensor]}")
+                shape_info = (
+                    split_tensor.shape if isinstance(split_tensor, torch.Tensor) else [t.shape for t in split_tensor]
+                )
+                print(f"converted {key} to {hf_name} with shape {shape_info}")
 
             layers_cum += layers_handled + 1  # zero based
 

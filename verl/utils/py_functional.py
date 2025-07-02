@@ -124,11 +124,16 @@ def timeout_limit(seconds: float, use_signals: bool = False):
                 except queue.Empty as err:
                     exitcode = process.exitcode
                     if exitcode is not None and exitcode != 0:
-                        raise RuntimeError(f"Child process exited with error (exitcode: {exitcode}) before returning result.") from err
+                        raise RuntimeError(
+                            f"Child process exited with error (exitcode: {exitcode}) before returning result."
+                        ) from err
                     else:
                         # Should have timed out if queue is empty after join unless process died unexpectedly
                         # Update function name in error message if needed (optional but good practice)
-                        raise TimeoutError(f"Operation timed out or process finished unexpectedly without result (exitcode: {exitcode}).") from err
+                        raise TimeoutError(
+                            f"Operation timed out or process finished unexpectedly without result "
+                            f"(exitcode: {exitcode})."
+                        ) from err
                 finally:
                     q.close()
                     q.join_thread()

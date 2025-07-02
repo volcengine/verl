@@ -95,7 +95,9 @@ class MegatronWorker(Worker):
             if self.config.model.get("enable_gradient_checkpointing", False):
                 gradient_checkpointing_cfg = dict(self.config.model.get("gradient_checkpointing_kwargs", dict()))
                 tf_config.recompute_method = gradient_checkpointing_cfg.get("activations_checkpoint_method", "full")
-                tf_config.recompute_granularity = gradient_checkpointing_cfg.get("activations_checkpoint_granularity", "full")
+                tf_config.recompute_granularity = gradient_checkpointing_cfg.get(
+                    "activations_checkpoint_granularity", "full"
+                )
                 tf_config.recompute_num_layers = gradient_checkpointing_cfg.get("activations_checkpoint_num_layers", -1)
             if megatron_config := self.config.get("megatron", {}):
                 if extra := megatron_config.get("extra", {}):

@@ -93,7 +93,8 @@ class BaseCheckpointManager:
     @property
     def should_save_hf_model(self) -> bool:
         """
-        Returns True if 'hf_model' is in checkpoint_save_contents, indicating the model should be converted to hf model and saved.
+        Returns True if 'hf_model' is in checkpoint_save_contents, indicating the model should be converted to hf
+        model and saved.
         """
         return "hf_model" in self.checkpoint_save_contents
 
@@ -121,7 +122,9 @@ class BaseCheckpointManager:
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load: bool = False):
         raise NotImplementedError
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep: int = None):
+    def save_checkpoint(
+        self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep: int = None
+    ):
         raise NotImplementedError
 
     @staticmethod
@@ -199,3 +202,37 @@ def get_checkpoint_tracker_filename(root_path: str):
     Tracker file rescords the latest chckpoint during training to restart from.
     """
     return os.path.join(root_path, "latest_checkpointed_iteration.txt")
+
+
+def should_save_ckpt_esi(max_steps_duration: float, save_ckpt_duration: float = 60, redundant_time: float = 0) -> bool:
+    """
+    Determine if checkpoint should be saved based on capacity esi expiration.
+
+    Args:
+        max_steps_duration: Max estimated time (seconds) required to complete one training step
+        save_ckpt_duration: Estimated time (seconds) required to save checkpoint (default: 60)
+        redundant_time: Additional buffer time (seconds) for unexpected delays (default: 0)
+    """
+    exp_ts_mlp = os.getenv("MLP_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP")  # vemlp
+    exp_ts_aws = os.getenv("SAGEMAKER_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP")  # aws
+    if exp_ts_mlp:
+        try:
+            import time
+
+            remaining = float(exp_ts_mlp) - time.time()
+        except ValueError:
+            return False
+        return (
+            remaining > 0
+            and max_steps_duration > 0
+            and remaining <= save_ckpt_duration + max_steps_duration + redundant_time
+        )
+    elif exp_ts_aws:
+        from datetime import datetime, timedelta
+
+        expiration_time = datetime.fromtimestamp(int(exp_ts_aws))
+        time_difference = expiration_time - datetime.now()
+        threshold_minutes = (save_ckpt_duration + max_steps_duration + redundant_time) / 60
+        return time_difference < timedelta(minutes=threshold_minutes)
+    else:
+        return False

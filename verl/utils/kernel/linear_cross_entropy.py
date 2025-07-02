@@ -39,7 +39,15 @@ from . import kernels
 
 class LinearCrossEntropy(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, temperature: typing.Optional[float] = 1.0, reduction: typing.Optional[str] = "none", dist_process_group: typing.Optional[dist.ProcessGroup] = None) -> typing.List[torch.Tensor]:
+    def forward(
+        ctx,
+        hidden: torch.Tensor,
+        weight: torch.Tensor,
+        labels: torch.Tensor,
+        temperature: typing.Optional[float] = 1.0,
+        reduction: typing.Optional[str] = "none",
+        dist_process_group: typing.Optional[dist.ProcessGroup] = None,
+    ) -> typing.List[torch.Tensor]:
         """_summary_
 
         Args:
@@ -66,7 +74,9 @@ class LinearCrossEntropy(torch.autograd.Function):
             if len(labels.shape) != 1:
                 labels = labels.view(-1)
 
-            logprobs, entropy, _maximum, _accumulate, _entropy_b = kernels.efficient_entropy_forward(hidden, weight, labels, REDUCTION, temperature, dist_process_group)
+            logprobs, entropy, _maximum, _accumulate, _entropy_b = kernels.efficient_entropy_forward(
+                hidden, weight, labels, REDUCTION, temperature, dist_process_group
+            )
 
             ctx.save_for_backward(hidden, weight, labels, _maximum, _accumulate, _entropy_b)
             ctx.original_hidden_shape = original_hidden_shape
@@ -85,7 +95,20 @@ class LinearCrossEntropy(torch.autograd.Function):
             should_return_fp32_grad = ctx.should_return_fp32_grad
             temperature = ctx.temperature
 
-            d_hidden, d_weight = kernels.efficient_entropy_backward(dlogprobs, dentropy, hidden, weight, labels, _maximum, _accumulate, _entropy_b, REDUCTION, should_return_fp32_grad, temperature, dist_process_group)
+            d_hidden, d_weight = kernels.efficient_entropy_backward(
+                dlogprobs,
+                dentropy,
+                hidden,
+                weight,
+                labels,
+                _maximum,
+                _accumulate,
+                _entropy_b,
+                REDUCTION,
+                should_return_fp32_grad,
+                temperature,
+                dist_process_group,
+            )
             d_hidden = d_hidden.view(ctx.original_hidden_shape)
 
         return (d_hidden, d_weight, None, None, None, None)

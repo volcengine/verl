@@ -33,7 +33,8 @@ class NaiveRewardManager:
             tokenizer: The tokenizer used to decode token IDs into text.
             num_examine: The number of batches of decoded responses to print to the console for debugging purpose.
             compute_score: A function to compute the reward score. If None, `default_compute_score` will be used.
-            reward_fn_key: The key used to access the data source in the non-tensor batch data. Defaults to "data_source".
+            reward_fn_key: The key used to access the data source in the non-tensor batch data. Defaults to
+                "data_source".
         """
         self.tokenizer = tokenizer  # Store the tokenizer for decoding token IDs
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console

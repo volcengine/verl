@@ -58,19 +58,27 @@ class DataParallelPRIMERewardModel:
         max_positions = micro_batch["attention_mask"][:, prompt_length:].sum(-1)
 
         if self.use_remove_padding:
-            input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+            input_ids_rmpad, indices, *_ = unpad_input(
+                input_ids.unsqueeze(-1), attention_mask
+            )  # input_ids_rmpad (total_nnz, ...)
             input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
             # unpad the position_ids to align the rotary
-            position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(0, 1)
+            position_ids_rmpad = index_first_axis(
+                rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
+            ).transpose(0, 1)
 
             # for compute the log_prob
             input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
 
             # pad and slice the inputs if sp > 1
             if self.ulysses_sequence_parallel_size > 1:
-                input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size)
-                input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(input_ids_rmpad_rolled, None, self.ulysses_sequence_parallel_size)
+                input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
+                    input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size
+                )
+                input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(
+                    input_ids_rmpad_rolled, None, self.ulysses_sequence_parallel_size
+                )
 
             input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)
             output = self.reward_module(
@@ -94,7 +102,9 @@ class DataParallelPRIMERewardModel:
 
             if self.ulysses_sequence_parallel_size > 1:
                 rm_log_labels = gather_outpus_and_unpad(rm_log_labels, gather_dim=0, unpad_dim=0, padding_size=pad_size)
-            rm_log_labels = pad_input(hidden_states=rm_log_labels.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen).squeeze(-1)[:, -num_actions - 1 : -1]
+            rm_log_labels = pad_input(
+                hidden_states=rm_log_labels.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
+            ).squeeze(-1)[:, -num_actions - 1 : -1]
 
         else:
             output = self.reward_module(
@@ -111,8 +121,12 @@ class DataParallelPRIMERewardModel:
 
             else:
                 rm_output_logits = output.logits
-                rm_log_prob = torch.nn.functional.log_softmax(rm_output_logits[:, :-1, :], dim=-1)  # (batch_size, seq_length, vocab_size)
-                rm_log_labels = rm_log_prob.gather(dim=-1, index=micro_batch["input_ids"][:, 1:].unsqueeze(-1)).squeeze(-1)  # (batch, seq_length)
+                rm_log_prob = torch.nn.functional.log_softmax(
+                    rm_output_logits[:, :-1, :], dim=-1
+                )  # (batch_size, seq_length, vocab_size)
+                rm_log_labels = rm_log_prob.gather(dim=-1, index=micro_batch["input_ids"][:, 1:].unsqueeze(-1)).squeeze(
+                    -1
+                )  # (batch, seq_length)
 
         if self.ref_module is not None:
             # do not have to pad again
@@ -131,10 +145,16 @@ class DataParallelPRIMERewardModel:
 
                     else:
                         ref_output_logits = ref_output.logits.squeeze(0)
-                        ref_log_labels = verl_F.logprobs_from_logits(logits=ref_output_logits, labels=input_ids_rmpad_rolled)
+                        ref_log_labels = verl_F.logprobs_from_logits(
+                            logits=ref_output_logits, labels=input_ids_rmpad_rolled
+                        )
 
-                    ref_log_labels = gather_outpus_and_unpad(ref_log_labels, gather_dim=0, unpad_dim=0, padding_size=pad_size)
-                    ref_log_labels = pad_input(hidden_states=ref_log_labels.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen).squeeze(-1)[:, -num_actions - 1 : -1]
+                    ref_log_labels = gather_outpus_and_unpad(
+                        ref_log_labels, gather_dim=0, unpad_dim=0, padding_size=pad_size
+                    )
+                    ref_log_labels = pad_input(
+                        hidden_states=ref_log_labels.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
+                    ).squeeze(-1)[:, -num_actions - 1 : -1]
                 else:
                     ref_output = self.ref_module(
                         input_ids=micro_batch["input_ids"],
@@ -149,8 +169,12 @@ class DataParallelPRIMERewardModel:
 
                     else:
                         ref_output_logits = ref_output.logits
-                        ref_log_prob = torch.nn.functional.log_softmax(ref_output_logits[:, :-1, :], dim=-1)  # (batch_size, seq_length, vocab_size)
-                        ref_log_labels = ref_log_prob.gather(dim=-1, index=micro_batch["input_ids"][:, 1:].unsqueeze(-1)).squeeze(-1)  # (batch, seq_length)
+                        ref_log_prob = torch.nn.functional.log_softmax(
+                            ref_output_logits[:, :-1, :], dim=-1
+                        )  # (batch_size, seq_length, vocab_size)
+                        ref_log_labels = ref_log_prob.gather(
+                            dim=-1, index=micro_batch["input_ids"][:, 1:].unsqueeze(-1)
+                        ).squeeze(-1)  # (batch, seq_length)
 
         else:
             ref_log_labels = micro_batch["old_log_probs"]
@@ -164,7 +188,8 @@ class DataParallelPRIMERewardModel:
 
         # reward computation does not need gradient. only q needs
         with torch.no_grad():
-            # generalized estimation of r should go before the reward filling. r means process reward for policy model, or the advantage of reward model.
+            # generalized estimation of r should go before the reward filling. r means process reward for policy
+            # model, or the advantage of reward model.
             lam = self.config.get("lambda", 0.0)
             beta = self.config.model.get("beta_train", 0.05)
             if lam == 0.0:
@@ -175,7 +200,8 @@ class DataParallelPRIMERewardModel:
                 q_ = q * beta
                 r = torch.zeros_like(q)
                 lastgaelam = 0
-                # change the last token and mask out all paddings to make this process easier if we rely on outcome reward to calculate V
+                # change the last token and mask out all paddings to make this process easier if we rely on
+                # outcome reward to calculate V
                 for i in range(q.shape[0]):
                     if self.config.prime_use_gt:
                         q_[i, max_positions[i] - 1] = acc[i] - q_[i, : max_positions[i] - 1].sum()
@@ -205,7 +231,9 @@ class DataParallelPRIMERewardModel:
         if isinstance(self.reward_module, FSDP):
             grad_norm = self.reward_module.clip_grad_norm_(self.config.model.optim.grad_clip)
         else:
-            grad_norm = torch.nn.utils.clip_grad_norm_(self.reward_module.parameters(), max_norm=self.config.model.optim.grad_clip)
+            grad_norm = torch.nn.utils.clip_grad_norm_(
+                self.reward_module.parameters(), max_norm=self.config.model.optim.grad_clip
+            )
         self.reward_optimizer.step()
         return grad_norm
 
@@ -309,8 +337,11 @@ class DataParallelPRIMERewardModel:
                 if self.config.model.loss_type == "ce":
                     dpo_loss = compute_ce_dpo_loss_rm(q, acc, response_mask=response_mask, beta=beta)
                 elif self.config.model.loss_type == "dpo":
-                    # the implementation of dpo is actually detached, which means we have to know the average value of w/l reward before the update.
-                    dpo_loss = compute_detach_dpo_loss_rm(q, acc, Q_bc=data["Q_bc"], acc_bc=data["acc_bc"], response_mask=response_mask, beta=beta)
+                    # the implementation of dpo is actually detached, which means we have to know the average
+                    # value of w/l reward before the update.
+                    dpo_loss = compute_detach_dpo_loss_rm(
+                        q, acc, Q_bc=data["Q_bc"], acc_bc=data["acc_bc"], response_mask=response_mask, beta=beta
+                    )
                 elif self.config.model.loss_type == "bon_acc":
                     # change the original distribution of each sample to BoN distribution, then update reward model
                     dpo_loss = compute_detach_dpo_loss_rm(

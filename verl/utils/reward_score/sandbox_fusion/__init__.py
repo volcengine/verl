@@ -25,7 +25,9 @@ FaaS service provided by public cloud, eg: volcengine.com.
 logger = logging.getLogger(__name__)
 
 
-def compute_score(sandbox_fusion_url, concurrent_semaphore, memory_limit_mb, completion, test_cases, continuous=False, timeout=10):
+def compute_score(
+    sandbox_fusion_url, concurrent_semaphore, memory_limit_mb, completion, test_cases, continuous=False, timeout=10
+):
     """
     Computes the code score using the remote sandbox API.
 
@@ -74,7 +76,14 @@ def compute_score(sandbox_fusion_url, concurrent_semaphore, memory_limit_mb, com
         # Note: The return value of check_correctness might need adaptation here
         # Assume check_correctness returns (results_list, metadata_list)
         # results_list contains True, False, or error codes (-1, -2, -3, etc.)
-        res_list, metadata_list = check_correctness(sandbox_fusion_url=sandbox_fusion_url, in_outs=test_cases, generation=solution, timeout=timeout, concurrent_semaphore=concurrent_semaphore, memory_limit_mb=memory_limit_mb)
+        res_list, metadata_list = check_correctness(
+            sandbox_fusion_url=sandbox_fusion_url,
+            in_outs=test_cases,
+            generation=solution,
+            timeout=timeout,
+            concurrent_semaphore=concurrent_semaphore,
+            memory_limit_mb=memory_limit_mb,
+        )
 
         # Calculate score
         if not res_list:  # If there are no results (e.g., invalid input)
