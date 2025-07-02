@@ -18,8 +18,10 @@ ENGINE=${1:-sglang}
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "${SCRIPT_DIR}/../.."  # Go to VERL root
 
-# Use our YAML config directly
-python3 -m verl.trainer.main_ppo examples/arc_vision/config/arc_vision_grpo.yaml \
+# Use our YAML config with proper Hydra syntax
+python3 -m verl.trainer.main_ppo \
+    --config-path examples/arc_vision/config \
+    --config-name arc_vision_grpo \
     data.train_files=${DATA_DIR}/train.parquet \
     data.val_files=${DATA_DIR}/validation.parquet \
     actor_rollout_ref.rollout.name=$ENGINE \
