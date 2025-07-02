@@ -16,11 +16,8 @@ import json
 import logging
 import os
 import warnings
-<<<<<<< HEAD
 from dataclasses import asdict, dataclass
-=======
 from threading import Thread
->>>>>>> 21832188 (manually merged files)
 from typing import Optional, Union
 
 import torch
@@ -32,13 +29,8 @@ from torch.distributed.fsdp import ShardedOptimStateDictConfig, ShardedStateDict
 from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.device import is_cuda_available
-<<<<<<< HEAD
-from verl.utils.fs import copy_to_local, is_non_local, local_mkdir_safe
+from verl.utils.fs import copy_to_local, is_non_local, local_mkdir_safe, upload_local_file_to_s3
 from verl.utils.fsdp_utils import fsdp_version, get_fsdp_full_state_dict, get_fsdp_state_ctx
-=======
-from verl.utils.fs import copy_to_local, is_non_local, upload_local_file_to_s3
-from verl.utils.fsdp_utils import fsdp_version, get_fsdp_state_ctx
->>>>>>> 21832188 (manually merged files)
 from verl.utils.logger import log_with_rank
 
 from .checkpoint_manager import BaseCheckpointManager
