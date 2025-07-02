@@ -16,7 +16,7 @@
 """
 Single Process Actor
 """
-
+import re
 import itertools
 import logging
 import os
@@ -94,10 +94,15 @@ class DataParallelPPOActor(BasePPOActor):
                 for key in micro_batch["multi_modal_inputs"][0].keys():
                     multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"]]
             else:
+                image_flags = None
                 for key in micro_batch["multi_modal_inputs"][0].keys():
                     multi_modal_inputs[key] = torch.cat(
                         [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
                     )
+                    if re.match("internvl", self.actor_module.config.model_type):
+                        # The image_flags is used for InternVL's github version
+                        if key == "pixel_values":
+                            image_flags = torch.ones(multi_modal_inputs[key].size(0), dtype=torch.long)
 
         with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
@@ -127,7 +132,7 @@ class DataParallelPPOActor(BasePPOActor):
                     ).transpose(0, 1)
 
                 if "image_bound" in multi_modal_inputs:
-                    from verl.utils.dataset.vision_utils import process_multi_modal_inputs_for_minicpmo
+                    from verl.utils.dataset.preprocessor.minicpmo import process_multi_modal_inputs_for_minicpmo
 
                     multi_modal_inputs = process_multi_modal_inputs_for_minicpmo(
                         input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs
@@ -165,6 +170,8 @@ class DataParallelPPOActor(BasePPOActor):
                 if self.use_fused_kernels:
                     extra_args["temperature"] = temperature
                     extra_args["return_dict"] = True
+                if image_flags is not None:
+                    multi_modal_inputs["image_flags"] = image_flags
 
                 output = self.actor_module(
                     input_ids=input_ids_rmpad,

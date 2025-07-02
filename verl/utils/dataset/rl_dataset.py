@@ -97,6 +97,7 @@ class RLHFDataset(Dataset):
         self.tokenizer = tokenizer
         self.processor = processor
         self.config = config
+        
 
         self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
         self.prompt_key = config.get("prompt_key", "prompt")
@@ -107,6 +108,9 @@ class RLHFDataset(Dataset):
         self.return_full_prompt = config.get("return_full_prompt", False)
         self.truncation = config.get("truncation", "error")
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
+        if self.processor is not None:
+            from verl.utils.dataset.preprocessor import map_processor_to_preprocessor
+            self.preprocessor = map_processor_to_preprocessor(self.processor)(self.processor, image_key=self.image_key, video_key=self.video_key)
 
         self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
@@ -144,7 +148,6 @@ class RLHFDataset(Dataset):
             video_key = self.video_key
 
             if processor is not None:
-                from verl.utils.dataset.vision_utils import process_image, process_video
 
                 def doc2len(doc) -> int:
                     messages = self._build_messages(doc)
@@ -152,10 +155,10 @@ class RLHFDataset(Dataset):
                         messages, add_generation_prompt=True, tokenize=False
                     )
                     images = (
-                        [process_image(image) for image in messages.pop(image_key)] if image_key in messages else None
+                        [self.preprocessor.process_image(image) for image in messages.pop(image_key)] if image_key in messages else None
                     )
                     videos = (
-                        [process_video(video) for video in messages.pop(video_key)] if video_key in messages else None
+                        [self.preprocessor.process_video(video) for video in messages.pop(video_key)] if video_key in messages else None
                     )
 
                     return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
@@ -215,36 +218,7 @@ class RLHFDataset(Dataset):
         model_inputs = {}
 
         if self.processor is not None:
-            from verl.utils.dataset.vision_utils import process_image, process_video
-
-            raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-            multi_modal_data = {}
-
-            images = None
-            if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None:
-                images = [process_image(image) for image in row_dict.pop(self.image_key)]
-                multi_modal_data["image"] = images
-
-            videos = None
-            if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None:
-                videos = [process_video(video) for video in row_dict.pop(self.video_key)]
-                multi_modal_data["video"] = [video.numpy() for video in videos]
-
-            model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
-
-            input_ids = model_inputs.pop("input_ids")
-            attention_mask = model_inputs.pop("attention_mask")
-
-            if "second_per_grid_ts" in model_inputs:
-                model_inputs.pop("second_per_grid_ts")
-
-            # There's a trap here, multi_modal_inputs has to be a dict, not BatchFeature
-            row_dict["multi_modal_data"] = multi_modal_data
-            row_dict["multi_modal_inputs"] = dict(model_inputs)
-
-            # second_per_grid_ts isn't used for training, just for mrope
-            row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
-
+            row_dict, model_inputs, input_ids, attention_mask, raw_prompt = self.preprocessor(messages, row_dict)
         else:
             raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
             model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)

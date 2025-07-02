@@ -20,6 +20,7 @@ from contextlib import contextmanager
 from typing import Dict, List, Optional, Union
 
 import torch
+from torch.optim.optimizer import Optimizer
 import torch.distributed
 import torch.nn.functional as F
 from tensordict import TensorDict

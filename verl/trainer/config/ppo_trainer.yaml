@@ -305,6 +305,10 @@ actor_rollout_ref:
       # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
       # before the current forward computation.
       forward_prefetch: False
+      # Whether use orig params. When frozen some parameters this will be used
+      use_orig_params: False
+      # Whether frozen the vision tower
+      frozen_vision_tower: False
 
     # profiler configs
     profiler:

@@ -15,6 +15,7 @@
 The main entry point to run the PPO algorithm
 """
 
+import re
 import json
 import logging
 import os
@@ -219,7 +220,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     ):
         from torch import optim
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
-        from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForVision2Seq
+        from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForVision2Seq, AutoModelForImageTextToText
 
         from verl.utils.model import get_generation_config, print_model_size, update_model_config
         from verl.utils.torch_dtypes import PrecisionType
@@ -276,16 +277,37 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             warnings.simplefilter("ignore")
             if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
                 actor_module_class = AutoModelForVision2Seq
+            elif type(actor_model_config) in AutoModelForImageTextToText._model_mapping.keys():
+                actor_module_class = AutoModelForImageTextToText
             else:
                 actor_module_class = AutoModelForCausalLM
-
+            model_init_kwargs = dict(attn_implementation="flash_attention_2")
+            if re.match("internvl", actor_model_config.model_type, re.IGNORECASE):
+                if "flash_attention_2" in model_init_kwargs.get("attn_implementation"):
+                    model_init_kwargs.pop("attn_implementation")
+                    model_init_kwargs["use_flash_attn"] = True
             actor_module = actor_module_class.from_pretrained(
                 pretrained_model_name_or_path=local_path,
                 torch_dtype=torch_dtype,
                 config=actor_model_config,
                 trust_remote_code=trust_remote_code,
             )
+            use_orig_params = fsdp_config.get("use_orig_params", False)
+            frozen_vision_tower = fsdp_config.get("frozen_vision_tower", False)
 
+            if re.match("internvl", actor_module.config.model_type):
+                #Frozen the vision parameters for InternVL. We need to find the reason why internvl will occur a bug when using the vision encoder
+                actor_module.img_context_token_id = self.tokenizer.convert_tokens_to_ids(self.tokenizer.context_image_token)
+                for param in actor_module.vision_model.parameters():
+                    param.requires_grad = False
+                frozen_vision_tower = True
+            if frozen_vision_tower:
+                if re.match("gemma3", actor_module.config.model_type, re.IGNORECASE):
+                    for name, param in actor_module.named_parameters():
+                        if "vision_tower" in name:
+                            param.requires_grad = False
+            if frozen_vision_tower:
+                use_orig_params = True
             # Apply Liger kernel to the model if use_liger is set to True
             if use_liger:
                 from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
@@ -375,7 +397,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 mixed_precision=mixed_precision,
                 sync_module_states=True,
                 device_mesh=self.device_mesh,
-                use_orig_params=self.config.actor.fsdp_config.get("use_orig_params", False),
+                use_orig_params=use_orig_params,
                 forward_prefetch=self.config.actor.fsdp_config.get("forward_prefetch", False),
             )
         elif fsdp_strategy == "fsdp2":
@@ -411,6 +433,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # TODO: add more optimizer args into config
         if role == "actor" and optim_config is not None:
             from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
+            optim_strategy = optim_config.get("strategy", "adamw")
 
             actor_optimizer = optim.AdamW(
                 actor_module_fsdp.parameters(),
@@ -418,7 +441,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 betas=optim_config.get("betas", (0.9, 0.999)),
                 weight_decay=optim_config.get("weight_decay", 1e-2),
             )
-
+           
             total_steps = optim_config.get("total_training_steps", 0)
             num_warmup_steps = int(optim_config.get("lr_warmup_steps", -1))
             warmup_style = optim_config.get("warmup_style", "constant")
@@ -1134,7 +1157,8 @@ class CriticWorker(Worker, DistProfilerExtension):
             enable_activation_offloading(critic_module, config.strategy, enable_gradient_checkpointing)
 
         log_gpu_memory_usage("After critic FSDP", logger=None)
-
+        optim_strategy = config.optim.get("strategy", "adamw")
+     
         critic_optimizer = optim.AdamW(
             critic_module.parameters(),
             lr=config.optim.lr,

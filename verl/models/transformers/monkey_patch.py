@@ -212,10 +212,18 @@ def apply_monkey_patch(
     try:
         num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
     except AttributeError:
-        num_attention_heads, num_key_value_heads = (
-            model.config.text_config.num_attention_heads,
-            model.config.text_config.num_key_value_heads,
-        )
+        if hasattr(model.config, "text_config"):
+            num_attention_heads, num_key_value_heads = (
+                model.config.text_config.num_attention_heads,
+                model.config.text_config.num_key_value_heads,
+            )
+        elif hasattr(model.config, "llm_config"):
+            num_attention_heads, num_key_value_heads = (
+                model.config.llm_config.num_attention_heads,
+                model.config.llm_config.num_key_value_heads,
+            )
+        else:
+            raise ValueError("We cannot get num_attention_heads and num_key_value_heads from the model's config")
 
     assert num_attention_heads % ulysses_sp_size == 0, (
         f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
