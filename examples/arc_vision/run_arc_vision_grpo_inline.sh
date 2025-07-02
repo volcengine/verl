@@ -75,7 +75,7 @@ python3 -m verl.trainer.main_ppo \
     reward_model.enable=false \
     reward_model.reward_manager=naive \
     custom_reward_function.path=examples/arc_vision/arc_vision_custom_reward.py \
-    custom_reward_function.name=arc_vision_compute_score_fn \
+    custom_reward_function.name=arc_vision_compute_reward \
     custom_reward_function.reward_kwargs.confidence_threshold=0.7 \
     custom_reward_function.reward_kwargs.reward_weights.task=0.6 \
     custom_reward_function.reward_kwargs.reward_weights.tool=0.3 \

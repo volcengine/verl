@@ -96,7 +96,7 @@ reward_model:
 # Custom reward function configuration (at top level for VERL)
 custom_reward_function:
   path: examples/arc_vision/arc_vision_custom_reward.py
-  name: arc_vision_compute_score_fn
+  name: arc_vision_compute_reward
   reward_kwargs:
     confidence_threshold: 0.7
     reward_weights:
