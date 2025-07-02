@@ -26,7 +26,13 @@ This downloads the official ScreenSpot dataset from [Hugging Face](https://huggi
 
 ```bash
 # From VERL root directory
-bash examples/arc_vision/run_arc_vision_3b.sh
+bash examples/arc_vision/run_arc_vision_grpo.sh
+
+# Or with custom parameters:
+TRAIN_DATA=/path/to/train.parquet \
+VAL_DATA=/path/to/val.parquet \
+N_GPUS=4 \
+bash examples/arc_vision/run_arc_vision_grpo.sh
 ```
 
 ## Architecture
@@ -86,6 +92,22 @@ Key metrics:
 - `arc_vision/confidence_calibration`: Confidence vs performance
 
 ## Troubleshooting
+
+### Hydra Configuration Error
+If you see "mismatched input 'arc_vision_grpo.yaml' expecting ID", this means you're trying to pass a config file path directly. VERL uses Hydra's override syntax:
+```bash
+# WRONG: 
+python3 -m verl.trainer.main_ppo examples/arc_vision/config/arc_vision_grpo.yaml
+
+# CORRECT: Use the provided launch script
+bash examples/arc_vision/run_arc_vision_grpo.sh
+
+# OR: Use dot notation for all parameters
+python3 -m verl.trainer.main_ppo \
+    algorithm.adv_estimator=grpo \
+    data.train_files=/path/to/data.parquet \
+    # ... (see run_arc_vision_grpo.sh for full list)
+```
 
 ### Memory Issues
 ```yaml
