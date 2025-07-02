@@ -30,8 +30,7 @@ def is_torch_tpu_available() -> bool:
     """Check the availability of TPUs"""
     try:
         import torch_xla
-        torch_xla.runtime.device_type()
-        return True
+        return torch_xla.runtime.device_type() == 'TPU'
     except:
         return False
 
