@@ -141,7 +141,7 @@ class ResourcePoolManager:
                 )
 
 
-def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty="kl", multi_turn=False):
+def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty="kl"):
     """Apply KL penalty to the token-level rewards.
 
     This function computes the KL divergence between the reference policy and current policy,
@@ -158,17 +158,9 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
             - The updated data with token-level rewards adjusted by KL penalty
             - A dictionary of metrics related to the KL penalty
     """
-    responses = data.batch["responses"]
-    response_length = responses.size(1)
+    response_mask = data.batch["response_mask"]
     token_level_scores = data.batch["token_level_scores"]
     batch_size = data.batch.batch_size[0]
-
-    if multi_turn:
-        loss_mask = data.batch["loss_mask"]
-        response_mask = loss_mask[:, -response_length:]
-    else:
-        attention_mask = data.batch["attention_mask"]
-        response_mask = attention_mask[:, -response_length:]
 
     # compute kl between ref_policy and current policy
     # When apply_kl_penalty, algorithm.use_kl_in_reward=True, so the reference model has been enabled.
@@ -263,12 +255,6 @@ def compute_advantage(
     elif adv_estimator == AdvantageEstimator.GRPO:
         # Initialize the mask for GRPO calculation
         grpo_calculation_mask = data.batch["response_mask"]
-        if multi_turn:
-            # If multi-turn, replace the mask with the relevant part of loss_mask
-            # Get length from the initial response mask
-            response_length = grpo_calculation_mask.size(1)
-            # This mask is the one intended for GRPO
-            grpo_calculation_mask = data.batch["loss_mask"][:, -response_length:]
         # Call compute_grpo_outcome_advantage with parameters matching its definition
         advantages, returns = core_algos.compute_grpo_outcome_advantage(
             token_level_rewards=data.batch["token_level_rewards"],
@@ -682,6 +668,7 @@ class RayPPOTrainer:
         sample_inputs = []
         sample_outputs = []
         sample_scores = []
+        sample_turns = []
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
@@ -711,6 +698,8 @@ class RayPPOTrainer:
                 non_tensor_batch_keys_to_pop.append("tools_kwargs")
             if "interaction_kwargs" in test_batch.non_tensor_batch:
                 non_tensor_batch_keys_to_pop.append("interaction_kwargs")
+            if "agent_name" in test_batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("agent_name")
             test_gen_batch = test_batch.pop(
                 batch_keys=batch_keys_to_pop,
                 non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
@@ -739,6 +728,7 @@ class RayPPOTrainer:
 
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
+
             print("validation generation end")
 
             # Store generated outputs
@@ -747,6 +737,7 @@ class RayPPOTrainer:
             sample_outputs.extend(output_texts)
 
             test_batch = test_batch.union(test_output_gen_batch)
+            test_batch.meta_info["validate"] = True
 
             # evaluate using reward_function
             result = self.val_reward_fn(test_batch, return_dict=True)
@@ -760,6 +751,10 @@ class RayPPOTrainer:
                 for key, lst in result["reward_extra_info"].items():
                     reward_extra_infos_dict[key].extend(lst)
                     print(f"len reward_extra_infos_dict['{key}']: {len(reward_extra_infos_dict[key])}")
+
+            # collect num_turns of each prompt
+            if "__num_turns__" in test_batch.non_tensor_batch:
+                sample_turns.append(test_batch.non_tensor_batch["__num_turns__"])
 
             data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
 
@@ -798,6 +793,12 @@ class RayPPOTrainer:
                         metric_sec = "val-aux"
                     pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
                     metric_dict[pfx] = metric_val
+
+        if len(sample_turns) > 0:
+            sample_turns = np.concatenate(sample_turns)
+            metric_dict["val-aux/num_turns/min"] = sample_turns.min()
+            metric_dict["val-aux/num_turns/max"] = sample_turns.max()
+            metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
 
         return metric_dict
 
@@ -1074,6 +1075,11 @@ class RayPPOTrainer:
         last_val_metrics = None
         self.max_steps_duration = 0
 
+        repeat_sampling_sglang_grpo = (
+            self.config.actor_rollout_ref.rollout.name == "sglang"
+            and self.config.actor_rollout_ref.rollout.multi_turn.enable
+        )
+
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 do_profile = (
@@ -1094,9 +1100,10 @@ class RayPPOTrainer:
                 timing_raw = {}
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
-                # pop those keys for generation
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
+
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
+
                 if "multi_modal_data" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")
                 if "raw_prompt" in batch.non_tensor_batch:
@@ -1107,12 +1114,25 @@ class RayPPOTrainer:
                     non_tensor_batch_keys_to_pop.append("interaction_kwargs")
                 if "index" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("index")
+                if "agent_name" in batch.non_tensor_batch:
+                    non_tensor_batch_keys_to_pop.append("agent_name")
+
                 gen_batch = batch.pop(
                     batch_keys=batch_keys_to_pop,
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
                 )
                 # pass global_steps to trace
                 gen_batch.meta_info["global_steps"] = self.global_steps
+
+                if repeat_sampling_sglang_grpo:
+                    uids_for_prompts = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+                    batch.non_tensor_batch["uid"] = uids_for_prompts
+                    gen_batch.non_tensor_batch["uid"] = uids_for_prompts
+                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    assert np.array_equal(batch.non_tensor_batch["uid"], gen_batch.non_tensor_batch["uid"]), (
+                        "UIDs must be identical for SGLang rollout"
+                    )
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
@@ -1122,6 +1142,8 @@ class RayPPOTrainer:
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
+                            # vllm should set async_rollout_mode to enable async rollout
+                            # sglang turns on async_rollout_mode by default
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
@@ -1142,14 +1164,17 @@ class RayPPOTrainer:
 
                             del gen_baseline_batch, gen_baseline_output
 
-                    batch.non_tensor_batch["uid"] = np.array(
-                        [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
-                    )
-                    # repeat to align with repeated responses in rollout
-                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    if not repeat_sampling_sglang_grpo:
+                        batch.non_tensor_batch["uid"] = np.array(
+                            [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
+                        )
+                        # repeat to align with repeated responses in rollout
+                        batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+
                     batch = batch.union(gen_batch_output)
 
-                    batch.batch["response_mask"] = compute_response_mask(batch)
+                    if "response_mask" not in batch.batch:
+                        batch.batch["response_mask"] = compute_response_mask(batch)
                     # Balance the number of valid tokens across DP ranks.
                     # NOTE: This usually changes the order of data in the `batch`,
                     # which won't affect the advantage calculation (since it's based on uid),

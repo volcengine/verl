@@ -120,10 +120,10 @@ jobs:
         run: |
           ray stop --force
           python3 examples/data_preprocess/geo3k.py
-      - name: Running gsm8k e2e training tests with LoRA on ASCEND NPU
+      - name: Running gsm8k e2e training tests with peft sft on ASCEND NPU
         run: |
           ray stop --force
-          bash tests/special_e2e/sft/run_sft.sh
+          bash tests/special_npu/run_qwen2_5_05b_sft_peft_sp2.sh
           rm -rf $HOME/ckpts
       - name: Running gsm8k e2e training tests with GRPO on ASCEND NPU
         run: |
