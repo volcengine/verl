@@ -117,7 +117,7 @@ class FSDPSFTTrainer:
         assert self.config.data.train_batch_size % dp_size == 0, f"Global batch size {self.config.data.train_batch_size} is not divisible by dp size {dp_size}"
 
         self.config.data.train_batch_size //= dp_size
-
+        
         assert self.config.data.train_batch_size % self.config.data.micro_batch_size_per_gpu == 0
 
     def _build_dataloader(self, train_dataset, val_dataset):
@@ -188,7 +188,7 @@ class FSDPSFTTrainer:
             self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
                 local_model_path,
                 config=config,
-                torch_dtype=torch.float32,
+                torch_dtype="auto",
                 attn_implementation="flash_attention_2",
                 trust_remote_code=trust_remote_code,
             )
