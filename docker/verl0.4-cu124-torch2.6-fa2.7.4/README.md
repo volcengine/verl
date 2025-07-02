@@ -25,5 +25,5 @@ megatron.core==core_r0.13.0
     - `verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.1`: SGLang requires vLLM in 0.4.6.post5 version, vLLM can have some package conflicts with SGLang
     - `verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.1`
 - Preview image:
-    - `verlai/verl:app-verl0.4-sglang0.4.6.post5-mcore0.13.0-preview`
+    - `verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.13.0-preview`
     - `verlai/verl:app-verl0.4-vllm0.8.5-mcore0.13.0-preview`
