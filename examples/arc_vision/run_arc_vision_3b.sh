@@ -14,9 +14,15 @@ fi
 # Set engine (default to sglang for multi-turn support)
 ENGINE=${1:-sglang}
 
-# Launch Arc Vision RL training
+# Launch Arc Vision RL training from VERL root directory
+# This ensures Hydra can find both default configs and our custom config
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "${SCRIPT_DIR}/../.."  # Go to VERL root
+
+# Copy our config to the trainer config directory temporarily
+cp "${SCRIPT_DIR}/config/arc_vision_grpo.yaml" verl/trainer/config/
+
 python3 -m verl.trainer.main_ppo \
-    --config-path $(pwd)/examples/arc_vision/config \
     --config-name arc_vision_grpo \
     algorithm.adv_estimator=grpo \
     data.train_files=${DATA_DIR}/train.parquet \
