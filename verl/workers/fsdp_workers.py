@@ -514,13 +514,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
-        elif rollout_name in ["sglang", "sglang_async"]:
-            if rollout_name == "sglang_async":
-                warnings.warn(
-                    "'sglang_async' has been deprecated and merged into 'sglang'. Please use 'sglang' going forward.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
+        elif rollout_name == "sglang":
             from verl.workers.rollout.sglang_rollout import SGLangRollout
 
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to
@@ -1668,11 +1662,6 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     def execute_method(self, method: Union[str, bytes], *args, **kwargs):
         """Called by ExternalRayDistributedExecutor collective_rpc."""
-        if self.vllm_tp_rank == 0 and method != "execute_model":
-            print(
-                f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: "
-                f"{method if isinstance(method, str) else 'Callable'}"
-            )
         return self.rollout.execute_method(method, *args, **kwargs)
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
