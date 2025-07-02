@@ -385,13 +385,19 @@ def process_validation_metrics(
             for var_name, var_vals in var2vals.items():
                 if isinstance(var_vals[0], str):
                     continue
+                
+                # Filter out None values
+                var_vals_filtered = [v for v in var_vals if v is not None]
+                if not var_vals_filtered:
+                    # Skip if all values are None
+                    continue
 
                 metric = {}
-                n_resps = len(var_vals)
-                metric[f"mean@{n_resps}"] = np.mean(var_vals)
+                n_resps = len(var_vals_filtered)
+                metric[f"mean@{n_resps}"] = np.mean(var_vals_filtered)
 
                 if n_resps > 1:
-                    metric[f"std@{n_resps}"] = np.std(var_vals)
+                    metric[f"std@{n_resps}"] = np.std(var_vals_filtered)
 
                     ns = []
                     n = 2
@@ -402,12 +408,13 @@ def process_validation_metrics(
 
                     for n in ns:
                         [(bon_mean, bon_std), (won_mean, won_std)] = bootstrap_metric(
-                            data=var_vals, subset_size=n, reduce_fns=[np.max, np.min], seed=seed
+                            data=var_vals_filtered, subset_size=n, reduce_fns=[np.max, np.min], seed=seed
                         )
                         metric[f"best@{n}/mean"], metric[f"best@{n}/std"] = bon_mean, bon_std
                         metric[f"worst@{n}/mean"], metric[f"worst@{n}/std"] = won_mean, won_std
                         if var2vals.get("pred", None) is not None:
-                            vote_data = [{"val": val, "pred": pred} for val, pred in zip(var_vals, var2vals["pred"])]
+                            # Create vote_data only for non-None values
+                            vote_data = [{"val": val, "pred": pred} for val, pred in zip(var_vals, var2vals["pred"]) if val is not None]
                             [(maj_n_mean, maj_n_std)] = bootstrap_metric(
                                 data=vote_data,
                                 subset_size=n,

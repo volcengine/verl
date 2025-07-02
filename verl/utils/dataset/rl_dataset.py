@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import copy
+import json
 import logging
 import os
 import re
@@ -187,6 +188,10 @@ class RLHFDataset(Dataset):
 
     def _build_messages(self, example: dict):
         messages: list = example.pop(self.prompt_key)
+        
+        # Handle JSON string prompts (e.g., from arc_vision dataset)
+        if isinstance(messages, str):
+            messages = json.loads(messages)
 
         if self.image_key in example or self.video_key in example:
             for message in messages:

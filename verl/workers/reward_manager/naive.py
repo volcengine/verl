@@ -76,6 +76,10 @@ class NaiveRewardManager:
 
             ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
             data_source = data_item.non_tensor_batch[self.reward_fn_key]
+            # Handle numpy array data_source
+            if hasattr(data_source, '__len__') and not isinstance(data_source, str):
+                # If it's an array/list, take the first element
+                data_source = str(data_source[0]) if len(data_source) > 0 else "unknown"
             extra_info = data_item.non_tensor_batch.get("extra_info", None)
 
             score = self.compute_score(

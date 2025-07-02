@@ -124,6 +124,20 @@ python3 data_gen.py
 - Follow existing patterns in neighboring files
 - Use type hints where beneficial
 
+## Code Quality Principles
+
+Write production-ready code that prioritizes clarity, performance, and maintainability. Follow these principles:
+
+- Favor explicit over implicit behavior
+- Write self-documenting code with clear variable/function names
+- Minimize dependencies and complexity
+- Include error handling and logging for production debugging
+- Optimize for readability by future developers (including yourself)
+- Test critical paths and edge cases
+- Follow existing codebase patterns and conventions
+
+Default to simple, proven solutions over clever optimizations. Every line should serve a clear purpose.
+
 ## Testing Best Practices
 
 - Write unit tests for new utilities

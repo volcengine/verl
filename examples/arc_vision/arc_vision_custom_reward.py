@@ -512,9 +512,9 @@ def arc_vision_compute_reward(data_source: str,
     logger.info(f"Final reward: {final_reward:.3f} (IoU: {iou:.3f})")
     
     # Return detailed reward information
-    # VERL's reward manager expects a dict with at least a 'reward' key
+    # VERL's reward manager expects a dict with at least a 'score' key
     return {
-        "reward": float(final_reward),
+        "score": float(final_reward),
         # Additional metrics for analysis
         "r_task": float(r_task),
         "r_tool": float(r_tool),

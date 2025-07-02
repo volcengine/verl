@@ -38,7 +38,8 @@ def create_reasoning_prompt(instruction: str) -> str:
     This prompt encourages the model to think about whether it needs tools
     before attempting detection.
     """
-    prompt = f"""{instruction}
+    prompt = f"""<image>
+{instruction}
 
 First, analyze the image and describe what you observe about the target element:
 <reasoning>
