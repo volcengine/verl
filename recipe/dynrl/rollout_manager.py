@@ -4,6 +4,7 @@ import socket
 import threading
 import time
 import uuid
+from collections import defaultdict
 from typing import Dict
 
 import numpy as np
@@ -104,12 +105,14 @@ class RolloutManager:
         batch_size = prompts.batch.batch_size[0]
         uids = np.array([str(uuid.uuid4()) for _ in range(batch_size)], dtype=object)
         prompts.non_tensor_batch["uid"] = uids
+        if self.config.rollout.n > 1:
+            batch_size = batch_size * self.config.rollout.n
 
         self.worker_group.generate_sequences(prompts)
 
         driver_info = {idx: self.rollout_tp_size for idx in range(0, self.worker_group.world_size, self.rollout_tp_size)}
         driver_worker_indices = sorted(driver_info.keys())
-        print(f"{driver_worker_indices=}")
+        # print(f"{driver_worker_indices=}")
 
         enable_dyn_scale = self.config.rollout.get("enable_dyn_scale", False)
         # get response from buffer
@@ -124,7 +127,7 @@ class RolloutManager:
             num_unfinished_requests = ray.get([self.worker_group._workers[idx].actor_rollout_get_num_unfinished_requests.remote() for idx in driver_worker_indices])
 
             if enable_dyn_scale:
-                # a naive Dynamic scaling logic
+                # a naive dynamic scaling logic
                 new_driver_worker_indices = []
                 i = 0
                 while i < len(driver_worker_indices):
@@ -153,16 +156,24 @@ class RolloutManager:
         self.worker_group.sleep()
 
         # reorder
-        uid_to_response = {item["uid"]: item["response"] for item in results}
-        ordered_responses = np.array([uid_to_response[uid] for uid in uids], dtype=object)
+        uid_to_responses = defaultdict(list)
+        for item in results:
+            uid_to_responses[item["uid"]].append(item["response"])
+        ordered_responses = []
+        for uid in uids:
+            responses = uid_to_responses.get(uid, [])
+            ordered_responses.extend(responses)
+        ordered_responses = np.array(ordered_responses, dtype=object)
 
-        assert len(ordered_responses) == batch_size, f"len(ordered_responses) != batch_size, {len(ordered_responses)=}, {batch_size=}"
+        assert len(ordered_responses) == batch_size, f"len(ordered_responses) != batch_size, {len(ordered_responses)=}, {batch_size=}(repeat:{self.config.rollout.n})"
 
         responses = pad_2d_list_to_length(ordered_responses, self.pad_token_id, max_length=self.config.rollout.response_length)
         gen_batch_output = TensorDict({"responses": responses}, batch_size=batch_size)
         gen_batch_output = DataProto(batch=gen_batch_output)
 
         prompts.non_tensor_batch.pop("uid", None)
+        if self.config.rollout.n > 1:
+            prompts = prompts.repeat(repeat_times=self.config.rollout.n, interleave=True)
         gen_batch_output = gen_batch_output.union(prompts)
 
         gen_batch_output = self.worker_group.postprocess_generate_sequences(gen_batch_output)

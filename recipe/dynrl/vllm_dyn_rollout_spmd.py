@@ -317,6 +317,16 @@ class vLLMDynRollout(BaseRollout):
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = config.get(k)
 
+        # replace vllm batching with manual request repeating
+        # instead of letting vllm copy prompts internally, we now manually send N
+        # separate requests to enable:
+        # - better distribution across rollout instances
+        # - independent processing per repeat
+        self.n = 1
+        if kwargs["n"] > 1:
+            self.n = kwargs["n"]
+            kwargs.pop("n")
+
         print(f"kwargs: {kwargs}")
         self.sampling_params = SamplingParams(**kwargs)
 
@@ -449,7 +459,7 @@ class vLLMDynRollout(BaseRollout):
 
             # self.update_sampling_params(**kwargs).__enter__()
 
-            tasks = [asyncio.create_task(self._generate_sequence_task(uid, input_data, input_data["prompt_token_ids"], self.sampling_params)) for uid, input_data in zip(uids, vllm_inputs)]
+            tasks = [asyncio.create_task(self._generate_sequence_task(uid, input_data, input_data["prompt_token_ids"], self.sampling_params)) for uid, input_data in zip(uids, vllm_inputs) for _ in range(self.n)]
         else:
             tasks = await self.recv_tasks_on_driver()
 
@@ -514,10 +524,8 @@ class vLLMDynRollout(BaseRollout):
                         uid, result, org_prompt_token_ids = await task
                         for output in result.outputs:
                             input_ids = result.prompt_token_ids + list(output.token_ids)
-                            prompt = input_ids[: len(org_prompt_token_ids)]
+                            # prompt = input_ids[: len(org_prompt_token_ids)]
                             response = input_ids[len(org_prompt_token_ids) :]
-                            if len(response) != len(output.token_ids):
-                                debug(f"We got a result with different length, {len(input_ids)=}, {len(response)} (real) != {len(output.token_ids)} (partial), prompt: {self.tokenizer.decode(prompt)}, response: {self.tokenizer.decode(response)}")
                             await self._send_result(uid, response)
 
                 tasks = [task for task in tasks if not task.done()]
