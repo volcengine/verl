@@ -93,6 +93,9 @@ reward_model:
   enable: true
   strategy: fsdp  # Distributed strategy for reward model
   micro_batch_size_per_gpu: 8  # Batch size for reward computation per GPU
+  # Disable model-based reward since we use custom reward function
+  model:
+    path: null  # We don't use a model-based reward, only custom function
   # Custom reward function for Arc Vision
   custom_reward_function:
     path: examples/arc_vision/arc_vision_custom_reward.py
