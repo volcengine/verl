@@ -18,13 +18,17 @@ ENGINE=${1:-sglang}
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "${SCRIPT_DIR}/../.."  # Go to VERL root
 
-# Use our YAML config with proper Hydra syntax
+# Copy our config to the expected location and run
+cp "${SCRIPT_DIR}/config/arc_vision_grpo.yaml" verl/trainer/config/
+
+# Launch training using our custom config
 python3 -m verl.trainer.main_ppo \
-    --config-path examples/arc_vision/config \
     --config-name arc_vision_grpo \
     data.train_files=${DATA_DIR}/train.parquet \
     data.val_files=${DATA_DIR}/validation.parquet \
     actor_rollout_ref.rollout.name=$ENGINE \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
-    trainer.default_local_dir=outputs/arc_vision $@
+    trainer.default_local_dir=outputs/arc_vision \
+    custom_reward_function.path=examples/arc_vision/arc_vision_custom_reward.py \
+    custom_reward_function.name=arc_vision_compute_score_fn $@
