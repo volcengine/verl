@@ -1140,7 +1140,6 @@ class SGLangRollout(BaseRollout):
             non_tensor_batch={
                 "messages": np.array(messages),
                 "reward_scores": np.array(reward_scores),
-                "uid": np.array([req.uid for req in sorted_output_req_list]),
             },
         )
 
@@ -1159,8 +1158,6 @@ class SGLangRollout(BaseRollout):
         for data_idx, (raw_prompt, multi_modal_data) in enumerate(
             zip(prompts.non_tensor_batch["raw_prompt"], multi_modal_data_list)
         ):
-            uid = prompts.non_tensor_batch["uid"][data_idx] if "uid" in prompts.non_tensor_batch else None
-
             if self._tool_schemas:
                 _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
                 _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in _tools_kwargs.keys()]
@@ -1181,7 +1178,6 @@ class SGLangRollout(BaseRollout):
                 batch_data_id=data_idx,
                 rollout_offset=0,
                 request_id=str(uuid4()),
-                uid=uid,
                 state=AsyncRolloutRequestStateEnum.PENDING,
                 messages=raw_prompt.tolist(),
                 multi_modal_data=multi_modal_data,
