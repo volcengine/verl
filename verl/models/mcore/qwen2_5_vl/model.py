@@ -27,6 +27,12 @@ from megatron.core.transformer import MegatronModule
 from megatron.core.transformer.spec_utils import ModuleSpec
 from megatron.core.transformer.transformer_config import TransformerConfig
 
+from ..util import (
+    AllGatherVisionEmbeddings,
+    get_embeddings_on_this_cp_rank_thd,
+    get_pos_ids_on_this_cp_rank_thd,
+    get_vision_cp_data,
+)
 from .attention import Qwen2_5VLSelfAttention
 from .vision_model import Qwen2_5VisionModel
 
@@ -114,6 +120,12 @@ class Qwen2_5VLModel(MegatronModule):
         self.language_model = None
         self.image_token_id = image_token_id
         self.video_token_id = video_token_id
+        self.llm_cp_size = language_transformer_config.context_parallel_size
+        self.enable_vision_context_parallelism = getattr(
+            vision_transformer_config, "enable_vision_context_parallelism", False
+        )
+        if self.llm_cp_size > 1 and not self.enable_vision_context_parallelism:
+            print("WARN: Only LLM context parallelism is enabled.")
 
         self.square_merge_size = vision_projection_config.ffn_hidden_size // vision_transformer_config.hidden_size
 
@@ -247,12 +259,36 @@ class Qwen2_5VLModel(MegatronModule):
             raise NotImplementedError()
 
         if self.pre_process:
+            original_vision_grid_thw = vision_grid_thw.clone()
+            if self.llm_cp_size > 1 and self.enable_vision_context_parallelism:
+                vision_data, vision_grid_thw, seqlen_on_cp_ranks = get_vision_cp_data(
+                    vision_data, vision_grid_thw, self.square_merge_size
+                )
+
             vision_embeds = None
             if vision_grid_thw is not None and vision_grid_thw.shape[0] > 0:
                 vision_embeds = self.vision_model(
                     vision_data=vision_data,  # If None, vision model should use intermediate outputs (EPP > 1)
                     grid_thw=vision_grid_thw,  # should provided in each EPP stage
                 )
+
+            if (
+                original_vision_grid_thw.shape[0] > 0
+                and self.llm_cp_size > 1
+                and self.enable_vision_context_parallelism
+            ):
+                if vision_embeds is None:
+                    dtype = torch.float32
+                    if self.vision_model.config.bf16:
+                        dtype = torch.bfloat16
+                    elif self.vision_model.config.fp16:
+                        dtype = torch.float16
+                    else:
+                        print("WARN: vision model dtype is not bfloat16 or fp16, using float32")
+                    vision_embeds = torch.zeros(
+                        (0, self.language_model.config.hidden_size), device=vision_data.device, dtype=dtype
+                    )
+                vision_embeds = AllGatherVisionEmbeddings.apply(vision_embeds, seqlen_on_cp_ranks)
 
             # If running inference, the language model KV cache will be updated for image token positions.
             # Here we store the image tokens sequence length, which can be used as an offset to the KV cache later.
@@ -315,16 +351,30 @@ class Qwen2_5VLModel(MegatronModule):
                     input_ids=input_ids,
                     position_ids=None,  # NOTE: disable
                 )  # [text_seq_len, b, h_language]
+
+            if self.llm_cp_size > 1:
+                assert packed_seq_params is not None and packed_seq_params.qkv_format == "thd", (
+                    "Only THD format is supported for context parallel"
+                )
+                combined_embeddings = get_embeddings_on_this_cp_rank_thd.apply(combined_embeddings, packed_seq_params)
+
             if self.config.sequence_parallel:
                 combined_embeddings = tensor_parallel.scatter_to_sequence_parallel_region(combined_embeddings)
                 combined_embeddings = combined_embeddings.contiguous()
         else:
             combined_embeddings = None
-        from .rope_utils import get_rope_index
+        from .rope_utils import get_rope_index_thd
 
-        position_ids, _ = get_rope_index(
-            input_ids, image_grid_thw=image_grid_thw, video_grid_thw=video_grid_thw, attention_mask=attention_mask
+        position_ids = get_rope_index_thd(
+            input_ids,
+            image_grid_thw=image_grid_thw,
+            video_grid_thw=video_grid_thw,
+            attention_mask=attention_mask,
+            packed_seq_params=packed_seq_params,
         )
+
+        if self.llm_cp_size > 1:
+            position_ids = get_pos_ids_on_this_cp_rank_thd(position_ids, packed_seq_params)
 
         output = self.language_model(
             input_ids=None,

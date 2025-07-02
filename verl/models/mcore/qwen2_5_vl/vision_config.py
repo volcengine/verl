@@ -62,6 +62,7 @@ def get_vision_model_config(config: TransformerConfig) -> TransformerConfig:
 
     config.fullatt_block_indexes = [7, 15, 23, 31]
     config._qwen2_5_vl_window_size = 112
+    config.context_parallel_size = 1
     return config
 
 
@@ -82,4 +83,5 @@ def get_vision_projection_config(
     config.activation_func = torch.nn.functional.gelu
     config.tp_comm_overlap = False
     config.sequence_parallel = False
+    config.context_parallel_size = 1
     return config

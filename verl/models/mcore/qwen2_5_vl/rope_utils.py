@@ -23,18 +23,20 @@ from typing import Optional
 import torch
 from megatron.core.models.common.embeddings.rope_utils import *
 from megatron.core.models.common.embeddings.rope_utils import _apply_rotary_pos_emb_bshd
+from megatron.core.packed_seq_params import PackedSeqParams
 from torch import Tensor
 
 logger = logging.getLogger(__name__)
 
 
 # Slightly modified from Qwen2VLForConditionalGeneration.get_rope_index
-def get_rope_index(
+def get_rope_index_thd(
     input_ids: Optional[torch.LongTensor] = None,
     image_grid_thw: Optional[torch.LongTensor] = None,
     video_grid_thw: Optional[torch.LongTensor] = None,
     second_per_grid_ts: Optional[torch.Tensor] = None,
     attention_mask: Optional[torch.Tensor] = None,
+    packed_seq_params: Optional[PackedSeqParams] = None,
 ):
     """
     Calculate the 3D rope index based on image and video's temporal, height and width in LLM.
@@ -82,7 +84,7 @@ def get_rope_index(
             Here we calculate the text start position_ids as the max vision position_ids plus 1.
 
     Args:
-        input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
+        input_ids (`torch.LongTensor` of shape `(1, packed_sequence_length)`):
             Indices of input sequence tokens in the vocabulary. Padding will be ignored by default should you provide
             it.
         image_grid_thw (`torch.LongTensor` of shape `(num_images, 3)`, *optional*):
@@ -91,23 +93,31 @@ def get_rope_index(
             The temporal, height and width of feature shape of each video in LLM.
         second_per_grid_ts (`torch.Tensor` of shape `(num_videos)`, *optional*):
             The time interval (in seconds) for each grid along the temporal dimension in the 3D position IDs.
-        attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
+        attention_mask (`torch.Tensor` of shape `(1, packed_sequence_length)`, *optional*):
             Mask to avoid performing attention on padding token indices. Mask values selected in `[0, 1]`:
 
             - 1 for tokens that are **not masked**,
             - 0 for tokens that are **masked**.
 
     Returns:
-        position_ids (`torch.LongTensor` of shape `(3, batch_size, sequence_length)`)
-        mrope_position_deltas (`torch.Tensor` of shape `(batch_size)`)
+        position_ids (`torch.LongTensor` of shape `(3, 1, packed_sequence_length)`)
     """
     spatial_merge_size = 2
     tokens_per_second = 2
     image_token_id = 151655
     video_token_id = 151656
     vision_start_token_id = 151652
-    mrope_position_deltas = []
-    if input_ids is not None and (image_grid_thw is not None or video_grid_thw is not None):
+    if second_per_grid_ts is not None:
+        second_per_grid_ts = second_per_grid_ts.cpu()
+
+    assert packed_seq_params is not None, "packed_seq_params is required for thd format"
+    assert input_ids.shape[0] == 1, "input_ids should be of shape (1, packed_sequence_length)"
+    if attention_mask is not None:
+        assert attention_mask.shape[0] == 1, "attention_mask should be of shape (1, packed_sequence_length)"
+
+    cu_seqlens_padded = packed_seq_params.cu_seqlens_q_padded.cpu()
+
+    if image_grid_thw is not None or video_grid_thw is not None:
         total_input_ids = input_ids
         if attention_mask is None:
             attention_mask = torch.ones_like(total_input_ids)
@@ -120,8 +130,13 @@ def get_rope_index(
         )
         image_index, video_index = 0, 0
         attention_mask = attention_mask.to(total_input_ids.device)
-        for i, input_ids in enumerate(total_input_ids):
-            input_ids = input_ids[attention_mask[i] == 1]
+        for i in range(len(cu_seqlens_padded) - 1):
+            start_idx = cu_seqlens_padded[i]
+            end_idx = cu_seqlens_padded[i + 1]
+            input_ids = total_input_ids[0, start_idx:end_idx]
+            attention_mask_i = attention_mask[0, start_idx:end_idx]
+
+            input_ids = input_ids[attention_mask_i == 1]
             image_nums, video_nums = 0, 0
             vision_start_indices = torch.argwhere(input_ids == vision_start_token_id).squeeze(1)
             vision_tokens = input_ids[vision_start_indices + 1]
@@ -193,30 +208,34 @@ def get_rope_index(
                 llm_pos_ids_list.append(torch.arange(text_len).view(1, -1).expand(3, -1) + st_idx)
 
             llm_positions = torch.cat(llm_pos_ids_list, dim=1).reshape(3, -1)
-            position_ids[..., i, attention_mask[i] == 1] = llm_positions.to(position_ids.device)
-            mrope_position_deltas.append(llm_positions.max() + 1 - len(total_input_ids[i]))
-        mrope_position_deltas = torch.tensor(mrope_position_deltas, device=input_ids.device).unsqueeze(1)
-        return position_ids, mrope_position_deltas
+            position_ids[..., 0, start_idx:end_idx][..., attention_mask_i == 1] = llm_positions.to(position_ids.device)
+        return position_ids
     else:
+        bs = len(cu_seqlens_padded) - 1
+        position_ids = torch.ones(
+            3,
+            input_ids.shape[0],
+            input_ids.shape[1],
+            dtype=input_ids.dtype,
+            device=input_ids.device,
+        )
         if attention_mask is not None:
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
-            position_ids = position_ids.unsqueeze(0).expand(3, -1, -1).to(attention_mask.device)
-            max_position_ids = position_ids.max(0, keepdim=False)[0].max(-1, keepdim=True)[0]
-            mrope_position_deltas = max_position_ids + 1 - attention_mask.shape[-1]
+            for i in range(bs):
+                start_idx = cu_seqlens_padded[i]
+                end_idx = cu_seqlens_padded[i + 1]
+                attention_mask_i = attention_mask[0, start_idx:end_idx]
+                pos_ids = attention_mask_i.long().cumsum(-1) - 1
+                pos_ids.masked_fill_(attention_mask_i == 0, 1)
+                pos_ids = pos_ids.unsqueeze(0).expand(3, -1, -1).to(input_ids.device)
+                position_ids[..., start_idx:end_idx] = pos_ids
         else:
-            position_ids = (
-                torch.arange(input_ids.shape[1], device=input_ids.device)
-                .view(1, 1, -1)
-                .expand(3, input_ids.shape[0], -1)
-            )
-            mrope_position_deltas = torch.zeros(
-                [input_ids.shape[0], 1],
-                device=input_ids.device,
-                dtype=input_ids.dtype,
-            )
+            pos_id_list = []
+            seqlen = cu_seqlens_padded[1:] - cu_seqlens_padded[:-1]
+            for i in range(bs):
+                pos_id_list.append(torch.arange(seqlen[i], device=input_ids.device).view(1, 1, -1).expend(3, 1, -1))
 
-        return position_ids, mrope_position_deltas
+            position_ids = torch.cat(pos_id_list, dim=2)
+        return position_ids
 
 
 def apply_rotary_pos_emb_thd_absolute(
