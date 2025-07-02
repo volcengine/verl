@@ -14,19 +14,23 @@ MODEL_PATH=${MODEL_PATH:-"Qwen/Qwen2.5-VL-3B-Instruct"}
 # Output directory
 OUTPUT_DIR=${OUTPUT_DIR:-"outputs/arc_vision"}
 
+# Base directory
+BASE_DIR=${BASE_DIR:-"/root/verl"}
+
 # Tool config path (absolute path for container)
 TOOL_CONFIG_PATH="examples/arc_vision/config/tool_config/arc_vision_tools.yaml"
 
 # Custom reward function path (absolute path for container)
 REWARD_FUNCTION_PATH="examples/arc_vision/arc_vision_custom_reward.py"
 
+# Configuration path
+CONFIG_PATH="$BASE_DIR/examples/arc_vision/config"
+
 # Number of GPUs
 N_GPUS=${N_GPUS:-2}
 
 # Launch VERL PPO training with GRPO algorithm
 python3 -m verl.trainer.main_ppo \
-    --config-name arc_vision_grpo \
-    --config-path examples/arc_vision/config \
     algorithm.adv_estimator=grpo \
     algorithm.gamma=1.0 \
     algorithm.lam=0.95 \
