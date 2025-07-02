@@ -19,6 +19,10 @@ data:
   custom_cls:
       path: null
       name: null
+  curriculum:
+    curriculum_class_path: null
+    curriculum_class: null
+  dataloader_num_workers: 8
 
 actor_rollout_ref:
   hybrid_engine: True
