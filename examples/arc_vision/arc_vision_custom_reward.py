@@ -307,27 +307,32 @@ def arc_vision_compute_reward(data_source: str,
                             **kwargs):
     """Custom reward function for Arc Vision that integrates with VERL's reward manager.
     
-    This function follows VERL's default_compute_score interface and is called by
-    the naive reward manager for Arc Vision responses.
+    Implements the complete 3-component reward function from the blog post:
+    R(s,a,t) = α*R_task + β*R_tool + γ*R_gate
+    
+    Where:
+    - R_task: IoU-based detection accuracy
+    - R_tool: Tool effectiveness based on confidence gain
+    - R_gate: Penalties for tool misuse
     
     Args:
         data_source: Dataset identifier (should be "arc_vision" or "screenspot")
         solution_str: Model response string containing reasoning and tool usage
         ground_truth: Ground truth bounding box coordinates [x1, y1, x2, y2]
         extra_info: Additional information (unused for Arc Vision)
-        confidence_threshold: Threshold for confidence-gated tool invocation
-        reward_weights: Weights for reward components (task, tool, gate)
+        confidence_threshold: Threshold for confidence-gated tool invocation (default: 0.7)
+        reward_weights: Weights for reward components (default: α=0.6, β=0.3, γ=0.1)
         tool_penalties: Penalties for different tool usage failure modes
         **kwargs: Additional keyword arguments
         
     Returns:
-        Dict or float: Reward score with detailed metrics or just the score
+        Dict: Reward score with detailed metrics
     """
     # Verify this is an Arc Vision request
     if data_source not in ["arc_vision", "screenspot"]:
         raise ValueError(f"Arc Vision reward function called with wrong data_source: {data_source}")
     
-    # Use default parameters if not provided
+    # Use default parameters from blog post if not provided
     if reward_weights is None:
         reward_weights = {"task": 0.6, "tool": 0.3, "gate": 0.1}
     if tool_penalties is None:
@@ -338,20 +343,27 @@ def arc_vision_compute_reward(data_source: str,
             "excessive_tools": -0.4
         }
     
-    # Prepare ground truth data structure
-    gt_data = {"ground_truth": ground_truth}
+    # Initialize reward components
+    r_task = 0.0
+    r_tool = 0.0
+    r_gate = 0.0
     
-    # For now, compute a simple IoU-based reward
-    # TODO: Implement full Arc Vision reward computation
+    # ==============================================================================
+    # 1. R_task: IoU-based Detection Accuracy
+    # ==============================================================================
     import re
     
     # Extract predicted bbox from solution
     bbox_pattern = r'<bbox>\s*\[([\d\.\s,]+)\]\s*</bbox>'
     match = re.search(bbox_pattern, solution_str, re.IGNORECASE)
     
+    predicted_bbox = None
+    iou = 0.0
+    
     if match:
         try:
             predicted_bbox = [float(x.strip()) for x in match.group(1).split(',')]
+            
             # Calculate IoU
             x1 = max(predicted_bbox[0], ground_truth[0])
             y1 = max(predicted_bbox[1], ground_truth[1])
@@ -367,11 +379,76 @@ def arc_vision_compute_reward(data_source: str,
             else:
                 iou = 0.0
             
-            reward_score = iou * reward_weights["task"]
-        except:
-            reward_score = 0.0
+            r_task = iou
+        except Exception as e:
+            logger.warning(f"Failed to parse bbox: {e}")
+            r_task = 0.0
     else:
-        reward_score = 0.0
+        r_task = 0.0
+    
+    # ==============================================================================
+    # 2. Extract Tool Usage and Confidence Information
+    # ==============================================================================
+    tool_metrics = extract_tool_usage_as_confidence_proxy(solution_str)
+    confidence_before, confidence_after = compute_effective_confidence(solution_str)
+    
+    # ==============================================================================
+    # 3. R_tool: Tool Effectiveness Based on Confidence Gain
+    # ==============================================================================
+    if tool_metrics["tool_invocations"] > 0:
+        # Calculate confidence gain from tool use
+        confidence_gain = confidence_after - confidence_before
+        
+        # R_tool = confidence_gain * IoU (tool effectiveness tied to task success)
+        r_tool = max(0.0, confidence_gain * iou)
+        
+        # Cap maximum tool reward
+        r_tool = min(r_tool, 1.0)
+    else:
+        # No tools used, no tool reward
+        r_tool = 0.0
+    
+    # ==============================================================================
+    # 4. R_gate: Penalties for Tool Misuse
+    # ==============================================================================
+    gate_penalties = []
+    
+    # Penalty 1: Unnecessary tool use (high confidence but used tools)
+    if confidence_before >= confidence_threshold and tool_metrics["tool_invocations"] > 0:
+        penalty = tool_penalties["unnecessary_tool"]
+        gate_penalties.append(("unnecessary_tool", penalty))
+    
+    # Penalty 2: Missed opportunity (low confidence but no tools)
+    if confidence_before < confidence_threshold and tool_metrics["tool_invocations"] == 0:
+        penalty = tool_penalties["missed_opportunity"]
+        gate_penalties.append(("missed_opportunity", penalty))
+    
+    # Penalty 3: Ineffective tool use (tool used but no confidence gain)
+    if tool_metrics["tool_invocations"] > 0:
+        confidence_gain = confidence_after - confidence_before
+        if confidence_gain < 0.05:  # Less than 5% confidence gain
+            penalty = tool_penalties["ineffective_tool"]
+            gate_penalties.append(("ineffective_tool", penalty))
+    
+    # Penalty 4: Excessive tool use (too many tools)
+    if tool_metrics["tool_invocations"] > 3:
+        penalty = tool_penalties["excessive_tools"]
+        gate_penalties.append(("excessive_tools", penalty))
+    
+    # Sum all gate penalties (they are negative values)
+    r_gate = sum(penalty for _, penalty in gate_penalties)
+    
+    # ==============================================================================
+    # 5. Compute Final Reward: R(s,a,t) = α*R_task + β*R_tool + γ*R_gate
+    # ==============================================================================
+    final_reward = (
+        reward_weights["task"] * r_task + 
+        reward_weights["tool"] * r_tool + 
+        reward_weights["gate"] * r_gate
+    )
+    
+    # Ensure reward is not negative (clamp to minimum of 0)
+    final_reward = max(0.0, final_reward)
     
     # ==============================================================================
     # DETAILED LOGGING INTEGRATION - Log all monitoring data
@@ -379,19 +456,11 @@ def arc_vision_compute_reward(data_source: str,
     try:
         log_files = get_log_files()
         
-        # Extract IoU and confidence for logging
-        # TODO: Get actual IoU from reward model computation
-        actual_iou = max(0.0, min(1.0, reward_score))  # Clamp reward to [0,1] as IoU proxy
-        
-        # Extract confidence estimates
-        confidence_before, confidence_after = compute_effective_confidence(solution_str)
-        tool_metrics = extract_tool_usage_as_confidence_proxy(solution_str)
-        
         # 1. Log reasoning traces - captures reasoning for listener analysis
         log_reasoning_trace(
             prompt_str="",  # Not available in this interface
             response_str=solution_str,
-            actual_iou=actual_iou,
+            actual_iou=iou,
             ground_truth=ground_truth,
             log_file=log_files["reasoning_traces"]
         )
@@ -399,7 +468,7 @@ def arc_vision_compute_reward(data_source: str,
         # 2. Track confidence calibration - monitors prediction accuracy
         track_confidence_calibration(
             predicted_confidence=confidence_before,
-            actual_iou=actual_iou,
+            actual_iou=iou,
             tool_used=tool_metrics["tool_invocations"] > 0,
             response_str=solution_str,
             log_file=log_files["confidence_calibration"]
@@ -408,7 +477,7 @@ def arc_vision_compute_reward(data_source: str,
         # 3. Monitor tool patterns - analyzes tool effectiveness
         monitor_tool_patterns(
             response_str=solution_str,
-            actual_iou=actual_iou,
+            actual_iou=iou,
             ground_truth=ground_truth,
             log_file=log_files["tool_patterns"]
         )
@@ -416,7 +485,7 @@ def arc_vision_compute_reward(data_source: str,
         # 4. Detect contradictions - identifies listener disagreement patterns
         detect_tool_contradictions(
             response_str=solution_str,
-            actual_iou=actual_iou,
+            actual_iou=iou,
             ground_truth=ground_truth,
             log_file=log_files["contradictions"]
         )
@@ -426,12 +495,26 @@ def arc_vision_compute_reward(data_source: str,
         logger.warning(f"Detailed logging failed: {e}")
     
     # Log reward statistics for debugging
-    logger.debug(f"Arc Vision reward computed: {reward_score:.3f} for response length {len(solution_str)}")
+    logger.info(f"Arc Vision reward breakdown - Task: {r_task:.3f}, Tool: {r_tool:.3f}, Gate: {r_gate:.3f}")
+    logger.info(f"Confidence: {confidence_before:.3f} -> {confidence_after:.3f}, Tools used: {tool_metrics['tool_invocations']}")
+    logger.info(f"Final reward: {final_reward:.3f} (IoU: {iou:.3f})")
     
-    # Return reward score as expected by VERL
+    # Return detailed reward information
     # VERL's reward manager expects a dict with at least a 'reward' key
     return {
-        "reward": float(reward_score)
+        "reward": float(final_reward),
+        # Additional metrics for analysis
+        "r_task": float(r_task),
+        "r_tool": float(r_tool),
+        "r_gate": float(r_gate),
+        "iou": float(iou),
+        "confidence_before": float(confidence_before),
+        "confidence_after": float(confidence_after),
+        "tool_invocations": tool_metrics["tool_invocations"],
+        "tools_used": tool_metrics["tools_used"],
+        "gate_penalties": gate_penalties,
+        "predicted_bbox": predicted_bbox,
+        "ground_truth": ground_truth
     }
 
 
