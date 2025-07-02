@@ -356,7 +356,7 @@ class AsyncRolloutRequest(BaseModel):
             else self.generation_prompt_ids
         )
         if generation_prompt_ids:
-            self._update_input_ids(generation_prompt_ids, attention_mask=True, loss_mask=False)
+            self._update_input_ids(processing_class, generation_prompt_ids, attention_mask=True, loss_mask=False)
 
         if self.use_inference_chat_template:
             messages = [msg.model_dump() for msg in self.messages]
@@ -387,7 +387,7 @@ class AsyncRolloutRequest(BaseModel):
         content_ids = self._handle_apply_chat_template(
             processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True
         )[self.base_conv_wo_gen_prompt_end_pos :]
-        self._update_input_ids(content_ids, attention_mask=True, loss_mask=False)
+        self._update_input_ids(processing_class, content_ids, attention_mask=True, loss_mask=False)
 
     def add_assistant_message(
         self,
@@ -405,7 +405,7 @@ class AsyncRolloutRequest(BaseModel):
         content_ids = self._handle_apply_chat_template(
             processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True
         )[self.base_conv_with_gen_prompt_end_pos :]
-        self._update_input_ids(content_ids, attention_mask=True, loss_mask=True)
+        self._update_input_ids(processing_class, content_ids, attention_mask=True, loss_mask=True)
 
     def add_tool_response_messages(
         self,
@@ -471,10 +471,13 @@ class AsyncRolloutRequest(BaseModel):
             return_dict=True,
         )
         content_ids = content_info["input_ids"][self.base_conv_wo_gen_prompt_end_pos :]
-        self._update_input_ids(content_ids, attention_mask=True, loss_mask=False)
-
-        # We also update the multi_modal_inputs here
-        self._update_multi_modal_inputs(content_info)
+        self._update_input_ids(
+            processing_class,
+            content_ids,
+            attention_mask=True,
+            loss_mask=False,
+            new_multi_modal_inputs=content_info,
+        )
 
     def update_metrics(self, metrics: Any, tool_id: str) -> None:
         """
