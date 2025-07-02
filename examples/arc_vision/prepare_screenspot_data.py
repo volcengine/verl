@@ -107,7 +107,7 @@ def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str, imag
         "images": [{"image": image_path}],  # Use dict format expected by Qwen2.5-VL
         "ability": "ui_detection",
         "ground_truth": bbox_normalized,  # Add at top level for reward function
-        "reward_model": json.dumps({  # Serialize entire dict
+        "reward_model": {  # Store as dict, not JSON string
             "style": "arc_vision",
             "ground_truth": bbox_normalized,
             "confidence_threshold": 0.7,
@@ -116,15 +116,15 @@ def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str, imag
                 "tool": 0.3,
                 "gate": 0.1
             }
-        }),
-        "extra_info": json.dumps({  # Serialize entire dict
+        },
+        "extra_info": {  # Store as dict, not JSON string
             "split": split,
             "index": idx,
             "original_instruction": instruction,
             "original_bbox": bbox,
             "element_type": sample.get("element_type", "unknown"),
             "screenshot_id": sample.get("screenshot_id", f"{split}_{idx}")
-        })
+        }
     }
     
     return record
@@ -235,12 +235,12 @@ def main():
         print(f"  Total samples: {len(df)}")
         print(f"  Images saved to: {image_dir}")
         
-        # Parse extra_info to get instruction length
-        extra_infos = df['extra_info'].apply(json.loads)
+        # Get instruction length from extra_info
+        extra_infos = df['extra_info']
         print(f"  Average instruction length: {extra_infos.apply(lambda x: len(x['original_instruction'])).mean():.1f} chars")
         
         # Check bbox distribution
-        reward_models = df['reward_model'].apply(json.loads)
+        reward_models = df['reward_model']
         bboxes = reward_models.apply(lambda x: x['ground_truth'])
         bbox_areas = bboxes.apply(lambda b: (b[2] - b[0]) * (b[3] - b[1]))
         print(f"  Average bbox area: {bbox_areas.mean():.3f}")

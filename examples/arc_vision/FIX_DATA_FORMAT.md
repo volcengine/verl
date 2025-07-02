@@ -1,12 +1,14 @@
-# Fix for Data Format Error
+# Fix for VERL Data Format Issues
 
 ## Error
 ```
-TypeError: string indices must be integers, not 'str'
+AttributeError: 'str' object has no attribute 'get'
+File "/root/verl/verl/utils/dataset/rl_dataset.py", line 307, in __getitem__
+    index = row_dict.get("extra_info", {}).get("index", 0)
 ```
 
 ## Root Cause
-The ScreenSpot data preparation script was storing messages as JSON-serialized strings, but VERL's RLHFDataset expects the prompt field to contain a list of message dictionaries directly.
+VERL's `rl_dataset.py` expects `extra_info` and `reward_model` fields to be dictionaries, but we were storing them as JSON strings using `json.dumps()`. When VERL tries to call `.get()` on these fields, it fails because they are strings, not dictionaries.
 
 ## Solution
 
@@ -43,22 +45,41 @@ The data preparation script has been fixed. You need to **regenerate your data f
 
 ## What Changed
 
-The fix changes how messages are stored in the parquet files:
+The fix changes how dictionaries are stored in the parquet files:
 
 **Before (incorrect)**:
 ```python
-"prompt": json.dumps(messages)  # JSON string: '[{"role": "user", "content": "..."}]'
+"reward_model": json.dumps({
+    "style": "arc_vision",
+    "ground_truth": bbox_normalized,
+    ...
+}),
+"extra_info": json.dumps({
+    "split": split,
+    "index": idx,
+    ...
+})
 ```
 
 **After (correct)**:
 ```python
-"prompt": messages  # Python list: [{"role": "user", "content": "..."}]
+"reward_model": {
+    "style": "arc_vision", 
+    "ground_truth": bbox_normalized,
+    ...
+},
+"extra_info": {
+    "split": split,
+    "index": idx,
+    ...
+}
 ```
 
-Additionally:
-- Added `ground_truth` field at the top level for the reward function
-- Kept other fields (reward_model, extra_info) as JSON strings as expected
+Key changes:
+- Removed `json.dumps()` calls for `reward_model` and `extra_info`
+- Store these fields as native Python dictionaries
+- This matches the format used in other VERL examples (gsm8k.py, geo3k.py)
 
 ## Expected Behavior
 
-After regenerating the data, the training should proceed past the filtering step without the TypeError.
+After regenerating the data, the training should proceed past the data loading step without the AttributeError.
