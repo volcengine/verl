@@ -65,6 +65,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     algorithm.lam=0.95 \
     reward_model.enable=true \
+    reward_model.micro_batch_size_per_gpu=8 \
     reward_model.custom_reward_function.path=examples/arc_vision/arc_vision_custom_reward.py \
     reward_model.custom_reward_function.name=arc_vision_compute_reward \
     trainer.critic_warmup=0 \
