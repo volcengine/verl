@@ -104,7 +104,7 @@ def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str, imag
     record = {
         "data_source": "rootsautomation/ScreenSpot",
         "prompt": messages,  # Store as list, not JSON string
-        "images": [image_path],  # Store path instead of PIL object
+        "images": [{"image": image_path}],  # Use dict format expected by Qwen2.5-VL
         "ability": "ui_detection",
         "ground_truth": bbox_normalized,  # Add at top level for reward function
         "reward_model": json.dumps({  # Serialize entire dict
