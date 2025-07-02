@@ -84,6 +84,7 @@ class RayDAPOTrainer(RayPPOTrainer):
 
         timing_raw = defaultdict(float)
         reward_extra_infos_dict_keys = set()
+        filtered_prompt_metrics = []
         batch = None
         num_prompt_in_batch = 0
         num_gen_batches = 0
@@ -206,6 +207,7 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                         kept_prompt_uids = [uid for uid, std in prompt_uid2metric_std.items() if std > 0 or len(prompt_uid2metric_vals[uid]) == 1]
                         num_prompt_in_batch += len(kept_prompt_uids)
+                        filtered_prompt_metrics.extend([np.mean(metric_val) for uid, metric_val in prompt_uid2metric_vals.items() if uid not in kept_prompt_uids])
 
                         kept_traj_idxs = []
                         for idx, traj_from_prompt_uid in enumerate(new_batch.non_tensor_batch["uid"]):
@@ -336,9 +338,18 @@ class RayDAPOTrainer(RayPPOTrainer):
                 metrics.update(
                     {
                         "training/global_step": self.global_steps,
+                        "training/progress_step": progress_bar.n,
+                        "training/filtered_pomrpts": len(filtered_prompt_metrics),
                         "training/epoch": epoch,
                     }
                 )
+                if filtered_prompt_metrics:
+                    metrics.update(
+                        {
+                            "training/filtered_prompt_mean_metric": np.mean(filtered_prompt_metrics),
+                        }
+                    )
+
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
@@ -349,6 +360,7 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                 metrics["training/num_gen_batches"] = num_gen_batches
                 batch = None
+                filtered_prompt_metrics = []
                 num_prompt_in_batch = 0
                 num_gen_batches = 0
 
