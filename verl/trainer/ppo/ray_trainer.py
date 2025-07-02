@@ -1030,8 +1030,8 @@ class RayPPOTrainer:
                 )
                 global_step_folder = self.config.trainer.resume_from_path
                 if not is_s3 and not os.path.isabs(global_step_folder):
-                    global_step_folder = os.path.join(checkpoint_folder, global_step_folder)
-
+                    working_dir = os.getcwd()
+                    global_step_folder = os.path.join(working_dir, global_step_folder)
         print(f'Load from checkpoint folder: {global_step_folder}')
         # set global step
         self.global_steps = int(global_step_folder.split("global_step_")[-1])
