@@ -260,6 +260,10 @@ actor_rollout_ref:
       discrete: False
       all_ranks: False
       ranks: null
+    custom_async_server:
+      path: null
+      name: null
+
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
   strategy: ${actor_rollout_ref.actor.strategy}

@@ -194,6 +194,10 @@ Actor/Rollout/Reference Policy
         n: 1
         do_sample: False # default eager for validation
 
+      custom_async_server: # Use custom async server implementation for rollout
+        path: null
+        name: null
+
 **Common config for actor, rollout and reference model**
 
 - ``actor_rollout_ref.hybrid_engine``: Whether it's a hybrid engine,
