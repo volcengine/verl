@@ -79,7 +79,7 @@ Application images can be updated frequently, and the Dockerfile can be found in
 Community Image
 :::::::::::::::
 
-Community images are provided by the community, including the latest versions of vLLM and SGLang, and may include experimental features or configurations. Also for other hardwares or platforms like AMD GPUs with ROCM or AWS EFA and Sagemaker, .
+Community images are provided by the community, including the latest versions of vLLM and SGLang, and may include experimental features or configurations. And also works for other hardwares or platforms like AMD GPUs with ROCM or AWS EFA and Sagemaker.
 
 For latest vLLM with FSDP, please refer to `hiyouga/verl <https://hub.docker.com/r/hiyouga/verl>`_ repository and the latest version is ``hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.4-flashinfer0.2.2-cxx11abi0``.
 
