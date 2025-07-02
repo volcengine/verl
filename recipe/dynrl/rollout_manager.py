@@ -15,6 +15,7 @@ from tensordict import TensorDict
 
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
+from verl.utils.net_utils import is_ipv6
 from verl.utils.torch_functional import pad_2d_list_to_length
 
 
@@ -48,14 +49,15 @@ class ZMQBuffer:
         self.loop.run_forever()
 
     def get_server_addr(self):
-        return f"tcp://{get_host_ip()}:{self.zmq_port}"
+        ip = get_host_ip()
+        port = self.zmq_port
+        return "tcp://" + f"[{ip}]:{port}" if is_ipv6(ip) else f"{ip}:{port}"
 
     async def _zmq_server(self):
         socket = self.context.socket(zmq.PULL)
-        host_ip = get_host_ip()
-        if ":" in host_ip:
+        if is_ipv6(get_host_ip()):
             socket.setsockopt(zmq.IPV6, 1)
-        socket.bind(f"tcp://{host_ip}:{self.zmq_port}")
+        socket.bind(self.get_server_addr())
         while True:
             data = await socket.recv_json()
             await self.queue.put(data)

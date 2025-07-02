@@ -344,8 +344,7 @@ class vLLMDynRollout(BaseRollout):
         # connect to zmq buffer
         self.context = zmq.asyncio.Context()
         self.socket = self.context.socket(zmq.PUSH)
-        # TODO(lkm): update IPV6 checking
-        if ":" in buffer_addr:
+        if "]" in buffer_addr:
             self.socket.setsockopt(zmq.IPV6, 1)
         self.socket.connect(buffer_addr)
 
