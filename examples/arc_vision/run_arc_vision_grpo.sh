@@ -30,6 +30,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.lam=0.95 \
     algorithm.use_kl_in_reward=False \
     algorithm.norm_adv_by_std_in_grpo=True \
+    algorithm.group_size=5 \
     \
     data.train_files="$TRAIN_DATA" \
     data.val_files="$VAL_DATA" \
@@ -74,6 +75,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.multi_turn.enable=True \
     actor_rollout_ref.rollout.multi_turn.max_assistant_turns=2 \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$TOOL_CONFIG_PATH" \
+    actor_rollout_ref.rollout.multi_turn.confidence_threshold=0.7 \
     actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
     \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=10 \
@@ -88,6 +90,10 @@ python3 -m verl.trainer.main_ppo \
     \
     custom_reward_function.path="$REWARD_FUNCTION_PATH" \
     custom_reward_function.name=arc_vision_compute_reward \
+    custom_reward_function.reward_kwargs.confidence_threshold=0.7 \
+    custom_reward_function.reward_kwargs.reward_weights.task=0.6 \
+    custom_reward_function.reward_kwargs.reward_weights.tool=0.3 \
+    custom_reward_function.reward_kwargs.reward_weights.gate=0.1 \
     \
     trainer.total_epochs=5 \
     trainer.save_freq=25 \
