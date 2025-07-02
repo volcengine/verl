@@ -19,7 +19,7 @@ data:
   filter_overlong_prompts: True
   truncation: 'error'
   reward_fn_key: ground_truth  # Key in parquet for ground truth bboxes
-  data_source: arc_vision  # Identifier for reward scoring
+  data_source: arc_vision  # Identifier for reward scoring (matches custom function)
 
 # Model configuration - using Qwen2.5-VL-3B
 actor_rollout_ref:
@@ -88,29 +88,26 @@ critic:
   model:
     path: Qwen/Qwen2.5-VL-3B-Instruct  # Same as actor for initialization
 
-# Reward model configuration
+# Reward model configuration - using custom function instead of neural model
 reward_model:
-  enable: true
-  strategy: fsdp  # Distributed strategy for reward model
-  micro_batch_size_per_gpu: 8  # Batch size for reward computation per GPU
-  # Disable model-based reward since we use custom reward function
-  model:
-    path: null  # We don't use a model-based reward, only custom function
-  # Custom reward function for Arc Vision
-  custom_reward_function:
-    path: examples/arc_vision/arc_vision_custom_reward.py
-    name: arc_vision_compute_reward
-    reward_kwargs:
-      confidence_threshold: 0.7
-      reward_weights:
-        task: 0.6    # IoU-based task performance
-        tool: 0.3    # Tool effectiveness
-        gate: 0.1    # Gating penalty
-      tool_penalties:
-        unnecessary_tool: -0.5
-        missed_opportunity: -0.3
-        ineffective_tool: -0.2
-        excessive_tools: -0.4
+  enable: false  # Disable neural reward model completely
+  reward_manager: naive  # Use naive reward manager for custom functions
+
+# Custom reward function configuration (at top level for VERL)
+custom_reward_function:
+  path: examples/arc_vision/arc_vision_custom_reward.py
+  name: arc_vision_compute_score_fn
+  reward_kwargs:
+    confidence_threshold: 0.7
+    reward_weights:
+      task: 0.6    # IoU-based task performance
+      tool: 0.3    # Tool effectiveness
+      gate: 0.1    # Gating penalty
+    tool_penalties:
+      unnecessary_tool: -0.5
+      missed_opportunity: -0.3
+      ineffective_tool: -0.2
+      excessive_tools: -0.4
 
 # Trainer configuration
 trainer:

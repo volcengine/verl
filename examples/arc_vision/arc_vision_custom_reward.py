@@ -21,11 +21,14 @@ import re
 from typing import Dict, List, Any
 from pathlib import Path
 
-import torch
-
-from verl import DataProto
 from verl.utils.reward_score.arc_vision_reward import ArcVisionRewardScore
-from verl.examples.arc_vision.utils.confidence_tracker import (
+
+# Add project root to sys.path for imports
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from examples.arc_vision.utils.confidence_tracker import (
     extract_tool_usage_as_confidence_proxy,
     analyze_reasoning_for_confidence,
     compute_effective_confidence
@@ -193,7 +196,11 @@ def monitor_tool_patterns(response_str: str, actual_iou: float,
             "confidence_gain": confidence_gain,
             "actual_iou": actual_iou,
             "tool_effective": tool_effective,
-            "ground_truth_area": (ground_truth[2] - ground_truth[0]) * (ground_truth[3] - ground_truth[1]) if len(ground_truth) >= 4 else 0.0,
+            "ground_truth_area": (
+                float(ground_truth[2]) - float(ground_truth[0])
+            ) * (
+                float(ground_truth[3]) - float(ground_truth[1])
+            ) if isinstance(ground_truth, (list, tuple)) and len(ground_truth) >= 4 else 0.0,
             # Tool usage analysis
             "used_zoom": "zoom" in tool_metrics["tools_used"],
             "used_wait": "wait" in tool_metrics["tools_used"],
@@ -290,145 +297,168 @@ def get_log_files() -> Dict[str, str]:
     return _LOG_FILES
 
 
-def arc_vision_compute_reward(data: DataProto, 
-                            return_dict: bool = False,
+def arc_vision_compute_reward(data_source: str, 
+                            solution_str: str, 
+                            ground_truth: Any, 
+                            extra_info: Dict = None,
                             confidence_threshold: float = 0.7,
                             reward_weights: Dict[str, float] = None,
                             tool_penalties: Dict[str, float] = None,
                             **kwargs):
-    """Custom reward function for Arc Vision that integrates with VERL's PPO trainer.
+    """Custom reward function for Arc Vision that integrates with VERL's reward manager.
     
-    This function is called by VERL's reward manager to compute rewards for
-    Arc Vision responses that include tool usage for UI element detection.
+    This function follows VERL's default_compute_score interface and is called by
+    the naive reward manager for Arc Vision responses.
     
     Args:
-        data: DataProto containing prompts and responses
+        data_source: Dataset identifier (should be "arc_vision" or "screenspot")
+        solution_str: Model response string containing reasoning and tool usage
+        ground_truth: Ground truth bounding box coordinates [x1, y1, x2, y2]
+        extra_info: Additional information (unused for Arc Vision)
         confidence_threshold: Threshold for confidence-gated tool invocation
         reward_weights: Weights for reward components (task, tool, gate)
         tool_penalties: Penalties for different tool usage failure modes
         **kwargs: Additional keyword arguments
         
     Returns:
-        torch.Tensor: Reward scores for each response in the batch
+        Dict or float: Reward score with detailed metrics or just the score
     """
-    # Initialize Arc Vision reward model
+    # Verify this is an Arc Vision request
+    if data_source not in ["arc_vision", "screenspot"]:
+        raise ValueError(f"Arc Vision reward function called with wrong data_source: {data_source}")
+    
+    # Initialize Arc Vision reward model with parameters
     reward_model = ArcVisionRewardScore(
         confidence_threshold=confidence_threshold,
-        reward_weights=reward_weights,
-        tool_penalties=tool_penalties
+        reward_weights=reward_weights or {"task": 0.6, "tool": 0.3, "gate": 0.1},
+        tool_penalties=tool_penalties or {
+            "unnecessary_tool": -0.5,
+            "missed_opportunity": -0.3,
+            "ineffective_tool": -0.2,
+            "excessive_tools": -0.4
+        }
     )
     
-    rewards = []
+    # Prepare ground truth data structure
+    gt_data = {"ground_truth": ground_truth}
     
-    # Process each item in the batch
-    for i in range(len(data)):
-        data_item = data[i]  # DataProtoItem
+    # Compute reward using Arc Vision reward model
+    # Note: The ArcVisionRewardScore expects lists even for single items
+    reward_list = reward_model(
+        questions=[""],  # Empty prompt since we only need the response
+        responses=[solution_str],
+        reward_model=[gt_data]
+    )
+    
+    reward_score = reward_list[0]
+    
+    # ==============================================================================
+    # DETAILED LOGGING INTEGRATION - Log all monitoring data
+    # ==============================================================================
+    try:
+        log_files = get_log_files()
         
-        # Extract prompt and response strings
-        prompt_ids = data_item.batch["prompts"]
-        prompt_length = prompt_ids.shape[-1]
-        valid_prompt_length = data_item.batch["attention_mask"][:prompt_length].sum()
-        valid_prompt_ids = prompt_ids[-valid_prompt_length:]
+        # Extract IoU and confidence for logging
+        # TODO: Get actual IoU from reward model computation
+        actual_iou = max(0.0, min(1.0, reward_score))  # Clamp reward to [0,1] as IoU proxy
         
-        response_ids = data_item.batch["responses"]
-        valid_response_length = data_item.batch["attention_mask"][prompt_length:].sum()
-        valid_response_ids = response_ids[:valid_response_length]
+        # Extract confidence estimates
+        confidence_before, confidence_after = compute_effective_confidence(solution_str)
+        tool_metrics = extract_tool_usage_as_confidence_proxy(solution_str)
         
-        # Decode to strings (tokenizer passed via kwargs)
-        tokenizer = kwargs.get("tokenizer")
-        if tokenizer:
-            prompt_str = tokenizer.decode(valid_prompt_ids, skip_special_tokens=True)
-            response_str = tokenizer.decode(valid_response_ids, skip_special_tokens=True)
-        else:
-            # Fallback to raw strings if available
-            prompt_str = data_item.non_tensor_batch.get("raw_prompt", "")
-            response_str = data_item.non_tensor_batch.get("response", "")
-        
-        # Extract ground truth from reward_model dict
-        reward_model_data = data_item.non_tensor_batch.get("reward_model", {})
-        ground_truth = reward_model_data.get("ground_truth", None)
-        
-        if ground_truth is None:
-            # No ground truth available for this sample
-            rewards.append(0.0)
-            continue
-        
-        # Prepare ground truth data structure
-        gt_data = {"ground_truth": ground_truth}
-        
-        # Compute reward using Arc Vision reward model
-        reward_list = reward_model(
-            questions=[prompt_str],
-            responses=[response_str],
-            reward_model=[gt_data]
+        # 1. Log reasoning traces - captures reasoning for listener analysis
+        log_reasoning_trace(
+            prompt_str="",  # Not available in this interface
+            response_str=solution_str,
+            actual_iou=actual_iou,
+            ground_truth=ground_truth,
+            log_file=log_files["reasoning_traces"]
         )
-        current_reward = reward_list[0]
-        rewards.append(current_reward)
         
-        # ==============================================================================
-        # DETAILED LOGGING INTEGRATION - Log all monitoring data
-        # ==============================================================================
-        try:
-            log_files = get_log_files()
-            
-            # Extract IoU from the reward model for logging
-            # TODO: Access actual IoU computation from reward model
-            # For now, use reward as proxy (will be enhanced in reward model)
-            actual_iou = max(0.0, min(1.0, current_reward))  # Clamp to [0,1]
-            
-            # Extract confidence estimates
-            confidence_before, confidence_after = compute_effective_confidence(response_str)
-            tool_metrics = extract_tool_usage_as_confidence_proxy(response_str)
-            
-            # 1. Log reasoning traces - captures reasoning for listener analysis
-            log_reasoning_trace(
-                prompt_str=prompt_str,
-                response_str=response_str,
-                actual_iou=actual_iou,
-                ground_truth=ground_truth,
-                log_file=log_files["reasoning_traces"]
-            )
-            
-            # 2. Track confidence calibration - monitors prediction accuracy
-            track_confidence_calibration(
-                predicted_confidence=confidence_before,
-                actual_iou=actual_iou,
-                tool_used=tool_metrics["tool_invocations"] > 0,
-                response_str=response_str,
-                log_file=log_files["confidence_calibration"]
-            )
-            
-            # 3. Monitor tool patterns - analyzes tool effectiveness
-            monitor_tool_patterns(
-                response_str=response_str,
-                actual_iou=actual_iou,
-                ground_truth=ground_truth,
-                log_file=log_files["tool_patterns"]
-            )
-            
-            # 4. Detect contradictions - identifies listener disagreement patterns
-            detect_tool_contradictions(
-                response_str=response_str,
-                actual_iou=actual_iou,
-                ground_truth=ground_truth,
-                log_file=log_files["contradictions"]
-            )
-            
-        except Exception as e:
-            # Don't fail training if logging fails
-            logger.warning(f"Detailed logging failed for sample {i}: {e}")
+        # 2. Track confidence calibration - monitors prediction accuracy
+        track_confidence_calibration(
+            predicted_confidence=confidence_before,
+            actual_iou=actual_iou,
+            tool_used=tool_metrics["tool_invocations"] > 0,
+            response_str=solution_str,
+            log_file=log_files["confidence_calibration"]
+        )
+        
+        # 3. Monitor tool patterns - analyzes tool effectiveness
+        monitor_tool_patterns(
+            response_str=solution_str,
+            actual_iou=actual_iou,
+            ground_truth=ground_truth,
+            log_file=log_files["tool_patterns"]
+        )
+        
+        # 4. Detect contradictions - identifies listener disagreement patterns
+        detect_tool_contradictions(
+            response_str=solution_str,
+            actual_iou=actual_iou,
+            ground_truth=ground_truth,
+            log_file=log_files["contradictions"]
+        )
+        
+    except Exception as e:
+        # Don't fail training if logging fails
+        logger.warning(f"Detailed logging failed: {e}")
     
-    # Convert to tensor
-    reward_tensor = torch.tensor(rewards, dtype=torch.float32)
+    # Log reward statistics for debugging
+    logger.debug(f"Arc Vision reward computed: {reward_score:.3f} for response length {len(solution_str)}")
     
-    # Log some statistics for debugging
-    if len(rewards) > 0:
-        logger.info(f"Arc Vision rewards - Mean: {reward_tensor.mean():.3f}, "
-                   f"Std: {reward_tensor.std():.3f}, "
-                   f"Min: {reward_tensor.min():.3f}, "
-                   f"Max: {reward_tensor.max():.3f}")
+    # Return detailed reward information
+    return {
+        "score": float(reward_score),
+        "confidence_before": float(confidence_before),
+        "confidence_after": float(confidence_after),
+        "tool_used": tool_metrics["tool_invocations"] > 0,
+        "tools_used": tool_metrics["tools_used"],
+        "actual_iou": float(actual_iou)
+    }
+
+
+def create_arc_vision_compute_score_fn(confidence_threshold: float = 0.7,
+                                      reward_weights: Dict[str, float] = None,
+                                      tool_penalties: Dict[str, float] = None):
+    """Create a compute_score function configured for Arc Vision.
     
-    if return_dict:
-        return {"reward_tensor": reward_tensor}
-    else:
-        return reward_tensor
+    This factory function creates a compute_score function with the Arc Vision
+    parameters pre-configured. This allows VERL's reward manager to use it
+    directly without needing to pass custom parameters.
+    
+    Args:
+        confidence_threshold: Threshold for confidence-gated tool invocation
+        reward_weights: Weights for reward components (task, tool, gate)
+        tool_penalties: Penalties for different tool usage failure modes
+        
+    Returns:
+        Function that matches VERL's compute_score interface
+    """
+    def compute_score(data_source: str, solution_str: str, ground_truth: Any, 
+                     extra_info: Dict = None, **kwargs) -> Dict:
+        return arc_vision_compute_reward(
+            data_source=data_source,
+            solution_str=solution_str,
+            ground_truth=ground_truth,
+            extra_info=extra_info,
+            confidence_threshold=confidence_threshold,
+            reward_weights=reward_weights,
+            tool_penalties=tool_penalties,
+            **kwargs
+        )
+    
+    return compute_score
+
+
+# Create the default Arc Vision compute score function
+arc_vision_compute_score_fn = create_arc_vision_compute_score_fn(
+    confidence_threshold=0.7,
+    reward_weights={"task": 0.6, "tool": 0.3, "gate": 0.1},
+    tool_penalties={
+        "unnecessary_tool": -0.5,
+        "missed_opportunity": -0.3,
+        "ineffective_tool": -0.2,
+        "excessive_tools": -0.4
+    }
+)
