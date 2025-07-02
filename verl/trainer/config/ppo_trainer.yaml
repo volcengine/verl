@@ -88,8 +88,8 @@ data:
     # The name of the dataset class within the specified file.
     name: null
   
-  # Whether to process multi-modal inputs. Set to False if rollout generates new multi-modal inputs.
-  process_multi_modal_inputs_in_dataset: True
+  # Whether to return multi-modal inputs in the dataset. Set to False if rollout generates new multi-modal inputs.
+  return_multi_modal_inputs: True
 
 # config for actor, rollout and reference model
 actor_rollout_ref:

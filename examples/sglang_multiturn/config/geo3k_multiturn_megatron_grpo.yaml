@@ -11,7 +11,7 @@ data:
   max_response_length: 2048
   train_batch_size: 256
   return_raw_chat: True
-  process_multi_modal_inputs_in_dataset: False
+  return_multi_modal_inputs: False
 
 actor_rollout_ref:
   hybrid_engine: True

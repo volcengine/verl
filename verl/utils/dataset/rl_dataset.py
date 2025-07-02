@@ -115,7 +115,7 @@ class RLHFDataset(Dataset):
         self.need_tools_kwargs = config.get("need_tools_kwargs", False)
         self.filter_prompts = config.get("filter_prompts", True)
         self.serialize_dataset = False
-        self.process_multi_modal_inputs_in_dataset = config.get("process_multi_modal_inputs_in_dataset", True)
+        self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
 
         self._download()
         self._read_files_and_tokenize()
@@ -251,7 +251,7 @@ class RLHFDataset(Dataset):
 
             # We will do batch.union() in the trainer,
             # so we cannot have "multi_modal_inputs" in row_dict if rollout generates new multi_modal_inputs
-            if self.process_multi_modal_inputs_in_dataset:
+            if self.return_multi_modal_inputs:
                 row_dict["multi_modal_inputs"] = dict(model_inputs)
 
                 # second_per_grid_ts isn't used for training, just for mrope

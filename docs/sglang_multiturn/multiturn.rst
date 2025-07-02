@@ -73,7 +73,7 @@ Image and video should be processed before returning. For example, if you are us
         # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
         return {"image": [img1, ...], "video": [video1, ...], "text": "..."}, 0, {}
 
-remeber to set ``process_multi_modal_inputs_in_dataset: False`` in your dataset config in order to process the multi-modal inputs in the rollout correctly.
+remeber to set ``return_multi_modal_inputs: False`` in your dataset config in order to process the multi-modal inputs in the rollout correctly.
 Refer to the `Handling Multi-Modal Inputs in Datasets`_ section for more details.
 
 Multi-turn Tokenization
@@ -137,11 +137,11 @@ Example configuration:
 Handling Multi-Modal Inputs in Datasets
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-If your dataset includes multi-modal inputs (such as images or videos), you can control whether these are pre-processed and included in each sample by setting the process_multi_modal_inputs_in_dataset flag in your dataset config (used by RLHFDataset).
+If your dataset includes multi-modal inputs (such as images or videos), you can control whether these are pre-processed and included in each sample by setting the return_multi_modal_inputs flag in your dataset config (used by RLHFDataset).
 
-- ``process_multi_modal_inputs_in_dataset: True`` (default): The dataset will pre-process and include a multi_modal_inputs dictionary for each sample. This dict contains the model-ready representations (e.g., image tensors, video tensors, etc.) as produced by your processor. This is useful for single-turn or SFT-style training, where the model expects all modalities to be present in the batch.
+- ``return_multi_modal_inputs: True`` (default): The dataset will pre-process and include a multi_modal_inputs dictionary for each sample. This dict contains the model-ready representations (e.g., image tensors, video tensors, etc.) as produced by your processor. This is useful for single-turn or SFT-style training, where the model expects all modalities to be present in the batch.
 
-- ``process_multi_modal_inputs_in_dataset: False``: The dataset will not include the multi_modal_inputs field. This is recommended for multi-turn RL or tool-augmented rollouts, where the model may generate new multi-modal inputs dynamically during rollout, and you want to avoid conflicts or redundant data in the batch.
+- ``return_multi_modal_inputs: False``: The dataset will not include the multi_modal_inputs field. This is recommended for multi-turn RL or tool-augmented rollouts, where the model may generate new multi-modal inputs dynamically during rollout, and you want to avoid conflicts or redundant data in the batch.
 
 
 Special Cases
