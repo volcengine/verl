@@ -10,7 +10,7 @@ defaults:
 data:
   train_files: ~/data/arc_vision/screenspot/train.parquet
   val_files: ~/data/arc_vision/screenspot/validation.parquet
-  train_batch_size: 256
+  train_batch_size: 64
   max_prompt_length: 1024
   max_response_length: 512
   return_raw_chat: True
@@ -32,16 +32,16 @@ actor_rollout_ref:
   # Actor training configuration
   actor:
     optim:
-      lr: 1e-6
-      weight_decay: 0.01
-    ppo_epochs: 1
-    ppo_mini_batch_size: 128
-    ppo_micro_batch_size_per_gpu: 2
-    gradient_accumulation_steps: 16
+      lr: 5e-7
+      weight_decay: 0.1
+    ppo_epochs: 2
+    ppo_mini_batch_size: 64
+    ppo_micro_batch_size_per_gpu: 1
+    gradient_accumulation_steps: 32
     use_kl_loss: true
     kl_loss_coef: 0.04
     kl_loss_type: low_var_kl
-    entropy_loss_coef: 0.01  # Prevent mode collapse
+    entropy_loss_coef: 0.02  # Prevent mode collapse
     fsdp_config:
       param_offload: False
       optimizer_offload: False
@@ -53,11 +53,11 @@ actor_rollout_ref:
       enable: True
       max_turns: 2  # Initial attempt + one tool use
       tool_config_path: "config/tool_config/arc_vision_tools.yaml"
-    n: 5  # Number of candidates per prompt
-    temperature: 0.7
-    log_prob_micro_batch_size_per_gpu: 20
+    n: 3  # Number of candidates per prompt
+    temperature: 0.8
+    log_prob_micro_batch_size_per_gpu: 10
     tensor_model_parallel_size: 1  # Adjust based on GPU
-    gpu_memory_utilization: 0.6
+    gpu_memory_utilization: 0.5
     enable_chunked_prefill: False
     enforce_eager: False
     free_cache_engine: True
@@ -67,7 +67,7 @@ actor_rollout_ref:
   
   # Reference model configuration
   ref:
-    log_prob_micro_batch_size_per_gpu: 20
+    log_prob_micro_batch_size_per_gpu: 10
     fsdp_config:
       param_offload: True
 
@@ -75,7 +75,7 @@ actor_rollout_ref:
 algorithm:
   adv_estimator: grpo  # Group Relative Policy Optimization
   gamma: 1.0
-  lam: 1.0
+  lam: 0.95
   adv_norm: true
   use_kl_in_reward: False
 
@@ -109,9 +109,9 @@ reward_model:
 
 # Trainer configuration
 trainer:
-  total_epochs: 3
-  save_freq: 50
-  test_freq: 10
+  total_epochs: 5
+  save_freq: 25
+  test_freq: 5
   critic_warmup: 0  # No critic for GRPO
   logger: ['console', 'wandb']
   project_name: 'arc_vision_rl'
