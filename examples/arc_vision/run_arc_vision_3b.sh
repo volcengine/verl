@@ -16,7 +16,8 @@ ENGINE=${1:-sglang}
 
 # Launch Arc Vision RL training
 python3 -m verl.trainer.main_ppo \
-    --config examples/arc_vision/config/arc_vision_grpo.yaml \
+    --config-path $(pwd)/examples/arc_vision/config \
+    --config-name arc_vision_grpo \
     algorithm.adv_estimator=grpo \
     data.train_files=${DATA_DIR}/train.parquet \
     data.val_files=${DATA_DIR}/validation.parquet \
@@ -65,7 +66,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger=['console','wandb'] \
     trainer.project_name='arc_vision_rl' \
     trainer.experiment_name='qwen2.5_vl_3b_screenspot_confidence_gated' \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=25 \
     trainer.test_freq=5 \
