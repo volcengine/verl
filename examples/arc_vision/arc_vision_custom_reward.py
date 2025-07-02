@@ -337,6 +337,13 @@ def arc_vision_compute_reward(data_source: str,
     if data_source not in ["arc_vision", "screenspot", "rootsautomation/ScreenSpot"]:
         logger.warning(f"Arc Vision reward function called with data_source: {data_source}")
     
+    # Handle JSON string extra_info (from parquet storage)
+    if isinstance(extra_info, str):
+        try:
+            extra_info = json.loads(extra_info)
+        except (json.JSONDecodeError, TypeError):
+            extra_info = {}
+    
     # Use default parameters from blog post if not provided
     if reward_weights is None:
         reward_weights = {"task": 0.6, "tool": 0.3, "gate": 0.1}

@@ -57,7 +57,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.use_kl_loss=true \
     actor_rollout_ref.actor.kl_loss_coef=0.04 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
-    actor_rollout_ref.actor.entropy_coeff=0.02 \
+    actor_rollout_ref.actor.entropy_loss_coef=0.02 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     \
@@ -87,7 +87,7 @@ python3 -m verl.trainer.main_ppo \
     reward_model.reward_manager=naive \
     \
     custom_reward_function.path="$REWARD_FUNCTION_PATH" \
-    custom_reward_function.name=arc_vision_compute_score_fn \
+    custom_reward_function.name=arc_vision_compute_reward \
     \
     trainer.total_epochs=5 \
     trainer.save_freq=25 \
