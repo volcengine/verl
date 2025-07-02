@@ -57,13 +57,14 @@ If you need to use tools, you can call:
     return prompt
 
 
-def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str) -> Dict[str, Any]:
+def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str, image_dir: str) -> Dict[str, Any]:
     """Process a single ScreenSpot sample into VERL format.
     
     Args:
         sample: Raw ScreenSpot sample
         idx: Sample index
         split: Dataset split (train/validation/test)
+        image_dir: Directory to save images
     
     Returns:
         Processed sample in VERL format
@@ -82,6 +83,12 @@ def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str) -> D
         max(0, min(1, float(bbox[3])))   # y2
     ]
     
+    # Save image to disk
+    image_filename = f"{split}_{idx}.png"
+    image_path = os.path.join(image_dir, image_filename)
+    if image:
+        image.save(image_path)
+    
     # Create reasoning-enhanced prompt
     enhanced_prompt = create_reasoning_prompt(instruction)
     
@@ -96,27 +103,27 @@ def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str) -> D
     # Create VERL-compatible record
     record = {
         "data_source": "rootsautomation/ScreenSpot",
-        "prompt": messages,
-        "images": [image],  # PIL Image object
+        "prompt": json.dumps(messages),  # Serialize to JSON string
+        "images": [image_path],  # Store path instead of PIL object
         "ability": "ui_detection",
-        "reward_model": {
+        "reward_model": json.dumps({  # Serialize entire dict
             "style": "arc_vision",
-            "ground_truth": json.dumps(bbox_normalized),
+            "ground_truth": bbox_normalized,
             "confidence_threshold": 0.7,
             "reward_weights": {
                 "task": 0.6,
                 "tool": 0.3,
                 "gate": 0.1
             }
-        },
-        "extra_info": {
+        }),
+        "extra_info": json.dumps({  # Serialize entire dict
             "split": split,
             "index": idx,
             "original_instruction": instruction,
             "original_bbox": bbox,
             "element_type": sample.get("element_type", "unknown"),
             "screenshot_id": sample.get("screenshot_id", f"{split}_{idx}")
-        }
+        })
     }
     
     return record
@@ -132,6 +139,8 @@ def main():
                         help="Maximum number of samples to process (for debugging)")
     parser.add_argument("--splits", nargs="+", default=["train", "validation", "test"],
                         help="Dataset splits to process")
+    parser.add_argument("--split_test_data", action="store_true",
+                        help="Split test data into train/validation/test (60/20/20)")
     
     args = parser.parse_args()
     
@@ -144,25 +153,69 @@ def main():
     # Load the official ScreenSpot dataset
     dataset_dict = datasets.load_dataset("rootsautomation/ScreenSpot")
     
-    for split in args.splits:
-        if split not in dataset_dict:
-            print(f"Warning: Split '{split}' not found in dataset. Skipping.")
-            continue
-        
-        print(f"\nProcessing {split} split...")
-        dataset = dataset_dict[split]
+    # Check what splits are actually available
+    available_splits = list(dataset_dict.keys())
+    print(f"Available splits in ScreenSpot: {available_splits}")
+    
+    # If only test split exists and user wants to create train/val splits
+    if len(available_splits) == 1 and 'test' in available_splits and args.split_test_data:
+        print("\nOnly test split found. Creating train/validation/test splits from test data...")
+        test_dataset = dataset_dict['test']
         
         # Limit samples if specified
         if args.max_samples:
-            dataset = dataset.select(range(min(args.max_samples, len(dataset))))
+            test_dataset = test_dataset.select(range(min(args.max_samples, len(test_dataset))))
         
+        total_samples = len(test_dataset)
+        print(f"Total samples to split: {total_samples}")
+        
+        # Calculate split sizes (60/20/20)
+        train_size = int(0.6 * total_samples)
+        val_size = int(0.2 * total_samples)
+        test_size = total_samples - train_size - val_size
+        
+        print(f"Split sizes - Train: {train_size}, Validation: {val_size}, Test: {test_size}")
+        
+        # Create splits
+        train_indices = list(range(train_size))
+        val_indices = list(range(train_size, train_size + val_size))
+        test_indices = list(range(train_size + val_size, total_samples))
+        
+        splits_to_process = [
+            ('train', test_dataset.select(train_indices)),
+            ('validation', test_dataset.select(val_indices)),
+            ('test', test_dataset.select(test_indices))
+        ]
+    else:
+        # Process original splits
+        splits_to_process = []
+        for split in args.splits:
+            if split not in dataset_dict:
+                print(f"Warning: Split '{split}' not found in dataset. Skipping.")
+                continue
+            
+            dataset = dataset_dict[split]
+            
+            # Limit samples if specified
+            if args.max_samples:
+                dataset = dataset.select(range(min(args.max_samples, len(dataset))))
+            
+            splits_to_process.append((split, dataset))
+    
+    # Process each split
+    for split, dataset in splits_to_process:
+        print(f"\nProcessing {split} split...")
         print(f"Total samples in {split}: {len(dataset)}")
+        
+        # Create directory for images
+        image_dir = os.path.join(local_dir, f"{split}_images")
+        os.makedirs(image_dir, exist_ok=True)
         
         # Process samples
         records = []
         for idx, sample in enumerate(tqdm(dataset, desc=f"Processing {split}")):
             try:
-                record = process_screenspot_sample(sample, idx, split)
+                record = process_screenspot_sample(sample, idx, split, image_dir)
                 records.append(record)
             except Exception as e:
                 print(f"Error processing sample {idx}: {e}")
@@ -179,10 +232,15 @@ def main():
         # Print sample statistics
         print(f"\n{split} statistics:")
         print(f"  Total samples: {len(df)}")
-        print(f"  Average instruction length: {df['extra_info'].apply(lambda x: len(x['original_instruction'])).mean():.1f} chars")
+        print(f"  Images saved to: {image_dir}")
+        
+        # Parse extra_info to get instruction length
+        extra_infos = df['extra_info'].apply(json.loads)
+        print(f"  Average instruction length: {extra_infos.apply(lambda x: len(x['original_instruction'])).mean():.1f} chars")
         
         # Check bbox distribution
-        bboxes = df['reward_model'].apply(lambda x: json.loads(x['ground_truth']))
+        reward_models = df['reward_model'].apply(json.loads)
+        bboxes = reward_models.apply(lambda x: x['ground_truth'])
         bbox_areas = bboxes.apply(lambda b: (b[2] - b[0]) * (b[3] - b[1]))
         print(f"  Average bbox area: {bbox_areas.mean():.3f}")
         print(f"  Min bbox area: {bbox_areas.min():.3f}")

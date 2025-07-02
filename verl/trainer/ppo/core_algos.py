@@ -208,6 +208,8 @@ def compute_grpo_outcome_advantage(
     index: np.ndarray,
     epsilon: float = 1e-6,
     norm_adv_by_std_in_grpo: str = True,
+    config=None,
+    **kwargs,
 ):
     """
     Compute advantage for GRPO, operating only on Outcome reward

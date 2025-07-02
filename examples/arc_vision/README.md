@@ -110,6 +110,129 @@ arc_vision.reward_weights:
 actor_rollout_ref.actor.entropy_loss_coef: 0.02  # Increase from 0.01
 ```
 
+## Evaluation and Testing
+
+### 1. Comprehensive Model Evaluation
+
+After training, evaluate your model's performance against the baseline:
+
+```bash
+cd examples/arc_vision
+
+# Evaluate on test set
+python evaluate_arc_vision.py \
+    --model_path ~/verl/outputs/arc_vision/[experiment]/checkpoint-[step] \
+    --split test \
+    --max_samples 200
+
+# Full evaluation (all samples)
+python evaluate_arc_vision.py \
+    --model_path ~/verl/outputs/arc_vision/[experiment]/checkpoint-[step] \
+    --split test
+```
+
+This will output:
+- **Primary metrics**: Accuracy improvement, IoU scores, tool precision
+- **Tool patterns**: Which tools are used for which UI challenges
+- **Detailed analysis**: JSON file with per-sample results
+
+### 2. Generate Training Report
+
+Create comprehensive visualizations and analysis of your training run:
+
+```bash
+# Generate report from training logs
+python generate_training_report.py \
+    --log_dir ~/verl/outputs/arc_vision/[experiment] \
+    --output_dir ./training_reports
+
+# View results
+open training_reports/training_report_*/report.html
+```
+
+The report includes:
+- Training progress plots (accuracy, IoU, tool usage)
+- Reward component analysis
+- Performance summary for research paper
+- Markdown file with values to replace paper placeholders
+
+### 3. Interactive Model Testing
+
+Test your trained model on custom images:
+
+```bash
+# Interactive testing session
+python test_model_inference.py \
+    --model_path ~/verl/outputs/arc_vision/[experiment]/checkpoint-[step]
+
+# Batch testing with JSON file
+python test_model_inference.py \
+    --model_path ~/verl/outputs/arc_vision/[experiment]/checkpoint-[step] \
+    --batch_test test_cases.json
+
+# Create example test file
+python test_model_inference.py --create_example
+```
+
+Features:
+- Test on any image (local file or URL)
+- Visualize bounding box predictions
+- See tool usage and confidence changes
+- Save results for analysis
+
+## Example Usage
+
+### Complete Training and Evaluation Pipeline
+
+```bash
+# 1. Prepare data
+cd examples/arc_vision
+python prepare_screenspot_data.py
+
+# 2. Train model
+bash run_arc_vision_3b.sh
+
+# 3. Monitor training
+tensorboard --logdir ~/verl/outputs/arc_vision
+
+# 4. Generate training report
+python generate_training_report.py \
+    --log_dir ~/verl/outputs/arc_vision/latest
+
+# 5. Evaluate on test set
+python evaluate_arc_vision.py \
+    --model_path ~/verl/outputs/arc_vision/latest/checkpoint-final
+
+# 6. Test interactively
+python test_model_inference.py \
+    --model_path ~/verl/outputs/arc_vision/latest/checkpoint-final
+```
+
+### Testing on Custom UI Screenshot
+
+```python
+# In interactive mode
+Enter image path/URL or command: /path/to/screenshot.png
+What should I find in this image? Find the submit button
+
+# Model will show:
+# 1. Reasoning about the UI element
+# 2. Whether tools are needed
+# 3. Bounding box visualization
+```
+
+## Research Results
+
+After training and evaluation, update the research paper placeholders:
+
+| Placeholder | Replace With | Found In |
+|-------------|--------------|----------|
+| [X]% | Accuracy improvement | evaluate_arc_vision.py output |
+| [Y]% | False positive reduction | evaluate_arc_vision.py output |
+| [P]% | Tool precision | evaluate_arc_vision.py output |
+
+The `generate_training_report.py` script creates a `results_for_paper.md` file with all values pre-formatted for the research paper.
+
 ## Citation
 
 This work is part of Arc's vision for continuous AI systems. For more details, see the [research paper](../../research/blog_post_vision_rl_final.md).

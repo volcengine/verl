@@ -17,6 +17,8 @@ data:
   image_key: images  # Key for image data in parquet
   filter_overlong_prompts: True
   truncation: 'error'
+  reward_fn_key: ground_truth  # Key in parquet for ground truth bboxes
+  data_source: arc_vision  # Identifier for reward scoring
 
 # Model configuration - using Qwen2.5-VL-3B
 actor_rollout_ref:
@@ -50,7 +52,7 @@ actor_rollout_ref:
     multi_turn:
       enable: True
       max_turns: 2  # Initial attempt + one tool use
-      tool_config_path: "./examples/arc_vision/config/tool_config/arc_vision_tools.yaml"
+      tool_config_path: "config/tool_config/arc_vision_tools.yaml"
     n: 5  # Number of candidates per prompt
     temperature: 0.7
     log_prob_micro_batch_size_per_gpu: 20
@@ -77,24 +79,33 @@ algorithm:
   adv_norm: true
   use_kl_in_reward: False
 
-# Critic configuration (not used for GRPO)
+# Critic configuration (not used for GRPO but required by VERL)
 critic:
+  strategy: fsdp  # Required even if not used
   optim:
     lr: 0.0  # No critic for GRPO
+  model:
+    path: null  # No critic model for GRPO
 
 # Reward model configuration
 reward_model:
-  type: arc_vision
-  confidence_threshold: 0.7
-  reward_weights:
-    task: 0.6    # IoU-based task performance
-    tool: 0.3    # Tool effectiveness
-    gate: 0.1    # Gating penalty
-  tool_penalties:
-    unnecessary_tool: -0.5
-    missed_opportunity: -0.3
-    ineffective_tool: -0.2
-    excessive_tools: -0.4
+  enable: true
+  strategy: fsdp  # Distributed strategy for reward model
+  # Custom reward function for Arc Vision
+  custom_reward_function:
+    path: examples/arc_vision/arc_vision_custom_reward.py
+    name: arc_vision_compute_reward
+    reward_kwargs:
+      confidence_threshold: 0.7
+      reward_weights:
+        task: 0.6    # IoU-based task performance
+        tool: 0.3    # Tool effectiveness
+        gate: 0.1    # Gating penalty
+      tool_penalties:
+        unnecessary_tool: -0.5
+        missed_opportunity: -0.3
+        ineffective_tool: -0.2
+        excessive_tools: -0.4
 
 # Trainer configuration
 trainer:
