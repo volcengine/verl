@@ -529,7 +529,8 @@ class SGLangRollout(BaseRollout):
             - responses: [bsz, response_length], output token ids include response tokens
               from LLM generation and observation tokens from tool_calls.
             - response_mask: [bsz, response_length], 1 for LLM generated tokens, 0 for observation/padding tokens.
-            - input_ids: [bsz, prompt_length + response_length], whole sequence token ids, including prompt tokens and response tokens.
+            - input_ids: [bsz, prompt_length + response_length], whole sequence token ids, including prompt tokens
+              and response tokens.
             - attention_mask: [bsz, prompt_length + response_length], 0 for padding tokens, 1 for other tokens.
             - position_ids: [bsz, prompt_length + response_length], incremental position ids.
 

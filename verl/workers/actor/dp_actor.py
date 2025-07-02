@@ -382,7 +382,15 @@ class DataParallelPPOActor(BasePPOActor):
 
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
 
-        select_keys = ["responses", "response_mask", "input_ids", "attention_mask", "position_ids", "old_log_probs", "advantages"]
+        select_keys = [
+            "responses",
+            "response_mask",
+            "input_ids",
+            "attention_mask",
+            "position_ids",
+            "old_log_probs",
+            "advantages",
+        ]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
         batch = data.select(batch_keys=select_keys).batch

@@ -68,7 +68,9 @@ class CustomRLHFDataset(RLHFDataset):
             dataframe = datasets.load_dataset(parquet_file)["train"]
             data_source = "/".join(parquet_file.split("/")[-2:])
             if data_source in ["Maxwell-Jia/AIME_2024", "yentinglin/aime_2025"]:
-                dataframe = dataframe.map(self.map_fn, fn_kwargs={"data_source": data_source}, remove_columns=dataframe.column_names)
+                dataframe = dataframe.map(
+                    self.map_fn, fn_kwargs={"data_source": data_source}, remove_columns=dataframe.column_names
+                )
             else:
                 dataframe = dataframe.map(self.map_fn2, num_proc=16)
             dataframes.append(dataframe)
