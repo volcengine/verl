@@ -102,7 +102,7 @@ def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str, imag
     
     # Create VERL-compatible record
     record = {
-        "data_source": "rootsautomation/ScreenSpot",
+        "data_source": "arc_vision",  # Use consistent data source name
         "prompt": messages,  # Store as list, not JSON string
         "images": [{"image": image_path}],  # Use dict format expected by Qwen2.5-VL
         "ability": "ui_detection",

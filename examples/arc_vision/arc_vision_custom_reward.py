@@ -329,8 +329,13 @@ def arc_vision_compute_reward(data_source: str,
         Dict: Reward score with detailed metrics
     """
     # Verify this is an Arc Vision request
-    if data_source not in ["arc_vision", "screenspot"]:
-        raise ValueError(f"Arc Vision reward function called with wrong data_source: {data_source}")
+    # Handle case where data_source might be passed as array/list
+    if hasattr(data_source, '__len__') and not isinstance(data_source, str):
+        # If it's an array/list, take the first element
+        data_source = data_source[0] if len(data_source) > 0 else "unknown"
+    
+    if data_source not in ["arc_vision", "screenspot", "rootsautomation/ScreenSpot"]:
+        logger.warning(f"Arc Vision reward function called with data_source: {data_source}")
     
     # Use default parameters from blog post if not provided
     if reward_weights is None:
