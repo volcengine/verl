@@ -115,7 +115,7 @@ trainer:
   save_freq: 25
   test_freq: 5
   critic_warmup: 0  # No critic for GRPO
-  logger: ['console', 'wandb']
+  logger: ['console']  # Disabled wandb to avoid API key requirement
   project_name: 'arc_vision_rl'
   experiment_name: 'qwen2.5_vl_3b_screenspot_grpo'
   n_gpus_per_node: 2

@@ -88,7 +88,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=25 \
     trainer.test_freq=5 \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger=['console'] \
     trainer.project_name='arc_vision_rl' \
     trainer.experiment_name='qwen2.5_vl_3b_screenspot_grpo' \
     trainer.n_gpus_per_node=2 \
