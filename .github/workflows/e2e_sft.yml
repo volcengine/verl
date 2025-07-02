@@ -82,7 +82,7 @@ jobs:
       steps:
         - uses: actions/checkout@v4
         - id: create-runner
-          uses: volcengine/vemlp-githubrunner@v1 
+          uses: volcengine/vemlp-github-runner@v1 
           with:
             mode: "create"
             faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"

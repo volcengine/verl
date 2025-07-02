@@ -100,7 +100,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: create-runner
-        uses: volcengine/vemlp-githubrunner@v1 
+        uses: volcengine/vemlp-github-runner@v1 
         with:
           mode: "create"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -134,13 +134,13 @@ jobs:
           bash tests/special_e2e/run_r1_distill_qwen_aime24_eval.sh
 
     cleanup:
-    runs-on: ubuntu-latest
-    needs: [setup, e2e_eval_aime24]
-    if: always()
-    steps:
-      - id: destroy-runner
-        uses: volcengine/vemlp-github-runner@v1
-        with:
-          mode: "destroy"
-          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
-          task-id: "${{ needs.setup.outputs.task-id }}"
+      runs-on: ubuntu-latest
+      needs: [setup, e2e_eval_aime24]
+      if: always()
+      steps:
+        - id: destroy-runner
+          uses: volcengine/vemlp-github-runner@v1
+          with:
+            mode: "destroy"
+            faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+            task-id: "${{ needs.setup.outputs.task-id }}"
