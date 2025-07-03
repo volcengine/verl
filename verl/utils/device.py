@@ -28,7 +28,13 @@ def is_torch_npu_available() -> bool:
 is_cuda_available = torch.cuda.is_available()
 is_npu_available = is_torch_npu_available()
 
-VISIBLE_DEVICE_PREFIX = "CUDA" if is_cuda_available else "ASCEND_RT"
+
+def get_visible_devices_prefix() -> str:
+    """Function that gets visible devices prefix name.
+    Returns:
+        'CUDA' or 'ASCEND_RT'
+    """
+    return "CUDA" if is_cuda_available else "ASCEND_RT"
 
 
 def get_device_name() -> str:
