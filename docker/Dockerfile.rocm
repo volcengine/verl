@@ -49,7 +49,8 @@ RUN pip install "tensordict==0.6.2" --no-deps && \
     wandb \
     orjson \
     pybind11 && \
-    pip install -e . --no-deps
-
+    pip install -e . --no-deps && \
+    python setup.py bdist_wheel
+    
 # Install torch_memory_saver
 RUN pip install git+https://github.com/ExtremeViscent/torch_memory_saver.git --no-deps

@@ -99,6 +99,7 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
             - critic/vf_explained_var: Explained variance of the value function (if use_critic=True)
             - response_length/mean, max, min, clip_ratio: Statistics about response lengths
             - prompt_length/mean, max, min, clip_ratio: Statistics about prompt lengths
+            - num_turns/mean, max, min: Statistics about the number of multi-turn conversations
     """
     sequence_score = batch.batch["token_level_scores"].sum(-1)
     sequence_reward = batch.batch["token_level_rewards"].sum(-1)
@@ -109,7 +110,7 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
     max_response_length = batch.batch["responses"].shape[-1]
 
     prompt_mask = batch.batch["attention_mask"][:, :-max_response_length].bool()
-    response_mask = batch.batch["attention_mask"][:, -max_response_length:].bool()
+    response_mask = batch.batch["response_mask"].bool()
 
     max_prompt_length = prompt_mask.size(-1)
 
@@ -168,6 +169,14 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
         "prompt_length/min": torch.min(prompt_length).detach().item(),
         "prompt_length/clip_ratio": torch.mean(torch.eq(prompt_length, max_prompt_length).float()).detach().item(),
     }
+
+    # multi-turn conversation
+    if "__num_turns__" in batch.non_tensor_batch:
+        num_turns = batch.non_tensor_batch["__num_turns__"]
+        metrics["num_turns/min"] = num_turns.min()
+        metrics["num_turns/max"] = num_turns.max()
+        metrics["num_turns/mean"] = num_turns.mean()
+
     return metrics
 
 

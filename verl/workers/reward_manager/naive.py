@@ -81,7 +81,7 @@ class NaiveRewardManager:
                 # If it's an array/list, take the first element
                 data_source = str(data_source[0]) if len(data_source) > 0 else "unknown"
             extra_info = data_item.non_tensor_batch.get("extra_info", None)
-
+            
             score = self.compute_score(
                 data_source=data_source,
                 solution_str=response_str,
