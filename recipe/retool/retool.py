@@ -52,7 +52,8 @@ class CustomSandboxFusionTool(SandboxFusionTool):
             code = str(code)
 
         result = await self.execution_pool.execute.remote(self.execute_code, instance_id, code, timeout, language)
-        return result, result, result.strip()
+        # sandbox has no score or metrics, use Nones
+        return result, None, None
 
 
 answer_format = """\nThe answer format must be: \\boxed{'The final answer goes here.'}"""
