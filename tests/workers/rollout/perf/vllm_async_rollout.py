@@ -43,7 +43,9 @@ from tests.experimental.agent_loop.agent_utils import AgentLoopManager, RayWorke
 from verl.protocol import DataProto
 from verl.utils import hf_tokenizer
 from verl.utils.dataset import RLHFDataset
-from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
+from verl.utils.dataset.dataset_utils import get_collate_fn_manager_cls
+
+default_collate_fn = get_collate_fn_manager_cls("default")
 
 
 def init_config(n_gpus_per_node) -> DictConfig:

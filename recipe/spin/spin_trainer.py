@@ -499,9 +499,9 @@ class RaySPINTrainer:
         if train_sampler is None:
             train_sampler = create_rl_sampler(self.config.data, self.train_dataset)
         if collate_fn is None:
-            from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
+            from verl.utils.dataset.dataset_utils import get_collate_fn_manager_cls
 
-            collate_fn = default_collate_fn
+            collate_fn = get_collate_fn_manager_cls("default")
 
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,

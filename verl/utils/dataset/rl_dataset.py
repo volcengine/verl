@@ -18,12 +18,9 @@ import copy
 import logging
 import os
 import re
-from collections import defaultdict
 from typing import List, Optional, Union
 
 import datasets
-import numpy as np
-import torch
 from omegaconf import DictConfig, ListConfig
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
@@ -32,37 +29,6 @@ import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
 
 logger = logging.getLogger(__name__)
-
-
-def collate_fn(data_list: list[dict]) -> dict:
-    """
-    Collate a batch of sample dicts into batched tensors and arrays.
-
-    Args:
-        data_list: List of dicts mapping feature names to torch.Tensor or other values.
-
-    Returns:
-        Dict where tensor entries are stacked into a torch.Tensor of shape
-        (batch_size, \*dims) and non-tensor entries are converted to
-        np.ndarray of dtype object with shape (batch_size,).
-    """
-    tensors = defaultdict(list)
-    non_tensors = defaultdict(list)
-
-    for data in data_list:
-        for key, val in data.items():
-            if isinstance(val, torch.Tensor):
-                tensors[key].append(val)
-            else:
-                non_tensors[key].append(val)
-
-    for key, val in tensors.items():
-        tensors[key] = torch.stack(val, dim=0)
-
-    for key, val in non_tensors.items():
-        non_tensors[key] = np.array(val, dtype=object)
-
-    return {**tensors, **non_tensors}
 
 
 class RLHFDataset(Dataset):

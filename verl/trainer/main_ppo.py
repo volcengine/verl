@@ -161,7 +161,12 @@ class TaskRunner:
         val_reward_fn = load_reward_manager(config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {}))
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
-        from verl.utils.dataset.rl_dataset import collate_fn
+        from verl.utils.dataset.dataset_utils import get_collate_fn_manager_cls
+
+        if processor:
+            collate_fn = get_collate_fn_manager_cls(processor.__class__.__name__)
+        else:
+            collate_fn = get_collate_fn_manager_cls("default")
 
         # Create training and validation datasets.
         train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor)
