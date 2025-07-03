@@ -144,8 +144,7 @@ class Worker(WorkerHelper):
             "LOCAL_RANK",
             "MASTER_ADDR",
             "MASTER_PORT",
-            "CUDA_VISIBLE_DEVICES",
-            "ASCEND_RT_VISIBLE_DEVICES",
+            f"{VISIBLE_DEVICE_PREFIX}_VISIBLE_DEVICES".upper(),
         ]
 
     def __init__(self, cuda_visible_devices=None) -> None:
