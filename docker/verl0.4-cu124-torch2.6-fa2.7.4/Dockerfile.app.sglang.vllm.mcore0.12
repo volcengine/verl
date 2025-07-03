@@ -36,3 +36,6 @@ RUN pip3 install --no-deps --no-cache-dir --no-build-isolation git+https://githu
 
 # Fix for transformers 4.53.0
 RUN pip3 install --no-cache-dir "transformers[hf_xet]<4.52.0"
+
+# Install mbridge
+RUN pip3 install --no-cache-dir mbridge
