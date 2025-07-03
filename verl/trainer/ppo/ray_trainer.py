@@ -567,7 +567,11 @@ class RayPPOTrainer:
             self.config.data.curriculum_sampler is not None
             and self.config.data.curriculum_sampler.get("class_path", None) is not None
         ):
-            assert num_workers == 0, "If using curriculum, num_workers must be 0 to prevent data caching."
+            assert num_workers == 0, (
+                "If using curriculum, num_workers must be 0 to prevent data caching. "
+                "If the dataloader caches data before the batch is done the "
+                "curriculum sampler won't have the opportunity to reorder it. "
+            )
 
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
