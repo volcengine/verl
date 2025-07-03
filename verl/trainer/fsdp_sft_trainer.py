@@ -30,6 +30,7 @@ from contextlib import nullcontext
 import hydra
 import torch
 import torch.distributed
+from omegaconf import DictConfig
 from peft import LoraConfig, TaskType, get_peft_model
 from tensordict import TensorDict
 from torch import nn, optim
@@ -41,6 +42,7 @@ from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 
 import verl.utils.hdfs_io as hdfs_io
+from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.dataset import SFTDataset
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
@@ -57,6 +59,7 @@ from verl.utils.fsdp_utils import (
     init_fn,
 )
 from verl.utils.profiler import log_gpu_memory_usage
+from verl.utils.logger import log_with_rank
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_dtypes import PrecisionType
 from verl.utils.torch_functional import get_cosine_schedule_with_warmup, get_wsd_schedule_with_warmup
@@ -116,16 +119,18 @@ class FSDPSFTTrainer:
 
         # Initialize resume-related variables
         self.resume_global_step = 0
-        self.checkpoint_state_dict = None  # Store checkpoint state dict for loading after model setup
-
-        # Pre-load checkpoint if resume_path is provided (before model initialization)
-        if hasattr(self.config.trainer, "resume_path") and self.config.trainer.resume_path:
-            self._preload_checkpoint_info(self.config.trainer.resume_path)
 
         # build model
         self._build_model_optimizer()
 
-        # TODO: add checkpoint manager
+        # Initialize checkpoint manager
+        self._init_checkpoint_manager()
+
+        # Load checkpoint if resuming
+        if hasattr(self.config.trainer, "resume_path") and self.config.trainer.resume_path:
+            # Load checkpoint using checkpoint manager
+            self.load_checkpoint(self.config.trainer.resume_path)
+
         if self.device_mesh.get_rank() == 0:
             print(self.config)
         self.device_name = get_device_name()
@@ -228,17 +233,6 @@ class FSDPSFTTrainer:
                 attn_implementation="flash_attention_2",
                 trust_remote_code=trust_remote_code,
             )
-
-            # Load checkpoint weights into base model before FSDP wrapping if available
-            if self.checkpoint_state_dict is not None and self.device_mesh.get_rank() == 0:
-                print("Loading checkpoint weights into base model before FSDP wrapping")
-                missing_keys, unexpected_keys = self.model.load_state_dict(self.checkpoint_state_dict, strict=False)
-                if missing_keys or unexpected_keys:
-                    print(f"Missing keys: {missing_keys}")
-                    print(f"Unexpected keys: {unexpected_keys}")
-                print("Successfully loaded checkpoint weights into base model")
-
-            torch.distributed.barrier()  # Ensure all ranks wait for rank 0 to load weights
 
             if self.use_remove_padding or self.config.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
@@ -352,9 +346,6 @@ class FSDPSFTTrainer:
         else:
             raise ValueError(f"Unknown lr scheduler: {self.config.optim.lr_scheduler}")
 
-        # Load optimizer and scheduler states if resuming from checkpoint
-        if hasattr(self.config.trainer, "resume_path") and self.config.trainer.resume_path:
-            self._load_optimizer_scheduler_states(self.config.trainer.resume_path)
 
     def _compute_loss_and_backward(self, batch, do_backward=True):
         """Compute loss with optional sequence parallelism and remove padding features"""
@@ -516,180 +507,63 @@ class FSDPSFTTrainer:
         return loss
 
     def save_checkpoint(self, step):
-        # save checkpoint
+        """Save checkpoint using FSDPCheckpointManager"""
+        # Determine checkpoint path
         path = os.path.join(self.config.trainer.default_local_dir, f"global_step_{step}")
 
-        fsdp_strategy = self.config.model.strategy
-        if fsdp_strategy == "fsdp":
-            # FSDP1 checkpoint saving
-            from torch.distributed.fsdp import FullStateDictConfig, StateDictType
+        # Get max checkpoints to keep
+        max_ckpt_to_keep = getattr(self.config.trainer, "max_ckpt_to_keep", None)
 
-            cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-            with FSDP.state_dict_type(self.fsdp_model, StateDictType.FULL_STATE_DICT, cfg):
-                state_dict = self.fsdp_model.state_dict()
+        # Use checkpoint manager to save
+        self.checkpoint_manager.save_checkpoint(local_path=path, global_step=step, max_ckpt_to_keep=max_ckpt_to_keep)
 
-            # save huggingface model
-            if self.device_mesh.get_rank() == 0:
-                os.makedirs(path, exist_ok=True)
-                self.model.save_pretrained(path, state_dict=state_dict)
-                self.tokenizer.save_pretrained(path)
-        elif fsdp_strategy == "fsdp2":
-            # FSDP2 checkpoint saving
-            from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
-
-            # Get full state dict with FSDP2
-            options = StateDictOptions(full_state_dict=True, cpu_offload=True)
-            state_dict = get_model_state_dict(self.fsdp_model, options=options)
-
-            # save huggingface model
-            if self.device_mesh.get_rank() == 0:
-                os.makedirs(path, exist_ok=True)
-                self.model.save_pretrained(path, state_dict=state_dict)
-                self.model_config.save_pretrained(path)
-                self.tokenizer.save_pretrained(path)
-        else:
-            raise NotImplementedError(f"not implement {fsdp_strategy}")
-
-        # Save optimizer and scheduler states
-        if self.device_mesh.get_rank() == 0:
-            # Save optimizer state
-            torch.save(self.optimizer.state_dict(), os.path.join(path, "optimizer.pt"))
-
-            # Save scheduler state
-            torch.save(self.lr_scheduler.state_dict(), os.path.join(path, "scheduler.pt"))
-
-            print(f"Saved checkpoint to {path}")
-
-        # Copy to HDFS if configured
-        if self.device_mesh.get_rank() == 0 and self.config.trainer.default_hdfs_dir:
+        # Copy to HDFS if configured (keep this for compatibility)
+        if self.device_mesh.get_rank() == 0 and getattr(self.config.trainer, "default_hdfs_dir", None):
             hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
             hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
 
-        # Clean up old checkpoints if max_ckpt_to_keep is set
-        if (
-            self.device_mesh.get_rank() == 0
-            and hasattr(self.config.trainer, "max_ckpt_to_keep")
-            and self.config.trainer.max_ckpt_to_keep is not None
-        ):
-            self._cleanup_old_checkpoints()
-
         torch.distributed.barrier()
 
-    def _cleanup_old_checkpoints(self):
-        """Clean up old checkpoints, keeping only the most recent max_ckpt_to_keep checkpoints"""
-        import glob
-        import shutil
+    def _init_checkpoint_manager(self):
+        """Initialize checkpoint manager with proper configuration"""
+        # Configure checkpoint contents
+        checkpoint_config = {
+            "load_contents": ["model", "optimizer", "extra"],
+            "save_contents": ["model", "optimizer", "extra", "hf_model"],
+        }
 
-        max_keep = self.config.trainer.max_ckpt_to_keep
-        if max_keep is None or max_keep <= 0:
-            return
+        # Convert to DictConfig for compatibility
+        checkpoint_config = DictConfig(checkpoint_config)
 
-        # Find all checkpoint directories
-        checkpoint_pattern = os.path.join(self.config.trainer.default_local_dir, "global_step_*")
-        checkpoint_dirs = glob.glob(checkpoint_pattern)
+        # Initialize checkpoint manager
+        self.checkpoint_manager = FSDPCheckpointManager(
+            model=self.fsdp_model,
+            optimizer=self.optimizer,
+            lr_scheduler=self.lr_scheduler,
+            processing_class=self.tokenizer,
+            checkpoint_config=checkpoint_config,
+        )
 
-        if len(checkpoint_dirs) <= max_keep:
-            return
+    def load_checkpoint(self, checkpoint_path: str):
+        """Load checkpoint using FSDPCheckpointManager"""
+        if checkpoint_path is None:
+            return 0
 
-        # Sort checkpoints by step number (extracted from directory name)
-        def get_step_number(path):
-            step = extract_step(path)
-            return step if step is not None else 0
+        # extract resume step from checkpoint path
+        resume_step = extract_step(checkpoint_path)
+        if resume_step is None:
+            log_with_rank(
+                f"Warning: Could not extract step number from {checkpoint_path}, starting from step 0",
+                logger=logger,
+                rank=self.device_mesh.get_rank(),
+                level=logging.WARNING,
+                log_only_rank_0=True,
+            )
+            resume_step = 0
+        self.resume_global_step = resume_step
 
-        checkpoint_dirs.sort(key=get_step_number)
-
-        # Remove old checkpoints, keep the most recent max_keep
-        checkpoints_to_remove = checkpoint_dirs[:-max_keep]
-
-        for checkpoint_dir in checkpoints_to_remove:
-            try:
-                if os.path.exists(checkpoint_dir):
-                    shutil.rmtree(checkpoint_dir)
-                    step_num = get_step_number(checkpoint_dir)
-                    print(f"Removed old checkpoint: global_step_{step_num}")
-            except Exception as e:
-                print(f"Warning: Failed to remove checkpoint {checkpoint_dir}: {e}")
-
-        if checkpoints_to_remove:
-            remaining_steps = [get_step_number(d) for d in checkpoint_dirs[-max_keep:]]
-            print(f"Kept {max_keep} most recent checkpoints: {remaining_steps}")
-
-    def _load_state_dict_from_checkpoint(self, checkpoint_path):
-        """Load state dict from various checkpoint file formats"""
-        # Try different model file patterns
-        model_files_to_try = [
-            "pytorch_model.bin",
-            "model.safetensors",
-            "adapter_model.bin",  # For LoRA models
-            "adapter_model.safetensors",
-        ]
-
-        state_dict = None
-        for model_file in model_files_to_try:
-            model_state_path = os.path.join(checkpoint_path, model_file)
-            if os.path.exists(model_state_path):
-                if model_state_path.endswith(".bin"):
-                    state_dict = torch.load(model_state_path, map_location="cpu")
-                else:
-                    from safetensors.torch import load_file
-
-                    state_dict = load_file(model_state_path)
-                if self.device_mesh.get_rank() == 0:
-                    print(f"Loading model weights from {model_file}")
-                break
-
-        # If no single file found, try loading from sharded files
-        if state_dict is None:
-            state_dict = self._load_sharded_model_weights(checkpoint_path)
-
-        if state_dict is None:
-            raise FileNotFoundError(f"No valid model state file found in {checkpoint_path}")
-
-        return state_dict
-
-    def _load_sharded_model_weights(self, checkpoint_path):
-        """Load model weights from sharded files"""
-        import json
-
-        from safetensors.torch import load_file
-
-        # Look for safetensors index file
-        index_file = os.path.join(checkpoint_path, "model.safetensors.index.json")
-        if not os.path.exists(index_file):
-            # Try pytorch index file
-            index_file = os.path.join(checkpoint_path, "pytorch_model.bin.index.json")
-            if not os.path.exists(index_file):
-                return None
-
-        if self.device_mesh.get_rank() == 0:
-            print(f"Loading sharded model weights using {os.path.basename(index_file)}")
-
-        # Load the index
-        with open(index_file) as f:
-            index = json.load(f)
-
-        # Load all shards
-        state_dict = {}
-        weight_map = index.get("weight_map", {})
-
-        # Get unique shard files
-        shard_files = set(weight_map.values())
-
-        for shard_file in shard_files:
-            shard_path = os.path.join(checkpoint_path, shard_file)
-            if os.path.exists(shard_path):
-                if shard_file.endswith(".safetensors"):
-                    shard_state = load_file(shard_path)
-                else:
-                    shard_state = torch.load(shard_path, map_location="cpu")
-                state_dict.update(shard_state)
-                if self.device_mesh.get_rank() == 0:
-                    print(f"Loaded shard: {shard_file}")
-            else:
-                if self.device_mesh.get_rank() == 0:
-                    print(f"Warning: Shard file not found: {shard_file}")
-
-        return state_dict if state_dict else None
+        # Use checkpoint manager to load
+        self.checkpoint_manager.load_checkpoint(checkpoint_path)
 
     def fit(self):
         rank = self.device_mesh.get_rank()
@@ -712,18 +586,29 @@ class FSDPSFTTrainer:
             total_training_steps = self.config.trainer.total_training_steps
 
         self.total_training_steps = total_training_steps
-        print(f"Total training steps: {self.total_training_steps}")
+        log_with_rank(
+            f"Total training steps: {self.total_training_steps},",
+            logger=logger,
+            rank=self.device_mesh.get_rank(),
+            log_only_rank_0=True,
+        )
         if global_step > 0:
-            print(f"Resuming from global step: {global_step}")
-
-        # TODO (zhangchi.usc1992) add back checkpoint manager.
-        # Currently, it blocks when uploading to hdfs. So very slow.
+            log_with_rank(
+                f"Resuming from global step: {global_step}",
+                logger=logger,
+                rank=self.device_mesh.get_rank(),
+                log_only_rank_0=True,
+            )
 
         # Calculate starting epoch and step within epoch from global_step
         start_epoch = global_step // len(self.train_dataloader)
         steps_to_skip = global_step % len(self.train_dataloader)
-        if global_step > 0 and rank == 0:
-            print(f"Calculated resume epoch: {start_epoch}, steps to skip in epoch: {steps_to_skip}")
+        log_with_rank(
+            f"Calculated resume epoch: {start_epoch}, steps to skip in epoch: {steps_to_skip}",
+            logger=logger,
+            rank=self.device_mesh.get_rank(),
+            log_only_rank_0=True,
+        )
 
         for epoch in range(start_epoch, self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
@@ -785,75 +670,6 @@ class FSDPSFTTrainer:
 
             # Reset steps_to_skip after first epoch
             steps_to_skip = 0
-
-    def _preload_checkpoint_info(self, checkpoint_path):
-        """Pre-load checkpoint information before model initialization"""
-        if self.device_mesh.get_rank() == 0:
-            print(f"Pre-loading checkpoint info from {checkpoint_path}")
-
-        # Check if checkpoint path exists
-        if not os.path.exists(checkpoint_path):
-            raise FileNotFoundError(f"Checkpoint path {checkpoint_path} does not exist")
-
-        # Extract step from folder name
-        self.resume_global_step = extract_step(checkpoint_path)
-        if self.resume_global_step is None:
-            raise ValueError(f"Could not extract step number from checkpoint path: {checkpoint_path}")
-
-        if self.device_mesh.get_rank() == 0:
-            print(f"Will resume from global_step: {self.resume_global_step}")
-
-        # Pre-load model weights to be applied later
-        self.checkpoint_state_dict = self._load_state_dict_from_checkpoint(checkpoint_path)
-
-        if self.device_mesh.get_rank() == 0:
-            print(f"Pre-loaded checkpoint state dict with {len(self.checkpoint_state_dict)} parameters")
-
-    def _load_optimizer_scheduler_states(self, checkpoint_path):
-        """Load optimizer and scheduler states from checkpoint"""
-        if self.device_mesh.get_rank() == 0:
-            print(f"Loading optimizer and scheduler states from {checkpoint_path}")
-
-        # Load optimizer state if exists
-        optimizer_state_path = os.path.join(checkpoint_path, "optimizer.pt")
-        if os.path.exists(optimizer_state_path):
-            optimizer_state = torch.load(optimizer_state_path, map_location="cpu")
-            self.optimizer.load_state_dict(optimizer_state)
-            if self.device_mesh.get_rank() == 0:
-                print("Loaded optimizer state")
-        else:
-            if self.device_mesh.get_rank() == 0:
-                print("Warning: No optimizer state found, optimizer will start fresh")
-                print("Note: Optimizer momentum and other internal states will be reset")
-
-        # Load scheduler state if exists, or restore scheduler to the correct step
-        scheduler_state_path = os.path.join(checkpoint_path, "scheduler.pt")
-        if os.path.exists(scheduler_state_path):
-            scheduler_state = torch.load(scheduler_state_path, map_location="cpu")
-            self.lr_scheduler.load_state_dict(scheduler_state)
-            if self.device_mesh.get_rank() == 0:
-                print("Loaded scheduler state")
-        else:
-            # Restore scheduler to the correct step by stepping forward if resuming
-            if self.resume_global_step > 0:
-                if self.device_mesh.get_rank() == 0:
-                    print(
-                        f"Warning: No scheduler state found, "
-                        f"stepping scheduler forward to step {self.resume_global_step}"
-                    )
-
-                # Step the scheduler forward to match the global step
-                for _ in range(self.resume_global_step):
-                    self.lr_scheduler.step()
-
-                if self.device_mesh.get_rank() == 0:
-                    current_lr = self.lr_scheduler.get_last_lr()[0]
-                    print(f"Scheduler restored to step {self.resume_global_step}, current LR: {current_lr:.2e}")
-
-        torch.distributed.barrier()
-
-        if self.device_mesh.get_rank() == 0:
-            print(f"Successfully loaded checkpoint from {checkpoint_path}")
 
 
 def run_sft(config):
