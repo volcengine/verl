@@ -468,7 +468,7 @@ actor_rollout_ref:
     n: 1
 
     # Whether to wake up inference engine in multi-stage to reduce peak memory during training-rollout transition.
-    multi_stage_wake_up: false
+    multi_stage_wake_up: true
 
     # Extra inference engine arguments (vllm, sglang).
     engine_kwargs:
