@@ -36,7 +36,10 @@ def _pad_for_batching(
         List[`torch.Tensor`]: The padded images.
     """
     max_shape = (max([size[0] for size in image_sizes]), max([size[1] for size in image_sizes]))
-    pixel_values = [torch.nn.functional.pad(image, pad=(0, max_shape[1] - size[1], 0, max_shape[0] - size[0])).unsqueeze(0) for image, size in zip(pixel_values, image_sizes)]
+    pixel_values = [
+        torch.nn.functional.pad(image, pad=(0, max_shape[1] - size[1], 0, max_shape[0] - size[0])).unsqueeze(0)
+        for image, size in zip(pixel_values, image_sizes)
+    ]
     return pixel_values
 
 
@@ -50,7 +53,10 @@ def register_collate_fn(name):
 
     def decorator(cls):
         if name in COLLATE_FN_MANAGER_REGISTRY and COLLATE_FN_MANAGER_REGISTRY[name] != cls:
-            raise ValueError(f"Collate function manager {name} has already been registered: {COLLATE_FN_MANAGER_REGISTRY[name]} vs {cls}")
+            raise ValueError(
+                f"Collate function manager {name} has already been registered: "
+                f"{COLLATE_FN_MANAGER_REGISTRY[name]} vs {cls}"
+            )
         COLLATE_FN_MANAGER_REGISTRY[name] = cls
         return cls
 

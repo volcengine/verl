@@ -185,7 +185,7 @@ class TaskRunner:
         )
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
-        from verl.utils.dataset.dataset_utils import get_collate_fn_manager_cls
+        from verl.utils.dataset.collate_utils import get_collate_fn_manager_cls
 
         if processor:
             collate_fn = get_collate_fn_manager_cls(processor.__class__.__name__)
