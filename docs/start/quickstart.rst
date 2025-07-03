@@ -70,7 +70,7 @@ answer from both the solution and model's output using regular
 expression matching. We assign a reward of 1 to correct
 answer, 0.0 to incorrect answer and 0 to no answer. 
 
-For more details, please refer to `verl/utils/reward_score/gsm8k.py <https://github.com/volcengine/verl/blob/v0.1/verl/utils/reward_score/gsm8k.py>`_.
+For more details, please refer to `verl/utils/reward_score/gsm8k.py <https://github.com/volcengine/verl/blob/v0.4.1/verl/utils/reward_score/gsm8k.py>`_.
 
 **Training Script**
 
@@ -78,7 +78,7 @@ Now let's run PPO training with the dataset and model above. [2]_
 
 
 Set the ``data.train_files`` ,\ ``data.val_files``, ``actor_rollout_ref.model.path`` and ``critic.model.path`` based on your dataset and model names or paths.
-You may set ``VERL_USE_MODELSCOPE=True`` to download models from modelscope instead of huggingface.
+You may set ``VERL_USE_MODELSCOPE=True`` to download models from `modelscope <https://www.modelscope.cn>`_ instead of `huggingface <https://huggingface.co>`_.
 
 .. code-block:: bash
 
@@ -118,7 +118,16 @@ You are expected to see the following logs, indicating training in progress. The
 
 Checkout :ref:`algo-baseline-page` for full training and validation logs for reference.
 
-The checkpoint is saved at the following dir by default: ``checkpoints/${trainer.project_name}/${trainer.experiment_name}``
+The checkpoint is saved at the following dir by default: ``checkpoints/${trainer.project_name}/${trainer.experiment_name}``. You can merge the saved checkpoints to huggingface model using ``verl.model_merger`` module, for example:
+
+.. code-block:: bash
+
+    python3 -m verl.model_merger merge \
+        --backend fsdp \
+        --local_dir checkpoints/${trainer.project_name}/${trainer.experiment_name}/global_step_1/actor \
+        --target_dir checkpoints/${trainer.project_name}/${trainer.experiment_name}/global_step_1/actor/huggingface
+
+For more details about checkpoint and model merging, please refer to :ref:`checkpoint-page`.
 
 To enable ``wandb`` for experiment tracking, set the following configs:
 

@@ -15,7 +15,14 @@
 import pytest
 
 import verl.single_controller.base.decorator as decorator_module
-from verl.single_controller.base.decorator import DISPATCH_MODE_FN_REGISTRY, Dispatch, _check_dispatch_mode, get_predefined_dispatch_fn, register_dispatch_mode, update_dispatch_mode
+from verl.single_controller.base.decorator import (
+    DISPATCH_MODE_FN_REGISTRY,
+    Dispatch,
+    _check_dispatch_mode,
+    get_predefined_dispatch_fn,
+    register_dispatch_mode,
+    update_dispatch_mode,
+)
 
 
 @pytest.fixture
@@ -42,7 +49,10 @@ def test_register_new_dispatch_mode(reset_dispatch_registry):
     _check_dispatch_mode(Dispatch.TEST_MODE)
 
     # Verify registry update
-    assert get_predefined_dispatch_fn(Dispatch.TEST_MODE) == {"dispatch_fn": dummy_dispatch, "collect_fn": dummy_collect}
+    assert get_predefined_dispatch_fn(Dispatch.TEST_MODE) == {
+        "dispatch_fn": dummy_dispatch,
+        "collect_fn": dummy_collect,
+    }
     # Clean up
     Dispatch.remove("TEST_MODE")
 

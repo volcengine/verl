@@ -32,6 +32,7 @@ verl is fast with:
    start/quickstart
    start/multinode
    start/ray_debug_tutorial
+   start/more_resources
 
 .. toctree::
    :maxdepth: 2
@@ -109,6 +110,7 @@ verl is fast with:
    advance/rope
    advance/ppo_lora.rst
    sglang_multiturn/multiturn.rst
+   sglang_multiturn/interaction_system.rst
    advance/placement
    advance/dpo_extension
    examples/sandbox_fusion_example

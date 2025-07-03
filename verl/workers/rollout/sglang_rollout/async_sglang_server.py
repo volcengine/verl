@@ -14,6 +14,7 @@
 # limitations under the License.
 import asyncio
 import logging
+from typing import Any, Dict, List
 
 import ray
 from omegaconf import DictConfig
@@ -29,9 +30,8 @@ logger = logging.getLogger(__file__)
 class AsyncSglangServer(AsyncServerBase):
     def __init__(self, config: DictConfig, dp_size: int, dp_rank: int, wg_prefix: str):
         super().__init__()
-        self.config = config
-        rollout_config = config.get("rollout", {})
-        self._tp_size = rollout_config.get("tensor_model_parallel_size", 1)
+        self.config = config.actor_rollout_ref
+        self._tp_size = self.config.rollout.get("tensor_model_parallel_size", 1)
         self._dp_size = dp_size
         self._dp_rank = dp_rank
         self.wg_prefix = wg_prefix
@@ -43,7 +43,9 @@ class AsyncSglangServer(AsyncServerBase):
             # avoid init twice
             return
         all_actors = ray.util.list_named_actors(all_namespaces=True)
-        matched_actors = [actor for actor in all_actors if actor.get("name", None).startswith(self.wg_prefix + "WorkerDict_")]
+        matched_actors = [
+            actor for actor in all_actors if actor.get("name", None).startswith(self.wg_prefix + "WorkerDict_")
+        ]
 
         for matched_actor in matched_actors:
             fields = matched_actor["name"].split(":")
@@ -64,12 +66,21 @@ class AsyncSglangServer(AsyncServerBase):
         [outputs] = await asyncio.gather(output_future)
         return JSONResponse(outputs)
 
+    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+        return await self.master_worker.generate.remote(prompt_ids, sampling_params, request_id)
+
     async def wake_up(self):
+        if not self.config.rollout.free_cache_engine:
+            return
+
         tasks = [worker.wake_up.remote() for worker in self.workers]
         if tasks:
             await asyncio.gather(*tasks)
 
     async def sleep(self):
+        if not self.config.rollout.free_cache_engine:
+            return
+
         tasks = [worker.sleep.remote() for worker in self.workers]
         if tasks:
             await asyncio.gather(*tasks)

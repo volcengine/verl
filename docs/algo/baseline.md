@@ -1,5 +1,7 @@
 # Algorithm Baselines
 
+Last updated: 06/18/2025.
+
 ## Math related datasets
 
 ### GSM8k

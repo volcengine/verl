@@ -47,7 +47,9 @@ def forward_base_model(
     ```"""
 
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-    output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    output_hidden_states = (
+        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    )
 
     # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
     outputs = self.model(
@@ -145,7 +147,7 @@ def forward_with_triton_backend(
     temperature: float = 1.0,
     **loss_kwargs,
 ) -> Union[Tuple, CausalLMOutputForPPO]:
-    from verl.utils.kernel import linear_cross_entropy
+    from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
 
     outputs = forward_base_model(
         self,

@@ -14,6 +14,12 @@ MAX_RESPONSE_LEN=${MAX_RESPONSE_LEN:-512}
 
 ENGINE=${ENGINE:-vllm}
 ROLLOUT_MODE=${ROLLOUT_MODE:-sync}
+
+RETURN_RAW_CHAT="False"
+if [ "$ROLLOUT_MODE" = "async" ]; then
+    RETURN_RAW_CHAT="True"
+fi
+
 GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.8}
 ACTOR_FSDP_PARAM_OFFLOAD=${ACTOR_FSDP_PARAM_OFFLOAD:-False}
 ACTOR_FSDP_OPTIMIZER_OFFLOAD=${ACTOR_FSDP_OPTIMIZER_OFFLOAD:-False}
@@ -29,6 +35,8 @@ STRATEGY=${STRATEGY:-fsdp}
 # LoRA config
 LORA_RANK=${LORA_RANK:-0}
 LORA_ALPHA=${LORA_ALPHA:-${LORA_RANK}}
+LORA_TARGET=${LORA_TARGET:-"all-linear"}
+LORA_EXCLUDE=${LORA_EXCLUDE:-"DONT_EXCLUDE"}
 USE_SHM=${USE_SHM:-False}
 LOAD_FORMAT=${LOAD_FORMAT:-dummy_dtensor}
 LAYERED_SUMMON=${LAYERED_SUMMON:-False}
@@ -84,10 +92,13 @@ python3 -m verl.trainer.main_ppo \
     data.train_batch_size="${train_prompt_bsz}" \
     data.max_prompt_length="${MAX_PROMPT_LEN}" \
     data.max_response_length="${MAX_RESPONSE_LEN}" \
+    data.return_raw_chat=${RETURN_RAW_CHAT} \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.model.use_shm=${USE_SHM} \
     actor_rollout_ref.model.lora_rank=${LORA_RANK} \
     actor_rollout_ref.model.lora_alpha=${LORA_ALPHA} \
+    actor_rollout_ref.model.target_modules=${LORA_TARGET} \
+    actor_rollout_ref.model.exclude_modules=${LORA_EXCLUDE} \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding="${RM_PAD}" \
     actor_rollout_ref.model.use_fused_kernels=${FUSED_KERNELS} \

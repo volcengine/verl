@@ -21,6 +21,22 @@ import torch.distributed
 
 
 class Profiler:
+    """A PyTorch profiler wrapper class for collecting performance metrics.
+
+    TODO(haibin.lin): this should implement the DistProfiler interface, and the config should be unified.
+
+    This profiler provides a convenient interface for profiling PyTorch operations,
+    with support for:
+
+    - CPU and CUDA activity profiling
+    - Configurable profiling schedule (wait/warmup/active steps)
+    - Multi-rank profiling support
+    - Chrome trace export
+
+    Args:
+        config: Configuration object containing profiling parameters
+    """
+
     def __init__(self, config):
         # note : if we do not set use_profile, it will be set as None, so that all function will be skip
         self.config = config
@@ -55,7 +71,9 @@ class Profiler:
                 self.config.profile_ranks = [0]
             assert self.config.step_start >= 0, "[ERROR] Profile step start must be greater than 0"
             assert self.config.step_end >= 0, "[ERROR] Profile step end must be greater than 0"
-            assert self.config.step_start < self.config.step_end, "[ERROR] Profile step start must be less than step end"
+            assert self.config.step_start < self.config.step_end, (
+                "[ERROR] Profile step start must be less than step end"
+            )
 
     def check(self):
         return self.prof is not None and not self.skip_prof
@@ -95,7 +113,12 @@ class Profiler:
             self.skip_prof = True
 
 
-def mark_start_range(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> None:
+def mark_start_range(
+    message: Optional[str] = None,
+    color: Optional[str] = None,
+    domain: Optional[str] = None,
+    category: Optional[str] = None,
+) -> None:
     pass
 
 
@@ -103,7 +126,12 @@ def mark_end_range(range_id: str) -> None:
     pass
 
 
-def mark_annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
+def mark_annotate(
+    message: Optional[str] = None,
+    color: Optional[str] = None,
+    domain: Optional[str] = None,
+    category: Optional[str] = None,
+) -> Callable:
     def decorator(func):
         return func
 
@@ -112,13 +140,16 @@ def mark_annotate(message: Optional[str] = None, color: Optional[str] = None, do
 
 @dataclass
 class ProfilerConfig:
-    """
-    Worker profiler config. Currently only support Nsight system profiler.
-    """
+    """Worker profiler config. Currently only support Nsight system profiler."""
 
-    all_ranks: bool = False
-    ranks: Optional[list[int]] = None
+    # True for each task has its own database, False for all tasks in one training step share one database.
     discrete: bool = False
+
+    # Whether to profile all ranks.
+    all_ranks: bool = False
+
+    # The ranks that will be profiled. None or [0,1,...]
+    ranks: Optional[list[int]] = None
 
     def union(self, other: "ProfilerConfig") -> "ProfilerConfig":
         return ProfilerConfig(
@@ -134,8 +165,25 @@ class ProfilerConfig:
             discrete=self.discrete and other.discrete,
         )
 
+    def __post_init__(self) -> None:
+        """config validation logics go here"""
+        if self.ranks is None:
+            self.ranks = []
+        assert isinstance(self.ranks, (set, list, tuple))
 
-class WorkerProfiler:
+
+class DistProfiler:
+    """A distributed profiler class for collecting performance metrics across multiple ranks.
+
+    This profiler is designed to work in distributed training environments, allowing selective
+    profiling of specific ranks or all ranks. It provides basic start/stop functionality and
+    supports annotation of code sections for detailed profiling.
+
+    Args:
+        rank (int): The rank of the current process
+        config (ProfilerConfig, optional): Configuration for the profiler.
+    """
+
     def __init__(self, rank: int, config: Optional[ProfilerConfig] = None):
         pass
 
@@ -146,15 +194,31 @@ class WorkerProfiler:
         pass
 
     @staticmethod
-    def annotate(message: Optional[str] = None, color: Optional[str] = None, domain: Optional[str] = None, category: Optional[str] = None) -> Callable:
+    def annotate(
+        message: Optional[str] = None,
+        color: Optional[str] = None,
+        domain: Optional[str] = None,
+        category: Optional[str] = None,
+    ) -> Callable:
         def decorator(func):
             return func
 
         return decorator
 
 
-class WorkerProfilerExtension:
-    def __init__(self, profiler: WorkerProfiler):
+class DistProfilerExtension:
+    """An extension class for DistProfiler that provides distributed profiling capabilities.
+
+    It is intended for workers in verl that single controller invokes.
+
+    This class wraps a DistProfiler instance and provides methods to start/stop profiling
+    that can be dispatched across multiple ranks in a distributed training environment.
+
+    Args:
+        profiler (DistProfiler): The base distributed profiler instance to extend
+    """
+
+    def __init__(self, profiler: DistProfiler):
         self.profiler = profiler
 
     from verl.single_controller.base.decorator import Dispatch, register

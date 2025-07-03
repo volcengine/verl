@@ -100,6 +100,9 @@ actor_rollout_ref:
     # Huggingface model path. This can be either local path or HDFS path.
     path: ~/models/deepseek-llm-7b-chat
 
+    # Custom chat template for the model.
+    custom_chat_template: null
+
     # Whether to use shared memory (SHM) for accelerating the loading of model weights
     use_shm: false
 
@@ -124,9 +127,13 @@ actor_rollout_ref:
     # LoRA scaling factor
     lora_alpha: 16
 
-    # Target modules to apply LoRA. Options: "all-linear" or
+    # Target modules to apply LoRA. Options: "all-linear" (not recommended for VLMs) or
     # [q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]
     target_modules: all-linear
+    
+    # Exclude modules from applying Lora. Similar usage to target_modules and Peft.
+    # Example: '.*visual.*' for excluding the ViT in Qwen2.5-VL, as currently vllm does not support ViT Lora.
+    exclude_modules: null
 
     # Whether to use Liger for linear layer fusion
     use_liger: false
@@ -198,7 +205,7 @@ actor_rollout_ref:
       # KL divergence penalty coefficient
       ppo_kl_coef: 0.1
 
-    # Constant C in Dual-clip PPO; clips when advantage < -C
+    # Constant C in Dual-clip PPO; clips when advantage < 0 and ratio > C
     clip_ratio_c: 3.0
 
     # Loss aggregation mode: "token-mean", "seq-mean-token-sum", or "seq-mean-token-mean"
@@ -316,7 +323,7 @@ actor_rollout_ref:
   ref:
 
     # actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it’s recommended to turn on offload for ref by default
-    strategy: fsdp
+    strategy: ${actor_rollout_ref.actor.strategy}
 
     # config for FSDP strategy
     fsdp_config:
@@ -393,8 +400,6 @@ actor_rollout_ref:
     # Top-p sampling parameter. Default 1.0.
     top_p: 1
 
-    # https://arxiv.org/abs/2410.21236
-    use_fire_sampling: False
 
     # typically the same as data max prompt length
     prompt_length: ${data.max_prompt_length}
@@ -462,6 +467,9 @@ actor_rollout_ref:
     # number of responses (i.e. num sample times). > 1 for grpo
     n: 1
 
+    # Whether to wake up inference engine in multi-stage. (Wake up model weights first, then resume kv cache)
+    multi_stage_wake_up: false
+
     # Extra inference engine arguments (vllm, sglang).
     engine_kwargs:
 
@@ -506,10 +514,25 @@ actor_rollout_ref:
       enable: False
 
       # null for no limit (default max_length // 3)
-      max_turns: null
+      max_assistant_turns: null
 
       # null for no tool
       tool_config_path: null
+
+      # null for no limit (default max_length // 3)
+      max_user_turns: null
+
+      # max parallel call for tools in single turn
+      max_parallel_calls: 1
+
+      # max length of tool response
+      max_tool_response_length: 256
+
+      # truncate side of tool response: left, middle, right
+      tool_response_truncate_side: middle
+
+      # null for no interaction
+      interaction_config_path: null
 
       # null for default callback
       completion_callback: null
@@ -524,7 +547,13 @@ actor_rollout_ref:
       # Some models are known to produce different tokenization results when tokenizing turn by turn vs. all at once. aThis behavior has already been validated for them.
       # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
-      enable_tokenization_sanity_check: True
+      # - off: disable tokenization sanity check
+      # - strict: enable strict tokenization sanity check (default)
+      # - ignore_strippable: ignore strippable tokens when checking tokenization sanity
+      tokenization_sanity_check_mode: strict
+
+      # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
+      format: hermes
 
     # support logging rollout prob for debugging purpose
     calculate_log_probs: False
@@ -541,6 +570,12 @@ actor_rollout_ref:
       # The ranks that will be profiled. null or [0,1,...]
       ranks: null
 
+    # [Experimental] agent loop based rollout configs
+    agent:
+
+      # Number of agent loop workers
+      num_workers: 8
+
 # configs for the critic
 critic:
 
@@ -548,7 +583,7 @@ critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
 
   # fsdp or fsdp2 strategy used for critic model training
-  strategy: fsdp
+  strategy: ${actor_rollout_ref.actor.strategy}
 
   # optimizer configs
   optim:
@@ -691,6 +726,7 @@ critic:
     load_contents: ${critic.checkpoint.save_contents}
 
   # profiler configs
+  # the corresponding dataclass is verl.utils.debug.ProfilerConfig.
   profiler:
 
     # True for each task has its own database, False for all tasks in one training step share one database.
@@ -712,7 +748,7 @@ reward_model:
   enable: False
 
   # FSDP strategy: "fsdp" or "fsdp2"
-  strategy: fsdp
+  strategy: ${actor_rollout_ref.actor.strategy}
 
   # model config for reward scoring
   model:
@@ -797,6 +833,9 @@ reward_model:
 
     # Max concurrent requests allowed to sandbox
     max_concurrent: 64
+
+    # Max memory limit for each sandbox process in MB
+    memory_limit_mb: 1024
 
   # profiler configs
   profiler:
@@ -949,6 +988,9 @@ trainer:
 
   # Save frequency (by iteration) for model checkpoints
   save_freq: -1
+
+  # ESI redundant time (in seconds) for model checkpointsAdd commentMore actions
+  esi_redundant_time: 0
 
   # Resume mode: "auto", "disable", or "resume_path"
   # "auto": resume from last checkpoint if available

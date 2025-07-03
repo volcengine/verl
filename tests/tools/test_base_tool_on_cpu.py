@@ -19,7 +19,8 @@ from typing import Any, Tuple
 import pytest
 from transformers.utils import get_json_schema
 
-from verl.tools.base_tool import BaseTool, OpenAIFunctionToolSchema, initialize_tools_from_config
+from verl.tools.base_tool import BaseTool, OpenAIFunctionToolSchema
+from verl.tools.utils.tool_registry import initialize_tools_from_config
 
 
 class WeatherToolForTest(BaseTool):
@@ -88,11 +89,11 @@ def create_local_tool_config():
         "tools": [
             {
                 "class_name": "tests.tools.test_base_tool_on_cpu.WeatherToolForTest",
-                "config": {},
+                "config": {"type": "native"},
             },
             {
                 "class_name": "tests.tools.test_base_tool_on_cpu.WeatherToolWithDataForTest",
-                "config": {},
+                "config": {"type": "native"},
             },
         ]
     }
@@ -110,11 +111,11 @@ def create_fake_tool_config():
         "tools": [
             {
                 "class_name": "tests.workers.rollout.fake_path.test_vllm_chat_scheduler.WeatherTool",
-                "config": {},
+                "config": {"type": "native"},
             },
             {
                 "class_name": "tests.workers.rollout.fake_path.test_vllm_chat_scheduler.WeatherToolWithData",
-                "config": {},
+                "config": {"type": "native"},
             },
         ]
     }
@@ -155,5 +156,5 @@ def test_initialize_tools_from_local_config(create_local_tool_config):
 
     assert isinstance(tools[0], WeatherToolForTest)
     assert isinstance(tools[1], WeatherToolWithDataForTest)
-    assert tools[0].config == {}
-    assert tools[1].config == {}
+    assert tools[0].config == {"type": "native"}
+    assert tools[1].config == {"type": "native"}

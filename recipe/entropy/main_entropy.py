@@ -18,9 +18,8 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 import hydra
 import ray
 
-from verl.trainer.ppo.reward import load_reward_manager
-
 from .entropy_ray_trainer import RayEntropyTrainer
+from .reward import load_reward_manager
 
 
 @hydra.main(config_path="config", config_name="entropy_trainer", version_base=None)
@@ -32,7 +31,14 @@ def run_ppo(config) -> None:
     if not ray.is_initialized():
         # this is for local ray cluster
         ray.init(
-            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN", "WANDB_API_KEY": "YOUR_WANDB_API_KEY"}},
+            runtime_env={
+                "env_vars": {
+                    "TOKENIZERS_PARALLELISM": "true",
+                    "NCCL_DEBUG": "WARN",
+                    "VLLM_LOGGING_LEVEL": "WARN",
+                    "WANDB_API_KEY": "YOUR_WANDB_API_KEY",
+                }
+            },
             num_cpus=config.ray_init.num_cpus,
         )
 
@@ -84,7 +90,11 @@ class TaskRunner:
             from verl.single_controller.ray import RayWorkerGroup
             from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
-            actor_rollout_cls = AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
+            actor_rollout_cls = (
+                AsyncActorRolloutRefWorker
+                if config.actor_rollout_ref.rollout.mode == "async"
+                else ActorRolloutRefWorker
+            )
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
@@ -135,9 +145,14 @@ class TaskRunner:
             role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
 
-        reward_kwargs = {"max_resp_len": config.data.max_response_length, "overlong_buffer_cfg": config.reward_model.overlong_buffer}
+        reward_kwargs = {
+            "max_resp_len": config.data.max_response_length,
+            "overlong_buffer_cfg": config.reward_model.overlong_buffer,
+        }
         cfg_reward_kwargs = config.reward_model.get("reward_kwargs", {})
-        reward_fn = load_reward_manager(config, tokenizer, num_examine=0, **(merge_dict(reward_kwargs, cfg_reward_kwargs)))
+        reward_fn = load_reward_manager(
+            config, tokenizer, num_examine=0, **OmegaConf.merge(OmegaConf.create(reward_kwargs), cfg_reward_kwargs)
+        )
         val_reward_fn = load_reward_manager(config, tokenizer, num_examine=1, **reward_kwargs)
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
@@ -184,7 +199,10 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
 
         dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
         if not issubclass(dataset_cls, Dataset):
-            raise TypeError(f"The custom dataset class '{data_config.custom_cls.name}' from '{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset")
+            raise TypeError(
+                f"The custom dataset class '{data_config.custom_cls.name}' from '{data_config.custom_cls.path}' "
+                f"must inherit from torch.utils.data.Dataset"
+            )
     else:
         dataset_cls = RLHFDataset
     print(f"Using dataset class: {dataset_cls.__name__}")

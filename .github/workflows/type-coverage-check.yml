@@ -1,4 +1,4 @@
-name: Type Annotation Coverage
+name: Type Annotation and Docstring Coverage
 
 on:
   pull_request:
@@ -20,7 +20,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install gitpython
-
-      - name: Run type coverage check
+          pip install -e .[sglang]
+      - name: Run type annotation coverage check
         run: |
           python3 tests/special_sanity/type_coverage_check.py
+      - name: Run docstring coverage check
+        run: |
+          python3 tests/special_sanity/check_api_docs.py verl
