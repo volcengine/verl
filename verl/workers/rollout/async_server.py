@@ -135,11 +135,11 @@ class AsyncLLMServerManager:
         self.async_llm_servers = [None] * self.rollout_dp_size
         self.server_addresses = [None] * self.rollout_dp_size
 
-        if self.config.rollout.custom_async_server:
+        if self.config.rollout.agent.custom_async_server:
             server_class = async_server_class(
                 rollout_backend=self.config.rollout.name,
-                rollout_backend_module=self.config.rollout.custom_async_server.path,
-                rollout_backend_class=self.config.rollout.custom_async_server.name,
+                rollout_backend_module=self.config.rollout.agent.custom_async_server.path,
+                rollout_backend_class=self.config.rollout.agent.custom_async_server.name,
             )
         else:
             server_class = async_server_class(rollout_backend=self.config.rollout.name)

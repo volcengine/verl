@@ -253,6 +253,10 @@ actor_rollout_ref:
       # Number of agent loop workers
       num_workers: 8
 
+      custom_async_server:
+        path: null
+        name: null
+
     # support logging rollout prob for debugging purpose
     calculate_log_probs: False
     # Nsight system profiler configs
@@ -260,9 +264,6 @@ actor_rollout_ref:
       discrete: False
       all_ranks: False
       ranks: null
-    custom_async_server:
-      path: null
-      name: null
 
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}

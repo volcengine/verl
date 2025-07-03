@@ -576,14 +576,14 @@ actor_rollout_ref:
       # Number of agent loop workers
       num_workers: 8
 
-    # [Experimental] custom async server configs
-    custom_async_server:
+      # custom async server configs
+      custom_async_server:
 
-      # Path to the custom async server implementation
-      path: null
+        # Path to the custom async server implementation
+        path: null
 
-      # Class name of the custom async server class (e.g. AsyncvLLMServer)
-      name: null
+        # Class name of the custom async server class (e.g. AsyncvLLMServer)
+        name: null
 
 # configs for the critic
 critic:
