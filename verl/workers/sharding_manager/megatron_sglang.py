@@ -21,15 +21,22 @@ import asyncio
 import logging
 import os
 
+import torch.distributed as dist
 from omegaconf import DictConfig
 from sglang.srt.entrypoints.engine import Engine
+from sglang.srt.model_executor.model_runner import LocalSerializedTensor
+from sglang.srt.utils import MultiprocessingSerializer
 from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.protocol import DataProto, all_gather_data_proto
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.device import get_torch_device
-from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, per_tensor_generator
+from verl.utils.megatron_utils import (
+    load_megatron_model_to_gpu,
+    offload_megatron_model_to_cpu,
+    per_tensor_generator,
+)
 
 from .base import BaseShardingManager
 
@@ -150,26 +157,39 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             get_torch_device().set_rng_state(self.torch_random_states)
 
     async def update_weights(self, params):
-        if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
+        if self.device_mesh["tp"].get_local_rank() == 0:
             await self.inference_engine.resume_memory_occupation()
 
         # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
         # named_tensors = [(k, v) for k, v in params.items()]
+
         named_tensors = params
         load_format = None
         for tensor_index, (name, tensor) in enumerate(named_tensors):
+            serialized_tensor = MultiprocessingSerializer.serialize(tensor)
+
+            if self.device_mesh["tp"].get_local_rank() == 0:
+                gathered_serialized_tensors = [None for _ in range(self.device_mesh["tp"].mesh.size()[0])]
+            else:
+                gathered_serialized_tensors = None
+            dist.gather_object(
+                obj=serialized_tensor,
+                object_gather_list=gathered_serialized_tensors,
+                dst=self.device_mesh["tp"].mesh.tolist()[0],
+                group=self.device_mesh["tp"].get_group(),
+            )
+
             if self.device_mesh["tp"].get_local_rank() == 0:
                 await self.inference_engine.update_weights_from_tensor(
                     named_tensors=[
                         (
                             name,
-                            tensor.detach(),
+                            LocalSerializedTensor(values=gathered_serialized_tensors),
                         )
                     ],
                     load_format=load_format,
                     flush_cache=False,
                 )
-
             if self.device_mesh["tp"].get_local_rank() == 0:
                 await self.inference_engine.flush_cache()
 
