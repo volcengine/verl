@@ -94,10 +94,12 @@ data:
   # settings related to curriculum learning
   sampler:
 
-    # the path to the module containing a curriculum class which implements the AbstractCurriculumSampler interface
+    # the path to the module containing a curriculum class which implements the
+	# AbstractCurriculumSampler interface. This is a dot-seaparated module path
+	# like verl.some.package NOT a file path.
     class_path: null
 
-    # the name of the curriculum class
+    # the name of the curriculum class like `MySampler`
     class_name: null
 
 # config for actor, rollout and reference model

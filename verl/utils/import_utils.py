@@ -17,6 +17,7 @@ We assume package availability won't change during runtime.
 """
 
 import importlib.util
+import os
 from functools import cache
 from typing import List, Optional, Type
 
@@ -78,9 +79,12 @@ def import_external_libs(external_libs=None):
 
 
 def load_extern_type(file_path: Optional[str], type_name: Optional[str]):
-    """Load a external data type based on the file path and type name"""
-    import importlib.util
-    import os
+    """Load a external data type based on the file path and type name. Be aware that
+    types imported using this function may not resolve the way you expect. In
+    particular, you can't import a class which subclasses a verl class an expect
+    that python will recognize that your type `isinstance` of the verl
+    class. Consider using `load_type_from_module` if you want that behavior.
+    """
 
     if not file_path:
         return None
