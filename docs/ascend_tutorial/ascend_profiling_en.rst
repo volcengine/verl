@@ -87,11 +87,8 @@ End-to-End collection
            ref:
                profiler:
                    discrete: False
-                   all_ranks: False
+                   all_ranks: True
 
--  Note: In end-to-end collection mode, ref data is collected under
-   actor_rollout. Therefore, set ref.profiler.all_ranks to False
-   when in an NPU environment.
 
 Discrete Mode Collection
 ~~~~~~~~~~~~~~~~~~~~~~~~
