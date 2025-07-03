@@ -11,24 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import importlib
-
-import pytest
-
-_have_boto = importlib.util.find_spec("boto3") is not None
-_have_moto = importlib.util.find_spec("moto") is not None
-
-pytestmark = pytest.mark.skipif(
-    not (_have_boto and _have_moto),
-    reason="Optional deps boto3/moto not available, install boto3 and moto[s3]",
-)
-
 import os
 import shutil
 import tempfile
 from pathlib import PurePosixPath
 
-import boto3
+import pytest
+
+try:
+    import boto3
+except ImportError:
+    pytestmark = pytest.mark.skip(reason="boto3 not installed")
+
 import torch
 import torch.distributed
 from moto import mock_aws
@@ -68,7 +62,9 @@ def test_fsdp_s3_ckpt(strategy: str = "fsdp"):
             device_mesh=device_mesh,
         )
     else:
-        mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, cast_forward_inputs=True)
+        mp_policy = MixedPrecisionPolicy(
+            param_dtype=torch.bfloat16, reduce_dtype=torch.float32, cast_forward_inputs=True
+        )
         apply_fsdp2(model, {"mesh": device_mesh, "mp_policy": mp_policy}, {})
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)

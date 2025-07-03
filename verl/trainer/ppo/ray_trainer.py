@@ -20,8 +20,8 @@ This trainer supports model-agonistic model initialization with huggingface
 
 import json
 import os
-import uuid
 import re
+import uuid
 from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -60,8 +60,6 @@ from verl.utils.metric import (
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
-
-from verl.utils.s3_io import list_dirs, parse_uri, object_exists
 
 WorkerType = Type[Worker]
 
@@ -915,15 +913,19 @@ class RayPPOTrainer:
         )
 
         print(f"local_global_step_folder: {local_global_step_folder}")
-        s3_global_step_folder = None if self.config.trainer.s3_checkpoint_dir is None else os.path.join(
-            self.config.trainer.s3_checkpoint_dir, f'global_step_{self.global_steps}'
+        s3_global_step_folder = (
+            None
+            if self.config.trainer.s3_checkpoint_dir is None
+            else os.path.join(self.config.trainer.s3_checkpoint_dir, f"global_step_{self.global_steps}")
         )
         actor_local_path = os.path.join(local_global_step_folder, "actor")
 
         if self.config.trainer.s3_checkpoint_dir:
             actor_remote_path = os.path.join(s3_global_step_folder, "actor")
         elif self.config.trainer.default_hdfs_dir:
-            actor_remote_path = os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "actor")
+            actor_remote_path = os.path.join(
+                self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "actor"
+            )
         else:
             actor_remote_path = None
 
@@ -949,11 +951,15 @@ class RayPPOTrainer:
             if self.config.trainer.s3_checkpoint_dir:
                 critic_remote_path = os.path.join(s3_global_step_folder, "critic")
             elif self.config.trainer.default_hdfs_dir:
-                critic_remote_path = os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "critic")
+                critic_remote_path = os.path.join(
+                    self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "critic"
+                )
             else:
                 critic_remote_path = None
-            
-            self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps, max_ckpt_to_keep=max_critic_ckpt_to_keep)
+
+            self.critic_wg.save_checkpoint(
+                critic_local_path, critic_remote_path, self.global_steps, max_ckpt_to_keep=max_critic_ckpt_to_keep
+            )
 
         # save dataloader
         local_mkdir_safe(local_global_step_folder)
@@ -978,10 +984,7 @@ class RayPPOTrainer:
             return 0
 
         # Remember that resume_from_path defaults to None
-        is_s3 = (
-            self.config.trainer.resume_from_path and
-            self.config.trainer.resume_from_path.startswith("s3://")
-        )
+        is_s3 = self.config.trainer.resume_from_path and self.config.trainer.resume_from_path.startswith("s3://")
 
         # load from hdfs
         if self.config.trainer.default_hdfs_dir is not None:
@@ -990,21 +993,19 @@ class RayPPOTrainer:
         # find global_step_folder
         if self.config.trainer.resume_mode == "auto":
             if is_s3:
+                from verl.utils.s3_io import list_dirs, object_exists, parse_uri
+
                 checkpoint_folder = self.config.trainer.resume_from_path
                 bucket, prefix, _ = parse_uri(checkpoint_folder, is_dir=True)
                 step_folders = list_dirs(bucket, prefix)
                 # loop through step folder and remove the ones without data.pt
                 step_folders = [
-                    step for step in step_folders
-                    if object_exists(
-                        bucket,
-                        os.path.join(prefix, step, "data.pt")
-                    )
+                    step for step in step_folders if object_exists(bucket, os.path.join(prefix, step, "data.pt"))
                 ]
                 if not step_folders:
                     global_step_folder = None
                 else:
-                    global_step = max(step_folders, key=lambda s: int(re.search(r'\d+$', s).group()))
+                    global_step = max(step_folders, key=lambda s: int(re.search(r"\d+$", s).group()))
                     global_step_folder = os.path.join(checkpoint_folder, global_step)
 
             else:
@@ -1026,7 +1027,7 @@ class RayPPOTrainer:
                 if not is_s3 and not os.path.isabs(global_step_folder):
                     working_dir = os.getcwd()
                     global_step_folder = os.path.join(working_dir, global_step_folder)
-        print(f'Load from checkpoint folder: {global_step_folder}')
+        print(f"Load from checkpoint folder: {global_step_folder}")
         # set global step
         self.global_steps = int(global_step_folder.split("global_step_")[-1])
 

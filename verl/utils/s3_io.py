@@ -24,7 +24,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     import boto3
-except ImportError:
+except ImportError as excn:
     raise RuntimeError("Boto3 required for s3 checkpointing, please install boto3==1.34.162") from excn
 
 import botocore
@@ -119,7 +119,7 @@ def list_filename_info(
     while True:  # for pagination
 
         def list_objects_once() -> Dict[str, Any]:
-            response = client.list_objects_v2(Bucket=bucket, Prefix=prefix, StartAfter=start_after, MaxKeys=limit)
+            response = client.list_objects_v2(Bucket=bucket, Prefix=prefix, StartAfter=start_after, MaxKeys=limit)  # noqa: B023
             response_status = response["ResponseMetadata"]["HTTPStatusCode"]
             assert response_status == 200, f"Listing objects failed with status {response_status}"
             return response  # type: ignore
@@ -133,7 +133,12 @@ def list_filename_info(
         else:
             remove_prefix = ""
 
-        ret.extend([FilenameInfo(name=obj["Key"].replace(remove_prefix, ""), size=obj["Size"], md5=obj["ETag"]) for obj in contents])
+        ret.extend(
+            [
+                FilenameInfo(name=obj["Key"].replace(remove_prefix, ""), size=obj["Size"], md5=obj["ETag"])
+                for obj in contents
+            ]
+        )
 
         if not response["IsTruncated"]:
             break
