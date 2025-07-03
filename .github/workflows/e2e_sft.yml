@@ -78,7 +78,7 @@ jobs:
       runs-on: ubuntu-latest
       outputs:
         runner-label: ${{ steps.create-runner.outputs.runner-label }}
-        task-id: ${{ steps.create-runner.outputs.task-id }}
+        mlp-task-id: ${{ steps.create-runner.outputs.mlp-task-id }}
       steps:
         - uses: actions/checkout@v4
         - id: create-runner
@@ -86,7 +86,7 @@ jobs:
           with:
             mode: "create"
             faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
-            image: "${{ env.IMAGE }}"
+            mlp-image: "${{ env.IMAGE }}"
 
   e2e_sft:
     needs: setup
@@ -146,4 +146,4 @@ jobs:
         with:
           mode: "destroy"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
-          task-id: "${{ needs.setup.outputs.task-id }}"
+          mlp-task-id: "${{ needs.setup.outputs.mlp-task-id }}"
