@@ -1315,8 +1315,8 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 timeout=int(os.environ.get("DIST_TIMEOUT", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
-            
         self.config = config
+
         # build device mesh for Ulysses Sequence Parallel
         world_size = torch.distributed.get_world_size()
         from torch.distributed.device_mesh import init_device_mesh

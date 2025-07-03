@@ -15,7 +15,6 @@
 The main entry point to run the PPO algorithm
 """
 
-import datetime
 import logging
 import os
 import time
@@ -99,7 +98,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),
-                timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
+                timeout=int(os.environ.get("DIST_TIMEOUT", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
             get_torch_device().set_device(rank)
@@ -732,7 +731,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),
-                timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
+                timeout=int(os.environ.get("DIST_TIMEOUT", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
             get_torch_device().set_device(rank)
@@ -1008,7 +1007,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),
-                timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
+                timeout=int(os.environ.get("DIST_TIMEOUT", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
             get_torch_device().set_device(rank)
