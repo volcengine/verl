@@ -1126,20 +1126,21 @@ class SGLangRollout(BaseRollout):
         if response_attention_mask.shape[1] < self.config.response_length:
             response_attention_mask = pad_sequence_to_length(response_attention_mask, self.config.response_length, 0)
 
-        # padding position_ids
+        # padding prompt_position_ids
         prompt_position_ids = pad_sequence(prompt_position_ids, batch_first=True, padding_value=0, padding_side="left")
-        response_position_ids = pad_sequence(response_position_ids, batch_first=True, padding_value=0)
         prompt_position_ids_seq_len = (
             prompt_position_ids.shape[2] if prompt_position_ids.dim() == 3 else prompt_position_ids.shape[1]
         )
-        response_position_ids_seq_len = (
-            response_position_ids.shape[2] if response_position_ids.dim() == 3 else response_position_ids.shape[1]
-        )
-
         if prompt_position_ids_seq_len < self.config.prompt_length:
             prompt_position_ids = pad_sequence_to_length(
                 prompt_position_ids, self.config.prompt_length, 0, left_pad=True
             )
+
+        # padding response_position_ids
+        response_position_ids = pad_sequence(response_position_ids, batch_first=True, padding_value=0)
+        response_position_ids_seq_len = (
+            response_position_ids.shape[2] if response_position_ids.dim() == 3 else response_position_ids.shape[1]
+        )
         if response_position_ids_seq_len < self.config.response_length:
             response_position_ids = pad_sequence_to_length(response_position_ids, self.config.response_length, 0)
 
