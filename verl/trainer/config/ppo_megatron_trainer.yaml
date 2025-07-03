@@ -64,7 +64,7 @@ actor_rollout_ref:
     data_loader_seed: null
     shuffle: False
     policy_loss:   # policy loss config
-      loss_mode: "vanilla" # Loss function mode: vanilla / clip-cov / kl-cov from https://arxiv.org/abs/2505.22617
+      loss_mode: "vanilla" # Loss function mode: vanilla / clip-cov / kl-cov / gpg from https://arxiv.org/abs/2505.22617, 
       clip_cov_ratio: 0.0002 # Ratio of tokens to be clipped for clip-cov loss
       clip_cov_lb: 1.0 # Lower bound for clip-cov loss
       clip_cov_ub: 5.0 # Upper bound for clip-cov loss
