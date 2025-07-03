@@ -119,14 +119,18 @@ class ToolAgentLoop(AgentLoopBase):
         request_id = uuid4().hex
         prompt_ids = await self.loop.run_in_executor(
             None,
-            lambda: self.tokenizer.apply_chat_template(messages, tools=self.tool_schemas, add_generation_prompt=True, tokenize=True),
+            lambda: self.tokenizer.apply_chat_template(
+                messages, tools=self.tool_schemas, add_generation_prompt=True, tokenize=True
+            ),
         )
         response_mask = []
 
         user_turns, assistant_turns = 0, 0
         while True:
             with simple_timer("generate_sequences", metrics):
-                response_ids = await self.server_manager.generate(request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params)
+                response_ids = await self.server_manager.generate(
+                    request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params
+                )
             prompt_ids += response_ids
             response_mask += [1] * len(response_ids)
             assistant_turns += 1
@@ -156,7 +160,9 @@ class ToolAgentLoop(AgentLoopBase):
             # append tool_response_ids
             tool_response_ids = await self.loop.run_in_executor(
                 None,
-                lambda messages=tool_responses: self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=True),
+                lambda messages=tool_responses: self.tokenizer.apply_chat_template(
+                    messages, add_generation_prompt=True, tokenize=True
+                ),
             )
             tool_response_ids = tool_response_ids[len(self.system_prompt) :]
             prompt_ids += tool_response_ids
@@ -164,7 +170,9 @@ class ToolAgentLoop(AgentLoopBase):
             user_turns += 1
 
             # reach max user turns or max response length
-            if (self.max_user_turns and user_turns >= self.max_user_turns) or len(response_mask) >= self.response_length:
+            if (self.max_user_turns and user_turns >= self.max_user_turns) or len(
+                response_mask
+            ) >= self.response_length:
                 break
 
         response_ids = prompt_ids[-len(response_mask) :]

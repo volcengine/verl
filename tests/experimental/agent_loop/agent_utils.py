@@ -25,7 +25,9 @@ from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRe
 
 def init_agent_loop_manager(config: DictConfig) -> Union[AgentLoopManager, RayWorkerGroup]:
     # =========================== 1. Create hybrid ActorRollout workers ===========================
-    actor_rollout_cls = AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
+    actor_rollout_cls = (
+        AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
+    )
     role_worker_mapping = {
         Role.ActorRollout: ray.remote(actor_rollout_cls),
     }
@@ -42,7 +44,9 @@ def init_agent_loop_manager(config: DictConfig) -> Union[AgentLoopManager, RayWo
 
     # create actor and rollout
     resource_pool = resource_pool_manager.get_resource_pool(Role.ActorRollout)
-    actor_rollout_cls = RayClassWithInitArgs(cls=role_worker_mapping[Role.ActorRollout], config=config.actor_rollout_ref, role="actor_rollout")
+    actor_rollout_cls = RayClassWithInitArgs(
+        cls=role_worker_mapping[Role.ActorRollout], config=config.actor_rollout_ref, role="actor_rollout"
+    )
     resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
 
     all_wg = {}

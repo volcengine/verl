@@ -96,7 +96,9 @@ def prepare_inputs(tokenizer, prompts, max_prompt_length):
     pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
     tokenized = tokenizer(prompts, return_tensors="pt", padding=True)
     input_ids = pad_sequence_to_length(tokenized["input_ids"], max_prompt_length, pad_token_id, left_pad=True)
-    attention_mask = pad_sequence_to_length(tokenized["attention_mask"], max_prompt_length, pad_token_id=0, left_pad=True)
+    attention_mask = pad_sequence_to_length(
+        tokenized["attention_mask"], max_prompt_length, pad_token_id=0, left_pad=True
+    )
     position_ids = compute_position_id_with_mask(attention_mask)
     position_ids = pad_sequence_to_length(position_ids, max_prompt_length, pad_token_id=0, left_pad=True)
     return input_ids, attention_mask, position_ids
@@ -120,7 +122,14 @@ def generate_hf_output(model, input_ids, attention_mask, tokenizer, max_response
     return tokenizer.batch_decode(response)
 
 
-def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_config_path=None, interaction_config_path=None):
+def get_rollout_config(
+    max_response_length,
+    max_prompt_length,
+    dtype,
+    tensor_parallel_size,
+    tool_config_path=None,
+    interaction_config_path=None,
+):
     sampling_params = dict(
         n=1,
         temperature=0,

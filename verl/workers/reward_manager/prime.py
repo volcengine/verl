@@ -40,15 +40,21 @@ async def single_compute_score(evaluation_func, completion, reference, task, tas
         return None  # Default value for failed rows
 
 
-async def parallel_compute_score_async(evaluation_func, completions, references, tasks, extra_info=None, num_processes=64):
+async def parallel_compute_score_async(
+    evaluation_func, completions, references, tasks, extra_info=None, num_processes=64
+):
     if extra_info is None:
         extra_info = [None] * len(tasks)
     scores = []
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
-        # to prevent very occasional starvation caused by some anomalous programs ( like infinite loop ), the exceptions in async programs will instantly halt the evaluation, and all summoned processes will be killed.
+        # to prevent very occasional starvation caused by some anomalous programs ( like infinite loop ), the
+        # exceptions in async programs will instantly halt the evaluation, and all summoned processes will be killed.
         try:
             # Create tasks for all rows
-            tasks_async = [single_compute_score(evaluation_func, c, r, t, ei, executor, timeout=300.0) for c, r, t, ei in zip(completions, references, tasks, extra_info)]
+            tasks_async = [
+                single_compute_score(evaluation_func, c, r, t, ei, executor, timeout=300.0)
+                for c, r, t, ei in zip(completions, references, tasks, extra_info)
+            ]
             results = await asyncio.gather(*tasks_async, return_exceptions=False)
         except Exception as e:
             print(f"[Exception] async gather failed: {e}")
@@ -84,7 +90,9 @@ def run_reward_scoring(evaluation_func, completions, references, tasks, extra_in
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        return loop.run_until_complete(parallel_compute_score_async(evaluation_func, completions, references, tasks, extra_info, num_processes))
+        return loop.run_until_complete(
+            parallel_compute_score_async(evaluation_func, completions, references, tasks, extra_info, num_processes)
+        )
     finally:
         loop.close()
 

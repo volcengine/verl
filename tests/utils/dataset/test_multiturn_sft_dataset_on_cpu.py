@@ -75,7 +75,9 @@ def test_multiturn_sft_dataset():
 
     # Test 3: Shape Consistency
     assert item0["loss_mask"].shape == item0["input_ids"].shape, "Loss mask shape doesn't match input_ids shape"
-    assert item0["attention_mask"].shape == item0["input_ids"].shape, "Attention mask shape doesn't match input_ids shape"
+    assert item0["attention_mask"].shape == item0["input_ids"].shape, (
+        "Attention mask shape doesn't match input_ids shape"
+    )
     assert item0["position_ids"].shape == item0["input_ids"].shape, "Position IDs shape doesn't match input_ids shape"
 
     # Test 4: Loss Mask Pattern - Math Conversation
@@ -116,7 +118,9 @@ def test_multiturn_sft_dataset():
 
     # Test 7: Position IDs Pattern
     position_ids0 = item0["position_ids"]
-    assert torch.equal(position_ids0[:sequence_length], torch.arange(sequence_length)), "Position IDs not sequential for non-padded tokens"
+    assert torch.equal(position_ids0[:sequence_length], torch.arange(sequence_length)), (
+        "Position IDs not sequential for non-padded tokens"
+    )
     if sequence_length < len(position_ids0):
         assert torch.all(position_ids0[sequence_length:] == 0), "Padding position IDs not zero"
 
@@ -137,7 +141,9 @@ def test_multiturn_sft_dataset():
 
             # The content should NOT appear in the non-masked text
             non_assistant_text = tokenizer.decode(input_ids0[loss_mask0 == 0])
-            assert msg["content"] not in non_assistant_text, f"Assistant message '{msg['content']}' found in non-assistant text"
+            assert msg["content"] not in non_assistant_text, (
+                f"Assistant message '{msg['content']}' found in non-assistant text"
+            )
 
     # Test 9: Verify non-assistant parts have loss_mask=0
     # Get non-assistant text
@@ -147,10 +153,14 @@ def test_multiturn_sft_dataset():
     # Verify that system and user messages are in the non-assistant text
     for msg in test_data["messages"][0]:  # First conversation
         if msg["role"] in ["system", "user"]:
-            assert msg["content"] in non_assistant_text, f"{msg['role'].title()} message '{msg['content']}' not found in non-assistant text"
+            assert msg["content"] in non_assistant_text, (
+                f"{msg['role'].title()} message '{msg['content']}' not found in non-assistant text"
+            )
 
             # And verify they're NOT in the assistant text
-            assert msg["content"] not in assistant_text, f"{msg['role'].title()} message '{msg['content']}' found in assistant text"
+            assert msg["content"] not in assistant_text, (
+                f"{msg['role'].title()} message '{msg['content']}' found in assistant text"
+            )
 
     # Test 10: Verify padding behavior
     padding_config = {"max_length": 1024, "truncation": "error", "multiturn": {"messages_key": "messages"}}
@@ -161,7 +171,9 @@ def test_multiturn_sft_dataset():
     actual_length = torch.sum(padded_item["attention_mask"])
 
     # Verify padding tokens
-    assert torch.all(padded_item["input_ids"][actual_length:] == tokenizer.pad_token_id), "Padding tokens not set correctly"
+    assert torch.all(padded_item["input_ids"][actual_length:] == tokenizer.pad_token_id), (
+        "Padding tokens not set correctly"
+    )
     assert torch.all(padded_item["attention_mask"][actual_length:] == 0), "Attention mask not set correctly for padding"
     assert torch.all(padded_item["loss_mask"][actual_length:] == 0), "Loss mask not set correctly for padding"
 

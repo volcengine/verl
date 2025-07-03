@@ -149,7 +149,10 @@ def copy_to_shm(src: str):
     dest = os.path.join(dest, os.path.basename(src_abs))
     if os.path.exists(dest) and verify_copy(src, dest):
         # inform user and depends on him
-        print(f"[WARNING]: The memory model path {dest} already exists. If it is not you want, please clear it and restart the task.")
+        print(
+            f"[WARNING]: The memory model path {dest} already exists. If it is not you want, please clear it and "
+            f"restart the task."
+        )
     else:
         if os.path.isdir(src):
             shutil.copytree(src, dest, symlinks=False, dirs_exist_ok=True)
@@ -189,7 +192,9 @@ def _check_directory_structure(folder_path, record_file):
     return existing_entries == recorded_entries
 
 
-def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False, always_recopy=False, use_shm: bool = False) -> str:
+def copy_to_local(
+    src: str, cache_dir=None, filelock=".file.lock", verbose=False, always_recopy=False, use_shm: bool = False
+) -> str:
     """Copy files/directories from HDFS to local cache with validation.
 
     Args:
@@ -211,7 +216,9 @@ def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False
     return local_path
 
 
-def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock=".file.lock", verbose=False, always_recopy=False) -> str:
+def copy_local_path_from_hdfs(
+    src: str, cache_dir=None, filelock=".file.lock", verbose=False, always_recopy=False
+) -> str:
     """Deprecated. Please use copy_to_local instead."""
     from filelock import FileLock
 

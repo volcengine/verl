@@ -16,7 +16,12 @@ import ray
 
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
-from verl.single_controller.ray.base import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup, create_colocated_worker_raw_cls
+from verl.single_controller.ray.base import (
+    RayClassWithInitArgs,
+    RayResourcePool,
+    RayWorkerGroup,
+    create_colocated_worker_raw_cls,
+)
 
 
 @ray.remote
