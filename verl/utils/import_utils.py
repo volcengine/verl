@@ -16,6 +16,7 @@ Utilities to check if packages are available.
 We assume package availability won't change during runtime.
 """
 
+import importlib
 import importlib.util
 import os
 from functools import cache
@@ -89,15 +90,28 @@ def load_extern_type(file_path: Optional[str], type_name: Optional[str]):
     if not file_path:
         return None
 
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Custom type file '{file_path}' not found.")
+    if file_path.startswith("pkg://"):
+        # pkg://verl.utils.dataset.rl_dataset
+        # pkg://verl/utils/dataset/rl_dataset
+        module_name = file_path[6:].replace("/", ".")
+        module = importlib.import_module(module_name)
 
-    spec = importlib.util.spec_from_file_location("custom_module", file_path)
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
-    except Exception as e:
-        raise RuntimeError(f"Error loading module from '{file_path}'") from e
+    else:
+        # file://verl/utils/dataset/rl_dataset
+        # file:///path/to/verl/utils/dataset/rl_dataset.py
+        # or without file:// prefix
+        if file_path.startswith("file://"):
+            file_path = file_path[7:]
+
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Custom type file '{file_path}' not found.")
+
+        spec = importlib.util.spec_from_file_location("custom_module", file_path)
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except Exception as e:
+            raise RuntimeError(f"Error loading module from '{file_path}'") from e
 
     if not hasattr(module, type_name):
         raise AttributeError(f"Custom type '{type_name}' not found in '{file_path}'.")

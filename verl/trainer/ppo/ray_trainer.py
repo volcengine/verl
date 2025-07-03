@@ -366,6 +366,7 @@ class RayPPOTrainer:
             AdvantageEstimator.RLOO,
             AdvantageEstimator.OPO,
             AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE,
+            AdvantageEstimator.GPG,
         ]:
             self.use_critic = False
         else:
