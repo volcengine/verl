@@ -22,7 +22,10 @@ def mock_weave_client():
     mock_client.create_call.return_value = mock_call
     mock_weave.init.return_value = mock_client
 
-    with patch.dict(sys.modules, {"weave": mock_weave}):
+    # Also mock the call_context if it's used internally by the decorator
+    mock_weave.trace.context.call_context.return_value = MagicMock()
+
+    with patch.dict(sys.modules, {"weave": mock_weave, "weave.trace.context": mock_weave.trace.context}):
         yield mock_client
 
 
@@ -63,8 +66,7 @@ async def test_rollout_trace_with_tracer(mock_weave_client):
     """Tests that the decorator calls the tracer's methods correctly."""
     RolloutTraceConfig.init(project_name="my-project", experiment_name="my-experiment", backend="weave")
     instance = TracedClass()
-    instance.trace = RolloutTraceConfig.get_client()
-    assert instance.trace is mock_weave_client
+    assert RolloutTraceConfig.get_client() is mock_weave_client
 
     result = await instance.my_method("test_a", b="test_b")
 
