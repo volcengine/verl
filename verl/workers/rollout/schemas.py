@@ -78,7 +78,31 @@ class TokenizationSanityCheckModeEnum(str, Enum):
     IGNORE_STRIPPABLE = "ignore_strippable"
 
 
-def force_chat_end_with_eos(rendered_chat, eos_token):
+def force_chat_end_with_eos(rendered_chat: str, eos_token: str):
+    """
+    Remove everything after the last EOS token after applying
+    tokenizer/processor.apply_chat_template(messages,add_generation_prompt=False,tokenize=False)
+
+    Args:
+        rendered_chat (str): The chat string produced by `tokenizer/processor..apply_chat_template(...)`
+            with `add_generation_prompt=False` and `tokenize=False`.
+        eos_token (str): The EOS token of the tokenizer/processor.tokenizer.
+
+    Returns:
+        str: The truncated chat string, ending exactly at the last EOS token.
+
+    Example:
+        >>> messages = [
+        ...     {"role":"system","content":" "},
+        ...     {"role": "user", "content": "Hello."},
+        ...     {"role": "assistant", "content": "Hi."}
+        ... ]
+        >>> raw_chat = tokenizer.apply_chat_template(messages,add_generation_prompt=False,tokenize=False)
+        >>> raw_chat
+        '<|im_start|>system\n <|im_end|>\n<|im_start|>user\nHello.<|im_end|>\n<|im_start|>assistant\nHi.<|im_end|>\n'
+        >>> force_chat_end_with_eos(raw_chat,eos_token=tokenizer.eos_token)
+        '<|im_start|>system\n <|im_end|>\n<|im_start|>user\nHello.<|im_end|>\n<|im_start|>assistant\nHi.<|im_end|>'
+    """
     idx = rendered_chat.rfind(eos_token)
     if idx == -1:
         # This should never happen

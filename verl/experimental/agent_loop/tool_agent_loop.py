@@ -112,9 +112,7 @@ class ToolAgentLoop(AgentLoopBase):
 
         cls.prompt_length = config.actor_rollout_ref.rollout.prompt_length
         cls.response_length = config.actor_rollout_ref.rollout.response_length
-        cls.system_prompt = tokenizer.apply_chat_template(
-            [{}], tools=cls.tool_schemas, add_generation_prompt=True, tokenize=True
-        )
+        cls.system_prompt = tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
 
     async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> AgentLoopOutput:
         metrics = {}
