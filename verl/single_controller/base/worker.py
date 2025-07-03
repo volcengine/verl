@@ -22,7 +22,7 @@ from typing import Dict
 
 import ray
 
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_torch_device, VISIBLE_DEVICE_PREFIX
 
 from .decorator import Dispatch, Execute, register
 
@@ -145,6 +145,7 @@ class Worker(WorkerHelper):
             "MASTER_ADDR",
             "MASTER_PORT",
             "CUDA_VISIBLE_DEVICES",
+            "ASCEND_RT_VISIBLE_DEVICES",
         ]
 
     def __init__(self, cuda_visible_devices=None) -> None:
@@ -180,7 +181,7 @@ class Worker(WorkerHelper):
             "_master_port": master_port,
         }
         if cuda_visible_devices is not None:
-            store["_cuda_visible_devices"] = cuda_visible_devices
+            store[f"_{VISIBLE_DEVICE_PREFIX}_visible_devices".lower()] = cuda_visible_devices
 
         self._configure_with_store(store=store)
 
@@ -269,8 +270,8 @@ class Worker(WorkerHelper):
         """Get the CUDA visible devices configuration."""
         import os
 
-        cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "not set")
-        return cuda_visible_devices
+        visible_devices = os.environ.get(f"{VISIBLE_DEVICE_PREFIX}_VISIBLE_DEVICES".upper(), "not set")
+        return visible_devices
 
     @property
     def world_size(self):
