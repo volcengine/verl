@@ -430,7 +430,7 @@ class SGLangRollout(BaseRollout):
         )
         # supporting adding any sampling params from the config file
         for k in self.config.keys():
-            if hasattr(SamplingParams(), str(k)) or str(k) in ["stop"]:
+            if hasattr(SamplingParams(), str(k)) or "stop" in str(k):
                 kwargs[k] = self.config.get(k)
         self.sampling_params = kwargs
 
