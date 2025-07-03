@@ -19,9 +19,9 @@ data:
   custom_cls:
       path: null
       name: null
-  curriculum:
-    curriculum_class_path: null
-    curriculum_class: null
+  curriculum_samler:
+    class_path: null
+    class_name: null
   dataloader_num_workers: 8
 
 actor_rollout_ref:
