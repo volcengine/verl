@@ -1302,32 +1302,30 @@ class RayPPOTrainer:
                         if self.config.trainer.save_best_val_metric is not None:
                             current_metric = val_metrics.get(self.config.trainer.save_best_val_metric)
                             if current_metric is not None and (
-                                best_val_metrics is None
-                                or current_metric > best_val_metrics
+                                best_val_metrics is None or current_metric > best_val_metrics
                             ):
                                 best_val_metrics = current_metric
                                 with marked_timer("save_checkpoint", timing_raw, color="green"):
                                     self._save_checkpoint(save_name=f"best_val_step_{self.global_steps}")
 
-                    is_save_frequency = self.global_steps % self.config.trainer.save_freq == 0
-                    is_save_after_epoch = self.config.trainer.save_after_epochs > 0 and (
-                        self.global_steps % (per_epoch_steps * self.config.trainer.save_after_epochs) == 0
-                    )
+                is_save_after_epoch = self.config.trainer.save_after_epochs > 0 and (
+                    self.global_steps % (per_epoch_steps * self.config.trainer.save_after_epochs) == 0
+                )
+                if is_save_after_epoch:
+                    print(f"Saving checkpoint after epoch {epoch + 1} at global step {self.global_steps}.")
+                    self._save_checkpoint(save_name=f"epoch_{epoch + 1}_step_{self.global_steps}")
 
-                    esi_close_to_expiration = should_save_ckpt_esi(
-                        max_steps_duration=self.max_steps_duration,
-                        redundant_time=self.config.trainer.esi_redundant_time,
-                    )
-                    if self.config.trainer.save_freq > 0 and (
-                        is_last_step
-                        or is_save_frequency
-                        or is_save_after_epoch
-                        or esi_close_to_expiration
-                    ):
-                        if esi_close_to_expiration:
-                            print("Force saving checkpoint: ESI instance expiration approaching.")
-                        with marked_timer("save_checkpoint", timing_raw, color="green"):
-                            self._save_checkpoint()
+                is_save_frequency = self.global_steps % self.config.trainer.save_freq == 0
+
+                esi_close_to_expiration = should_save_ckpt_esi(
+                    max_steps_duration=self.max_steps_duration,
+                    redundant_time=self.config.trainer.esi_redundant_time,
+                )
+                if self.config.trainer.save_freq > 0 and (is_last_step or is_save_frequency or esi_close_to_expiration):
+                    if esi_close_to_expiration:
+                        print("Force saving checkpoint: ESI instance expiration approaching.")
+                    with marked_timer("save_checkpoint", timing_raw, color="green"):
+                        self._save_checkpoint()
 
                 steps_duration = timing_raw["step"]
                 self.max_steps_duration = max(self.max_steps_duration, steps_duration)
