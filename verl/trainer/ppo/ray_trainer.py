@@ -50,8 +50,11 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
-from verl.utils.dataset.curriculum_sampler import AbstractCurriculumSampler
+from verl.utils.checkpoint.checkpoint_manager import (
+    find_latest_ckpt_path,
+    should_save_ckpt_esi,
+)
+from verl.utils.dataset.sampler import AbstractCurriculumSampler
 from verl.utils.debug import marked_timer
 from verl.utils.metric import (
     reduce_metrics,
@@ -538,7 +541,7 @@ class RayPPOTrainer:
 
         print("[validate_config] All configuration checks passed successfully!")
 
-    def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler):
+    def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
         """
         Creates the train and validation dataloaders.
         """
@@ -563,10 +566,7 @@ class RayPPOTrainer:
             collate_fn = default_collate_fn
 
         num_workers = self.config.data["dataloader_num_workers"]
-        if (
-            self.config.data.curriculum_sampler is not None
-            and self.config.data.curriculum_sampler.get("class_path", None) is not None
-        ):
+        if isinstance(train_sampler, AbstractCurriculumSampler):
             assert num_workers == 0, (
                 "If using curriculum, num_workers must be 0 to prevent data caching. "
                 "If the dataloader caches data before the batch is done the "

@@ -14,14 +14,13 @@
 from abc import abstractmethod
 from collections.abc import Sized
 
-import torch
 from omegaconf import DictConfig
-from torch.utils.data import RandomSampler, Sampler
+from torch.utils.data import Sampler
 
 from verl import DataProto
 
 
-class AbstractCurriculumSampler(Sampler[int]):
+class AbstractSampler(Sampler[int]):
     @abstractmethod
     def __init__(
         self,
@@ -30,27 +29,8 @@ class AbstractCurriculumSampler(Sampler[int]):
     ):
         pass
 
+
+class AbstractCurriculumSampler(AbstractSampler):
     @abstractmethod
     def update(self, batch: DataProto) -> None:
         pass
-
-
-class RandomCurriculumSampler(AbstractCurriculumSampler):
-    def __init__(
-        self,
-        data_source: Sized,
-        data_config: DictConfig,
-    ):
-        train_dataloader_generator = torch.Generator()
-        train_dataloader_generator.manual_seed(1)
-        sampler = RandomSampler(data_source=data_source)
-        self.sampler = sampler
-
-    def __iter__(self):
-        return self.sampler.__iter__()
-
-    def __len__(self) -> int:
-        return len(self.sampler)
-
-    def update(self, batch) -> None:
-        return

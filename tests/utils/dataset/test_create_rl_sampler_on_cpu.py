@@ -15,11 +15,36 @@
 test create_rl_sampler
 """
 
+from collections.abc import Sized
+
 import pytest
-from omegaconf import OmegaConf
-from torch.utils.data import Dataset
+import torch
+from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import Dataset, RandomSampler
 
 from verl.trainer.main_ppo import create_rl_sampler
+from verl.utils.dataset.sampler import AbstractCurriculumSampler
+
+
+class RandomCurriculumSampler(AbstractCurriculumSampler):
+    def __init__(
+        self,
+        data_source: Sized,
+        data_config: DictConfig,
+    ):
+        train_dataloader_generator = torch.Generator()
+        train_dataloader_generator.manual_seed(1)
+        sampler = RandomSampler(data_source=data_source)
+        self.sampler = sampler
+
+    def __iter__(self):
+        return self.sampler.__iter__()
+
+    def __len__(self) -> int:
+        return len(self.sampler)
+
+    def update(self, batch) -> None:
+        return
 
 
 class MockIncorrectSampler:

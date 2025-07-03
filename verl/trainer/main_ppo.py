@@ -24,7 +24,7 @@ from omegaconf import OmegaConf
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
-from verl.utils.dataset.curriculum_sampler import AbstractCurriculumSampler
+from verl.utils.dataset.sampler import AbstractSampler
 from verl.utils.import_utils import load_type_from_module
 
 
@@ -274,22 +274,19 @@ def create_rl_sampler(data_config, dataset):
     import torch
     from torch.utils.data import RandomSampler, SequentialSampler
 
-    if (
-        data_config.curriculum_sampler is not None
-        and data_config.curriculum_sampler.get("class_path", None) is not None
-    ):
+    if data_config.sampler is not None and data_config.sampler.get("class_path", None) is not None:
         train_dataloader_generator = torch.Generator()
         train_dataloader_generator.manual_seed(data_config.get("seed", 1))
 
         curriculum_class = load_type_from_module(
-            data_config.curriculum_sampler.class_path,
-            data_config.curriculum_sampler.class_name,
+            data_config.sampler.class_path,
+            data_config.sampler.class_name,
         )
         sampler = curriculum_class(
             data_source=dataset,
             data_config=data_config,
         )
-        assert isinstance(sampler, AbstractCurriculumSampler)
+        assert isinstance(sampler, AbstractSampler)
 
     # Use a sampler to facilitate checkpoint resumption.
     # If shuffling is enabled in the data configuration, create a random sampler.

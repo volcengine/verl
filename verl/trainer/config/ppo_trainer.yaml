@@ -92,7 +92,7 @@ data:
     name: null
 
   # settings related to curriculum learning
-  curriculum_sampler:
+  sampler:
 
     # the path to the module containing a curriculum class which implements the AbstractCurriculumSampler interface
     class_path: null
