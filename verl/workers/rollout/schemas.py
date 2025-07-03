@@ -283,11 +283,11 @@ class AsyncRolloutRequest(BaseModel):
 
             new_position_ids = get_rope_index(
                 processing_class,
-                input_ids=input_ids,
+                input_ids=torch.tensor(input_ids, dtype=torch.int),
                 image_grid_thw=multi_modal_inputs.get("image_grid_thw"),
                 video_grid_thw=multi_modal_inputs.get("video_grid_thw"),
                 second_per_grid_ts=multi_modal_inputs.get("second_per_grid_ts"),
-                attention_mask=attention_mask,
+                attention_mask=torch.tensor(attention_mask, dtype=torch.int),
             )
             return new_position_ids.tolist()  # (3, seq_len)
         else:
@@ -551,6 +551,23 @@ class AsyncRolloutRequest(BaseModel):
         self.state = AsyncRolloutRequestStateEnum.COMPLETED
         self.reward_scores = reward_scores
 
+        # In case we failed to generate the assistant message and the generation prompt ids were already added to
+        # input_ids, remove them from the end of input_ids
+        if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids:
+            self.input_ids = self.input_ids[: -len(self.generation_prompt_ids)]
+            self.attention_mask = self.attention_mask[: -len(self.generation_prompt_ids)]
+            self.position_ids = (
+                [position_ids[: -len(self.generation_prompt_ids)] for position_ids in self.position_ids]
+                if isinstance(self.position_ids[0], list) and isinstance(self.position_ids[0][0], int)
+                else self.position_ids[: -len(self.generation_prompt_ids)]
+            )
+            self.loss_mask = self.loss_mask[: -len(self.generation_prompt_ids)]
+
+        self.response_ids = self.input_ids[len(self.prompt_ids) :]
+        position_ids_seq_len = (
+            len(self.position_ids[0]) if isinstance(self.position_ids[0], list) else len(self.position_ids)
+        )
+
         if self.tokenization_sanity_check_mode != TokenizationSanityCheckModeEnum.DISABLE:
             # When there is a diff, we log the diffs with diff_surrounding_chars context
             diff_surrounding_chars = 10
@@ -627,22 +644,6 @@ class AsyncRolloutRequest(BaseModel):
                     diff_details = "\n".join(diff_details_list)
                     logger.warning(f"Found differences:\n{diff_details}")
 
-        # In case we failed to generate the assistant message and the generation prompt ids were already added to
-        # input_ids, remove them from the end of input_ids
-        if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids:
-            self.input_ids = self.input_ids[: -len(self.generation_prompt_ids)]
-            self.attention_mask = self.attention_mask[: -len(self.generation_prompt_ids)]
-            self.position_ids = (
-                [position_ids[: -len(self.generation_prompt_ids)] for position_ids in self.position_ids]
-                if isinstance(self.position_ids[0], list) and isinstance(self.position_ids[0][0], int)
-                else self.position_ids[: -len(self.generation_prompt_ids)]
-            )
-            position_ids_seq_len = (
-                len(self.position_ids[0]) if isinstance(self.position_ids[0], list) else len(self.position_ids)
-            )
-            self.loss_mask = self.loss_mask[: -len(self.generation_prompt_ids)]
-
-        self.response_ids = self.input_ids[len(self.prompt_ids) :]
         if finish_reason_type == FinishReasonTypeEnum.STOP:
             pass
         elif finish_reason_type == FinishReasonTypeEnum.LENGTH:
