@@ -19,7 +19,7 @@ data:
   custom_cls:
       path: null
       name: null
-  curriculum_samler:
+  curriculum_sampler:
     class_path: null
     class_name: null
   dataloader_num_workers: 8
