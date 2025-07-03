@@ -78,6 +78,14 @@ class TokenizationSanityCheckModeEnum(str, Enum):
     IGNORE_STRIPPABLE = "ignore_strippable"
 
 
+def force_chat_end_with_eos(rendered_chat, eos_token):
+    idx = rendered_chat.rfind(eos_token)
+    if idx == -1:
+        # This should never happen
+        raise ValueError("No EOS found in the rendered chat.")
+    return rendered_chat[: idx + len(eos_token)]
+
+
 class AsyncRolloutRequest(BaseModel):
     """The data model for async rollout."""
 
@@ -219,17 +227,28 @@ class AsyncRolloutRequest(BaseModel):
                 logger.warning(
                     "There is multi_modal_data but you are not using a processor. Multi-modal data will be ignored."
                 )
-            return processing_class.apply_chat_template(
+
+            raw_prompt = processing_class.apply_chat_template(
                 messages,
                 tools=tools,
                 add_generation_prompt=add_generation_prompt,
-                tokenize=tokenize,
-                return_dict=return_dict,
+                tokenize=False,
             )
+
+            if add_generation_prompt is False:
+                raw_prompt = force_chat_end_with_eos(raw_prompt, eos_token=processing_class.eos_token)
+
+            return (
+                processing_class(raw_prompt, return_dict=return_dict, return_tensors="pt") if tokenize else raw_prompt
+            )
+
         elif isinstance(processing_class, ProcessorMixin):
             raw_prompt = processing_class.apply_chat_template(
                 messages, tools=tools, add_generation_prompt=add_generation_prompt, tokenize=False
             )
+            if add_generation_prompt is False:
+                raw_prompt = force_chat_end_with_eos(raw_prompt, eos_token=processing_class.tokenizer.eos_token)
+
             if not tokenize:
                 return raw_prompt
 

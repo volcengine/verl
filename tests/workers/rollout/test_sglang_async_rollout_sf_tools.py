@@ -40,6 +40,7 @@ from verl.tools.schemas import (
 )
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
+from verl.workers.rollout.schemas import force_chat_end_with_eos
 
 sandbox_url = ""
 
@@ -165,14 +166,8 @@ class TestRolloutWithTools:
     def sandbox_fusion_data(self, qwen_tokenizer):
         user_prompt, expect_turn_array, tool_return_array = get_sandbox_fusion_messages()
         prompts = [[message] for message in user_prompt]
-        preencode_turn_array = [
-            qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=False)
-            for turn in expect_turn_array
-        ]
-        preencode_tool_return_array = [
-            qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True)
-            for turn in tool_return_array
-        ]
+        preencode_turn_array = [force_chat_end_with_eos(qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=False),eos_token=qwen_tokenizer.eos_token) for turn in expect_turn_array]
+        preencode_tool_return_array = [qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True) for turn in tool_return_array]
         return prompts, preencode_turn_array, preencode_tool_return_array
 
     @pytest.fixture

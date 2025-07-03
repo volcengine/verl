@@ -35,6 +35,7 @@ from verl.protocol import DataProto
 from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
+from verl.workers.rollout.schemas import force_chat_end_with_eos
 
 logger = logging.getLogger(__file__)
 
@@ -175,8 +176,11 @@ class ToolCompletionCallback(CompletionCallback):
 
         # sequences: [prompt + response]
         sequences = [
-            self.tokenizer.apply_chat_template(
-                conversation, tools=self.tool_schemas, add_generation_prompt=False, tokenize=False
+            force_chat_end_with_eos(
+                self.tokenizer.apply_chat_template(
+                    conversation, tools=self.tool_schemas, add_generation_prompt=False, tokenize=False
+                ),
+                eos_token=self.tokenizer.eos_token,
             )
             for conversation in batch_conversations
         ]
