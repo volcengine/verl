@@ -264,7 +264,10 @@ class DataParallelPPOActor(BasePPOActor):
                     logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
                     log_probs = logprobs_from_logits(logits, micro_batch["responses"])
                     if calculate_entropy:
-                        entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
+                        if not self.config.entropy_checkpointing:
+                            entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
+                        else:
+                            entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
 
             return entropy, log_probs
 
