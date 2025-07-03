@@ -161,7 +161,6 @@ def compute_gae_advantage_return(
     response_mask: torch.Tensor,
     gamma: torch.Tensor,
     lam: torch.Tensor,
-    multi_turn: bool = False,
 ):
     """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py
 
@@ -176,9 +175,6 @@ def compute_gae_advantage_return(
             discounted factor used in RL
         lam: `(float)`
             lambda value when computing Generalized Advantage Estimation (https://arxiv.org/abs/1506.02438)
-        multi_turn: `(bool)`
-            whether the data is from a multi-turn conversation, values and TD-error
-            will be skipped on observation tokens.
 
     Returns:
         advantages: `(torch.Tensor)`
@@ -198,12 +194,8 @@ def compute_gae_advantage_return(
             lastgaelam_ = delta + gamma * lam * lastgaelam
 
             # skip values and TD-error on observation tokens
-            if multi_turn:
-                nextvalues = values[:, t] * response_mask[:, t] + (1 - response_mask[:, t]) * nextvalues
-                lastgaelam = lastgaelam_ * response_mask[:, t] + (1 - response_mask[:, t]) * lastgaelam
-            else:
-                nextvalues = values[:, t]
-                lastgaelam = lastgaelam_
+            nextvalues = values[:, t] * response_mask[:, t] + (1 - response_mask[:, t]) * nextvalues
+            lastgaelam = lastgaelam_ * response_mask[:, t] + (1 - response_mask[:, t]) * lastgaelam
 
             advantages_reversed.append(lastgaelam)
         advantages = torch.stack(advantages_reversed[::-1], dim=1)

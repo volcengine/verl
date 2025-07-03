@@ -178,8 +178,8 @@ def test_multi_turn_compute_gae_advantage_return():
 
     response_mask = torch.tensor([[0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0]], dtype=torch.float)
 
-    adv1, ret1 = compute_gae_advantage_return(rewards, values1, response_mask, gamma, lam, multi_turn=True)
-    adv2, ret2 = compute_gae_advantage_return(rewards, values2, response_mask, gamma, lam, multi_turn=True)
+    adv1, ret1 = compute_gae_advantage_return(rewards, values1, response_mask, gamma, lam)
+    adv2, ret2 = compute_gae_advantage_return(rewards, values2, response_mask, gamma, lam)
 
     ret1 *= response_mask
     ret2 *= response_mask

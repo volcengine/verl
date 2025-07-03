@@ -208,7 +208,6 @@ def compute_advantage(
     gamma=1.0,
     lam=1.0,
     num_repeat=1,
-    multi_turn=False,
     norm_adv_by_std_in_grpo=True,
     config=None,
 ):
@@ -223,7 +222,6 @@ def compute_advantage(
         gamma (float, optional): Discount factor for future rewards. Defaults to 1.0.
         lam (float, optional): Lambda parameter for GAE. Defaults to 1.0.
         num_repeat (int, optional): Number of times to repeat the computation. Defaults to 1.
-        multi_turn (bool, optional): Whether the data is from a multi-turn conversation. Defaults to False.
         norm_adv_by_std_in_grpo (bool, optional): Whether to normalize advantages by standard deviation in
             GRPO. Defaults to True.
         config (dict, optional): Configuration dictionary for algorithm settings. Defaults to None.
@@ -243,7 +241,6 @@ def compute_advantage(
             response_mask=data.batch["response_mask"],
             gamma=gamma,
             lam=lam,
-            multi_turn=multi_turn,
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
@@ -1273,7 +1270,6 @@ class RayPPOTrainer:
                             lam=self.config.algorithm.lam,
                             num_repeat=self.config.actor_rollout_ref.rollout.n,
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
-                            multi_turn=self.config.actor_rollout_ref.rollout.multi_turn.enable,
                             config=self.config.algorithm,
                         )
 
