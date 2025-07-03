@@ -76,9 +76,8 @@
            ref:
                profiler:
                    discrete: False
-                   all_ranks: False
+                   all_ranks: True
 
--  注意: 当前端到端采集模式下, ref的数据一并采集到actor_rollout下, 因此在NPU环境中将ref.profiler.all_ranks设为False即可。
 
 离散模式采集
 ~~~~~~~~~~~~
