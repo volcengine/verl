@@ -47,6 +47,7 @@ class MegatronWorker(Worker):
         override_model_config,
         override_transformer_config,
         trust_remote_code=False,
+        use_mbridge=False,
     ):
         from transformers import AutoConfig
 
@@ -105,6 +106,15 @@ class MegatronWorker(Worker):
                         setattr(tf_config, k, v)
 
         add_optimization_config_to_tf_config(tf_config)
+        if use_mbridge:
+            from verl.models.mcore.mbridge import AutoBridge
+
+            bridge = AutoBridge.from_config(hf_config)
+            bridge.set_extra_args(**override_transformer_config)
+            tf_config = bridge.config
+            self.bridge = bridge
+        else:
+            self.bridge = None
 
         print(f"TF config: {tf_config}")
         self.hf_config = hf_config
