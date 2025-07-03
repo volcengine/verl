@@ -25,6 +25,7 @@ from enum import Enum
 
 import numpy as np
 import torch
+from torch.nn.functional import pad
 
 import verl.utils.torch_functional as verl_F
 
@@ -162,7 +163,9 @@ def compute_gae_advantage_return(
     gamma: torch.Tensor,
     lam: torch.Tensor,
 ):
-    """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py
+    """This implementation is efficient but not that easy to understand.
+    For easier understanding, please refer to a simpler equivalent implementation in
+    https://github.com/huggingface/trl/blob/559a99f053e5bda892dd19e9283831be5b90c46b/trl/trainer/ppo_trainer.py#L524-L532
 
     Args:
         token_level_rewards: `(torch.Tensor)`
@@ -184,16 +187,15 @@ def compute_gae_advantage_return(
 
     """
     with torch.no_grad():
-        lastgaelam = 0
-        advantages_reversed = []
         gen_len = token_level_rewards.shape[-1]
 
-        for t in reversed(range(gen_len)):
-            nextvalues = values[:, t + 1] if t < gen_len - 1 else 0.0
-            delta = token_level_rewards[:, t] + gamma * nextvalues - values[:, t]
-            lastgaelam = delta + gamma * lam * lastgaelam
-            advantages_reversed.append(lastgaelam)
-        advantages = torch.stack(advantages_reversed[::-1], dim=1)
+        device = values.device
+        values_pad = pad(values, (0, 1), mode="constant", value=0.0)
+        delta = token_level_rewards + gamma * values_pad[:, 1:] - values
+        delta_padded = pad(delta, (0, delta.shape[-1] - 1)).unsqueeze(1)  # (batch, 1, gen_len)
+        decay = (lam * gamma) ** torch.arange(gen_len, dtype=values.dtype, device=device)[None, None, :]  # (1, 1, gen_len)
+
+        advantages = torch.conv1d(delta_padded, decay).squeeze(1)
 
         returns = advantages + values
         advantages = verl_F.masked_whiten(advantages, response_mask)
