@@ -149,7 +149,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 log_with_rank(f"Loaded optimizer from {remote_optim_path}", rank=self.rank, logger=logger)
 
         if self.should_load_extra:
-            remote_extra_state_path = os.path.join(local_path, f"extra_state_world_size_{self.world_size}_rank_{self.rank}.pt")
+            remote_extra_state_path = os.path.join(
+                local_path, f"extra_state_world_size_{self.world_size}_rank_{self.rank}.pt"
+            )
             local_extra_state_path = copy_to_local(remote_extra_state_path, recursive=False)
             extra_state_dict = torch.load(local_extra_state_path, weights_only=False)
             # recover random state
@@ -330,26 +332,6 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             )
             with open(fsdp_config_path, "w") as f:
                 json.dump(asdict(fsdp_config), f, indent=4)
-
-        if "hf_model_w_weights" in self.checkpoint_save_contents:
-            # Wait for everyone to dump to local
-            torch.distributed.barrier()
-
-            cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-            with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT, cfg):
-                hf_state_dict = self.model.state_dict()
-
-            if self.rank == 0:
-                hf_local_path = os.path.join(local_path, "huggingface")
-                os.makedirs(hf_local_path, exist_ok=True)
-                self.model._fsdp_wrapped_module.save_pretrained(hf_local_path, state_dict=hf_state_dict)
-                self.processing_class.save_pretrained(hf_local_path)
-                self.model._fsdp_wrapped_module.config.save_pretrained(hf_local_path)
-
-                if remote_path is not None and remote_path.startswith(_S3_PREFIX):
-                    s3_hf_path = os.path.join(remote_path, "huggingface")
-                    for file in os.listdir(hf_local_path):
-                        self.upload_checkpoint_in_background(os.path.join(s3_hf_path, file), os.path.join(hf_local_path, file))
 
         torch.distributed.barrier()
 
