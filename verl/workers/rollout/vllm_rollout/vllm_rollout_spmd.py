@@ -359,7 +359,8 @@ class vLLMRollout(BaseRollout):
                     non_tensor_batch["raw_prompt"] = _repeat_interleave(
                         non_tensor_batch["raw_prompt"], self.sampling_params.n
                     )
-
+                if "index" in non_tensor_batch.keys():
+                    non_tensor_batch["index"] = _repeat_interleave(non_tensor_batch["index"], self.sampling_params.n)
             seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
