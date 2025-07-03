@@ -18,6 +18,8 @@ import torch
 from omegaconf import DictConfig
 from torch.utils.data import RandomSampler, Sampler
 
+from verl import DataProto
+
 
 class AbstractCurriculumSampler(Sampler[int]):
     @abstractmethod
@@ -26,6 +28,10 @@ class AbstractCurriculumSampler(Sampler[int]):
         data_source: Sized,
         config: DictConfig,
     ):
+        pass
+
+    @abstractmethod
+    def update(self, batch: DataProto) -> None:
         pass
 
 
@@ -45,3 +51,6 @@ class RandomCurriculumSampler(AbstractCurriculumSampler):
 
     def __len__(self) -> int:
         return len(self.sampler)
+
+    def update(self, batch) -> None:
+        return
