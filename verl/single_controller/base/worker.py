@@ -22,7 +22,7 @@ from typing import Dict
 
 import ray
 
-from verl.utils.device import get_torch_device, VISIBLE_DEVICE_PREFIX
+from verl.utils.device import VISIBLE_DEVICE_PREFIX, get_torch_device
 
 from .decorator import Dispatch, Execute, register
 

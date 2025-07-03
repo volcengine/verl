@@ -229,9 +229,7 @@ class RayClassWithInitArgs(ClassWithInitArgs):
             target_node_id = ray.get(sharing_with.get_node_id.remote())
             visible_devices = ray.get(sharing_with.get_cuda_visible_devices.remote())
             options = {"scheduling_strategy": NodeAffinitySchedulingStrategy(node_id=target_node_id, soft=False)}
-            return self.cls.options(**options).remote(
-                *self.args, cuda_visible_devices=visible_devices, **self.kwargs
-            )
+            return self.cls.options(**options).remote(*self.args, cuda_visible_devices=visible_devices, **self.kwargs)
 
         options = {
             "scheduling_strategy": PlacementGroupSchedulingStrategy(
