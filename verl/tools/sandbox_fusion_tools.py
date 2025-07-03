@@ -180,7 +180,7 @@ class SandboxFusionTool(BaseTool):
         )
         # we should always expect this since we don't have correct answer
         if metadata["run_status"] == "Finished":
-            actual_output = metadata["stdout"] if metadata["stdout"] is not None else ""
+            actual_output = metadata["stdout"] + metadata["stderr"]
             logger.debug(f"actual_output from sandbox fusion: {actual_output},{instance_id}")
             return actual_output
         else:

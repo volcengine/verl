@@ -102,6 +102,7 @@ CRITIC_PARAM_OFFLOAD=${CRITIC_PARAM_OFFLOAD:-$COMMON_PARAM_OFFLOAD}
 CRITIC_GRAD_OFFLOAD=${CRITIC_GRAD_OFFLOAD:-$COMMON_GRAD_OFFLOAD}
 CRITIC_OPTIMIZER_OFFLOAD=${CRITIC_OPTIMIZER_OFFLOAD:-$COMMON_OPTIMIZER_OFFLOAD}
 RM_PARAM_OFFLOAD=${RM_PARAM_OFFLOAD:-$COMMON_PARAM_OFFLOAD}
+USE_MBRIDGE=${USE_MBRIDGE:-False}
 
 LR_WARMUP_STEPS=${LR_WARMUP_STEPS:-null}
 
@@ -122,7 +123,7 @@ if [ "$USE_DIST_CKPT" = "True" ]; then
         --output_path "${DIST_CKPT_PATH}"
 fi
 
-ENGINES=("vllm" "sglang_async")
+ENGINES=("vllm" "sglang")
 
 exp_name="$(basename "${MODEL_ID,,}")-megatron-gsm8k-minimal"
 
@@ -182,6 +183,7 @@ for ENGINE in "${ENGINES[@]}"; do
         actor_rollout_ref.ref.megatron.param_offload=${REF_PARAM_OFFLOAD} \
         actor_rollout_ref.ref.megatron.use_dist_checkpointing=${USE_DIST_CKPT} \
         actor_rollout_ref.ref.megatron.dist_checkpointing_path=${DIST_CKPT_PATH} \
+        actor_rollout_ref.ref.megatron.use_mbridge=${USE_MBRIDGE} \
         critic.optim.lr=2e-5 \
         critic.optim.lr_warmup_steps=$LR_WARMUP_STEPS \
         critic.model.path="${MODEL_PATH}" \
