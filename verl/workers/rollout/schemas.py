@@ -315,7 +315,7 @@ class AsyncRolloutRequest(BaseModel):
         new_position_ids = self._get_position_ids(
             processing_class, new_input_ids, attention_mask, new_multi_modal_inputs
         )
-        if self.position_ids.dim() == 3:
+        if isinstance(self.position_ids[0], list):
             self.position_ids = [
                 [j + self.position_ids[i][-1] + 1 for j in new_position_ids[i]] for i in range(len(new_position_ids))
             ]  # (3, seq_len)
@@ -634,10 +634,12 @@ class AsyncRolloutRequest(BaseModel):
             self.attention_mask = self.attention_mask[: -len(self.generation_prompt_ids)]
             self.position_ids = (
                 [position_ids[: -len(self.generation_prompt_ids)] for position_ids in self.position_ids]
-                if self.position_ids.dim() == 3
+                if isinstance(self.position_ids[0], list) and isinstance(self.position_ids[0][0], int)
                 else self.position_ids[: -len(self.generation_prompt_ids)]
             )
-            position_ids_seq_len = len(self.position_ids[0]) if self.position_ids.dim() == 3 else len(self.position_ids)
+            position_ids_seq_len = (
+                len(self.position_ids[0]) if isinstance(self.position_ids[0], list) else len(self.position_ids)
+            )
             self.loss_mask = self.loss_mask[: -len(self.generation_prompt_ids)]
 
         self.response_ids = self.input_ids[len(self.prompt_ids) :]
@@ -663,7 +665,7 @@ class AsyncRolloutRequest(BaseModel):
         # this is same as torch.tensor(self.position_ids[..., :self.max_model_len]).tolist()
         self.position_ids = (
             [position_ids[: self.max_model_len] for position_ids in self.position_ids]
-            if self.position_ids.dim() == 3
+            if isinstance(self.position_ids[0], list) and isinstance(self.position_ids[0][0], int)
             else self.position_ids[: self.max_model_len]
         )
         self.loss_mask = self.loss_mask[: self.max_model_len]
@@ -674,7 +676,7 @@ class AsyncRolloutRequest(BaseModel):
                 position_ids[len(self.prompt_position_ids) :][: self.max_response_len]
                 for position_ids in self.position_ids
             ]
-            if self.position_ids.dim() == 3
+            if isinstance(self.position_ids[0], list) and isinstance(self.position_ids[0][0], int)
             else self.position_ids[len(self.prompt_position_ids) :][: self.max_response_len]
         )
         self.response_loss_mask = self.loss_mask[len(self.prompt_loss_mask) :][: self.max_response_len]
