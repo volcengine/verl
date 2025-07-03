@@ -91,14 +91,14 @@ data:
     # The name of the dataset class within the specified file.
     name: null
 
-  # settings related to curriculum
-  curriculum:
+  # settings related to curriculum learning
+  curriculum_sampler:
 
-    # the path to the module containing a curriculum class
-    curriculum_class_path: null
+    # the path to the module containing a curriculum class which implements the AbstractCurriculumSampler interface
+    class_path: null
 
     # the name of the curriculum class
-    curriculum_class: null
+    class_name: null
 
 # config for actor, rollout and reference model
 actor_rollout_ref:

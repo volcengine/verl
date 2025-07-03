@@ -22,12 +22,14 @@ from torch.utils.data import Dataset
 from verl.trainer.main_ppo import create_rl_sampler
 
 
-class FakeIncorrectSampler:
+class MockIncorrectSampler:
+    """A fake sampler class that does not adhere to the AbstractCurriculumSampler interface."""
+
     def __init__(self, data_source, data_config):
         pass
 
 
-class FakeChatDataset(Dataset):
+class MockChatDataset(Dataset):
     def __init__(self):
         self.data = [
             {"prompt": "What's your name?", "response": "My name is Assistant."},
@@ -50,14 +52,14 @@ class FakeChatDataset(Dataset):
 def test_create_custom_curriculum_samper():
     data_config = OmegaConf.create(
         {
-            "curriculum": {
-                "curriculum_class_path": "verl.utils.dataset.curriculum_sampler",
-                "curriculum_class": "RandomCurriculumSampler",
+            "curriculum_sampler": {
+                "class_path": "verl.utils.dataset.curriculum_sampler",
+                "class_name": "RandomCurriculumSampler",
             }
         }
     )
 
-    dataset = FakeChatDataset()
+    dataset = MockChatDataset()
 
     # doesn't raise
     create_rl_sampler(data_config, dataset)
@@ -66,15 +68,15 @@ def test_create_custom_curriculum_samper():
 def test_create_custom_curriculum_samper_wrong_class():
     data_config = OmegaConf.create(
         {
-            "curriculum": {
-                "curriculum_class_path": "tests.utils.dataset.test_create_rl_sampler",
-                "curriculum_class": "FakeIncorrectSampler",
+            "curriculum_sampler": {
+                "class_path": "tests.utils.dataset.test_create_rl_sampler",
+                "class_name": "MockIncorrectSampler",
             }
         }
     )
 
-    dataset = FakeChatDataset()
+    dataset = MockChatDataset()
 
-    # FakeIncorrectSampler is not an instance of AbstractCurriculumSampler, so raises
+    # MockIncorrectSampler is not an instance of AbstractCurriculumSampler, so raises
     with pytest.raises(AssertionError):
         create_rl_sampler(data_config, dataset)

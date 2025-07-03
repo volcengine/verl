@@ -274,13 +274,16 @@ def create_rl_sampler(data_config, dataset):
     import torch
     from torch.utils.data import RandomSampler, SequentialSampler
 
-    if data_config.curriculum is not None and data_config.curriculum.get("curriculum_class_path", None) is not None:
+    if (
+        data_config.curriculum_sampler is not None
+        and data_config.curriculum_sampler.get("class_path", None) is not None
+    ):
         train_dataloader_generator = torch.Generator()
         train_dataloader_generator.manual_seed(data_config.get("seed", 1))
 
         curriculum_class = load_type_from_module(
-            data_config.curriculum.curriculum_class_path,
-            data_config.curriculum.curriculum_class,
+            data_config.curriculum_sampler.class_path,
+            data_config.curriculum_sampler.class_name,
         )
         sampler = curriculum_class(
             data_source=dataset,

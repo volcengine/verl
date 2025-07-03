@@ -563,8 +563,8 @@ class RayPPOTrainer:
 
         num_workers = self.config.data["dataloader_num_workers"]
         if (
-            self.config.data.curriculum is not None
-            and self.config.data.curriculum.get("curriculum_class_path", None) is not None
+            self.config.data.curriculum_sampler is not None
+            and self.config.data.curriculum_sampler.get("class_path", None) is not None
         ):
             assert num_workers == 0, "If using curriculum, num_workers must be 0 to prevent data caching."
 

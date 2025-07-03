@@ -12,8 +12,8 @@ python3 -m verl.trainer.main_ppo \
     --config-path="$CONFIG_PATH" \
     --config-name='gsm8k_multiturn_grpo' \
     algorithm.adv_estimator=grpo \
-    data.curriculum.curriculum_class="RandomCurriculumSampler" \
-    data.curriculum.curriculum_class_path="verl.utils.dataset.curriculum_sampler" \
+    data.curriculum_sampler.class_name="RandomCurriculumSampler" \
+    data.curriculum_sampler.class_path="verl.utils.dataset.curriculum_sampler" \
     data.dataloader_num_workers=0 \
     data.max_prompt_length=1024 \
     data.max_response_length=1024 \
