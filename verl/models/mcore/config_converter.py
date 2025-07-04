@@ -338,6 +338,9 @@ def hf_to_mcore_config_qwen2_5_vl(
     hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
 ) -> TransformerConfig:
     # Qwen2_5_VLForConditionalGeneration
+    from .patch_v012 import apply_patch_mrope
+
+    apply_patch_mrope()
 
     args = _get_base_transformer_config(
         hf_config=hf_config,
@@ -347,10 +350,13 @@ def hf_to_mcore_config_qwen2_5_vl(
         add_qkv_bias=True,
         mrope_section=hf_config.rope_scaling["mrope_section"],
     )
+    tfconfig = TransformerConfig(**args)
     # override_transformer_config_kwargs as kwargs shall never be none
-    args.update(override_transformer_config_kwargs)
-    print(f"Overridden TF init config: {args}")
-    return TransformerConfig(**args)
+    # there would be some non-exist params in override_transformer_config_kwargs, so we use setattr to override
+    for k, v in override_transformer_config_kwargs.items():
+        setattr(tfconfig, k, v)
+    print(f"Overridden TF init config: {tfconfig}")
+    return tfconfig
 
 
 def hf_to_mcore_config_llama4(

@@ -15,6 +15,7 @@
 
 # there is some bug in mcore 0.12, so we need to patch it
 # 1. `get_query_key_value_tensors` in `multi_latent_attention.py` works wrong when packed_seq_params is not None
+# 2. `MultimodalRotaryEmbedding.forward` in `embeddings.py` works wrong when enable context parallelism
 
 
 def apply_patch():
@@ -213,3 +214,58 @@ def apply_patch():
         return query, key, value
 
     MLASelfAttention.get_query_key_value_tensors = patch_get_query_key_value_tensors
+
+
+def apply_patch_mrope():
+    import torch
+    from megatron.core.models.common.embeddings import MultimodalRotaryEmbedding
+
+    def patch_multimodal_rotary_embedding_forward(self, position_ids: torch.Tensor, mrope_section):
+        """Forward pass of multimodal RoPE embedding.
+
+        Args:
+            position_ids (torch.Tensor): A postion_id tensor with shape [3, batchsize, seqlens]
+            mrope_section (list[int]): Multimodal rope section is for channel dimension of temporal,
+                height and width in rope calculation.
+
+        Returns:
+            Tensor: Embeddings after applying RoPE.
+        """
+        seq = position_ids.to(device=self.inv_freq.device, dtype=self.inv_freq.dtype)
+
+        if self.seq_len_interpolation_factor is not None:
+            seq *= 1 / self.seq_len_interpolation_factor
+
+        # shape (3, bs, dim, 1)
+        inv_freq_expanded = self.inv_freq[None, None, :, None].expand(3, seq.shape[1], -1, 1)
+        # shape (3, bs, 1, seq_length)
+        seq_expanded = seq[:, :, None, :].float()
+        # shape (3, bs, seq_length, dim)
+        freqs = (inv_freq_expanded @ seq_expanded).transpose(2, 3)
+        # first part even vector components, second part odd vector components,
+        #  2 * dim in dimension size
+        if not self.rotary_interleaved:
+            emb = torch.cat((freqs, freqs), dim=-1)  # shape (3, bs, seq_length, 2 * dim)
+        else:
+            bs = freqs.shape[1]
+            emb = torch.stack((freqs.view(3, bs, -1, 1), freqs.view(3, bs, -1, 1)), dim=-1).view(
+                3, bs, freqs.shape[0], -1
+            )
+
+        # generate freqs with mrope_section
+        # shape (bs, seq_length, 2 * dim)
+        mrope_section = mrope_section * 2
+        emb = torch.cat([m[i % 3] for i, m in enumerate(emb.split(mrope_section, dim=-1))], dim=-1)
+
+        # shape (seq_length, bs, 1, 2 * dim)
+        emb = emb[..., None, :].transpose(0, 1).contiguous()
+
+        # mrope in mcore 0.12 can only support sbhd format context parallel, but qwen2_5_vl in verl use thd format.
+        # we need to disable it here.
+        # if parallel_state.get_context_parallel_world_size() > 1:
+        #     # slice rotary_pos_emb along sequence dimension and select the parition of the current
+        #     # CP rank
+        #     emb = get_pos_emb_on_this_cp_rank(emb, 1)
+        return emb
+
+    MultimodalRotaryEmbedding.forward = patch_multimodal_rotary_embedding_forward
