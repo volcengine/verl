@@ -106,7 +106,7 @@ def get_npu_profiler(option: DictConfig, role: Optional[str] = None, profile_ste
 
     if option.export_type == 'text':
         profile_export_type = torch_npu.profiler.ExportType.Text
-    elif option.profile_export_type == 'db':
+    elif option.export_type == 'db':
         profile_export_type = torch_npu.profiler.ExportType.Db
     else:
         raise ValueError(f"export_type only supports text or db,"
@@ -182,7 +182,11 @@ class NPUProfiler(DistProfiler):
                 NPUProfiler._define_count -= 1
 
     @staticmethod
-    def annotate(message: Optional[str] = None, role: Optional[str] = None, **kwargs) -> Callable:
+    def annotate(
+        message: Optional[str] = None,
+        role: Optional[str] = None,
+        **kwargs
+    ) -> Callable:
         """Decorate a Worker member function to profile the current rank in the current training step.
 
         Requires the target function to be a member function of a Worker, which has a member field `profiler` with NPUProfiler type.
