@@ -22,7 +22,7 @@ from typing import Dict
 
 import ray
 
-from verl.utils.device import get_torch_device, get_visible_devices_name
+from verl.utils.device import get_torch_device, get_visible_devices_keyword
 
 from .decorator import Dispatch, Execute, register
 
@@ -144,7 +144,7 @@ class Worker(WorkerHelper):
             "LOCAL_RANK",
             "MASTER_ADDR",
             "MASTER_PORT",
-            get_visible_devices_name().upper(),
+            get_visible_devices_keyword().upper(),
         ]
 
     def __init__(self, cuda_visible_devices=None) -> None:
@@ -180,7 +180,7 @@ class Worker(WorkerHelper):
             "_master_port": master_port,
         }
         if cuda_visible_devices is not None:
-            store[f"_{get_visible_devices_name()}".lower()] = cuda_visible_devices
+            store[f"_{get_visible_devices_keyword()}".lower()] = cuda_visible_devices
 
         self._configure_with_store(store=store)
 
@@ -269,7 +269,7 @@ class Worker(WorkerHelper):
         """Get the CUDA visible devices configuration."""
         import os
 
-        visible_devices = os.environ.get(get_visible_devices_name().upper(), "not set")
+        visible_devices = os.environ.get(get_visible_devices_keyword().upper(), "not set")
         return visible_devices
 
     @property

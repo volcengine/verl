@@ -29,8 +29,8 @@ is_cuda_available = torch.cuda.is_available()
 is_npu_available = is_torch_npu_available()
 
 
-def get_visible_devices_name() -> str:
-    """Function that gets visible devices prefix name.
+def get_visible_devices_keyword() -> str:
+    """Function that gets visible devices keyword name.
     Returns:
         'CUDA_VISIBLE_DEVICES' or `ASCEND_RT_VISIBLE_DEVICES`
     """
