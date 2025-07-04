@@ -16,6 +16,7 @@ FSDP PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
+import logging
 from abc import ABC, abstractmethod
 from typing import List, Optional, Union
 
@@ -26,6 +27,8 @@ from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.dataset import RLHFDataset
 from verl.utils.import_utils import load_extern_type
+
+logger = logging.getLogger(__name__)
 
 
 class AbstractDataGen(ABC):
@@ -44,7 +47,7 @@ class AbstractDataGen(ABC):
         pass
 
 
-class NoOpDataGen(AbstractDataGen):
+class MockDataGen(AbstractDataGen):
     """
     A noop data gen class that only reappends the first datapoint.
     This class is useful as a placeholder and testing.
@@ -54,11 +57,11 @@ class NoOpDataGen(AbstractDataGen):
         super().__init__(config)
 
     def generate(self, dataset: Dataset) -> datasets.Dataset:
-        print("NoOpDataGen: No operation performed on the dataset.")
+        print("MockDataGen: No operation performed on the dataset.")
         return dataset.dataframe.select([0])
 
 
-class DataGenDataset(RLHFDataset):
+class DynamicGenDataset(RLHFDataset):
     """
     A dataset class that uses a data generation strategy to process data.
     This class extends RLHFDataset and uses an AbstractDataGen instance to generate data.
@@ -88,17 +91,18 @@ class DataGenDataset(RLHFDataset):
             )
 
         self.data_generator = datagen_cls(config.datagen)
-        self.on_epoch_end()
+        self.on_batch_end()
 
     def append_dataframe(self, new_dataframe: datasets.Dataset):
         new_dataframe = self.maybe_filter_out_long_prompts(new_dataframe)
         self.dataframe = datasets.concatenate_datasets([self.dataframe, new_dataframe])
 
-        print(f"new dataset len: {len(self.dataframe)}")
+        logger.info(f"new dataset len: {len(self.dataframe)}")
 
-    def on_epoch_end(self) -> None:
+    def on_batch_end(self) -> None:
         """
         Generate data using the provided data generation strategy.
+        Note: This method is intended to change the dataset after each training batch.
         """
         d = self.data_generator.generate(self)
         self.append_dataframe(d)
