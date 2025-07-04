@@ -1,4 +1,6 @@
-FROM whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.3
+# Base Image support aws EFA
+# Build Image with frameworks based on this
+FROM verlai/verl:app-verl0.5-sglang0.4.6.post5-mcore0.12.1
 
 # For aws instances with EFA net interface (Sagemaker AI Pod)
 #     install EFA driver:
@@ -48,6 +50,6 @@ ENV OMPI_MCA_pml=^cm,ucx            \
     NCCL_SOCKET_IFNAME=^docker,lo,veth_def_agent  \
     FI_EFA_USE_HUGE_PAGE=0
 
-# docker build -t whatcanyousee/verl:awsefa --label "commit=$(git rev-parse --short HEAD)" .
+# docker build -t verl:awsefa --label "commit=$(git rev-parse --short HEAD)" .
 # on aws:
-# docker run --ipc=host --privileged --name verldev --gpus all --network=host --shm-size=1800gb -itd whatcanyousee/verl:awsefa
+# docker run --ipc=host --privileged --name verldev --gpus all --network=host --shm-size=1800gb -itd verl:awsefa
