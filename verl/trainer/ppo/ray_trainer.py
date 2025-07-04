@@ -1325,7 +1325,8 @@ class RayPPOTrainer:
                         redundant_time=self.config.trainer.esi_redundant_time,
                     )
                     # Check if the conditions for saving a checkpoint are met.
-                    # The conditions include a mandatory condition (1) and one of the following optional conditions (2, 3, or 4):
+                    # The conditions include a mandatory condition (1) and
+                    # one of the following optional conditions (2/3/4):
                     # 1. The save frequency is set to a positive value.
                     # 2. It's the last training step.
                     # 3. The current step number is a multiple of the save frequency.
