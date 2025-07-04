@@ -690,7 +690,7 @@ class RayPPOTrainer:
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
             sample_inputs.extend(input_texts)
 
-            ground_truths = [item.non_tensor_batch["reward_model"].get("ground_truth", None) for item in test_batch]
+            ground_truths = [item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in test_batch]
             sample_gts.extend(ground_truths)
 
             batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
@@ -1310,7 +1310,7 @@ class RayPPOTrainer:
                             outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
                             scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
 
-                            sample_gts = [item.non_tensor_batch["reward_model"].get("ground_truth", None) for item in batch]
+                            sample_gts = [item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in batch]  
                             self._dump_generations(
                                 inputs=inputs,
                                 outputs=outputs,
