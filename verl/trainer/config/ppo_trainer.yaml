@@ -91,12 +91,11 @@ data:
     # The name of the dataset class within the specified file.
     name: null
 
-  # settings related to curriculum learning
+  # settings related to data sampler
   sampler:
 
     # the path to the module containing a curriculum class which implements the
-    # AbstractCurriculumSampler interface. This is a dot-seaparated module path
-    # like verl.some.package NOT a file path.
+    # AbstractSampler interface
     class_path: null
 
     # the name of the curriculum class like `MySampler`
