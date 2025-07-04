@@ -88,6 +88,17 @@ data:
     # The name of the dataset class within the specified file.
     name: null
 
+  # Data generation configuration for augmenting the dataset.
+  datagen:
+
+    # The path to the file containing your customized data generation class.
+    # E.g. 'pkg://verl.utils.dataset.datagen_dataset'
+    path: null 
+
+    # The class name of the data generation class within the specified file.
+    # E.g. 'NoOpDataGen'
+    name: null 
+
 # config for actor, rollout and reference model
 actor_rollout_ref:
 
