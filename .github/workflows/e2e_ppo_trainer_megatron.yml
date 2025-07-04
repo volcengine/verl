@@ -320,7 +320,7 @@ jobs:
           ADV_ESTIMATOR=grpo USE_DUMMY_MODEL=True DUMMY_MODEL_CONFIG_PATH=tests/special_e2e/ppo_trainer/expert_parallel/qwen2moe_minimal.json \
           PPO_MAX_TOKEN_LEN=512 FWD_MAX_TOKEN_LEN=512 \
           MAX_PROMPT_LENGTH=256 MAX_RESPONSE_LENGTH=256 \
-          MODEL_ID=Qwen/Qwen1.5-MoE-A2.7B-Chat \
+          MODEL_ID=Qwen/Qwen1.5-MoE-A2.7B-Chat USE_MBRIDGE=True \
           COMMON_PP=2 COMMON_VPP=null COMMON_CP=1 COMMON_TP=4 COMMON_EP=4 COMMON_ETP=1 INFER_TP=8 \
           USE_DIST_CKPT=True ALL_OFFLOAD=True SKIP_SAVE_HF_MODEL=1 bash tests/special_e2e/run_ppo_trainer_megatron.sh
       - name: clean up
