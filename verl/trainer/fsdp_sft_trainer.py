@@ -30,6 +30,7 @@ from contextlib import nullcontext
 import hydra
 import torch
 import torch.distributed
+from omegaconf import DictConfig
 from peft import LoraConfig, TaskType, get_peft_model
 from tensordict import TensorDict
 from torch import nn, optim
@@ -41,6 +42,7 @@ from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 
 import verl.utils.hdfs_io as hdfs_io
+from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.dataset import SFTDataset
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.debug import log_gpu_memory_usage
@@ -57,6 +59,7 @@ from verl.utils.fsdp_utils import (
     get_init_weight_context_manager,
     init_fn,
 )
+from verl.utils.logger import log_with_rank
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_dtypes import PrecisionType
 from verl.utils.torch_functional import get_cosine_schedule_with_warmup, get_wsd_schedule_with_warmup
@@ -113,10 +116,21 @@ class FSDPSFTTrainer:
             print(f"Using remove padding: {self.use_remove_padding}")
 
         self._build_dataloader(train_dataset, val_dataset)
+
+        # Initialize resume-related variables
+        self.resume_global_step = 0
+
         # build model
         self._build_model_optimizer()
 
-        # TODO: add checkpoint manager
+        # Initialize checkpoint manager
+        self._init_checkpoint_manager()
+
+        # Load checkpoint if resuming
+        if hasattr(self.config.trainer, "resume_path") and self.config.trainer.resume_path:
+            # Load checkpoint using checkpoint manager
+            self.load_checkpoint(self.config.trainer.resume_path)
+
         if self.device_mesh.get_rank() == 0:
             print(self.config)
         self.device_name = get_device_name()
@@ -332,6 +346,7 @@ class FSDPSFTTrainer:
         else:
             raise ValueError(f"Unknown lr scheduler: {self.config.optim.lr_scheduler}")
 
+
     def _compute_loss_and_backward(self, batch, do_backward=True):
         """Compute loss with optional sequence parallelism and remove padding features"""
         use_sp = self.use_remove_padding and self.config.ulysses_sequence_parallel_size > 1
@@ -492,46 +507,63 @@ class FSDPSFTTrainer:
         return loss
 
     def save_checkpoint(self, step):
-        # save checkpoint
+        """Save checkpoint using FSDPCheckpointManager"""
+        # Determine checkpoint path
         path = os.path.join(self.config.trainer.default_local_dir, f"global_step_{step}")
 
-        fsdp_strategy = self.config.model.strategy
-        if fsdp_strategy == "fsdp":
-            # FSDP1 checkpoint saving
-            from torch.distributed.fsdp import FullStateDictConfig, StateDictType
+        # Get max checkpoints to keep
+        max_ckpt_to_keep = getattr(self.config.trainer, "max_ckpt_to_keep", None)
 
-            cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-            with FSDP.state_dict_type(self.fsdp_model, StateDictType.FULL_STATE_DICT, cfg):
-                state_dict = self.fsdp_model.state_dict()
+        # Use checkpoint manager to save
+        self.checkpoint_manager.save_checkpoint(local_path=path, global_step=step, max_ckpt_to_keep=max_ckpt_to_keep)
 
-            # save huggingface model
-            if self.device_mesh.get_rank() == 0:
-                os.makedirs(path, exist_ok=True)
-                self.model.save_pretrained(path, state_dict=state_dict)
-                self.tokenizer.save_pretrained(path)
-        elif fsdp_strategy == "fsdp2":
-            # FSDP2 checkpoint saving
-            from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
-
-            # Get full state dict with FSDP2
-            options = StateDictOptions(full_state_dict=True, cpu_offload=True)
-            state_dict = get_model_state_dict(self.fsdp_model, options=options)
-
-            # save huggingface model
-            if self.device_mesh.get_rank() == 0:
-                os.makedirs(path, exist_ok=True)
-                self.model.save_pretrained(path, state_dict=state_dict)
-                self.model_config.save_pretrained(path)
-                self.tokenizer.save_pretrained(path)
-        else:
-            raise NotImplementedError(f"not implement {fsdp_strategy}")
-
-        # Copy to HDFS if configured
-        if self.device_mesh.get_rank() == 0 and self.config.trainer.default_hdfs_dir:
+        # Copy to HDFS if configured (keep this for compatibility)
+        if self.device_mesh.get_rank() == 0 and getattr(self.config.trainer, "default_hdfs_dir", None):
             hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
             hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
 
         torch.distributed.barrier()
+
+    def _init_checkpoint_manager(self):
+        """Initialize checkpoint manager with proper configuration"""
+        # Configure checkpoint contents
+        checkpoint_config = {
+            "load_contents": ["model", "optimizer", "extra"],
+            "save_contents": ["model", "optimizer", "extra", "hf_model"],
+        }
+
+        # Convert to DictConfig for compatibility
+        checkpoint_config = DictConfig(checkpoint_config)
+
+        # Initialize checkpoint manager
+        self.checkpoint_manager = FSDPCheckpointManager(
+            model=self.fsdp_model,
+            optimizer=self.optimizer,
+            lr_scheduler=self.lr_scheduler,
+            processing_class=self.tokenizer,
+            checkpoint_config=checkpoint_config,
+        )
+
+    def load_checkpoint(self, checkpoint_path: str):
+        """Load checkpoint using FSDPCheckpointManager"""
+        if checkpoint_path is None:
+            return 0
+
+        # extract resume step from checkpoint path
+        resume_step = extract_step(checkpoint_path)
+        if resume_step is None:
+            log_with_rank(
+                f"Warning: Could not extract step number from {checkpoint_path}, starting from step 0",
+                logger=logger,
+                rank=self.device_mesh.get_rank(),
+                level=logging.WARNING,
+                log_only_rank_0=True,
+            )
+            resume_step = 0
+        self.resume_global_step = resume_step
+
+        # Use checkpoint manager to load
+        self.checkpoint_manager.load_checkpoint(checkpoint_path)
 
     def fit(self):
         rank = self.device_mesh.get_rank()
@@ -544,7 +576,7 @@ class FSDPSFTTrainer:
                 default_backend=self.config.trainer.logger,
             )
 
-        global_step = 0
+        global_step = self.resume_global_step  # Start from resumed step
         last_valid_metric = None
         # compute the total training steps.
         # the total training steps in SFT is mainly for early exit
@@ -554,18 +586,52 @@ class FSDPSFTTrainer:
             total_training_steps = self.config.trainer.total_training_steps
 
         self.total_training_steps = total_training_steps
-        print(f"Total training steps: {self.total_training_steps}")
+        log_with_rank(
+            f"Total training steps: {self.total_training_steps},",
+            logger=logger,
+            rank=self.device_mesh.get_rank(),
+            log_only_rank_0=True,
+        )
+        if global_step > 0:
+            log_with_rank(
+                f"Resuming from global step: {global_step}",
+                logger=logger,
+                rank=self.device_mesh.get_rank(),
+                log_only_rank_0=True,
+            )
 
-        # TODO (zhangchi.usc1992) add back checkpoint manager.
-        # Currently, it blocks when uploading to hdfs. So very slow.
+        # Calculate starting epoch and step within epoch from global_step
+        start_epoch = global_step // len(self.train_dataloader)
+        steps_to_skip = global_step % len(self.train_dataloader)
+        log_with_rank(
+            f"Calculated resume epoch: {start_epoch}, steps to skip in epoch: {steps_to_skip}",
+            logger=logger,
+            rank=self.device_mesh.get_rank(),
+            log_only_rank_0=True,
+        )
 
-        for epoch in range(self.config.trainer.total_epochs):
+        for epoch in range(start_epoch, self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
-            for data in tqdm(
-                self.train_dataloader,
-                total=self.steps_per_epoch,
-                desc=f"Epoch {epoch + 1}/{self.config.trainer.total_epochs}",
-                disable=rank != 0,
+
+            # Create an iterator from the dataloader
+            train_iter = iter(self.train_dataloader)
+
+            # Skip steps if resuming mid-epoch
+            if epoch == start_epoch and steps_to_skip > 0:
+                for _ in range(steps_to_skip):
+                    try:
+                        next(train_iter)
+                    except StopIteration:
+                        break
+
+            for step_in_epoch, data in enumerate(
+                tqdm(
+                    train_iter,
+                    initial=steps_to_skip if epoch == start_epoch else 0,
+                    total=self.steps_per_epoch,
+                    desc=f"Epoch {epoch + 1}/{self.config.trainer.total_epochs}",
+                    disable=rank != 0,
+                )
             ):
                 global_step += 1
                 data = TensorDict(data, batch_size=self.config.data.train_batch_size).to(self.device_name)
@@ -601,6 +667,9 @@ class FSDPSFTTrainer:
                     if rank == 0:
                         print(f"Final validation metrics: {last_valid_metric}")
                     return
+
+            # Reset steps_to_skip after first epoch
+            steps_to_skip = 0
 
 
 def run_sft(config):
