@@ -51,9 +51,7 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
-from verl.utils.dataset.datagen import AbstractDataGen
 from verl.utils.debug import marked_timer
-from verl.utils.import_utils import load_type_from_module
 from verl.utils.metric import (
     reduce_metrics,
 )
@@ -1073,23 +1071,6 @@ class RayPPOTrainer:
         last_val_metrics = None
         self.max_steps_duration = 0
 
-        data_config = self.config.data
-        data_generator = None
-        if "datagen" in data_config and data_config.datagen.get("path", None) is not None:
-            # Dynamically load the custom datagen class
-            datagen_cls = load_type_from_module(data_config.datagen.path, data_config.datagen.name)
-
-            # Verify that the custom datagen class inherits from AbstractDataGen
-            abs_cls = AbstractDataGen
-            if not issubclass(datagen_cls, abs_cls):
-                raise TypeError(
-                    f"The custom datagen class '{data_config.datagen.name}' from '{data_config.datagen.path}'"
-                    + " must inherit from {abs_cls}"
-                )
-
-            data_generator = datagen_cls(data_config.datagen)
-            data_generator.generate(self.train_dataset)
-
         repeat_sampling_sglang_grpo = (
             self.config.actor_rollout_ref.rollout.name == "sglang"
             and self.config.actor_rollout_ref.rollout.multi_turn.enable
@@ -1387,5 +1368,5 @@ class RayPPOTrainer:
                     progress_bar.close()
                     return
 
-                if data_generator is not None:
-                    data_generator.generate(self.train_dataset)
+                if hasattr(self.train_dataset, "on_epoch_end"):
+                    self.train_dataset.on_epoch_end()

@@ -92,11 +92,11 @@ data:
   datagen:
 
     # The path to the file containing your customized data generation class.
-    # E.g. 'verl.utils.dataset.datagen'
+    # E.g. 'pkg://verl.utils.dataset.datagen_dataset'
     path: null 
 
     # The class name of the data generation class within the specified file.
-    # E.g. NoOpDataGen
+    # E.g. 'NoOpDataGen'
     name: null 
 
 # config for actor, rollout and reference model

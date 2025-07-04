@@ -177,12 +177,6 @@ class RLHFDataset(Dataset):
             print(f"filter dataset len: {len(dataframe)}")
         return dataframe
 
-    def append_dataframe(self, new_dataframe: datasets.Dataset):
-        new_dataframe = self.maybe_filter_out_long_prompts(new_dataframe)
-        self.dataframe = datasets.concatenate_datasets([self.dataframe, new_dataframe])
-
-        print(f"new dataset len: {len(self.dataframe)}")
-
     def resume_dataset_state(self):
         self.serialize_dataset = not hasattr(self, "original_data_files")
         # resume dataframe if not it's serialized in data.pt
