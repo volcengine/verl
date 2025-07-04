@@ -78,7 +78,7 @@ def test_create_custom_curriculum_samper():
     data_config = OmegaConf.create(
         {
             "sampler": {
-                "class_path": "tests.utils.dataset.test_create_rl_sampler_on_cpu",
+                "class_path": "pkg://tests.utils.dataset.test_create_rl_sampler_on_cpu",
                 "class_name": "RandomCurriculumSampler",
             }
         }
@@ -94,7 +94,7 @@ def test_create_custom_curriculum_samper_wrong_class():
     data_config = OmegaConf.create(
         {
             "sampler": {
-                "class_path": "tests.utils.dataset.test_create_rl_sampler_on_cpu",
+                "class_path": "pkg://tests.utils.dataset.test_create_rl_sampler_on_cpu",
                 "class_name": "MockIncorrectSampler",
             }
         }

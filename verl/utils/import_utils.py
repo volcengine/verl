@@ -79,14 +79,8 @@ def import_external_libs(external_libs=None):
         importlib.import_module(external_lib)
 
 
-def load_extern_type(file_path: Optional[str], type_name: Optional[str]):
-    """Load a external data type based on the file path and type name. Be aware that
-    types imported using this function may not resolve the way you expect. In
-    particular, you can't import a class which subclasses a verl class an expect
-    that python will recognize that your type `isinstance` of the verl
-    class. Consider using `load_type_from_module` if you want that behavior.
-    """
-
+def load_extern_type(file_path: Optional[str], type_name: Optional[str]) -> Type:
+    """Load a external data type based on the file path and type name"""
     if not file_path:
         return None
 
@@ -115,28 +109,6 @@ def load_extern_type(file_path: Optional[str], type_name: Optional[str]):
 
     if not hasattr(module, type_name):
         raise AttributeError(f"Custom type '{type_name}' not found in '{file_path}'.")
-
-    return getattr(module, type_name)
-
-
-def load_type_from_module(module_path: str, type_name: str) -> Type:
-    """
-    Load a type from a Python module path.
-    Args:
-        module_path: Dotted path to a module (e.g., 'my_package.my_module').
-        type_name: Name of the type/class to load.
-    Returns:
-        The requested type/class.
-    Raises:
-        ImportError, AttributeError
-    """
-    try:
-        module = importlib.import_module(module_path)
-    except ImportError as e:
-        raise ImportError(f"Could not import module '{module_path}'") from e
-
-    if not hasattr(module, type_name):
-        raise AttributeError(f"Type '{type_name}' not found in module '{module_path}'.")
 
     return getattr(module, type_name)
 
