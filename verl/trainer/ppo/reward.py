@@ -23,7 +23,10 @@ from verl.utils.reward_score import default_compute_score
 
 
 def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
-    """This function is used to merge additional keyword arguments with the original function's arguments."""
+    """Calls `raw_fn` by merging `extra_kwargs` into call-time `kwargs`, with `extra_kwargs` taking precedence.
+
+    This function is used to merge additional keyword arguments with the original function's arguments.
+    """
     merged_kwargs = {**kwargs, **extra_kwargs}
     return raw_fn(*args, **merged_kwargs)
 
