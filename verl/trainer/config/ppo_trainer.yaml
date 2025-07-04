@@ -998,7 +998,11 @@ trainer:
   # Save frequency (by iteration) for model checkpoints
   save_freq: -1
 
-  # ESI redundant time (in seconds) for model checkpointsAdd commentMore actions
+  # ESI refers to the elastic server instance used during training, similar to the training plan. For example,
+  # if you purchase 10 hours of computing power, the ESI will automatically shut down after 10 hours of training.
+  # To ensure a checkpoint is saved before ESI shuts down, the system will start saving a checkpoint in advance.
+  # The advance time is calculated as: Advance Time = Longest historical step duration + Checkpoint save duration + esi_redundant_time.
+  # Here, esi_redundant_time is a user-defined value that further extends the advance time for added safety.
   esi_redundant_time: 0
 
   # Resume mode: "auto", "disable", or "resume_path"
