@@ -186,6 +186,18 @@ class AgentLoopWorker:
 
         Returns:
             DataProto: Output batch.
+            - prompts: [bsz, prompt_length], prompt token ids from dataset.
+            - responses: [bsz, response_length], output token ids include response tokens
+              from LLM generation and observation tokens from tool_calls.
+            - response_mask: [bsz, response_length], 1 for LLM generated tokens, 0 for observation/padding tokens.
+            - input_ids: [bsz, prompt_length + response_length], whole sequence token ids, including prompt tokens
+              and response tokens.
+            - attention_mask: [bsz, prompt_length + response_length], 0 for padding tokens, 1 for other tokens.
+            - position_ids: [bsz, prompt_length + response_length], incremental position ids.
+
+            For multi-turn conversations:
+            responses:     |<- LLM generation ->|<- tool_calls ->|<- LLM generation ->|<- padding ->|
+            response_mask: | 1, 1, 1, ..., 1, 1 | 0, 0, .., 0, 0 | 1, 1, 1, ..., 1, 1 | 0, 0, ..., 0|
         """
         config = self.config.actor_rollout_ref.rollout
         sampling_params = dict(
@@ -225,7 +237,7 @@ class AgentLoopWorker:
 
     def get_agent_loop_class(self, agent_name: str) -> Type[AgentLoopBase]:
         # TODO: add tool agent registrary
-        from verl.experimental.agent_loop.single_agent_loop import SingleTurnAgentLoop
+        from verl.experimental.agent_loop.single_turn_agent_loop import SingleTurnAgentLoop
         from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop
 
         if agent_name == "single_turn_agent":
@@ -329,9 +341,14 @@ class AgentLoopManager:
         self.async_llm_servers = [None] * self.rollout_dp_size
         self.server_addresses = [None] * self.rollout_dp_size
 
-        server_class = async_server_class(
-            rollout_backend=self.config.actor_rollout_ref.rollout.name,
-        )
+        if self.config.actor_rollout_ref.rollout.agent.custom_async_server:
+            server_class = async_server_class(
+                rollout_backend=self.config.actor_rollout_ref.rollout.name,
+                rollout_backend_module=self.config.actor_rollout_ref.rollout.agent.custom_async_server.path,
+                rollout_backend_class=self.config.actor_rollout_ref.rollout.agent.custom_async_server.name,
+            )
+        else:
+            server_class = async_server_class(rollout_backend=self.config.actor_rollout_ref.rollout.name)
 
         # Start all server instances, restart if address already in use.
         unready_dp_ranks = set(range(self.rollout_dp_size))
@@ -390,24 +407,33 @@ class AgentLoopManager:
             self.sleep()
 
         # calculate performance metrics
-        timing = {}
         metrics = [output.meta_info["metrics"] for output in outputs]  # List[List[Dict[str, str]]]
-        t_generate_sequences = np.array([metric["generate_sequences"] for chunk in metrics for metric in chunk])
-        t_tool_calls = np.array([metric["tool_calls"] for chunk in metrics for metric in chunk])
-        timing["generate_sequences/min"] = t_generate_sequences.min()
-        timing["generate_sequences/max"] = t_generate_sequences.max()
-        timing["generate_sequences/mean"] = t_generate_sequences.mean()
-        timing["tool_calls/min"] = t_tool_calls.min()
-        timing["tool_calls/max"] = t_tool_calls.max()
-        timing["tool_calls/mean"] = t_tool_calls.mean()
-
-        # batch sequence generation is bounded by the slowest sample
-        slowest = np.argmax(t_generate_sequences + t_tool_calls)
-        timing["slowest/generate_sequences"] = t_generate_sequences[slowest]
-        timing["slowest/tool_calls"] = t_tool_calls[slowest]
+        timing = self._performance_metrics(metrics, output)
 
         output.meta_info = {"timing": timing}
         return output
+
+    def _performance_metrics(self, metrics: List[List[Dict[str, str]]], output: DataProto) -> Dict[str, float]:
+        timing = {}
+        t_generate_sequences = np.array([metric["generate_sequences"] for chunk in metrics for metric in chunk])
+        t_tool_calls = np.array([metric["tool_calls"] for chunk in metrics for metric in chunk])
+        timing["agent_loop/generate_sequences/min"] = t_generate_sequences.min()
+        timing["agent_loop/generate_sequences/max"] = t_generate_sequences.max()
+        timing["agent_loop/generate_sequences/mean"] = t_generate_sequences.mean()
+        timing["agent_loop/tool_calls/min"] = t_tool_calls.min()
+        timing["agent_loop/tool_calls/max"] = t_tool_calls.max()
+        timing["agent_loop/tool_calls/mean"] = t_tool_calls.mean()
+
+        # batch sequence generation is bounded by the slowest sample
+        slowest = np.argmax(t_generate_sequences + t_tool_calls)
+        attention_mask = output.batch["attention_mask"][slowest]
+        prompt_length = output.batch["prompts"].shape[1]
+        timing["agent_loop/slowest/generate_sequences"] = t_generate_sequences[slowest]
+        timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
+        timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
+        timing["agent_loop/slowest/response_length"] = attention_mask[prompt_length:].sum().item()
+
+        return timing
 
     def wake_up(self):
         """Wake up all rollout server instances."""

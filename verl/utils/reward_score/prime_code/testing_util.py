@@ -677,3 +677,7 @@ def reliability_guard(maximum_memory_bytes=None):
     sys.modules["resource"] = None
     sys.modules["psutil"] = None
     sys.modules["tkinter"] = None
+
+    # Disable some built-in functions that can be destructive
+    for mod in ["subprocess", "ctypes"]:
+        sys.modules[mod] = None
