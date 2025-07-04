@@ -21,6 +21,7 @@ from verl.tools.base_tool import OpenAIFunctionToolSchema
 from verl.tools.sandbox_fusion_tools import SandboxFusionTool
 from verl.utils.dataset import RLHFDataset
 from verl.utils.reward_score import math_dapo
+from verl.utils.rollout_trace import rollout_trace_op
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ class CustomSandboxFusionTool(SandboxFusionTool):
         super().__init__(config, tool_schema)
         self.code_pattern = re.compile(r"```python(.*?)```", re.DOTALL)
 
+    @rollout_trace_op
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
         code = parameters["code"]
         matches = self.code_pattern.findall(code)

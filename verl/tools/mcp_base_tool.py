@@ -21,6 +21,7 @@ from uuid import uuid4
 from fastmcp.exceptions import ClientError
 
 from verl.tools.utils.mcp_clients.McpClientManager import ClientManager
+from verl.utils.rollout_trace import rollout_trace_op
 
 from .base_tool import BaseTool
 from .schemas import OpenAIFunctionToolSchema
@@ -75,6 +76,7 @@ class MCPBaseTool(BaseTool):
         metadata["api_request_error"] += err_msg
         return result, metadata
 
+    @rollout_trace_op
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
         if self.name == "" or self.name is None or parameters is None:
             error_msg = "Error: 'parameters' is missing or empty."

@@ -1108,12 +1108,17 @@ class RayPPOTrainer:
                     non_tensor_batch_keys_to_pop.append("tools_kwargs")
                 if "interaction_kwargs" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("interaction_kwargs")
+                if "index" in batch.non_tensor_batch:
+                    non_tensor_batch_keys_to_pop.append("index")
                 if "agent_name" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("agent_name")
+
                 gen_batch = batch.pop(
                     batch_keys=batch_keys_to_pop,
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
                 )
+                # pass global_steps to trace
+                gen_batch.meta_info["global_steps"] = self.global_steps
 
                 if repeat_sampling_sglang_grpo:
                     uids_for_prompts = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
