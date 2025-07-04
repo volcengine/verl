@@ -674,7 +674,7 @@ class AsyncRolloutRequest(BaseModel):
         self.response_attention_mask = self.attention_mask[len(self.prompt_attention_mask) :][: self.max_response_len]
         self.response_position_ids = (
             [
-                position_ids[len(self.prompt_position_ids) :][: self.max_response_len]
+                position_ids[len(self.prompt_position_ids[0]) :][: self.max_response_len]
                 for position_ids in self.position_ids
             ]
             if isinstance(self.position_ids[0], list) and isinstance(self.position_ids[0][0], int)
