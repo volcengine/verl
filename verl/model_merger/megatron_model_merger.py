@@ -33,7 +33,7 @@ from transformers import (
 )
 
 from verl.models.mcore import hf_to_mcore_config
-from verl.utils.device import get_nccl_backend
+from verl.utils.device import get_device_name, get_nccl_backend, get_torch_device
 from verl.utils.megatron.dist_checkpointing import load_dist_checkpointing
 from verl.utils.megatron_utils import get_model
 from verl.utils.tokenizer import hf_processor, hf_tokenizer
@@ -136,7 +136,7 @@ class MegatronModelMerger(BaseModelMerger):
         self.rank = torch.distributed.get_rank()
         self.world_size = torch.distributed.get_world_size()
         local_rank = os.environ.get("LOCAL_RANK", 0)
-        torch.cuda.set_device(f"cuda:{local_rank}")
+        get_torch_device().set_device(f"{get_device_name()}:{local_rank}")
 
         mpu.initialize_model_parallel(
             tensor_model_parallel_size=1,
@@ -431,7 +431,7 @@ class MegatronModelMerger(BaseModelMerger):
             for k in keys:
                 saves_indexes[k] = str(save_path.name)
 
-        tensor = torch.tensor([numel]).cuda()
+        tensor = torch.tensor([numel]).to(get_device_name())
         dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
         numel = tensor.cpu().item()
 

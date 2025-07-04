@@ -33,6 +33,7 @@ from transformers import AutoConfig
 
 from verl.model_merger.megatron_model_merger import get_dynamic_pipeline_shards
 from verl.models.mcore import hf_to_mcore_config
+from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.megatron_utils import get_model
 
 
@@ -373,7 +374,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
     rank = dist.get_rank()
     local_rank = os.getenv("LOCAL_RANK", 0)
     world_size = dist.get_world_size()
-    torch.cuda.set_device(f"cuda:{local_rank}")
+    get_torch_device().set_device(f"{get_device_name()}:{local_rank}")
 
     mpu.initialize_model_parallel(
         tensor_model_parallel_size=1,
@@ -457,7 +458,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
         numel_partial: int = convert_checkpoint_from_transformers_to_megatron_dpskv3(
             hf_model, model[0].module, hf_config, tfconfig=tfconfig, layer_start=layer_start, layer_end=layer_end
         )
-        numel_tensor = torch.tensor([numel_partial]).cuda()
+        numel_tensor = torch.tensor([numel_partial]).to(get_device_name())
         dist.all_reduce(numel_tensor, op=dist.ReduceOp.SUM)
         numel = int(numel_tensor.cpu().item())
         print(f"total numel={numel} vs {hf_model.num_parameters()=}")
