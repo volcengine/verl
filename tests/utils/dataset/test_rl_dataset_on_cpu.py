@@ -66,6 +66,39 @@ def test_rl_dataset():
     print(f"\n\noutput: {output}")
 
 
+def test_weighted_rl_dataset():
+    from verl.utils import hf_tokenizer
+    from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+
+    tokenizer = hf_tokenizer("deepseek-ai/deepseek-coder-1.3b-instruct")
+    local_path = get_gsm8k_data()
+    config = OmegaConf.create({"prompt_key": "prompt", "max_prompt_length": 256, "filter_overlong_prompts": True, "filter_overlong_prompts_workers": 2, "train_weights": [1, 1]})
+    dataset = RLHFDataset(data_files=[local_path, local_path], tokenizer=tokenizer, config=config)
+
+    dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=True, drop_last=True, collate_fn=collate_fn)
+
+    a = next(iter(dataloader))
+
+    from verl import DataProto
+
+    tensors = {}
+    non_tensors = {}
+
+    for key, val in a.items():
+        if isinstance(val, torch.Tensor):
+            tensors[key] = val
+        else:
+            non_tensors[key] = val
+
+    data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
+    assert "input_ids" in data_proto.batch
+
+    data = dataset[0]["input_ids"]
+    output = tokenizer.batch_decode([data])[0]
+    print(f"type: type{output}")
+    print(f"\n\noutput: {output}")
+
+
 def test_image_rl_data():
     from verl.utils import hf_processor, hf_tokenizer
     from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
