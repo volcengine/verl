@@ -192,6 +192,11 @@ class MegatronModelMerger(BaseModelMerger):
             "output_layer": "lm_head",
         }
 
+        if "Qwen2MoeForCausalLM" in self.hf_config.architectures:
+            self.params_mapping["mlp.shared_experts.linear_fc1"] = "mlp.shared_expert.gate_up_proj"
+            self.params_mapping["mlp.shared_experts.linear_fc2"] = "mlp.shared_expert.down_proj"
+            self.params_mapping["mlp.shared_experts.gate_weight"] = "mlp.shared_expert_gate.weight"
+
     def _load_state_dicts(self, model_ckpt_path: str) -> Dict[str, Any]:
         """_summary_
         Use Megatron dist_checkpointing to load the model state dicts from the checkpoint directory.
