@@ -16,7 +16,9 @@ Utilities to check if packages are available.
 We assume package availability won't change during runtime.
 """
 
+import importlib
 import importlib.util
+import os
 import warnings
 from functools import cache, wraps
 from typing import List, Optional
@@ -78,12 +80,8 @@ def import_external_libs(external_libs=None):
         importlib.import_module(external_lib)
 
 
-def load_extern_type(file_path: Optional[str], type_name: Optional[str]):
+def load_extern_type(file_path: Optional[str], type_name: Optional[str]) -> type:
     """Load a external data type based on the file path and type name"""
-    import importlib
-    import importlib.util
-    import os
-
     if not file_path:
         return None
 
