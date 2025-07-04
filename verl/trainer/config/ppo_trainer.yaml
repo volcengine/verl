@@ -55,6 +55,9 @@ data:
   # Whether to shuffle the data in the dataloader.
   shuffle: True
 
+  # num dataloader workers
+  dataloader_num_workers: 8
+
   # Whether to shuffle the validation set.
   validation_shuffle: False
 
@@ -98,6 +101,16 @@ data:
     # The class name of the data generation class within the specified file.
     # E.g. 'MockDataGenerator'
     name: null
+
+  # settings related to data sampler
+  sampler:
+
+    # the path to the module containing a curriculum class which implements the
+    # AbstractSampler interface
+    class_path: null
+
+    # the name of the curriculum class like `MySampler`
+    class_name: null
 
 # config for actor, rollout and reference model
 actor_rollout_ref:
@@ -320,14 +333,17 @@ actor_rollout_ref:
     # profiler configs
     profiler:
 
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+      _target_: verl.utils.profiler.ProfilerConfig
+
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
 
       # Whether to profile all ranks.
       all_ranks: False
 
-      # The ranks that will be profiled. null or [0,1,...]
-      ranks: null
+      # The ranks that will be profiled. [] or [0,1,...]
+      ranks: []
 
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
@@ -384,14 +400,17 @@ actor_rollout_ref:
     # profiler configs
     profiler:
 
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+      _target_: verl.utils.profiler.ProfilerConfig
+
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
 
       # Whether to profile all ranks.
       all_ranks: False
 
-      # The ranks that will be profiled. null or [0,1,...]
-      ranks: null
+      # The ranks that will be profiled. [] or [0,1,...]
+      ranks: []
 
   # Rollout model config.
   rollout:
@@ -572,14 +591,17 @@ actor_rollout_ref:
     # profiler configs
     profiler:
 
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+      _target_: verl.utils.profiler.ProfilerConfig
+
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
 
       # Whether to profile all ranks.
       all_ranks: False
 
-      # The ranks that will be profiled. null or [0,1,...]
-      ranks: null
+      # The ranks that will be profiled. [] or [0,1,...]
+      ranks: []
 
     # [Experimental] agent loop based rollout configs
     agent:
@@ -746,8 +768,11 @@ critic:
     load_contents: ${critic.checkpoint.save_contents}
 
   # profiler configs
-  # the corresponding dataclass is verl.utils.debug.ProfilerConfig.
+  # the corresponding dataclass is verl.utils.profiler.ProfilerConfig.
   profiler:
+
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    _target_: verl.utils.profiler.ProfilerConfig
 
     # True for each task has its own database, False for all tasks in one training step share one database.
     discrete: False
@@ -755,8 +780,8 @@ critic:
     # Whether to profile all ranks.
     all_ranks: False
 
-    # The ranks that will be profiled. null or [0,1,...]
-    ranks: null
+    # The ranks that will be profiled. [] or [0,1,...]
+    ranks: []
 
 # configs for the reward model
 reward_model:
@@ -860,14 +885,17 @@ reward_model:
   # profiler configs
   profiler:
 
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    _target_: verl.utils.profiler.ProfilerConfig
+
     # True for each task has its own database, False for all tasks in one training step share one database.
     discrete: False
 
     # Whether to profile all ranks.
     all_ranks: False
 
-    # The ranks that will be profiled. null or [0,1,...]
-    ranks: null
+    # The ranks that will be profiled. [] or [0,1,...]
+    ranks: []
 
 # custom reward function definition
 custom_reward_function:
@@ -881,6 +909,9 @@ custom_reward_function:
 
 # config for the algorithm
 algorithm:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+  _target_: verl.trainer.config.AlgoConfig
 
   # Discount factor for future rewards
   gamma: 1.0
@@ -903,6 +934,9 @@ algorithm:
   # KL control configuration
   kl_ctrl:
 
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    _target_: verl.trainer.config.KLControlConfig
+
     # KL control type: "fixed" or "adaptive"
     type: fixed
 
@@ -920,6 +954,9 @@ algorithm:
 
   # Preference feedback PPO settings
   pf_ppo:
+
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    _target_: verl.trainer.config.PFPPOConfig
 
     # Method for reweighting samples: "pow", "max_min", or "max_random"
     reweight_method: pow
@@ -1009,7 +1046,11 @@ trainer:
   # Save frequency (by iteration) for model checkpoints
   save_freq: -1
 
-  # ESI redundant time (in seconds) for model checkpointsAdd commentMore actions
+  # ESI refers to the elastic server instance used during training, similar to the training plan. For example,
+  # if you purchase 10 hours of computing power, the ESI will automatically shut down after 10 hours of training.
+  # To ensure a checkpoint is saved before ESI shuts down, the system will start saving a checkpoint in advance.
+  # The advance time is calculated as: Advance Time = Longest historical step duration + Checkpoint save duration + esi_redundant_time.
+  # Here, esi_redundant_time is a user-defined value that further extends the advance time for added safety.
   esi_redundant_time: 0
 
   # Resume mode: "auto", "disable", or "resume_path"

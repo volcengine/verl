@@ -43,7 +43,6 @@ from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 import verl.utils.hdfs_io as hdfs_io
 from verl.utils.dataset import SFTDataset
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
-from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
 from verl.utils.distributed import destroy_global_process_group, initialize_global_process_group
 from verl.utils.fs import copy_to_local
@@ -57,6 +56,7 @@ from verl.utils.fsdp_utils import (
     get_init_weight_context_manager,
     init_fn,
 )
+from verl.utils.profiler import log_gpu_memory_usage
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_dtypes import PrecisionType
 from verl.utils.torch_functional import get_cosine_schedule_with_warmup, get_wsd_schedule_with_warmup
