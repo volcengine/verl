@@ -1368,5 +1368,6 @@ class RayPPOTrainer:
                     progress_bar.close()
                     return
 
-                if hasattr(self.train_dataset, "on_epoch_end"):
-                    self.train_dataset.on_epoch_end()
+                if hasattr(self.train_dataset, "on_batch_end"):
+                    # The dataset may be changed after each training batch
+                    self.train_dataset.on_batch_end()
