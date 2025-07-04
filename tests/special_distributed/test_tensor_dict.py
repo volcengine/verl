@@ -58,8 +58,8 @@ def test_all_gather_data_proto():
 def test_vocab_parallel_entropy():
     from megatron.core import parallel_state as mpu
 
-    from verl.utils.debug import log_gpu_memory_usage
     from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy
+    from verl.utils.profiler import log_gpu_memory_usage
     from verl.utils.torch_functional import entropy_from_logits
 
     mpu.initialize_model_parallel(

@@ -39,7 +39,7 @@ from verl.trainer.ppo.ray_trainer import (
     compute_advantage,
     compute_response_mask,
 )
-from verl.utils.debug import simple_timer
+from verl.utils.profiler import simple_timer
 
 
 class RayEntropyTrainer(RayPPOTrainer):
