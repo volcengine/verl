@@ -1065,7 +1065,9 @@ class SGLangRollout(BaseRollout):
 
         for req in sorted_output_req_list:
             assert req.state == AsyncRolloutRequestStateEnum.COMPLETED, f"Request {req.request_id} is not completed"
-            position_ids_seq_len = len(req.position_ids[0]) if req.position_ids.dim() == 3 else len(req.position_ids)
+            position_ids_seq_len = (
+                len(req.position_ids[0]) if isinstance(req.position_ids[0], list) else len(req.position_ids)
+            )
             assert (
                 len(req.input_ids) == len(req.attention_mask) == position_ids_seq_len == len(req.loss_mask)
             ), f"""Request {req.request_id} has different length of 

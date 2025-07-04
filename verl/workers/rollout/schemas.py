@@ -283,11 +283,11 @@ class AsyncRolloutRequest(BaseModel):
 
             new_position_ids = get_rope_index(
                 processing_class,
-                input_ids=torch.tensor(input_ids, dtype=torch.int),
+                input_ids=torch.tensor(input_ids, dtype=torch.long),
                 image_grid_thw=multi_modal_inputs.get("image_grid_thw"),
                 video_grid_thw=multi_modal_inputs.get("video_grid_thw"),
                 second_per_grid_ts=multi_modal_inputs.get("second_per_grid_ts"),
-                attention_mask=torch.tensor(attention_mask, dtype=torch.int),
+                attention_mask=torch.tensor(attention_mask, dtype=torch.long),
             )
             return new_position_ids.tolist()  # (3, seq_len)
         else:
