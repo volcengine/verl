@@ -1243,13 +1243,15 @@ class SGLangRollout(BaseRollout):
                 tokenization_sanity_check_mode=self.config.multi_turn.tokenization_sanity_check_mode,
                 processing_class=self.processing_class,
             )
-
+            position_ids_seq_len = (
+                len(req.position_ids[0]) if isinstance(req.position_ids[0], list) else len(req.position_ids)
+            )
             error_message = f"""Request {req.request_id} has mismatched lengths: 
             input_ids={len(req.input_ids)}, 
             attention_mask={len(req.attention_mask)}, 
-            position_ids={len(req.position_ids)}, 
+            position_ids={position_ids_seq_len}, 
             loss_mask={len(req.loss_mask)}"""
-            assert len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask), (
+            assert len(req.input_ids) == len(req.attention_mask) == position_ids_seq_len == len(req.loss_mask), (
                 error_message
             )
             req_list.append(req)
