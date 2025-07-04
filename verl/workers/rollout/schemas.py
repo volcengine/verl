@@ -271,22 +271,28 @@ class AsyncRolloutRequest(BaseModel):
         processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
         input_ids: List[int],
         attention_mask: List[int],
-        multi_modal_inputs: Dict[str, Any],
+        multi_modal_inputs: Optional[Dict[str, Any]] = None,
     ) -> List[int]:
         # special case for qwen2vl
         is_qwen2vl = (
             hasattr(processing_class, "image_processor")
             and "Qwen2VLImageProcessor" in processing_class.image_processor.__class__.__name__
         )
-        if is_qwen2vl and multi_modal_inputs is not None:
+        if is_qwen2vl:
             from verl.models.transformers.qwen2_vl import get_rope_index
+
+            image_grid_thw = video_grid_thw = second_per_grid_ts = None
+            if multi_modal_inputs:
+                image_grid_thw = multi_modal_inputs.get("image_grid_thw")
+                video_grid_thw = multi_modal_inputs.get("video_grid_thw")
+                second_per_grid_ts = multi_modal_inputs.get("second_per_grid_ts")
 
             new_position_ids = get_rope_index(
                 processing_class,
                 input_ids=torch.tensor(input_ids, dtype=torch.long),
-                image_grid_thw=multi_modal_inputs.get("image_grid_thw"),
-                video_grid_thw=multi_modal_inputs.get("video_grid_thw"),
-                second_per_grid_ts=multi_modal_inputs.get("second_per_grid_ts"),
+                image_grid_thw=image_grid_thw,
+                video_grid_thw=video_grid_thw,
+                second_per_grid_ts=second_per_grid_ts,
                 attention_mask=torch.tensor(attention_mask, dtype=torch.long),
             )
             return new_position_ids.tolist()  # (3, seq_len)
@@ -309,7 +315,7 @@ class AsyncRolloutRequest(BaseModel):
         self.attention_mask += attention_mask
         self.loss_mask += [int(loss_mask)] * len(new_input_ids)
 
-        if new_multi_modal_inputs is not None:
+        if new_multi_modal_inputs:
             self._update_multi_modal_inputs(new_multi_modal_inputs)
 
         new_position_ids = self._get_position_ids(
@@ -317,7 +323,8 @@ class AsyncRolloutRequest(BaseModel):
         )
         if isinstance(self.position_ids[0], list):
             self.position_ids = [
-                [j + self.position_ids[i][-1] + 1 for j in new_position_ids[i]] for i in range(len(new_position_ids))
+                self.position_ids[i] + [j + self.position_ids[i][-1] + 1 for j in new_position_ids[i]]
+                for i in range(len(new_position_ids))
             ]  # (3, seq_len)
             position_ids_seq_len = len(self.position_ids[0])
         else:
