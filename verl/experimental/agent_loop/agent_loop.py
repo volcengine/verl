@@ -237,7 +237,7 @@ class AgentLoopWorker:
         else:
             index = np.arange(len(raw_prompts))
 
-        trajectory_info = await get_trajectory_info(batch.meta_info["global_steps"], index)
+        trajectory_info = await get_trajectory_info(batch.meta_info.get("global_steps", -1), index)
 
         for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info):
             tasks.append(
