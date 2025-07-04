@@ -571,9 +571,6 @@ class AsyncRolloutRequest(BaseModel):
             self.loss_mask = self.loss_mask[: -len(self.generation_prompt_ids)]
 
         self.response_ids = self.input_ids[len(self.prompt_ids) :]
-        position_ids_seq_len = (
-            len(self.position_ids[0]) if isinstance(self.position_ids[0], list) else len(self.position_ids)
-        )
 
         if self.tokenization_sanity_check_mode != TokenizationSanityCheckModeEnum.DISABLE:
             # When there is a diff, we log the diffs with diff_surrounding_chars context
@@ -659,6 +656,9 @@ class AsyncRolloutRequest(BaseModel):
             raise ValueError(f"Unsupported finalize finish reason type: {finish_reason_type}")
         self.truncate_output_ids(processing_class)
 
+        position_ids_seq_len = (
+            len(self.position_ids[0]) if isinstance(self.position_ids[0], list) else len(self.position_ids)
+        )
         assert (
             len(self.input_ids) == len(self.attention_mask) == position_ids_seq_len == len(self.loss_mask)
         ), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
