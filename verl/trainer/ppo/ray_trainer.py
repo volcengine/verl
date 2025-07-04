@@ -1109,11 +1109,7 @@ class RayPPOTrainer:
                     batch_keys=batch_keys_to_pop,
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
                 )
-
-                # batch mode: generate n responses for each prompt with sampling_params(n>1).
-                # server mode: repeat prompt n times and process each prompt individually with sampling_params(n=1).
-                if self.async_rollout_mode or self.config.actor_rollout_ref.rollout.multi_turn.enable:
-                    gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
