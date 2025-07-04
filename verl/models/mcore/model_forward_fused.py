@@ -83,11 +83,25 @@ def fused_forward_gptmodel(
     labels_rmpad = labels_rmpad.contiguous()
     labels_mask_rmpad = labels_mask_rmpad.contiguous()
 
-    output_orig: CausalLMOutputForPPO = model(input_ids=input_ids_rmpad, attention_mask=None, position_ids=position_ids, labels=labels_rmpad, packed_seq_params=packed_seq_params)
+    output_orig: CausalLMOutputForPPO = model(
+        input_ids=input_ids_rmpad,
+        attention_mask=None,
+        position_ids=position_ids,
+        labels=labels_rmpad,
+        packed_seq_params=packed_seq_params,
+    )
 
     if post_process:
         # output_orig is in type of CausalLMOutputForPPO
-        output = postprocess_packed_seqs_for_dict_output(labels_mask_rmpad, output_orig, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
+        output = postprocess_packed_seqs_for_dict_output(
+            labels_mask_rmpad,
+            output_orig,
+            packed_seq_params,
+            attention_mask,
+            batch_size,
+            seq_len,
+            post_process=post_process,
+        )
     else:
         output = output_orig
     return output
@@ -106,8 +120,12 @@ def fused_forward_qwen2_5_vl(
     # pre_process = unwrap_model(model).pre_process
     post_process = unwrap_model(model).post_process
 
-    pixel_values = multi_modal_inputs["pixel_values"].to(input_ids.device) if "pixel_values" in multi_modal_inputs else None
-    image_grid_thw = multi_modal_inputs["image_grid_thw"].to(input_ids.device) if "image_grid_thw" in multi_modal_inputs else None
+    pixel_values = (
+        multi_modal_inputs["pixel_values"].to(input_ids.device) if "pixel_values" in multi_modal_inputs else None
+    )
+    image_grid_thw = (
+        multi_modal_inputs["image_grid_thw"].to(input_ids.device) if "image_grid_thw" in multi_modal_inputs else None
+    )
 
     batch_size, seq_len = attention_mask.shape[:2]
     input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask, pre_process=True)
@@ -127,7 +145,15 @@ def fused_forward_qwen2_5_vl(
     )
     if post_process:
         # output_orig is in type of CausalLMOutputForPPO
-        output = postprocess_packed_seqs_for_dict_output(labels_mask_rmpad, output_orig, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
+        output = postprocess_packed_seqs_for_dict_output(
+            labels_mask_rmpad,
+            output_orig,
+            packed_seq_params,
+            attention_mask,
+            batch_size,
+            seq_len,
+            post_process=post_process,
+        )
     else:
         output = output_orig
     return output
@@ -181,7 +207,9 @@ def _fused_GPTModel_forward(
                 self.rotary_pos_emb.get_cos_sin(inference_context.max_sequence_length),
             )
         else:
-            rotary_seq_len = self.rotary_pos_emb.get_rotary_seq_len(inference_context, self.decoder, decoder_input, self.config, packed_seq_params)
+            rotary_seq_len = self.rotary_pos_emb.get_rotary_seq_len(
+                inference_context, self.decoder, decoder_input, self.config, packed_seq_params
+            )
             rotary_pos_emb = self.rotary_pos_emb(
                 rotary_seq_len,
                 packed_seq=packed_seq_params is not None and packed_seq_params.qkv_format == "thd",
@@ -191,9 +219,17 @@ def _fused_GPTModel_forward(
             rotary_pos_emb = self.rotary_pos_emb(position_ids, self.mrope_section)
         else:
             # Flash decoding uses precomputed cos and sin for RoPE
-            raise NotImplementedError("Flash decoding uses precomputed cos and sin for RoPE, not implmented in MultimodalRotaryEmbedding yet.")
+            raise NotImplementedError(
+                "Flash decoding uses precomputed cos and sin for RoPE, not implmented in MultimodalRotaryEmbedding yet."
+            )
 
-    if (self.config.enable_cuda_graph or self.config.flash_decode) and rotary_pos_cos is not None and inference_context and inference_context.is_static_batching() and not self.training:
+    if (
+        (self.config.enable_cuda_graph or self.config.flash_decode)
+        and rotary_pos_cos is not None
+        and inference_context
+        and inference_context.is_static_batching()
+        and not self.training
+    ):
         sequence_len_offset = torch.tensor(
             [inference_context.sequence_len_offset] * inference_context.current_batch_size,
             dtype=torch.int32,

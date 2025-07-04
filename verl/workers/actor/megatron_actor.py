@@ -506,7 +506,16 @@ class MegatronPPOActor(BasePPOActor):
             if self.use_fused_kernels:
                 forward_fn = get_mcore_forward_fused_fn(self.hf_config)
                 # return dict of [logits, entropy]
-                output = forward_fn(model, input_ids, position_ids, attention_mask, sequence_parallel=self.tf_config.sequence_parallel, multi_modal_inputs=multi_modal_inputs, labels=label, labels_mask=label_mask)
+                output = forward_fn(
+                    model,
+                    input_ids,
+                    position_ids,
+                    attention_mask,
+                    sequence_parallel=self.tf_config.sequence_parallel,
+                    multi_modal_inputs=multi_modal_inputs,
+                    labels=label,
+                    labels_mask=label_mask,
+                )
             else:
                 forward_fn = get_mcore_forward_fn(self.hf_config)
 
@@ -523,7 +532,16 @@ class MegatronPPOActor(BasePPOActor):
                     return ret
 
                 logits_processor_args = {"label": label, "label_mask": label_mask}
-                output = forward_fn(model, input_ids, attention_mask, position_ids, sequence_parallel=self.tf_config.sequence_parallel, multi_modal_inputs=multi_modal_inputs, logits_processor=logits_processor, logits_processor_args=logits_processor_args)
+                output = forward_fn(
+                    model,
+                    input_ids,
+                    attention_mask,
+                    position_ids,
+                    sequence_parallel=self.tf_config.sequence_parallel,
+                    multi_modal_inputs=multi_modal_inputs,
+                    logits_processor=logits_processor,
+                    logits_processor_args=logits_processor_args,
+                )
 
             if forward_only:
                 meta_info = None

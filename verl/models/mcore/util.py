@@ -231,6 +231,10 @@ def postprocess_packed_seqs_for_dict_output(
     output.entropy = output.entropy.view(1, -1)
     output.log_probs = output.log_probs.view(1, -1)
     output.log_probs = output.log_probs.masked_fill(~labels_mask, 0.0)
-    ret["entropy"] = postprocess_packed_seqs(output.entropy, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
-    ret["log_probs"] = postprocess_packed_seqs(output.log_probs, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process)
+    ret["entropy"] = postprocess_packed_seqs(
+        output.entropy, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process
+    )
+    ret["log_probs"] = postprocess_packed_seqs(
+        output.log_probs, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process
+    )
     return ret
