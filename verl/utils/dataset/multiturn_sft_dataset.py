@@ -254,7 +254,7 @@ class MultiTurnSFTDataset(Dataset):
                 ),
                 eos_token=tokenizer.eos_token,
             )
-            full_tokens = tokenizer(full_chats, return_tensors="pt")
+            full_tokens = tokenizer(full_chats, return_tensors="pt")["input_ids"]
         except Exception as e:
             logging.error(
                 f"Error applying chat template: {e}\nMessages: {messages}\nTools: {tools}\nEnable thinking: "

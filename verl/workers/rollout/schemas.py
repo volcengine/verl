@@ -262,9 +262,7 @@ class AsyncRolloutRequest(BaseModel):
             if add_generation_prompt is False:
                 raw_prompt = force_chat_end_with_eos(raw_prompt, eos_token=processing_class.eos_token)
 
-            return (
-                processing_class(raw_prompt, return_dict=return_dict, return_tensors="pt") if tokenize else raw_prompt
-            )
+            return processing_class(raw_prompt, return_tensors="pt")["input_ids"] if tokenize else raw_prompt
 
         elif isinstance(processing_class, ProcessorMixin):
             raw_prompt = processing_class.apply_chat_template(
