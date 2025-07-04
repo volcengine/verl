@@ -31,7 +31,7 @@ from verl.utils.import_utils import load_extern_type
 logger = logging.getLogger(__name__)
 
 
-class AbstractDataGen(ABC):
+class AbstractDataGenerator(ABC):
     def __init__(self, config: DictConfig):
         self.config = config
 
@@ -47,7 +47,7 @@ class AbstractDataGen(ABC):
         pass
 
 
-class MockDataGen(AbstractDataGen):
+class MockDataGenerator(AbstractDataGenerator):
     """
     A noop data gen class that only reappends the first datapoint.
     This class is useful as a placeholder and testing.
@@ -57,7 +57,7 @@ class MockDataGen(AbstractDataGen):
         super().__init__(config)
 
     def generate(self, dataset: Dataset) -> datasets.Dataset:
-        print("MockDataGen: No operation performed on the dataset.")
+        print("MockDataGenerator: No operation performed on the dataset.")
         return dataset.dataframe.select([0])
 
 
@@ -75,15 +75,15 @@ class DynamicGenDataset(RLHFDataset):
         processor: Optional[ProcessorMixin] = None,
     ):
         super().__init__(data_files, tokenizer, config, processor)
-        self.datagen: AbstractDataGen = config.datagen
+        self.datagen: AbstractDataGenerator = config.datagen
         assert "datagen" in config and config.datagen.get("path", None) is not None, (
             f"datagen path is not set in config: {config}"
         )
         # Dynamically load the custom datagen class
         datagen_cls = load_extern_type(config.datagen.path, config.datagen.name)
 
-        # Verify that the custom datagen class inherits from AbstractDataGen
-        abs_cls = AbstractDataGen
+        # Verify that the custom datagen class inherits from AbstractDataGenerator
+        abs_cls = AbstractDataGenerator
         if not issubclass(datagen_cls, abs_cls):
             raise TypeError(
                 f"The custom datagen class '{config.datagen.name}' from '{config.datagen.path}'"
@@ -104,5 +104,5 @@ class DynamicGenDataset(RLHFDataset):
         Generate data using the provided data generation strategy.
         Note: This method is intended to change the dataset after each training batch.
         """
-        d = self.data_generator.generate(self)
-        self.append_dataframe(d)
+        new_data = self.data_generator.generate(self)
+        self.append_dataframe(new_data)
