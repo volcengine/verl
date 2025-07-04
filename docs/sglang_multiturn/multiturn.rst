@@ -56,6 +56,26 @@ If you want rollout with simulated interaction, you can set the ``interaction_co
         rollout:
             interaction_config_file: <path_to_interaction_yaml_file>
 
+If your tool creates multi-modal inputs, you should return a list of multi-modal inputs in your tool.execute() implementation.
+
+Image and video should be processed before returning. For example, if you are using Qwen2.5-VL, you can use the following code to get the representations:
+
+.. code-block:: python
+
+    async def execute(self, ...) -> Tuple[str | Dict[str, Any], float, dict]:
+        ...
+        from verl.utils.dataset.vision_utils import process_image, process_video
+
+        img1 = process_image(img1)
+        video1 = process_video(video1)
+
+        # due to the (image | video) key is ("image" | "video") instead of ("images" | "videos") in vllm, we need to use ("image" | "video") to specify list of images/videos
+        # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
+        return {"image": [img1, ...], "video": [video1, ...], "text": "..."}, 0, {}
+
+remeber to set ``return_multi_modal_inputs: False`` in your dataset config in order to process the multi-modal inputs in the rollout correctly.
+Refer to the `Handling Multi-Modal Inputs in Datasets`_ section for more details.
+
 Multi-turn Tokenization
 ~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -103,7 +123,7 @@ The tokenization sanity check mode can be configured using the ``actor_rollout_r
 
 - ``ignore_strippable``: Ignores differences in whitespace characters (``\n``, ``\t``, ``\r``, spaces) while still checking for meaningful text mismatches. This is useful when debugging chat template issues where whitespace variations are expected and acceptable.
 
-- ``off``: Completely disables the tokenization sanity check. Only use this if you have thoroughly validated that tokenization discrepancies are expected and won't impact training.
+- ``disable``: Completely disables the tokenization sanity check. Only use this if you have thoroughly validated that tokenization discrepancies are expected and won't impact training.
 
 Example configuration:
 
@@ -112,7 +132,17 @@ Example configuration:
     actor_rollout_ref:
         rollout:
             multi_turn:
-                tokenization_sanity_check_mode: "ignore_strippable"  # Choose from: "strict", "ignore_strippable", "off"
+                tokenization_sanity_check_mode: "ignore_strippable"  # Choose from: "disable", "ignore_strippable", "strict"
+
+Handling Multi-Modal Inputs in Datasets
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If your dataset includes multi-modal inputs (such as images or videos), you can control whether these are pre-processed and included in each sample by setting the return_multi_modal_inputs flag in your dataset config (used by RLHFDataset).
+
+- ``return_multi_modal_inputs: True`` (default): The dataset will pre-process and include a multi_modal_inputs dictionary for each sample. This dict contains the model-ready representations (e.g., image tensors, video tensors, etc.) as produced by your processor. This is useful for single-turn or SFT-style training, where the model expects all modalities to be present in the batch.
+
+- ``return_multi_modal_inputs: False``: The dataset will not include the multi_modal_inputs field. This is recommended for multi-turn RL or tool-augmented rollouts, where the model may generate new multi-modal inputs dynamically during rollout, and you want to avoid conflicts or redundant data in the batch.
+
 
 Special Cases
 ^^^^^^^^^^^^^
