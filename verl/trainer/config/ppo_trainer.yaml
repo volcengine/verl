@@ -998,7 +998,8 @@ trainer:
   # Save frequency (by iteration) for model checkpoints
   save_freq: -1
 
-  # ESI redundant time (in seconds) for model checkpointsAdd commentMore actions
+  # ESI refers to the elastic server instance used during training, similar to the training plan.
+  # This parameter determines the additional time buffer(in seconds) for the ESI when saving model checkpoints.
   esi_redundant_time: 0
 
   # Resume mode: "auto", "disable", or "resume_path"
