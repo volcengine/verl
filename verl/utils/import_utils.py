@@ -16,11 +16,10 @@ Utilities to check if packages are available.
 We assume package availability won't change during runtime.
 """
 
-import importlib
 import importlib.util
-import os
-from functools import cache
-from typing import List, Optional, Type
+import warnings
+from functools import cache, wraps
+from typing import List, Optional
 
 
 @cache
@@ -79,8 +78,12 @@ def import_external_libs(external_libs=None):
         importlib.import_module(external_lib)
 
 
-def load_extern_type(file_path: Optional[str], type_name: Optional[str]) -> Type:
+def load_extern_type(file_path: Optional[str], type_name: Optional[str]):
     """Load a external data type based on the file path and type name"""
+    import importlib
+    import importlib.util
+    import os
+
     if not file_path:
         return None
 
@@ -121,21 +124,35 @@ def _get_qualified_name(func):
 
 
 def deprecated(replacement: str = ""):
-    """Decorator to mark APIs as deprecated."""
-    import functools
-    import warnings
+    """Decorator to mark functions or classes as deprecated."""
 
-    def decorator(func):
-        qualified_name = _get_qualified_name(func)
+    def decorator(obj):
+        qualified_name = _get_qualified_name(obj)
 
-        @functools.wraps(func)
-        def wrapped(*args, **kwargs):
-            msg = f"Warning: API '{qualified_name}' is deprecated."
-            if replacement:
-                msg += f" Please use '{replacement}' instead."
-            warnings.warn(msg, category=DeprecationWarning, stacklevel=2)
-            return func(*args, **kwargs)
+        if isinstance(obj, type):
+            original_init = obj.__init__
 
-        return wrapped
+            @wraps(original_init)
+            def wrapped_init(self, *args, **kwargs):
+                msg = f"Warning: Class '{qualified_name}' is deprecated."
+                if replacement:
+                    msg += f" Please use '{replacement}' instead."
+                warnings.warn(msg, category=FutureWarning, stacklevel=2)
+                return original_init(self, *args, **kwargs)
+
+            obj.__init__ = wrapped_init
+            return obj
+
+        else:
+
+            @wraps(obj)
+            def wrapped(*args, **kwargs):
+                msg = f"Warning: Function '{qualified_name}' is deprecated."
+                if replacement:
+                    msg += f" Please use '{replacement}' instead."
+                warnings.warn(msg, category=FutureWarning, stacklevel=2)
+                return obj(*args, **kwargs)
+
+            return wrapped
 
     return decorator
