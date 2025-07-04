@@ -26,6 +26,8 @@ from omegaconf import DictConfig, OmegaConf
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.config import omega_conf_to_dataclass
+from verl.utils.dataset.sampler import AbstractSampler
+from verl.utils.import_utils import load_extern_type
 
 
 def trainer_dict_to_dataclass(conf: DictConfig):
@@ -257,8 +259,6 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
     # Check if a custom dataset class is specified in the data configuration
     # and if the path to the custom class is provided
     if "custom_cls" in data_config and data_config.custom_cls.get("path", None) is not None:
-        from verl.utils.import_utils import load_extern_type
-
         # Dynamically load the custom dataset class
         dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
         # Verify that the custom dataset class inherits from torch.utils.data.Dataset
@@ -296,9 +296,20 @@ def create_rl_sampler(data_config, dataset):
     import torch
     from torch.utils.data import RandomSampler, SequentialSampler
 
+    if data_config.sampler is not None and data_config.sampler.get("class_path", None) is not None:
+        curriculum_class = load_extern_type(
+            data_config.sampler.class_path,
+            data_config.sampler.class_name,
+        )
+        sampler = curriculum_class(
+            data_source=dataset,
+            data_config=data_config,
+        )
+        assert isinstance(sampler, AbstractSampler)
+
     # Use a sampler to facilitate checkpoint resumption.
     # If shuffling is enabled in the data configuration, create a random sampler.
-    if data_config.shuffle:
+    elif data_config.shuffle:
         train_dataloader_generator = torch.Generator()
         train_dataloader_generator.manual_seed(data_config.get("seed", 1))
         sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
