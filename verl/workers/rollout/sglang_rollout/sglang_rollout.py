@@ -1129,7 +1129,18 @@ class SGLangRollout(BaseRollout):
             response_attention_mask = pad_sequence_to_length(response_attention_mask, self.config.response_length, 0)
 
         # padding prompt_position_ids
-        prompt_position_ids = pad_sequence(prompt_position_ids, batch_first=True, padding_value=0, padding_side="left")
+        if prompt_position_ids[0].dim() == 2:
+            # if prompt_position_ids is a 2D tensor
+            # e.g. from qwen2vl, prompt_position_ids.shape = (3, seq_len)
+            transposed_prompt_position_ids = [p.transpose(0, 1) for p in prompt_position_ids]
+            prompt_position_ids = pad_sequence(
+                transposed_prompt_position_ids, batch_first=True, padding_value=0, padding_side="left"
+            )
+            prompt_position_ids = prompt_position_ids.transpose(1, 2)
+        else:
+            prompt_position_ids = pad_sequence(
+                prompt_position_ids, batch_first=True, padding_value=0, padding_side="left"
+            )
         prompt_position_ids_seq_len = (
             prompt_position_ids.shape[2] if prompt_position_ids.dim() == 3 else prompt_position_ids.shape[1]
         )
@@ -1139,7 +1150,16 @@ class SGLangRollout(BaseRollout):
             )
 
         # padding response_position_ids
-        response_position_ids = pad_sequence(response_position_ids, batch_first=True, padding_value=0)
+        if response_position_ids[0].dim() == 2:
+            # if response_position_ids is a 2D tensor
+            # e.g. from qwen2vl, response_position_ids.shape = (3, seq_len)
+            transposed_response_position_ids = [p.transpose(0, 1) for p in response_position_ids]
+            response_position_ids = pad_sequence(
+                transposed_response_position_ids, batch_first=True, padding_value=0, padding_side="left"
+            )
+            response_position_ids = response_position_ids.transpose(1, 2)
+        else:
+            response_position_ids = pad_sequence(response_position_ids, batch_first=True, padding_value=0)
         response_position_ids_seq_len = (
             response_position_ids.shape[2] if response_position_ids.dim() == 3 else response_position_ids.shape[1]
         )
