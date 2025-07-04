@@ -71,6 +71,6 @@ FSDP Utilities
 Debug Utilities
 -------------------
 
-.. automodule:: verl.utils.debug
+.. automodule:: verl.utils.profiler
    :members: log_gpu_memory_usage, GPUMemoryLogger
 

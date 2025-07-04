@@ -41,6 +41,7 @@ from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
+from verl.trainer.config import AlgoConfig
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
@@ -51,10 +52,10 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
-from verl.utils.debug import marked_timer
 from verl.utils.metric import (
     reduce_metrics,
 )
+from verl.utils.profiler import marked_timer
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
@@ -204,13 +205,13 @@ def compute_response_mask(data: DataProto):
 
 def compute_advantage(
     data: DataProto,
-    adv_estimator,
-    gamma=1.0,
-    lam=1.0,
-    num_repeat=1,
-    norm_adv_by_std_in_grpo=True,
-    config=None,
-):
+    adv_estimator: AdvantageEstimator,
+    gamma: float = 1.0,
+    lam: float = 1.0,
+    num_repeat: int = 1,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
+) -> DataProto:
     """Compute advantage estimates for policy optimization.
 
     This function computes advantage estimates using various estimators like GAE, GRPO, REINFORCE++, etc.
@@ -218,7 +219,7 @@ def compute_advantage(
 
     Args:
         data (DataProto): The data containing batched model outputs and inputs.
-        adv_estimator: The advantage estimator to use (e.g., GAE, GRPO, REINFORCE++).
+        adv_estimator (AdvantageEstimator): The advantage estimator to use (e.g., GAE, GRPO, REINFORCE++).
         gamma (float, optional): Discount factor for future rewards. Defaults to 1.0.
         lam (float, optional): Lambda parameter for GAE. Defaults to 1.0.
         num_repeat (int, optional): Number of times to repeat the computation. Defaults to 1.
@@ -247,8 +248,8 @@ def compute_advantage(
         if config.get("use_pf_ppo", False):
             data = core_algos.compute_pf_ppo_reweight_data(
                 data,
-                config.get("pf_ppo_reweight_method", "pow"),
-                config.get("pf_ppo_weight_pow", 2.0),
+                config.pf_ppo.reweight_method,
+                config.pf_ppo.weight_pow,
             )
     elif adv_estimator == AdvantageEstimator.GRPO:
         # Initialize the mask for GRPO calculation
@@ -347,8 +348,8 @@ class RayPPOTrainer:
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
-        if config.algorithm.use_kl_in_reward:
-            self.kl_ctrl_in_reward = core_algos.get_kl_controller(config.algorithm.kl_ctrl)
+        if self.config.algorithm.use_kl_in_reward:
+            self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
         if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
             self.use_critic = True
@@ -482,7 +483,7 @@ class RayPPOTrainer:
             "seq-mean-token-sum-norm",
         ], f"Invalid loss_agg_mode: {config.actor_rollout_ref.actor.loss_agg_mode}"
 
-        if config.algorithm.use_kl_in_reward and config.actor_rollout_ref.actor.use_kl_loss:
+        if self.config.algorithm.use_kl_in_reward and config.actor_rollout_ref.actor.use_kl_loss:
             print("NOTICE: You have both enabled in-reward kl and kl loss.")
 
         # critic
