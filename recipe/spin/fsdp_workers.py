@@ -276,9 +276,9 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
             metrics["perf/mfu/actor"] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
 
             # --- LR Scheduler Step ---
-            self.actor_lr_scheduler.step()
             lr = self.actor_lr_scheduler.get_last_lr()[0]
             metrics["actor/lr"] = lr
+            self.actor_lr_scheduler.step()
 
             log_gpu_memory_usage("After update policy (DPO via PPO path)", logger=logger)
 
