@@ -25,9 +25,9 @@ from omegaconf import DictConfig, OmegaConf
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
+from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.dataset.sampler import AbstractSampler
 from verl.utils.import_utils import load_extern_type
-from verl.utils.config import omega_conf_to_dataclass
 
 
 def trainer_dict_to_dataclass(conf: DictConfig):
