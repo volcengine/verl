@@ -208,7 +208,6 @@ def compute_advantage(
     gamma=1.0,
     lam=1.0,
     num_repeat=1,
-    multi_turn=False,
     norm_adv_by_std_in_grpo=True,
     config=None,
 ):
@@ -223,7 +222,6 @@ def compute_advantage(
         gamma (float, optional): Discount factor for future rewards. Defaults to 1.0.
         lam (float, optional): Lambda parameter for GAE. Defaults to 1.0.
         num_repeat (int, optional): Number of times to repeat the computation. Defaults to 1.
-        multi_turn (bool, optional): Whether the data is from a multi-turn conversation. Defaults to False.
         norm_adv_by_std_in_grpo (bool, optional): Whether to normalize advantages by standard deviation in
             GRPO. Defaults to True.
         config (dict, optional): Configuration dictionary for algorithm settings. Defaults to None.
@@ -362,6 +360,7 @@ class RayPPOTrainer:
             AdvantageEstimator.RLOO,
             AdvantageEstimator.OPO,
             AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE,
+            AdvantageEstimator.GPG,
         ]:
             self.use_critic = False
         else:
@@ -530,9 +529,6 @@ class RayPPOTrainer:
             ), (
                 "tool_config_path or interaction_config_path must be set when enabling multi_turn with tool, "
                 "due to no role-playing support"
-            )
-            assert config.algorithm.adv_estimator in [AdvantageEstimator.GRPO], (
-                "only GRPO is tested for multi-turn with tool"
             )
 
         print("[validate_config] All configuration checks passed successfully!")
@@ -1275,7 +1271,6 @@ class RayPPOTrainer:
                             lam=self.config.algorithm.lam,
                             num_repeat=self.config.actor_rollout_ref.rollout.n,
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
-                            multi_turn=self.config.actor_rollout_ref.rollout.multi_turn.enable,
                             config=self.config.algorithm,
                         )
 

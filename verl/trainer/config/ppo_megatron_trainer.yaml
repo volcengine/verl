@@ -64,7 +64,7 @@ actor_rollout_ref:
     data_loader_seed: null
     shuffle: False
     policy_loss:   # policy loss config
-      loss_mode: "vanilla" # Loss function mode: vanilla / clip-cov / kl-cov from https://arxiv.org/abs/2505.22617
+      loss_mode: "vanilla" # Loss function mode: vanilla / clip-cov / kl-cov / gpg from https://arxiv.org/abs/2505.22617, 
       clip_cov_ratio: 0.0002 # Ratio of tokens to be clipped for clip-cov loss
       clip_cov_lb: 1.0 # Lower bound for clip-cov loss
       clip_cov_ub: 5.0 # Upper bound for clip-cov loss
@@ -79,7 +79,7 @@ actor_rollout_ref:
       lr_warmup_steps: null # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
       lr_decay_steps: null
-      lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
+      lr_decay_style: constant # select from constant/linear/cosine/inverse_square_root
       min_lr: 0.0 # minimum learning rate, default to 0.0
       weight_decay: 0.01
       weight_decay_incr_style: constant # select from constant/linear/cosine
@@ -255,6 +255,10 @@ actor_rollout_ref:
       # Number of agent loop workers
       num_workers: 8
 
+      custom_async_server:
+        path: null
+        name: null
+
     # support logging rollout prob for debugging purpose
     calculate_log_probs: False
     # Nsight system profiler configs
@@ -262,6 +266,7 @@ actor_rollout_ref:
       discrete: False
       all_ranks: False
       ranks: null
+
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
   strategy: ${actor_rollout_ref.actor.strategy}
