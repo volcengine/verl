@@ -21,6 +21,7 @@ license_head_prime = "Copyright 2024 PRIME team and/or its affiliates"
 license_head_individual = "Copyright 2025 Individual Contributor:"
 license_head_sglang = "Copyright 2023-2024 SGLang Team"
 license_head_modelbest = "Copyright 2025 ModelBest Inc. and/or its affiliates"
+license_head_amazon = "Copyright 2025 Amazon.com Inc and/or its affiliates"
 license_headers = [
     license_head_bytedance,
     license_head_bytedance_25,
@@ -28,6 +29,7 @@ license_headers = [
     license_head_individual,
     license_head_sglang,
     license_head_modelbest,
+    license_head_amazon,
 ]
 
 
