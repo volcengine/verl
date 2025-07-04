@@ -15,13 +15,11 @@
 import os
 import random
 import shutil
-import tempfile
 from typing import Union
 
 import numpy as np
 import torch
 import torch.distributed
-from filelock import FileLock
 from omegaconf import DictConfig
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
@@ -49,10 +47,11 @@ class BaseCheckpointManager:
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler = None,
         processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
-        checkpoint_contents: DictConfig = None,
+        checkpoint_config: DictConfig = None,
     ):
-        checkpoint_load_contents = checkpoint_contents.get("load_contents", None) if checkpoint_contents else None
-        checkpoint_save_contents = checkpoint_contents.get("save_contents", None) if checkpoint_contents else None
+        self.checkpoint_config = checkpoint_config
+        checkpoint_load_contents = checkpoint_config.get("load_contents", None) if checkpoint_config else None
+        checkpoint_save_contents = checkpoint_config.get("save_contents", None) if checkpoint_config else None
         if checkpoint_load_contents is None:
             checkpoint_load_contents = ["model", "optimizer", "extra"]
         if checkpoint_save_contents is None:
@@ -94,7 +93,8 @@ class BaseCheckpointManager:
     @property
     def should_save_hf_model(self) -> bool:
         """
-        Returns True if 'hf_model' is in checkpoint_save_contents, indicating the model should be converted to hf model and saved.
+        Returns True if 'hf_model' is in checkpoint_save_contents, indicating the model should be converted to hf
+        model and saved.
         """
         return "hf_model" in self.checkpoint_save_contents
 
@@ -122,7 +122,9 @@ class BaseCheckpointManager:
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load: bool = False):
         raise NotImplementedError
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep: int = None):
+    def save_checkpoint(
+        self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep: int = None
+    ):
         raise NotImplementedError
 
     @staticmethod
@@ -139,27 +141,6 @@ class BaseCheckpointManager:
             if not os.path.exists(abs_path):
                 continue
             shutil.rmtree(abs_path, ignore_errors=True)
-
-    @staticmethod
-    def local_mkdir(path):
-        if not os.path.isabs(path):
-            working_dir = os.getcwd()
-            path = os.path.join(working_dir, path)
-
-        # Using hash value of path as lock file name to avoid long file name
-        lock_filename = f"ckpt_{hash(path) & 0xFFFFFFFF:08x}.lock"
-        lock_path = os.path.join(tempfile.gettempdir(), lock_filename)
-
-        try:
-            with FileLock(lock_path, timeout=60):  # Add timeout
-                # make a new dir
-                os.makedirs(path, exist_ok=True)
-        except Exception as e:
-            print(f"Warning: Failed to acquire lock for {path}: {e}")
-            # Even if the lock is not acquired, try to create the directory
-            os.makedirs(path, exist_ok=True)
-
-        return path
 
     @staticmethod
     def get_rng_state():
@@ -221,3 +202,37 @@ def get_checkpoint_tracker_filename(root_path: str):
     Tracker file rescords the latest chckpoint during training to restart from.
     """
     return os.path.join(root_path, "latest_checkpointed_iteration.txt")
+
+
+def should_save_ckpt_esi(max_steps_duration: float, save_ckpt_duration: float = 60, redundant_time: float = 0) -> bool:
+    """
+    Determine if checkpoint should be saved based on capacity esi expiration.
+
+    Args:
+        max_steps_duration: Max estimated time (seconds) required to complete one training step
+        save_ckpt_duration: Estimated time (seconds) required to save checkpoint (default: 60)
+        redundant_time: Additional buffer time (seconds) for unexpected delays (default: 0)
+    """
+    exp_ts_mlp = os.getenv("MLP_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP")  # vemlp
+    exp_ts_aws = os.getenv("SAGEMAKER_CURRENT_CAPACITY_BLOCK_EXPIRATION_TIMESTAMP")  # aws
+    if exp_ts_mlp:
+        try:
+            import time
+
+            remaining = float(exp_ts_mlp) - time.time()
+        except ValueError:
+            return False
+        return (
+            remaining > 0
+            and max_steps_duration > 0
+            and remaining <= save_ckpt_duration + max_steps_duration + redundant_time
+        )
+    elif exp_ts_aws:
+        from datetime import datetime, timedelta
+
+        expiration_time = datetime.fromtimestamp(int(exp_ts_aws))
+        time_difference = expiration_time - datetime.now()
+        threshold_minutes = (save_ckpt_duration + max_steps_duration + redundant_time) / 60
+        return time_difference < timedelta(minutes=threshold_minutes)
+    else:
+        return False

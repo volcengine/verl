@@ -3,6 +3,8 @@
 Config Explanation
 ===================
 
+Last updated: 06/18/2025.
+
 ppo_trainer.yaml for RL FSDP Backend
 -------------------------------------
 
@@ -192,6 +194,11 @@ Actor/Rollout/Reference Policy
         n: 1
         do_sample: False # default eager for validation
 
+      agent:
+        custom_async_server: # Use custom async server implementation for rollout
+          path: null
+          name: null
+
 **Common config for actor, rollout and reference model**
 
 - ``actor_rollout_ref.hybrid_engine``: Whether it's a hybrid engine,
@@ -307,9 +314,6 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
 
 - ``actor_rollout_ref.rollout.gpu_memory_utilization``:
 
-  - For vLLM v0.5.4 and v0.6.3: The proportion of the **remaining** GPU memory
-    allocated for kv cache after other models have initialized when using
-    vLLM.
   - For vLLM v0.7.0 and later: The fraction of **total** GPU memory to be used for the vLLM instance.
   - For SGLang: Corresponding to ``mem_fraction_static``, the fraction of the free GPU memory used for **static** memory like model weights and KV cache. 
 
@@ -353,9 +357,9 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
   token and continue generating tokens after the EOS token is generated.
 
 - ``actor_rollout_ref.rollout.free_cache_engine``: Offload the KVCache
-  after rollout generation stage. Default is True. When set to True, we
-  need to disable the usage of CUDAGraph (set ``enforce_eager`` to
-  True.)
+  after rollout generation stage. Default is True. When set to True,
+  for vllm v0.5.4 and v0.6.3, we need to disable the usage of CUDAGraph
+  (set ``enforce_eager`` to True.)
 
 - ``actor_rollout_ref.rollout.enforce_eager``: Whether to use CUDAGraph
   in vLLM generation. Default set to True to disable CUDAGraph.
@@ -397,7 +401,7 @@ ____________________________________________________
       lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
       lr_decay_steps: null
-      lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
+      lr_decay_style: constant # select from constant/linear/cosine/inverse_square_root
       min_lr: 0.0 # minimum learning rate, default to 0.0
       weight_decay: 0.01
       weight_decay_incr_style: constant # select from constant/linear/cosine
@@ -411,6 +415,11 @@ Notice that there are some differences in APIs between Megatron optimizer and FS
 - Megatron optimizer scheduler names the period after lr_warmup as lr_decay_steps, so the ``warmup_style`` actually means the style of lr decay after warmup.
 - Megatron optimizer also support weight decay decay mechanism
 - ``use_checkpoint_opt_param_scheduler`` determines whether to use the checkpoint optimizer parameter scheduler. If set to True, the optimizer parameter scheduler will be saved in the checkpoint and loaded from the checkpoint during resuming training.
+
+For learning rate decay, original Megatron pretrain default option of ``lr_decay_style`` is ``linear``,
+meaning that the learning rate will be linearly decayed from the initial learning rate to ``min_lr`` within the
+``lr_decay_steps``. However, in verl, to align with FSDP's default behavior, we set the default
+``lr_decay_style`` to ``constant``, meaning that the learning rate will be kept constant after the warmup stage.
 
 
 Critic Model

@@ -35,6 +35,8 @@ STRATEGY=${STRATEGY:-fsdp}
 # LoRA config
 LORA_RANK=${LORA_RANK:-0}
 LORA_ALPHA=${LORA_ALPHA:-${LORA_RANK}}
+LORA_TARGET=${LORA_TARGET:-"all-linear"}
+LORA_EXCLUDE=${LORA_EXCLUDE:-"DONT_EXCLUDE"}
 USE_SHM=${USE_SHM:-False}
 LOAD_FORMAT=${LOAD_FORMAT:-dummy_dtensor}
 LAYERED_SUMMON=${LAYERED_SUMMON:-False}
@@ -95,6 +97,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.use_shm=${USE_SHM} \
     actor_rollout_ref.model.lora_rank=${LORA_RANK} \
     actor_rollout_ref.model.lora_alpha=${LORA_ALPHA} \
+    actor_rollout_ref.model.target_modules=${LORA_TARGET} \
+    actor_rollout_ref.model.exclude_modules=${LORA_EXCLUDE} \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding="${RM_PAD}" \
     actor_rollout_ref.model.use_fused_kernels=${FUSED_KERNELS} \

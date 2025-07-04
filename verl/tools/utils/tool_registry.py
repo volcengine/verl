@@ -88,20 +88,20 @@ def initialize_tools_from_config(tools_config_file):
 
         match tool_type:
             case ToolType.NATIVE:
-                tool_schema_dict = OmegaConf.to_container(tool_config.tool_schema, resolve=True)
-                tool_schema = OpenAIFunctionToolSchema.model_validate(tool_schema_dict)
+                if tool_config.get("tool_schema", None) is None:
+                    tool_schema = None
+                else:
+                    tool_schema_dict = OmegaConf.to_container(tool_config.tool_schema, resolve=True)
+                    tool_schema = OpenAIFunctionToolSchema.model_validate(tool_schema_dict)
                 tool = tool_cls(
                     config=OmegaConf.to_container(tool_config.config, resolve=True),
                     tool_schema=tool_schema,
                 )
                 tool_list.append(tool)
-                break
             case ToolType.MCP:
                 loop = asyncio.get_event_loop()
                 mcp_tools = loop.run_until_complete(initialize_mcp_tool(tool_cls, tool_config))
                 tool_list.extend(mcp_tools)
-                break
             case _:
                 raise NotImplementedError
-
     return tool_list

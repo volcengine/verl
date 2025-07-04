@@ -50,3 +50,9 @@ jobs:
         run: python3 tests/special_sanity/check_pr_title.py
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
+
+      - name: Run PR description checker
+        run: python3 tests/special_sanity/check_pr_description.py
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}

@@ -15,20 +15,44 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
+import copy
 import os
 import socket
 
 import hydra
 import ray
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
 from verl.trainer.ppo.reward import get_custom_reward_fn
+from verl.utils import omega_conf_to_dataclass
 
 from .dapo_ray_trainer import RayDAPOTrainer
 
 
+def trainer_dict_to_dataclass(conf: DictConfig):
+    """Convert specific nested sections of a DictConfig object into dataclass instances.
+
+    Args:
+        conf (DictConfig): An instance of DictConfig, typically from the omegaconf library,
+                           representing a configuration dictionary.
+
+    Returns:
+        DictConfig: A deep copy of the input `conf` with specific sections converted to dataclasses.
+    """
+    # Create a deep copy of the input configuration to avoid modifying the original object
+    config = copy.deepcopy(conf)
+    config.algorithm = omega_conf_to_dataclass(config.algorithm)
+    config.critic.profiler = omega_conf_to_dataclass(config.critic.profiler)
+    config.reward_model.profiler = omega_conf_to_dataclass(config.reward_model.profiler)
+    config.actor_rollout_ref.actor.profiler = omega_conf_to_dataclass(config.actor_rollout_ref.actor.profiler)
+    config.actor_rollout_ref.ref.profiler = omega_conf_to_dataclass(config.actor_rollout_ref.ref.profiler)
+    config.actor_rollout_ref.rollout.profiler = omega_conf_to_dataclass(config.actor_rollout_ref.rollout.profiler)
+    return config
+
+
 @hydra.main(config_path="config", config_name="dapo_trainer", version_base=None)
-def main(config):
+def main(config_dict):
+    config = trainer_dict_to_dataclass(config_dict)
     run_ppo(config)
 
 
@@ -36,11 +60,16 @@ def run_ppo(config) -> None:
     if not ray.is_initialized():
         # this is for local ray cluster
         ray.init(
-            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}},
+            runtime_env={
+                "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}
+            },
             num_cpus=config.ray_init.num_cpus,
         )
 
-    if OmegaConf.select(config.trainer, "profile_steps") is not None and len(OmegaConf.select(config.trainer, "profile_steps")) > 0:
+    if (
+        OmegaConf.select(config.trainer, "profile_steps") is not None
+        and len(OmegaConf.select(config.trainer, "profile_steps")) > 0
+    ):
         nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
     else:

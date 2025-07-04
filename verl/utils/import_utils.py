@@ -16,8 +16,11 @@ Utilities to check if packages are available.
 We assume package availability won't change during runtime.
 """
 
+import importlib
 import importlib.util
-from functools import cache
+import os
+import warnings
+from functools import cache, wraps
 from typing import List, Optional
 
 
@@ -77,23 +80,33 @@ def import_external_libs(external_libs=None):
         importlib.import_module(external_lib)
 
 
-def load_extern_type(file_path: Optional[str], type_name: Optional[str]):
+def load_extern_type(file_path: Optional[str], type_name: Optional[str]) -> type:
     """Load a external data type based on the file path and type name"""
-    import importlib.util
-    import os
-
     if not file_path:
         return None
 
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Custom type file '{file_path}' not found.")
+    if file_path.startswith("pkg://"):
+        # pkg://verl.utils.dataset.rl_dataset
+        # pkg://verl/utils/dataset/rl_dataset
+        module_name = file_path[6:].replace("/", ".")
+        module = importlib.import_module(module_name)
 
-    spec = importlib.util.spec_from_file_location("custom_module", file_path)
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
-    except Exception as e:
-        raise RuntimeError(f"Error loading module from '{file_path}'") from e
+    else:
+        # file://verl/utils/dataset/rl_dataset
+        # file:///path/to/verl/utils/dataset/rl_dataset.py
+        # or without file:// prefix
+        if file_path.startswith("file://"):
+            file_path = file_path[7:]
+
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Custom type file '{file_path}' not found.")
+
+        spec = importlib.util.spec_from_file_location("custom_module", file_path)
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except Exception as e:
+            raise RuntimeError(f"Error loading module from '{file_path}'") from e
 
     if not hasattr(module, type_name):
         raise AttributeError(f"Custom type '{type_name}' not found in '{file_path}'.")
@@ -109,21 +122,35 @@ def _get_qualified_name(func):
 
 
 def deprecated(replacement: str = ""):
-    """Decorator to mark APIs as deprecated."""
-    import functools
-    import warnings
+    """Decorator to mark functions or classes as deprecated."""
 
-    def decorator(func):
-        qualified_name = _get_qualified_name(func)
+    def decorator(obj):
+        qualified_name = _get_qualified_name(obj)
 
-        @functools.wraps(func)
-        def wrapped(*args, **kwargs):
-            msg = f"Warning: API '{qualified_name}' is deprecated."
-            if replacement:
-                msg += f" Please use '{replacement}' instead."
-            warnings.warn(msg, category=DeprecationWarning, stacklevel=2)
-            return func(*args, **kwargs)
+        if isinstance(obj, type):
+            original_init = obj.__init__
 
-        return wrapped
+            @wraps(original_init)
+            def wrapped_init(self, *args, **kwargs):
+                msg = f"Warning: Class '{qualified_name}' is deprecated."
+                if replacement:
+                    msg += f" Please use '{replacement}' instead."
+                warnings.warn(msg, category=FutureWarning, stacklevel=2)
+                return original_init(self, *args, **kwargs)
+
+            obj.__init__ = wrapped_init
+            return obj
+
+        else:
+
+            @wraps(obj)
+            def wrapped(*args, **kwargs):
+                msg = f"Warning: Function '{qualified_name}' is deprecated."
+                if replacement:
+                    msg += f" Please use '{replacement}' instead."
+                warnings.warn(msg, category=FutureWarning, stacklevel=2)
+                return obj(*args, **kwargs)
+
+            return wrapped
 
     return decorator

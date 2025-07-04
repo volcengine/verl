@@ -22,6 +22,17 @@ from verl.workers.reward_manager import register
 
 @register("batch")
 class BatchRewardManager:
+    """
+    A batch reward manager that computes rewards for a batch of data.
+
+    Args:
+        tokenizer (Tokenizer): The tokenizer to use for decoding the responses.
+        num_examine (int): The number of responses to examine.
+        compute_score (callable): The function to compute the rewards.
+        reward_fn_key (str): The key to use for the reward function.
+        reward_kwargs (dict): The keyword arguments to pass to the reward function.
+    """
+
     def __init__(self, tokenizer, num_examine, compute_score, reward_fn_key="data_source", **reward_kwargs):
         self.tokenizer = tokenizer
         self.num_examine = num_examine

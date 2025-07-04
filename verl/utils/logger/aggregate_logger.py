@@ -18,6 +18,7 @@ A Ray logger will receive logging info from different processes.
 import datetime
 import logging
 import numbers
+import pprint
 from typing import Dict
 
 import torch
@@ -27,16 +28,21 @@ def concat_dict_to_str(dict: Dict, step):
     output = [f"step:{step}"]
     for k, v in dict.items():
         if isinstance(v, numbers.Number):
-            output.append(f"{k}:{v:.3f}")
+            output.append(f"{k}:{pprint.pformat(v)}")
     output_str = " - ".join(output)
     return output_str
 
 
 class LocalLogger:
-    def __init__(self, remote_logger=None, enable_wandb=False, print_to_console=False):
+    """
+    A local logger that logs messages to the console.
+
+    Args:
+        print_to_console (bool): Whether to print to the console.
+    """
+
+    def __init__(self, print_to_console=True):
         self.print_to_console = print_to_console
-        if print_to_console:
-            print("Using LocalLogger is deprecated. The constructor API will change ")
 
     def flush(self):
         pass
@@ -47,7 +53,20 @@ class LocalLogger:
 
 
 class DecoratorLoggerBase:
-    def __init__(self, role: str, logger: logging.Logger = None, level=logging.DEBUG, rank: int = 0, log_only_rank_0: bool = True):
+    """
+    Base class for all decorators that log messages.
+
+    Args:
+        role (str): The role (the name) of the logger.
+        logger (logging.Logger): The logger instance to use for logging.
+        level (int): The logging level.
+        rank (int): The rank of the process.
+        log_only_rank_0 (bool): If True, only log for rank 0.
+    """
+
+    def __init__(
+        self, role: str, logger: logging.Logger = None, level=logging.DEBUG, rank: int = 0, log_only_rank_0: bool = True
+    ):
         self.role = role
         self.logger = logger
         self.level = level
