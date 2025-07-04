@@ -104,5 +104,5 @@ class DynamicGenDataset(RLHFDataset):
         Generate data using the provided data generation strategy.
         Note: This method is intended to change the dataset after each training batch.
         """
-        d = self.data_generator.generate(self)
-        self.append_dataframe(d)
+        new_data = self.data_generator.generate(self)
+        self.append_dataframe(new_data)
