@@ -1,12 +1,3 @@
-# specify the default per-component configs
-defaults:
-
-  # <folder_name>@<field_name>.<field_name>: <yaml_file_name>
-  # actor_rollout_ref.actor: trainer/config/actor/megatron_actor.yaml
-  - actor@actor_rollout_ref.actor: megatron_actor
-  # load the reference default config, then apply the fields in the current yaml
-  - _self_
-
 data:
   tokenizer: null
   train_files: ~/data/rlhf/gsm8k/train.parquet
@@ -55,6 +46,89 @@ actor_rollout_ref:
       # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
       activations_checkpoint_num_layers: null # not used with 'selective'
     trust_remote_code: False
+  actor:
+    strategy: megatron  # This is for backward-compatibility
+    ppo_mini_batch_size: 256
+    ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
+    ppo_micro_batch_size_per_gpu: null
+    use_dynamic_bsz: False
+    ppo_max_token_len_per_gpu: 16384 # n * ${data.max_prompt_length} + ${data.max_response_length}
+    use_torch_compile: True # False to disable torch compile
+    # pg_losses2 = -advantages * torch.clamp(ratio, 1 - cliprange_low, 1 + cliprange_high)
+    clip_ratio: 0.2 # default value if clip_ratio_low and clip_ratio_high are not specified
+    clip_ratio_low: 0.2
+    clip_ratio_high: 0.2
+    clip_ratio_c: 3.0 # lower bound of the value for Dual-clip PPO from https://arxiv.org/pdf/1912.09729
+    loss_agg_mode: "token-mean" # / "seq-mean-token-sum" / "seq-mean-token-mean"
+    # NOTE: "token-mean" is the default behavior
+    entropy_coeff: 0
+    use_kl_loss: False # True for GRPO
+    kl_loss_coef: 0.001 # for grpo
+    kl_loss_type: low_var_kl # for grpo
+    ppo_epochs: 1
+    data_loader_seed: null
+    shuffle: False
+    policy_loss:   # policy loss config
+      loss_mode: "vanilla" # Loss function mode: vanilla / clip-cov / kl-cov / gpg from https://arxiv.org/abs/2505.22617, 
+      clip_cov_ratio: 0.0002 # Ratio of tokens to be clipped for clip-cov loss
+      clip_cov_lb: 1.0 # Lower bound for clip-cov loss
+      clip_cov_ub: 5.0 # Upper bound for clip-cov loss
+      kl_cov_ratio: 0.0002 # Ratio of tokens to be applied kl penalty for kl-cov loss
+      ppo_kl_coef: 0.1 # KL divergence penalty coefficient
+    optim:
+      optimizer: adam
+      lr: 1e-6
+      clip_grad: 1.0
+      total_training_steps: -1  # must be override by program
+      lr_warmup_init: 0.0  # initial learning rate for warmup, default to 0.0
+      lr_warmup_steps: null # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
+      lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
+      lr_decay_steps: null
+      lr_decay_style: constant # select from constant/linear/cosine/inverse_square_root
+      min_lr: 0.0 # minimum learning rate, default to 0.0
+      weight_decay: 0.01
+      weight_decay_incr_style: constant # select from constant/linear/cosine
+      lr_wsd_decay_style: exponential # select from constant/exponential/cosine
+      lr_wsd_decay_steps: null
+      use_checkpoint_opt_param_scheduler: False # use checkpoint optimizer parameter scheduler
+    megatron:
+      param_offload: False
+      grad_offload: False
+      optimizer_offload: False
+      tensor_model_parallel_size: 1
+      expert_model_parallel_size: 1
+      expert_tensor_parallel_size: null
+      pipeline_model_parallel_size: 1
+      virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+      context_parallel_size: 1
+      sequence_parallel: True
+      use_distributed_optimizer: True
+      use_dist_checkpointing: False
+      dist_checkpointing_path: null
+      seed: 42
+      override_transformer_config: {} # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
+      use_mbridge: False
+    profile: # profile the actor model in `update_policy` 
+      use_profile: False # open it when you want to profile the actor model
+      profile_ranks: null # list, you can specify the ranks to profile
+      step_start: -1 # start step in update_policy
+      step_end: -1 # end step
+      save_path: null # the path to save the profile result
+    load_weight: True
+    checkpoint:
+      async_save: False # save checkpoint asynchronously
+      # What to include in saved checkpoints
+      # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+      save_contents: ['model', 'optimizer', 'extra']
+      # For more flexibility, you can specify the contents to load from the checkpoint.
+      load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
+    # Nsight system profiler configs
+    profiler:
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+      _target_: verl.utils.profiler.ProfilerConfig
+      discrete: False
+      all_ranks: False
+      ranks: []
   ref:
     strategy: ${actor_rollout_ref.actor.strategy}
     use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}

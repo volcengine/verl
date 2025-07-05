@@ -4,15 +4,6 @@
 # 3. Inline comments (after a field on the same line) are not allowed.
 # 4. Indentation level is respected for nested fields.
 
-# specify the default per-component configs
-defaults:
-
-  # <folder_name>@<field_name>.<field_name>: <yaml_file_name>
-  # actor_rollout_ref.actor: trainer/config/actor/dp_actor.yaml
-  - actor@actor_rollout_ref.actor: dp_actor
-  # load the reference default config, then apply the fields in the current yaml
-  - _self_
-
 # dataset config
 data:
 
@@ -174,6 +165,177 @@ actor_rollout_ref:
 
     # Whether to enable loading a remote code model
     trust_remote_code: false
+
+  # actor configs
+  actor:
+
+    # fsdp, fsdp2 or megatron. fsdp backend used here.
+    strategy: fsdp
+
+    # Split each sample into sub-batches of this size for PPO
+    ppo_mini_batch_size: 256
+
+    # [Deprecated] Global micro batch size
+    ppo_micro_batch_size: null
+
+    # Local per-GPU micro batch size
+    ppo_micro_batch_size_per_gpu: null
+
+    # Whether to automatically adjust batch size at runtime
+    use_dynamic_bsz: false
+
+    # Max tokens per GPU in one PPO batch; affects gradient accumulation
+    # Typically it should be: n * ${data.max_prompt_length} + ${data.max_response_length}
+    ppo_max_token_len_per_gpu: 16384
+
+    # Gradient clipping for actor updates
+    grad_clip: 1.0
+
+    # PPO clip ratio
+    clip_ratio: 0.2
+
+    # Lower bound for asymmetric clipping (used in dual-clip PPO)
+    clip_ratio_low: 0.2
+
+    # Upper bound for asymmetric clipping (used in dual-clip PPO)
+    clip_ratio_high: 0.2
+
+    # policy loss config
+    policy_loss:
+    
+      # Loss function mode: vanilla / clip-cov / kl-cov /gpg from https://arxiv.org/abs/2505.22617
+      loss_mode: "vanilla"
+      
+      # Ratio of tokens to be clipped for clip-cov loss
+      clip_cov_ratio: 0.0002
+
+      # Lower bound for clip-cov loss
+      clip_cov_lb: 1.0
+
+      # Upper bound for clip-cov loss
+      clip_cov_ub: 5.0
+
+      # Ratio of tokens to be applied kl penalty for kl-cov loss
+      kl_cov_ratio: 0.0002
+
+      # KL divergence penalty coefficient
+      ppo_kl_coef: 0.1
+
+    # Constant C in Dual-clip PPO; clips when advantage < 0 and ratio > C
+    clip_ratio_c: 3.0
+
+    # Loss aggregation mode: "token-mean", "seq-mean-token-sum", or "seq-mean-token-mean"
+    loss_agg_mode: token-mean
+
+    # Entropy regularization coefficient in PPO loss
+    entropy_coeff: 0
+
+    # Whether to use KL loss instead of KL reward penalty. True for GRPO
+    use_kl_loss: false
+
+    # Whether to use torch.compile()
+    use_torch_compile: true
+
+    # KL loss coefficient when use_kl_loss is enabled. For GRPO
+    kl_loss_coef: 0.001
+
+    # Type of KL divergence loss. Options: "kl"(k1), "abs", "mse"(k2), "low_var_kl"(k3), "full"
+    kl_loss_type: low_var_kl
+
+    # Number of PPO epochs per batch
+    ppo_epochs: 1
+
+    # Shuffle training data across PPO epochs
+    shuffle: false
+
+    # Sequence parallelism size for Ulysses-style model parallelism
+    ulysses_sequence_parallel_size: 1
+
+    # calculate entropy with chunking to reduce memory peak
+    entropy_from_logits_with_chunking: False
+
+    # recompute entropy
+    entropy_checkpointing: False
+
+    # checkpoint configs
+    checkpoint:
+
+      # What to include in saved checkpoints
+      # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+      save_contents: ['model', 'optimizer', 'extra']
+
+      # For more flexibility, you can specify the contents to load from the checkpoint.
+      load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
+
+    # optimizer configs
+    optim:
+
+      # Learning rate
+      lr: 1e-6
+
+      # Warmup steps; negative value delegates to lr_warmup_steps_ratio
+      lr_warmup_steps: -1
+
+      # Warmup steps ratio (used if lr_warmup_steps is negative)
+      lr_warmup_steps_ratio: 0.0
+
+      # Minimum LR ratio for cosine schedule
+      min_lr_ratio: 0.0
+
+      # Number of cosine cycles in LR schedule
+      num_cycles: 0.5
+
+      # LR warmup style: "constant" or "cosine"
+      warmup_style: constant
+
+      # Total training steps (must be overridden at runtime)
+      total_training_steps: -1
+
+      # Weight decay
+      weight_decay: 0.01
+
+    # configs for FSDP
+    fsdp_config:
+
+      # policy for wrapping the model
+      wrap_policy:
+
+        # Minimum number of parameters to trigger wrapping a layer with FSDP
+        min_num_params: 0
+
+      # Whether to offload model parameters to CPU (trades speed for memory)
+      param_offload: false
+
+      # Whether to offload optimizer state to CPU
+      optimizer_offload: false
+
+      # Only for FSDP2: offload param/grad/optimizer during train
+      offload_policy: false
+
+      # Only for FSDP2: Reshard after forward pass to reduce memory footprint
+      reshard_after_forward: true
+
+      # Number of GPUs in each FSDP shard group; -1 means auto
+      fsdp_size: -1
+
+      # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
+      # before the current forward computation.
+      forward_prefetch: False
+
+    # profiler configs
+    profiler:
+
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+      _target_: verl.utils.profiler.ProfilerConfig
+
+      # True for each task has its own database, False for all tasks in one training step share one database.
+      discrete: False
+
+      # Whether to profile all ranks.
+      all_ranks: False
+
+      # The ranks that will be profiled. [] or [0,1,...]
+      ranks: []
 
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.

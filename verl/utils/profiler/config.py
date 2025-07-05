@@ -19,15 +19,21 @@ from verl.base_config import BaseConfig
 
 @dataclass(frozen=True)
 class ProfilerConfig(BaseConfig):
-    """Worker profiler config. Currently only support Nsight system profiler."""
+    """Worker profiler config. Currently only support Nsight system profiler.
 
-    # True for each task has its own database, False for all tasks in one training step share one database.
+    The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
+
+    Args:
+        discrete (bool): True for each task has its own database, False for all tasks in one training step
+          share one database.
+        all_ranks (bool): Whether to profile all ranks.
+        ranks (list[int]): The ranks that will be profiled. Defaults to [].
+    """
+
     discrete: bool = False
 
-    # Whether to profile all ranks.
     all_ranks: bool = False
 
-    # The ranks that will be profiled. [] or [0,1,...]
     ranks: list[int] = field(default_factory=list)
 
     def union(self, other: "ProfilerConfig") -> "ProfilerConfig":

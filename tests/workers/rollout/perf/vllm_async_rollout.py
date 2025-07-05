@@ -35,7 +35,7 @@ import time
 from typing import Tuple, Union
 
 import ray
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from torch.utils.data import SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 
@@ -47,7 +47,12 @@ from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
 
 
 def init_config(n_gpus_per_node) -> DictConfig:
-    config = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
+    import os
+
+    from hydra import compose, initialize_config_dir
+
+    with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
+        config = compose(config_name="ppo_trainer")
     config.trainer.n_gpus_per_node = n_gpus_per_node
     config.data.train_batch_size = 128
     config.data.return_raw_chat = True

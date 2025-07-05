@@ -26,7 +26,7 @@ import numpy as np
 import ray
 import uvicorn
 from datasets import load_dataset
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from openai.types.chat.chat_completion import ChatCompletion
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -243,7 +243,12 @@ if __name__ == "__main__":
     )
 
     # Load config
-    config = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
+    import os
+
+    from hydra import compose, initialize_config_dir
+
+    with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
+        config = compose(config_name="ppo_trainer")
     model_path = "Qwen/Qwen2.5-1.5B-Instruct"
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.rollout.mode = "async"
