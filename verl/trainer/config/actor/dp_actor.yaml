@@ -4,9 +4,12 @@
 # 3. Inline comments (after a field on the same line) are not allowed.
 # 4. Indentation level is respected for nested fields.
 
-# dp actor config, inheriting from trainer/config/actor/actor.yaml
+# defaults specify the default config from each component
 defaults:
+
+  # dp actor config, inheriting from trainer/config/actor/actor.yaml
   - actor
+
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
