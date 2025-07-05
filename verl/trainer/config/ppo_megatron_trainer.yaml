@@ -4,6 +4,8 @@ defaults:
   # <folder_name>@<field_name>.<field_name>: <yaml_file_name>
   # actor_rollout_ref.actor: trainer/config/actor/megatron_actor.yaml
   - actor@actor_rollout_ref.actor: megatron_actor
+  # load the reference default config, then apply the fields in the current yaml
+  - _self_
 
 data:
   tokenizer: null

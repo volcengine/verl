@@ -1,6 +1,14 @@
-# trainer/config/actor/actor.yaml
+# Format checks enforced on CI:
+# 1. Comments must appear above each field.
+# 2. There must be a blank line between each field.
+# 3. Inline comments (after a field on the same line) are not allowed.
+# 4. Indentation level is respected for nested fields.
+
+# megatron actor config, inheriting from trainer/config/actor/actor.yaml
 defaults:
   - actor
+  # load the reference default config, then apply the fields in the current yaml
+  - _self_
 
 # TODO(haibin.lin): switch to fsdp2
 strategy: megatron
