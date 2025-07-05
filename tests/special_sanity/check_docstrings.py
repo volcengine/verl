@@ -30,24 +30,29 @@ class DocstringChecker(ast.NodeVisitor):
         self.filename = filename
         self.missing_docstrings: List[Tuple[str, str, int]] = []
         self.current_class = None
+        self.function_nesting_level = 0
         
     def visit_FunctionDef(self, node: ast.FunctionDef):
         """Visit function definitions and check for docstrings."""
-        if not node.name.startswith('_'):
+        if not node.name.startswith('_') and self.function_nesting_level == 0:
             if not self._has_docstring(node):
                 func_name = f"{self.current_class}.{node.name}" if self.current_class else node.name
                 self.missing_docstrings.append((func_name, self.filename, node.lineno))
         
+        self.function_nesting_level += 1
         self.generic_visit(node)
+        self.function_nesting_level -= 1
     
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
         """Visit async function definitions and check for docstrings."""
-        if not node.name.startswith('_'):
+        if not node.name.startswith('_') and self.function_nesting_level == 0:
             if not self._has_docstring(node):
                 func_name = f"{self.current_class}.{node.name}" if self.current_class else node.name
                 self.missing_docstrings.append((func_name, self.filename, node.lineno))
         
+        self.function_nesting_level += 1
         self.generic_visit(node)
+        self.function_nesting_level -= 1
     
     def visit_ClassDef(self, node: ast.ClassDef):
         """Visit class definitions and check for docstrings."""
