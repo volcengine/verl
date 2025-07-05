@@ -73,12 +73,12 @@ class MCPSandboxTool(MCPBaseTool):
                     metadata["error_type"] = match.group(1)
             else:
                 raise ValueError(f"Unhandled statusCode: {metadata['status_code']}")
+
+            metadata["status"] = "success"
         except Exception as e:
             err_msg = f"Failed to parse tool result: {type(e).__name__} - {e}"
             logger.error(err_msg)
             metadata["api_request_error"] = err_msg
             metadata["status"] = "error"
-
-        metadata["status"] = "success"
 
         return result_text, metadata

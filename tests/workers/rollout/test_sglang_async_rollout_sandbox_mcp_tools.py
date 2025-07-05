@@ -1,5 +1,6 @@
 # Copyright 2025 Bytedance Ltd. and/or its affiliates
 # Copyright 2023-2024 SGLang Team
+# Copyright 2025 ModelBest Inc. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -44,25 +45,29 @@ def get_sandbox_messages():
             are 152 students at Dala High School. Assume the following: \n- 100 students take a Math class \n- 94 
             students take a Science class \n- 57 students take an English class \n- 73 students take a Math class 
             and a Science class \n- 24 students take a Math class and an English class \n- 27 students take a Science 
-            class and an English class \n- 22 students take a Math class and a Science class and an English class\n \nHow 
-            many students take neither a Math class nor a Science class nor an Eglish class?\n\nRemember to place the final 
-            answer in the last part using the format: \n<answer>\n\boxed{'The final answer goes here.'}\n</answer>
+            class and an English class \n- 22 students take a Math class and a Science class and an English class
+            \n \nHow many students take neither a Math class nor a Science class nor an Eglish class?\n\nRemember
+            to place the final answer in the last part using the format: \n<answer>\n\boxed{'The final answer 
+            goes here.'}\n</answer>
         """,
     }
     expect_turn_0_msg = {
         "role": "assistant",
         "content": """
-            Okay, so I need to find out how many students at Dala High School are not taking any of the three classes: Math, 
-            Science, or English. The total number of students is 152. Let me see... I remember this is a problem about sets 
-            and maybe using the principle of inclusion-exclusion. Let me recall how that works.\n\nFirst, the inclusion-exclusion 
-            principle for three sets says that the total number of students taking at least one of the classes is equal to the 
-            sum of the numbers in each individual class, minus the sum of the numbers in each pair of classes, plus the number in 
-            all three classes. Then, subtract that total from the overall number of students to get those not taking any of the 
-            three. \n\nLet me write that down step by step. Let M be the set of students taking Math, S for Science, and E for English. 
-            Then:\n\nTotal in at least one class = |M ∪ S ∪ E| = |M| + |S| + |E| - |M ∩ S| - |M ∩ E| - |S ∩ E| + |M ∩ S ∩ E|\n\nGiven the 
-            numbers:\n\n|M| = 100\n\n|S| = 94\n\n|E| = 57\n\n|M ∩ S| = 73\n\n|M ∩ E| = 24\n\n|S ∩ E| = 27\n\n|M ∩ S ∩ E| = 22\n\nSo plugging 
-            these into the formula:\n\nTotal = 100 + 94 + 57 - 73 - 24 - 27 + 22\n\nLet me compute that step by step using code to ensure 
-            accuracy.\n
+            Okay, so I need to find out how many students at Dala High School are not taking any of 
+            the three classes: Math, Science, or English. The total number of students is 152. 
+            Let me see... I remember this is a problem about sets and maybe using the principle 
+            of inclusion-exclusion. Let me recall how that works.\n\nFirst, the inclusion-exclusion 
+            principle for three sets says that the total number of students taking at least one of 
+            the classes is equal to the sum of the numbers in each individual class, minus the sum 
+            of the numbers in each pair of classes, plus the number in all three classes. Then, subtract 
+            that total from the overall number of students to get those not taking any of the 
+            three. \n\nLet me write that down step by step. Let M be the set of students taking Math, 
+            S for Science, and E for English. Then:\n\nTotal in at least one class = |M ∪ S ∪ E| = 
+            |M| + |S| + |E| - |M ∩ S| - |M ∩ E| - |S ∩ E| + |M ∩ S ∩ E|\n\nGiven the numbers:\n\n|M| = 
+            100\n\n|S| = 94\n\n|E| = 57\n\n|M ∩ S| = 73\n\n|M ∩ E| = 24\n\n|S ∩ E| = 27\n\n|M ∩ S ∩ E| 
+            = 22\n\nSo plugging these into the formula:\n\nTotal = 100 + 94 + 57 - 73 - 24 - 27 + 22\n\n
+            Let me compute that step by step using code to ensure accuracy.\n
         """,
         "tool_calls": [
             {
@@ -71,7 +76,8 @@ def get_sandbox_messages():
                     "name": "run_code",
                     "arguments": {
                         "codeStr": """M = 100\\nS = 94\\nE = 57\\nM_S = 73\\nM_E = 24\\nS_E = 27\\nM_S_E = 
-                        22\\n\\ntotal_in_any = M + S + E - M_S - M_E - S_E + M_S_E\\nstudents_neither = 152 - total_in_any\\nprint(students_neither)""",
+                        22\\n\\ntotal_in_any = M + S + E - M_S - M_E - S_E + M_S_E\\nstudents_neither = 152 
+                        - total_in_any\\nprint(students_neither)""",
                         "language": "python",
                     },
                 },
@@ -98,9 +104,10 @@ def get_sandbox_messages():
                 "function": {
                     "name": "run_code",
                     "arguments": {
-                        "code": """only_M_S = 73 - 22\\nonly_M_E = 24 - 22\\nonly_S_E = 27 - 22\\n\\nonly_M = 100 - only_M_S -
-                        only_M_E - 22\\nonly_S = 94 - only_M_S - only_S_E - 22\\nonly_E = 57 - only_M_E - only_S_E - 22\\n\\ntotal_verify
-                        = only_M + only_S + only_E + only_M_S + only_M_E + only_S_E + 22\\nprint(total_verify)""",
+                        "code": """only_M_S = 73 - 22\\nonly_M_E = 24 - 22\\nonly_S_E = 27 - 22\\n\\nonly_M
+                        = 100 - only_M_S - only_M_E - 22\\nonly_S = 94 - only_M_S - only_S_E - 22\\nonly_E 
+                        = 57 - only_M_E - only_S_E - 22\\n\\ntotal_verify = only_M + only_S + only_E + 
+                        only_M_S + only_M_E + only_S_E + 22\\nprint(total_verify)""",
                         "language": "python",
                     },
                 },
@@ -175,8 +182,14 @@ class TestRolloutWithMCPSandboxTools:
     def sandbox_data(self, qwen_tokenizer):
         user_prompt, expect_turn_array, tool_return_array = get_sandbox_messages()
         prompts = [[message] for message in user_prompt]
-        preencode_turn_array = [qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=False) for turn in expect_turn_array]
-        preencode_tool_return_array = [qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True) for turn in tool_return_array]
+        preencode_turn_array = [
+            qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=False)
+            for turn in expect_turn_array
+        ]
+        preencode_tool_return_array = [
+            qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True)
+            for turn in tool_return_array
+        ]
         return prompts, preencode_turn_array, preencode_tool_return_array
 
     @pytest.fixture
@@ -186,13 +199,18 @@ class TestRolloutWithMCPSandboxTools:
         dtype = "bfloat16"
         tensor_parallel_size = 1
         tool_path = "./resource/tool_configs/sandbox_mcp_tool_config"
-        rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_path)
+        rollout_config = get_rollout_config(
+            max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_path
+        )
         return rollout_config
 
     @pytest.fixture
     def sandbox_data_proto(self, sandbox_data, qwen_tokenizer):
         preencode_prompts, _, _ = sandbox_data
-        prompts = [qwen_tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True) for message in preencode_prompts]
+        prompts = [
+            qwen_tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True)
+            for message in preencode_prompts
+        ]
         input_ids, attention_mask, position_ids = prepare_inputs(qwen_tokenizer, prompts, 1000)
         prompt_dict = TensorDict(
             {
@@ -215,7 +233,9 @@ class TestRolloutWithMCPSandboxTools:
             dtype=object,
         )
         index = np.array([0], dtype=object)
-        prompts = DataProto(batch=prompt_dict, non_tensor_batch={"raw_prompt": messages, "tools_kwargs": tools_kwargs, "index": index})
+        prompts = DataProto(
+            batch=prompt_dict, non_tensor_batch={"raw_prompt": messages, "tools_kwargs": tools_kwargs, "index": index}
+        )
         return prompts
 
     @pytest.fixture
@@ -246,10 +266,17 @@ class TestRolloutWithMCPSandboxTools:
                 },
             }
         ]
-        with patch.object(MCPClientManager, "fetch_tool_schemas", return_value=tool_schema), patch.object(MCPClientManager, "initialize", return_value=None), patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(
+        with patch.object(MCPClientManager, "fetch_tool_schemas", return_value=tool_schema), patch.object(
+            MCPClientManager, "initialize", return_value=None
+        ), patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(
             SGLangRollout, "_init_inference_engine", return_value=None
         ), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
-            rollout = SGLangRollout(actor_module="", config=sandbox_rollout_config, processing_class=qwen_tokenizer, model_hf_config=qwen_model_config)
+            rollout = SGLangRollout(
+                actor_module="",
+                config=sandbox_rollout_config,
+                processing_class=qwen_tokenizer,
+                model_hf_config=qwen_model_config,
+            )
             rollout.sampling_params = {
                 "n": 1,
                 "max_new_tokens": sandbox_rollout_config.response_length,
@@ -285,7 +312,19 @@ class TestRolloutWithMCPSandboxTools:
         # here we mock a meta info with 'length'. indicate the response is truncate
         mock_rollout._handle_engine_call = MagicMock()
         future = asyncio.Future()
-        future.set_result({"text": expect_turn_array[0], "meta_info": {"id": "d1188d81cba840359df5b352b344bc8e", "finish_reason": {"type": "length", "length": 1024}, "prompt_tokens": 132, "completion_tokens": 100, "cached_tokens": 0, "e2e_latency": 9.9304039478302}})
+        future.set_result(
+            {
+                "text": expect_turn_array[0],
+                "meta_info": {
+                    "id": "d1188d81cba840359df5b352b344bc8e",
+                    "finish_reason": {"type": "length", "length": 1024},
+                    "prompt_tokens": 132,
+                    "completion_tokens": 100,
+                    "cached_tokens": 0,
+                    "e2e_latency": 9.9304039478302,
+                },
+            }
+        )
         mock_rollout._handle_engine_call.return_value = future
         mock_rollout._tp_rank = 0
         loop = asyncio.get_event_loop()
@@ -321,7 +360,19 @@ class TestRolloutWithMCPSandboxTools:
         mock_rollout._handle_engine_call = MagicMock()
         futures = [asyncio.Future() for i in expect_turn_array]
         for idx, (i, turn) in enumerate(zip(futures, expect_turn_array)):
-            i.set_result({"text": turn, "meta_info": {"id": "d1188d81cba840359df5b352b344bc8e", "finish_reason": {"type": "tool_calls" if idx < len(expect_turn_array) - 1 else "stop"}, "prompt_tokens": len(turn), "completion_tokens": 100, "cached_tokens": 0, "e2e_latency": 9.9304039478302}})
+            i.set_result(
+                {
+                    "text": turn,
+                    "meta_info": {
+                        "id": "d1188d81cba840359df5b352b344bc8e",
+                        "finish_reason": {"type": "tool_calls" if idx < len(expect_turn_array) - 1 else "stop"},
+                        "prompt_tokens": len(turn),
+                        "completion_tokens": 100,
+                        "cached_tokens": 0,
+                        "e2e_latency": 9.9304039478302,
+                    },
+                }
+            )
             if idx < len(expect_turn_array) - 1:
                 assert mock_rollout._function_call_parser.has_tool_call(turn)
                 assert mock_rollout._function_call_parser.parse_non_stream(turn)
@@ -330,7 +381,9 @@ class TestRolloutWithMCPSandboxTools:
         mock_rollout._tp_rank = 0
 
         loop = asyncio.get_event_loop()
-        output_req_list = loop.run_until_complete(asyncio.gather(*[mock_rollout._async_rollout_a_request(req, True, False) for req in req_list]))
+        output_req_list = loop.run_until_complete(
+            asyncio.gather(*[mock_rollout._async_rollout_a_request(req, True, False) for req in req_list])
+        )
 
         # Verify conversation completed successfully with proper tool usage
         output_req = output_req_list[0]
@@ -394,7 +447,9 @@ class TestRolloutWithMCPSandboxTools:
         with patch.object(SGLangRollout, "_handle_engine_call", new=hacked_handle_engine_call):
             mock_rollout._tp_rank = 0
             loop = asyncio.get_event_loop()
-            output_req_list = loop.run_until_complete(asyncio.gather(*[mock_rollout._async_rollout_a_request(r, True, False) for r in req_list]))
+            output_req_list = loop.run_until_complete(
+                asyncio.gather(*[mock_rollout._async_rollout_a_request(r, True, False) for r in req_list])
+            )
 
         # Verify all requests completed successfully
         assert len(output_req_list) == req_nums
