@@ -20,14 +20,26 @@ from verl.experimental.agent_loop import AgentLoopManager
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
-from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 
 
 def init_agent_loop_manager(config: DictConfig) -> Union[AgentLoopManager, RayWorkerGroup]:
     # =========================== 1. Create hybrid ActorRollout workers ===========================
-    actor_rollout_cls = (
-        AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
-    )
+    strategy = config.actor_rollout_ref.actor.strategy
+    if strategy in ["fsdp", "fsdp2"]:
+        from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+
+        actor_rollout_cls = (
+            AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
+        )
+    elif strategy == "megatron":
+        from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+
+        actor_rollout_cls = (
+            AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
+        )
+    else:
+        raise ValueError(f"Unsupported actor strategy: {strategy}")
+
     role_worker_mapping = {
         Role.ActorRollout: ray.remote(actor_rollout_cls),
     }

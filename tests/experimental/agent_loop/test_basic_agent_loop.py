@@ -27,9 +27,29 @@ from verl.tools.base_tool import BaseTool, OpenAIFunctionToolSchema
 from verl.utils import hf_tokenizer
 
 
+def init_fsdp_config() -> DictConfig:
+    config = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
+    # test sleep/wake_up with fsdp offload
+    config.actor_rollout_ref.actor.fsdp_config.param_offload = True
+    config.actor_rollout_ref.actor.fsdp_config.optimizer_offload = True
+    return config
+
+
+def init_megatron_config() -> DictConfig:
+    config = OmegaConf.load("verl/trainer/config/ppo_megatron_trainer.yaml")
+    config.actor_rollout_ref.actor.megatron.tensor_model_parallel_size = 2
+    config.actor_rollout_ref.actor.megatron.pipeline_model_parallel_size = 2
+
+    # FIXME: sglang with megatron param_offload got error:
+    # "CUDA error: an illegal memory access was encountered"
+    config.actor_rollout_ref.actor.megatron.param_offload = False
+    config.actor_rollout_ref.actor.megatron.optimizer_offload = True
+    return config
+
+
 @pytest.fixture
 def init_config() -> DictConfig:
-    config = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
+    config = init_fsdp_config() if os.getenv("BACKEND", "fsdp") == "fsdp" else init_megatron_config()
     model_path = "Qwen/Qwen2.5-1.5B-Instruct"
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
@@ -38,10 +58,7 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.rollout.response_length = 4096
     config.actor_rollout_ref.rollout.n = 4
     config.actor_rollout_ref.rollout.agent.num_workers = 2
-
-    # test sleep/wake_up with fsdp offload
-    config.actor_rollout_ref.actor.fsdp_config.param_offload = True
-    config.actor_rollout_ref.actor.fsdp_config.optimizer_offload = True
+    config.actor_rollout_ref.actor.optim.total_training_steps = 100
 
     return config
 
