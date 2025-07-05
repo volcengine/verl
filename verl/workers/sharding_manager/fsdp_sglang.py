@@ -207,6 +207,15 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         params = {
             k: v.to(device, non_blocking=True) if fsdp_version(self.module) == 2 else v for k, v in params.items()
         }
+
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
+            if self.multi_stage_wake_up:
+                await self.inference_engine.resume_memory_occupation(tags=["weights"])
+                log_gpu_memory_usage("Before resume SGLang weights in sharding manager", logger=logger)
+            else:
+                await self.inference_engine.resume_memory_occupation()
+                log_gpu_memory_usage("Before resume SGLang weights + kv_cache in sharding manager", logger=logger)
+
         # Copy, not share memory
         await self.update_weights(params)
         log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
@@ -216,6 +225,10 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             offload_fsdp_model_to_cpu(self.module)
         get_torch_device().empty_cache()
         log_gpu_memory_usage("After del state_dict and empty_cache in sharding manager", logger=logger)
+
+        if self.multi_stage_wake_up and self.rollout_config.free_cache_engine:
+            await self.inference_engine.resume_memory_occupation(tags=["kv_cache"])
+            log_gpu_memory_usage("After resume SGLang kv_cache in sharding manager", logger=logger)
 
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:

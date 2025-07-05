@@ -292,13 +292,13 @@ jobs:
       - name: Running GSM8K E2E training tests on sglang async
         run: |
           ray stop --force
-          ENGINE=sglang ROLLOUT_MODE=async bash tests/special_e2e/ppo_trainer/run_function_reward.sh
+          TOTAL_TRAIN_STEPS=2 ENGINE=sglang ROLLOUT_MODE=async bash tests/special_e2e/ppo_trainer/run_function_reward.sh
       - name: Running GSM8K E2E training tests on vllm async
         run: |
           ray stop --force
           export VLLM_USE_V1=1
           ray start --head
-          ENGINE=vllm ROLLOUT_MODE=async bash tests/special_e2e/ppo_trainer/run_function_reward.sh
+          TOTAL_TRAIN_STEPS=2 ENGINE=vllm ROLLOUT_MODE=async bash tests/special_e2e/ppo_trainer/run_function_reward.sh
 
   e2e_ppo_trainer_sglang_multiturn_with_tool:
     runs-on: [L20x8]
