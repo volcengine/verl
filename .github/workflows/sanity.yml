@@ -95,3 +95,5 @@ jobs:
         run: python3 tests/special_sanity/check_device_api_usage.py --directory ./verl
       - name: Assert documentation time info
         run: python3 tests/special_sanity/check_docs_time_info.py
+      - name: Check docstrings for specified files
+        run: python3 tests/special_sanity/check_docstrings.py
