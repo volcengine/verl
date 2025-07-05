@@ -114,6 +114,7 @@ Actor/Rollout/Reference Policy
       ppo_max_token_len_per_gpu: 16384 # n * ${data.max_prompt_length} + ${data.max_response_length}
       grad_clip: 1.0
       clip_ratio: 0.2
+      max_grad_norm: null # Skip the update if the gradient norm is larger than this value
       entropy_coeff: 0.0
       use_kl_loss: False # True for GRPO
       use_torch_compile: True # False to disable torch compile
@@ -240,6 +241,8 @@ Actor/Rollout/Reference Policy
 - ``actor_rollout_ref.actor.use_kl_loss``: to use kl loss in actor. When used, we are not applying KL in the reward function.
 
 - ``actor_rollout_ref.actor.clip_ratio``: PPO clip ratio
+
+- ``actor_rollout_ref.actor.max_grad_norm``: Skip the update if the gradient norm is larger than this value
 
 - ``actor_rollout_ref.actor.use_torch_compile``: Whether to use torch compile in actor
 
