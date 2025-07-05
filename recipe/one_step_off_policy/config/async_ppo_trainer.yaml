@@ -1,0 +1,15 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+
+actor_rollout_ref:
+  hybrid_engine: false
+  rollout:
+    
+    # the number of gpu for rollout model
+    n_gpus: 4
