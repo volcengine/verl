@@ -41,6 +41,7 @@ from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
+from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import (
     get_device_id,
     get_device_name,
@@ -150,11 +151,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         profiler_config: Optional[ProfilerConfig] = None
         if self._is_actor:
-            profiler_config = config.actor.get("profiler", {})
+            profiler_config = omega_conf_to_dataclass(config.actor.get("profiler"))
         if self._is_rollout:
-            profiler_config = config.rollout.get("profiler", {})
+            profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler"))
         if self._is_ref:
-            profiler_config = config.ref.get("profiler", {})
+            profiler_config = omega_conf_to_dataclass(config.ref.get("profiler"))
 
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
 
@@ -915,7 +916,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config):
         Worker.__init__(self)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler", {})))
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
+        )
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -1300,7 +1303,9 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
     def __init__(self, config):
         Worker.__init__(self)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler", {})))
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
+        )
 
         import torch.distributed
 

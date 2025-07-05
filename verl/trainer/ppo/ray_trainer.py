@@ -52,6 +52,7 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
+from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.dataset.sampler import AbstractCurriculumSampler
 from verl.utils.debug import marked_timer
 from verl.utils.metric import (
@@ -372,6 +373,14 @@ class RayPPOTrainer:
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
     def _validate_config(self):
+        # TODO(haibin.lin):
+        # As of now the type of config is DictConfig, if we assign config.algorithm with AlgoConfig,
+        # it will actually convert the AlgoConfig dataclass back to a DictConfig.
+        # We can still use AlgoConfig / ProfilerConfig for testing purpose (tests/utils/test_nvtx_profile.py)
+        # as they provides DictConfig-like interface
+        # The benefit of creating the dataclass config is to perform validation during __post_init__
+        omega_conf_to_dataclass(self.config.algorithm)
+
         config = self.config
         # number of GPUs total
         n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
