@@ -370,21 +370,19 @@ class SGLangRollout(BaseRollout):
             self.config.max_model_len >= self.config.prompt_length + self.config.response_length
         ), f"""max_model_len should be greater than total sequence length (prompt_length + response_length): 
             {self.config.max_model_len} >= {self.config.prompt_length} + {self.config.response_length}"""
+        max_position_embeddings = None
+        if hasattr(model_hf_config, "max_position_embeddings"):
+            max_position_embeddings = model_hf_config.max_position_embeddings
+        elif hasattr(model_hf_config, "llm_config") and hasattr(model_hf_config.llm_config, "max_position_embeddings"):
+            max_position_embeddings = model_hf_config.llm_config.max_position_embeddings
+        elif hasattr(model_hf_config, "text_config") and hasattr(
+            model_hf_config.text_config, "max_position_embeddings"
+        ):
+            max_position_embeddings = model_hf_config.text_config.max_position_embeddings
+        if max_position_embeddings is None:
+            raise ValueError("max_position_embeddings not found in model_hf_config")
         rope_scaling_config = getattr(model_hf_config, "rope_scaling", None)
         if not rope_scaling_config:
-            max_position_embeddings = None
-            if hasattr(model_hf_config, "max_position_embeddings"):
-                max_position_embeddings = model_hf_config.max_position_embeddings
-            elif hasattr(model_hf_config, "llm_config") and hasattr(
-                model_hf_config.llm_config, "max_position_embeddings"
-            ):
-                max_position_embeddings = model_hf_config.llm_config.max_position_embeddings
-            elif hasattr(model_hf_config, "text_config") and hasattr(
-                model_hf_config.text_config, "max_position_embeddings"
-            ):
-                max_position_embeddings = model_hf_config.text_config.max_position_embeddings
-            if max_position_embeddings is None:
-                raise ValueError("max_position_embeddings not found in model_hf_config")
             assert max_position_embeddings >= self.config.prompt_length + self.config.response_length, (
                 "model context length should be greater than total sequence length"
             )
