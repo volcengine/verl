@@ -62,7 +62,7 @@ class TestConfigComparison(unittest.TestCase):
         GlobalHydra.instance().clear()
 
         try:
-            with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config"), version_base=None):
+            with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
                 current_config = compose(config_name="ppo_trainer")
 
             legacy_config = OmegaConf.load("tests/trainer/config/legacy_ppo_trainer.yaml")

@@ -16,8 +16,6 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from omegaconf import OmegaConf
-
 from verl.utils import omega_conf_to_dataclass
 from verl.utils.profiler import ProfilerConfig
 from verl.utils.profiler.nvtx_profile import NsightSystemsProfiler
@@ -25,7 +23,12 @@ from verl.utils.profiler.nvtx_profile import NsightSystemsProfiler
 
 class TestProfilerConfig(unittest.TestCase):
     def test_config_init(self):
-        cfg = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
+        import os
+
+        from hydra import compose, initialize_config_dir
+
+        with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
+            cfg = compose(config_name="ppo_trainer")
         arr = cfg.actor_rollout_ref
         for config in [
             cfg.critic.profiler,

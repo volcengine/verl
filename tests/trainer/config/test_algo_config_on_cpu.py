@@ -126,7 +126,12 @@ class TestAlgoConfig(unittest.TestCase):
         self.assertIsNone(minimal_config.pf_ppo)
 
     def test_config_init_from_yaml(self):
-        cfg = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
+        import os
+
+        from hydra import compose, initialize_config_dir
+
+        with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
+            cfg = compose(config_name="ppo_trainer")
         algo_config = omega_conf_to_dataclass(cfg.algorithm)
         from verl.trainer.config import AlgoConfig, PFPPOConfig
 
