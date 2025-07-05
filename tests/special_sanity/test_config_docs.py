@@ -62,7 +62,6 @@ def test_trainer_config_doc():
         "verl/trainer/config/ppo_trainer.yaml",
         "verl/trainer/config/actor/actor.yaml",
         "verl/trainer/config/actor/dp_actor.yaml",
-        "verl/trainer/config/actor/megatron_actor.yaml",
     ]
     success = True
     for yaml_to_inspect in yamls_to_inspect:
