@@ -32,7 +32,36 @@ For custom environment interaction tools, you can implement your own tools based
 
 You may refer to GSM8KTool_example_configuration_, which is one example of the tool configurations. Its implementation can be found in gsm8k_tool.py_.
 
-For MCP interaction tools, specify your tool configurations in a YAML file, where mcp_servers_config_path is a json file of MCP servers and tool_selected_list (Optional) is the tools used from servers. If you want to use all tools, just remove this attribute.
+Finally, set the ``tools_config_file`` in your rollout config:
+
+.. code-block:: yaml
+
+    actor_rollout_ref:
+        rollout:
+            tool_kwargs:
+                tools_config_file: <path_to_tool_yaml_file>
+
+This allows integration of customized tool behaviors during actor rollout steps.
+
+If you want rollout with simulated interaction, you can set the ``interaction_config_file`` in your rollout config:
+
+.. code-block:: yaml
+
+    interaction:
+      - class_name: ""
+        config: {}
+
+.. code-block:: yaml
+
+    actor_rollout_ref:
+        rollout:
+            interaction_config_file: <path_to_interaction_yaml_file>
+
+
+MCP Tool Configuration
+~~~~~~~~~~~~~~~~~~~~~~
+
+For MCP interaction tools, you can flexibly configure them using a YAML file. The typical setup is as follows:
 
 .. code-block:: yaml
 
@@ -42,7 +71,9 @@ For MCP interaction tools, specify your tool configurations in a YAML file, wher
             type: mcp
         mcp:
             mcp_servers_config_path: ./mcp_server.json
-            tool_selected_list:
+            tool_selected_list: {}
+
+The ``tool_selected_list`` field is optional and specifies which tools to use from the servers. If you want to enable all available tools, simply omit this attribute. Besides, ``mcp_servers_config_path`` points to a JSON file containing the MCP server configurations. For example:
 
 .. code-block:: json
 
@@ -62,8 +93,7 @@ For MCP interaction tools, specify your tool configurations in a YAML file, wher
           }
       }
 
-Since the content formats returned by the MCP server may vary, users can inherit from ``MCPBaseTool`` and override the ``_parse_tool_result`` method to implement custom parsing logic. 
-You may refer to mcp_search_tool.py_ and mcp_tool_config.yaml_ for custom implementation and configuration.
+Since the content formats returned by the MCP server may vary, users can inherit from ``MCPBaseTool`` and override the ``_parse_tool_result`` method to implement custom parsing logic.
 
 .. code-block:: python
 
@@ -74,31 +104,8 @@ You may refer to mcp_search_tool.py_ and mcp_tool_config.yaml_ for custom implem
        def _parse_tool_result(self, content: list) -> Tuple[str, dict]:
            ...
 
+Overall, you may refer to mcp_search_tool.py_ and mcp_tool_config.yaml_ for custom implementation and configuration.
 
-Finally, set the ``tools_config_file`` in your rollout config:
-
-.. code-block:: yaml
-
-    actor_rollout_ref:
-        rollout:
-            tool_kwargs:
-                tools_config_file: <path_to_tool_yaml_file>
-
-This allows integration of customized tool behaviors during actor rollout steps. 
-
-If you want rollout with simulated interaction, you can set the ``interaction_config_file`` in your rollout config:
-
-.. code-block:: yaml
-
-    interaction:
-      - class_name: ""
-        config: {}
-
-.. code-block:: yaml
-
-    actor_rollout_ref:
-        rollout:
-            interaction_config_file: <path_to_interaction_yaml_file>
 
 If your tool creates multi-modal inputs, you should return a list of multi-modal inputs in your tool.execute() implementation.
 
@@ -310,6 +317,10 @@ See the training performance of multi-turn rollout on the GSM8K task HERE_.
 .. _GSM8KTool_example_configuration: https://github.com/volcengine/verl/blob/main/examples/sglang_multiturn/config/tool_config/gsm8k_tool_config.yaml
 
 .. _gsm8k_tool.py: https://github.com/volcengine/verl/blob/main/verl/tools/gsm8k_tool.py
+
+.. _mcp_search_tool.py: https://github.com/volcengine/verl/blob/main/verl/tools/mcp_search_tool.py
+
+.. _mcp_tool_config.yaml: https://github.com/volcengine/verl/blob/main/examples/sglang_multiturn/config/tool_config/mcp_tool_config.yaml
 
 Interaction System
 ~~~~~~~~~~~~~~~~~~
