@@ -1272,9 +1272,9 @@ class SGLangRollout(BaseRollout):
 
     async def chat_completion(self, json_request):
         assert self._tp_rank == 0, "only called in tp rank 0"
-        _input_ids = []
-        _attention_mask = []
-        _position_ids = []
+        _input_ids = None
+        _attention_mask = None
+        _position_ids = None
         _tool_schemas = []
         _tools_kwargs = {}
 

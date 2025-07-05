@@ -95,18 +95,18 @@ class AsyncRolloutRequest(BaseModel):
     tool_schemas: Optional[List[OpenAIFunctionToolSchema]] = None
     tools_kwargs: Dict[str, Any] = {}
     interaction_kwargs: Dict[str, Any] = {}
-    input_ids: torch.Tensor | List[int]
-    prompt_ids: torch.Tensor | List[int]
-    response_ids: torch.Tensor | List[int]
-    attention_mask: torch.Tensor | List[int]
-    prompt_attention_mask: torch.Tensor | List[int]
-    response_attention_mask: torch.Tensor | List[int]
-    position_ids: torch.Tensor | List[int]
-    prompt_position_ids: torch.Tensor | List[int]
-    response_position_ids: torch.Tensor | List[int]
-    loss_mask: torch.Tensor | List[int]
-    prompt_loss_mask: torch.Tensor | List[int]
-    response_loss_mask: torch.Tensor | List[int]
+    input_ids: Optional[torch.Tensor] = None
+    prompt_ids: Optional[torch.Tensor] = None
+    response_ids: Optional[torch.Tensor] = None
+    attention_mask: Optional[torch.Tensor] = None
+    prompt_attention_mask: Optional[torch.Tensor] = None
+    response_attention_mask: Optional[torch.Tensor] = None
+    position_ids: Optional[torch.Tensor] = None
+    prompt_position_ids: Optional[torch.Tensor] = None
+    response_position_ids: Optional[torch.Tensor] = None
+    loss_mask: Optional[torch.Tensor] = None
+    prompt_loss_mask: Optional[torch.Tensor] = None
+    response_loss_mask: Optional[torch.Tensor] = None
     reward_scores: Dict[str, float]
     max_prompt_len: int
     max_response_len: int = 8192
@@ -115,7 +115,7 @@ class AsyncRolloutRequest(BaseModel):
 
     use_inference_chat_template: bool
     tokenization_sanity_check_mode: TokenizationSanityCheckModeEnum
-    generation_prompt_ids: torch.Tensor | List[int]
+    generation_prompt_ids: Optional[torch.Tensor] = None
     base_conv_wo_gen_prompt_end_pos: int
     base_conv_with_gen_prompt_end_pos: int
 
@@ -157,7 +157,11 @@ class AsyncRolloutRequest(BaseModel):
             add_generation_prompt=False,
             tokenize=True,
         )
-        if not values.get("input_ids") or not values.get("attention_mask") or not values.get("position_ids"):
+        if (
+            values.get("input_ids") is None
+            or values.get("attention_mask") is None
+            or values.get("position_ids") is None
+        ):
             tokenization_dict_with_prompt = cls._handle_apply_chat_template(
                 processing_class,
                 messages,
