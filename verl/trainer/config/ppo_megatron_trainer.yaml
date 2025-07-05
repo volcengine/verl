@@ -27,7 +27,6 @@ data:
 
 actor_rollout_ref:
   hybrid_engine: True
-  nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
   model:
     path: ~/models/deepseek-llm-7b-chat
     custom_chat_template: null
@@ -281,7 +280,6 @@ actor_rollout_ref:
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
   strategy: ${actor_rollout_ref.actor.strategy}
-  nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
   optim:
     optimizer: adam
     lr: 1e-6
@@ -361,7 +359,6 @@ critic:
 reward_model:
   enable: False
   strategy: ${actor_rollout_ref.actor.strategy}
-  nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
   megatron:
     param_offload: False
     tensor_model_parallel_size: 1
