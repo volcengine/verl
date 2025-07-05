@@ -20,7 +20,8 @@ from verl import DataProto
 
 class BaseShardingManager:
     def __enter__(self):
-        pass
+        self.timing = {}
+
 
     def __exit__(self, exc_type, exc_value, traceback):
         pass

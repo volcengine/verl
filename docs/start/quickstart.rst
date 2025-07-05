@@ -102,7 +102,6 @@ You may set ``VERL_USE_MODELSCOPE=True`` to download models from `modelscope <ht
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.logger=['console'] \
     trainer.val_before_train=False \
-    trainer.default_hdfs_dir=null \
     trainer.n_gpus_per_node=1 \
     trainer.nnodes=1 \
     trainer.save_freq=10 \
