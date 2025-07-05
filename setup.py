@@ -29,7 +29,7 @@ install_requires = [
     "datasets",
     "dill",
     "hydra-core",
-    "numpy",
+    "numpy<2.0.0",
     "pandas",
     "peft",
     "pyarrow>=19.0.0",
@@ -56,6 +56,7 @@ SGLANG_REQUIRES = [
     "torch==2.6.0",
 ]
 TRL_REQUIRES = ["trl<=0.9.6"]
+MCORE_REQUIRES = ["mbridge"]
 
 extras_require = {
     "test": TEST_REQUIRES,
@@ -66,6 +67,7 @@ extras_require = {
     "vllm": VLLM_REQUIRES,
     "sglang": SGLANG_REQUIRES,
     "trl": TRL_REQUIRES,
+    "mcore": MCORE_REQUIRES,
 }
 
 

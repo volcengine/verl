@@ -76,7 +76,9 @@ class NaiveRewardManager:
 
             ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
             data_source = data_item.non_tensor_batch[self.reward_fn_key]
-            extra_info = data_item.non_tensor_batch.get("extra_info", None)
+            extra_info = data_item.non_tensor_batch.get("extra_info", {})
+            num_turns = data_item.non_tensor_batch.get("__num_turns__", None)
+            extra_info["num_turns"] = num_turns
 
             score = self.compute_score(
                 data_source=data_source,

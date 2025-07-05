@@ -111,18 +111,24 @@ def marked_timer(
 
 
 class NsightSystemsProfiler(DistProfiler):
-    """
-    Nsight system profiler. Installed in a worker to control the Nsight system profiler.
-    """
+    """Nsight system profiler. Installed in a worker to control the Nsight system profiler."""
 
-    def __init__(self, rank: int, config: ProfilerConfig):
-        config = config
+    def __init__(self, rank: int, config: Optional[ProfilerConfig]):
+        """Initialize the NsightSystemsProfiler.
+
+        Args:
+            rank (int): The rank of the current process.
+            config (Optional[ProfilerConfig]): Configuration for the profiler. If None, a default configuration is used.
+        """
+        # If no configuration is provided, create a default ProfilerConfig with an empty list of ranks
+        if not config:
+            config = ProfilerConfig(ranks=[])
         self.this_step: bool = False
         self.discrete: bool = config.discrete
         self.this_rank: bool = False
         if config.all_ranks:
             self.this_rank = True
-        elif config.ranks is not None:
+        elif not config.ranks:
             self.this_rank = rank in config.ranks
 
     def start(self):

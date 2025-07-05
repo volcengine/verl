@@ -40,7 +40,7 @@ from verl.trainer.ppo.ray_trainer import (
     compute_advantage,
     compute_response_mask,
 )
-from verl.utils.debug import marked_timer
+from verl.utils.profiler import marked_timer
 
 
 class RayDAPOTrainer(RayPPOTrainer):
