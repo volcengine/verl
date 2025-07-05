@@ -78,6 +78,38 @@ class TokenizationSanityCheckModeEnum(str, Enum):
     IGNORE_STRIPPABLE = "ignore_strippable"
 
 
+def force_chat_end_with_eos(rendered_chat: str, eos_token: str):
+    """
+    Remove everything after the last EOS token after applying
+    tokenizer/processor.apply_chat_template(messages,add_generation_prompt=False,tokenize=False)
+
+    Args:
+        rendered_chat (str): The chat string produced by `tokenizer/processor..apply_chat_template(...)`
+            with `add_generation_prompt=False` and `tokenize=False`.
+        eos_token (str): The EOS token of the tokenizer/processor.tokenizer.
+
+    Returns:
+        str: The truncated chat string, ending exactly at the last EOS token.
+
+    Example:
+        >>> messages = [
+        ...     {"role":"system","content":" "},
+        ...     {"role": "user", "content": "Hello."},
+        ...     {"role": "assistant", "content": "Hi."}
+        ... ]
+        >>> raw_chat = tokenizer.apply_chat_template(messages,add_generation_prompt=False,tokenize=False)
+        >>> raw_chat
+        '<|im_start|>system\n <|im_end|>\n<|im_start|>user\nHello.<|im_end|>\n<|im_start|>assistant\nHi.<|im_end|>\n'
+        >>> force_chat_end_with_eos(raw_chat,eos_token=tokenizer.eos_token)
+        '<|im_start|>system\n <|im_end|>\n<|im_start|>user\nHello.<|im_end|>\n<|im_start|>assistant\nHi.<|im_end|>'
+    """
+    idx = rendered_chat.rfind(eos_token)
+    if idx == -1:
+        # This should never happen
+        raise ValueError("No EOS found in the rendered chat.")
+    return rendered_chat[: idx + len(eos_token)]
+
+
 class AsyncRolloutRequest(BaseModel):
     """The data model for async rollout."""
 
@@ -229,17 +261,28 @@ class AsyncRolloutRequest(BaseModel):
                 logger.warning(
                     "There is multi_modal_data but you are not using a processor. Multi-modal data will be ignored."
                 )
-            return processing_class.apply_chat_template(
+
+            raw_prompt = processing_class.apply_chat_template(
                 messages,
                 tools=tools,
                 add_generation_prompt=add_generation_prompt,
-                tokenize=tokenize,
-                return_dict=return_dict,
+                tokenize=False,
             )
+
+            if add_generation_prompt is False:
+                raw_prompt = force_chat_end_with_eos(raw_prompt, eos_token=processing_class.eos_token)
+
+            return (
+                processing_class(raw_prompt, return_dict=return_dict, return_tensors="pt") if tokenize else raw_prompt
+            )
+
         elif isinstance(processing_class, ProcessorMixin):
             raw_prompt = processing_class.apply_chat_template(
                 messages, tools=tools, add_generation_prompt=add_generation_prompt, tokenize=False
             )
+            if add_generation_prompt is False:
+                raw_prompt = force_chat_end_with_eos(raw_prompt, eos_token=processing_class.tokenizer.eos_token)
+
             if not tokenize:
                 return raw_prompt
 

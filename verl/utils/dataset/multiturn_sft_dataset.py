@@ -28,6 +28,7 @@ from transformers import PreTrainedTokenizer
 
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
+from verl.workers.rollout.schemas import force_chat_end_with_eos
 
 
 def convert_nested_value_to_list_recursive(data_item):
@@ -130,12 +131,15 @@ class MultiTurnSFTDataset(Dataset):
             Tuple of (tokens, loss_mask, attention_mask)
         """
         if start_idx > 0:
-            prev_applied_text = self.tokenizer.apply_chat_template(
-                messages[:start_idx],
-                tokenize=False,
-                add_generation_prompt=False,
-                enable_thinking=enable_thinking,
-                tools=tools,
+            prev_applied_text = force_chat_end_with_eos(
+                self.tokenizer.apply_chat_template(
+                    messages[:start_idx],
+                    tokenize=False,
+                    add_generation_prompt=False,
+                    enable_thinking=enable_thinking,
+                    tools=tools,
+                ),
+                eos_token=self.tokenizer.eos_token,
             )
             if is_assistant:
                 prev_applied_text_w_generation_prompt = self.tokenizer.apply_chat_template(
@@ -149,12 +153,15 @@ class MultiTurnSFTDataset(Dataset):
         else:
             prev_applied_text = ""
 
-        cur_applied_text = self.tokenizer.apply_chat_template(
-            messages[:end_idx],
-            tokenize=False,
-            add_generation_prompt=False,
-            enable_thinking=enable_thinking,
-            tools=tools,
+        cur_applied_text = force_chat_end_with_eos(
+            self.tokenizer.apply_chat_template(
+                messages[:end_idx],
+                tokenize=False,
+                add_generation_prompt=False,
+                enable_thinking=enable_thinking,
+                tools=tools,
+            ),
+            eos_token=self.tokenizer.eos_token,
         )
         # Get tokens for the current message only
         if is_assistant:
@@ -237,14 +244,17 @@ class MultiTurnSFTDataset(Dataset):
 
         # First, get the full conversation tokens
         try:
-            full_tokens = tokenizer.apply_chat_template(
-                messages,
-                tools=tools,
-                tokenize=True,
-                return_tensors="pt",
-                add_generation_prompt=False,
-                enable_thinking=enable_thinking,
+            full_chats = force_chat_end_with_eos(
+                tokenizer.apply_chat_template(
+                    messages,
+                    tools=tools,
+                    tokenize=False,
+                    add_generation_prompt=False,
+                    enable_thinking=enable_thinking,
+                ),
+                eos_token=tokenizer.eos_token,
             )
+            full_tokens = tokenizer(full_chats, return_tensors="pt")
         except Exception as e:
             logging.error(
                 f"Error applying chat template: {e}\nMessages: {messages}\nTools: {tools}\nEnable thinking: "
