@@ -18,6 +18,7 @@ Utilities to create common models from huggingface
 import os
 import re
 import warnings
+from dataclasses import dataclass
 from typing import Dict, Optional, Type
 
 import numpy as np
@@ -31,6 +32,7 @@ from transformers import (
     PretrainedConfig,
     PreTrainedModel,
 )
+from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from verl.models.registry import ModelRegistry
 from verl.utils.import_utils import is_trl_available
@@ -654,3 +656,9 @@ def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_cod
     model = AutoModelForCausalLMWithValueHead.from_pretrained(ori_model)
     patch_valuehead_model(model)
     return model
+
+
+@dataclass
+class CausalLMOutputForPPO(CausalLMOutputWithPast):
+    log_probs: Optional[torch.FloatTensor] = None
+    entropy: Optional[torch.FloatTensor] = None
