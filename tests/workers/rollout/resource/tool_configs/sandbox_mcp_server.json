@@ -1,0 +1,16 @@
+{
+    "mcpServers": {
+        "mcp-server-vefaas-sandbox": {
+            "command": "uvx",
+            "args": [
+                "--from",
+                "git+https://github.com/volcengine/mcp-server#subdirectory=server/mcp_server_vefaas_sandbox",
+                "mcp-server-vefaas-sandbox"
+                ],
+            "env": {
+                "SANDBOX_API": "your-sandbox-apig-address",
+                "AUTH_TOKEN": "your-sandbox-apig-auth-token"
+            }
+        }
+    }
+}
