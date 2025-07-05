@@ -107,10 +107,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     or a hybrid engine based on the config.rollout
     """
 
-    def __init__(self, config: DictConfig, role: str):
+    def __init__(self, config: DictConfig, profile_option: DictConfig, role: str):
         Worker.__init__(self)
 
         self.config = config
+        self.profile_option = profile_option
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -156,7 +157,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if self._is_ref:
             profiler_config = config.ref.get("profiler", {})
 
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
+        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config, option=self.profile_option))
 
         self._is_offload_param = False
         self._is_offload_optimizer = False
@@ -667,7 +668,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @DistProfiler.annotate(color="red")
+    @DistProfiler.annotate(color="red", role="actor_update")
     def update_actor(self, data: DataProto):
         # Support all hardwares
         data = data.to("cpu")  # data will to device with each micro batch on actor.update_policy
@@ -713,7 +714,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @DistProfiler.annotate(color="red")
+    @DistProfiler.annotate(color="red", role="rollout_generate")
     def generate_sequences(self, prompts: DataProto):
         # Support all hardwares
         prompts = prompts.to(get_device_id())
@@ -753,7 +754,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @DistProfiler.annotate(color="blue")
+    @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
     def compute_log_prob(self, data: DataProto):
         # when is_lora is True, we use the actor without lora applied to calculate the log_prob
         # which is mostly used for ref log_prob calculation
@@ -797,7 +798,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @DistProfiler.annotate(color="olive")
+    @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
     def compute_ref_log_prob(self, data: DataProto):
         if self._is_lora:
             # if _is_lora, actor without lora applied is the ref
@@ -902,9 +903,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             offload_fsdp_optimizer(self.actor_optimizer)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def start_profile(self) -> None:
+    def start_profile(self, **kwargs) -> None:
         """Start profiling for the current rank in the current training step."""
-        self.profiler.start()
+        self.profiler.start(**kwargs)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def stop_profile(self) -> None:

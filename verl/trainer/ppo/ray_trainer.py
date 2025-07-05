@@ -825,6 +825,7 @@ class RayPPOTrainer:
             actor_rollout_cls = RayClassWithInitArgs(
                 cls=self.role_worker_mapping[Role.ActorRollout],
                 config=self.config.actor_rollout_ref,
+                profile_option=self.config.npu_profile.options,
                 role="actor_rollout",
             )
             self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
@@ -841,7 +842,10 @@ class RayPPOTrainer:
         if self.use_reference_policy:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
             ref_policy_cls = RayClassWithInitArgs(
-                self.role_worker_mapping[Role.RefPolicy], config=self.config.actor_rollout_ref, role="ref"
+                self.role_worker_mapping[Role.RefPolicy],
+                config=self.config.actor_rollout_ref,
+                profile_option=self.config.npu_profile.options,
+                role="ref"
             )
             self.resource_pool_to_cls[resource_pool]["ref"] = ref_policy_cls
 
@@ -1094,9 +1098,9 @@ class RayPPOTrainer:
                     else False
                 )
                 if do_profile:
-                    self.actor_rollout_wg.start_profile()
+                    self.actor_rollout_wg.start_profile(role="actor_rollout", profile_step=self.global_steps)
                     if self.use_reference_policy:
-                        self.ref_policy_wg.start_profile()
+                        self.ref_policy_wg.start_profile(role="ref", profile_step=self.global_steps)
                     if self.use_critic:
                         self.critic_wg.start_profile()
                     if self.use_rm:

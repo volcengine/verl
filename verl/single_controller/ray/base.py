@@ -386,7 +386,7 @@ class RayWorkerGroup(WorkerGroup):
                 cia_name = match.group(1) if match else cia_name  # "ActorClass(Obj)" -> "Obj"
                 name = f"{self.name_prefix}{cia_name}_{pg_idx}:{local_rank}"  # e.g. Worker_2:5
 
-                if self.profile_steps:
+                if self.profile_steps and self.device_name == "cuda":
                     ray_cls_with_init.update_options(
                         {
                             "runtime_env": {

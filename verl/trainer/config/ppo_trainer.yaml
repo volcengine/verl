@@ -4,6 +4,10 @@
 # 3. Inline comments (after a field on the same line) are not allowed.
 # 4. Indentation level is respected for nested fields.
 
+defaults:
+  - _self_
+  - npu_profile/npu_profile
+
 # dataset config
 data:
 
