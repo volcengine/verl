@@ -34,9 +34,17 @@ from verl.single_controller.ray import RayWorkerGroup
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import reduce_metrics
-from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, ResourcePoolManager, Role, WorkerType, apply_kl_penalty, compute_response_mask
+from verl.trainer.ppo.ray_trainer import (
+    AdvantageEstimator,
+    RayPPOTrainer,
+    ResourcePoolManager,
+    Role,
+    WorkerType,
+    apply_kl_penalty,
+    compute_response_mask,
+)
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.utils.debug.performance import simple_timer
+from verl.utils.profiler.performance import simple_timer
 from verl.utils.tracking import ValidationGenerationsLogger
 
 
@@ -186,9 +194,7 @@ class RaySPPOTrainer(RayPPOTrainer):
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
-                            self.async_rollout_manager.wake_up()
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
-                            self.async_rollout_manager.sleep()
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
@@ -208,7 +214,9 @@ class RaySPPOTrainer(RayPPOTrainer):
 
                             del gen_baseline_batch, gen_baseline_output
 
-                    batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+                    batch.non_tensor_batch["uid"] = np.array(
+                        [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
+                    )
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
@@ -272,7 +280,9 @@ class RaySPPOTrainer(RayPPOTrainer):
 
                     # compute rewards. apply_kl_penalty if available
                     if self.config.algorithm.use_kl_in_reward:
-                        batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty)
+                        batch, kl_metrics = apply_kl_penalty(
+                            batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty
+                        )
                         metrics.update(kl_metrics)
                     else:
                         batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
@@ -314,14 +324,20 @@ class RaySPPOTrainer(RayPPOTrainer):
                         )
 
                 # validate
-                if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0):
+                if (
+                    self.val_reward_fn is not None
+                    and self.config.trainer.test_freq > 0
+                    and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+                ):
                     with simple_timer("testing", timing_raw):
                         val_metrics: dict = self._validate()
                         if is_last_step:
                             last_val_metrics = val_metrics
                     metrics.update(val_metrics)
 
-                if self.config.trainer.save_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0):
+                if self.config.trainer.save_freq > 0 and (
+                    is_last_step or self.global_steps % self.config.trainer.save_freq == 0
+                ):
                     with simple_timer("save_checkpoint", timing_raw):
                         self._save_checkpoint()
 

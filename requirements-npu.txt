@@ -4,14 +4,14 @@ codetiming
 datasets
 dill
 hydra-core
-numpy
+numpy<2.0.0
 pandas
 peft
 pyarrow>=15.0.0
 pybind11
 pylatexenc
 tensordict<=0.6.2
-transformers>=4.52.4
+transformers==4.52.4
 ray==2.46.0
 wandb
 mathruler

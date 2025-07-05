@@ -1,6 +1,8 @@
 Prepare Data for Post-Training
 ========================================
 
+Last updated: 02/09/2025.
+
 Before starting the post-training job, we need to prepare the data for
 the policy training. The data should be stored in the parquet format.
 

@@ -50,7 +50,9 @@ class PatchEmbed(nn.Module):
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         target_dtype = self.proj.weight.dtype
-        hidden_states = hidden_states.view(-1, self.in_channels, self.temporal_patch_size, self.patch_size, self.patch_size)
+        hidden_states = hidden_states.view(
+            -1, self.in_channels, self.temporal_patch_size, self.patch_size, self.patch_size
+        )
         hidden_states = self.proj(hidden_states.to(dtype=target_dtype)).view(-1, self.embed_dim)
         return hidden_states
 
@@ -82,7 +84,16 @@ class Qwen2_5VisionModel(VisionModule):
         img_w (int): Input image width.
     """
 
-    def __init__(self, transformer_config: TransformerConfig, transformer_layer_spec: ModuleSpec, projection_config: TransformerConfig, projection_layer_spec: ModuleSpec, projection_type: str = "mlp", pre_process: bool = True, post_process: bool = False) -> None:
+    def __init__(
+        self,
+        transformer_config: TransformerConfig,
+        transformer_layer_spec: ModuleSpec,
+        projection_config: TransformerConfig,
+        projection_layer_spec: ModuleSpec,
+        projection_type: str = "mlp",
+        pre_process: bool = True,
+        post_process: bool = False,
+    ) -> None:
         super().__init__(config=transformer_config)
 
         self.spatial_merge_size = transformer_config.spatial_merge_size
@@ -114,15 +125,24 @@ class Qwen2_5VisionModel(VisionModule):
         self.post_process = post_process
 
         # Transformer layers.
-        # TODO: Follow-up changes will make pre and post_process configurable. They are needed for supporting pipeline parallelism.
+        # TODO: Follow-up changes will make pre and post_process configurable. They are needed for supporting
+        # pipeline parallelism.
         # NOTE: a final layer norm and/or linear layer present in some implementations are omitted here.
-        self.decoder = TransformerBlock(config=transformer_config, spec=transformer_layer_spec, pre_process=self.pre_process, post_process=self.post_process, post_layer_norm=True)
+        self.decoder = TransformerBlock(
+            config=transformer_config,
+            spec=transformer_layer_spec,
+            pre_process=self.pre_process,
+            post_process=self.post_process,
+            post_layer_norm=True,
+        )
 
         self.merge_hidden_size = projection_config.ffn_hidden_size
         self.square_merge_size = self.merge_hidden_size // embed_dim
 
         if self.post_process:
-            self.projection = MultimodalProjector(projection_config, projection_layer_spec, projection_type, projection_config.ffn_hidden_size)
+            self.projection = MultimodalProjector(
+                projection_config, projection_layer_spec, projection_type, projection_config.ffn_hidden_size
+            )
         else:
             self.projection = None
 
@@ -280,4 +300,10 @@ class Qwen2_5VisionModel(VisionModule):
             seqlens = cu_seqlens[1:] - cu_seqlens[:-1]
 
         max_seqlen_q = seqlens.max()
-        return PackedSeqParams(cu_seqlens_q=cu_seqlens, cu_seqlens_kv=cu_seqlens, qkv_format="thd", max_seqlen_q=max_seqlen_q, max_seqlen_kv=max_seqlen_q)
+        return PackedSeqParams(
+            cu_seqlens_q=cu_seqlens,
+            cu_seqlens_kv=cu_seqlens,
+            qkv_format="thd",
+            max_seqlen_q=max_seqlen_q,
+            max_seqlen_kv=max_seqlen_q,
+        )

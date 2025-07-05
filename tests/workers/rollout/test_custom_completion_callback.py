@@ -68,7 +68,9 @@ class Sandbox:
             f.write(code)
 
         try:
-            process = await asyncio.create_subprocess_exec(sys.executable, temp_file, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            process = await asyncio.create_subprocess_exec(
+                sys.executable, temp_file, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
 
             stdout, stderr = await process.communicate()
 
@@ -152,7 +154,11 @@ class CustomCompletionCallback(ToolCompletionCallback):
         return extra
 
     async def __call__(self, messages: List[Dict[str, str]], completions: ChatCompletion, info: Dict[str, Any]):
-        role, content, finish_reason = completions.choices[0].message.role, completions.choices[0].message.content, completions.choices[0].finish_reason
+        role, content, finish_reason = (
+            completions.choices[0].message.role,
+            completions.choices[0].message.content,
+            completions.choices[0].finish_reason,
+        )
         messages.append({"role": role, "content": content})
         turn = len(messages)
 
@@ -182,7 +188,10 @@ class CustomCompletionCallback(ToolCompletionCallback):
         code = matches[0].strip()
         metadata = await self.sandbox_code_execution(code)
         if metadata["run_status"] != "Finished":
-            print(f"[id={completions.id},turn={turn},finish_reason={finish_reason}] Code block execution failed: {metadata}, done!")
+            print(
+                f"[id={completions.id},turn={turn},finish_reason={finish_reason}] Code block execution failed: "
+                f"{metadata}, done!"
+            )
             return
 
         stdout, stderr = metadata["stdout"], metadata["stderr"]
@@ -209,9 +218,11 @@ print(...)
 ```
 </code>
 
-The code must explictly print necessary output to stdout. Remember stop generation at </code> immediately and return the code.
+The code must explictly print necessary output to stdout. Remember stop generation at </code> immediately and 
+return the code.
 2. User will send the python code to a external sandbox to execute and get output from stdout.
-3. User will send the output in format <interpreter>output</interpreter> to you, and you should use the output to answer the question.
+3. User will send the output in format <interpreter>output</interpreter> to you, and you should use the 
+output to answer the question.
 The answer format must be: <answer>\\boxed{'The final answer goes here.'}</answer>
 
 *user question:*
@@ -237,7 +248,9 @@ if __name__ == "__main__":
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.rollout.mode = "async"
     config.actor_rollout_ref.rollout.multi_turn.format = "hermes"
-    config.actor_rollout_ref.rollout.multi_turn.completion_callback = "tests.workers.rollout.test_custom_completion_callback.CustomCompletionCallback"
+    config.actor_rollout_ref.rollout.multi_turn.completion_callback = (
+        "tests.workers.rollout.test_custom_completion_callback.CustomCompletionCallback"
+    )
     config.actor_rollout_ref.rollout.prompt_length = 4096
     config.actor_rollout_ref.rollout.response_length = 4096
     config.actor_rollout_ref.rollout.n = 4
@@ -253,7 +266,12 @@ if __name__ == "__main__":
     dataset = load_dataset("Maxwell-Jia/AIME_2024", split="train")
     prompts = DataProto(
         non_tensor_batch={
-            "raw_prompt": np.array([[{"role": "user", "content": user_prompt_template.replace("{question}", problem)}] for problem in dataset["Problem"]]),
+            "raw_prompt": np.array(
+                [
+                    [{"role": "user", "content": user_prompt_template.replace("{question}", problem)}]
+                    for problem in dataset["Problem"]
+                ]
+            ),
         },
     )
 

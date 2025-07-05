@@ -1,6 +1,8 @@
 Multinode Training
 ==================
 
+Last updated: 06/10/2025.
+
 .. _wuxibin89: https://github.com/wuxibin89
 
 Author: `Xibin Wu <https://github.com/wuxibin89>`_, `Yusheng Su <https://yushengsu-thu.github.io/>`_.
@@ -452,8 +454,6 @@ slurm_script.sh
     echo "IP Head: $ip_head"
 
     # make sure we set environment variables before Ray initialization
-    # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
-    # export VLLM_ATTENTION_BACKEND=XFORMERS
 
     # Print out all env variables
     printenv
