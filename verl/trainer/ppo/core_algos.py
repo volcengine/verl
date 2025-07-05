@@ -43,14 +43,6 @@ def register_policy_loss(name):
         function: Decorator function that registers the policy loss function.
     """
     def decorator(func):
-        """Decorator that adds the function to the policy loss registry.
-        
-        Args:
-            func (callable): The policy loss function to register.
-            
-        Returns:
-            callable: The original function unchanged.
-        """
         POLICY_LOSS_REGISTRY[name] = func
         return func
 
@@ -88,17 +80,6 @@ def register_adv_est(name_or_enum):
     """
 
     def decorator(fn):
-        """Decorator that registers the advantage estimator function.
-        
-        Args:
-            fn (callable): The advantage estimator function to register.
-            
-        Returns:
-            callable: The original function unchanged.
-            
-        Raises:
-            ValueError: If the estimator name is already registered with a different function.
-        """
         name = name_or_enum.value if isinstance(name_or_enum, Enum) else name_or_enum
         if name in ADV_ESTIMATOR_REGISTRY and ADV_ESTIMATOR_REGISTRY[name] != fn:
             raise ValueError(
