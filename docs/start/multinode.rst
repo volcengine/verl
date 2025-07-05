@@ -175,7 +175,6 @@ Now you can submit the training job to the Ray cluster which is available at ``l
         trainer.project_name=ppo_training \
         trainer.experiment_name=qwen-2.5-7B \
         trainer.val_before_train=False \
-        trainer.default_hdfs_dir=null \
         trainer.n_gpus_per_node=8 \
         trainer.nnodes=2 \
         trainer.default_local_dir=/checkpoints \

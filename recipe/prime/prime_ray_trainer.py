@@ -34,8 +34,8 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Rol
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.collate_utils import collate_fn
 from verl.utils.dataset.rl_dataset import RLHFDataset
-from verl.utils.debug.performance import simple_timer
 from verl.utils.metric import reduce_metrics
+from verl.utils.profiler.performance import simple_timer
 
 from . import prime_core_algos
 

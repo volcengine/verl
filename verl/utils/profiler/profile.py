@@ -13,11 +13,12 @@
 # limitations under the License.
 
 import os
-from dataclasses import dataclass
 from typing import Callable, Optional
 
 import torch
 import torch.distributed
+
+from .config import ProfilerConfig
 
 
 class Profiler:
@@ -119,10 +120,23 @@ def mark_start_range(
     domain: Optional[str] = None,
     category: Optional[str] = None,
 ) -> None:
+    """Start a profiling range marker (no-op implementation).
+
+    Args:
+        message (Optional[str]): Message to associate with the range marker.
+        color (Optional[str]): Color for the marker visualization.
+        domain (Optional[str]): Domain for the marker.
+        category (Optional[str]): Category for the marker.
+    """
     pass
 
 
 def mark_end_range(range_id: str) -> None:
+    """End a profiling range marker (no-op implementation).
+
+    Args:
+        range_id (str): Identifier of the range to end.
+    """
     pass
 
 
@@ -132,44 +146,22 @@ def mark_annotate(
     domain: Optional[str] = None,
     category: Optional[str] = None,
 ) -> Callable:
+    """Decorator to annotate a function with profiling markers (no-op implementation).
+
+    Args:
+        message (Optional[str]): Message to associate with the annotation.
+        color (Optional[str]): Color for the marker visualization.
+        domain (Optional[str]): Domain for the marker.
+        category (Optional[str]): Category for the marker.
+
+    Returns:
+        Callable: Decorator function that returns the original function unchanged.
+    """
+
     def decorator(func):
         return func
 
     return decorator
-
-
-@dataclass
-class ProfilerConfig:
-    """Worker profiler config. Currently only support Nsight system profiler."""
-
-    # True for each task has its own database, False for all tasks in one training step share one database.
-    discrete: bool = False
-
-    # Whether to profile all ranks.
-    all_ranks: bool = False
-
-    # The ranks that will be profiled. None or [0,1,...]
-    ranks: Optional[list[int]] = None
-
-    def union(self, other: "ProfilerConfig") -> "ProfilerConfig":
-        return ProfilerConfig(
-            all_ranks=self.all_ranks or other.all_ranks,
-            ranks=list(set(self.ranks or []) | set(other.ranks or [])),
-            discrete=self.discrete or other.discrete,
-        )
-
-    def intersect(self, other: "ProfilerConfig") -> "ProfilerConfig":
-        return ProfilerConfig(
-            all_ranks=self.all_ranks and other.all_ranks,
-            ranks=list(set(self.ranks or []) & set(other.ranks or [])),
-            discrete=self.discrete and other.discrete,
-        )
-
-    def __post_init__(self) -> None:
-        """config validation logics go here"""
-        if self.ranks is None:
-            self.ranks = []
-        assert isinstance(self.ranks, (set, list, tuple))
 
 
 class DistProfiler:
