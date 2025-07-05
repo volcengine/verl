@@ -67,15 +67,7 @@ class DocstringChecker(ast.NodeVisitor):
 
     def _has_docstring(self, node) -> bool:
         """Check if a node has a docstring."""
-        if not node.body:
-            return False
-
-        first_stmt = node.body[0]
-        return (
-            isinstance(first_stmt, ast.Expr)
-            and isinstance(first_stmt.value, ast.Constant)
-            and isinstance(first_stmt.value.value, str)
-        )
+        return ast.get_docstring(node) is not None
 
 
 def check_file_docstrings(filepath: str) -> List[Tuple[str, str, int]]:
