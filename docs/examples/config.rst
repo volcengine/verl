@@ -496,7 +496,7 @@ Algorithm
        horizon: 10000
        target_kl: 0.1
 
-- ``gemma``: discount factor
+- ``gamma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
 - ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``, ``reinforce_plus_plus_baseline``, ``rloo``
 - ``use_kl_in_reward``: Whether to enable in-reward kl penalty. Default is False.
