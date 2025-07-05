@@ -1,0 +1,51 @@
+# trainer/config/actor/actor.yaml
+defaults:
+  - actor
+
+# TODO(haibin.lin): switch to fsdp2
+strategy: megatron
+
+data_loader_seed: null
+
+load_weight: True
+
+checkpoint:
+  async_save: False
+
+optim:
+  optimizer: adam
+  clip_grad: 1.0
+  lr_warmup_init: 0.0  
+  lr_warmup_steps: null 
+  lr_decay_steps: null
+  lr_decay_style: constant 
+  min_lr: 0.0 
+  weight_decay_incr_style: constant 
+  lr_wsd_decay_style: exponential 
+  lr_wsd_decay_steps: null
+  use_checkpoint_opt_param_scheduler: False
+
+megatron:
+  param_offload: False
+  grad_offload: False
+  optimizer_offload: False
+  tensor_model_parallel_size: 1
+  expert_model_parallel_size: 1
+  expert_tensor_parallel_size: null
+  pipeline_model_parallel_size: 1
+  virtual_pipeline_model_parallel_size: null 
+  context_parallel_size: 1
+  sequence_parallel: True
+  use_distributed_optimizer: True
+  use_dist_checkpointing: False
+  dist_checkpointing_path: null
+  seed: 42
+  override_transformer_config: {} 
+  use_mbridge: False
+
+profile:
+  use_profile: False 
+  profile_ranks: null 
+  step_start: -1 
+  step_end: -1 
+  save_path: null 
