@@ -76,18 +76,18 @@ def _test_add_tool_response_messages_image_delta(processor, image_list, descript
         tool_schemas=[],
         tools_kwargs={},
         interaction_kwargs={},
-        input_ids=[],
-        prompt_ids=[],
-        response_ids=[],
-        attention_mask=[],
-        prompt_attention_mask=[],
-        response_attention_mask=[],
-        position_ids=[],
-        prompt_position_ids=[],
-        response_position_ids=[],
-        loss_mask=[],
-        prompt_loss_mask=[],
-        response_loss_mask=[],
+        input_ids=None,
+        prompt_ids=None,
+        response_ids=None,
+        attention_mask=None,
+        prompt_attention_mask=None,
+        response_attention_mask=None,
+        position_ids=None,
+        prompt_position_ids=None,
+        response_position_ids=None,
+        loss_mask=None,
+        prompt_loss_mask=None,
+        response_loss_mask=None,
         reward_scores={},
         max_prompt_len=8192,
         max_response_len=8192,
@@ -95,7 +95,7 @@ def _test_add_tool_response_messages_image_delta(processor, image_list, descript
         metrics={},
         use_inference_chat_template=True,
         tokenization_sanity_check_mode=TokenizationSanityCheckModeEnum.STRICT,
-        generation_prompt_ids=[],
+        generation_prompt_ids=None,
         base_conv_wo_gen_prompt_end_pos=0,
         base_conv_with_gen_prompt_end_pos=0,
         processing_class=processor,
@@ -108,9 +108,9 @@ def _test_add_tool_response_messages_image_delta(processor, image_list, descript
             continue
         _ = req.get_generation_prompt_ids(processor)
         req.add_assistant_message(processor, content=description_list[idx - 1])
-        before_tool_call_len = len(req.input_ids)
+        before_tool_call_len = req.input_ids.shape[-1]
         req.add_tool_response_messages(processor, [{"image": [img], "text": "Here is the new image you requested: "}])
-        after_tool_call_len = len(req.input_ids)
+        after_tool_call_len = req.input_ids.shape[-1]
         if prev_generated_len == 0:
             prev_generated_len = after_tool_call_len - before_tool_call_len
         else:
@@ -133,11 +133,11 @@ def _test_add_tool_response_messages_image_delta(processor, image_list, descript
         return_dict=True,
     )
     full_prompt_ids = full_prompt_info["input_ids"]
-    assert full_prompt_ids == req.input_ids
+    assert full_prompt_ids.eq(req.input_ids).all()
 
     # We must use dict(full_prompt_info) to convert BatchFeature values to a new dict
     # because np.array() only keeps the keys for BatchFeature.
-    full_prompt_multi_modal_inputs = dict(full_prompt_info)
+    full_prompt_multi_modal_inputs = full_prompt_info.copy()
     full_prompt_multi_modal_inputs.pop("input_ids", None)
     full_prompt_multi_modal_inputs.pop("attention_mask", None)
 
