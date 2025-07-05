@@ -278,11 +278,11 @@ class AsyncRolloutRequest(BaseModel):
             )
             new_position_ids = get_rope_index(
                 processing_class,
-                input_ids=input_ids[0],
+                input_ids=input_ids.squeeze(0),
                 image_grid_thw=image_grid_thw,
                 video_grid_thw=video_grid_thw,
                 second_per_grid_ts=second_per_grid_ts,
-                attention_mask=attention_mask[0],
+                attention_mask=attention_mask.squeeze(0),
             )
             return new_position_ids  # (3, seq_len)
         else:
@@ -364,9 +364,9 @@ class AsyncRolloutRequest(BaseModel):
                 add_generation_prompt=True,
                 tokenize=True,
             )
-            return generation_prompt_ids[0].tolist()
+            return generation_prompt_ids.squeeze(0).tolist()
         else:
-            return self.input_ids[0].tolist()
+            return self.input_ids.squeeze(0).tolist()
 
     def add_user_message(
         self,
