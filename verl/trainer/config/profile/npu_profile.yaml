@@ -4,9 +4,6 @@ options:
   # Storage path of collected data
   save_path: ./profiler_data
 
-  # Export format, optional values: text, db (can save about 70% disk space).
-  export_type: text
-
   # Collection level, optional values: level_none, level0, level1, level2.
   level: level1
 

@@ -104,14 +104,6 @@ def get_npu_profiler(option: DictConfig, role: Optional[str] = None, profile_ste
         raise ValueError(f"level only supports level0,"
                          f" 1, 2, and level_none, but gets {option.level}")
 
-    if option.export_type == 'text':
-        profile_export_type = torch_npu.profiler.ExportType.Text
-    elif option.export_type == 'db':
-        profile_export_type = torch_npu.profiler.ExportType.Db
-    else:
-        raise ValueError(f"export_type only supports text or db,"
-                         f"but gets {option.export_type}")
-
     profile_save_path = option.save_path
     if profile_step:
         profile_save_path = os.path.join(profile_save_path, profile_step)
@@ -121,7 +113,7 @@ def get_npu_profiler(option: DictConfig, role: Optional[str] = None, profile_ste
     experimental_config = torch_npu.profiler._ExperimentalConfig(
         aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization,
         profiler_level=profile_level,
-        export_type=profile_export_type,
+        export_type=torch_npu.profiler.ExportType.Text,
         data_simplification=True,
         msprof_tx=True
     )

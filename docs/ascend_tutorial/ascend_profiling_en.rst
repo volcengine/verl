@@ -22,7 +22,15 @@ and steps.
    collection steps, such as [2, 4], which means it will collect steps 2
    and 4. If set to null, no collection occurs.
 -  actor_rollout_ref: Profiler options can be configured separately for
-   actor, rollout, and ref roles.
+   actor, rollout, and ref roles. Since the actor and rollout reside in 
+   the same worker, under the current data collection logic, they should 
+   be configured with the same parameters. If there is a discrepancy, 
+   the parameters of the rollout will take precedence. In end-to-end mode, 
+   the ref component does not require configuration, and the entire 
+   workflow is controlled by the parameters of the actor/rollout. 
+   In discrete mode, the parameters of ref and those of the actor/rollout 
+   independently control the data collection behavior of two different 
+   types of workers.
 
    -  all_ranks: Collects data from all ranks when set to true.
    -  ranks: This parameter specifies which ranks to collect (e.g., [0,
@@ -34,8 +42,6 @@ and steps.
 Use parameters in npu_profile.yaml to control collection behavior:
 
 -  save_path: Storage path for collected data.
--  export_type: Output type—options include text and db (saves 70%
-   memory).
 -  level: Collection level—options are level_none, level0, level1, and
    level2
 
@@ -112,7 +118,7 @@ Discrete Mode Collection
                profiler:
                    discrete: True
                    all_ranks: False
-                   ranks: [0, 1]
+                   ranks: [2, 3]
 
 Visualization
 -------------

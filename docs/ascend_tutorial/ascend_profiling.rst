@@ -17,7 +17,9 @@
    该参数可以设置为一个包含采集步数的列表，例如[2,
    4], 意味着将会采集第二步和第四步。如果该参数为null, 则代表不进行采集
 -  actor_rollout_ref:
-   可以对actor、rollout和ref三种角色分别设置其profiler选项
+   可以对actor、rollout和ref三种角色分别设置其profiler选项。由于actor和rollout在同一个worker中, 在当前采集逻辑下，
+   actor与rollout应设置相同的参数, 若参数不同, 则rollout的参数生效。端到端模式下, ref无需设置,整体流程由actor/rollout参数控制;
+   离散模式下, ref的参数和actor/rollout的参数分别控制两种worker的采集行为
 
    -  all_ranks: 设为True代表对所有rank进行采集
    -  ranks: 当all_ranks不为True时, 
@@ -29,7 +31,6 @@
 通过 npu_profile.yaml 中的参数控制具体采集行为:
 
 -  save_path: 采集数据的存放路径
--  export_type: 输出类型， 可选项为text和db(可节省70%内存空间）
 -  level: 采集等级, 可选项为level_none、level0、level1和level2
 
    -  level_none: 不采集所有Level层级控制的数据, 即关闭profiler_level
@@ -101,7 +102,7 @@
                profiler:
                    discrete: True
                    all_ranks: False
-                   ranks: [0, 1]
+                   ranks: [2, 3]
 
 可视化
 ------
