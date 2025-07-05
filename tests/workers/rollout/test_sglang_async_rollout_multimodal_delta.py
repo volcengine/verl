@@ -108,9 +108,9 @@ def _test_add_tool_response_messages_image_delta(processor, image_list, descript
             continue
         _ = req.get_generation_prompt_ids(processor)
         req.add_assistant_message(processor, content=description_list[idx - 1])
-        before_tool_call_len = len(req.input_ids)
+        before_tool_call_len = req.input_ids.shape[-1]
         req.add_tool_response_messages(processor, [{"image": [img], "text": "Here is the new image you requested: "}])
-        after_tool_call_len = len(req.input_ids)
+        after_tool_call_len = req.input_ids.shape[-1]
         if prev_generated_len == 0:
             prev_generated_len = after_tool_call_len - before_tool_call_len
         else:
@@ -133,11 +133,11 @@ def _test_add_tool_response_messages_image_delta(processor, image_list, descript
         return_dict=True,
     )
     full_prompt_ids = full_prompt_info["input_ids"]
-    assert full_prompt_ids == req.input_ids
+    assert full_prompt_ids.eq(req.input_ids).all()
 
     # We must use dict(full_prompt_info) to convert BatchFeature values to a new dict
     # because np.array() only keeps the keys for BatchFeature.
-    full_prompt_multi_modal_inputs = dict(full_prompt_info)
+    full_prompt_multi_modal_inputs = full_prompt_info.copy()
     full_prompt_multi_modal_inputs.pop("input_ids", None)
     full_prompt_multi_modal_inputs.pop("attention_mask", None)
 
