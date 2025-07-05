@@ -128,7 +128,7 @@ class NsightSystemsProfiler(DistProfiler):
         self.this_rank: bool = False
         if config.all_ranks:
             self.this_rank = True
-        elif not config.ranks:
+        elif config.ranks:
             self.this_rank = rank in config.ranks
 
     def start(self, **kwargs):

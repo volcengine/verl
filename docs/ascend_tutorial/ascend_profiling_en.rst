@@ -10,7 +10,7 @@ Configuration
 Reuse the configuration items in
 verl/trainer/config/ppo_trainer.yaml to control the collection mode
 and steps, you can also manage the collection behaviors such as
-collection level via verl/trainer/config/profile/npu_profile.yaml.
+collection level via verl/trainer/config/npu_profile/npu_profile.yaml.
 
 Global collection control
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -25,19 +25,19 @@ and steps.
    actor, rollout, and ref roles. Since the actor and rollout reside in 
    the same worker, under the current data collection logic, they should 
    be configured with the same parameters. If there is a discrepancy, 
-   the parameters of the rollout will take precedence. In end-to-end mode, 
-   the ref component does not require configuration, and the entire 
-   workflow is controlled by the parameters of the actor/rollout. 
-   In discrete mode, the parameters of ref and those of the actor/rollout 
-   independently control the data collection behavior of two different 
-   types of workers.
+   the parameters of the rollout will take precedence. In end-to-end mode,
+   set ref to match actor/rollout parameters for full key-function timing
+   collection, the profiling rank is determined by actor/rollout.
+   In discrete mode, ref and actor/rollout parameters separately control
+   the profiling ranks of their respective worker types.
 
    -  all_ranks: Collects data from all ranks when set to true.
    -  ranks: This parameter specifies which ranks to collect (e.g., [0,
       1]) when all_ranks is False.
    -  discrete: Controls the collection mode. If False, end-to-end data
       is collected; if True, data is collected in discrete phases during
-      training.
+      training. It is recommended to set the discrete parameter consistently
+      across the actor, rollout, and ref roles.
 
 Use parameters in npu_profile.yaml to control collection behavior:
 
@@ -124,7 +124,7 @@ Visualization
 -------------
 
 Collected data is stored in the user-defined save_path and can be
-visualized by using the MindStudio Insight tool.
+visualized by using the `MindStudio Insight <https://www.hiascend.com/document/detail/zh/mindstudio/80RC1/GUI_baseddevelopmenttool/msascendinsightug/Insight_userguide_0002.html>`_ tool.
 
 If the analysis parameter is set to False, offline parsing is required after data collection:
 

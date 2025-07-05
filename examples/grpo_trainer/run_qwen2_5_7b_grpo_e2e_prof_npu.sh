@@ -1,9 +1,9 @@
 set -x
 
 # profiling configuration
-PROFILE_STEPS="[2,4]" # or [] or null
-PROFILE_RANKS_ALL=True # or True
-DISCRETE=False  # or True
+PROFILE_STEPS="[2,4]"
+PROFILE_RANKS_ALL=True
+DISCRETE=False
 
 # profiling NPU options
 SAVE_PATH="$HOME/profile_data"
@@ -52,15 +52,15 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.profiler.all_ranks=$PROFILE_RANKS_ALL \
     actor_rollout_ref.ref.profiler.discrete=$DISCRETE \
     algorithm.use_kl_in_reward=False \
-    profile.options.save_path=$SAVE_PATH \
-    profile.options.level=$LEVEL \
-    profile.options.with_memory=$WITH_MEMORY \
-    profile.options.record_shapes=$RECORD_SHAPES \
-    profile.options.with_npu=$WITH_NPU \
-    profile.options.with_cpu=$WITH_CPU \
-    profile.options.with_module=$WITH_MODULE \
-    profile.options.with_stack=$WITH_STACK \
-    profile.options.analysis=$ANALYSIS \
+    trainer.npu_profile.options.save_path=$SAVE_PATH \
+    trainer.npu_profile.options.level=$LEVEL \
+    trainer.npu_profile.options.with_memory=$WITH_MEMORY \
+    trainer.npu_profile.options.record_shapes=$RECORD_SHAPES \
+    trainer.npu_profile.options.with_npu=$WITH_NPU \
+    trainer.npu_profile.options.with_cpu=$WITH_CPU \
+    trainer.npu_profile.options.with_module=$WITH_MODULE \
+    trainer.npu_profile.options.with_stack=$WITH_STACK \
+    trainer.npu_profile.options.analysis=$ANALYSIS \
     trainer.critic_warmup=0 \
     trainer.logger=['console'] \
     trainer.project_name='verl_grpo_example_gsm8k' \
@@ -70,4 +70,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
     trainer.total_epochs=5 \
+    trainer.profile_steps=$PROFILE_STEPS \
     trainer.device=npu $@

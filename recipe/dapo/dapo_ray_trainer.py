@@ -96,9 +96,9 @@ class RayDAPOTrainer(RayPPOTrainer):
             for batch_dict in self.train_dataloader:
                 do_profile = self.global_steps in (self.config.trainer.profile_steps or [])
                 if do_profile:
-                    self.actor_rollout_wg.start_profile(role="actor_rollout", profile_step=self.global_steps)
+                    self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
                     if self.use_reference_policy:
-                        self.ref_policy_wg.start_profile(role="ref", profile_step=self.global_steps)
+                        self.ref_policy_wg.start_profile()
                     if self.use_critic:
                         self.critic_wg.start_profile()
                     if self.use_rm:

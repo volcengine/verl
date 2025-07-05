@@ -1,7 +1,7 @@
 # Config for the npu profiler
 options:
 
-  # Storage path of collected data
+  # Storage path of collected data.
   save_path: ./profiler_data
 
   # Collection level, optional values: level_none, level0, level1, level2.
@@ -22,7 +22,7 @@ options:
   # Whether to record Python call stack information.
   with_module: False
 
-  # Whether to record operator call stack information。
+  # Whether to record operator call stack information.
   with_stack: False
 
   # Whether to automatically parse the data.

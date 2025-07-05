@@ -1,5 +1,4 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
-# Copyright (c) 2024, HUAWEI CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Inspired from https://gitee.com/ascend/MindSpeed-RL/blob/master/mindspeed_rl/utils/utils.py
 import os
 import functools
 from contextlib import contextmanager
@@ -144,6 +144,14 @@ class NPUProfiler(DistProfiler):
     _define_count = 0
 
     def __init__(self, rank: int, config: ProfilerConfig, **kwargs):
+        """Initialize the NsightSystemsProfiler.
+
+        Args:
+            rank (int): The rank of the current process.
+            config (Optional[ProfilerConfig]): Configuration for the profiler. If None, a default configuration is used.
+        """
+        if not config:
+            config = ProfilerConfig(ranks=[])
         self.this_step: bool = False
         self.discrete: bool = config.discrete
         self.this_rank: bool = False
@@ -151,16 +159,15 @@ class NPUProfiler(DistProfiler):
         self.profile_option = kwargs.get('option')
         if config.all_ranks:
             self.this_rank = True
-        if config.ranks:
+        elif config.ranks:
             self.this_rank = rank in config.ranks
 
     def start(self, **kwargs):
-        role = kwargs.get('role', None)
-        profile_step = kwargs.get('profile_step', None)
+        role, profile_step = kwargs.get('role', None), kwargs.get('profile_step', None)
         profile_step = str(profile_step) if profile_step is not None else None
         if self.this_rank:
             self.this_step = True
-            if not self.discrete and NPUProfiler._define_count < 1:
+            if not self.discrete and NPUProfiler._define_count == 0:
                 self.profile_npu = get_npu_profiler(option=self.profile_option, role=role, profile_step=profile_step)
                 self.profile_npu.start()
                 NPUProfiler._define_count += 1
