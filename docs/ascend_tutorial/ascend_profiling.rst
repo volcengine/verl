@@ -6,7 +6,7 @@
 配置
 ----
 
-复用verl/trainer/config/ppo_trainer.yaml中的配置项控制采集的模式和步数, 通过verl/trainer/config/profile/npu_profile.yaml中的配置项控制例如采集等级等参数。
+复用verl/trainer/config/ppo_trainer.yaml中的配置项控制采集的模式和步数, 通过verl/trainer/config/npu_profile/npu_profile.yaml中的配置项控制例如采集等级等参数。
 
 全局采集控制
 ~~~~~~~~~~~~

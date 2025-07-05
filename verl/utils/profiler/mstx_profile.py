@@ -144,6 +144,14 @@ class NPUProfiler(DistProfiler):
     _define_count = 0
 
     def __init__(self, rank: int, config: ProfilerConfig, **kwargs):
+        """Initialize the NsightSystemsProfiler.
+
+        Args:
+            rank (int): The rank of the current process.
+            config (Optional[ProfilerConfig]): Configuration for the profiler. If None, a default configuration is used.
+        """
+        if not config:
+            config = ProfilerConfig(ranks=[])
         self.this_step: bool = False
         self.discrete: bool = config.discrete
         self.this_rank: bool = False
@@ -151,7 +159,7 @@ class NPUProfiler(DistProfiler):
         self.profile_option = kwargs.get('option')
         if config.all_ranks:
             self.this_rank = True
-        if config.ranks:
+        elif not config.ranks:
             self.this_rank = rank in config.ranks
 
     def start(self, **kwargs):

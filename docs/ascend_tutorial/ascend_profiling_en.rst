@@ -10,7 +10,7 @@ Configuration
 Reuse the configuration items in
 verl/trainer/config/ppo_trainer.yaml to control the collection mode
 and steps, you can also manage the collection behaviors such as
-collection level via verl/trainer/config/profile/npu_profile.yaml.
+collection level via verl/trainer/config/npu_profile/npu_profile.yaml.
 
 Global collection control
 ~~~~~~~~~~~~~~~~~~~~~~~~~

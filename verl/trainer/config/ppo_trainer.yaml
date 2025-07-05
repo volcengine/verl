@@ -6,7 +6,7 @@
 
 defaults:
   - _self_
-  - profile/npu_profile
+  - npu_profile/npu_profile
 
 # dataset config
 data:

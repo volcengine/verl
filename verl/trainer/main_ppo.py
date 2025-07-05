@@ -53,7 +53,6 @@ def trainer_dict_to_dataclass(conf: DictConfig):
     return config
 
 
-
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
 def main(config_dict):
     config = trainer_dict_to_dataclass(config_dict)
