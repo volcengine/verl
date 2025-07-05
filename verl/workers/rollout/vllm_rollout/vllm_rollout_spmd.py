@@ -74,13 +74,6 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[in
     return token_ids
 
 
-def _repeat_interleave(value: Union[torch.Tensor, np.ndarray], repeats: int) -> Union[torch.Tensor, List[Any]]:
-    if isinstance(value, torch.Tensor):
-        return value.repeat_interleave(repeats, dim=0)
-    else:
-        return np.repeat(value, repeats, axis=0)
-
-
 class vLLMRollout(BaseRollout):
     def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
@@ -194,7 +187,7 @@ class vLLMRollout(BaseRollout):
         for k in config.keys():
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = config.get(k)
-
+        kwargs["n"] = 1  # already repeat in ray_trainer
         print(f"kwargs: {kwargs}")
         self.sampling_params = SamplingParams(**kwargs)
 
@@ -340,25 +333,6 @@ class vLLMRollout(BaseRollout):
                     rollout_log_probs, -1, max_length=self.config.response_length
                 ).to(idx.device)
                 rollout_log_probs = rollout_log_probs.to(torch.float32)
-
-            if self.sampling_params.n > 1 and do_sample:
-                idx = _repeat_interleave(idx, self.sampling_params.n)
-                attention_mask = _repeat_interleave(attention_mask, self.sampling_params.n)
-                position_ids = _repeat_interleave(position_ids, self.sampling_params.n)
-                batch_size = batch_size * self.sampling_params.n
-                # NOTE(linjunrong): for multi-turn https://github.com/volcengine/verl/pull/1037
-                if "tools_kwargs" in non_tensor_batch.keys():
-                    non_tensor_batch["tools_kwargs"] = _repeat_interleave(
-                        non_tensor_batch["tools_kwargs"], self.sampling_params.n
-                    )
-                if "interaction_kwargs" in non_tensor_batch.keys():
-                    non_tensor_batch["interaction_kwargs"] = _repeat_interleave(
-                        non_tensor_batch["interaction_kwargs"], self.sampling_params.n
-                    )
-                if "raw_prompt" in non_tensor_batch.keys():
-                    non_tensor_batch["raw_prompt"] = _repeat_interleave(
-                        non_tensor_batch["raw_prompt"], self.sampling_params.n
-                    )
 
             seq = torch.cat([idx, response], dim=-1)
 

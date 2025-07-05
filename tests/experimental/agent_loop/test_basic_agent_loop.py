@@ -75,8 +75,10 @@ def test_single_turn(init_config):
             "agent_name": np.array(["single_turn_agent"] * len(raw_prompts)),
         },
     )
+    n = init_config.actor_rollout_ref.rollout.n
+    batch = batch.repeat(n)
     result = agent_loop_manager.generate_sequences(prompts=batch)
-    assert len(result) == len(raw_prompts) * init_config.actor_rollout_ref.rollout.n
+    assert len(result) == len(raw_prompts) * n
 
     # check result
     seq_len = result.batch["prompts"].size(1) + result.batch["responses"].size(1)
@@ -213,6 +215,7 @@ def test_tool_agent(init_config):
             "agent_name": np.array(["tool_agent"] * len(raw_prompts)),
         },
     )
+    batch = batch.repeat(n)
     result = agent_loop_manager.generate_sequences(prompts=batch)
     assert len(result) == len(raw_prompts) * n
 

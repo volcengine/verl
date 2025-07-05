@@ -211,15 +211,13 @@ class AgentLoopWorker:
             sampling_params["top_p"] = config.val_kwargs.top_p
             sampling_params["temperature"] = config.val_kwargs.temperature
 
-        n = 1 if batch.meta_info.get("validate", False) else config.n
-        tasks = []
-
         # by default, we assume it's a single turn agent
         if "agent_name" not in batch.non_tensor_batch:
             batch.non_tensor_batch["agent_name"] = np.array(["single_turn_agent"] * len(batch), dtype=object)
 
-        agent_names = batch.non_tensor_batch["agent_name"].repeat(n, axis=0)
-        raw_prompts = batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0)
+        tasks = []
+        agent_names = batch.non_tensor_batch["agent_name"]
+        raw_prompts = batch.non_tensor_batch["raw_prompt"]
         for agent_name, messages in zip(agent_names, raw_prompts):
             tasks.append(asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params)))
         outputs = await asyncio.gather(*tasks)
