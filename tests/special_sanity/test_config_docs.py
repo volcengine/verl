@@ -70,12 +70,12 @@ def test_trainer_config_doc():
             lines = f.readlines()
 
         validation_errors = validate_yaml_format(lines)
-    if validation_errors:
-        success = False
-        print("YAML documentation format check failed:")
-        print(f"Please read the top block of {yaml_to_inspect} to see format rules:\n")
-        for err in validation_errors:
-            print(" -", err)
+        if validation_errors:
+            success = False
+            print("YAML documentation format check failed:")
+            print(f"Please read the top block of {yaml_to_inspect} to see format rules:\n")
+            for err in validation_errors:
+                print(" -", err)
 
     if not success:
         raise Exception("Please fix documentation format.")
