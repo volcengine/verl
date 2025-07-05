@@ -90,7 +90,7 @@ class ResourcePoolManager:
 
     def create_resource_pool(self):
         """Create Ray resource pools for distributed training.
-        
+
         Initializes resource pools based on the resource pool specification,
         with each pool managing GPU resources across multiple nodes.
         For FSDP backend, uses max_colocate_count=1 to merge WorkerGroups.
@@ -293,11 +293,12 @@ def compute_advantage(
 
 class RayPPOTrainer:
     """Distributed PPO trainer using Ray for scalable reinforcement learning.
-    
+
     This trainer orchestrates distributed PPO training across multiple nodes and GPUs,
     managing actor rollouts, critic training, and reward computation with Ray backend.
     Supports various model architectures including FSDP, Megatron, and vLLM integration.
     """
+
     # TODO: support each role have individual ray_worker_group_cls,
     # i.e., support different backend of different role
     def __init__(
@@ -417,15 +418,15 @@ class RayPPOTrainer:
         # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
         def check_mutually_exclusive(mbs, mbs_per_gpu, name: str):
             """Validate mutually exclusive micro batch size configuration options.
-            
-            Ensures that users don't set both deprecated micro_batch_size and 
+
+            Ensures that users don't set both deprecated micro_batch_size and
             the new micro_batch_size_per_gpu parameters simultaneously.
-            
+
             Args:
                 mbs: Deprecated micro batch size parameter value.
                 mbs_per_gpu: New micro batch size per GPU parameter value.
                 name (str): Configuration section name for error messages.
-                
+
             Raises:
                 ValueError: If both parameters are set or neither is set.
             """

@@ -237,16 +237,16 @@ class AgentLoopWorker:
 
     def get_agent_loop_class(self, agent_name: str) -> Type[AgentLoopBase]:
         """Get the appropriate agent loop class based on agent name.
-        
+
         Factory method that returns the correct agent loop class implementation
         for the specified agent type.
-        
+
         Args:
             agent_name (str): Name of the agent type ('single_turn_agent' or 'tool_agent').
-            
+
         Returns:
             Type[AgentLoopBase]: Agent loop class corresponding to the agent name.
-            
+
         Raises:
             ValueError: If the agent_name is not recognized.
         """
