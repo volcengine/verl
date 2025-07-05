@@ -111,7 +111,7 @@ jobs:
         run: |
           pip3 install --upgrade vllm==0.7.3
           cd tests/workers/rollout/rollout_vllm
-          torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_vllm_rope_scaling.py
+          torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_vllm_model_rope_scaling.py
       - name: Run Qwen 0.5B generation test
         run: |
           cd tests/special_e2e/generation
