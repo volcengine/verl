@@ -27,5 +27,4 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     trainer.project_name=gsm8k-sft \
     trainer.experiment_name=gsm8k-sft-gemma-2b-it \
     trainer.total_epochs=2 \
-    trainer.logger=['console','wandb'] \
-    trainer.default_hdfs_dir=null $@
+    trainer.logger=['console','wandb'] $@
