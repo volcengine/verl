@@ -159,14 +159,10 @@ class MegatronSGLangShardingManager(BaseShardingManager):
     async def update_weights(self, params):
         if self.device_mesh["tp"].get_local_rank() == 0:
             await self.inference_engine.resume_memory_occupation()
-
-        # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
-        # named_tensors = [(k, v) for k, v in params.items()]
-
         named_tensors = params
         load_format = None
         for tensor_index, (name, tensor) in enumerate(named_tensors):
-            serialized_tensor = MultiprocessingSerializer.serialize(tensor)
+            serialized_tensor = MultiprocessingSerializer.serialize(tensor.detach())
 
             if self.device_mesh["tp"].get_local_rank() == 0:
                 gathered_serialized_tensors = [None for _ in range(self.device_mesh["tp"].mesh.size()[0])]
