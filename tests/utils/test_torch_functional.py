@@ -19,7 +19,7 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
-from verl.utils.torch_functional import distributed_masked_mean, distributed_mean_max_min_std
+from verl.utils.torch_functional import distributed_masked_mean, distributed_mean_max_min_std, masked_mean
 
 
 def _worker_mean(rank: int, world_size: int, rendezvous_file: str):
@@ -50,6 +50,20 @@ def _worker_mean(rank: int, world_size: int, rendezvous_file: str):
     assert torch.allclose(gstd.cpu(), torch.tensor(exp_std)), f"std@{rank}"
 
     dist.destroy_process_group()
+
+
+@pytest.mark.parametrize(
+    "value,mask,gt",
+    [
+        ([1.0, 2.0, 3.0, 4.0], [1, 0, 0, 1], 2.5),
+        ([1.0, 2.0, float("nan"), 4.0], [1, 0, 0, 1], 2.5),
+        ([1.0, 2.0, float("nan"), 4.0], [1, 0, 1, 0], float("nan")),
+    ],
+)
+def test_masked_mean(value, mask, gt):
+    res = masked_mean(torch.tensor(value), torch.tensor(mask))
+    gt = torch.tensor(gt)
+    assert torch.allclose(res, gt) or (torch.isnan(res) and torch.isnan(gt))
 
 
 @pytest.mark.parametrize("world_size", [2, 4])
