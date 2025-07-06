@@ -19,6 +19,11 @@ data:
   custom_cls:
       path: null
       name: null
+  sampler:
+    class_path: null
+    class_name: null
+  dataloader_num_workers: 8
+  return_multi_modal_inputs: True
 
 actor_rollout_ref:
   hybrid_engine: True
@@ -64,7 +69,7 @@ actor_rollout_ref:
     data_loader_seed: null
     shuffle: False
     policy_loss:   # policy loss config
-      loss_mode: "vanilla" # Loss function mode: vanilla / clip-cov / kl-cov from https://arxiv.org/abs/2505.22617
+      loss_mode: "vanilla" # Loss function mode: vanilla / clip-cov / kl-cov / gpg from https://arxiv.org/abs/2505.22617, 
       clip_cov_ratio: 0.0002 # Ratio of tokens to be clipped for clip-cov loss
       clip_cov_lb: 1.0 # Lower bound for clip-cov loss
       clip_cov_ub: 5.0 # Upper bound for clip-cov loss
@@ -79,7 +84,7 @@ actor_rollout_ref:
       lr_warmup_steps: null # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
       lr_decay_steps: null
-      lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
+      lr_decay_style: constant # select from constant/linear/cosine/inverse_square_root
       min_lr: 0.0 # minimum learning rate, default to 0.0
       weight_decay: 0.01
       weight_decay_incr_style: constant # select from constant/linear/cosine
@@ -102,7 +107,8 @@ actor_rollout_ref:
       dist_checkpointing_path: null
       seed: 42
       override_transformer_config: {} # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
-    profile: # profile the actor model in `update_policy`
+      use_mbridge: False
+    profile: # profile the actor model in `update_policy` 
       use_profile: False # open it when you want to profile the actor model
       profile_ranks: null # list, you can specify the ranks to profile
       step_start: -1 # start step in update_policy
@@ -118,9 +124,11 @@ actor_rollout_ref:
       load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
     # Nsight system profiler configs
     profiler:
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+      _target_: verl.utils.profiler.ProfilerConfig
       discrete: False
       all_ranks: False
-      ranks: null
+      ranks: []
   ref:
     strategy: ${actor_rollout_ref.actor.strategy}
     use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
@@ -138,6 +146,7 @@ actor_rollout_ref:
       dist_checkpointing_path: null
       seed: ${actor_rollout_ref.actor.megatron.seed}
       override_transformer_config: ${actor_rollout_ref.actor.megatron.override_transformer_config}
+      use_mbridge: ${actor_rollout_ref.actor.megatron.use_mbridge}
     profile:
       use_profile: False
       profile_ranks: null
@@ -151,9 +160,11 @@ actor_rollout_ref:
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
     # Nsight system profiler configs
     profiler:
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+      _target_: verl.utils.profiler.ProfilerConfig
       discrete: False
       all_ranks: False
-      ranks: null
+      ranks: []
   rollout:
     name: vllm
     mode: sync # sync: LLM, async: AsyncLLM
@@ -239,7 +250,7 @@ actor_rollout_ref:
       # Some models are known to produce different tokenization results when tokenizing turn by turn vs. all at once. aThis behavior has already been validated for them.
       # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
-      # - off: disable tokenization sanity check
+      # - disable: disable tokenization sanity check
       # - strict: enable strict tokenization sanity check (default)
       # - ignore_strippable: ignore strippable tokens when checking tokenization sanity
       tokenization_sanity_check_mode: strict
@@ -253,13 +264,20 @@ actor_rollout_ref:
       # Number of agent loop workers
       num_workers: 8
 
+      custom_async_server:
+        path: null
+        name: null
+
     # support logging rollout prob for debugging purpose
     calculate_log_probs: False
     # Nsight system profiler configs
     profiler:
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+      _target_: verl.utils.profiler.ProfilerConfig
       discrete: False
       all_ranks: False
-      ranks: null
+      ranks: []
+
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
   strategy: ${actor_rollout_ref.actor.strategy}
@@ -311,6 +329,7 @@ critic:
     dist_checkpointing_path: null
     seed: ${actor_rollout_ref.actor.megatron.seed}
     override_transformer_config: ${actor_rollout_ref.actor.megatron.override_transformer_config}
+    use_mbridge: ${actor_rollout_ref.actor.megatron.use_mbridge}
   load_weight: True
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
   ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
@@ -334,9 +353,11 @@ critic:
     load_contents: ${critic.checkpoint.save_contents}
   # Nsight system profiler configs
   profiler:
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    _target_: verl.utils.profiler.ProfilerConfig
     discrete: False
     all_ranks: False
-    ranks: null
+    ranks: []
 reward_model:
   enable: False
   strategy: ${actor_rollout_ref.actor.strategy}
@@ -355,6 +376,7 @@ reward_model:
     dist_checkpointing_path: null
     seed: ${actor_rollout_ref.actor.megatron.seed}
     override_transformer_config: {}
+    use_mbridge: ${actor_rollout_ref.actor.megatron.use_mbridge}
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
@@ -374,15 +396,19 @@ reward_model:
     memory_limit_mb: 1024 # Max memory limit for each sandbox process in MB
   # Nsight system profiler configs
   profiler:
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    _target_: verl.utils.profiler.ProfilerConfig
     discrete: False
     all_ranks: False
-    ranks: null
+    ranks: []
 
 custom_reward_function:
   path: null
   name: compute_score
 
 algorithm:
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+  _target_: verl.trainer.config.AlgoConfig
   gamma: 1.0
   lam: 1.0
   adv_estimator: gae
@@ -390,12 +416,16 @@ algorithm:
   use_kl_in_reward: False
   kl_penalty: kl  # how to estimate kl divergence
   kl_ctrl:
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    _target_: verl.trainer.config.KLControlConfig
     type: fixed
     kl_coef: 0.001
     horizon: 10000
     target_kl: 0.1
   use_pf_ppo: False
   pf_ppo:
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    _target_: verl.trainer.config.PFPPOConfig
     reweight_method: pow  # ["pow", "max_min", "max_random"]
     weight_pow: 2.0
 

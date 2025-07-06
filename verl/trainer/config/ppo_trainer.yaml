@@ -55,6 +55,9 @@ data:
   # Whether to shuffle the data in the dataloader.
   shuffle: True
 
+  # num dataloader workers
+  dataloader_num_workers: 8
+
   # Whether to shuffle the validation set.
   validation_shuffle: False
 
@@ -87,6 +90,19 @@ data:
 
     # The name of the dataset class within the specified file.
     name: null
+  
+  # Whether to return multi-modal inputs in the dataset. Set to False if rollout generates new multi-modal inputs.
+  return_multi_modal_inputs: True
+
+  # settings related to data sampler
+  sampler:
+
+    # the path to the module containing a curriculum class which implements the
+    # AbstractSampler interface
+    class_path: null
+
+    # the name of the curriculum class like `MySampler`
+    class_name: null
 
 # config for actor, rollout and reference model
 actor_rollout_ref:
@@ -187,7 +203,7 @@ actor_rollout_ref:
     # policy loss config
     policy_loss:
     
-      # Loss function mode: vanilla / clip-cov / kl-cov from https://arxiv.org/abs/2505.22617
+      # Loss function mode: vanilla / clip-cov / kl-cov /gpg from https://arxiv.org/abs/2505.22617
       loss_mode: "vanilla"
       
       # Ratio of tokens to be clipped for clip-cov loss
@@ -309,14 +325,17 @@ actor_rollout_ref:
     # profiler configs
     profiler:
 
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+      _target_: verl.utils.profiler.ProfilerConfig
+
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
 
       # Whether to profile all ranks.
       all_ranks: False
 
-      # The ranks that will be profiled. null or [0,1,...]
-      ranks: null
+      # The ranks that will be profiled. [] or [0,1,...]
+      ranks: []
 
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
@@ -373,14 +392,17 @@ actor_rollout_ref:
     # profiler configs
     profiler:
 
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+      _target_: verl.utils.profiler.ProfilerConfig
+
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
 
       # Whether to profile all ranks.
       all_ranks: False
 
-      # The ranks that will be profiled. null or [0,1,...]
-      ranks: null
+      # The ranks that will be profiled. [] or [0,1,...]
+      ranks: []
 
   # Rollout model config.
   rollout:
@@ -547,7 +569,7 @@ actor_rollout_ref:
       # Some models are known to produce different tokenization results when tokenizing turn by turn vs. all at once. aThis behavior has already been validated for them.
       # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
-      # - off: disable tokenization sanity check
+      # - disable: disable tokenization sanity check
       # - strict: enable strict tokenization sanity check (default)
       # - ignore_strippable: ignore strippable tokens when checking tokenization sanity
       tokenization_sanity_check_mode: strict
@@ -561,20 +583,32 @@ actor_rollout_ref:
     # profiler configs
     profiler:
 
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+      _target_: verl.utils.profiler.ProfilerConfig
+
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
 
       # Whether to profile all ranks.
       all_ranks: False
 
-      # The ranks that will be profiled. null or [0,1,...]
-      ranks: null
+      # The ranks that will be profiled. [] or [0,1,...]
+      ranks: []
 
     # [Experimental] agent loop based rollout configs
     agent:
 
       # Number of agent loop workers
       num_workers: 8
+
+      # custom async server configs
+      custom_async_server:
+
+        # Path to the custom async server implementation
+        path: null
+
+        # Class name of the custom async server class (e.g. AsyncvLLMServer)
+        name: null
 
 # configs for the critic
 critic:
@@ -726,8 +760,11 @@ critic:
     load_contents: ${critic.checkpoint.save_contents}
 
   # profiler configs
-  # the corresponding dataclass is verl.utils.debug.ProfilerConfig.
+  # the corresponding dataclass is verl.utils.profiler.ProfilerConfig.
   profiler:
+
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    _target_: verl.utils.profiler.ProfilerConfig
 
     # True for each task has its own database, False for all tasks in one training step share one database.
     discrete: False
@@ -735,8 +772,8 @@ critic:
     # Whether to profile all ranks.
     all_ranks: False
 
-    # The ranks that will be profiled. null or [0,1,...]
-    ranks: null
+    # The ranks that will be profiled. [] or [0,1,...]
+    ranks: []
 
 # configs for the reward model
 reward_model:
@@ -840,14 +877,17 @@ reward_model:
   # profiler configs
   profiler:
 
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    _target_: verl.utils.profiler.ProfilerConfig
+
     # True for each task has its own database, False for all tasks in one training step share one database.
     discrete: False
 
     # Whether to profile all ranks.
     all_ranks: False
 
-    # The ranks that will be profiled. null or [0,1,...]
-    ranks: null
+    # The ranks that will be profiled. [] or [0,1,...]
+    ranks: []
 
 # custom reward function definition
 custom_reward_function:
@@ -861,6 +901,9 @@ custom_reward_function:
 
 # config for the algorithm
 algorithm:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+  _target_: verl.trainer.config.AlgoConfig
 
   # Discount factor for future rewards
   gamma: 1.0
@@ -883,6 +926,9 @@ algorithm:
   # KL control configuration
   kl_ctrl:
 
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    _target_: verl.trainer.config.KLControlConfig
+
     # KL control type: "fixed" or "adaptive"
     type: fixed
 
@@ -900,6 +946,9 @@ algorithm:
 
   # Preference feedback PPO settings
   pf_ppo:
+
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    _target_: verl.trainer.config.PFPPOConfig
 
     # Method for reweighting samples: "pow", "max_min", or "max_random"
     reweight_method: pow
@@ -989,7 +1038,11 @@ trainer:
   # Save frequency (by iteration) for model checkpoints
   save_freq: -1
 
-  # ESI redundant time (in seconds) for model checkpointsAdd commentMore actions
+  # ESI refers to the elastic server instance used during training, similar to the training plan. For example,
+  # if you purchase 10 hours of computing power, the ESI will automatically shut down after 10 hours of training.
+  # To ensure a checkpoint is saved before ESI shuts down, the system will start saving a checkpoint in advance.
+  # The advance time is calculated as: Advance Time = Longest historical step duration + Checkpoint save duration + esi_redundant_time.
+  # Here, esi_redundant_time is a user-defined value that further extends the advance time for added safety.
   esi_redundant_time: 0
 
   # Resume mode: "auto", "disable", or "resume_path"

@@ -43,7 +43,7 @@ if not re_modules:
     print(f"Allowed modules: {', '.join(allowed_modules)}")
     raise Exception("Invalid PR title")
 else:
-    modules = re.findall(r"[a-z]+", re_modules.group(1).lower())
+    modules = re.findall(r"[a-z_]+", re_modules.group(1).lower())
     if not all(module in allowed_modules for module in modules):
         invalid_modules = [module for module in modules if module not in allowed_modules]
         print(f"❌ Invalid modules: {', '.join(invalid_modules)}")

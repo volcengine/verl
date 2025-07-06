@@ -30,10 +30,10 @@ from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
 from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
-from verl.utils.debug.performance import simple_timer
 from verl.utils.device import get_torch_device
 from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, per_tensor_generator
+from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage
+from verl.utils.profiler.performance import simple_timer
 from verl.utils.torch_functional import check_device_is_available
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
@@ -91,6 +91,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         weight_converter: McoreToHFWeightConverterBase,
         device_mesh,
         offload_param: bool = True,
+        bridge=None,
     ):
         self.actor_module = actor_module
         self.inference_engine = inference_engine
@@ -108,6 +109,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.rollout_config = rollout_config
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
+        self.bridge = bridge
         # initialize groups for vllm inference
         self.rank = torch.distributed.get_rank()
         self.world_size = torch.distributed.get_world_size()
@@ -152,13 +154,16 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                     self.inference_engine.wake_up(tags=["weights"])
                 else:
                     self.inference_engine.wake_up()
-            per_tensor_param = per_tensor_generator(
-                self.actor_module,
-                self.model_config,
-                self.weight_converter,
-                self.transformer_config,
-                self.layer_name_mapping,
-            )
+            if self.bridge is not None:
+                per_tensor_param = self.bridge.export_weights(self.actor_module)
+            else:
+                per_tensor_param = per_tensor_generator(
+                    self.actor_module,
+                    self.model_config,
+                    self.weight_converter,
+                    self.transformer_config,
+                    self.layer_name_mapping,
+                )
             model = self.model_runner.model
             patch_vllm_moe_model_weight_loader(model)
             loaded_params = model.load_weights(per_tensor_param)
