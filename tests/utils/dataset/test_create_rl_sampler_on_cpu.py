@@ -43,7 +43,7 @@ class RandomCurriculumSampler(AbstractCurriculumSampler):
     def __len__(self) -> int:
         return len(self.sampler)
 
-    def update(self, batch) -> None:
+    def on_batch_end(self, batch) -> None:
         return
 
 
