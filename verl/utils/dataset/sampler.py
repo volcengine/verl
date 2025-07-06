@@ -27,7 +27,7 @@ class AbstractSampler(Sampler[int]):
     def __init__(
         self,
         data_source: Sized,
-        config: DictConfig,
+        data_config: DictConfig,
     ):
         pass
 
