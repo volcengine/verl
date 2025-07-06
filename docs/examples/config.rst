@@ -194,6 +194,11 @@ Actor/Rollout/Reference Policy
         n: 1
         do_sample: False # default eager for validation
 
+      agent:
+        custom_async_server: # Use custom async server implementation for rollout
+          path: null
+          name: null
+
 **Common config for actor, rollout and reference model**
 
 - ``actor_rollout_ref.hybrid_engine``: Whether it's a hybrid engine,
@@ -396,7 +401,7 @@ ____________________________________________________
       lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
       lr_decay_steps: null
-      lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
+      lr_decay_style: constant # select from constant/linear/cosine/inverse_square_root
       min_lr: 0.0 # minimum learning rate, default to 0.0
       weight_decay: 0.01
       weight_decay_incr_style: constant # select from constant/linear/cosine
@@ -410,6 +415,11 @@ Notice that there are some differences in APIs between Megatron optimizer and FS
 - Megatron optimizer scheduler names the period after lr_warmup as lr_decay_steps, so the ``warmup_style`` actually means the style of lr decay after warmup.
 - Megatron optimizer also support weight decay decay mechanism
 - ``use_checkpoint_opt_param_scheduler`` determines whether to use the checkpoint optimizer parameter scheduler. If set to True, the optimizer parameter scheduler will be saved in the checkpoint and loaded from the checkpoint during resuming training.
+
+For learning rate decay, original Megatron pretrain default option of ``lr_decay_style`` is ``linear``,
+meaning that the learning rate will be linearly decayed from the initial learning rate to ``min_lr`` within the
+``lr_decay_steps``. However, in verl, to align with FSDP's default behavior, we set the default
+``lr_decay_style`` to ``constant``, meaning that the learning rate will be kept constant after the warmup stage.
 
 
 Critic Model
@@ -486,7 +496,7 @@ Algorithm
        horizon: 10000
        target_kl: 0.1
 
-- ``gemma``: discount factor
+- ``gamma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
 - ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``, ``reinforce_plus_plus_baseline``, ``rloo``
 - ``use_kl_in_reward``: Whether to enable in-reward kl penalty. Default is False.
@@ -515,7 +525,7 @@ Trainer
      val_before_train: True
      test_freq: 2
      critic_warmup: 0
-     default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name} # hdfs checkpoint path
+     default_hdfs_dir: null # hdfs checkpoint path
      default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name} # local checkpoint path
      resume_mode: auto # or disable or resume_path if resume_from_path is set
      resume_from_path: null

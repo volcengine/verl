@@ -38,11 +38,9 @@ from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
-from verl.utils import hf_processor, hf_tokenizer, omega_conf_to_dataclass
+from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.debug import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
-from verl.utils.debug.performance import reduce_timing
 from verl.utils.device import (
     get_device_id,
     get_device_name,
@@ -70,6 +68,8 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
+from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
+from verl.utils.profiler.performance import reduce_timing
 from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
@@ -150,11 +150,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         profiler_config: Optional[ProfilerConfig] = None
         if self._is_actor:
-            profiler_config = omega_conf_to_dataclass(config.actor.get("profiler", {}), ProfilerConfig)
+            profiler_config = config.actor.get("profiler", {})
         if self._is_rollout:
-            profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler", {}), ProfilerConfig)
+            profiler_config = config.rollout.get("profiler", {})
         if self._is_ref:
-            profiler_config = omega_conf_to_dataclass(config.ref.get("profiler", {}), ProfilerConfig)
+            profiler_config = config.ref.get("profiler", {})
 
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
 
@@ -514,13 +514,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
-        elif rollout_name in ["sglang", "sglang_async"]:
-            if rollout_name == "sglang_async":
-                warnings.warn(
-                    "'sglang_async' has been deprecated and merged into 'sglang'. Please use 'sglang' going forward.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
+        elif rollout_name == "sglang":
             from verl.workers.rollout.sglang_rollout import SGLangRollout
 
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to
@@ -921,8 +915,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config):
         Worker.__init__(self)
-        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), ProfilerConfig)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
+        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler", {})))
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -1307,8 +1300,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
     def __init__(self, config):
         Worker.__init__(self)
-        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), ProfilerConfig)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
+        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler", {})))
 
         import torch.distributed
 
@@ -1668,11 +1660,6 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     def execute_method(self, method: Union[str, bytes], *args, **kwargs):
         """Called by ExternalRayDistributedExecutor collective_rpc."""
-        if self.vllm_tp_rank == 0 and method != "execute_model":
-            print(
-                f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: "
-                f"{method if isinstance(method, str) else 'Callable'}"
-            )
         return self.rollout.execute_method(method, *args, **kwargs)
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)

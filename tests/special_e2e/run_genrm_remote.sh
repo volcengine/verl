@@ -5,7 +5,7 @@ export no_proxy="localhost,127.0.0.1"
 set -x
 
 # Launch a vllm server
-CUDA_VISIBLE_DEVICES=0 vllm serve dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly \
+CUDA_VISIBLE_DEVICES=0 vllm serve verl-team/GenRM-CI-Test-1.5B \
     --served_model_name genrm-demo --host localhost --port 30000 > /dev/null &
 SERVER_PID=$!
 

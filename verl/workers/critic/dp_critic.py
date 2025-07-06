@@ -26,9 +26,9 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from verl import DataProto
 from verl.trainer.ppo import core_algos
-from verl.utils.debug import GPUMemoryLogger
 from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
+from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import masked_mean
@@ -191,10 +191,7 @@ class DataParallelPPOCritic(BasePPOCritic):
             revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
             values = values[revert_indices]
 
-        responses = data.batch["responses"]
-        attention_mask = data.batch["attention_mask"]
-        response_length = responses.size(1)
-        response_mask = attention_mask[:, -response_length:]
+        response_mask = data.batch["response_mask"]
         values = values * response_mask  # Only action tokens have values
         return values
 
@@ -204,7 +201,7 @@ class DataParallelPPOCritic(BasePPOCritic):
         self.critic_module.train()
         metrics = {}
 
-        select_keys = ["input_ids", "responses", "attention_mask", "position_ids", "values", "returns"]
+        select_keys = ["input_ids", "responses", "response_mask", "attention_mask", "position_ids", "values", "returns"]
         batch = data.select(batch_keys=select_keys).batch
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
 
@@ -246,13 +243,9 @@ class DataParallelPPOCritic(BasePPOCritic):
                         data = {**data.batch.to(get_device_id()), **data.non_tensor_batch}
                     else:
                         data = data.to(get_device_id())  # critic device is cpu when using offload
-                    responses = data["responses"]
-                    attention_mask = data["attention_mask"]
+                    response_mask = data["response_mask"]
                     values = data["values"]
                     returns = data["returns"]
-                    response_length = responses.size(1)
-
-                    response_mask = attention_mask[:, -response_length:]
 
                     vpreds = self._forward_micro_batch(data)
 

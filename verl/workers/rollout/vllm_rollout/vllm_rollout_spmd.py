@@ -33,6 +33,7 @@ import socket
 import threading
 from contextlib import contextmanager
 from copy import deepcopy
+from types import MethodType
 from typing import Any, Dict, List, Union
 
 import numpy as np
@@ -46,10 +47,11 @@ from tensordict import TensorDict
 from vllm import LLM, SamplingParams
 from vllm.distributed import parallel_state as vllm_ps
 from vllm.lora.request import LoRARequest
+from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
-from verl.utils.debug import GPUMemoryLogger
+from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
 
@@ -217,6 +219,26 @@ class vLLMRollout(BaseRollout):
     @GPUMemoryLogger(role="vllm rollout spmd", logger=logger)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
+        """Generate sequences for a batch of prompts.
+
+        Args:
+            batch (DataProto): Input batch.
+
+        Returns:
+            DataProto: Output batch.
+            - prompts: [bsz, prompt_length], prompt token ids from dataset.
+            - responses: [bsz, response_length], output token ids include response tokens
+              from LLM generation and observation tokens from tool_calls.
+            - response_mask: [bsz, response_length], 1 for LLM generated tokens, 0 for observation/padding tokens.
+            - input_ids: [bsz, prompt_length + response_length], whole sequence token ids, including prompt tokens
+              and response tokens.
+            - attention_mask: [bsz, prompt_length + response_length], 0 for padding tokens, 1 for other tokens.
+            - position_ids: [bsz, prompt_length + response_length], incremental position ids.
+
+            For multi-turn conversations:
+            responses:     |<- LLM generation ->|<- tool_calls ->|<- LLM generation ->|<- padding ->|
+            response_mask: | 1, 1, 1, ..., 1, 1 | 0, 0, .., 0, 0 | 1, 1, 1, ..., 1, 1 | 0, 0, ..., 0|
+        """
         idx = prompts.batch["input_ids"]  # (bs, prompt_length)
         # left-padded attention_mask
         attention_mask = prompts.batch["attention_mask"]
@@ -375,12 +397,30 @@ class vLLMRollout(BaseRollout):
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
 
+# https://github.com/vllm-project/vllm/issues/13175
+def _monkey_patch_compute_logits(model, vocab_size: int):
+    original_compute_logits = model.compute_logits
+
+    def compute_logits(
+        self,
+        hidden_states: torch.Tensor,
+        sampling_metadata: SamplingMetadata,
+    ) -> torch.Tensor:
+        logits = original_compute_logits(hidden_states, sampling_metadata)
+        logits[..., vocab_size:] = float("-inf")
+        return logits
+
+    model.compute_logits = MethodType(compute_logits, model)
+
+
 class vLLMAsyncRollout:
     """vLLMAsyncRollout is a thin wrapper of WorkerWrapperBase,
     which is engine in single worker process.
     """
 
     def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
+        self.tokenizer = tokenizer
+
         # Engine is deferred to be initialized in init_worker
         self.config = config
         self.inference_engine: WorkerWrapperBase = None
@@ -444,6 +484,8 @@ class vLLMAsyncRollout:
         # inference engine is initialized now, update sharding manager
         self.sharding_manager.inference_engine = self.inference_engine
         self.sharding_manager.model_runner = self.inference_engine.worker.model_runner
+
+        _monkey_patch_compute_logits(self.inference_engine.worker.model_runner.model, len(self.tokenizer))
 
     def sleep(self, *args, **kwargs):
         """Offload model weights and discard kv cache."""

@@ -73,7 +73,7 @@ class AsyncRolloutRequestStateEnum(str, Enum):
 class TokenizationSanityCheckModeEnum(str, Enum):
     """The enum for tokenization sanity check mode."""
 
-    OFF = "off"
+    DISABLE = "disable"
     STRICT = "strict"
     IGNORE_STRIPPABLE = "ignore_strippable"
 
@@ -84,10 +84,12 @@ class AsyncRolloutRequest(BaseModel):
     batch_data_id: int = 0
     rollout_offset: int = 0
     request_id: str
+    uid: str | None = ""
     state: AsyncRolloutRequestStateEnum
     messages: List[Message]
     multi_modal_keys: Optional[List[str]] = None
     multi_modal_data: Optional[Dict[str, Any]] = None
+    multi_modal_inputs: Optional[Dict[str, Any]] = None
     tool_schemas: Optional[List[OpenAIFunctionToolSchema]] = None
     tools_kwargs: Dict[str, Any] = {}
     interaction_kwargs: Dict[str, Any] = {}
@@ -97,9 +99,9 @@ class AsyncRolloutRequest(BaseModel):
     attention_mask: List[int]
     prompt_attention_mask: List[int]
     response_attention_mask: List[int]
-    position_ids: List[int]
-    prompt_position_ids: List[int]
-    response_position_ids: List[int]
+    position_ids: List[int] | List[List[int]]
+    prompt_position_ids: List[int] | List[List[int]]
+    response_position_ids: List[int] | List[List[int]]
     loss_mask: List[int]
     prompt_loss_mask: List[int]
     response_loss_mask: List[int]
@@ -137,6 +139,8 @@ class AsyncRolloutRequest(BaseModel):
             for key in values["multi_modal_keys"]:
                 if key not in values["multi_modal_data"]:
                     values["multi_modal_data"][key] = []
+        if not values.get("multi_modal_inputs"):
+            values["multi_modal_inputs"] = {}
 
         tools = (
             [tool.model_dump() for tool in tool_schemas] if (tool_schemas := values.get("tool_schemas", [])) else None
@@ -151,7 +155,7 @@ class AsyncRolloutRequest(BaseModel):
             add_generation_prompt=False,
             tokenize=True,
         )
-        if not values.get("input_ids") or not values.get("attention_mask"):
+        if not values.get("input_ids") or not values.get("attention_mask") or not values.get("position_ids"):
             tokenization_dict_with_prompt = cls._handle_apply_chat_template(
                 processing_class,
                 messages,
@@ -174,10 +178,17 @@ class AsyncRolloutRequest(BaseModel):
                     f"{max_prompt_len} after applied chat template with tools."
                 )
 
+            # Process multi_modal_inputs
+            multi_modal_inputs = dict(tokenization_dict_with_prompt)
+            multi_modal_inputs.pop("input_ids", None)
+            multi_modal_inputs.pop("attention_mask", None)
+            values["multi_modal_inputs"] = multi_modal_inputs
+
+            values["position_ids"] = values["prompt_position_ids"] = cls._get_position_ids(
+                processing_class, values["input_ids"], values["attention_mask"], multi_modal_inputs
+            )
+
         values["prompt_ids"], values["prompt_attention_mask"] = values["input_ids"], values["attention_mask"]
-        values["position_ids"] = values["prompt_position_ids"] = compute_position_id_with_mask(
-            torch.tensor(values["attention_mask"])
-        ).tolist()
         values["loss_mask"] = values["prompt_loss_mask"] = [0] * len(values["input_ids"])
         values["generation_prompt_ids"] = values["input_ids"][len(tokens_without_prompt) :]
         values["base_conv_wo_gen_prompt_end_pos"] = len(
@@ -236,16 +247,66 @@ class AsyncRolloutRequest(BaseModel):
             images = images if len(images := multi_modal_data.get("image", [])) > 0 else None
             videos = videos if len(videos := multi_modal_data.get("video", [])) > 0 else None
             model_inputs = processing_class(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
-            assert model_inputs["input_ids"].shape[0] == 1, "input_ids should be a 1D array"
-            model_inputs = {k: v[0].tolist() if hasattr(v, "tolist") else v for k, v in model_inputs.items()}
+            assert model_inputs["input_ids"].shape[0] == 1, (
+                "request level input_ids should be a 2D array with shape (1, seq_len)"
+            )
+            assert model_inputs["attention_mask"].shape[0] == 1, (
+                "request level attention_mask should be a 2D array with shape (1, seq_len)"
+            )
+
+            # current req level input_ids/attention_mask needs to be 1D array,
+            # this is specific for request level input_ids/attention_mask
+            model_inputs["input_ids"] = model_inputs["input_ids"][0].tolist()
+            model_inputs["attention_mask"] = model_inputs["attention_mask"][0].tolist()
+
             if return_dict:
-                return model_inputs
+                return dict(model_inputs)
             else:
                 return model_inputs["input_ids"]
         else:
             raise ValueError(f"Unsupported processing class type: {type(processing_class)}")
 
-    def _update_input_ids(self, new_input_ids: List[int], attention_mask: bool, loss_mask: bool) -> None:
+    @staticmethod
+    def _get_position_ids(
+        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
+        input_ids: List[int],
+        attention_mask: List[int],
+        multi_modal_inputs: Optional[Dict[str, Any]] = None,
+    ) -> List[int]:
+        # special case for qwen2vl
+        is_qwen2vl = (
+            hasattr(processing_class, "image_processor")
+            and "Qwen2VLImageProcessor" in processing_class.image_processor.__class__.__name__
+        )
+        if is_qwen2vl:
+            from verl.models.transformers.qwen2_vl import get_rope_index
+
+            image_grid_thw = video_grid_thw = second_per_grid_ts = None
+            if multi_modal_inputs:
+                image_grid_thw = multi_modal_inputs.get("image_grid_thw")
+                video_grid_thw = multi_modal_inputs.get("video_grid_thw")
+                second_per_grid_ts = multi_modal_inputs.get("second_per_grid_ts")
+
+            new_position_ids = get_rope_index(
+                processing_class,
+                input_ids=torch.tensor(input_ids, dtype=torch.long),
+                image_grid_thw=image_grid_thw,
+                video_grid_thw=video_grid_thw,
+                second_per_grid_ts=second_per_grid_ts,
+                attention_mask=torch.tensor(attention_mask, dtype=torch.long),
+            )
+            return new_position_ids.tolist()  # (3, seq_len)
+        else:
+            return compute_position_id_with_mask(torch.tensor(attention_mask)).tolist()  # (seq_len,)
+
+    def _update_input_ids(
+        self,
+        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
+        new_input_ids: List[int],
+        attention_mask: bool,
+        loss_mask: bool,
+        new_multi_modal_inputs: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """
         Update the input_ids, attention_mask, position_ids, and loss_mask of the request in additive manner.
         """
@@ -253,14 +314,45 @@ class AsyncRolloutRequest(BaseModel):
         attention_mask = [int(attention_mask)] * len(new_input_ids)
         self.attention_mask += attention_mask
         self.loss_mask += [int(loss_mask)] * len(new_input_ids)
-        self.position_ids += (
-            compute_position_id_with_mask(torch.tensor(attention_mask)) + (self.position_ids[-1] + 1)
-        ).tolist()
+
+        if new_multi_modal_inputs:
+            self._update_multi_modal_inputs(new_multi_modal_inputs)
+
+        new_position_ids = self._get_position_ids(
+            processing_class, new_input_ids, attention_mask, new_multi_modal_inputs
+        )
+        if isinstance(self.position_ids[0], list):
+            self.position_ids = [
+                self.position_ids[i] + [j + self.position_ids[i][-1] + 1 for j in new_position_ids[i]]
+                for i in range(len(new_position_ids))
+            ]  # (3, seq_len)
+            position_ids_seq_len = len(self.position_ids[0])
+        else:
+            self.position_ids += [j + (self.position_ids[-1] + 1) for j in new_position_ids]  # (seq_len,)
+            position_ids_seq_len = len(self.position_ids)
 
         assert (
-            len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask)
+            len(self.input_ids) == len(self.attention_mask) == position_ids_seq_len == len(self.loss_mask)
         ), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
-            {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
+            {len(self.attention_mask)=}, {position_ids_seq_len=}, {len(self.loss_mask)=}"""
+
+    def _update_multi_modal_inputs(self, new_multi_modal_inputs: Dict[str, Any]) -> None:
+        """
+        Update the multi_modal_inputs of the request in additive manner.
+        """
+
+        # We just want to have the multi_modal_inputs without input_ids and attention_mask
+        new_multi_modal_inputs = new_multi_modal_inputs.copy()
+        new_multi_modal_inputs.pop("input_ids", None)
+        new_multi_modal_inputs.pop("attention_mask", None)
+
+        for key in new_multi_modal_inputs:
+            input_tensor = new_multi_modal_inputs[key]
+            self.multi_modal_inputs[key] = (
+                torch.cat([self.multi_modal_inputs[key], input_tensor], dim=0)
+                if key in self.multi_modal_inputs
+                else input_tensor
+            )
 
     def get_generation_prompt_ids(
         self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin]
@@ -271,7 +363,7 @@ class AsyncRolloutRequest(BaseModel):
             else self.generation_prompt_ids
         )
         if generation_prompt_ids:
-            self._update_input_ids(generation_prompt_ids, attention_mask=True, loss_mask=False)
+            self._update_input_ids(processing_class, generation_prompt_ids, attention_mask=True, loss_mask=False)
 
         if self.use_inference_chat_template:
             messages = [msg.model_dump() for msg in self.messages]
@@ -302,7 +394,7 @@ class AsyncRolloutRequest(BaseModel):
         content_ids = self._handle_apply_chat_template(
             processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True
         )[self.base_conv_wo_gen_prompt_end_pos :]
-        self._update_input_ids(content_ids, attention_mask=True, loss_mask=False)
+        self._update_input_ids(processing_class, content_ids, attention_mask=True, loss_mask=False)
 
     def add_assistant_message(
         self,
@@ -320,24 +412,79 @@ class AsyncRolloutRequest(BaseModel):
         content_ids = self._handle_apply_chat_template(
             processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True
         )[self.base_conv_with_gen_prompt_end_pos :]
-        self._update_input_ids(content_ids, attention_mask=True, loss_mask=True)
+        self._update_input_ids(processing_class, content_ids, attention_mask=True, loss_mask=True)
 
     def add_tool_response_messages(
-        self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin], contents: list[str]
+        self,
+        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
+        contents: list[str | Dict[str, Any]],
     ) -> None:
         if not contents:
             return
+        # We also handle the case when tool returns image
+        # We require the processing of the image and video to be done at tool.execute() level
+        delta_multi_modal_data = {key: [] for key in self.multi_modal_keys}
+        for content in contents:
+            if isinstance(content, dict):
+                content_list = []
+                # When we update multi_model_keys, we also need to update this logic
+                if "image" in content:
+                    if not isinstance(content["image"], list):
+                        raise ValueError(
+                            f"Image must be a list, but got {type(content['image'])}. Please check the tool.execute(). "
+                            f"For single images, wrap in a list: [image]. "
+                            f"Example: {{'image': [img1]}} or {{'image': [img1, img2, ...]}}."
+                        )
 
-        self.messages.extend([Message(role="tool", content=content) for content in contents])
+                    content_list.extend([{"type": "image"} for _ in content["image"]])
+                    delta_multi_modal_data["image"].extend(content["image"])
+                if "video" in content:
+                    if not isinstance(content["video"], list):
+                        raise ValueError(
+                            f"Video must be a list, but got {type(content['video'])}. Please check the tool.execute(). "
+                            f"For single videos, wrap in a list: [video]. "
+                            f"Example: {{'video': [video1]}} or {{'video': [video1, video2, ...]}}."
+                        )
+
+                    content_list.extend([{"type": "video"} for _ in content["video"]])
+                    delta_multi_modal_data["video"].extend(content["video"])
+                if "text" in content:
+                    content_list.append({"type": "text", "text": content["text"]})
+                for key in content:
+                    if key not in ["image", "video", "text"]:
+                        logger.warning(
+                            f"Tool response message contains unexpected key: {key} "
+                            f"while we only support `image`, `video`, and `text`."
+                        )
+                self.messages.append(Message(role="tool", content=content_list))
+            else:
+                self.messages.append(Message(role="tool", content=content))
 
         messages = [*BASE_CHAT_HISTORY, *self.messages[-len(contents) :]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
 
-        # Currently we don't support tool creates multi-modal data
-        content_ids = self._handle_apply_chat_template(
-            processing_class, messages, multi_modal_data={}, tools=tools, add_generation_prompt=False, tokenize=True
-        )[self.base_conv_wo_gen_prompt_end_pos :]
-        self._update_input_ids(content_ids, attention_mask=True, loss_mask=False)
+        for key in self.multi_modal_keys:
+            if len(delta_multi_modal_data[key]) > 0:
+                self.multi_modal_data[key].extend(delta_multi_modal_data[key])
+
+        # We just passed the new multi-modal data to the chat template to update the input_ids.
+        content_info = self._handle_apply_chat_template(
+            processing_class,
+            messages,
+            multi_modal_data=delta_multi_modal_data,
+            tools=tools,
+            add_generation_prompt=False,
+            tokenize=True,
+            return_dict=True,
+        )
+        content_ids = content_info["input_ids"][self.base_conv_wo_gen_prompt_end_pos :]
+        self._update_input_ids(
+            processing_class,
+            content_ids,
+            attention_mask=True,
+            loss_mask=False,
+            new_multi_modal_inputs=content_info,
+        )
 
     def update_metrics(self, metrics: Any, tool_id: str) -> None:
         """
@@ -410,20 +557,62 @@ class AsyncRolloutRequest(BaseModel):
     ) -> None:
         self.state = AsyncRolloutRequestStateEnum.COMPLETED
         self.reward_scores = reward_scores
-        if self.tokenization_sanity_check_mode != TokenizationSanityCheckModeEnum.OFF:
+
+        # In case we failed to generate the assistant message and the generation prompt ids were already added to
+        # input_ids, remove them from the end of input_ids
+        if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids:
+            self.input_ids = self.input_ids[: -len(self.generation_prompt_ids)]
+            self.attention_mask = self.attention_mask[: -len(self.generation_prompt_ids)]
+            self.position_ids = (
+                [position_ids[: -len(self.generation_prompt_ids)] for position_ids in self.position_ids]
+                if isinstance(self.position_ids[0], list) and isinstance(self.position_ids[0][0], int)
+                else self.position_ids[: -len(self.generation_prompt_ids)]
+            )
+            self.loss_mask = self.loss_mask[: -len(self.generation_prompt_ids)]
+
+        self.response_ids = self.input_ids[len(self.prompt_ids) :]
+
+        if self.tokenization_sanity_check_mode != TokenizationSanityCheckModeEnum.DISABLE:
             # When there is a diff, we log the diffs with diff_surrounding_chars context
             diff_surrounding_chars = 10
 
             messages = [msg.model_dump() for msg in self.messages]
             tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
-            full_prompt_ids = self._handle_apply_chat_template(
+            full_prompt_info = self._handle_apply_chat_template(
                 processing_class,
                 messages,
                 multi_modal_data=self.multi_modal_data,
                 tools=tools,
                 add_generation_prompt=False,
                 tokenize=True,
+                return_dict=True,
             )
+            full_prompt_ids = full_prompt_info["input_ids"]
+
+            # We must use dict(full_prompt_info) to convert BatchFeature values to a new dict
+            # because np.array() only keeps the keys for BatchFeature.
+            full_prompt_multi_modal_inputs = dict(full_prompt_info)
+            full_prompt_multi_modal_inputs.pop("input_ids", None)
+            full_prompt_multi_modal_inputs.pop("attention_mask", None)
+
+            for multi_modal_inputs_key in self.multi_modal_inputs:
+                if multi_modal_inputs_key in full_prompt_multi_modal_inputs:
+                    if (
+                        not self.multi_modal_inputs[multi_modal_inputs_key]
+                        .eq(full_prompt_multi_modal_inputs[multi_modal_inputs_key])
+                        .all()
+                    ):
+                        logger.warning(
+                            f"Multi-modal data {multi_modal_inputs_key} is not consistent. "
+                            f"This may lead to unexpected behavior during training. "
+                            f"Please review your multi_modal_inputs logic."
+                        )
+                else:
+                    logger.warning(
+                        f"Multi-modal inputs key {multi_modal_inputs_key} is not found in the multi_modal_inputs. "
+                        f"This may lead to unexpected behavior during training."
+                        f"Please review your multi_modal_inputs logic."
+                    )
 
             if diffs := self._get_prompt_diffs(
                 processing_class, full_prompt_ids, self.input_ids, diff_surrounding_chars=diff_surrounding_chars
@@ -459,15 +648,6 @@ class AsyncRolloutRequest(BaseModel):
                     diff_details = "\n".join(diff_details_list)
                     logger.warning(f"Found differences:\n{diff_details}")
 
-        # In case we failed to generate the assistant message and the generation prompt ids were already added to
-        # input_ids, remove them from the end of input_ids
-        if self.input_ids[-len(self.generation_prompt_ids) :] == self.generation_prompt_ids:
-            self.input_ids = self.input_ids[: -len(self.generation_prompt_ids)]
-            self.attention_mask = self.attention_mask[: -len(self.generation_prompt_ids)]
-            self.position_ids = self.position_ids[: -len(self.generation_prompt_ids)]
-            self.loss_mask = self.loss_mask[: -len(self.generation_prompt_ids)]
-
-        self.response_ids = self.input_ids[len(self.prompt_ids) :]
         if finish_reason_type == FinishReasonTypeEnum.STOP:
             pass
         elif finish_reason_type == FinishReasonTypeEnum.LENGTH:
@@ -475,19 +655,36 @@ class AsyncRolloutRequest(BaseModel):
         else:
             raise ValueError(f"Unsupported finalize finish reason type: {finish_reason_type}")
         self.truncate_output_ids(processing_class)
+
+        position_ids_seq_len = (
+            len(self.position_ids[0]) if isinstance(self.position_ids[0], list) else len(self.position_ids)
+        )
         assert (
-            len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask)
+            len(self.input_ids) == len(self.attention_mask) == position_ids_seq_len == len(self.loss_mask)
         ), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
-            {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
+            {len(self.attention_mask)=}, {position_ids_seq_len=}, {len(self.loss_mask)=}"""
 
     def truncate_output_ids(
         self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin]
     ) -> None:
         self.input_ids = self.input_ids[: self.max_model_len]
         self.attention_mask = self.attention_mask[: self.max_model_len]
-        self.position_ids = self.position_ids[: self.max_model_len]
+
+        # this is same as torch.tensor(self.position_ids[..., :self.max_model_len]).tolist()
+        self.position_ids = (
+            [position_ids[: self.max_model_len] for position_ids in self.position_ids]
+            if isinstance(self.position_ids[0], list) and isinstance(self.position_ids[0][0], int)
+            else self.position_ids[: self.max_model_len]
+        )
         self.loss_mask = self.loss_mask[: self.max_model_len]
         self.response_ids = self.input_ids[len(self.prompt_ids) :][: self.max_response_len]
         self.response_attention_mask = self.attention_mask[len(self.prompt_attention_mask) :][: self.max_response_len]
-        self.response_position_ids = self.position_ids[len(self.prompt_position_ids) :][: self.max_response_len]
+        self.response_position_ids = (
+            [
+                position_ids[len(self.prompt_position_ids[0]) :][: self.max_response_len]
+                for position_ids in self.position_ids
+            ]
+            if isinstance(self.position_ids[0], list) and isinstance(self.position_ids[0][0], int)
+            else self.position_ids[len(self.prompt_position_ids) :][: self.max_response_len]
+        )
         self.response_loss_mask = self.loss_mask[len(self.prompt_loss_mask) :][: self.max_response_len]

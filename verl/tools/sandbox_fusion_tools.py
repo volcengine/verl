@@ -171,8 +171,8 @@ class SandboxFusionTool(BaseTool):
             code = str(code)
 
         result = await self.execution_pool.execute.remote(self.execute_code, instance_id, code, timeout, language)
-
-        return result, result, result.strip()
+        # sandbox has no score or metrics, use Nones
+        return result, None, None
 
     def execute_code(self, instance_id, code, timeout=30, language="python"):
         result_status, metadata = _process_single_case(
@@ -180,7 +180,7 @@ class SandboxFusionTool(BaseTool):
         )
         # we should always expect this since we don't have correct answer
         if metadata["run_status"] == "Finished":
-            actual_output = metadata["stdout"] if metadata["stdout"] is not None else ""
+            actual_output = metadata["stdout"] + metadata["stderr"]
             logger.debug(f"actual_output from sandbox fusion: {actual_output},{instance_id}")
             return actual_output
         else:
