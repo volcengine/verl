@@ -74,7 +74,6 @@ def test_vllm_rollout_with_yarn_position_embeddings():
         tokenizer=tokenizer,
         model_hf_config=model_hf_config,
     )
-    vllm_rollout.inference_engine.wake_up()
     # rollout
     rollout_response = vllm_rollout.generate_sequences(
         prompts=input_dataproto,
@@ -87,7 +86,6 @@ def test_vllm_rollout_with_yarn_position_embeddings():
                 "Response should contain <|im_end|> token"
             )
     print("Checks passed.")
-    vllm_rollout.inference_engine.sleep(level=2)
 
     del vllm_rollout
     gc.collect()
