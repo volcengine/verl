@@ -104,8 +104,7 @@ jobs:
         # Disable requests to avoid network errors
       - name: Test the latest vLLM
         run: |
-          cd tests/workers/rollout/rollout_vllm
-          torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_vllm_spmd.py
+          torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s tests/workers/rollout/rollout_vllm/test_vllm_spmd.py
       - name: Run Qwen 0.5B generation test
         run: |
           cd tests/special_e2e/generation
