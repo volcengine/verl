@@ -11,25 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-Sharding manager to implement HybridEngine
-"""
 
-from verl import DataProto
-
-
-class BaseShardingManager:
-    def __init__(self):
-        self.timing = {}
-
-    def __enter__(self):
-        pass
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        pass
-
-    def preprocess_data(self, data: DataProto) -> DataProto:
-        return data
-
-    def postprocess_data(self, data: DataProto) -> DataProto:
-        return data
+PPO_RAY_RUNTIME_ENV = {
+    "env_vars": {
+        "TOKENIZERS_PARALLELISM": "true",
+        "NCCL_DEBUG": "WARN",
+        "VLLM_LOGGING_LEVEL": "WARN",
+        "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "true",
+    },
+}

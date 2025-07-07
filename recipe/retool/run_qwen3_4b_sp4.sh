@@ -26,7 +26,6 @@ torchrun --nnodes=1 --nproc_per_node=8 \
     trainer.project_name=retool-multiturn-sft \
     trainer.experiment_name=$EXPERIMENT_NAME \
     trainer.logger=['console','wandb'] \
-    trainer.total_epochs=12 \
-    trainer.default_hdfs_dir=null $@ \
+    trainer.total_epochs=12 $@ \
     ulysses_sequence_parallel_size=4 \
     use_remove_padding=true

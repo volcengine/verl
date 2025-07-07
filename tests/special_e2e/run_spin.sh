@@ -21,7 +21,6 @@ CUDA_VISIBLE_DEVICES=${VISIBLE_DEVICES} python3 -m recipe.spin.main_spin \
   algorithm.kl_ctrl.kl_coef=0.001 \
   trainer.logger=['console'] \
   trainer.val_before_train=False \
-  trainer.default_hdfs_dir=null \
   trainer.n_gpus_per_node=4 \
   trainer.nnodes=1 \
   trainer.save_freq=-1 \
