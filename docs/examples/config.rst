@@ -496,7 +496,7 @@ Algorithm
        horizon: 10000
        target_kl: 0.1
 
-- ``gemma``: discount factor
+- ``gamma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
 - ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``, ``reinforce_plus_plus_baseline``, ``rloo``
 - ``use_kl_in_reward``: Whether to enable in-reward kl penalty. Default is False.
@@ -525,7 +525,7 @@ Trainer
      val_before_train: True
      test_freq: 2
      critic_warmup: 0
-     default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name} # hdfs checkpoint path
+     default_hdfs_dir: null # hdfs checkpoint path
      default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name} # local checkpoint path
      resume_mode: auto # or disable or resume_path if resume_from_path is set
      resume_from_path: null
