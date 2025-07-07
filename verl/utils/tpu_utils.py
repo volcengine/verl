@@ -50,14 +50,3 @@ class Tpu:
 
     def manual_seed(self, seed):
         self.torch_xla.manual_seed(seed)
-
-
-def get_init_weight_context_manager(use_meta_tensor=True):
-    from accelerate import init_empty_weights
-
-    cpu_init_weights = lambda: torch.device("cpu")
-    if use_meta_tensor:
-        init_context = init_empty_weights if torch.distributed.get_rank() != 0 else cpu_init_weights
-    else:
-        init_context = cpu_init_weights
-    return init_context

@@ -61,7 +61,6 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
 )
-from verl.utils.tpu_utils import get_init_weight_context_manager
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.py_functional import convert_to_regular_types
@@ -206,107 +205,58 @@ class ActorRolloutRefWorker(Worker):
         if self.rank == 0:
             print(f"Model config after override: {actor_model_config}")
 
-        # NOTE(fix me): tie_word_embedding causes meta_tensor init to hang
-        init_context = get_init_weight_context_manager(use_meta_tensor=not actor_model_config.tie_word_embeddings)
+        warnings.simplefilter("ignore")
+        if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
+            actor_module_class = AutoModelForVision2Seq
+        else:
+            actor_module_class = AutoModelForCausalLM
 
-        with init_context(), warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
-                actor_module_class = AutoModelForVision2Seq
-            else:
-                actor_module_class = AutoModelForCausalLM
+        actor_module = actor_module_class.from_pretrained(
+            pretrained_model_name_or_path=local_path,
+            torch_dtype=torch_dtype,
+            config=actor_model_config,
+            trust_remote_code=trust_remote_code,
+        )
 
-            actor_module = actor_module_class.from_pretrained(
-                pretrained_model_name_or_path=local_path,
-                torch_dtype=torch_dtype,
-                config=actor_model_config,
-                trust_remote_code=trust_remote_code,
-            )
+        # Apply Liger kernel to the model if use_liger is set to True
+        if use_liger:
+            from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
 
-            # Apply Liger kernel to the model if use_liger is set to True
-            if use_liger:
-                from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
+            _apply_liger_kernel_to_instance(model=actor_module)
 
-                _apply_liger_kernel_to_instance(model=actor_module)
+        fused_kernel_options = self.config.model.get("fused_kernel_options", None)
+        fused_kernels_backend = fused_kernel_options.get("impl_backend", None) if fused_kernel_options is not None else None
 
-            fused_kernel_options = self.config.model.get("fused_kernel_options", None)
-            fused_kernels_backend = fused_kernel_options.get("impl_backend", None) if fused_kernel_options is not None else None
+        apply_monkey_patch(
+            model=actor_module,
+            use_remove_padding=use_remove_padding,
+            ulysses_sp_size=self.ulysses_sequence_parallel_size,
+            use_fused_kernels=use_fused_kernels,
+            fused_kernels_backend=fused_kernels_backend,
+        )
 
-            apply_monkey_patch(
-                model=actor_module,
-                use_remove_padding=use_remove_padding,
-                ulysses_sp_size=self.ulysses_sequence_parallel_size,
-                use_fused_kernels=use_fused_kernels,
-                fused_kernels_backend=fused_kernels_backend,
-            )
+        # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
+        actor_module.to(torch_dtype)
 
-            # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
-            actor_module.to(torch_dtype)
-
-            if enable_gradient_checkpointing:
-                actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-            if self._is_lora:
-                print("Applying LoRA to actor module")
-                actor_module.enable_input_require_grads()
-                # Convert config to regular Python types before creating PEFT model
-                lora_config = {"task_type": TaskType.CAUSAL_LM, "r": self.config.model.lora_rank, "lora_alpha": self.config.model.lora_alpha, "target_modules": convert_to_regular_types(self.config.model.target_modules), "bias": "none"}
-                actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
+        if enable_gradient_checkpointing:
+            actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        if self._is_lora:
+            print("Applying LoRA to actor module")
+            actor_module.enable_input_require_grads()
+            # Convert config to regular Python types before creating PEFT model
+            lora_config = {"task_type": TaskType.CAUSAL_LM, "r": self.config.model.lora_rank, "lora_alpha": self.config.model.lora_alpha, "target_modules": convert_to_regular_types(self.config.model.target_modules), "bias": "none"}
+            actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
 
         if self.rank == 0:
             print_model_size(actor_module)
 
         log_gpu_memory_usage(f"After init {role} from HF AutoModel", logger=logger)
 
-        # We wrap FSDP for rollout as well
-        # mixed_precision_config = fsdp_config.get("mixed_precision", None)
-        # if mixed_precision_config is not None:
-        #     param_dtype = PrecisionType.to_dtype(mixed_precision_config.get("param_dtype", "bf16"))
-        #     reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "fp32"))
-        #     buffer_dtype = PrecisionType.to_dtype(mixed_precision_config.get("buffer_dtype", "fp32"))
-        # else:
-        #     param_dtype = torch.bfloat16
-        #     reduce_dtype = torch.float32
-        #     buffer_dtype = torch.float32
-
-        # auto_wrap_policy = get_fsdp_wrap_policy(module=actor_module, config=fsdp_config.get("wrap_policy", None), is_lora=self.config.model.get("lora_rank", 0) > 0)
-
-        # if self._is_rollout and self.config.rollout.name == "hf":
-        #     # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
-        #     auto_wrap_policy = None
-
-        # if self.rank == 0:
-        #     print(f"wrap_policy: {auto_wrap_policy}")
-
         # TODO: add transformer policy
         # We force reference policy to use CPUOffload to save memory.
         # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
         fsdp_strategy = self.config.actor.strategy
         actor_module_fsdp = actor_module
-
-        # if fsdp_strategy == "spmd":
-        #     actor_module_fsdp = actor_module
-        # elif fsdp_strategy == "fsdp2":
-        #     assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
-        #     mp_policy = MixedPrecisionPolicy(param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True)
-        #     if role == "actor" and fsdp_config.offload_policy:
-        #         cpu_offload = CPUOffloadPolicy(pin_memory=True)
-        #         self._is_offload_param = False
-        #         self._is_offload_optimizer = False
-        #     else:
-        #         cpu_offload = None if role == "actor" else CPUOffloadPolicy(pin_memory=True)
-
-        #     fsdp_kwargs = {
-        #         "mesh": fsdp_mesh,
-        #         "mp_policy": mp_policy,
-        #         "offload_policy": cpu_offload,
-        #         "reshard_after_forward": fsdp_config.reshard_after_forward,
-        #     }
-        #     full_state = actor_module.state_dict()
-        #     apply_fsdp2(actor_module, fsdp_kwargs, fsdp_config)
-        #     fsdp2_load_full_state_dict(actor_module, full_state, fsdp_mesh, cpu_offload)
-        #     actor_module_fsdp = actor_module
-        # else:
-        #     raise NotImplementedError(f"not implement {fsdp_strategy}")
 
         if enable_activation_offload:
             enable_activation_offloading(actor_module_fsdp, fsdp_strategy, enable_gradient_checkpointing)
@@ -767,34 +717,31 @@ class CriticWorker(Worker):
         if getattr(critic_model_config, "model_type", None) == "kimi_vl":
             critic_model_config.text_config.topk_method = "greedy"
 
-        init_context = get_init_weight_context_manager(use_meta_tensor=not critic_model_config.tie_word_embeddings, mesh=self.device_mesh)
+        warnings.simplefilter("ignore")
+        critic_model_config.classifier_dropout = 0.0
+        critic_model_config.hidden_dropout = "0"
+        critic_model_config.summary_dropout_prob = 0.0
 
-        with init_context(), warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            critic_model_config.classifier_dropout = 0.0
-            critic_model_config.hidden_dropout = "0"
-            critic_model_config.summary_dropout_prob = 0.0
+        critic_module = load_valuehead_model(
+            local_path,
+            torch_dtype,
+            critic_model_config,
+            config.model.get("trust_remote_code", False),
+        )
 
-            critic_module = load_valuehead_model(
-                local_path,
-                torch_dtype,
-                critic_model_config,
-                config.model.get("trust_remote_code", False),
-            )
+        use_remove_padding = config.model.get("use_remove_padding", False)
 
-            use_remove_padding = config.model.get("use_remove_padding", False)
+        apply_monkey_patch(
+            model=critic_module,
+            use_remove_padding=use_remove_padding,
+            ulysses_sp_size=self.ulysses_sequence_parallel_size,
+        )
 
-            apply_monkey_patch(
-                model=critic_module,
-                use_remove_padding=use_remove_padding,
-                ulysses_sp_size=self.ulysses_sequence_parallel_size,
-            )
+        # some parameters may not in torch_dtype
+        critic_module.to(torch_dtype)
 
-            # some parameters may not in torch_dtype
-            critic_module.to(torch_dtype)
-
-            if config.model.get("enable_gradient_checkpointing", False):
-                critic_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        if config.model.get("enable_gradient_checkpointing", False):
+            critic_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
         if self._is_lora:
             print("Applying LoRA to critic module")
@@ -1080,26 +1027,23 @@ class RewardModelWorker(Worker):
         model_config.num_labels = 1
 
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
-        init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings, mesh=self.device_mesh)
+        warnings.simplefilter("ignore")
+        model_config.classifier_dropout = 0.0
+        reward_module = AutoModelForTokenClassification.from_pretrained(
+            pretrained_model_name_or_path=local_path,
+            config=model_config,
+            torch_dtype=torch.bfloat16,
+            attn_implementation="flash_attention_2",
+            trust_remote_code=trust_remote_code,
+        )
 
-        with init_context(), warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            model_config.classifier_dropout = 0.0
-            reward_module = AutoModelForTokenClassification.from_pretrained(
-                pretrained_model_name_or_path=local_path,
-                config=model_config,
-                torch_dtype=torch.bfloat16,
-                attn_implementation="flash_attention_2",
-                trust_remote_code=trust_remote_code,
-            )
+        apply_monkey_patch(
+            model=reward_module,
+            use_remove_padding=config.model.get("use_remove_padding", False),
+            ulysses_sp_size=self.ulysses_sequence_parallel_size,
+        )
 
-            apply_monkey_patch(
-                model=reward_module,
-                use_remove_padding=config.model.get("use_remove_padding", False),
-                ulysses_sp_size=self.ulysses_sequence_parallel_size,
-            )
-
-            reward_module.to(torch.bfloat16)
+        reward_module.to(torch.bfloat16)
 
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
 
