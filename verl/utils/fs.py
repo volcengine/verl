@@ -218,7 +218,7 @@ def copy_to_local(
         str: Local filesystem path to copied resource
     """
     if src.startswith(_HDFS_PREFIX) or src.startswith(_S3_PREFIX):
-        return copy_local_path_from_remote(
+        return _copy_local_path_from_remote(
             src, cache_dir, filelock, verbose, recursive=recursive, local_path=local_path
         )
 
@@ -301,7 +301,7 @@ def local_mkdir_safe(path):
     return path
 
 
-def copy_local_path_from_remote(
+def _copy_local_path_from_remote(
     src: str,
     cache_dir=None,
     filelock=".file.lock",
@@ -310,9 +310,9 @@ def copy_local_path_from_remote(
     local_path: Optional[str] = None,
 ) -> str:
     """
-    Used to download files from a remote source (S3 or HDFS).
+    Used to download files from remote to local.
 
-    Deprecated. Please use copy_to_local which calls this function.
+    Currently only S3 is supported.
     """
     from filelock import FileLock
 
