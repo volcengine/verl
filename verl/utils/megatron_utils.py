@@ -170,6 +170,9 @@ def make_megatron_module(
     bridge: AutoBridge,
     override_model_config: Dict[str, Any] = None,
 ):
+    if override_model_config is None:
+        override_model_config = {}
+
     if bridge is not None:
         from verl.models.mcore.mbridge import freeze_moe_router
 
