@@ -101,7 +101,13 @@ class TaskRunner:
 
             actor_rollout_cls = AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
             ray_worker_group_cls = NVMegatronRayWorkerGroup
+        elif config.actor_rollout_ref.actor.strategy == "spmd":
+            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+            from verl.single_controller.ray import RayWorkerGroup
+            from verl.workers.tpu_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
+            actor_rollout_cls = AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
+            ray_worker_group_cls = RayWorkerGroup        
         else:
             raise NotImplementedError
 
@@ -135,6 +141,8 @@ class TaskRunner:
                 from verl.workers.fsdp_workers import RewardModelWorker
             elif config.reward_model.strategy == "megatron":
                 from verl.workers.megatron_workers import RewardModelWorker
+            elif config.reward_model.strategy == "spmd":
+                from verl.workers.tpu_workers import RewardModelWorker
             else:
                 raise NotImplementedError
             role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
@@ -176,7 +184,7 @@ class TaskRunner:
         # Initialize the workers of the trainer.
         trainer.init_workers()
         # Start the training process.
-        # trainer.fit()
+        trainer.fit()
 
 
 def create_rl_dataset(data_paths, data_config, tokenizer, processor):

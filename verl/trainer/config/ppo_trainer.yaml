@@ -146,8 +146,8 @@ actor_rollout_ref:
   # actor configs
   actor:
   
-    # fsdp, fsdp2 or megatron. fsdp backend used here.
-    strategy: fsdp
+    # fsdp, fsdp2, megatron or spmd. fsdp backend used here.
+    strategy: spmd
     
     # Split each sample into sub-batches of this size for PPO
     ppo_mini_batch_size: 256
@@ -283,7 +283,7 @@ actor_rollout_ref:
   ref:
 
     # actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it’s recommended to turn on offload for ref by default
-    strategy: fsdp
+    strategy: spmd
 
     # config for FSDP strategy
     fsdp_config:
@@ -417,6 +417,12 @@ actor_rollout_ref:
     # number of responses (i.e. num sample times). > 1 for grpo
     n: 1
 
+    # enable or disable ability to offload vllm model to reduce peak memory usag
+    enable_sleep_mode: True
+
+    # whether to  disable caching of the processed multi-modal inputs
+    disable_mm_preprocessor_cache: True
+
     # Extra inference engine arguments (vllm, sglang).
     engine_kwargs:
 
@@ -484,8 +490,8 @@ critic:
   # Number of rollouts per update (mirrors actor rollout_n)
   rollout_n: ${actor_rollout_ref.rollout.n}
 
-  # fsdp or fsdp2 strategy used for critic model training
-  strategy: fsdp
+  # fsdp, fsdp2 or spmd strategy used for critic model training
+  strategy: spmd
 
   # optimizer configs
   optim:
@@ -636,8 +642,8 @@ reward_model:
   # If False, the following parameters are not effective
   enable: False
 
-  # FSDP strategy: "fsdp" or "fsdp2"
-  strategy: fsdp
+  # FSDP strategy: "fsdp", "fsdp2" or "spmd"
+  strategy: spmd
 
   # model config for reward scoring
   model:

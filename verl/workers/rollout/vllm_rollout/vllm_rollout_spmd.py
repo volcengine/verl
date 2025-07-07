@@ -90,7 +90,7 @@ class vLLMRollout(BaseRollout):
         assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
-        assert tensor_parallel_size <= torch.distributed.get_world_size(), "tensor parallel size should be less than or equal to the world size"
+        # assert tensor_parallel_size <= torch.distributed.get_world_size(), "tensor parallel size should be less than or equal to the world size"
         max_num_batched_tokens = self.config.get("max_num_batched_tokens", 8192)
 
         if kwargs.get("train_tp") is not None:
@@ -148,19 +148,20 @@ class vLLMRollout(BaseRollout):
 
         self.inference_engine = LLM(
             model=model_path,
-            enable_sleep_mode=True,
+            enable_sleep_mode=config.enable_sleep_mode,
             tensor_parallel_size=tensor_parallel_size,
             distributed_executor_backend="external_launcher",
             dtype=config.dtype,
             enforce_eager=config.enforce_eager,
             gpu_memory_utilization=config.gpu_memory_utilization,
             disable_custom_all_reduce=True,
-            disable_mm_preprocessor_cache=True,
+            disable_mm_preprocessor_cache=config.disable_mm_preprocessor_cache,
             skip_tokenizer_init=False,
             max_model_len=max_model_len,
             load_format=load_format,
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
+            max_num_seqs=4,
             enable_chunked_prefill=config.enable_chunked_prefill,
             enable_prefix_caching=True,
             trust_remote_code=trust_remote_code,
@@ -170,7 +171,7 @@ class vLLMRollout(BaseRollout):
         )
 
         # Offload vllm model to reduce peak memory usage
-        self.inference_engine.sleep(level=1)
+        # self.inference_engine.sleep(level=1)
 
         kwargs = dict(
             n=1,
@@ -283,6 +284,7 @@ class vLLMRollout(BaseRollout):
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
+            # sampling_params = SamplingParams(temperature=0, top_p=1.0, n=1, max_tokens=256)
             outputs = self.inference_engine.generate(
                 prompts=vllm_inputs,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
