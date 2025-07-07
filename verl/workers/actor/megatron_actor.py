@@ -39,12 +39,12 @@ from torch import nn
 
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, get_policy_loss_fn, kl_penalty
-from verl.utils.debug import GPUMemoryLogger
-from verl.utils.debug.profile import Profiler
 from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import get_model_config
+from verl.utils.profiler import GPUMemoryLogger
+from verl.utils.profiler.profile import Profiler
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import broadcast_dict_tensor
@@ -396,6 +396,7 @@ class MegatronPPOActor(BasePPOActor):
             # compute policy loss
             log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
             ret_entropy = None
+            stats = {}
             if not forward_only:
                 old_log_prob = data["old_log_probs"]
                 advantages = data["advantages"]
@@ -403,11 +404,12 @@ class MegatronPPOActor(BasePPOActor):
                 clip_ratio = self.config.clip_ratio
                 clip_ratio_low = self.config.clip_ratio_low if self.config.clip_ratio_low is not None else clip_ratio
                 clip_ratio_high = self.config.clip_ratio_high if self.config.clip_ratio_high is not None else clip_ratio
+
                 clip_ratio_c = self.config.get("clip_ratio_c", 3.0)
                 entropy_coeff = self.config.entropy_coeff
                 loss_agg_mode = self.config.loss_agg_mode
 
-                loss_mode = self.config.get("loss_mode", "vanilla")
+                loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
 
                 if self.config.policy_loss.loss_mode == "vanilla":
                     pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
@@ -421,12 +423,28 @@ class MegatronPPOActor(BasePPOActor):
                         clip_ratio_c=clip_ratio_c,
                         loss_agg_mode=loss_agg_mode,
                     )
+
                 else:
                     policy_loss_fn = get_policy_loss_fn(loss_mode)
                     pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
-                        old_log_prob, log_prob, advantages, response_mask, loss_agg_mode, self.config
+                        old_log_prob=old_log_prob,
+                        log_prob=log_prob,
+                        advantages=advantages,
+                        response_mask=response_mask,
+                        loss_agg_mode=loss_agg_mode,
+                        config=self.config,
                     )
+
+                stats.update(
+                    {
+                        "actor/pg_loss": pg_loss.detach().item(),
+                        "actor/pg_clipfrac": pg_clipfrac.detach().item(),
+                        "actor/ppo_kl": ppo_kl.detach().item(),
+                        "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+                    }
+                )
                 policy_loss = pg_loss
+
             if calculate_entropy:
                 entropy = output["entropy"][:, -response_length - 1 : -1].contiguous()
                 if not forward_only:
@@ -436,7 +454,6 @@ class MegatronPPOActor(BasePPOActor):
                 else:
                     ret_entropy = entropy
 
-            stats = {}
             if forward_only:
                 policy_loss = torch.tensor(1.0, device=device)
             else:
@@ -451,14 +468,6 @@ class MegatronPPOActor(BasePPOActor):
                     metrics["actor/kl_coef"] = self.config.kl_loss_coef
 
                 # return loss and stats
-                stats.update(
-                    {
-                        "actor/pg_loss": pg_loss.detach().item(),
-                        "actor/pg_clipfrac": pg_clipfrac.detach().item(),
-                        "actor/ppo_kl": ppo_kl.detach().item(),
-                        "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
-                    }
-                )
 
             append_to_dict(metrics, stats)
             return policy_loss, [metrics, ret_entropy]

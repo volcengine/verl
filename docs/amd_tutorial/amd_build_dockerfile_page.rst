@@ -162,7 +162,6 @@ PPO
      trainer.project_name=$YOUR_PROJECT_NAME \
      trainer.experiment_name=$YOUR_RUN_NAME \
      trainer.val_before_train=False \
-     trainer.default_hdfs_dir=null \
      trainer.n_gpus_per_node=$GPUS_PER_NODE \
      trainer.nnodes=1 \
      trainer.save_freq=10 \

@@ -55,6 +55,5 @@ torchrun --nnodes=$ARNOLD_WORKER_NUM \
     trainer.experiment_name=$experiment_name \
     trainer.logger=['console','wandb'] \
     trainer.total_epochs=6 \
-    trainer.default_hdfs_dir=null \
     ulysses_sequence_parallel_size=4 \
     use_remove_padding=true

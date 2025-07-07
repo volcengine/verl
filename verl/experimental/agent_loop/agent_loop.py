@@ -381,9 +381,14 @@ class AgentLoopManager:
         self.async_llm_servers = [None] * self.rollout_dp_size
         self.server_addresses = [None] * self.rollout_dp_size
 
-        server_class = async_server_class(
-            rollout_backend=self.config.actor_rollout_ref.rollout.name,
-        )
+        if self.config.actor_rollout_ref.rollout.agent.custom_async_server:
+            server_class = async_server_class(
+                rollout_backend=self.config.actor_rollout_ref.rollout.name,
+                rollout_backend_module=self.config.actor_rollout_ref.rollout.agent.custom_async_server.path,
+                rollout_backend_class=self.config.actor_rollout_ref.rollout.agent.custom_async_server.name,
+            )
+        else:
+            server_class = async_server_class(rollout_backend=self.config.actor_rollout_ref.rollout.name)
 
         # Start all server instances, restart if address already in use.
         unready_dp_ranks = set(range(self.rollout_dp_size))
