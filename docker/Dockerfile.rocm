@@ -27,7 +27,7 @@ WORKDIR /workspace/
 RUN rm -rf TransformerEngine 
 RUN git clone --recursive https://github.com/ROCm/TransformerEngine.git
 WORKDIR /workspace/TransformerEngine
-git checkout 236178e5
+RUN git checkout 236178e5
 # git checkout bb061ade
 # git checkout 864405c
 
@@ -249,7 +249,7 @@ RUN pip uninstall -y megatron-core && \
 #######################################
 WORKDIR /workspace/
 RUN pip uninstall -y apex && \
-    git clone git@github.com:ROCm/apex.git && \
+    git clone https://github.com/ROCm/apex.git && \
     cd apex && \
     python setup.py install && \
     cd /workspace/ 
