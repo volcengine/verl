@@ -36,7 +36,7 @@ from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
 
 def get_sandbox_messages():
     """
-    Conversation scaffold for the WikimediaSandbox environment.
+    Conversation scaffold for the WikipediaSandbox environment.
     """
 
     # ── Turn 0 ───────────────────────────────────────────────────────────────
@@ -54,7 +54,7 @@ def get_sandbox_messages():
             {
                 "type": "function",
                 "function": {
-                    "name": "search_wikimedia",
+                    "name": "search_wikipedia",
                     "arguments": {"q": "France", "limit": 5},
                 },
             }
@@ -87,7 +87,7 @@ def get_sandbox_messages():
             {
                 "type": "function",
                 "function": {
-                    "name": "get_wikimedia_article",
+                    "name": "get_wikipedia_article",
                     "arguments": {"title": "France"},
                 },
             }
@@ -139,12 +139,12 @@ class TestRolloutWithSandbox:
 
     @pytest.fixture
     def sandbox_tool_schemas(self):
-        """Schemas for the WikimediaSandbox tools."""
+        """Schemas for the WikipediaSandbox tools."""
         tool_schemas = [
             {
                 "type": "function",
                 "function": {
-                    "name": "search_wikimedia",
+                    "name": "search_wikipedia",
                     "description": "Search Wikipedia articles by keyword.",
                     "parameters": {
                         "type": "object",
@@ -159,7 +159,7 @@ class TestRolloutWithSandbox:
                             },
                         },
                         "required": ["q"],
-                        "title": "search_wikimediaArguments",
+                        "title": "search_wikipediaArguments",
                     },
                     "strict": False,
                 },
@@ -167,7 +167,7 @@ class TestRolloutWithSandbox:
             {
                 "type": "function",
                 "function": {
-                    "name": "get_wikimedia_article",
+                    "name": "get_wikipedia_article",
                     "description": "Fetch the summary paragraph for a Wikipedia article.",
                     "parameters": {
                         "type": "object",
@@ -178,7 +178,7 @@ class TestRolloutWithSandbox:
                             },
                         },
                         "required": ["title"],
-                        "title": "get_wikimedia_articleArguments",
+                        "title": "get_wikipedia_articleArguments",
                     },
                     "strict": False,
                 },
@@ -262,12 +262,12 @@ class TestRolloutWithSandbox:
 
     def test_tools_registration(self, mock_rollout):
         assert len(mock_rollout._tool_schemas) != 0
-        assert "get_wikimedia_article" in mock_rollout._tool_map.keys()
-        assert "search_wikimedia" in mock_rollout._tool_map.keys()
+        assert "get_wikipedia_article" in mock_rollout._tool_map.keys()
+        assert "search_wikipedia" in mock_rollout._tool_map.keys()
         from verl.tools.sandbox_tool import SandboxToolAdapter
 
-        assert isinstance(mock_rollout._tool_map["get_wikimedia_article"], SandboxToolAdapter)
-        assert isinstance(mock_rollout._tool_map["search_wikimedia"], SandboxToolAdapter)
+        assert isinstance(mock_rollout._tool_map["get_wikipedia_article"], SandboxToolAdapter)
+        assert isinstance(mock_rollout._tool_map["search_wikipedia"], SandboxToolAdapter)
         # depend on the tokenizer
         assert mock_rollout._tool_call_parser_type == "qwen25"
 
@@ -312,8 +312,8 @@ class TestRolloutWithSandbox:
         assert len(output_req_list) == 1
         output_req = output_req_list[0]
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-        assert output_req.reward_scores.get("search_wikimedia") == 0.0
-        assert output_req.reward_scores.get("get_wikimedia_article") == 0.0
+        assert output_req.reward_scores.get("search_wikipedia") == 0.0
+        assert output_req.reward_scores.get("get_wikipedia_article") == 0.0
         # we should only have two message, one for prompt, second for response.
         assert len(output_req.messages) == 2
         assert output_req.messages[1] == Message(
