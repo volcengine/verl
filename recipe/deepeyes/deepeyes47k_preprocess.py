@@ -9,6 +9,7 @@ import os
 
 import pandas as pd
 import datasets
+from datasets import load_dataset
 
 
 if __name__ == "__main__":
@@ -18,12 +19,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     data_source = "hiyouga/DeepEyes-Datasets-47k"
     
-    vstar_dataset = pd.read_parquet(os.path.join(args.dataset_dir, "data_0.1.2_visual_toolbox_v2.parquet"))
-    chart_dataset = pd.read_parquet(os.path.join(args.dataset_dir, "data_v0.8_visual_toolbox_v2.parquet"))
-    thinklite_dataset = pd.read_parquet(os.path.join(args.dataset_dir, "data_thinklite_reasoning_acc.parquet"))
-    chart_dataset.drop(columns=["rationale"], inplace=True)
-    concat_dataset = pd.concat([vstar_dataset, chart_dataset, thinklite_dataset])
-    concat_dataset = datasets.Dataset.from_pandas(concat_dataset)
+    dataset = load_dataset(
+        path=args.dataset_dir,
+        data_files=["data_0.1.2_visual_toolbox_v2.parquet", "data_thinklite_reasoning_acc.parquet"],
+    )
 
     def process_fn(example, idx):
         extra_info = example.pop("extra_info")
@@ -36,10 +35,10 @@ if __name__ == "__main__":
         example["extra_info"] = extra_info
         return example
 
-    concat_dataset = concat_dataset.map(function=process_fn, with_indices=True, num_proc=8)
+    dataset = dataset.map(function=process_fn, with_indices=True, num_proc=8)
     
-    # Split dataset: 2k for validation, rest for training
-    train_test_split = concat_dataset.train_test_split(test_size=1000, seed=42)
+    # Split dataset: 1k for validation, rest for training
+    train_test_split = dataset["train"].train_test_split(test_size=1000, seed=42)
     train_dataset = train_test_split["train"]
     val_dataset = train_test_split["test"]
     
