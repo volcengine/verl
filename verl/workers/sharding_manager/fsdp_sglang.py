@@ -151,11 +151,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
     async def wake_up(self):
         get_torch_device().empty_cache()
 
-        if (
-            self.multi_stage_wake_up
-            and self.device_mesh["infer_tp"].get_local_rank() == 0
-            and self.rollout_config.free_cache_engine
-        ):
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             if self.multi_stage_wake_up:
                 await self.inference_engine.resume_memory_occupation(tags=["weights"])
                 log_gpu_memory_usage("Before resume SGLang weights in sharding manager", logger=logger)
