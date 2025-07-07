@@ -449,6 +449,7 @@ class SGLangRollout(BaseRollout):
         for k in self.config.keys():
             if hasattr(SamplingParams(), str(k)) or "stop" in str(k):
                 kwargs[k] = self.config.get(k)
+        kwargs["n"] = 1  # already repeat in ray_trainer
         self.sampling_params = kwargs
 
     def _initialize_tools(self, config, processing_class):
@@ -544,11 +545,9 @@ class SGLangRollout(BaseRollout):
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
     def _batch_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-        """Generates sequences for a batch of prompts.
+        """Generates single-turn sequences for a batch of prompts.
         For single-turn generation, all prompts are processed in one request.
-        For multi-turn generation, each prompt is processed separately via
-        `_generate_req_level_sequences` for better tool calling control.
-        `_generate_batch_level_sequences` involves:
+        `_batch_level_generate_sequences` involves:
         1.  Extracting and pre-processing prompt token IDs from the input
             `prompts`. This includes handling padding and preparing raw
             token ID lists.
@@ -583,9 +582,8 @@ class SGLangRollout(BaseRollout):
               `input_ids` (concatenated prompt and response),
               `attention_mask`, and `position_ids` for the full
               sequences.
-        Note that in GRPO, we repeat the prompts for rollout.n times in ray_trainer.
-        Thus we do not need to repeat the prompts here and set the sampling parameter
-        n to 1.
+        Note that in GRPO, if the prompts are validated, we repeat the prompts for rollout.n times in ray_trainer.
+        Thus we do not need to repeat the prompts here and set the sampling parameter n to 1.
         """
         # input ids: (bs, prompt_length), left-padded
         idx = prompts.batch["input_ids"]
@@ -711,17 +709,6 @@ class SGLangRollout(BaseRollout):
                 rollout_log_probs = pad_sequence_to_length(
                     rollout_log_probs, self.config.response_length, self.pad_token_id
                 )
-        # utilize current sampling params
-        if request_sampling_params.get("n", 1) > 1 and do_sample:
-            idx = idx.repeat_interleave(request_sampling_params["n"], dim=0)
-            attention_mask = attention_mask.repeat_interleave(request_sampling_params["n"], dim=0)
-            position_ids = position_ids.repeat_interleave(request_sampling_params["n"], dim=0)
-            batch_size = batch_size * request_sampling_params["n"]
-            _non_tensor_batch = {}
-            for key, val in non_tensor_batch.items():
-                _non_tensor_batch[key] = np.repeat(val, request_sampling_params["n"], axis=0)
-        else:
-            _non_tensor_batch = non_tensor_batch
 
         seq = torch.cat([idx, response], dim=-1)
 
@@ -762,7 +749,7 @@ class SGLangRollout(BaseRollout):
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self._engine.flush_cache())
 
-        return DataProto(batch=batch, non_tensor_batch=_non_tensor_batch)
+        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
     async def _async_rollout_a_request(
         self,
@@ -1027,6 +1014,12 @@ class SGLangRollout(BaseRollout):
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
     def _req_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
+        """Generates multi-turn sequences for a batch of prompts.
+        For multi-turn generation, each prompt is processed separately via
+        `_req_level_generate_sequences` for better tool calling control.
+        Note that in multi-turn generation, we repeat the prompts for rollout.n times in ray_trainer.
+        Thus we do not need to repeat the prompts here and set the sampling parameter n to 1.
+        """
         # Async rollout with tools support
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
@@ -1192,7 +1185,6 @@ class SGLangRollout(BaseRollout):
             non_tensor_batch={
                 "messages": np.array(messages),
                 "reward_scores": np.array(reward_scores),
-                "uid": np.array([req.uid for req in sorted_output_req_list]),
                 "multi_modal_inputs": np.array(multi_modal_inputs, dtype=object),
             },
         )
@@ -1212,8 +1204,6 @@ class SGLangRollout(BaseRollout):
         for data_idx, (raw_prompt, multi_modal_data) in enumerate(
             zip(prompts.non_tensor_batch["raw_prompt"], multi_modal_data_list)
         ):
-            uid = prompts.non_tensor_batch["uid"][data_idx] if "uid" in prompts.non_tensor_batch else None
-
             if self._tool_schemas:
                 _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
                 _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in _tools_kwargs.keys()]
@@ -1234,7 +1224,6 @@ class SGLangRollout(BaseRollout):
                 batch_data_id=data_idx,
                 rollout_offset=0,
                 request_id=str(uuid4()),
-                uid=uid,
                 state=AsyncRolloutRequestStateEnum.PENDING,
                 messages=raw_prompt.tolist(),
                 multi_modal_data=multi_modal_data,
