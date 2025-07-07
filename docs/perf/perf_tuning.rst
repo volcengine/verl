@@ -1,7 +1,9 @@
 Performance Tuning Guide
 ==============================
 
-Author: `Guangming Sheng <https://github.com/PeterSH6>`_
+Last updated: 06/23/2025.
+
+Author: `Guangming Sheng <https://github.com/PeterSH6>`_, `Jiali Zheng <https://github.com/CurryRice233>`_
 
 In this section, we will discuss how to tune the performance of all the stages in verl, including:
 
@@ -17,6 +19,10 @@ In this section, we will discuss how to tune the performance of all the stages i
 
 6. LigerKernel for SFT performance optimization
 
+7. Forward prefetch in FSDP training backend
+
+8. Memory optimization for entropy calculation from logits
+
 Rollout Generation Tuning
 --------------------------
 
@@ -26,7 +32,6 @@ Below are key factors for tuning vLLM-based rollout. Before tuning, we recommend
 
 - Increase ``gpu_memory_utilization``.
 
-  - For vLLM v0.5.4 and v0.6.3, the vLLM pre-allocates GPU KVCache by using gpu_memory_utilization of the **remaining** memory. 
   - For vLLM v0.7.0 and later, the vLLM instance will only use gpu_memory_utilization of the **total** memory.
   - For SGLang, it's the fraction of the free GPU memory used for **static** memory like model weights and KV cache. However, the remaining (1-gpu_memory_utilization) will also be used during inference.
 
@@ -49,7 +54,7 @@ Below are key factors for tuning vLLM-based rollout. Before tuning, we recommend
 More tuning details such as dealing with Preemption and Chunked-prefill
 can be found in `vLLM official tuning guide <https://docs.vllm.ai/en/latest/performance/optimization.html>`_ 
 
-The performance of vllm can be further increased if upgrading from v0.6.3 to v0.7. See https://github.com/volcengine/verl/blob/main/docs/README_vllm0.7.md for details on how to upgrade.
+For optimal performance, we recommend using vLLM v0.8.3 or later. See https://github.com/volcengine/verl/blob/main/docs/README_vllm0.8.md for details.
 
 Enable remove padding (sequence packing)
 -----------------------------------------
@@ -172,3 +177,23 @@ LigerKernel is a high-performance kernel for Supervised Fine-Tuning (SFT) that c
 
 3. LigerKernel is particularly useful for improving training performance in SFT scenarios.
 
+Forward prefetch in FSDP training backend
+----------------------
+
+During the training phase, users can enable forward prefetching in FSDP by setting ``fsdp_config.forward_prefetch=True``. For example, ``actor_rollout_ref.actor.fsdp_config.forward_prefetch=True``. This configuration prefetches the next forward-pass all-gather operation before completing the current forward computation, overlapping communication with computation and improving efficiency. For further details, refer to the `FSDP forward_pefetch <https://docs.pytorch.org/docs/stable/fsdp.html#module-torch.distributed.fsdp>`_ documentation.
+
+.. note::
+    Backward prefetch is unsupported because the ``BACKWARD_POST`` policy may prefetch incorrectly in nested-module cases. For details, see the `FSDP documentation <https://github.com/pytorch/torchtitan/blob/main/docs/fsdp.md?plain=1#L70>`_
+
+Memory optimization for entropy calculation from logits
+----------------------
+
+The ``logits`` tensor (typically of shape ``[bsz*seq_len, voc]``) can consume significant memory. When using ``compute_entropy_from_logits``, memory usage reaches approximately ``[bsz*seq_len, voc] × (4 bytes (float32) + 2 bytes (autocast for softmax+logsumexp) + 1 byte (softmax output))``.
+
+To reduce this memory peak, enable chunked computation by setting:
+``actor_rollout_ref.ref.entropy_from_logits_with_chunking = True``
+This processes the tensor in chunks of shape ``[chunk_size, voc]`` (e.g., 2048) rather than the full sequence length, exclusively during the model's forward pass.
+
+Additionally, during training, standard gradient checkpointing (``enable_gradient_checkpointing=True``) does not apply to entropy calculations. To reduce memory peaks in this context, set:
+``actor_rollout_ref.actor.entropy_checkpointing = True``
+This enables entropy recomputation specifically for the entropy calculation, lowering memory usage during training.

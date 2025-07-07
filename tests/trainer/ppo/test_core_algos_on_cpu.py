@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import random
 import unittest
 
 import pytest
+import torch
 
 import verl.trainer.ppo.core_algos
-from verl.trainer.ppo.core_algos import get_adv_estimator_fn, register_adv_est
+from verl.trainer.ppo.core_algos import compute_gae_advantage_return, get_adv_estimator_fn, register_adv_est
 
 
 def mock_test_fn():
@@ -127,6 +129,63 @@ class TestRegisterAdvEst(unittest.TestCase):
         """Test that name lookup is case-sensitive."""
         with pytest.raises(ValueError):
             get_adv_estimator_fn("GAE")  # Different case
+
+
+def test_multi_turn_compute_gae_advantage_return():
+    """Test multi-turn GAE skip observation tokens."""
+    gamma = random.uniform(0.0, 1.0)
+    lam = random.uniform(0.0, 1.0)
+
+    rewards = torch.tensor([[0.0, 0.0, 0.1, 0.1, 0.1, 0.0, 0.0, 0.1, 1.0, 0.0, 0.0]], dtype=torch.float)
+
+    values1 = torch.tensor(
+        [
+            [
+                random.uniform(-100.0, 100.0),
+                random.random(),
+                4.0,
+                5.0,
+                6.0,
+                random.uniform(-100.0, 0),
+                random.random(),
+                7.0,
+                9.0,
+                0.0,
+                0.0,
+            ]
+        ],
+        dtype=torch.float,
+    )
+
+    values2 = torch.tensor(
+        [
+            [
+                random.random(),
+                random.uniform(-100.0, 100.0),
+                4.0,
+                5.0,
+                6.0,
+                random.random(),
+                random.uniform(0.0, 100.0),
+                7.0,
+                9.0,
+                0.0,
+                0.0,
+            ]
+        ],
+        dtype=torch.float,
+    )
+
+    response_mask = torch.tensor([[0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0]], dtype=torch.float)
+
+    adv1, ret1 = compute_gae_advantage_return(rewards, values1, response_mask, gamma, lam)
+    adv2, ret2 = compute_gae_advantage_return(rewards, values2, response_mask, gamma, lam)
+
+    ret1 *= response_mask
+    ret2 *= response_mask
+    assert torch.equal(adv1, adv2), f"{adv1=}, {adv2=}"
+    assert torch.equal(ret1, ret2), f"{ret1=}, {ret2=}"
+    print(f" [CORRECT] \n\n{adv1=}, \n\n{ret1=}")
 
 
 if __name__ == "__main__":

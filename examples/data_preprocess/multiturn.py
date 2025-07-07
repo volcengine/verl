@@ -51,12 +51,14 @@ def main():
                 {"role": "user", "content": "Can you explain quantum computing?"},
                 {
                     "role": "assistant",
-                    "content": "Quantum computing is a type of computing that uses quantum-mechanical phenomena, such as superposition and entanglement, to perform operations on data.",
+                    "content": "Quantum computing is a type of computing that uses quantum-mechanical phenomena, "
+                    "such as superposition and entanglement, to perform operations on data.",
                 },
                 {"role": "user", "content": "How is it different from classical computing?"},
                 {
                     "role": "assistant",
-                    "content": "Classical computing uses bits that are either 0 or 1, while quantum computing uses quantum bits or qubits that can exist in multiple states simultaneously due to superposition.",
+                    "content": "Classical computing uses bits that are either 0 or 1, while quantum computing uses "
+                    "quantum bits or qubits that can exist in multiple states simultaneously due to superposition.",
                 },
             ]
         }
@@ -70,12 +72,19 @@ def main():
                 {"role": "user", "content": "Write a simple Python function to calculate factorial."},
                 {
                     "role": "assistant",
-                    "content": "```python\ndef factorial(n):\n    if n == 0 or n == 1:\n        return 1\n    else:\n        return n * factorial(n-1)\n```\n\nThis is a recursive function to calculate the factorial of a number.",
+                    "content": (
+                        "```python\ndef factorial(n):\n    if n == 0 or n == 1:\n        return 1\n    else:\n        "
+                        "return n * factorial(n-1)\n```\n\nThis is a recursive function to calculate the "
+                        "factorial of a number."
+                    ),
                 },
                 {"role": "user", "content": "Can you make it iterative instead?"},
                 {
                     "role": "assistant",
-                    "content": "```python\ndef factorial(n):\n    result = 1\n    for i in range(1, n+1):\n        result *= i\n    return result\n```\n\nThis is an iterative version of the factorial function.",
+                    "content": (
+                        "```python\ndef factorial(n):\n    result = 1\n    for i in range(1, n+1):\n        "
+                        "result *= i\n    return result\n```\n\nThis is an iterative version of the factorial function."
+                    ),
                 },
             ]
         }

@@ -65,7 +65,9 @@ def get_vision_model_config(config: TransformerConfig) -> TransformerConfig:
     return config
 
 
-def get_vision_projection_config(config: TransformerConfig, embed_dim: int, spatial_merge_size: int) -> TransformerConfig:
+def get_vision_projection_config(
+    config: TransformerConfig, embed_dim: int, spatial_merge_size: int
+) -> TransformerConfig:
     # merger:
     # context_dim = hidden_size * merge_size**2
     # out_hidden_size = hidden_size

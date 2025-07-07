@@ -49,6 +49,7 @@ extensions = [
     "sphinx.ext.autosummary",
     "sphinx.ext.autosectionlabel",
     "sphinx.ext.napoleon",
+    "sphinx.ext.viewcode",
 ]
 # Use Google style docstrings instead of NumPy docstrings.
 napoleon_google_docstring = True
@@ -94,4 +95,6 @@ html_js_files = [
     "js/runllm-widget.js",
 ]
 
-exclude_patterns = ["README.md", "README_vllm0.7.md"]
+exclude_patterns += ["README.md", "README_vllm0.7.md"]
+
+suppress_warnings = ["ref.duplicate", "ref.myst"]

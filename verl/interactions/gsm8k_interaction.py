@@ -40,7 +40,9 @@ class Gsm8kInteraction(BaseInteraction):
         super().__init__(config)
         self._instance_dict = {}
 
-    async def start_interaction(self, instance_id: Optional[str] = None, ground_truth: Optional[str] = None, **kwargs) -> str:
+    async def start_interaction(
+        self, instance_id: Optional[str] = None, ground_truth: Optional[str] = None, **kwargs
+    ) -> str:
         if instance_id is None:
             instance_id = str(uuid4())
         self._instance_dict[instance_id] = {
@@ -50,7 +52,9 @@ class Gsm8kInteraction(BaseInteraction):
         }
         return instance_id
 
-    async def generate_response(self, instance_id: str, messages: List[Dict[str, Any]], **kwargs) -> Tuple[bool, str, float, dict]:
+    async def generate_response(
+        self, instance_id: str, messages: List[Dict[str, Any]], **kwargs
+    ) -> Tuple[bool, str, float, dict]:
         content = ""
         for i in range(len(messages) - 1, -1, -1):
             item = messages[i]

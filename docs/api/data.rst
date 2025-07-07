@@ -1,6 +1,8 @@
 Data interface
 =========================
 
+Last updated: 05/19/2025 (API docstrings are auto-generated).
+
 DataProto is the interface for data exchange.
 
 The :class:`verl.DataProto` class contains two key members:

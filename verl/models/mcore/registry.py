@@ -129,10 +129,14 @@ def get_supported_model(model_type: str) -> SupportedModel:
         return SupportedModel(model_type)
     except ValueError as err:
         supported_models = [e.value for e in SupportedModel]
-        raise NotImplementedError(f"Model Type: {model_type} not supported. Supported models: {supported_models}") from err
+        raise NotImplementedError(
+            f"Model Type: {model_type} not supported. Supported models: {supported_models}"
+        ) from err
 
 
-def hf_to_mcore_config(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
+def hf_to_mcore_config(
+    hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
+) -> TransformerConfig:
     """Convert huggingface PretrainedConfig to mcore TransformerConfig.
 
     Args:
@@ -177,7 +181,13 @@ def init_mcore_model(
     model = get_supported_model(hf_config.architectures[0])
     initializer_cls = MODEL_INITIALIZER_REGISTRY[model]
     initializer = initializer_cls(tfconfig, hf_config)
-    return initializer.initialize(pre_process=pre_process, post_process=post_process, share_embeddings_and_output_weights=share_embeddings_and_output_weights, value=value, **extra_kwargs)
+    return initializer.initialize(
+        pre_process=pre_process,
+        post_process=post_process,
+        share_embeddings_and_output_weights=share_embeddings_and_output_weights,
+        value=value,
+        **extra_kwargs,
+    )
 
 
 def get_mcore_forward_fn(hf_config: PretrainedConfig) -> Callable:

@@ -17,4 +17,10 @@ from .parallel_decoder import ParallelQwen2DecoderLayer, ParallelQwen2DecoderLay
 from .parallel_mlp import ParallelQwen2MLP
 from .parallel_rmsnorm import ParallelQwen2RMSNorm
 
-__all__ = ["ParallelQwen2Attention", "ParallelQwen2DecoderLayer", "ParallelQwen2DecoderLayerRmPad", "ParallelQwen2MLP", "ParallelQwen2RMSNorm"]
+__all__ = [
+    "ParallelQwen2Attention",
+    "ParallelQwen2DecoderLayer",
+    "ParallelQwen2DecoderLayerRmPad",
+    "ParallelQwen2MLP",
+    "ParallelQwen2RMSNorm",
+]

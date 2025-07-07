@@ -1,6 +1,8 @@
 Utilities
 ============
 
+Last updated: 05/19/2025 (API docstrings are auto-generated).
+
 This section documents the utility functions and classes in the VERL library.
 
 Python Functional Utilities
@@ -69,6 +71,6 @@ FSDP Utilities
 Debug Utilities
 -------------------
 
-.. automodule:: verl.utils.debug
+.. automodule:: verl.utils.profiler
    :members: log_gpu_memory_usage, GPUMemoryLogger
 

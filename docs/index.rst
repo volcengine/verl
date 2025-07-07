@@ -32,6 +32,7 @@ verl is fast with:
    start/quickstart
    start/multinode
    start/ray_debug_tutorial
+   start/more_resources
 
 .. toctree::
    :maxdepth: 2
@@ -73,6 +74,7 @@ verl is fast with:
    algo/entropy.md
    algo/opo.md
    algo/baseline.md
+   algo/gpg.md
 
 .. toctree::
    :maxdepth: 1

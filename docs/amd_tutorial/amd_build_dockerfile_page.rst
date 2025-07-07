@@ -1,6 +1,8 @@
 Getting started with AMD (ROCM Kernel)
 =====================================================
 
+Last updated: 06/02/2025.
+
 Author: `Yusheng Su <https://yushengsu-thu.github.io/>`_
 
 Setup
@@ -160,7 +162,6 @@ PPO
      trainer.project_name=$YOUR_PROJECT_NAME \
      trainer.experiment_name=$YOUR_RUN_NAME \
      trainer.val_before_train=False \
-     trainer.default_hdfs_dir=null \
      trainer.n_gpus_per_node=$GPUS_PER_NODE \
      trainer.nnodes=1 \
      trainer.save_freq=10 \
@@ -405,8 +406,6 @@ slurm_script.sh
     echo "IP Head: $ip_head"
 
     # make sure we set environment variables before Ray initialization
-    # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
-    # export VLLM_ATTENTION_BACKEND=XFORMERS
 
     # Print out all env variables
     printenv

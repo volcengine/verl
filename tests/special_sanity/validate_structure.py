@@ -56,7 +56,10 @@ def find_violations(tests_root: Path, allowed: set[str], allowed_files: list[str
 
         first_folder = rel_parts[0]
         if first_folder not in allowed:
-            errors.append(f"{test_file}: subfolder '{first_folder}' under tests/ is not an allowed module. The valid ones are: {sorted(allowed)}")
+            errors.append(
+                f"{test_file}: subfolder '{first_folder}' under tests/ is not an allowed module. "
+                f"The valid ones are: {sorted(allowed)}"
+            )
     return errors
 
 
@@ -83,7 +86,7 @@ def main() -> None:
     parser.add_argument(
         "--allow-files",
         nargs="*",
-        default=["tests/test_protocol_on_cpu.py"],
+        default=["tests/test_protocol_on_cpu.py", "tests/test_base_config_on_cpu.py"],
         help="Extra top-level test folders that are exempt from the rule",
     )
     args = parser.parse_args()
@@ -102,7 +105,8 @@ def main() -> None:
             print("  -", err, file=sys.stderr)
 
         print(
-            f"\nGuideline:\n  Place each test file under   tests/<module_name>/…\n  where <module_name> is one of the top-level packages inside '{args.impl_root}', or is explicitly listed via --allow-dirs.\n",
+            f"\nGuideline:\n  Place each test file under   tests/<module_name>/…\n  where <module_name> is "
+            f"one of the top-level packages inside '{args.impl_root}', or is explicitly listed via --allow-dirs.\n",
             file=sys.stderr,
         )
         raise Exception("❌  Test layout violations found.")

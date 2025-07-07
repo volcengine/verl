@@ -43,7 +43,7 @@ def collate_fn(data_list: list[dict]) -> dict:
 
     Returns:
         Dict where tensor entries are stacked into a torch.Tensor of shape
-        (batch_size, *dims) and non-tensor entries are converted to
+        (batch_size, \*dims) and non-tensor entries are converted to
         np.ndarray of dtype object with shape (batch_size,).
     """
     tensors = defaultdict(list)
@@ -115,6 +115,8 @@ class RLHFDataset(Dataset):
         self.need_tools_kwargs = config.get("need_tools_kwargs", False)
         self.filter_prompts = config.get("filter_prompts", True)
         self.serialize_dataset = False
+        self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
+
         self._download()
         self._read_files_and_tokenize()
 
@@ -148,9 +150,15 @@ class RLHFDataset(Dataset):
 
                 def doc2len(doc) -> int:
                     messages = self._build_messages(doc)
-                    raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-                    images = [process_image(image) for image in messages.pop(image_key)] if image_key in messages else None
-                    videos = [process_video(video) for video in messages.pop(video_key)] if video_key in messages else None
+                    raw_prompt = self.processor.apply_chat_template(
+                        messages, add_generation_prompt=True, tokenize=False
+                    )
+                    images = (
+                        [process_image(image) for image in messages.pop(image_key)] if image_key in messages else None
+                    )
+                    videos = (
+                        [process_video(video) for video in messages.pop(video_key)] if video_key in messages else None
+                    )
 
                     return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
 
@@ -217,11 +225,17 @@ class RLHFDataset(Dataset):
             images = None
             if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None:
                 images = [process_image(image) for image in row_dict.pop(self.image_key)]
+
+                # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
+                # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["image"] = images
 
             videos = None
             if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None:
                 videos = [process_video(video) for video in row_dict.pop(self.video_key)]
+
+                # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
+                # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["video"] = [video.numpy() for video in videos]
 
             model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
@@ -234,10 +248,14 @@ class RLHFDataset(Dataset):
 
             # There's a trap here, multi_modal_inputs has to be a dict, not BatchFeature
             row_dict["multi_modal_data"] = multi_modal_data
-            row_dict["multi_modal_inputs"] = dict(model_inputs)
 
-            # second_per_grid_ts isn't used for training, just for mrope
-            row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
+            # We will do batch.union() in the trainer,
+            # so we cannot have "multi_modal_inputs" in row_dict if rollout generates new multi_modal_inputs
+            if self.return_multi_modal_inputs:
+                row_dict["multi_modal_inputs"] = dict(model_inputs)
+
+                # second_per_grid_ts isn't used for training, just for mrope
+                row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
 
         else:
             raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)

@@ -1,5 +1,8 @@
 SGLang Backend
 ==============
+
+Last updated: 05/31/2025.
+
 **Authored By SGLang RL Team and listed alphabetically by last name**
 
 `Jingyi Chen <https://github.com/fzyzcjy>`_, `Yitong Guan <https://github.com/minleminzui>`_, `Zhuobin Huang <https://zobinhuang.github.io/sec_about/>`_, `Jiajun Li <https://github.com/guapisolo>`_, `Ji Li <https://github.com/GeLee-Q>`_, `Shenggui Li <https://franklee.xyz/about>`_, `Junrong Lin <https://github.com/ocss884>`_, `Xiang Long <https://github.com/SwordFaith>`_, `Rui Lu <https://scholar.google.com/citations?user=-MGuqDcAAAAJ>`_, `Jin Pan <https://jhinpan.github.io/>`_, `Shuai Shi <https://github.com/shuaills>`_, `Yushen Su <https://yushengsu-thu.github.io/>`_, `Xinyuan Tong <https://github.com/JustinTong0323>`_, `Chendong Wang <https://github.com/cedricbeta>`_, `Hanchen Zhang <https://scholar.google.com/citations?user=pGcJcagAAAAJ>`_, `Haoran Wang <https://ubecc.github.io/about/>`_, `Yongan Xiang <https://github.com/BearBiscuit05>`_, `Chengxing Xie <https://yitianlian.github.io/>`_, `Yuhao Yang <https://github.com/yhyang201>`_, `Jinwei Yao <https://kivi-yao.github.io/>`_, `Qiaolin Yu <https://github.com/Qiaolin-Yu>`_, `Yuzhen Zhou <https://github.com/zyzshishui>`_, `Chenyang Zhao <https://github.com/zhaochenyang20>`_
@@ -75,7 +78,6 @@ We use Qwen/Qwen2-7B-Instruct on the gsm8k dataset for a simple test.
         algorithm.kl_ctrl.kl_coef=0.001 \
         trainer.logger=['console'] \
         trainer.val_before_train=False \
-        trainer.default_hdfs_dir=null \
         trainer.n_gpus_per_node=4 \
         trainer.nnodes=1 \
         trainer.save_freq=-1 \
@@ -228,7 +230,6 @@ You can see that the cluster has two nodes with 16 GPUs:
         trainer.critic_warmup=0 \
         trainer.logger=['console'] \
         trainer.val_before_train=True \
-        trainer.default_hdfs_dir=null \
         trainer.n_gpus_per_node=8 \
         trainer.nnodes=2 \
         trainer.save_freq=-1 \
