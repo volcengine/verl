@@ -220,7 +220,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             wrap_config = McoreModuleWrapperConfig(
                 is_value_model=False,  # ref is not value model
                 share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
-                use_fused_kernels=self.config.ref.megatron.use_fused_kernels,
+                use_fused_kernels=False,
                 wrap_with_ddp=False,
                 use_distributed_optimizer=self.config.ref.megatron.use_distributed_optimizer,
             )
@@ -774,7 +774,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         wrap_config = McoreModuleWrapperConfig(
             is_value_model=True,  # critic is value model
             share_embeddings_and_output_weights=False,
-            use_fused_kernels=self.config.megatron.use_fused_kernels,
+            use_fused_kernels=False,
             wrap_with_ddp=True,
             use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
         )
@@ -1015,7 +1015,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
         wrap_config = McoreModuleWrapperConfig(
             is_value_model=True,  # reward model is value model
             share_embeddings_and_output_weights=False,
-            use_fused_kernels=self.config.megatron.use_fused_kernels,
+            use_fused_kernels=False,
             wrap_with_ddp=False,
             use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
         )
