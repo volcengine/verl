@@ -102,6 +102,7 @@ jobs:
         run: |
           huggingface-cli download 'Qwen/Qwen2-7B-Instruct'
           huggingface-cli download 'Qwen/Qwen2.5-0.5B'
+          huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct
           export HF_HUB_OFFLINE=1
       - name: Test the latest SGLang
         run: |
@@ -131,6 +132,9 @@ jobs:
         run: |
           cd tests/workers/rollout
           pytest -s test_sglang_async_rollout_mcp_tools.py
+      - name: Test the latest SGLang Rollout async with agent loop
+        run: |
+          ROLLOUT_NAME=sglang pytest -svvv tests/experimental/agent_loop/test_basic_agent_loop.py
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests
       - name: Test the latest SGLang Rollout async with multimodal delta
         run: |
