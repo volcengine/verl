@@ -200,6 +200,9 @@ actor_rollout_ref:
     # Upper bound for asymmetric clipping (used in dual-clip PPO)
     clip_ratio_high: 0.2
 
+    # Skip the update if the gradient norm is larger than this value
+    max_grad_norm: null
+
     # policy loss config
     policy_loss:
     
