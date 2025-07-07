@@ -169,9 +169,11 @@ S3 Checkpointing
 To save checkpoints in S3 add the s3 path you'd like to save at to: trainer.s3_checkpoint_dir.
 Example: 
 .. code:: bash
+
     trainer.s3_checkpoint_dir=s3://<bucket_name>/<path>
 To load from a checkpoint that's stored in S3, set trainer.resume_mode to the path to your step folder in s3.
 Example:
 .. code:: bash
+    
     trainer.resume_mode=resume_path
     trainer.resume_from_path=s3://<bucket_name>/<path>/<step_folder>
