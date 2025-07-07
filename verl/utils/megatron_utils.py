@@ -156,7 +156,6 @@ def get_model(
 class McoreModuleWrapperConfig:
     """Configuration for Mcore module wrapper."""
 
-    role: str = "actor"
     is_value_model: bool = False
     share_embeddings_and_output_weights: bool = False
     use_fused_kernels: bool = False

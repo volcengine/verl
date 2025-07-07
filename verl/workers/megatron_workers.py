@@ -185,7 +185,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         if self._is_actor and self._is_rollout:
             wrap_config = McoreModuleWrapperConfig(
-                role="actor",
                 is_value_model=False,  # actor is not value model
                 share_embeddings_and_output_weights=self.config.actor.megatron.share_embeddings_and_output_weights,
                 use_fused_kernels=self.config.actor.megatron.use_fused_kernels,
@@ -219,7 +218,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
         elif self._is_ref:
             wrap_config = McoreModuleWrapperConfig(
-                role="ref",
                 is_value_model=False,  # ref is not value model
                 share_embeddings_and_output_weights=self.config.ref.megatron.share_embeddings_and_output_weights,
                 use_fused_kernels=self.config.ref.megatron.use_fused_kernels,
@@ -774,7 +772,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         )
 
         wrap_config = McoreModuleWrapperConfig(
-            role="critic",
             is_value_model=True,  # critic is value model
             share_embeddings_and_output_weights=self.config.megatron.share_embeddings_and_output_weights,
             use_fused_kernels=self.config.megatron.use_fused_kernels,
@@ -1016,7 +1013,6 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
         )
 
         wrap_config = McoreModuleWrapperConfig(
-            role="reward_model",
             is_value_model=True,  # reward model is value model
             share_embeddings_and_output_weights=self.config.megatron.share_embeddings_and_output_weights,
             use_fused_kernels=self.config.megatron.use_fused_kernels,
