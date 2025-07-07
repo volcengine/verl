@@ -19,7 +19,7 @@ import datetime
 import logging
 import os
 import time
-from typing import Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import psutil
 import torch
@@ -690,6 +690,11 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def chat_completion(self, json_request):
         ret = await self.rollout.chat_completion(json_request)
+        return ret
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
+    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+        ret = await self.rollout.generate(prompt_ids, sampling_params, request_id)
         return ret
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)

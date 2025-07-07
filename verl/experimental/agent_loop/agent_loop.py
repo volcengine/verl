@@ -222,18 +222,15 @@ class AgentLoopWorker:
             sampling_params["top_p"] = config.val_kwargs.top_p
             sampling_params["temperature"] = config.val_kwargs.temperature
 
-        n = 1 if batch.meta_info.get("validate", False) else config.n
-        tasks = []
-
         # by default, we assume it's a single turn agent
         if "agent_name" not in batch.non_tensor_batch:
             batch.non_tensor_batch["agent_name"] = np.array(["single_turn_agent"] * len(batch), dtype=object)
 
-        agent_names = batch.non_tensor_batch["agent_name"].repeat(n, axis=0)
-        raw_prompts = batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0)
-
+        tasks = []
+        agent_names = batch.non_tensor_batch["agent_name"]
+        raw_prompts = batch.non_tensor_batch["raw_prompt"]
         if "index" in batch.non_tensor_batch:
-            index = batch.non_tensor_batch["index"].repeat(n, axis=0)
+            index = batch.non_tensor_batch["index"]
         else:
             index = np.arange(len(raw_prompts))
 
