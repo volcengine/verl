@@ -86,7 +86,6 @@ class AsyncRolloutRequest(BaseModel):
     batch_data_id: int = 0
     rollout_offset: int = 0
     request_id: str
-    uid: str | None = ""
     state: AsyncRolloutRequestStateEnum
     messages: List[Message]
     multi_modal_keys: Optional[List[str]] = None
