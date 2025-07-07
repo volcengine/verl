@@ -35,7 +35,7 @@ from sglang.srt.managers.tokenizer_manager import (
     ResumeMemoryOccupationReqInput,
     UpdateWeightsFromTensorReqInput,
 )
-from sglang.srt.openai_api.protocol import Tool
+from sglang.srt.entrypoints.openai.protocol import Tool
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
@@ -814,6 +814,7 @@ class SGLangRollout(BaseRollout):
         request_sampling_params.update(kwargs)
 
         while current_turns < self.config.multi_turn.max_assistant_turns:
+            print(f"current_turns: {current_turns}, user_turns: {user_turns}, state: {_req.state}")
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
                 await self._handle_pending_state(_req)
                 _req.state = AsyncRolloutRequestStateEnum.RUNNING
@@ -830,6 +831,7 @@ class SGLangRollout(BaseRollout):
                             for tool_call in parsed_tool_calls
                         ]
                     )
+                    print(f"tool_call_results: {tool_call_results}")
                     _req.add_tool_response_messages(self.processing_class, [resp for resp, _, _ in tool_call_results])
                     for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results):
                         _req.update_metrics(metrics, tool_call.function.name)
@@ -865,6 +867,7 @@ class SGLangRollout(BaseRollout):
 
                 output = await self._handle_engine_call(_req, request_sampling_params, image_data=image_data)
                 content = output["text"]
+                print("got content", content)
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
@@ -1223,8 +1226,8 @@ class SGLangRollout(BaseRollout):
             uid = prompts.non_tensor_batch["uid"][data_idx] if "uid" in prompts.non_tensor_batch else None
 
             if self._tool_schemas:
-                _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
-                _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in _tools_kwargs.keys()]
+                _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx] or {k: {} for k in self._tool_map}
+                _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in self._tool_map]
                 _input_ids = None
                 _attention_mask = None
             else:

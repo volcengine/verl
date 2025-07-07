@@ -1,0 +1,6 @@
+# Example Sandbox Tool Config
+tools:
+  # Class name points to sandbox class. This is expected to be a subclass of envs.BaseSandbox
+  - class_name: envs.wikipedia.wiki_sandbox.WikimediaSandbox
+    config:
+      type: sandbox

@@ -21,7 +21,10 @@ from enum import Enum
 
 from omegaconf import OmegaConf
 
+from verl.tools.sandbox_tool import sandbox_to_tool_list
 from verl.tools.schemas import OpenAIFunctionToolSchema
+
+from envs.base_sandbox import BaseSandbox
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -30,6 +33,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class ToolType(Enum):
     NATIVE = "native"
     MCP = "mcp"
+    SANDBOX = "sandbox"
 
 
 async def initialize_mcp_tool(tool_cls, tool_config) -> list:
@@ -63,6 +67,16 @@ async def initialize_mcp_tool(tool_cls, tool_config) -> list:
         tool_list.append(tool)
     return tool_list
 
+
+async def initialize_sandbox_environment(tool_cls, tool_config) -> list:
+    """Initialize a sandbox environment and return a list of verl compatible tools."""
+    print(f"Initializing sandbox environment with config: {tool_config.config}")
+    if not issubclass(tool_cls, BaseSandbox):
+        raise TypeError("tool_cls must subclass BaseSandbox")
+    sandbox = tool_cls(
+        **tool_config.config,
+    )
+    return sandbox_to_tool_list(sandbox)
 
 def get_tool_class(cls_name):
     module_name, class_name = cls_name.rsplit(".", 1)
@@ -102,6 +116,11 @@ def initialize_tools_from_config(tools_config_file):
                 loop = asyncio.get_event_loop()
                 mcp_tools = loop.run_until_complete(initialize_mcp_tool(tool_cls, tool_config))
                 tool_list.extend(mcp_tools)
+            case ToolType.SANDBOX:
+                loop = asyncio.get_event_loop()
+                sandbox_tools = loop.run_until_complete(initialize_sandbox_environment(tool_cls, tool_config))
+                tool_list.extend(sandbox_tools)
+                break
             case _:
                 raise NotImplementedError
     return tool_list
