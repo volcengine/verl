@@ -114,45 +114,13 @@ class MegatronSGLangShardingManager(BaseShardingManager):
     def __enter__(self):
         self.timing = {}
         with simple_timer("reshard", self.timing):
-            if self.offload_param:
-                load_megatron_model_to_gpu(self.actor_module)
-            if self.bridge is not None:
-                per_tensor_param = self.bridge.export_weights(self.actor_module)
-            else:
-                per_tensor_param = per_tensor_generator(
-                    self.actor_module,
-                    self.model_config,
-                    self.weight_converter,
-                    self.transformer_config,
-                    self.layer_name_mapping,
-                )
             loop = asyncio.get_event_loop()
-            loop.run_until_complete(self.update_weights(per_tensor_param))
-            if self.offload_param:
-                offload_megatron_model_to_cpu(self.actor_module)
-            get_torch_device().empty_cache()
-            # important: need to manually set the random states of each tp to be identical.
-            if self.device_mesh is not None:
-                self.torch_random_states = get_torch_device().get_rng_state()
-                get_torch_device().set_rng_state(self.gen_random_states)
+            loop.run_until_complete(self.wake_up())
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager exit", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        if self.rollout_config.free_cache_engine:
-            log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self.release_memory())
-            log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
-
-        for model in self.actor_module:
-            model.train()
-        # add empty cache after each compute
-        get_torch_device().empty_cache()
-
-        # restore random states
-        if self.device_mesh is not None:
-            self.gen_random_states = get_torch_device().get_rng_state()
-            get_torch_device().set_rng_state(self.torch_random_states)
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(self.sleep())
 
     async def update_weights(self, params):
         if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
@@ -182,8 +150,10 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.release_memory_occupation()
 
-    @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
+    @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     async def wake_up(self):
+        if self.offload_param:
+            load_megatron_model_to_gpu(self.actor_module)
         if self.bridge is not None:
             per_tensor_param = self.bridge.export_weights(self.actor_module)
         else:
@@ -195,12 +165,15 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                 self.layer_name_mapping,
             )
         await self.update_weights(per_tensor_param)
+        if self.offload_param:
+            offload_megatron_model_to_cpu(self.actor_module)
+        get_torch_device().empty_cache()
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:
             self.torch_random_states = get_torch_device().get_rng_state()
             get_torch_device().set_rng_state(self.gen_random_states)
 
-    @GPUMemoryLogger(role="FSDPSGLangShardingManager exit", logger=logger)
+    @GPUMemoryLogger(role="MegatronSGLangShardingManager exit", logger=logger)
     async def sleep(self):
         if self.rollout_config.free_cache_engine:
             log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
