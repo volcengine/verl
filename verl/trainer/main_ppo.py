@@ -159,6 +159,7 @@ class TaskRunner:
             mapping[Role.RefPolicy] = global_pool_id
 
         reward_manager_name = config.reward_model.get("reward_manager", "naive")
+        validation_reward_manager_name = config.reward_model.get("validation_reward_manager", "naive")
         if reward_manager_name == "naive":
             from verl.workers.reward_manager import NaiveRewardManager
 
@@ -179,6 +180,10 @@ class TaskRunner:
             from verl.workers.reward_manager import AGPORewardManager
 
             reward_manager_cls = AGPORewardManager
+        elif reward_manager_name == "skywork":
+            from verl.workers.reward_manager import SkyworkRewardManager
+
+            reward_manager_cls = SkyworkRewardManager
         else:
             raise NotImplementedError
 
@@ -193,7 +198,22 @@ class TaskRunner:
         )
 
         # Note that we always use function-based RM for validation
-        val_reward_fn = reward_manager_cls(
+        if validation_reward_manager_name == "naive":
+            from verl.workers.reward_manager import NaiveRewardManager
+
+            val_reward_manager_cls = NaiveRewardManager
+        elif validation_reward_manager_name == "prime":
+            from verl.workers.reward_manager import PrimeRewardManager
+
+            val_reward_manager_cls = PrimeRewardManager
+        elif validation_reward_manager_name == "skywork":
+            from verl.workers.reward_manager import SkyworkRewardManager
+
+            val_reward_manager_cls = SkyworkRewardManager
+        else:
+            raise NotImplementedError
+
+        val_reward_fn = val_reward_manager_cls(
             tokenizer=tokenizer, num_examine=1, compute_score=compute_score, reward_fn_key=config.data.reward_fn_key
         )
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)

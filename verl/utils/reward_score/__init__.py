@@ -46,9 +46,11 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
 
         res = prime_math.compute_score(solution_str, ground_truth)
     elif data_source in ["code", "codecontests", "apps", "codeforces", "taco", "livecodebench/code_generation_lite", "MatrixStudio/Codeforces-Python-Submissions"]:
-        from . import prime_code
+        # from . import prime_code
 
-        res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
+        # res = prime_code.compute_score(solution_str, ground_truth, continuous=True, val=True)
+        from . import livecodebench
+        res = livecodebench.compute_score(solution_str, ground_truth, is_binary_reward=False, is_power4_reward=False)
     elif data_source in ["hiyouga/geometry3k"]:
         from . import geo3k
 
