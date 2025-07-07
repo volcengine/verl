@@ -183,8 +183,8 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
         if (
             self.multi_stage_wake_up
-            and self.device_mesh["infer_tp"].get_local_rank() == 0
             and self.rollout_config.free_cache_engine
+            and self.device_mesh["infer_tp"].get_local_rank() == 0
         ):
             await self.inference_engine.resume_memory_occupation(tags=["kv_cache"])
             log_gpu_memory_usage("After resume SGLang kv_cache in sharding manager", logger=logger)

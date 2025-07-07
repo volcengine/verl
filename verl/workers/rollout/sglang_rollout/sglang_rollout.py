@@ -549,11 +549,9 @@ class SGLangRollout(BaseRollout):
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
     def _batch_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-        """Generates sequences for a batch of prompts.
+        """Generates single-turn sequences for a batch of prompts.
         For single-turn generation, all prompts are processed in one request.
-        For multi-turn generation, each prompt is processed separately via
-        `_generate_req_level_sequences` for better tool calling control.
-        `_generate_batch_level_sequences` involves:
+        `_batch_level_generate_sequences` involves:
         1.  Extracting and pre-processing prompt token IDs from the input
             `prompts`. This includes handling padding and preparing raw
             token ID lists.
@@ -588,9 +586,8 @@ class SGLangRollout(BaseRollout):
               `input_ids` (concatenated prompt and response),
               `attention_mask`, and `position_ids` for the full
               sequences.
-        Note that in GRPO, we repeat the prompts for rollout.n times in ray_trainer.
-        Thus we do not need to repeat the prompts here and set the sampling parameter
-        n to 1.
+        Note that in GRPO, if the prompts are validated, we repeat the prompts for rollout.n times in ray_trainer.
+        Thus we do not need to repeat the prompts here and set the sampling parameter n to 1.
         """
         # input ids: (bs, prompt_length), left-padded
         idx = prompts.batch["input_ids"]
@@ -1021,6 +1018,12 @@ class SGLangRollout(BaseRollout):
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
     def _req_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
+        """Generates multi-turn sequences for a batch of prompts.
+        For multi-turn generation, each prompt is processed separately via
+        `_req_level_generate_sequences` for better tool calling control.
+        Note that in multi-turn generation, we repeat the prompts for rollout.n times in ray_trainer.
+        Thus we do not need to repeat the prompts here and set the sampling parameter n to 1.
+        """
         # Async rollout with tools support
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
