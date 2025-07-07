@@ -57,6 +57,25 @@ If you want rollout with simulated interaction, you can set the ``interaction_co
         rollout:
             interaction_config_file: <path_to_interaction_yaml_file>
 
+If your tool creates multi-modal inputs, you should return a list of multi-modal inputs in your tool.execute() implementation.
+
+Image and video should be processed before returning. For example, if you are using Qwen2.5-VL, you can use the following code to get the representations:
+
+.. code-block:: python
+
+    async def execute(self, ...) -> Tuple[str | Dict[str, Any], float, dict]:
+        ...
+        from verl.utils.dataset.vision_utils import process_image, process_video
+
+        img1 = process_image(img1)
+        video1 = process_video(video1)
+
+        # due to the (image | video) key is ("image" | "video") instead of ("images" | "videos") in vllm, we need to use ("image" | "video") to specify list of images/videos
+        # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
+        return {"image": [img1, ...], "video": [video1, ...], "text": "..."}, 0, {}
+
+remeber to set ``return_multi_modal_inputs: False`` in your dataset config in order to process the multi-modal inputs in the rollout correctly.
+Refer to the `Handling Multi-Modal Inputs in Datasets`_ section for more details.
 
 MCP Tool Configuration
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -105,27 +124,6 @@ Since the content formats returned by the MCP server may vary, users can inherit
            ...
 
 Overall, you may refer to mcp_search_tool.py_ and mcp_tool_config.yaml_ for custom implementation and configuration.
-
-
-If your tool creates multi-modal inputs, you should return a list of multi-modal inputs in your tool.execute() implementation.
-
-Image and video should be processed before returning. For example, if you are using Qwen2.5-VL, you can use the following code to get the representations:
-
-.. code-block:: python
-
-    async def execute(self, ...) -> Tuple[str | Dict[str, Any], float, dict]:
-        ...
-        from verl.utils.dataset.vision_utils import process_image, process_video
-
-        img1 = process_image(img1)
-        video1 = process_video(video1)
-
-        # due to the (image | video) key is ("image" | "video") instead of ("images" | "videos") in vllm, we need to use ("image" | "video") to specify list of images/videos
-        # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
-        return {"image": [img1, ...], "video": [video1, ...], "text": "..."}, 0, {}
-
-remeber to set ``return_multi_modal_inputs: False`` in your dataset config in order to process the multi-modal inputs in the rollout correctly.
-Refer to the `Handling Multi-Modal Inputs in Datasets`_ section for more details.
 
 Multi-turn Tokenization
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -186,7 +184,7 @@ Example configuration:
                 tokenization_sanity_check_mode: "ignore_strippable"  # Choose from: "disable", "ignore_strippable", "strict"
 
 Handling Multi-Modal Inputs in Datasets
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If your dataset includes multi-modal inputs (such as images or videos), you can control whether these are pre-processed and included in each sample by setting the return_multi_modal_inputs flag in your dataset config (used by RLHFDataset).
 
