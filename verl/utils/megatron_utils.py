@@ -158,7 +158,6 @@ class McoreModuleWrapperConfig:
 
     is_value_model: bool = False
     share_embeddings_and_output_weights: bool = False
-    use_fused_kernels: bool = False
     wrap_with_ddp: bool = True
     use_distributed_optimizer: bool = True
 
