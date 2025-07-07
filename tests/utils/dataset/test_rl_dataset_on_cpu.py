@@ -28,7 +28,8 @@ def get_gsm8k_data():
 
 def test_rl_dataset():
     from verl.utils import hf_tokenizer
-    from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+    from verl.utils.dataset.collate_utils import collate_fn
+    from verl.utils.dataset.rl_dataset import RLHFDataset
 
     tokenizer = hf_tokenizer("deepseek-ai/deepseek-coder-1.3b-instruct")
     local_path = get_gsm8k_data()
@@ -68,7 +69,8 @@ def test_rl_dataset():
 
 def test_image_rl_data():
     from verl.utils import hf_processor, hf_tokenizer
-    from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+    from verl.utils.dataset.collate_utils import collate_fn
+    from verl.utils.dataset.rl_dataset import RLHFDataset
 
     tokenizer = hf_tokenizer("Qwen/Qwen2-VL-2B-Instruct")
     processor = hf_processor("Qwen/Qwen2-VL-2B-Instruct")

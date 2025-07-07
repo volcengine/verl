@@ -555,9 +555,9 @@ class RayPPOTrainer:
         if train_sampler is None:
             train_sampler = create_rl_sampler(self.config.data, self.train_dataset)
         if collate_fn is None:
-            from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
+            from verl.utils.dataset.collate_utils import get_collate_fn_manager_cls
 
-            collate_fn = default_collate_fn
+            collate_fn = get_collate_fn_manager_cls("default")
 
         num_workers = self.config.data["dataloader_num_workers"]
         if isinstance(train_sampler, AbstractCurriculumSampler):
