@@ -272,7 +272,7 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.1
+      image: hebiaobuaa/verl-sglang-0.4.9:latest
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -311,7 +311,7 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.1
+      image: hebiaobuaa/verl-sglang-0.4.9:latest
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -344,7 +344,7 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.1
+      image: hebiaobuaa/verl-sglang-0.4.9:latest
       options: --gpus all --shm-size=50g # Visual dataloader requires large memory
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -353,6 +353,10 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test,geo,gpu,sglang]
+      - name: Pin down transformers to 4.52.3 due to known constraint of qwen visual models
+        run: |
+          pip uninstall -y transformers
+          pip install --no-cache-dir "transformers[hf_xet]==4.52.3"
       # Geo3k
       - name: Prepare GEO3K dataset
         run: |
@@ -401,7 +405,7 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.1
+      image: hebiaobuaa/verl-sglang-0.4.9:latest
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -410,6 +414,10 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test,geo,gpu,sglang]
+      - name: Pin down transformers to 4.52.3 due to known constraint of qwen visual models
+        run: |
+          pip uninstall -y transformers
+          pip install --no-cache-dir "transformers[hf_xet]==4.52.3"
       - name: Prepare geo3k dataset with tool
         run: |
           ray stop --force
