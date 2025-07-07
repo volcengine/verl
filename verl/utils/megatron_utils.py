@@ -24,6 +24,7 @@ from typing import Any, Dict
 
 import torch
 import torch.nn.functional as F
+from mbridge import AutoBridge
 from megatron.core import ModelParallelConfig, mpu, tensor_parallel
 from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import DistributedDataParallelConfig
@@ -35,7 +36,6 @@ from megatron.core.utils import get_attr_wrapped_model
 from transformers import PretrainedConfig
 
 import verl.utils.megatron.tensor_parallel as tp_utils
-from verl.models.mcore.mbridge import AutoBridge
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.fs import local_mkdir_safe
 from verl.utils.model import normalize_model_name
@@ -167,7 +167,7 @@ def make_megatron_module(
     wrap_config: McoreModuleWrapperConfig,
     tf_config: TransformerConfig,
     hf_config: PretrainedConfig,
-    bridge: AutoBridge,
+    bridge: AutoBridge = None,
     override_model_config: Dict[str, Any] = None,
 ):
     if override_model_config is None:
