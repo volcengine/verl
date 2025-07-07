@@ -26,7 +26,8 @@ For custom environment interaction tools, you can implement your own tools based
 
     tools:
       - class_name: ""
-        config: {}
+        config: 
+            type: native
         tool_schema:
 
 You may refer to GSM8KTool_example_configuration_, which is one example of the tool configurations. Its implementation can be found in gsm8k_tool.py_.
@@ -40,7 +41,7 @@ Finally, set the ``tools_config_file`` in your rollout config:
             tool_kwargs:
                 tools_config_file: <path_to_tool_yaml_file>
 
-This allows integration of customized tool behaviors during actor rollout steps. 
+This allows integration of customized tool behaviors during actor rollout steps.
 
 If you want rollout with simulated interaction, you can set the ``interaction_config_file`` in your rollout config:
 
@@ -75,6 +76,54 @@ Image and video should be processed before returning. For example, if you are us
 
 remeber to set ``return_multi_modal_inputs: False`` in your dataset config in order to process the multi-modal inputs in the rollout correctly.
 Refer to the `Handling Multi-Modal Inputs in Datasets`_ section for more details.
+
+MCP Tool Configuration
+~~~~~~~~~~~~~~~~~~~~~~
+
+For MCP interaction tools, you can flexibly configure them using a YAML file. The typical setup is as follows:
+
+.. code-block:: yaml
+
+    tools:
+      - class_name: ""
+        config:
+            type: mcp
+        mcp:
+            mcp_servers_config_path: ./mcp_server.json
+            tool_selected_list: {}
+
+The ``tool_selected_list`` field is optional and specifies which tools to use from the servers. If you want to enable all available tools, simply omit this attribute. Besides, ``mcp_servers_config_path`` points to a JSON file containing the MCP server configurations. For example:
+
+.. code-block:: json
+
+      {
+          "mcpServers": {
+              "SSE Server": {
+                  "url": "your_server_url",
+                  "auth_token": "your_server_api_token"
+              },
+              "STDIO Server": {
+                  "command": "npx",
+                  "args": ["-y", "server-mcp@0.2.1"],
+                  "env": {
+                    "SERVER_API_KEY": "your_server_api_token"
+                  }
+              }
+          }
+      }
+
+Since the content formats returned by the MCP server may vary, users can inherit from ``MCPBaseTool`` and override the ``_parse_tool_result`` method to implement custom parsing logic.
+
+.. code-block:: python
+
+   class MCPYourTool(MCPBaseTool):
+       def __init__(self, config: dict, tool_schema: OpenAIFunctionToolSchema):
+           super().__init__(config, tool_schema)
+
+       def _parse_tool_result(self, content: list) -> Tuple[str, dict]:
+           ...
+
+Overall, you may refer to mcp_search_tool.py_ and mcp_tool_config.yaml_ for custom implementation and configuration.
 
 Multi-turn Tokenization
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -135,7 +184,7 @@ Example configuration:
                 tokenization_sanity_check_mode: "ignore_strippable"  # Choose from: "disable", "ignore_strippable", "strict"
 
 Handling Multi-Modal Inputs in Datasets
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If your dataset includes multi-modal inputs (such as images or videos), you can control whether these are pre-processed and included in each sample by setting the return_multi_modal_inputs flag in your dataset config (used by RLHFDataset).
 
@@ -266,6 +315,10 @@ See the training performance of multi-turn rollout on the GSM8K task HERE_.
 .. _GSM8KTool_example_configuration: https://github.com/volcengine/verl/blob/main/examples/sglang_multiturn/config/tool_config/gsm8k_tool_config.yaml
 
 .. _gsm8k_tool.py: https://github.com/volcengine/verl/blob/main/verl/tools/gsm8k_tool.py
+
+.. _mcp_search_tool.py: https://github.com/volcengine/verl/blob/main/verl/tools/mcp_search_tool.py
+
+.. _mcp_tool_config.yaml: https://github.com/volcengine/verl/blob/main/examples/sglang_multiturn/config/tool_config/mcp_tool_config.yaml
 
 Interaction System
 ~~~~~~~~~~~~~~~~~~
