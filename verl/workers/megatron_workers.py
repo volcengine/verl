@@ -33,6 +33,7 @@ from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.base.megatron.worker import MegatronWorker
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
+from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
@@ -129,11 +130,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         profiler_config: Optional[ProfilerConfig] = None
         if self._is_actor:
-            profiler_config = config.actor.get("profiler", {})
+            profiler_config = omega_conf_to_dataclass(config.actor.get("profiler"))
         if self._is_rollout:
-            profiler_config = config.rollout.get("profiler", {})
+            profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler"))
         if self._is_ref:
-            profiler_config = config.ref.get("profiler", {})
+            profiler_config = omega_conf_to_dataclass(config.ref.get("profiler"))
 
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
 
@@ -715,7 +716,9 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 class CriticWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config):
         MegatronWorker.__init__(self)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler", {})))
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
+        )
         self.config = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -989,7 +992,9 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
 
     def __init__(self, config):
         MegatronWorker.__init__(self)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler", {})))
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
+        )
         self.config = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
