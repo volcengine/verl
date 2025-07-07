@@ -1,5 +1,8 @@
 # run on 8xH20
 # make sure your current working directory is the root of the project
+# Specifically note the last 3 lines
+# The first line points to tool config, which is necessary for initializing tools from the sandbox
+# The second and third lines point to the relevant sandbox to initialize the rewards from
 
 set -x
 
@@ -63,7 +66,4 @@ PYTHONPATH="$PYTHONPATH:$(pwd)" python -m verl.trainer.main_ppo \
     trainer.total_epochs=1 $@ \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$TOOL_CONFIG" \
     reward_model.reward_manager=sandbox \
-    +reward_model.reward_kwargs.sandbox_cls_name=envs.wikipedia.wiki_sandbox.WikimediaSandbox\
-# Specifically note the last 3 lines
-# The first line points to tool config, which is necessary for initializing tools from the sandbox
-# The second and third lines point to the relevant sandbox to initialize the rewards from
+    +reward_model.reward_kwargs.sandbox_cls_name=envs.wikipedia.wiki_sandbox.WikipediaSandbox
