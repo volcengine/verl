@@ -316,8 +316,6 @@ def copy_local_path_from_remote(
     """
     from filelock import FileLock
 
-    from verl.utils.s3_io import bulk_download, file_download, parse_uri
-
     assert src[-1] != "/", f"Make sure the last char in src is not / because it will cause error. Got {src}"
 
     if is_non_local(src):
@@ -355,6 +353,9 @@ def copy_local_path_from_remote(
 def upload_local_file_to_s3(
     s3_path: str, local_path: str, cache_dir=None, filelock=".file.lock", verbose=False
 ) -> None:
+    """
+    Uploads a file to an S3 bucket and path.
+    """
     from filelock import FileLock
 
     from verl.utils.s3_io import file_upload, parse_uri, s3_key_exists

@@ -915,12 +915,12 @@ class RayPPOTrainer:
         print(f"local_global_step_folder: {local_global_step_folder}")
         s3_global_step_folder = (
             None
-            if self.config.trainer.s3_checkpoint_dir is None
+            if self.config.trainer.get("s3_checkpoint_dir", None) is None
             else os.path.join(self.config.trainer.s3_checkpoint_dir, f"global_step_{self.global_steps}")
         )
         actor_local_path = os.path.join(local_global_step_folder, "actor")
 
-        if self.config.trainer.s3_checkpoint_dir:
+        if self.config.trainer.get("s3_checkpoint_dir", None):
             actor_remote_path = os.path.join(s3_global_step_folder, "actor")
         elif self.config.trainer.default_hdfs_dir:
             actor_remote_path = os.path.join(
@@ -948,7 +948,7 @@ class RayPPOTrainer:
 
         if self.use_critic:
             critic_local_path = os.path.join(local_global_step_folder, "critic")
-            if self.config.trainer.s3_checkpoint_dir:
+            if self.config.trainer.get("s3_checkpoint_dir", None):
                 critic_remote_path = os.path.join(s3_global_step_folder, "critic")
             elif self.config.trainer.default_hdfs_dir:
                 critic_remote_path = os.path.join(
@@ -968,8 +968,8 @@ class RayPPOTrainer:
         torch.save(dataloader_state_dict, dataloader_local_path)
 
         # save dataloader to s3
-        s3_dataloader_path = os.path.join(s3_global_step_folder, "data.pt")
-        if self.config.trainer.s3_checkpoint_dir:
+        if self.config.trainer.get("s3_checkpoint_dir", None):
+            s3_dataloader_path = os.path.join(s3_global_step_folder, "data.pt")
             upload_local_file_to_s3(s3_dataloader_path, dataloader_local_path, verbose=True)
 
         # latest checkpointed iteration tracker (for atomic usage)
