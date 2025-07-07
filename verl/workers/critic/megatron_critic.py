@@ -164,9 +164,6 @@ class MegatronPPOCritic(BasePPOCritic):
         mini_batch_size=None,
     ):
         # broadcast from last pp rank to all other pp ranks
-        data.to(torch.cuda.current_device())
-        data.batch = data.batch.contiguous()
-        broadcast_dict_tensor(data.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
         mini_batch = data
         mini_batch.to(get_device_id())
         mini_batch.batch = mini_batch.batch.contiguous()
