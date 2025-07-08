@@ -41,6 +41,7 @@ from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
+from verl.trainer.config import AlgoConfig
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
@@ -51,6 +52,7 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
+from verl.utils.dataset.sampler import AbstractCurriculumSampler
 from verl.utils.debug import marked_timer
 from verl.utils.metric import (
     reduce_metrics,
@@ -204,13 +206,13 @@ def compute_response_mask(data: DataProto):
 
 def compute_advantage(
     data: DataProto,
-    adv_estimator,
-    gamma=1.0,
-    lam=1.0,
-    num_repeat=1,
-    norm_adv_by_std_in_grpo=True,
-    config=None,
-):
+    adv_estimator: AdvantageEstimator,
+    gamma: float = 1.0,
+    lam: float = 1.0,
+    num_repeat: int = 1,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
+) -> DataProto:
     """Compute advantage estimates for policy optimization.
 
     This function computes advantage estimates using various estimators like GAE, GRPO, REINFORCE++, etc.
@@ -218,7 +220,7 @@ def compute_advantage(
 
     Args:
         data (DataProto): The data containing batched model outputs and inputs.
-        adv_estimator: The advantage estimator to use (e.g., GAE, GRPO, REINFORCE++).
+        adv_estimator (AdvantageEstimator): The advantage estimator to use (e.g., GAE, GRPO, REINFORCE++).
         gamma (float, optional): Discount factor for future rewards. Defaults to 1.0.
         lam (float, optional): Lambda parameter for GAE. Defaults to 1.0.
         num_repeat (int, optional): Number of times to repeat the computation. Defaults to 1.
@@ -247,8 +249,8 @@ def compute_advantage(
         if config.get("use_pf_ppo", False):
             data = core_algos.compute_pf_ppo_reweight_data(
                 data,
-                config.get("pf_ppo_reweight_method", "pow"),
-                config.get("pf_ppo_weight_pow", 2.0),
+                config.pf_ppo.reweight_method,
+                config.pf_ppo.weight_pow,
             )
     elif adv_estimator == AdvantageEstimator.GRPO:
         # Initialize the mask for GRPO calculation
@@ -347,8 +349,8 @@ class RayPPOTrainer:
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
-        if config.algorithm.use_kl_in_reward:
-            self.kl_ctrl_in_reward = core_algos.get_kl_controller(config.algorithm.kl_ctrl)
+        if self.config.algorithm.use_kl_in_reward:
+            self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
         if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
             self.use_critic = True
@@ -482,7 +484,7 @@ class RayPPOTrainer:
             "seq-mean-token-sum-norm",
         ], f"Invalid loss_agg_mode: {config.actor_rollout_ref.actor.loss_agg_mode}"
 
-        if config.algorithm.use_kl_in_reward and config.actor_rollout_ref.actor.use_kl_loss:
+        if self.config.algorithm.use_kl_in_reward and config.actor_rollout_ref.actor.use_kl_loss:
             print("NOTICE: You have both enabled in-reward kl and kl loss.")
 
         # critic
@@ -533,7 +535,7 @@ class RayPPOTrainer:
 
         print("[validate_config] All configuration checks passed successfully!")
 
-    def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler):
+    def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
         """
         Creates the train and validation dataloaders.
         """
@@ -557,10 +559,18 @@ class RayPPOTrainer:
 
             collate_fn = default_collate_fn
 
+        num_workers = self.config.data["dataloader_num_workers"]
+        if isinstance(train_sampler, AbstractCurriculumSampler):
+            assert num_workers == 0, (
+                "If using curriculum, num_workers must be 0 to prevent data caching. "
+                "If the dataloader caches data before the batch is done the "
+                "curriculum sampler won't have the opportunity to reorder it. "
+            )
+
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
             batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
-            num_workers=self.config.data.get("dataloader_num_workers", 8),
+            num_workers=num_workers,
             drop_last=True,
             collate_fn=collate_fn,
             sampler=train_sampler,
@@ -573,7 +583,7 @@ class RayPPOTrainer:
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             batch_size=val_batch_size,
-            num_workers=self.config.data.get("dataloader_num_workers", 8),
+            num_workers=num_workers,
             shuffle=self.config.data.get("validation_shuffle", True),
             drop_last=False,
             collate_fn=collate_fn,
@@ -1071,11 +1081,6 @@ class RayPPOTrainer:
         last_val_metrics = None
         self.max_steps_duration = 0
 
-        repeat_sampling_sglang_grpo = (
-            self.config.actor_rollout_ref.rollout.name == "sglang"
-            and self.config.actor_rollout_ref.rollout.multi_turn.enable
-        )
-
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 do_profile = (
@@ -1096,10 +1101,9 @@ class RayPPOTrainer:
                 timing_raw = {}
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
+                # pop those keys for generation
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
-
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
-
                 if "multi_modal_data" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")
                 if "raw_prompt" in batch.non_tensor_batch:
@@ -1114,16 +1118,7 @@ class RayPPOTrainer:
                     batch_keys=batch_keys_to_pop,
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
                 )
-
-                if repeat_sampling_sglang_grpo:
-                    uids_for_prompts = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
-                    batch.non_tensor_batch["uid"] = uids_for_prompts
-                    gen_batch.non_tensor_batch["uid"] = uids_for_prompts
-                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    assert np.array_equal(batch.non_tensor_batch["uid"], gen_batch.non_tensor_batch["uid"]), (
-                        "UIDs must be identical for SGLang rollout"
-                    )
+                gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
@@ -1133,8 +1128,6 @@ class RayPPOTrainer:
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
-                            # vllm should set async_rollout_mode to enable async rollout
-                            # sglang turns on async_rollout_mode by default
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
@@ -1155,13 +1148,11 @@ class RayPPOTrainer:
 
                             del gen_baseline_batch, gen_baseline_output
 
-                    if not repeat_sampling_sglang_grpo:
-                        batch.non_tensor_batch["uid"] = np.array(
-                            [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
-                        )
-                        # repeat to align with repeated responses in rollout
-                        batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-
+                    batch.non_tensor_batch["uid"] = np.array(
+                        [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
+                    )
+                    # repeat to align with repeated responses in rollout
+                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
                     if "response_mask" not in batch.batch:
@@ -1318,10 +1309,18 @@ class RayPPOTrainer:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
 
+                    # Check if the ESI (Elastic Server Instance)/training plan is close to expiration.
                     esi_close_to_expiration = should_save_ckpt_esi(
                         max_steps_duration=self.max_steps_duration,
                         redundant_time=self.config.trainer.esi_redundant_time,
                     )
+                    # Check if the conditions for saving a checkpoint are met.
+                    # The conditions include a mandatory condition (1) and
+                    # one of the following optional conditions (2/3/4):
+                    # 1. The save frequency is set to a positive value.
+                    # 2. It's the last training step.
+                    # 3. The current step number is a multiple of the save frequency.
+                    # 4. The ESI(Elastic Server Instance)/training plan is close to expiration.
                     if self.config.trainer.save_freq > 0 and (
                         is_last_step
                         or self.global_steps % self.config.trainer.save_freq == 0
@@ -1347,6 +1346,9 @@ class RayPPOTrainer:
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+
+                if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):
+                    self.train_dataloader.sampler.update(batch=batch)
 
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)

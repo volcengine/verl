@@ -39,7 +39,7 @@ from verl.trainer.ppo.ray_trainer import (
     compute_advantage,
     compute_response_mask,
 )
-from verl.utils.debug import simple_timer
+from verl.utils.profiler import simple_timer
 
 
 class RayEntropyTrainer(RayPPOTrainer):
@@ -108,6 +108,7 @@ class RayEntropyTrainer(RayPPOTrainer):
                         batch_keys=["input_ids", "attention_mask", "position_ids"],
                         non_tensor_batch_keys=["raw_prompt_ids"],
                     )
+                gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
                 is_last_step = self.global_steps >= self.total_training_steps
 

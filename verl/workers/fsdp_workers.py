@@ -38,11 +38,10 @@ from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
-from verl.utils import hf_processor, hf_tokenizer, omega_conf_to_dataclass
+from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.debug import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
-from verl.utils.debug.performance import reduce_timing
+from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import (
     get_device_id,
     get_device_name,
@@ -70,6 +69,8 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
+from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
+from verl.utils.profiler.performance import reduce_timing
 from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.rollout.schemas import force_chat_end_with_eos
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
@@ -150,12 +151,18 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
         profiler_config: Optional[ProfilerConfig] = None
+        # TODO(haibin.lin):
+        # As of now the type of config is DictConfig, if we assign config.profiler with ProfilerConfig,
+        # it will actually convert the ProfilerConfig dataclass back to a DictConfig.
+        # We can still use ProfilerConfig for testing purpose (tests/utils/test_nvtx_profile.py)
+        # as they provides DictConfig-like interface
+        # The benefit of creating the dataclass config is to perform validation during __post_init__
         if self._is_actor:
-            profiler_config = omega_conf_to_dataclass(config.actor.get("profiler", {}), ProfilerConfig)
+            profiler_config = omega_conf_to_dataclass(config.actor.get("profiler"))
         if self._is_rollout:
-            profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler", {}), ProfilerConfig)
+            profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler"))
         if self._is_ref:
-            profiler_config = omega_conf_to_dataclass(config.ref.get("profiler", {}), ProfilerConfig)
+            profiler_config = omega_conf_to_dataclass(config.ref.get("profiler"))
 
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
 
@@ -916,8 +923,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config):
         Worker.__init__(self)
-        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), ProfilerConfig)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
+        )
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -1302,8 +1310,9 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
     def __init__(self, config):
         Worker.__init__(self)
-        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), ProfilerConfig)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
+        )
 
         import torch.distributed
 
