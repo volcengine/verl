@@ -14,10 +14,12 @@ top_k: -1
 top_p: 1
 
 # typically the same as data max prompt length
-prompt_length: ${data.max_prompt_length}
+# same as data.max_prompt_length if it exists
+prompt_length: ${oc.select:data.max_prompt_length,512}
 
 # typically the same as data max response length
-response_length: ${data.max_response_length}
+# same as data.max_response_length if it exists
+response_length: ${oc.select:data.max_response_length,512}
 
 # for vllm rollout
 # Rollout model parameters type. Align with actor model's FSDP/Megatron type.
@@ -58,10 +60,12 @@ log_prob_micro_batch_size: null
 log_prob_micro_batch_size_per_gpu: null
 
 # enable dynamic batch size (sequence packing) for log_prob computation
-log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+# same as actor_rollout_ref.actor.use_dynamic_bsz if it exists, otherwise false
+log_prob_use_dynamic_bsz: ${oc.select:actor_rollout_ref.actor.use_dynamic_bsz,false}
 
 # max token length for log_prob computation
-log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
+# same as actor_rollout_ref.actor.ppo_max_token_len_per_gpu if it exists, otherwise 16384
+log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_token_len_per_gpu,16384}
 
 # disable logging statistics
 disable_log_stats: True
