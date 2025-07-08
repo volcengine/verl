@@ -10,12 +10,19 @@ defaults:
   # <folder_name>@<field_name>.<field_name>: <yaml_file_name>
   # actor_rollout_ref.actor: trainer/config/actor/dp_actor.yaml
   - actor@actor_rollout_ref.actor: dp_actor
+
   # data: trainer/config/data/legacy_data.yaml
   - data@data: legacy_data
+
   # load the reference default config, then apply the fields in the current yaml
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
   - ref@actor_rollout_ref.ref: dp_ref
+
+  # Rollout model config.
+  - rollout@actor_rollout_ref.rollout: rollout
+
+  # self config override anything above
   - _self_
 
 # config for actor, rollout and reference model
