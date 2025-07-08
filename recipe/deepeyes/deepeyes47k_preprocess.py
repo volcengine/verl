@@ -19,32 +19,17 @@ import io
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset_dir", default="/mnt/parallel_ssd/group/project3/hf_datasets/DeepEyes-Datasets-47k")
-    parser.add_argument("--save_dir", default="/mnt/parallel_ssd/group/project3/agentic_rl/verl/recipe/deepeyes")
+    parser.add_argument("--dataset_dir", default="path/to/local/dir")
+    parser.add_argument("--save_dir", default="path/to/save/dir")
     args = parser.parse_args()
     data_source = "hiyouga/DeepEyes-Datasets-47k"
     
     dataset = load_dataset(
-        path=args.dataset_dir,
-        data_files=["data_0.1.2_visual_toolbox_v2.parquet"],
-    )
+         path=args.dataset_dir,
+         data_files=["data_0.1.2_visual_toolbox_v2.parquet", "data_thinklite_reasoning_acc.parquet"],
+     )["train"]
 
-    def process_fn(example, idx):
-        example["images"] = [example["images"][0]]
-        extra_info = example.pop("extra_info")
-        extra_info["need_tools_kwargs"] = True
-        extra_info["tools_kwargs"] = {
-            "image_zoom_in_tool": {
-                "create_kwargs": {"image": example["images"][0]},
-            },
-        }
-        example["extra_info"] = extra_info
-        return example
-
-    dataset = dataset.map(function=process_fn, with_indices=True, num_proc=8)
-    
-    # Split dataset: 1k for validation, rest for training
-    train_test_split = dataset["train"].train_test_split(test_size=1000, seed=42)
+    train_test_split = dataset.train_test_split(test_size=1000, seed=42)
     train_dataset = train_test_split["train"]
     val_dataset = train_test_split["test"]
 
