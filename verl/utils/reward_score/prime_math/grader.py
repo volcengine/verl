@@ -173,8 +173,8 @@ def handle_pi(string, pi):
 
 
 def math_equal(
-    prediction: Union[bool, float, str],
-    reference: Union[float, str],
+    prediction: bool | float | str,
+    reference: float | str,
     include_percentage: bool = True,
     tolerance: float = 1e-4,
     timeout: float = 10.0,

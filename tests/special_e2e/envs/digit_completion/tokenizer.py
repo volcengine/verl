@@ -141,14 +141,14 @@ class CharTokenizer(PreTrainedTokenizer):
         cfg["chat_template"] = config["chat_template"]
         return cls(**cfg)
 
-    def save_pretrained(self, save_directory: Union[str, os.PathLike], **kwargs):
+    def save_pretrained(self, save_directory: str | os.PathLike, **kwargs):
         cfg_file = Path(save_directory) / "tokenizer_config.json"
         cfg = self.get_config()
         with open(cfg_file, "w") as f:
             json.dump(cfg, f, indent=4)
 
     @classmethod
-    def from_pretrained(cls, save_directory: Union[str, os.PathLike], **kwargs):
+    def from_pretrained(cls, save_directory: str | os.PathLike, **kwargs):
         cfg_file = Path(save_directory) / "tokenizer_config.json"
         with open(cfg_file) as f:
             cfg = json.load(f)

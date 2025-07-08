@@ -89,7 +89,7 @@ class HybridEngineBaseTokenizer(ABC):
     @abstractmethod
     def decode(
         self,
-        token_ids: Union[int, List[int], np.ndarray, torch.Tensor],
+        token_ids: int | List[int] | np.ndarray | torch.Tensor,
         skip_special_tokens: bool = False,
         clean_up_tokenization_spaces: bool = None,
         **kwargs,
@@ -118,8 +118,8 @@ class HybridEngineBaseTokenizer(ABC):
 
     @abstractmethod
     def convert_ids_to_tokens(
-        self, ids: Union[int, List[int]], skip_special_tokens: bool = False
-    ) -> Union[str, List[str]]:
+        self, ids: int | List[int], skip_special_tokens: bool = False
+    ) -> str | List[str]:
         """
         Converts a single index or a sequence of indices in a token or a sequence of tokens, using the vocabulary and
         added tokens.

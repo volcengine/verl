@@ -39,7 +39,7 @@ class SFTDataset(Dataset):
         config (OmegaConf): the data config
     """
 
-    def __init__(self, parquet_files: Union[str, ListConfig], tokenizer, config):
+    def __init__(self, parquet_files: str | ListConfig, tokenizer, config):
         prompt_key = config.get("prompt_key", "prompt")
         prompt_dict_keys = config.get("prompt_dict_keys", None)
         response_key = config.get("response_key", "response")

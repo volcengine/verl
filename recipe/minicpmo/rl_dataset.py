@@ -404,7 +404,7 @@ class RLHFDataset(Dataset):
 
     def __init__(
         self,
-        data_files: Union[str, List[str]],
+        data_files: str | List[str],
         tokenizer: PreTrainedTokenizer,
         config: DictConfig,
         processor: Optional[ProcessorMixin] = None,

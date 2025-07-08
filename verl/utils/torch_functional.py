@@ -223,7 +223,7 @@ def masked_whiten(values, mask, shift_mean=True):
     return whitened
 
 
-def get_response_mask(response_id: torch.Tensor, eos_token: Union[int, List[int]] = 2, dtype=torch.int64):
+def get_response_mask(response_id: torch.Tensor, eos_token: int | List[int] = 2, dtype=torch.int64):
     """
     end of sentence token can be int or list: 1 or [1, 2]
     e.g.
@@ -254,7 +254,7 @@ def compute_grad_norm(model: nn.Module):
     return total_grad_square
 
 
-def broadcast_dict_tensor(tensors: Union[Dict[str, torch.Tensor], TensorDict], src, group):
+def broadcast_dict_tensor(tensors: Dict[str, torch.Tensor] | TensorDict, src, group):
     """
     TODO: optimize this. Technically, we only need one broadcast
     """
@@ -263,7 +263,7 @@ def broadcast_dict_tensor(tensors: Union[Dict[str, torch.Tensor], TensorDict], s
         torch.distributed.broadcast(tensors[key], src=src, group=group, async_op=False)
 
 
-def allgather_dict_tensors(tensors: Union[Dict[str, torch.Tensor], TensorDict], size, group, dim=0):
+def allgather_dict_tensors(tensors: Dict[str, torch.Tensor] | TensorDict, size, group, dim=0):
     """
     TODO: optimize this.
     - We can use async ops

@@ -20,7 +20,7 @@ from PIL import Image
 from qwen_vl_utils import fetch_image, fetch_video
 
 
-def process_image(image: Union[dict, Image.Image]) -> Image.Image:
+def process_image(image: dict | Image.Image) -> Image.Image:
     if isinstance(image, Image.Image):
         return image.convert("RGB")
 

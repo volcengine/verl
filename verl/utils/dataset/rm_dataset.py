@@ -39,7 +39,7 @@ def download_files_distributed(download_fn):
 class RMDataset(Dataset):
     def __init__(
         self,
-        parquet_files: Union[str, List[str]],
+        parquet_files: str | List[str],
         tokenizer,
         prompt_key="prompt",
         chosen_key="chosen",

@@ -81,10 +81,10 @@ def forward_with_torch_backend(
     output_hidden_states: Optional[bool] = None,
     return_dict: Optional[bool] = None,
     cache_position: Optional[torch.LongTensor] = None,
-    logits_to_keep: Union[int, torch.Tensor] = 0,
+    logits_to_keep: int | torch.Tensor = 0,
     temperature: float = 1.0,
     **loss_kwargs,
-) -> Union[Tuple, CausalLMOutputForPPO]:
+) -> Tuple | CausalLMOutputForPPO:
     from verl.utils.experimental.torch_functional import FusedLinearForPPO
 
     outputs = forward_base_model(
@@ -143,10 +143,10 @@ def forward_with_triton_backend(
     output_hidden_states: Optional[bool] = None,
     return_dict: Optional[bool] = None,
     cache_position: Optional[torch.LongTensor] = None,
-    logits_to_keep: Union[int, torch.Tensor] = 0,
+    logits_to_keep: int | torch.Tensor = 0,
     temperature: float = 1.0,
     **loss_kwargs,
-) -> Union[Tuple, CausalLMOutputForPPO]:
+) -> Tuple | CausalLMOutputForPPO:
     from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
 
     outputs = forward_base_model(

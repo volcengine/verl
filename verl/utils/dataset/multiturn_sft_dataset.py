@@ -48,7 +48,7 @@ class MultiTurnSFTDataset(Dataset):
     Dataset for multi-turn conversations where each assistant response should be trained
     """
 
-    def __init__(self, parquet_files: Union[str, List[str]], tokenizer, config=None):
+    def __init__(self, parquet_files: str | List[str], tokenizer, config=None):
         # Set defaults and extract parameters from config if provided
         config = config or {}
         self.truncation = config.get("truncation", "error")

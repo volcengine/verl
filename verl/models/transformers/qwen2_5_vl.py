@@ -46,7 +46,7 @@ def forward_base_model(
     rope_deltas: Optional[torch.LongTensor] = None,
     cache_position: Optional[torch.LongTensor] = None,
     second_per_grid_ts: Optional[torch.Tensor] = None,
-) -> Union[Tuple, Qwen2_5_VLCausalLMOutputWithPast]:
+) -> Tuple | Qwen2_5_VLCausalLMOutputWithPast:
     r"""
     Copy paste Qwen2_5_VL's forward
     https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/transformers/model/qwen2_5_vl.py
@@ -159,7 +159,7 @@ def forward_with_torch_backend(
     second_per_grid_ts: Optional[torch.Tensor] = None,
     temperature: float = 1.0,
     **loss_kwargs,
-) -> Union[Tuple, Qwen2_5_VLCausalLMOutputForPPO]:
+) -> Tuple | Qwen2_5_VLCausalLMOutputForPPO:
     from verl.utils.experimental.torch_functional import FusedLinearForPPO
 
     outputs = forward_base_model(
@@ -234,7 +234,7 @@ def forward_with_triton_backend(
     second_per_grid_ts: Optional[torch.Tensor] = None,
     temperature: float = 1.0,
     **loss_kwargs,
-) -> Union[Tuple, Qwen2_5_VLCausalLMOutputForPPO]:
+) -> Tuple | Qwen2_5_VLCausalLMOutputForPPO:
     from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
 
     outputs = forward_base_model(

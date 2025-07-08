@@ -223,7 +223,7 @@ def _post_process_outputs(processing_class, output):
 
 
 def get_tool_call_parser_type(
-    processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
+    processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
 ) -> str:
     items = FunctionCallParser.ToolCallParserEnum.items()
     for parser_type, parser_cls in items:
@@ -251,7 +251,7 @@ class SGLangRollout(BaseRollout):
         self,
         actor_module: str,
         config: DictConfig,
-        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
+        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
         model_hf_config,
         port=None,
         trust_remote_code: bool = False,

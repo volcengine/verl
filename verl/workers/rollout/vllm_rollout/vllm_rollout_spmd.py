@@ -475,7 +475,7 @@ class vLLMAsyncRollout:
         self.sharding_manager.__enter__()  # pylint: disable=C2801
         self.is_sleep = False
 
-    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
+    def execute_method(self, method: str | bytes, *args, **kwargs):
         if method == "init_worker":
             return self.init_worker(*args, **kwargs)
         elif method == "load_model":

@@ -100,7 +100,7 @@ class ExternalRayDistributedExecutor(Executor):
 
     def collective_rpc(
         self,
-        method: Union[str, Callable],
+        method: str | Callable,
         timeout: Optional[float] = None,
         args: Tuple = (),
         kwargs: Optional[Dict[str, Any]] = None,
@@ -149,7 +149,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
 
     def collective_rpc(
         self,
-        method: Union[str, Callable],
+        method: str | Callable,
         timeout: Optional[float] = None,
         args: Tuple = (),
         kwargs: Optional[Dict[str, Any]] = None,
