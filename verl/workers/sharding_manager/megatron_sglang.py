@@ -162,7 +162,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             get_torch_device().set_rng_state(self.torch_random_states)
 
     async def update_weights(self, params):
-        if self.device_mesh["tp"].get_local_rank() == 0:
+        if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.resume_memory_occupation()
         named_tensors = params
         load_format = None
