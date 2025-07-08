@@ -80,4 +80,4 @@ jobs:
           python3 examples/data_preprocess/geo3k.py
           echo '[pytest]' > pytest.ini
           echo 'python_files = *_on_cpu.py' >> pytest.ini
-          pytest -s -x tests/
+          pytest -s -x --asyncio-mode=auto tests/
