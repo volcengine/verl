@@ -290,7 +290,7 @@ if __name__ == '__main__':
 """
         current_generation_code = wrapper_code
 
-    stdin = None if not stdin_data else str(stdin_data)
+    stdin = None if stdin_data is None else str(stdin_data)
     try:
         if concurrent_semaphore:
             # logger.debug(f"Case {case_index + 1}: Attempting to acquire semaphore.")
