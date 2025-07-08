@@ -36,5 +36,5 @@ class AbstractCurriculumSampler(AbstractSampler):
     """Experimental interface for curriculum learning samplers."""
 
     @abstractmethod
-    def on_batch_end(self, batch: DataProto) -> None:
+    def update(self, batch: DataProto) -> None:
         pass

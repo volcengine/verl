@@ -22,8 +22,8 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import Dataset, RandomSampler
 
+from verl.experimental.dataset.sampler import AbstractCurriculumSampler
 from verl.trainer.main_ppo import create_rl_sampler
-from verl.utils.dataset.sampler import AbstractCurriculumSampler
 
 
 class RandomCurriculumSampler(AbstractCurriculumSampler):
@@ -43,7 +43,7 @@ class RandomCurriculumSampler(AbstractCurriculumSampler):
     def __len__(self) -> int:
         return len(self.sampler)
 
-    def on_batch_end(self, batch) -> None:
+    def update(self, batch) -> None:
         return
 
 
