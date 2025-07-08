@@ -26,6 +26,7 @@ from math import ceil, floor
 import ray
 import ray.actor
 from PIL import Image
+from verl.utils.dataset.vision_utils import process_image
 from qwen_vl_utils import fetch_image
 
 from .base_tool import BaseTool
@@ -274,11 +275,33 @@ class ImageZoomInTool(BaseTool):
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
 
-    async def create(self, instance_id: Optional[str] = None, image: Optional[Union[dict, Image.Image]] = None, **kwargs) -> str:
+    async def create(self, instance_id: Optional[str], image: dict[str, str | Image.Image], **kwargs) -> str:
+        """
+        Creates a new instance for image zoom-in tool.
+
+        This method initializes a new session for an image, which can then be used
+        for operations like zooming. It fetches the image from various sources
+        and stores it internally.
+
+        Args:
+            instance_id: An optional unique identifier for the instance. If not
+                provided, a new UUID will be generated.
+            image: A dictionary specifying the image source. It should contain
+                either an "image" or "image_url" key with one of the following
+                as the value:
+                - A PIL.Image.Image object.
+                - A string containing an HTTP or HTTPS URL.
+                - A string containing a local file path.
+                - A string containing a file URI (e.g., "file:///path/to/image.jpg").
+                - A string containing a base64-encoded image data URI.
+            
+        Returns:
+            The unique identifier for the created instance.
+        """
         if instance_id is None:
             instance_id = str(uuid4())
         
-        img = fetch_image({"image": image})
+        img = fetch_image(image)
         self._instance_dict[instance_id] = {
             "image": img,
             "response": "",
