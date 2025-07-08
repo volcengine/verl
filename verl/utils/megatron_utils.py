@@ -173,9 +173,11 @@ def make_megatron_module(
         override_model_config = {}
 
     if bridge is not None:
-        from verl.models.mcore.mbridge import freeze_moe_router
+        from verl.models.mcore.mbridge import freeze_moe_router, make_value_model
 
         post_model_creation_callbacks = []
+        if wrap_config.is_value_model:
+            post_model_creation_callbacks.append(make_value_model)
         if override_model_config.get("moe_config", {}).get("freeze_moe_router", False):
             post_model_creation_callbacks.append(freeze_moe_router)
         return bridge.get_model(
