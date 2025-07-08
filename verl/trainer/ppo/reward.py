@@ -32,6 +32,24 @@ def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
 
 
 def get_custom_reward_fn(config):
+    """Load and return a custom reward function from external file.
+
+    Dynamically imports a reward function from a specified file path and wraps
+    it with additional keyword arguments from the configuration.
+
+    Args:
+        config (dict): Configuration dictionary containing custom_reward_function
+                      settings with 'path', 'name', and 'reward_kwargs' fields.
+
+    Returns:
+        callable or None: Wrapped reward function with merged kwargs, or None
+                         if no custom reward function is configured.
+
+    Raises:
+        FileNotFoundError: If the specified reward function file doesn't exist.
+        RuntimeError: If there's an error loading the module from file.
+        AttributeError: If the specified function name isn't found in the module.
+    """
     import importlib.util
     import sys
 

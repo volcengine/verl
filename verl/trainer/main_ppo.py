@@ -15,51 +15,39 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
-import copy
 import os
 import socket
 
 import hydra
 import ray
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 
 from verl.experimental.dataset.sampler import AbstractSampler
 from verl.trainer.constants_ppo import PPO_RAY_RUNTIME_ENV
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
-from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.import_utils import load_extern_type
 
 
-def trainer_dict_to_dataclass(conf: DictConfig):
-    """Convert specific nested sections of a DictConfig object into dataclass instances.
+@hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
+def main(config):
+    """Main entry point for PPO training with Hydra configuration management.
 
     Args:
-        conf (DictConfig): An instance of DictConfig, typically from the omegaconf library,
-                           representing a configuration dictionary.
-
-    Returns:
-        DictConfig: A deep copy of the input `conf` with specific sections converted to dataclasses.
+        config_dict: Hydra configuration dictionary containing training parameters.
     """
-    # Create a deep copy of the input configuration to avoid modifying the original object
-    config = copy.deepcopy(conf)
-    config.algorithm = omega_conf_to_dataclass(config.algorithm)
-    config.critic.profiler = omega_conf_to_dataclass(config.critic.profiler)
-    config.reward_model.profiler = omega_conf_to_dataclass(config.reward_model.profiler)
-    config.actor_rollout_ref.actor.profiler = omega_conf_to_dataclass(config.actor_rollout_ref.actor.profiler)
-    config.actor_rollout_ref.ref.profiler = omega_conf_to_dataclass(config.actor_rollout_ref.ref.profiler)
-    config.actor_rollout_ref.rollout.profiler = omega_conf_to_dataclass(config.actor_rollout_ref.rollout.profiler)
-    return config
-
-
-@hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
-def main(config_dict):
-    config = trainer_dict_to_dataclass(config_dict)
     run_ppo(config)
 
 
 # Define a function to run the PPO-like training process
 def run_ppo(config) -> None:
+    """Initialize Ray cluster and run distributed PPO training process.
+
+    Args:
+        config: Training configuration object containing all necessary parameters
+                for distributed PPO training including Ray initialization settings,
+                model paths, and training hyperparameters.
+    """
     # Check if Ray is not initialized
     if not ray.is_initialized():
         # Initialize Ray with a local cluster configuration
@@ -89,7 +77,22 @@ def run_ppo(config) -> None:
 
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
 class TaskRunner:
+    """Ray remote class for executing distributed PPO training tasks.
+
+    This class encapsulates the main training logic and runs as a Ray remote actor
+    to enable distributed execution across multiple nodes and GPUs.
+    """
+
     def run(self, config):
+        """Execute the main PPO training workflow.
+
+        This method sets up the distributed training environment, initializes
+        workers, datasets, and reward functions, then starts the training process.
+
+        Args:
+            config: Training configuration object containing all parameters needed
+                   for setting up and running the PPO training process.
+        """
         # Print the initial configuration. `resolve=True` will evaluate symbolic values.
         from pprint import pprint
 

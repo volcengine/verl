@@ -32,6 +32,7 @@ from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
+from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
 from verl.workers.rollout.async_server import async_server_class
 
 logger = logging.getLogger(__file__)
@@ -75,6 +76,7 @@ class AsyncLLMServerManager:
         self.request_id_to_server[request_id] = server
         return server
 
+    @rollout_trace_op
     async def generate(
         self,
         request_id,
@@ -178,6 +180,15 @@ class AgentLoopWorker:
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
 
+        trace_config = config.trainer.get("rollout_trace", {})
+
+        RolloutTraceConfig.init(
+            config.trainer.project_name,
+            config.trainer.experiment_name,
+            trace_config.get("backend"),
+            trace_config.get("token2text", False),
+        )
+
     async def generate_sequences(self, batch: DataProto) -> DataProto:
         """Generate sequences from agent loop.
 
@@ -211,31 +222,59 @@ class AgentLoopWorker:
             sampling_params["top_p"] = config.val_kwargs.top_p
             sampling_params["temperature"] = config.val_kwargs.temperature
 
-        n = 1 if batch.meta_info.get("validate", False) else config.n
-        tasks = []
-
         # by default, we assume it's a single turn agent
         if "agent_name" not in batch.non_tensor_batch:
             batch.non_tensor_batch["agent_name"] = np.array(["single_turn_agent"] * len(batch), dtype=object)
 
-        agent_names = batch.non_tensor_batch["agent_name"].repeat(n, axis=0)
-        raw_prompts = batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0)
-        for agent_name, messages in zip(agent_names, raw_prompts):
-            tasks.append(asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params)))
+        tasks = []
+        agent_names = batch.non_tensor_batch["agent_name"]
+        raw_prompts = batch.non_tensor_batch["raw_prompt"]
+        if "index" in batch.non_tensor_batch:
+            index = batch.non_tensor_batch["index"]
+        else:
+            index = np.arange(len(raw_prompts))
+
+        trajectory_info = await get_trajectory_info(batch.meta_info.get("global_steps", -1), index)
+
+        for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info):
+            tasks.append(
+                asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory))
+            )
         outputs = await asyncio.gather(*tasks)
 
         output = self._postprocess(outputs)
         return output
 
     async def _run_agent_loop(
-        self, agent_name: str, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]
+        self,
+        agent_name: str,
+        messages: List[Dict[str, Any]],
+        sampling_params: Dict[str, Any],
+        trajectory: Dict[str, Any],
     ) -> AgentLoopOutput:
-        agent_loop_class = self.get_agent_loop_class(agent_name)
-        agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer)
-        output = await agent_loop.run(messages, sampling_params)
-        return output
+        with rollout_trace_attr(
+            step=trajectory["step"], sample_index=trajectory["sample_index"], rollout_n=trajectory["rollout_n"]
+        ):
+            agent_loop_class = self.get_agent_loop_class(agent_name)
+            agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer)
+            output = await agent_loop.run(messages, sampling_params)
+            return output
 
     def get_agent_loop_class(self, agent_name: str) -> Type[AgentLoopBase]:
+        """Get the appropriate agent loop class based on agent name.
+
+        Factory method that returns the correct agent loop class implementation
+        for the specified agent type.
+
+        Args:
+            agent_name (str): Name of the agent type ('single_turn_agent' or 'tool_agent').
+
+        Returns:
+            Type[AgentLoopBase]: Agent loop class corresponding to the agent name.
+
+        Raises:
+            ValueError: If the agent_name is not recognized.
+        """
         # TODO: add tool agent registrary
         from verl.experimental.agent_loop.single_turn_agent_loop import SingleTurnAgentLoop
         from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop
@@ -309,6 +348,19 @@ class AgentLoopWorker:
         num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
         metrics = [input.metrics.model_dump() for input in inputs]
         return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
+
+
+async def get_trajectory_info(step, index):
+    """Get the trajectory info (step, sample_index, rollout_n) asynchrously"""
+    trajectory_info = []
+    rollout_n = 0
+    for i in range(len(index)):
+        if i > 0 and index[i - 1] == index[i]:
+            rollout_n += 1
+        else:
+            rollout_n = 0
+        trajectory_info.append({"step": step, "sample_index": index[i], "rollout_n": rollout_n})
+    return trajectory_info
 
 
 class AgentLoopManager:
