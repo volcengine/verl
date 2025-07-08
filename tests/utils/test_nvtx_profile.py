@@ -16,11 +16,41 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from omegaconf import OmegaConf
-
 from verl.utils import omega_conf_to_dataclass
 from verl.utils.profiler import ProfilerConfig
 from verl.utils.profiler.nvtx_profile import NsightSystemsProfiler
+
+
+class TestProfilerConfig(unittest.TestCase):
+    def test_config_init(self):
+        import os
+
+        from hydra import compose, initialize_config_dir
+
+        with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
+            cfg = compose(config_name="ppo_trainer")
+        arr = cfg.actor_rollout_ref
+        for config in [
+            cfg.critic.profiler,
+            arr.actor.profiler,
+            cfg.reward_model.profiler,
+            arr.ref.profiler,
+            arr.rollout.profiler,
+        ]:
+            profiler_config = omega_conf_to_dataclass(config)
+            self.assertEqual(profiler_config.discrete, config.discrete)
+            self.assertEqual(profiler_config.all_ranks, config.all_ranks)
+            self.assertEqual(profiler_config.ranks, config.ranks)
+            assert isinstance(profiler_config, ProfilerConfig)
+            with self.assertRaises(AttributeError):
+                _ = profiler_config.non_existing_key
+            assert config.get("non_existing_key") == profiler_config.get("non_existing_key")
+            assert config.get("non_existing_key", 1) == profiler_config.get("non_existing_key", 1)
+            assert config["discrete"] == profiler_config["discrete"]
+            from dataclasses import FrozenInstanceError
+
+            with self.assertRaises(FrozenInstanceError):
+                profiler_config.discrete = False
 
 
 class TestNsightSystemsProfiler(unittest.TestCase):
@@ -108,31 +138,6 @@ class TestNsightSystemsProfiler(unittest.TestCase):
             mock_end_range.assert_called_once()
             mock_start.assert_called_once()  # Should start in discrete mode
             mock_stop.assert_called_once()  # Should stop in discrete mode
-
-    def test_config_init(self):
-        cfg = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
-        arr = cfg.actor_rollout_ref
-        for config in [
-            cfg.critic.profiler,
-            arr.actor.profiler,
-            cfg.reward_model.profiler,
-            arr.ref.profiler,
-            arr.rollout.profiler,
-        ]:
-            profiler_config = omega_conf_to_dataclass(config)
-            self.assertEqual(profiler_config.discrete, config.discrete)
-            self.assertEqual(profiler_config.all_ranks, config.all_ranks)
-            self.assertEqual(profiler_config.ranks, config.ranks)
-            assert isinstance(profiler_config, ProfilerConfig)
-            with self.assertRaises(AttributeError):
-                _ = profiler_config.non_existing_key
-            assert config.get("non_existing_key") == profiler_config.get("non_existing_key")
-            assert config.get("non_existing_key", 1) == profiler_config.get("non_existing_key", 1)
-            assert config["discrete"] == profiler_config["discrete"]
-            from dataclasses import FrozenInstanceError
-
-            with self.assertRaises(FrozenInstanceError):
-                profiler_config.discrete = False
 
 
 if __name__ == "__main__":
