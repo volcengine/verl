@@ -1011,6 +1011,39 @@ trainer:
     # Send signal to the target application's process group. We let the program to exit by itself.
     kill: none
 
+  # Config for npu profiler. Must set when profile_steps is not None and torch_npu is available.
+  npu_profile:
+
+    # Options for the npu profiler
+    options:
+
+      # Storage path of collected data.
+      save_path: ./profiler_data
+
+      # Collection level, optional values: level_none, level0, level1, level2.
+      level: level1
+
+      # Whether to enable memory analysis.
+      with_memory: False
+
+      # Whether to record tensor shape.
+      record_shapes: False
+
+      # Whether to record Device-side performance data.
+      with_npu: True
+
+      # Whether to record Host-side performance data.
+      with_cpu: True
+
+      # Whether to record Python call stack information.
+      with_module: False
+
+      # Whether to record operator call stack information.
+      with_stack: False
+
+      # Whether to automatically parse the data.
+      analysis: True
+
   # Project name for experiment tracking (e.g., wandb)
   project_name: verl_examples
 

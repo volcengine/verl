@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ..import_utils import is_nvtx_available
 from ..device import is_npu_available
+from ..import_utils import is_nvtx_available
 from .performance import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from .profile import DistProfilerExtension, ProfilerConfig
 

@@ -469,6 +469,17 @@ trainer:
     capture-range: "cudaProfilerApi"
     capture-range-end: null
     kill: none
+  npu_profile:
+    options:
+      save_path: ./profiler_data
+      level: level1
+      with_memory: False
+      record_shapes: False
+      with_npu: True
+      with_cpu: True
+      with_module: False
+      with_stack: False
+      analysis: True
 
 ray_init:
   num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.

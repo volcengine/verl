@@ -13,14 +13,14 @@
 # limitations under the License.
 
 # Inspired from https://gitee.com/ascend/MindSpeed-RL/blob/master/mindspeed_rl/utils/utils.py
-import os
 import functools
+import os
 from contextlib import contextmanager
 from typing import Callable, Dict, Optional
 
 import torch_npu
-from torch_npu.npu import mstx
 from omegaconf import DictConfig
+from torch_npu.npu import mstx
 
 from .profile import DistProfiler, ProfilerConfig
 
@@ -92,17 +92,16 @@ def get_npu_profiler(option: DictConfig, role: Optional[str] = None, profile_ste
         profile_step(str, optional):
             The current training step. Defaults to None.
     """
-    if option.level == 'level_none':
+    if option.level == "level_none":
         profile_level = torch_npu.profiler.ProfilerLevel.Level_none
-    elif option.level == 'level0':
+    elif option.level == "level0":
         profile_level = torch_npu.profiler.ProfilerLevel.Level0
-    elif option.level == 'level1':
+    elif option.level == "level1":
         profile_level = torch_npu.profiler.ProfilerLevel.Level1
-    elif option.level == 'level2':
+    elif option.level == "level2":
         profile_level = torch_npu.profiler.ProfilerLevel.Level2
     else:
-        raise ValueError(f"level only supports level0,"
-                         f" 1, 2, and level_none, but gets {option.level}")
+        raise ValueError(f"level only supports level0, 1, 2, and level_none, but gets {option.level}")
 
     profile_save_path = option.save_path
     if profile_step:
@@ -115,7 +114,7 @@ def get_npu_profiler(option: DictConfig, role: Optional[str] = None, profile_ste
         profiler_level=profile_level,
         export_type=torch_npu.profiler.ExportType.Text,
         data_simplification=True,
-        msprof_tx=True
+        msprof_tx=True,
     )
 
     activites = []
@@ -130,9 +129,9 @@ def get_npu_profiler(option: DictConfig, role: Optional[str] = None, profile_ste
         record_shapes=option.record_shapes,
         profile_memory=option.with_memory,
         activities=activites,
-        on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(profile_save_path,
-                                                                    analyse_flag=option.analysis),
-        experimental_config=experimental_config)
+        on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(profile_save_path, analyse_flag=option.analysis),
+        experimental_config=experimental_config,
+    )
     return prof
 
 
@@ -156,16 +155,16 @@ class NPUProfiler(DistProfiler):
         self.discrete: bool = config.discrete
         self.this_rank: bool = False
         self.profile_npu = None
-        self.profile_option = kwargs.get('option')
+        self.profile_option = kwargs.get("option", None)
         if config.all_ranks:
             self.this_rank = True
         elif config.ranks:
             self.this_rank = rank in config.ranks
 
     def start(self, **kwargs):
-        role, profile_step = kwargs.get('role', None), kwargs.get('profile_step', None)
+        role, profile_step = kwargs.get("role", None), kwargs.get("profile_step", None)
         profile_step = str(profile_step) if profile_step is not None else None
-        if self.this_rank:
+        if self.this_rank and self.profile_option is not None:
             self.this_step = True
             if not self.discrete and NPUProfiler._define_count == 0:
                 self.profile_npu = get_npu_profiler(option=self.profile_option, role=role, profile_step=profile_step)
@@ -173,7 +172,7 @@ class NPUProfiler(DistProfiler):
                 NPUProfiler._define_count += 1
 
     def stop(self):
-        if self.this_rank:
+        if self.this_rank and self.profile_option is not None:
             self.this_step = False
             if not self.discrete and NPUProfiler._define_count == 1:
                 self.profile_npu.step()
@@ -181,14 +180,11 @@ class NPUProfiler(DistProfiler):
                 NPUProfiler._define_count -= 1
 
     @staticmethod
-    def annotate(
-        message: Optional[str] = None,
-        role: Optional[str] = None,
-        **kwargs
-    ) -> Callable:
+    def annotate(message: Optional[str] = None, role: Optional[str] = None, **kwargs) -> Callable:
         """Decorate a Worker member function to profile the current rank in the current training step.
 
-        Requires the target function to be a member function of a Worker, which has a member field `profiler` with NPUProfiler type.
+        Requires the target function to be a member function of a Worker,
+        which has a member field `profiler` with NPUProfiler type.
 
         Args:
             message (str, optional):
@@ -202,7 +198,7 @@ class NPUProfiler(DistProfiler):
             def wrapper(self, *args, **kwargs):
                 profile_name = message or func.__name__
 
-                if self.profiler.this_step:
+                if self.profiler.this_step and self.profile_option is not None:
                     if self.profiler.discrete:
                         profile_npu = get_npu_profiler(option=self.profile_option, role=role)
                         profile_npu.start()
@@ -210,7 +206,7 @@ class NPUProfiler(DistProfiler):
 
                 result = func(self, *args, **kwargs)
 
-                if self.profiler.this_step:
+                if self.profiler.this_step and self.profile_option is not None:
                     mark_end_range(mark_range)
                     if self.profiler.discrete:
                         profile_npu.step()
@@ -221,4 +217,3 @@ class NPUProfiler(DistProfiler):
             return wrapper
 
         return decorator
-

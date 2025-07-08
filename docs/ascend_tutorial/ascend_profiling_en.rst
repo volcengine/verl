@@ -1,6 +1,8 @@
 Data collection based on FSDP (Fully Sharded Data Parallel) backend on Ascend devices(NPU)
 ==========================================================================================
 
+Last updated: 07/08/2025.
+
 This is a tutorial for data collection using the GRPO or DAPO algorithm
 based on FSDP on Ascend devices.
 

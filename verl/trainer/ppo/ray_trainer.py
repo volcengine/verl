@@ -846,8 +846,8 @@ class RayPPOTrainer:
             actor_rollout_cls = RayClassWithInitArgs(
                 cls=self.role_worker_mapping[Role.ActorRollout],
                 config=self.config.actor_rollout_ref,
-                profile_option=self.config.trainer.npu_profile.options,
                 role="actor_rollout",
+                profile_option=self.config.trainer.npu_profile.options,
             )
             self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
         else:
@@ -865,8 +865,8 @@ class RayPPOTrainer:
             ref_policy_cls = RayClassWithInitArgs(
                 self.role_worker_mapping[Role.RefPolicy],
                 config=self.config.actor_rollout_ref,
+                role="ref",
                 profile_option=self.config.trainer.npu_profile.options,
-                role="ref"
             )
             self.resource_pool_to_cls[resource_pool]["ref"] = ref_policy_cls
 

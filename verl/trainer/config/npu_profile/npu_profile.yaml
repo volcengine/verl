@@ -1,4 +1,4 @@
-# Config for the npu profiler
+# Options for the npu profiler
 options:
 
   # Storage path of collected data.

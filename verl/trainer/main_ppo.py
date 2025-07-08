@@ -26,8 +26,8 @@ from verl.experimental.dataset.sampler import AbstractSampler
 from verl.trainer.constants_ppo import PPO_RAY_RUNTIME_ENV
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
-from verl.utils.import_utils import load_extern_type
 from verl.utils.device import is_cuda_available
+from verl.utils.import_utils import load_extern_type
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)

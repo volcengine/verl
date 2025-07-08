@@ -108,11 +108,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     or a hybrid engine based on the config.rollout
     """
 
-    def __init__(self, config: DictConfig, profile_option: DictConfig, role: str):
+    def __init__(self, config: DictConfig, role: str, **kwargs):
         Worker.__init__(self)
 
         self.config = config
-        self.profile_option = profile_option
+        self.profile_option = kwargs.get("profile_option", None)
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -164,7 +164,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if self._is_ref:
             profiler_config = omega_conf_to_dataclass(config.ref.get("profiler"))
 
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config, option=self.profile_option))
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, option=self.profile_option)
+        )
 
         self._is_offload_param = False
         self._is_offload_optimizer = False
