@@ -37,10 +37,6 @@ enforce_eager: True
 # Whether to free engine KVCache after generation. Set enforce_eager=True when enabled.
 free_cache_engine: True
 
-# Which loader to use for rollout model weights: dummy_dtensor, hf, megatron, etc.
-# safetensors (for huge model, and set use_shm=True); dummy_dtensor: randomly init model weight
-load_format: dummy_dtensor
-
 # TP size for rollout. Not effective for hf
 tensor_model_parallel_size: 2
 
@@ -69,9 +65,6 @@ log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_toke
 
 # disable logging statistics
 disable_log_stats: True
-
-# may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
-enable_chunked_prefill: True
 
 # for hf rollout
 # Whether to sample during training rollout. False uses greedy sampling.

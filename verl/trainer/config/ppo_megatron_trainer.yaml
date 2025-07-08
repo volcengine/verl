@@ -16,27 +16,49 @@ defaults:
 
 actor_rollout_ref:
   hybrid_engine: True
+
   nccl_timeout: 600 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
+
   model:
+
     path: ~/models/deepseek-llm-7b-chat
+
     custom_chat_template: null
+
     external_lib: null
+
     override_config:
+
       model_config: {}
+
       moe_config:
+
         freeze_moe_router: False
+
     enable_gradient_checkpointing: False
+
     gradient_checkpointing_kwargs:
+
       ## Activation Checkpointing
       activations_checkpoint_method: null # 'uniform', 'block'; not used with 'selective'
+
       # 'uniform' divides the total number of transformer layers and checkpoints the input activation of each chunk
       # 'block' checkpoints the specified number of layers per pipeline stage at the specified granularity
       activations_checkpoint_granularity: null # 'selective' or 'full'
+
       # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
       activations_checkpoint_num_layers: null # not used with 'selective'
+
     trust_remote_code: False
+
   rollout:
+    # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
+    enable_chunked_prefill: False
+
+    load_format: dummy_megatron
+
     tensor_model_parallel_size: 1
+
     layer_name_map:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up

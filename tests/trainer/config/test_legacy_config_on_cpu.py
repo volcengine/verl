@@ -20,8 +20,13 @@ from omegaconf import OmegaConf
 class TestConfigComparison(unittest.TestCase):
     """Test that current configs match their legacy counterparts exactly."""
 
-    def _compare_configs_recursively(self, current_config, legacy_config, path=""):
-        """Recursively compare two OmegaConf configs and assert they are identical."""
+    def _compare_configs_recursively(self, current_config, legacy_config, path="", legacy_allow_missing=False):
+        """Recursively compare two OmegaConf configs and assert they are identical.
+
+        Args:
+            legacy_allow_missing (bool): sometimes the legacy megatron config contains fewer keys and
+              we allow that to happen
+        """
         if isinstance(current_config, dict) and isinstance(legacy_config, dict):
             current_keys = set(current_config.keys())
             legacy_keys = set(legacy_config.keys())
@@ -32,11 +37,19 @@ class TestConfigComparison(unittest.TestCase):
             if missing_in_current:
                 self.fail(f"Keys missing in current config at {path}: {missing_in_current}")
             if missing_in_legacy:
-                self.fail(f"Keys missing in legacy config at {path}: {missing_in_legacy}")
+                # if the legacy
+                msg = f"Keys missing in legacy config at {path}: {missing_in_legacy}"
+                if legacy_allow_missing:
+                    print(msg)
+                else:
+                    self.fail(msg)
 
             for key in current_keys:
                 current_path = f"{path}.{key}" if path else key
-                self._compare_configs_recursively(current_config[key], legacy_config[key], current_path)
+                if key in legacy_config:
+                    self._compare_configs_recursively(
+                        current_config[key], legacy_config[key], current_path, legacy_allow_missing=legacy_allow_missing
+                    )
         elif isinstance(current_config, list) and isinstance(legacy_config, list):
             self.assertEqual(
                 len(current_config),
@@ -44,7 +57,9 @@ class TestConfigComparison(unittest.TestCase):
                 f"List lengths differ at {path}: current={len(current_config)}, legacy={len(legacy_config)}",
             )
             for i, (current_item, legacy_item) in enumerate(zip(current_config, legacy_config)):
-                self._compare_configs_recursively(current_item, legacy_item, f"{path}[{i}]")
+                self._compare_configs_recursively(
+                    current_item, legacy_item, f"{path}[{i}]", legacy_allow_missing=legacy_allow_missing
+                )
         else:
             self.assertEqual(
                 current_config,
@@ -98,7 +113,7 @@ class TestConfigComparison(unittest.TestCase):
             if "defaults" in current_dict:
                 del current_dict["defaults"]
 
-            self._compare_configs_recursively(current_dict, legacy_dict)
+            self._compare_configs_recursively(current_dict, legacy_dict, legacy_allow_missing=True)
         finally:
             GlobalHydra.instance().clear()
 
