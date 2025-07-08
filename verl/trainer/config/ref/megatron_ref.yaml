@@ -1,6 +1,6 @@
 # megatron ref config, inheriting from trainer/config/ref/ref.yaml
 defaults:
-  - actor
+  - ref
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
