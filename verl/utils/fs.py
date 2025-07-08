@@ -22,6 +22,8 @@ import shutil
 import tempfile
 from typing import Optional
 
+from utils.hdfs_io import HDFS_PREFIX
+
 try:
     from hdfs_io import copy, exists, makedirs  # for internal use only
 except ImportError:
@@ -29,8 +31,7 @@ except ImportError:
 
 __all__ = ["copy", "exists", "makedirs"]
 
-_HDFS_PREFIX = "hdfs://"
-_S3_PREFIX = "s3://"
+S3_PREFIX = "s3://"
 
 
 def is_non_local(path):
@@ -42,7 +43,7 @@ def is_non_local(path):
     Returns:
         bool: True if the path is an HDFS or S3 path, False otherwise.
     """
-    return path.startswith(_HDFS_PREFIX) or path.startswith(_S3_PREFIX)
+    return path.startswith(HDFS_PREFIX) or path.startswith(S3_PREFIX)
 
 
 def md5_encode(path: str) -> str:
@@ -217,7 +218,7 @@ def copy_to_local(
     Returns:
         str: Local filesystem path to copied resource
     """
-    if src.startswith(_HDFS_PREFIX) or src.startswith(_S3_PREFIX):
+    if src.startswith(HDFS_PREFIX) or src.startswith(S3_PREFIX):
         return _copy_local_path_from_remote(
             src, cache_dir, filelock, verbose, recursive=recursive, local_path=local_path
         )
@@ -334,7 +335,7 @@ def _copy_local_path_from_remote(
             if not os.path.exists(local_path):
                 if verbose:
                     print(f"Copy from {src} to {local_path}")
-                if src.startswith(_S3_PREFIX):
+                if src.startswith(S3_PREFIX):
                     from verl.utils.s3_io import bulk_download, file_download, parse_uri
 
                     bucket, key_or_prefix, recursive = parse_uri(src, is_dir=recursive)
@@ -354,14 +355,14 @@ def copy_to_remote(s3_path: str, local_path: str, cache_dir=None, filelock=".fil
     """
     Uploads a file to an S3 bucket and path.
     """
-    assert s3_path.startswith(_S3_PREFIX)
+    assert s3_path.startswith(S3_PREFIX)
 
     from filelock import FileLock
 
     from verl.utils.s3_io import file_upload, parse_uri, s3_key_exists
 
     assert s3_path[-1] != "/", f"Make sure the last char in s3_path is not / because it will cause error. Got {s3_path}"
-    assert s3_path.startswith(_S3_PREFIX), f"Path must be an s3 path with the s3:// prefix instead got: {s3_path}"
+    assert s3_path.startswith(S3_PREFIX), f"Path must be an s3 path with the s3:// prefix instead got: {s3_path}"
     assert os.path.exists(local_path), "Local copy path not found"
 
     filelock = md5_encode(s3_path) + ".lock"

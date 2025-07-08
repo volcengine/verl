@@ -27,9 +27,10 @@ from omegaconf import DictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import ShardedOptimStateDictConfig, ShardedStateDictConfig, StateDictType
 from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
+from utils.hdfs_io import HDFS_PREFIX
 
 from verl.utils.device import is_cuda_available
-from verl.utils.fs import copy_to_local, copy_to_remote, is_non_local, local_mkdir_safe
+from verl.utils.fs import S3_PREFIX, copy_to_local, copy_to_remote, is_non_local, local_mkdir_safe
 from verl.utils.fsdp_utils import fsdp_version, get_fsdp_full_state_dict, get_fsdp_state_ctx
 from verl.utils.logger import log_with_rank
 
@@ -38,9 +39,6 @@ from .checkpoint_manager import BaseCheckpointManager
 # Setup logging
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))
-
-_HDFS_PREFIX = "hdfs://"
-_S3_PREFIX = "s3://"
 
 
 @dataclass
@@ -196,7 +194,14 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         # wait for everyone to load checkpoints
         torch.distributed.barrier()
 
-    def save_checkpoint(self, local_path: str, global_step: int, remote_path: str = None, max_ckpt_to_keep=None):
+    def save_checkpoint(
+        self,
+        local_path: str,
+        hdfs_path: str = None,
+        remote_path: str = None,
+        global_step: int = 0,
+        max_ckpt_to_keep=None,
+    ):
         """
         Save an FSDP checkpoint for this rank.
 
@@ -217,7 +222,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         if local_path is None:
             return
 
-        if remote_path is not None and remote_path.startswith(_HDFS_PREFIX):
+        if hdfs_path is not None and hdfs_path.startswith(HDFS_PREFIX):
             print(f"HDFS checkpoint saving not currently support, checkpoints will not be uploaded to {remote_path}.")
 
         # ensure previous uploads are done
@@ -273,14 +278,14 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 if self.should_save_model:
                     model_state_dict = self.model.state_dict()
                     torch.save(model_state_dict, model_path)
-                    if remote_path is not None and remote_path.startswith(_S3_PREFIX):
+                    if remote_path is not None and remote_path.startswith(S3_PREFIX):
                         self._upload_checkpoint_in_background(os.path.join(remote_path, model_file), model_path)
                     log_with_rank(f"Saved model to {os.path.abspath(model_path)}", rank=self.rank, logger=logger)
 
                 if self.should_save_optimizer:
                     optimizer_state_dict = self.optimizer.state_dict()
                     torch.save(optimizer_state_dict, optim_path)
-                    if remote_path is not None and remote_path.startswith(_S3_PREFIX):
+                    if remote_path is not None and remote_path.startswith(S3_PREFIX):
                         self._upload_checkpoint_in_background(os.path.join(remote_path, optim_file), optim_path)
                     log_with_rank(f"Saved optim to {os.path.abspath(optim_path)}", rank=self.rank, logger=logger)
 
@@ -291,7 +296,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                         "rng": self.get_rng_state(),
                     }
                     torch.save(extra_state_dict, extra_path)
-                    if remote_path is not None and remote_path.startswith(_S3_PREFIX):
+                    if remote_path is not None and remote_path.startswith(S3_PREFIX):
                         self._upload_checkpoint_in_background(os.path.join(remote_path, extra_file), extra_path)
                     log_with_rank(f"Saved extra_state to {os.path.abspath(extra_path)}", rank=self.rank, logger=logger)
 

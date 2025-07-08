@@ -269,3 +269,17 @@ def object_exists(bucket: str, key: str) -> bool:
         if e.response["Error"]["Code"] in ("404", "NoSuchKey"):
             return False
         raise
+
+
+def find_remote_auto_checkpoint(checkpoint_folder: str):
+    bucket, prefix, _ = parse_uri(checkpoint_folder, is_dir=True)
+    step_folders = list_dirs(bucket, prefix)
+    # loop through step folder and remove the ones without data.pt
+    step_folders = [step for step in step_folders if object_exists(bucket, os.path.join(prefix, step, "data.pt"))]
+    if not step_folders:
+        global_step_folder = None
+    else:
+        global_step = max(step_folders, key=lambda s: int(re.search(r"\d+$", s).group()))
+        global_step_folder = os.path.join(checkpoint_folder, global_step)
+
+    return global_step_folder
