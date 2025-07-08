@@ -77,6 +77,7 @@ class MockChatDataset(Dataset):
 def test_create_custom_curriculum_samper():
     data_config = OmegaConf.create(
         {
+            "dataloader_num_workers": 0,
             "sampler": {
                 "class_path": "pkg://tests.utils.dataset.test_create_rl_sampler_on_cpu",
                 "class_name": "RandomCurriculumSampler",
