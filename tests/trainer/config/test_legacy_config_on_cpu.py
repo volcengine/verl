@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import unittest
 
+from hydra import compose, initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
 
@@ -81,7 +84,6 @@ class TestConfigComparison(unittest.TestCase):
                 current_config = compose(config_name="ppo_trainer")
 
             legacy_config = OmegaConf.load("tests/trainer/config/legacy_ppo_trainer.yaml")
-
             current_dict = OmegaConf.to_container(current_config, resolve=True)
             legacy_dict = OmegaConf.to_container(legacy_config, resolve=True)
 
@@ -94,19 +96,14 @@ class TestConfigComparison(unittest.TestCase):
 
     def test_ppo_megatron_trainer_config_matches_legacy(self):
         """Test that ppo_megatron_trainer.yaml matches legacy_ppo_megatron_trainer.yaml exactly."""
-        import os
-
-        from hydra import compose, initialize_config_dir
-        from hydra.core.global_hydra import GlobalHydra
 
         GlobalHydra.instance().clear()
 
         try:
-            with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config"), version_base=None):
+            with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
                 current_config = compose(config_name="ppo_megatron_trainer")
 
             legacy_config = OmegaConf.load("tests/trainer/config/legacy_ppo_megatron_trainer.yaml")
-
             current_dict = OmegaConf.to_container(current_config, resolve=True)
             legacy_dict = OmegaConf.to_container(legacy_config, resolve=True)
 
@@ -116,6 +113,24 @@ class TestConfigComparison(unittest.TestCase):
             self._compare_configs_recursively(current_dict, legacy_dict, legacy_allow_missing=True)
         finally:
             GlobalHydra.instance().clear()
+
+    def test_load_component(self):
+        """Test that ppo_megatron_trainer.yaml matches legacy_ppo_megatron_trainer.yaml exactly."""
+
+        GlobalHydra.instance().clear()
+        configs_to_load = [
+            ("verl/trainer/config/actor", "dp_actor"),
+            ("verl/trainer/config/actor", "megatron_actor"),
+            ("verl/trainer/config/ref", "dp_ref"),
+            ("verl/trainer/config/ref", "megatron_ref"),
+            ("verl/trainer/config/rollout", "rollout"),
+        ]
+        for config_dir, config_file in configs_to_load:
+            try:
+                with initialize_config_dir(config_dir=os.path.abspath(config_dir)):
+                    compose(config_name=config_file)
+            finally:
+                GlobalHydra.instance().clear()
 
 
 if __name__ == "__main__":
