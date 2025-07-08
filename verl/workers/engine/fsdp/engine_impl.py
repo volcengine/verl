@@ -52,6 +52,15 @@ from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManage
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from .utils import create_device_mesh, get_sharding_strategy
 from verl import DataProto
+from verl.utils.device import (
+    get_device_id,
+    get_device_name,
+    get_nccl_backend,
+    get_torch_device,
+    is_cuda_available,
+    is_npu_available,
+)
+from omegaconf import DictConfig, OmegaConf, open_dict
 from verl.utils.seqlen_balancing import (get_reverse_idx,
                                          rearrange_micro_batches)
 import itertools
@@ -61,6 +70,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
+device_name = get_device_name()
 
 class FSDPEngine(BaseEngine):
     """
@@ -88,31 +98,41 @@ class FSDPEngine(BaseEngine):
 
         self.ulysses_device_mesh = None
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
+        dp = world_size // self.ulysses_sequence_parallel_size
+        if self.ulysses_sequence_parallel_size > 1:
+            self.ulysses_device_mesh = init_device_mesh(
+                device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"]
+            )
+
+        self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
+
+        # set FSDP offload params
+        self._is_offload_param = self.config.model.fsdp_config.param_offload
+        self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
 
         # normalize config
         self.config.ppo_mini_batch_size *= self.config.rollout_n
         self.config.ppo_mini_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
         if self.config.ppo_micro_batch_size is not None:
-            self.config.ppo_micro_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
-            self.config.forward_micro_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+            self.config.ppo_micro_batch_size //= (
+                torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+            )
+            self.config.forward_micro_batch_size //= (
+                torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+            )
             self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
             self.config.forward_micro_batch_size_per_gpu = self.config.forward_micro_batch_size
 
         if self.config.ppo_micro_batch_size_per_gpu is not None:
-            assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0, f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be divisible by ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
-            assert self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu > 0, f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be larger than ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
-
-        self.device_name = get_device_name()
-        self.use_remove_padding = self.config.model.get("use_remove_padding", False)
-        dp = world_size // self.ulysses_sequence_parallel_size
-        if self.ulysses_sequence_parallel_size > 1:
-            self.ulysses_device_mesh = init_device_mesh(self.device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"])
-
-        self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)        
+            assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0, (
+                f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be divisible by "
+                f"ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
+            )
+            assert self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu > 0, (
+                f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be larger than "
+                f"ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
+            )
         self._is_lora = self.config.model.get("lora_rank", 0) > 0
-        # set FSDP offload params
-        self._is_offload_param = self.config.model.fsdp_config.param_offload
-        self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
 
 
     def init_model(self):
@@ -140,7 +160,7 @@ class FSDPEngine(BaseEngine):
             optimizer=self.optimizer,
             lr_scheduler=self.lr_scheduler,
             processing_class=self.processor if self.processor is not None else self.tokenizer,
-            checkpoint_contents=self.config.checkpoint.contents,
+            checkpoint_contents=self.config.checkpoint,
         )
     
     def _build_model_optimizer(self, config):
@@ -160,7 +180,11 @@ class FSDPEngine(BaseEngine):
         self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
         self.processor = hf_processor(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
 
-        from omegaconf import OmegaConf
+        if self.config.model.get("custom_chat_template", None) is not None:
+            if self.processor is not None:
+                self.processor.chat_template = self.config.model.custom_chat_template
+            else:
+                self.tokenizer.chat_template = self.config.model.custom_chat_template
 
         override_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
         override_config_kwargs = {
@@ -170,20 +194,26 @@ class FSDPEngine(BaseEngine):
         }
         override_config_kwargs.update(override_config)
         if self.rank == 0:
-            print(f"Overriding config {override_config_kwargs}")
+            print(f"Engine overriding config {override_config_kwargs}")
 
         torch_dtype = self.config.model.fsdp_config.get("model_dtype", "fp32")
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
-        from transformers import AutoConfig, AutoModelForTokenClassification
+        from transformers import AutoConfig
 
-        model_config = AutoConfig.from_pretrained(local_path, attn_implementation="flash_attention_2", trust_remote_code=config.model.get("trust_remote_code", False))
+        model_config = AutoConfig.from_pretrained(
+            local_path,
+            attn_implementation="flash_attention_2",
+            trust_remote_code=config.model.get("trust_remote_code", False),
+        )
         model_config.num_labels = 1
         # patch for kimi-vl
         if getattr(model_config, "model_type", None) == "kimi_vl":
             model_config.text_config.topk_method = "greedy"
 
-        init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings, mesh=self.device_mesh)
+        init_context = get_init_weight_context_manager(
+            use_meta_tensor=not model_config.tie_word_embeddings, mesh=self.device_mesh
+        )
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -213,7 +243,7 @@ class FSDPEngine(BaseEngine):
                 module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
         if self._is_lora:
-            print("Applying LoRA to module")
+            print("Applying LoRA to the module")
             module.enable_input_require_grads()
             # Convert config to regular Python types before creating PEFT model
             lora_config = {
@@ -243,7 +273,11 @@ class FSDPEngine(BaseEngine):
 
         mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
 
-        auto_wrap_policy = get_fsdp_wrap_policy(module=module, config=self.config.model.fsdp_config.wrap_policy, is_lora=self.config.model.get("lora_rank", 0) > 0)
+        auto_wrap_policy = get_fsdp_wrap_policy(
+            module=module,
+            config=self.config.model.fsdp_config.wrap_policy,
+            is_lora=self.config.model.get("lora_rank", 0) > 0,
+        )
 
         log_gpu_memory_usage("Before FSDP", logger=None)
 
@@ -257,17 +291,19 @@ class FSDPEngine(BaseEngine):
                 param_init_fn=init_fn,
                 use_orig_params=False,
                 auto_wrap_policy=auto_wrap_policy,
-                device_id=get_torch_device().current_device(),
+                device_id=get_device_id(),
                 sharding_strategy=sharding_strategy,
                 mixed_precision=mixed_precision,
                 sync_module_states=True,
-                forward_prefetch=False,
+                forward_prefetch=self.config.model.fsdp_config.forward_prefetch,
                 device_mesh=self.device_mesh,
                 cpu_offload=None,
             )
         elif config.strategy == "fsdp2":
             assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
-            mp_policy = MixedPrecisionPolicy(param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True)
+            mp_policy = MixedPrecisionPolicy(
+                param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True
+            )
             offload_policy = None
             if fsdp_config.offload_policy:
                 self._is_offload_param = False
@@ -312,14 +348,17 @@ class FSDPEngine(BaseEngine):
         from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 
         if warmup_style == "constant":
-            lr_scheduler = get_constant_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=num_warmup_steps)
+            lr_scheduler = get_constant_schedule_with_warmup(
+                optimizer=optimizer, num_warmup_steps=num_warmup_steps
+            )
         elif warmup_style == "cosine":
-            lr_scheduler = get_cosine_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=total_steps)
+            lr_scheduler = get_cosine_schedule_with_warmup(
+                optimizer=optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=total_steps
+            )
         else:
             raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
 
         return module, optimizer, lr_scheduler
-
 
     def train_mode(self):
         """
@@ -426,10 +465,7 @@ class FSDPEngine(BaseEngine):
             revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
             values = values[revert_indices]
             
-        responses = data.batch["responses"]
-        attention_mask = data.batch["attention_mask"]
-        response_length = responses.size(1)
-        response_mask = attention_mask[:, -response_length:]
+        response_mask = data.batch["response_mask"]
         values = values * response_mask # Only action tokens have values
         output = DataProto.from_dict(tensors={"values": values})
         return output, ctx
@@ -455,7 +491,7 @@ class FSDPEngine(BaseEngine):
         assert self.mode == "train"
         # split batch into micro_batches
         mini_batch = data
-        select_keys = ["input_ids", "responses", "attention_mask", "position_ids", "values", "returns"]
+        select_keys = ["input_ids", "responses", "response_mask", "attention_mask", "position_ids", "values", "returns"]
         if  "multi_modal_inputs" in mini_batch:
             non_tensor_select_keys = ["multi_modal_inputs"]
             num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
@@ -473,10 +509,10 @@ class FSDPEngine(BaseEngine):
         for micro_batch in micro_batches:
             # Support all devices
             if isinstance(micro_batch, DataProto):
-                micro_batch = {**micro_batch.batch.to(get_torch_device().current_device()), **micro_batch.non_tensor_batch}
+                micro_batch = {**micro_batch.batch.to(get_device_id()), **micro_batch.non_tensor_batch}
             else:
-                micro_batch = micro_batch.to(get_torch_device().current_device())  # critic device is cpu when using offload
-
+                micro_batch = micro_batch.to(get_device_id())  # critic device is cpu when using offload
+            
             # optional microbatch preprocess
             if preprocess_fn is not None:
                 inputs, ctx = preprocess_fn(micro_batch, ctx)
