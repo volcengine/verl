@@ -15,7 +15,6 @@
 Adapted from Cruise.
 """
 
-from typing import Union
 
 import torch
 

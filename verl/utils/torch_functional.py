@@ -17,7 +17,7 @@ Contain small torch utilities
 
 import math
 from contextlib import contextmanager
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 import torch
 import torch.distributed

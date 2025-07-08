@@ -19,7 +19,7 @@ import logging
 import math
 import os
 import re
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 import datasets
 import torch

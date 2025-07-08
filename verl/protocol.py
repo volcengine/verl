@@ -22,7 +22,7 @@ import logging
 import os
 import pickle
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Union
+from typing import Callable, Dict, List, Optional
 
 import numpy as np
 import pandas as pd

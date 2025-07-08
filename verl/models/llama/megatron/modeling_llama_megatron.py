@@ -19,7 +19,7 @@
 # limitations under the License.
 """PyTorch LLaMA model with Megatron-style acceleration."""
 
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple
 
 import torch
 import torch.utils.checkpoint

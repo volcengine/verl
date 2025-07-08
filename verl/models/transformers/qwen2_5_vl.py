@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
 import torch
 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (

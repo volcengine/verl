@@ -96,7 +96,6 @@ import contextlib
 import math
 import re
 from math import isclose
-from typing import Union
 
 # sympy related
 from sympy import N, simplify

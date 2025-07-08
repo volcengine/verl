@@ -19,7 +19,7 @@ import datetime
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import psutil
 import torch

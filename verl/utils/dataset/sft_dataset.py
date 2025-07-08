@@ -18,7 +18,6 @@ SFT dataset
 Each parquet file contains
 """
 
-from typing import Union
 
 import pandas as pd
 import torch

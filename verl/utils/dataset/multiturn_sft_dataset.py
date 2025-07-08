@@ -18,7 +18,7 @@ Multi-turn SFT dataset that supports training on conversation data with multiple
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd

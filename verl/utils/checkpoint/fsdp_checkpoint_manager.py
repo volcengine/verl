@@ -17,7 +17,7 @@ import logging
 import os
 import warnings
 from dataclasses import asdict, dataclass
-from typing import Optional, Union
+from typing import Optional
 
 import torch
 import torch.distributed

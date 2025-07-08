@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from io import BytesIO
-from typing import Optional, Union
+from typing import Optional
 
 import torch
 from PIL import Image

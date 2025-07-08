@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import is_dataclass
-from typing import Any, Dict, Optional, Type, Union
+from typing import Any, Dict, Optional, Type
 
 from omegaconf import DictConfig, ListConfig, OmegaConf
 

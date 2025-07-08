@@ -15,7 +15,6 @@
 import os
 import random
 import shutil
-from typing import Union
 
 import numpy as np
 import torch

@@ -14,7 +14,7 @@
 import logging
 import os
 import pickle
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import ray
 import zmq

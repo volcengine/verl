@@ -22,7 +22,7 @@ import os
 import time
 from copy import deepcopy
 from json import JSONDecodeError
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple
 from uuid import uuid4
 
 import numpy as np

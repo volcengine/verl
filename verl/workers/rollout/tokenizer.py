@@ -16,7 +16,7 @@ The base tokenizer class, required for any hybrid engine based rollout or infere
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Union
+from typing import Dict, List
 
 import numpy as np
 import torch
