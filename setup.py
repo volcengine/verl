@@ -43,7 +43,7 @@ install_requires = [
     "packaging>=20.0",
 ]
 
-TEST_REQUIRES = ["pytest", "pre-commit", "py-spy"]
+TEST_REQUIRES = ["pytest", "pre-commit", "py-spy", "pytest-asyncio"]
 PRIME_REQUIRES = ["pyext"]
 GEO_REQUIRES = ["mathruler", "torchvision", "qwen_vl_utils"]
 GPU_REQUIRES = ["liger-kernel", "flash-attn"]
