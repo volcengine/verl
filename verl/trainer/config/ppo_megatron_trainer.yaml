@@ -9,7 +9,7 @@ defaults:
   # load the reference default config, then apply the fields in the current yaml
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
-  - ref@ref: ref/megatron_ref
+  - ref@actor_rollout_ref.ref: megatron_ref
   - _self_
 
 actor_rollout_ref:

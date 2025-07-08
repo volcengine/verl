@@ -89,7 +89,7 @@ checkpoint:
   save_contents: ['model', 'optimizer', 'extra']
 
   # For more flexibility, you can specify the contents to load from the checkpoint.
-  load_contents: ${save_contents}
+  load_contents: ${.save_contents}
 
 # optimizer configs
 optim:
