@@ -15,6 +15,7 @@
 import difflib
 import logging
 import os
+import warnings
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
@@ -105,8 +106,16 @@ def force_chat_end_with_eos(rendered_chat: str, eos_token: str):
     """
     idx = rendered_chat.rfind(eos_token)
     if idx == -1:
-        # This should never happen
-        raise ValueError("No EOS found in the rendered chat.")
+        warnings.warn(
+            "WARNING: No EOS token in the rendered chat. This may be due to using a Qwen Base model, where there is "
+            "a mismatch between the EOS token defined in the chat template (<|im_end|>) and the tokenizer "
+            f"({eos_token}). As a workaround, <|im_end|> will be used as the EOS token for force_chat_end_with_eos()",
+            stacklevel=2,
+        )
+        idx = rendered_chat.rfind("<|im_end|>")
+        if idx == -1:
+            # This should never happen.
+            raise ValueError("No EOS found in the rendered chat.")
     return rendered_chat[: idx + len(eos_token)]
 
 
