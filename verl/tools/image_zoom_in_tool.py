@@ -278,7 +278,7 @@ class ImageZoomInTool(BaseTool):
         if instance_id is None:
             instance_id = str(uuid4())
         
-        img = fetch_image(image)
+        img = fetch_image({"image": image})
         self._instance_dict[instance_id] = {
             "image": img,
             "response": "",
