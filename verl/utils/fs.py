@@ -350,12 +350,12 @@ def _copy_local_path_from_remote(
         return src
 
 
-def upload_local_file_to_s3(
-    s3_path: str, local_path: str, cache_dir=None, filelock=".file.lock", verbose=False
-) -> None:
+def copy_to_remote(s3_path: str, local_path: str, cache_dir=None, filelock=".file.lock", verbose=False) -> None:
     """
     Uploads a file to an S3 bucket and path.
     """
+    assert s3_path.startswith(_S3_PREFIX)
+
     from filelock import FileLock
 
     from verl.utils.s3_io import file_upload, parse_uri, s3_key_exists
