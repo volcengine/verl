@@ -26,7 +26,7 @@ from math import ceil, floor
 import ray
 import ray.actor
 from PIL import Image
-from verl.utils.dataset.vision_utils import process_image
+from qwen_vl_utils import fetch_image
 
 from .base_tool import BaseTool
 from .schemas import OpenAIFunctionToolSchema
@@ -278,7 +278,7 @@ class ImageZoomInTool(BaseTool):
         if instance_id is None:
             instance_id = str(uuid4())
         
-        img = process_image(image)
+        img = fetch_image(image)
         self._instance_dict[instance_id] = {
             "image": img,
             "response": "",
