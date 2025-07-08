@@ -328,7 +328,6 @@ class RLHFDataset(Dataset):
         return row_dict
 
     def __getstate__(self):
-
         if not self.serialize_dataset:
             state = self.__dict__.copy()
 
