@@ -81,6 +81,11 @@ try:
 except ImportError:
     from sglang.srt.function_call_parser import FunctionCallParser
 
+try:
+    from sglang.srt.entrypoints.openai.protocol import Tool
+except ImportError:
+    from sglang.srt.openai_api.protocol import Tool
+
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))

@@ -16,6 +16,8 @@ import json
 from typing import Any, Optional, Tuple
 from uuid import uuid4
 
+from verl.utils.rollout_trace import rollout_trace_op
+
 from .schemas import OpenAIFunctionToolSchema
 
 
@@ -55,6 +57,7 @@ class BaseTool:
         else:
             return instance_id
 
+    @rollout_trace_op
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
         """Execute the tool.
 
