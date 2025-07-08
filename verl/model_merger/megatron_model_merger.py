@@ -56,8 +56,11 @@ def get_dynamic_pipeline_shards(layer_num: int, pp_size: int) -> List[int]:
     Returns:
         layer number of each pp rank. Make the sharding of the pipeline as uniform as possible.
     """
-    assert layer_num >= pp_size, f"layer_num {layer_num} must be greater than pp_size {pp_size}."
+    if layer_num < pp_size:
+        raise ValueError(f"layer_num {layer_num} must be greater than pp_size {pp_size}.")
 
+    if pp_size < 1:
+        raise ValueError(f"pp_size must be at least 1, got {pp_size}.")
     if pp_size == 1:
         return [layer_num]
 
@@ -68,13 +71,21 @@ def get_dynamic_pipeline_shards(layer_num: int, pp_size: int) -> List[int]:
         ]
 
     middle_size = pp_size - 2
-    res = []
-    for i in range(layer_num - 1, 0, -1):
-        left = layer_num - i * middle_size
-        if i * middle_size < layer_num and left > 4:
-            res = [left // 2] + [i] * middle_size + [left - left // 2]
-            break
+    shards_strategy = []
+    for middle_layer_num in range(layer_num):
+        first_last_layer_num = layer_num - middle_layer_num * middle_size
+        first_layer_num = first_last_layer_num // 2
+        last_layer_num = first_last_layer_num - first_last_layer_num // 2
+        if 0 < first_layer_num <= middle_layer_num and 0 < last_layer_num <= middle_layer_num:
+            shards_strategy.append(
+                (
+                    [first_layer_num] + [middle_layer_num] * middle_size + [last_layer_num],
+                    abs(first_layer_num - middle_layer_num),
+                )
+            )
 
+    # sort by diff of layer_num, to make it as uniform as possible
+    res = sorted(shards_strategy, key=lambda x: x[1])[0][0]
     assert sum(res) == layer_num, f"sum(res)={sum(res)} != layer_num={layer_num}, pp_size={pp_size}"
     return res
 

@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
+
+from verl.model_merger.megatron_model_merger import get_dynamic_pipeline_shards
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 
 
@@ -45,3 +48,23 @@ def test_make_batch_generator_empty():
     assert len(generators) == vpp_size
     for gen in generators:
         assert list(gen) == []
+
+
+@pytest.mark.parametrize(
+    "layer_num,pp_size,gt",
+    [
+        (61, 8, [6, 8, 8, 8, 8, 8, 8, 7]),
+        (61, 7, [8, 9, 9, 9, 9, 9, 8]),
+        (61, 1, [61]),
+        (61, 0, ValueError),
+        (10, 16, ValueError),
+    ],
+)
+def test_get_dynamic_pipeline_shards(layer_num, pp_size, gt):
+    if isinstance(gt, list):
+        shards = get_dynamic_pipeline_shards(layer_num, pp_size)
+        assert len(shards) == len(gt) == pp_size, f"Expected {pp_size} shards, got {len(shards)}"
+        assert all([shard == gt[i] for i, shard in enumerate(shards)]), f"Expected shards {gt}, got {shards}"
+    elif issubclass(gt, Exception):
+        with pytest.raises(gt):
+            shards = get_dynamic_pipeline_shards(layer_num, pp_size)
