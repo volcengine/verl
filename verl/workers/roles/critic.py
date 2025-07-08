@@ -32,7 +32,14 @@ from verl.utils.py_functional import append_to_dict
 import torch
 from verl.utils.ulysses import (gather_outpus_and_unpad,
                                 ulysses_pad_and_slice_inputs)
-from verl.utils.device import get_torch_device, is_cuda_available, is_npu_available
+from verl.utils.device import (
+    get_device_id,
+    get_device_name,
+    get_nccl_backend,
+    get_torch_device,
+    is_cuda_available,
+    is_npu_available,
+)
 if is_cuda_available:
     from flash_attn.bert_padding import (index_first_axis, pad_input,
                                          rearrange, unpad_input)
@@ -40,14 +47,19 @@ elif is_npu_available:
     from transformers.integrations.npu_flash_attention import (
         index_first_axis, pad_input, rearrange, unpad_input)
 
+from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
+from verl.utils.config import omega_conf_to_dataclass
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-class CriticWorker(Worker):
+class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config):
-        super().__init__()
+        Worker.__init__(self)
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
+        )
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -56,12 +68,10 @@ class CriticWorker(Worker):
         self.engine = FSDPEngine(self.config)
 
         def loss_fn(batch, vpreds, ctx):
-            responses = batch["responses"]
-            attention_mask = batch["attention_mask"]
             values = batch["values"]
-            returns = batch["returns"]
-            response_length = responses.size(1)
-            response_mask = attention_mask[:, -response_length:]
+            returns = batch["returns"]                    
+            response_mask = batch["response_mask"]
+            micro_batch_metrics = {}
             vf_loss, vf_clipfrac = core_algos.compute_value_loss(
                 vpreds=vpreds,
                 values=values,
@@ -76,13 +86,13 @@ class CriticWorker(Worker):
             else:
                 loss = vf_loss / ctx["gradient_accumulation"]
 
-            info = {
+            micro_batch_metrics = {
                 "critic/vf_loss": vf_loss.detach().item(),
                 "critic/vf_clipfrac": vf_clipfrac.detach().item(),
                 "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
             }
             
-            append_to_dict(ctx["metrics"], info)
+            append_to_dict(ctx["metrics"], micro_batch_metrics)
 
             return loss, ctx
         self.engine.set_loss_fn(loss_fn)
@@ -189,9 +199,10 @@ class CriticWorker(Worker):
 
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @DistProfiler.annotate(color="cyan")
     def compute_values(self, data: DataProto):
         # Support all hardwares
-        data = data.to(get_torch_device().current_device())
+        data = data.to(get_device_id())
         micro_batch_size = self.config.forward_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
@@ -212,16 +223,17 @@ class CriticWorker(Worker):
 
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @DistProfiler.annotate(color="pink")
     def update_critic(self, data: DataProto):
         # Support all hardwares
-        data = data.to(get_torch_device().current_device())
+        data = data.to(get_device_id())
         preprocess_fn, postprocess_fn = self.get_microbatch_process_fn()
         # perform forward computation
         with self.engine.train_mode():
             data = self.engine.shard_data(data=data)
 
             with Timer(name="update_critic", logger=None) as timer:
-                select_keys = ["input_ids", "responses", "attention_mask", "position_ids", "values", "returns"]
+                select_keys = ["input_ids", "responses", "response_mask", "attention_mask", "position_ids", "values", "returns"]
                 batch = data.select(batch_keys=select_keys).batch
                 has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
 
@@ -246,7 +258,8 @@ class CriticWorker(Worker):
                                                                             postprocess_fn=postprocess_fn)
                         metrics = ctx["metrics"]
                         grad_norm = self.engine.optimizer_step() 
-                        append_to_dict(metrics, {"critic/grad_norm": grad_norm.detach().item()})
+                        mini_batch_metrics = {"critic/grad_norm": grad_norm.detach().item()}
+                        append_to_dict(metrics, mini_batch_metrics)
                 self.engine.optimizer_zero_grad()
             delta_time = timer.last
 
