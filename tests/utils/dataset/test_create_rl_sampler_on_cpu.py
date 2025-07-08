@@ -81,7 +81,7 @@ def test_create_custom_curriculum_samper():
             "sampler": {
                 "class_path": "pkg://tests.utils.dataset.test_create_rl_sampler_on_cpu",
                 "class_name": "RandomCurriculumSampler",
-            }
+            },
         }
     )
 
