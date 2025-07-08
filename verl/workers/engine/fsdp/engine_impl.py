@@ -55,12 +55,9 @@ from verl import DataProto
 from verl.utils.device import (
     get_device_id,
     get_device_name,
-    get_nccl_backend,
     get_torch_device,
-    is_cuda_available,
-    is_npu_available,
 )
-from omegaconf import DictConfig, OmegaConf, open_dict
+from omegaconf import OmegaConf
 from verl.utils.seqlen_balancing import (get_reverse_idx,
                                          rearrange_micro_batches)
 import itertools

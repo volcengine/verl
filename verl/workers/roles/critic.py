@@ -23,7 +23,6 @@ from codetiming import Timer
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
-from verl.utils.device import get_torch_device, is_cuda_available, is_npu_available
 from verl.trainer.ppo import core_algos
 from verl.workers.engine.fsdp import FSDPEngine
 
@@ -34,9 +33,6 @@ from verl.utils.ulysses import (gather_outpus_and_unpad,
                                 ulysses_pad_and_slice_inputs)
 from verl.utils.device import (
     get_device_id,
-    get_device_name,
-    get_nccl_backend,
-    get_torch_device,
     is_cuda_available,
     is_npu_available,
 )
@@ -47,7 +43,7 @@ elif is_npu_available:
     from transformers.integrations.npu_flash_attention import (
         index_first_axis, pad_input, rearrange, unpad_input)
 
-from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
+from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.config import omega_conf_to_dataclass
 
 logger = logging.getLogger(__file__)
