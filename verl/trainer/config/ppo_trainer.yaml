@@ -323,7 +323,7 @@ trainer:
   device: cuda
 
   # whether to use legacy role implementation
-  use_legacy_worker_impl: False
+  use_legacy_worker_impl: True
 
 # configs related to ray initialization
 ray_init:
