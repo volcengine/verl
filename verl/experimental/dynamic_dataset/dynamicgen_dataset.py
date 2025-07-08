@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-FSDP PPO Trainer with Ray-based single controller.
-This trainer supports model-agonistic model initialization with huggingface
+Dataset class that enables dynamic data generation strategies between iterations of training.
+This class extends RLHFDataset and uses an AbstractDataGen instance to generate data.
+
+This is especially useful in settings where proposer model generates new tasks based
+on rollout data.
 """
 
 import logging
