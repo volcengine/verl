@@ -1,0 +1,22 @@
+# megatron actor config, inheriting from trainer/config/actor/actor.yaml
+defaults:
+  - actor
+  # load the reference default config, then apply the fields in the current yaml
+  - _self_
+
+strategy: megatron
+megatron:
+  param_offload: False
+  tensor_model_parallel_size: 1
+  expert_model_parallel_size: 1
+  expert_tensor_parallel_size: None
+  pipeline_model_parallel_size: 1
+  virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+  context_parallel_size: 1
+  sequence_parallel: True
+  use_distributed_optimizer: False
+  use_dist_checkpointing: False
+  dist_checkpointing_path: null
+  seed: ${actor_rollout_ref.actor.megatron.seed}
+  override_transformer_config: ${actor_rollout_ref.actor.megatron.override_transformer_config}
+  use_mbridge: ${actor_rollout_ref.actor.megatron.use_mbridge}
