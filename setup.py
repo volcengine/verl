@@ -43,12 +43,12 @@ install_requires = [
     "packaging>=20.0",
 ]
 
-TEST_REQUIRES = ["pytest", "pre-commit", "py-spy"]
+TEST_REQUIRES = ["pytest", "pre-commit", "py-spy", "pytest-asyncio"]
 PRIME_REQUIRES = ["pyext"]
 GEO_REQUIRES = ["mathruler", "torchvision", "qwen_vl_utils"]
 GPU_REQUIRES = ["liger-kernel", "flash-attn"]
 MATH_REQUIRES = ["math-verify"]  # Add math-verify as an optional dependency
-VLLM_REQUIRES = ["tensordict<=0.6.2", "vllm<=0.8.5"]
+VLLM_REQUIRES = ["tensordict<=0.6.2", "vllm>=0.7.3,<=0.8.5"]
 SGLANG_REQUIRES = [
     "tensordict<=0.6.2",
     "sglang[srt,openai]==0.4.6.post5",

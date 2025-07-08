@@ -15,7 +15,7 @@
 from dataclasses import is_dataclass
 from typing import Any, Dict, Optional, Type, Union
 
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, ListConfig, OmegaConf
 
 __all__ = ["omega_conf_to_dataclass"]
 
@@ -32,7 +32,11 @@ def omega_conf_to_dataclass(config: Union[DictConfig, dict], dataclass_type: Opt
     Returns:
         The dataclass instance.
     """
-    if dataclass_type is not None and isinstance(config, dataclass_type):
+    # Got an empty config
+    if not config:
+        return dataclass_type if dataclass_type is None else dataclass_type()
+    # Got an object
+    if not isinstance(config, (DictConfig, ListConfig, dict, list)):
         return config
 
     if dataclass_type is None:

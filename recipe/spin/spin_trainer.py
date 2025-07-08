@@ -1119,6 +1119,9 @@ class RaySPINTrainer:
                             batch_keys=pop_batch_keys,
                             non_tensor_batch_keys=pop_non_tensor_keys,
                         )
+                        gen_batch = gen_batch.repeat(
+                            repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
+                        )
                         # (Add Debug prints for gen_batch if needed)
 
                         # Generate sequences (chosen/rejected pairs)

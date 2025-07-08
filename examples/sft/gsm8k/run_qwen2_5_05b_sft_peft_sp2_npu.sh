@@ -26,8 +26,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     trainer.project_name=gsm8k-sft \
     trainer.experiment_name=gsm8k-sft-qwen-2.5-0.5b-instruct \
     trainer.logger=['console'] \
-    trainer.total_epochs=2 \
-    trainer.default_hdfs_dir=null $@ \
+    trainer.total_epochs=2 $@ \
     model.lora_rank=32 \
     model.lora_alpha=16 \
     model.target_modules=all-linear \

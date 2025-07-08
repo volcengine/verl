@@ -162,7 +162,10 @@ def entropy_from_logits_with_chunking(logits: torch.Tensor, chunk_size: int = 20
 
 def masked_sum(values, mask, axis=None):
     """Compute mean of tensor with a masked values."""
-    return (values * mask).sum(axis=axis)
+    # If NaNs exist out of mask, replace NaNs in values with a value that
+    # won't affect the sum (e.g., 0 for masked regions)
+    valid_values = torch.where(mask.bool(), values, 0.0)
+    return (valid_values * mask).sum(axis=axis)
 
 
 def masked_mean(values, mask, axis=None):
@@ -178,7 +181,8 @@ def masked_mean(values, mask, axis=None):
     Returns:
         Tensor: Masked mean, with shape equal to `values` reduced over `axis`.
     """
-    return (values * mask).sum(axis=axis) / (mask.sum(axis=axis) + 1e-8)
+    s = masked_sum(values, mask, axis)
+    return s / (mask.sum(axis=axis) + 1e-8)
 
 
 def masked_var(values, mask, unbiased=True):
