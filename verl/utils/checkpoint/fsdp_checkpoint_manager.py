@@ -27,11 +27,11 @@ from omegaconf import DictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import ShardedOptimStateDictConfig, ShardedStateDictConfig, StateDictType
 from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
-from utils.hdfs_io import HDFS_PREFIX
 
 from verl.utils.device import is_cuda_available
 from verl.utils.fs import S3_PREFIX, copy_to_local, copy_to_remote, is_non_local, local_mkdir_safe
 from verl.utils.fsdp_utils import fsdp_version, get_fsdp_full_state_dict, get_fsdp_state_ctx
+from verl.utils.hdfs_io import HDFS_PREFIX
 from verl.utils.logger import log_with_rank
 
 from .checkpoint_manager import BaseCheckpointManager
