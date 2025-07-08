@@ -1,1 +1,11 @@
 Copyright 2023-2024 Bytedance Ltd. and/or its affiliates 
+
+===============================================================================
+
+This product includes software developed by Zhipu AI (https://github.com/THUDM).
+
+The file verl/workers/rollout/sglang_rollout/http_server_engine.py is adapted from:
+- THUDM/slime project
+- Original source: https://github.com/THUDM/slime/blob/main/slime/backends/sglang_utils/http_server_engine.py
+- Copyright 2025 Zhipu AI
+- Licensed under the Apache License, Version 2.0 
