@@ -29,7 +29,7 @@ from torch.distributed.fsdp import ShardedOptimStateDictConfig, ShardedStateDict
 from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.device import is_cuda_available
-from verl.utils.fs import copy_to_local, is_non_local, local_mkdir_safe, upload_local_file_to_s3
+from verl.utils.fs import copy_to_local, copy_to_remote, is_non_local, local_mkdir_safe
 from verl.utils.fsdp_utils import fsdp_version, get_fsdp_full_state_dict, get_fsdp_state_ctx
 from verl.utils.logger import log_with_rank
 
@@ -274,14 +274,14 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                     model_state_dict = self.model.state_dict()
                     torch.save(model_state_dict, model_path)
                     if remote_path is not None and remote_path.startswith(_S3_PREFIX):
-                        self.upload_checkpoint_in_background(os.path.join(remote_path, model_file), model_path)
+                        self._upload_checkpoint_in_background(os.path.join(remote_path, model_file), model_path)
                     log_with_rank(f"Saved model to {os.path.abspath(model_path)}", rank=self.rank, logger=logger)
 
                 if self.should_save_optimizer:
                     optimizer_state_dict = self.optimizer.state_dict()
                     torch.save(optimizer_state_dict, optim_path)
                     if remote_path is not None and remote_path.startswith(_S3_PREFIX):
-                        self.upload_checkpoint_in_background(os.path.join(remote_path, optim_file), optim_path)
+                        self._upload_checkpoint_in_background(os.path.join(remote_path, optim_file), optim_path)
                     log_with_rank(f"Saved optim to {os.path.abspath(optim_path)}", rank=self.rank, logger=logger)
 
                 if self.should_save_extra:
@@ -292,7 +292,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                     }
                     torch.save(extra_state_dict, extra_path)
                     if remote_path is not None and remote_path.startswith(_S3_PREFIX):
-                        self.upload_checkpoint_in_background(os.path.join(remote_path, extra_file), extra_path)
+                        self._upload_checkpoint_in_background(os.path.join(remote_path, extra_file), extra_path)
                     log_with_rank(f"Saved extra_state to {os.path.abspath(extra_path)}", rank=self.rank, logger=logger)
 
         if self.rank == 0:
@@ -387,9 +387,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
         self.previous_saved_paths.append(local_path)
 
-    def upload_checkpoint_in_background(self, s3_path: str, local_path: str) -> None:
+    def _upload_checkpoint_in_background(self, s3_path: str, local_path: str) -> None:
         upload_thread = Thread(
-            target=upload_local_file_to_s3,
+            target=copy_to_remote,
             args=(
                 s3_path,
                 local_path,

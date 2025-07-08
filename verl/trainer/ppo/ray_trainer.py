@@ -55,7 +55,7 @@ from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.dataset.sampler import AbstractCurriculumSampler
 from verl.utils.debug import marked_timer
-from verl.utils.fs import copy_to_local, upload_local_file_to_s3
+from verl.utils.fs import copy_to_local, copy_to_remote
 from verl.utils.metric import (
     reduce_metrics,
 )
@@ -976,7 +976,7 @@ class RayPPOTrainer:
         # save dataloader to s3
         if self.config.trainer.get("default_remote_dir", None):
             s3_dataloader_path = os.path.join(s3_global_step_folder, "data.pt")
-            upload_local_file_to_s3(s3_dataloader_path, dataloader_local_path, verbose=True)
+            copy_to_remote(s3_dataloader_path, dataloader_local_path, verbose=True)
 
         # latest checkpointed iteration tracker (for atomic usage)
         local_latest_checkpointed_iteration = os.path.join(
