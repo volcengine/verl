@@ -31,10 +31,6 @@ import torch
 import torch.distributed as dist
 from omegaconf import DictConfig
 
-try:
-    from sglang.srt.entrypoints.openai.protocol import Tool
-except ImportError:
-    from sglang.srt.openai_api.protocol import Tool
 from sglang.srt.managers.tokenizer_manager import (
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
