@@ -123,7 +123,12 @@ class BaseCheckpointManager:
         raise NotImplementedError
 
     def save_checkpoint(
-        self, local_path: str, remote_path: str = None, global_step: int = 0, max_ckpt_to_keep: int = None
+        self,
+        local_path: str,
+        hdfs_path=None,
+        remote_path: str = None,
+        global_step: int = 0,
+        max_ckpt_to_keep: int = None,
     ):
         raise NotImplementedError
 
