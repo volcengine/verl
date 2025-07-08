@@ -1391,4 +1391,4 @@ class RayPPOTrainer:
 
                 if hasattr(self.train_dataset, "on_batch_end"):
                     # The dataset may be changed after each training batch
-                    self.train_dataset.on_batch_end()
+                    self.train_dataset.on_batch_end(batch=batch)
