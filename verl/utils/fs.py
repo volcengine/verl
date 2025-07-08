@@ -22,12 +22,10 @@ import shutil
 import tempfile
 from typing import Optional
 
-from utils.hdfs_io import HDFS_PREFIX
-
 try:
-    from hdfs_io import copy, exists, makedirs  # for internal use only
+    from hdfs_io import HDFS_PREFIX, copy, exists, makedirs  # for internal use only
 except ImportError:
-    from .hdfs_io import copy, exists, makedirs
+    from .hdfs_io import HDFS_PREFIX, copy, exists, makedirs
 
 __all__ = ["copy", "exists", "makedirs"]
 
@@ -218,12 +216,14 @@ def copy_to_local(
     Returns:
         str: Local filesystem path to copied resource
     """
-    if src.startswith(HDFS_PREFIX) or src.startswith(S3_PREFIX):
-        return _copy_local_path_from_remote(
-            src, cache_dir, filelock, verbose, recursive=recursive, local_path=local_path
-        )
 
-    return src
+    if src.startswith(S3_PREFIX):
+        return _copy_local_path_from_s3(src, cache_dir, filelock, verbose, recursive=recursive, local_path=local_path)
+
+    local_path = copy_local_path_from_hdfs(src, cache_dir, filelock, verbose, always_recopy)
+    if use_shm:
+        return copy_to_shm(local_path)
+    return local_path
 
 
 def copy_local_path_from_hdfs(
@@ -302,7 +302,7 @@ def local_mkdir_safe(path):
     return path
 
 
-def _copy_local_path_from_remote(
+def _copy_local_path_from_s3(
     src: str,
     cache_dir=None,
     filelock=".file.lock",
