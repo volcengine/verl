@@ -499,7 +499,6 @@ class RayWorkerGroup(WorkerGroup):
             prefix: str = actor_name + "_"
             for method_name in dir(worker_group):
                 if method_name.startswith(prefix):
-                    # only valid when Python >= 3.9
                     original_method_name = method_name.removeprefix(prefix)
                     method = getattr(worker_group, method_name)
                     setattr(worker_group, original_method_name, method)
