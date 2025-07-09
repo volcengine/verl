@@ -80,7 +80,7 @@ class MultiTurnSFTDataset(Dataset):
             import numpy
             import pandas
 
-            while isinstance(ls, (pandas.core.series.Series, numpy.ndarray)) and len(ls) == 1:
+            while isinstance(ls, pandas.core.series.Series | numpy.ndarray) and len(ls) == 1:
                 ls = ls[0]
             return ls
 

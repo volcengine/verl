@@ -1415,7 +1415,7 @@ class RaySPINTrainer:
                     postfix_metrics = {
                         k: f"{v:.3f}" if isinstance(v, float) else v
                         for k, v in metrics.items()
-                        if isinstance(v, (int, float))
+                        if isinstance(v, int | float)
                     }
                     progress_bar.set_postfix(postfix_metrics)
 

@@ -89,7 +89,7 @@ class RLHFDataset(Dataset):
         config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
     ):
-        if not isinstance(data_files, (List, ListConfig)):
+        if not isinstance(data_files, List | ListConfig):
             data_files = [data_files]
 
         self.data_files = copy.deepcopy(data_files)

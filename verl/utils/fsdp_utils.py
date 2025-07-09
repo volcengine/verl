@@ -339,7 +339,7 @@ def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, tor
         else:  # buffer
             param = torch.empty_like(state.data, device=device)
         loaded = shard_states[param_name]
-        if isinstance(loaded, (torch.nn.Parameter, torch.Tensor)):
+        if isinstance(loaded, torch.nn.Parameter | torch.Tensor):
             # NOTE: loaded.dtype can be different with param.dtype
             param.data.copy_(loaded.data)
             dist.broadcast(param.data, src=dist.get_rank())

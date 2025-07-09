@@ -175,7 +175,7 @@ class ClearMLLogger:
         for k, v in data.items():
             title, series = k.split("/", 1)
 
-            if isinstance(v, (int, float, np.floating, np.integer)):
+            if isinstance(v, int | float | np.floating | np.integer):
                 logger.report_scalar(
                     title=title,
                     series=series,

@@ -15,7 +15,6 @@
 Adapted from Cruise.
 """
 
-
 import torch
 
 HALF_LIST = [16, "16", "fp16", "float16", torch.float16]

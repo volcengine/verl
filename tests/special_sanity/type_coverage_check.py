@@ -96,7 +96,7 @@ def check_file(
 
     for node in ast.walk(tree):
         if hasattr(node, "lineno") and node.lineno in changed_lines:
-            if isinstance(node, (ast.FunctionDef, ast.Assign, ast.AnnAssign)):
+            if isinstance(node, ast.FunctionDef | ast.Assign | ast.AnnAssign):
                 total += 1
                 result = has_type_annotations(node, debug)
                 if result == CHECK_SUCCESS or result == CHECK_WARNING:

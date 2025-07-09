@@ -251,11 +251,11 @@ class DataProto:
             return self.slice(item.start, item.stop, item.step)
 
         # Case 2: List, numpy array, or torch tensor - use sel_idxs
-        elif isinstance(item, (list, np.ndarray, torch.Tensor)):
+        elif isinstance(item, list | np.ndarray | torch.Tensor):
             return self.select_idxs(item)
 
         # Case 3: Single integer - return DataProtoItem for backward compatibility
-        elif isinstance(item, (int, np.integer)):
+        elif isinstance(item, int | np.integer):
             tensor_data = self.batch[item] if self.batch is not None else None
             non_tensor_data = {key: val[item] for key, val in self.non_tensor_batch.items()}
             return DataProtoItem(batch=tensor_data, non_tensor_batch=non_tensor_data, meta_info=self.meta_info)

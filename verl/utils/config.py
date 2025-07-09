@@ -36,7 +36,7 @@ def omega_conf_to_dataclass(config: DictConfig | dict, dataclass_type: Optional[
     if not config:
         return dataclass_type if dataclass_type is None else dataclass_type()
     # Got an object
-    if not isinstance(config, (DictConfig, ListConfig, dict, list)):
+    if not isinstance(config, DictConfig | ListConfig | dict | list):
         return config
 
     if dataclass_type is None:

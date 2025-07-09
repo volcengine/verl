@@ -166,9 +166,11 @@ class TestRolloutWithSearchTools:
     @pytest.fixture
     def mock_rollout(self, search_rollout_config, qwen_tokenizer, qwen_model_config):
         """Mock the rollout instance with sampling_params initialized."""
-        with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(
-            SGLangRollout, "_init_inference_engine", return_value=None
-        ), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
+        with (
+            patch.object(SGLangRollout, "_init_distributed_env", return_value=None),
+            patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
+            patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
+        ):
             rollout = SGLangRollout(
                 actor_module="",
                 config=search_rollout_config,

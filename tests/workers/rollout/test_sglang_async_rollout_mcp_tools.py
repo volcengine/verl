@@ -262,10 +262,11 @@ class TestRolloutWithMCPSearchTools:
                 },
             }
         ]
-        with patch.object(MCPClientManager, "fetch_tool_schemas", return_value=tool_schema), patch.object(
-            SGLangRollout, "_init_distributed_env", return_value=None
-        ), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(
-            SGLangRollout, "_init_sampling_params", return_value=None
+        with (
+            patch.object(MCPClientManager, "fetch_tool_schemas", return_value=tool_schema),
+            patch.object(SGLangRollout, "_init_distributed_env", return_value=None),
+            patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
+            patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
         ):
             rollout = SGLangRollout(
                 actor_module="",

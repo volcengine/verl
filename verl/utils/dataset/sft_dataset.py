@@ -18,7 +18,6 @@ SFT dataset
 Each parquet file contains
 """
 
-
 import pandas as pd
 import torch
 from omegaconf.listconfig import ListConfig
@@ -59,8 +58,8 @@ class SFTDataset(Dataset):
             tokenizer = hf_tokenizer(tokenizer)
         self.tokenizer: PreTrainedTokenizer = tokenizer
 
-        self.prompt_key = prompt_key if isinstance(prompt_key, (tuple, list)) else [prompt_key]
-        self.response_key = response_key if isinstance(response_key, (tuple, list)) else [response_key]
+        self.prompt_key = prompt_key if isinstance(prompt_key, tuple | list) else [prompt_key]
+        self.response_key = response_key if isinstance(response_key, tuple | list) else [response_key]
         self.prompt_dict_keys = prompt_dict_keys if prompt_dict_keys else []
         self.response_dict_keys = response_dict_keys if response_dict_keys else []
 
@@ -78,7 +77,7 @@ class SFTDataset(Dataset):
             import numpy
             import pandas
 
-            while isinstance(ls, (pandas.core.series.Series, numpy.ndarray)) and len(ls) == 1:
+            while isinstance(ls, pandas.core.series.Series | numpy.ndarray) and len(ls) == 1:
                 ls = ls[0]
             return ls
 
