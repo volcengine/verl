@@ -30,6 +30,8 @@ from sglang.srt.model_executor.model_runner import LocalSerializedTensor
 from sglang.srt.utils import MultiprocessingSerializer
 from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
+from contextlib import contextmanager
+import torch.distributed as dist
 
 from verl.protocol import DataProto, all_gather_data_proto
 from verl.utils.device import get_torch_device
