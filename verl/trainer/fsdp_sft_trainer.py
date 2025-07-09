@@ -31,7 +31,12 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 import logging
 import re
+import time
 from contextlib import nullcontext
+import tempfile
+import subprocess
+import pandas as pd
+from pathlib import Path
 
 import hydra
 import torch
@@ -108,7 +113,7 @@ class FSDPSFTTrainer:
             print(f"Using remove padding: {self.use_remove_padding}")
 
         self._build_dataloader(train_dataset, val_dataset)
-        # build model
+        # build modelx
         self._build_model_optimizer()
 
         # TODO: add checkpoint manager
@@ -425,69 +430,159 @@ class FSDPSFTTrainer:
         Returns:
             tuple: (prompt_texts, generated_texts) - Lists of decoded text
         """
-        if max_new_tokens is None:
-            max_new_tokens = int(os.getenv("VERL_GENERATION_MAX_NEW_TOKENS", 100))
-        self.fsdp_model.eval()
         
-        with torch.no_grad():
-            # Extract input data
-            input_ids = batch["input_ids"].cuda()
-            attention_mask = batch["attention_mask"].cuda()
-            position_ids = batch["position_ids"].cuda()
+        if max_new_tokens is None:
+            max_new_tokens = int(os.getenv("VERL_GENERATION_MAX_NEW_TOKENS", 200))
+        
+        if self.device_mesh.get_rank() != 0:
+            return [], []
             
-            # Get generation parameters from environment variables or config or use defaults
-            generation_config = getattr(self.config, "generation", {}) if hasattr(self.config, "generation") else {}
-            temperature = float(os.getenv("VERL_GENERATION_TEMPERATURE", generation_config.get("temperature", 1.0)))
-            top_k = int(os.getenv("VERL_GENERATION_TOP_K", generation_config.get("top_k", 50)))
-            top_p = float(os.getenv("VERL_GENERATION_TOP_P", generation_config.get("top_p", 0.7)))
-            do_sample = os.getenv("VERL_GENERATION_DO_SAMPLE", str(generation_config.get("do_sample", True))).lower() == "true"
+        try:
+            print(f"Starting inline generation with max_new_tokens={max_new_tokens}")
+            start_time = time.time()
             
-            # Create generation config
-            from transformers import GenerationConfig
-            gen_config = GenerationConfig(
-                do_sample=do_sample,
-                temperature=temperature,
-                top_k=top_k,
-                top_p=top_p,
-                max_new_tokens=max_new_tokens,
-                eos_token_id=self.tokenizer.eos_token_id,
-                pad_token_id=self.tokenizer.pad_token_id,
-                num_return_sequences=1,
-            )
+            prompt_data = []
+            if hasattr(batch, 'prompt') and 'prompt' in batch:
+                for prompt in batch['prompt']:
+                    if isinstance(prompt, list):
+                        prompt_data.append(prompt)
+                    else:
+                        prompt_data.append([{"role": "user", "content": str(prompt)}])
+            else:
+                input_ids = batch["input_ids"].cuda()
+                for seq in input_ids:
+                    seq = seq[seq != self.tokenizer.pad_token_id]
+                    text = self.tokenizer.decode(seq, skip_special_tokens=True)
+                    prompt_data.append([{"role": "user", "content": text}])
             
-            # Generate sequences
-            output = self.fsdp_model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                generation_config=gen_config,
-                use_cache=True,
-            )
+            if not prompt_data:
+                return [], []
             
-            # Extract generated sequences
-            prompt_length = input_ids.shape[1]
-            generated_sequences = output[:, prompt_length:]
+            print(f"Processing {len(prompt_data)} prompts for generation")
             
-            # Decode the generated sequences
+            self.fsdp_model.eval()
+            
+            temperature = float(os.getenv("VERL_GENERATION_TEMPERATURE", 0.7))
+            top_k = int(os.getenv("VERL_GENERATION_TOP_K", 40))
+            top_p = float(os.getenv("VERL_GENERATION_TOP_P", 0.9))
+            do_sample = temperature > 0.0
+            
+            original_padding_side = self.tokenizer.padding_side
+            self.tokenizer.padding_side = "left"
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+            
             generated_texts = []
-            for seq in generated_sequences:
-                # Remove padding tokens
-                seq = seq[seq != self.tokenizer.pad_token_id]
-                text = self.tokenizer.decode(seq, skip_special_tokens=True)
-                generated_texts.append(text)
-            
-            # Decode the original prompts for reference
             prompt_texts = []
-            for seq in input_ids:
-                # Remove padding tokens
-                seq = seq[seq != self.tokenizer.pad_token_id]
-                text = self.tokenizer.decode(seq, skip_special_tokens=True)
-                prompt_texts.append(text)
+            
+            with torch.no_grad():
+                batch_size = 1  
+                for i in range(0, len(prompt_data), batch_size):
+                    batch_prompts = prompt_data[i:i+batch_size]
+                    
+                    try:
+                        inputs = self.tokenizer.apply_chat_template(
+                            batch_prompts,
+                            add_generation_prompt=True,
+                            padding=True,
+                            truncation=True,
+                            max_length=4096,
+                            return_tensors="pt",
+                            return_dict=True,
+                            tokenize=True,
+                        )
+                    except Exception as e:
+                        print(f"Warning: Chat template failed for batch {i}: {e}")
+                        batch_texts = []
+                        for prompt_list in batch_prompts:
+                            if isinstance(prompt_list, list) and prompt_list:
+                                text = prompt_list[-1].get('content', str(prompt_list))
+                            else:
+                                text = str(prompt_list)
+                            batch_texts.append(text)
+                        
+                        inputs = self.tokenizer(
+                            batch_texts,
+                            padding=True,
+                            truncation=True,
+                            max_length=4096,
+                            return_tensors="pt"
+                        )
+                    
+                    input_ids = inputs["input_ids"].cuda()
+                    attention_mask = inputs["attention_mask"].cuda()
+                    
+                    try:
+                        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                            generated_outputs = self.fsdp_model.generate(
+                                input_ids=input_ids,
+                                attention_mask=attention_mask,
+                                max_new_tokens=max_new_tokens,
+                                temperature=temperature if do_sample else None,
+                                top_k=top_k if do_sample else None,
+                                top_p=top_p if do_sample else None,
+                                do_sample=do_sample,
+                                pad_token_id=self.tokenizer.pad_token_id,
+                                eos_token_id=self.tokenizer.eos_token_id,
+                                use_cache=True
+                            )
+                        
+                        for j, (input_seq, generated_seq) in enumerate(zip(input_ids, generated_outputs)):
+                            new_tokens = generated_seq[len(input_seq):]
+                            generated_text = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+                            generated_texts.append(generated_text)
+                            
+                            prompt_idx = i + j
+                            if prompt_idx < len(prompt_data):
+                                prompt_list = prompt_data[prompt_idx]
+                                if isinstance(prompt_list, list) and prompt_list:
+                                    prompt_text = str(prompt_list[-1].get('content', ''))
+                                else:
+                                    prompt_text = str(prompt_list)
+                                prompt_texts.append(prompt_text)
+                    
+                    except Exception as e:
+                        print(f"Warning: Generation failed for batch {i}: {e}")
+                        for j in range(len(batch_prompts)):
+                            generated_texts.append(f"[Generation Error: {str(e)}]")
+                            prompt_idx = i + j
+                            if prompt_idx < len(prompt_data):
+                                prompt_list = prompt_data[prompt_idx]
+                                if isinstance(prompt_list, list) and prompt_list:
+                                    prompt_text = str(prompt_list[-1].get('content', ''))
+                                else:
+                                    prompt_text = str(prompt_list)
+                                prompt_texts.append(prompt_text)
+            
+            self.tokenizer.padding_side = original_padding_side
+            
+            total_time = time.time() - start_time
+            print(f"Inline generation completed in {total_time:.2f}s for {len(generated_texts)} samples")
             
             return prompt_texts, generated_texts
+                    
+        except Exception as e:
+            print(f"Warning: Inline generation failed: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            prompt_texts = []
+            if hasattr(batch, 'prompt') and 'prompt' in batch:
+                for prompt in batch['prompt']:
+                    if isinstance(prompt, list) and prompt:
+                        prompt_texts.append(str(prompt[-1].get('content', '')))
+                    else:
+                        prompt_texts.append(str(prompt))
+            else:
+                input_ids = batch["input_ids"].cuda()
+                for seq in input_ids:
+                    seq = seq[seq != self.tokenizer.pad_token_id]
+                    text = self.tokenizer.decode(seq, skip_special_tokens=True)
+                    prompt_texts.append(text)
+            
+            return prompt_texts, ["[Generation Error]"] * len(prompt_texts)
 
     def save_checkpoint(self, step):
-        # save checkpoint
         from torch.distributed.fsdp import FullStateDictConfig, StateDictType
 
         cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
@@ -563,16 +658,14 @@ class FSDPSFTTrainer:
                         val_loss = self.validation_step(val_data)
                         val_losses.append(val_loss)
                         
-                        # Generate samples for the first few batches
-                        if samples_generated < max_samples_to_generate:
+                        if samples_generated < max_samples_to_generate and rank == 0:
                             try:
                                 prompts, generations = self.generate_samples(val_data, max_new_tokens=100)
                                 all_prompts.extend(prompts)
                                 all_generations.extend(generations)
                                 samples_generated += len(prompts)
                             except Exception as e:
-                                if rank == 0:
-                                    print(f"Warning: Failed to generate samples during final validation: {e}")
+                                print(f"Warning: Failed to generate samples during final validation: {e}")
                     
                     if rank == 0:
                         avg_val_loss = torch.mean(torch.stack(val_losses))
@@ -621,16 +714,14 @@ class FSDPSFTTrainer:
                 val_loss = self.validation_step(data)
                 val_losses.append(val_loss)
                 
-                # Generate samples for the first few batches
-                if samples_generated < max_samples_to_generate:
+                if samples_generated < max_samples_to_generate and rank == 0:
                     try:
                         prompts, generations = self.generate_samples(data, max_new_tokens=100)
                         all_prompts.extend(prompts)
                         all_generations.extend(generations)
                         samples_generated += len(prompts)
                     except Exception as e:
-                        if rank == 0:
-                            print(f"Warning: Failed to generate samples during validation: {e}")
+                        print(f"Warning: Failed to generate samples during validation: {e}")
             
             if rank == 0:
                 val_loss = torch.mean(torch.stack(val_losses))
