@@ -950,7 +950,7 @@ class RayPPOTrainer:
         )
 
         self.actor_rollout_wg.save_checkpoint(
-            local_path=actor_local_path,
+            actor_local_path,
             remote_path=actor_remote_path,
             global_step=self.global_steps,
             max_ckpt_to_keep=max_actor_ckpt_to_keep,
@@ -968,7 +968,7 @@ class RayPPOTrainer:
                 critic_remote_path = None
 
             self.critic_wg.save_checkpoint(
-                local_path=critic_local_path,
+                critic_local_path,
                 remote_path=critic_remote_path,
                 global_step=self.global_steps,
                 max_ckpt_to_keep=max_critic_ckpt_to_keep,
