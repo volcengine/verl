@@ -22,10 +22,10 @@ import hydra
 import ray
 from omegaconf import OmegaConf
 
+from verl.experimental.dataset.sampler import AbstractSampler
 from verl.trainer.constants_ppo import PPO_RAY_RUNTIME_ENV
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
-from verl.utils.dataset.sampler import AbstractSampler
 from verl.utils.import_utils import load_extern_type
 
 
@@ -307,6 +307,11 @@ def create_rl_sampler(data_config, dataset):
             data_config=data_config,
         )
         assert isinstance(sampler, AbstractSampler)
+        assert data_config.get("dataloader_num_workers", 8) == 0, (
+            "If using curriculum, num_workers must be 0 to prevent data caching. "
+            "If the dataloader caches data before the batch is done the "
+            "curriculum sampler won't have the opportunity to reorder it. "
+        )
 
     # Use a sampler to facilitate checkpoint resumption.
     # If shuffling is enabled in the data configuration, create a random sampler.
