@@ -129,6 +129,13 @@ class TestSGLangMultiInteraction:
                 # Mock model config
                 mock_model_config = MagicMock()
                 mock_model_config.max_position_embeddings = 2048
+                # since this is a mock, we can set any rope scaling config
+                # to test the rope_scaling logic at the same time of this test
+                mock_model_config.rope_scaling = {
+                    "factor": 4.0,
+                    "original_max_position_embeddings": 32768,
+                    "type": "yarn",
+                }
 
                 # Create SGLangRollout instance
                 rollout = SGLangRollout(
@@ -177,6 +184,11 @@ class TestSGLangMultiInteraction:
 
                 mock_model_config = MagicMock()
                 mock_model_config.max_position_embeddings = 2048
+                mock_model_config.rope_scaling = {
+                    "factor": 4.0,
+                    "original_max_position_embeddings": 32768,
+                    "type": "yarn",
+                }
 
                 rollout = SGLangRollout(
                     actor_module="mock_model",
@@ -284,6 +296,11 @@ class TestSGLangMultiInteraction:
 
                 mock_model_config = MagicMock()
                 mock_model_config.max_position_embeddings = 2048
+                mock_model_config.rope_scaling = {
+                    "factor": 4.0,
+                    "original_max_position_embeddings": 32768,
+                    "type": "yarn",
+                }
 
                 rollout = SGLangRollout(
                     actor_module="mock_model",
@@ -320,6 +337,11 @@ class TestSGLangMultiInteraction:
 
                 mock_model_config = MagicMock()
                 mock_model_config.max_position_embeddings = 2048
+                mock_model_config.rope_scaling = {
+                    "factor": 4.0,
+                    "original_max_position_embeddings": 32768,
+                    "type": "yarn",
+                }
 
                 rollout = SGLangRollout(
                     actor_module="mock_model",
@@ -384,6 +406,11 @@ class TestSGLangMultiInteraction:
 
             mock_model_config = MagicMock()
             mock_model_config.max_position_embeddings = 2048
+            mock_model_config.rope_scaling = {
+                "factor": 4.0,
+                "original_max_position_embeddings": 32768,
+                "type": "yarn",
+            }
 
             rollout = SGLangRollout(
                 actor_module="mock_model",
