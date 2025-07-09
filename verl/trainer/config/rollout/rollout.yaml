@@ -193,3 +193,6 @@ agent:
 
     # Class name of the custom async server class (e.g. AsyncvLLMServer)
     name: null
+  
+  # custom agent loop config
+  custom_agent_loop: null

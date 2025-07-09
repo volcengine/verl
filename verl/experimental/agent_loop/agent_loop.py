@@ -13,6 +13,7 @@
 # limitations under the License.
 import asyncio
 import heapq
+import importlib
 import logging
 import os
 import random
@@ -275,7 +276,6 @@ class AgentLoopWorker:
         Raises:
             ValueError: If the agent_name is not recognized.
         """
-        # TODO: add tool agent registrary
         from verl.experimental.agent_loop.single_turn_agent_loop import SingleTurnAgentLoop
         from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop
 
@@ -283,6 +283,17 @@ class AgentLoopWorker:
             return SingleTurnAgentLoop
         elif agent_name == "tool_agent":
             return ToolAgentLoop
+
+        cfg_agent = getattr(
+            self.config.actor_rollout_ref.rollout.agent,
+            "custom_agent_loop",
+            None
+        )
+        if cfg_agent:
+            module_path, class_name = cfg_agent.rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            return getattr(module, class_name)
+
         raise ValueError(f"Unknown agent_name: {agent_name}")
 
     def _postprocess(self, inputs: List[AgentLoopOutput]) -> DataProto:
