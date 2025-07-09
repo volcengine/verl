@@ -199,15 +199,17 @@ def masked_mean_unbiased(values, mask, axis=None, max_length=None):
         mask (Tensor): Boolean or numeric mask of the same shape as `values`.
         axis (int or tuple of int, optional): Dimension(s) along which to compute the mean.
             Defaults to None (over all elements).
-        max_length (int or Tensor, optional): Constant normalizer to use instead of actual length.
-            If None, falls back to the biased version.
+        max_length (int or Tensor): Constant normalizer to use instead of actual length.
+            Must be provided to ensure unbiased computation.
     
     Returns:
         Tensor: The mean of `values` over elements selected by `mask` without length bias.
+    
+    Raises:
+        ValueError: If max_length is None.
     """
     if max_length is None:
-        # Fall back to biased version if no max_length provided
-        return masked_mean(values, mask, axis)
+        raise ValueError("max_length must be provided to use the unbiased masked mean.")
     
     if axis is None:
         return (values * mask).sum() / max_length
