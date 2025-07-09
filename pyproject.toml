@@ -59,6 +59,10 @@ ignore = [
     "UP032",
     # `.log()` statement uses f-string
     "G004",
+    # X | None for type annotations
+    "UP045",
+    # deprecated import
+    "UP035",
 ]
 
 # -------------------------------
