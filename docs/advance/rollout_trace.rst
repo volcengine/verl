@@ -19,22 +19,23 @@ Trace Parameter Configuration
 Glossary
 --------
 
-+----------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-| Object         | Explaination                                                                                                                                                         |
-+================+======================================================================================================================================================================+
-| trajectory     | A complete multi-turn conversation includes:                                                                                                                         |
-|                | 1. LLM output at least once                                                                                                                                          |
-|                | 2. Tool Call                                                                                                                                                         |
-+----------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-| step           | The training step corresponds to the global_steps variable in the trainer                                                                                             |
-+----------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-| sample_index   | The identifier of the sample, defined in the extra_info.index of the dataset, is usually a number, but there are also cases where a uuid is used.                      |
-+----------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-| rollout_n      | In the GROP algorithm, each sample is rolled out n times, and rollout_n represents the number of the rollout.                                                          |
-+----------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-| validate       | Is it using the test dataset for evaluation?                                                                                                                          |
-+----------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-
++----------------+------------------------------------------------------------------------------------------------------+
+| Object         | Meaning                                                                                              |
++================+======================================================================================================+
+| trajectory     | A complete multi-turn conversation includes:                                                         |
+|                | 1. LLM output at least once                                                                          |
+|                | 2. Tool Call                                                                                         |
++----------------+------------------------------------------------------------------------------------------------------+
+| step           | The training step corresponds to the global_steps variable in the trainer                            |
++----------------+------------------------------------------------------------------------------------------------------+
+| sample_index   | The identifier of the sample, defined in the extra_info.index of the dataset. It is usually a number,|
+|                | but may also be a uuid in some cases.                                                                |
++----------------+------------------------------------------------------------------------------------------------------+
+| rollout_n      | In the GROP algorithm, each sample is rolled out n times. rollout_n represents the serial number of  |
+|                | the rollout.                                                                                         |
++----------------+------------------------------------------------------------------------------------------------------+
+| validate       | Whether the test dataset is used for evaluation?                                                     |
++----------------+------------------------------------------------------------------------------------------------------+
 
 Usage of wandb weave
 --------------------
@@ -99,7 +100,7 @@ Since ``trainer.project_name`` corresponds to Experiments in mlflow, in the mlfl
 
 For example, searching for ``"tags.step = '1'"`` can display all trajectories of step 1.
 
-.. image:: https://private-user-images.githubusercontent.com/4373761/464135842-38d11bf2-5c43-480c-88db-19e0c8443e74.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NTIwNTc5NDEsIm5iZiI6MTc1MjA1NzY0MSwicGF0aCI6Ii80MzczNzYxLzQ2NDEzNTg0Mi0zOGQxMWJmMi01YzQzLTQ4MGMtODhkYi0xOWUwYzg0NDNlNzQucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI1MDcwOSUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNTA3MDlUMTA0MDQxWiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9MzI1Nzc1ZWM0MzUzZGViZGI2ZmNiNzM2N2E0MmZjMmZkMzViZjhlMjZlZGM0MmNlZDBkZmRlMTM3ZDRhNWJiNSZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QifQ.Z3dkL00_7kf6bSutlGar24nKfYZuwrp01ivKr9iRwAc
+.. image:: https://private-user-images.githubusercontent.com/4373761/464135842-38d11bf2-5c43-480c-88db-19e0c8443e74.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NTIwNTc5NDEsIm5iZiI6MTc1MjA1NzY0MSwicGF0aCI6Ii80MzczNzYxLzQ2NDEzNTg0Mi0zOGQxMWJmMi01YzQzLTQ4MGMtODhkYi0xOWUwYzg0NDNlNzQucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI1MDcwOSUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNTA3MDlUMTA0MDQxWiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9MzI1Nzc1ZWM0FTA3YWZlOTM2NmY3ZmI2ZGFjOTY0ODFiNzRmMmUxNDg1ZWZjNjU0NWQwYjg5MTZjMjY5NzllZDRiNjEwNCZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QifQ.Z3dkL00_7kf6bSutlGar24nKfYZuwrp01ivKr9iRwAc
 
 Opening one of the trajectories allows you to view each function call process within it.
 

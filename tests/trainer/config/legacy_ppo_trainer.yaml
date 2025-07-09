@@ -1101,6 +1101,13 @@ trainer:
   # Device to run training on (e.g., "cuda", "cpu")
   device: cuda
 
+  rollout_trace:
+  
+    # trace backend, support mlflow, weave
+    backend: null
+
+    # whether translate token id to text in output
+    token2text: False
 # configs related to ray initialization
 ray_init:
 

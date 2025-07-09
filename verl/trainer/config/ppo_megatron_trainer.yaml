@@ -144,7 +144,11 @@ trainer:
     capture-range: "cudaProfilerApi"
     capture-range-end: null
     kill: none
-
+  rollout_trace:
+    # trace backend, support mlflow, weave
+    backend: null
+    # whether translate token id to text in output
+    token2text: False
 ray_init:
   num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
   timeline_json_file: null
