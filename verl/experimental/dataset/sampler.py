@@ -21,16 +21,20 @@ from verl import DataProto
 
 
 class AbstractSampler(Sampler[int]):
+    """Abstract interface for custom samplers."""
+
     @abstractmethod
     def __init__(
         self,
         data_source: Sized,
-        config: DictConfig,
+        data_config: DictConfig,
     ):
         pass
 
 
 class AbstractCurriculumSampler(AbstractSampler):
+    """Experimental interface for curriculum learning samplers."""
+
     @abstractmethod
     def update(self, batch: DataProto) -> None:
         pass
