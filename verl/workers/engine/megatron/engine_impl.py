@@ -13,6 +13,7 @@
 # limitations under the License.
 from ..base import BaseEngine
 
+
 class MegatronEngine(BaseEngine):
     def __init__(self, config):
         raise NotImplementedError
@@ -30,7 +31,7 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-    def eval_mode(self):        
+    def eval_mode(self):
         """
         Context manager entry for switching the engine and model into evaluation mode.
 
@@ -40,12 +41,7 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-    
-    def infer_batch(self, 
-                    batch, 
-                    ctx=None,
-                    preprocess_fn=None, 
-                    postprocess_fn=None):
+    def infer_batch(self, batch, ctx=None, preprocess_fn=None, postprocess_fn=None):
         """
         Execute a forward pass over a batch of data.
 
@@ -59,13 +55,8 @@ class MegatronEngine(BaseEngine):
             (predictions, ctx)
         """
         raise NotImplementedError
-    
 
-    def train_batch(self, 
-                    batch, 
-                    ctx=None,
-                    preprocess_fn=None, 
-                    postprocess_fn=None):
+    def train_batch(self, batch, ctx=None, preprocess_fn=None, postprocess_fn=None):
         """
         Execute a forward pass and backward pass over a batch of data.
 
@@ -127,7 +118,6 @@ class MegatronEngine(BaseEngine):
             Unsharded, combined data.
         """
         raise NotImplementedError
-        
 
     def set_loss_fn(self, loss_fn):
         """
@@ -149,7 +139,6 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         """
         Save model, optimizer, and scheduler states to a checkpoint.
@@ -161,7 +150,6 @@ class MegatronEngine(BaseEngine):
             max_ckpt_to_keep: Maximum number of recent checkpoints to retain.
         """
         raise NotImplementedError
-
 
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
         """
