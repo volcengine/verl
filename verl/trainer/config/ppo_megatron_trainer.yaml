@@ -4,6 +4,8 @@ defaults:
   # <folder_name>@<field_name>.<field_name>: <yaml_file_name>
   # actor_rollout_ref.actor: trainer/config/actor/megatron_actor.yaml
   - actor@actor_rollout_ref.actor: megatron_actor
+  # trainer.npu_profile: trainer/config/npu_profile/npu_profile.yaml
+  - npu_profile@trainer.npu_profile: npu_profile
   # data: trainer/config/data/legacy_data.yaml
   - data@data: legacy_data
   # load the reference default config, then apply the fields in the current yaml
