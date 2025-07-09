@@ -675,9 +675,7 @@ def test_none_and_empty_stdin_passed_correctly():
     is passed correctly to Sandbox Fusion as an empty string.
     """
     echo_code = """
-import sys, select
-
-input_data, _, _ = select.select([sys.stdin], [], [], 5)
+import sys
 print(f"You said '{sys.stdin.readline().strip()}'")
 """
     in_outs = {
