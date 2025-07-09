@@ -18,6 +18,11 @@ python recipe/deepeyes/deepeyes47k_preprocess.py --dataset_dir <your_local_data_
 > 
 > **We strongly recommend against training on the 'Chart' dataset on a single node.**
 
+> **Note on the 'thinklite' Dataset:**
+> Many images in the `thinklite` dataset have a very low resolution, with either a height or width below 28 pixels. This fails to meet the minimum input size required by the Qwen-2.5VL image processor and would cause errors during data loading.
+>
+> To mitigate this, we upscale these low-resolution images to satisfy the processor's requirements. However, please be aware that because the original resolution is low, subsequent `crop` operations by the zoom-in tool might frequently trigger exceptions, which could in turn affect the model's tool-use performance.
+
 Next, launch an inference service to act as a judge for reward calculation. You can use the following script as a reference:
 
 ```bash

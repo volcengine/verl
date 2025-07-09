@@ -22,7 +22,7 @@ if __name__ == "__main__":
 
     dataset = load_dataset(
         path=args.dataset_dir,
-        data_files=["data_0.1.2_visual_toolbox_v2.parquet", "data_thinklite_reasoning_acc.parquet"],
+        data_files=["data_0.1.2_visual_toolbox_v2.parquet"],
     )["train"]
 
     train_test_split = dataset.train_test_split(test_size=1000, seed=42)
