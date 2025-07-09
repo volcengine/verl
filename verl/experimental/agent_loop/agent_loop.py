@@ -180,13 +180,13 @@ class AgentLoopWorker:
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
 
-        trace_config = config.trainer.get("rollout_trace", {})
-
+        trace_config = self.config.trainer.get("rollout_trace", {})
         RolloutTraceConfig.init(
-            config.trainer.project_name,
-            config.trainer.experiment_name,
+            self.config.trainer.project_name,
+            self.config.trainer.experiment_name,
             trace_config.get("backend"),
             trace_config.get("token2text", False),
+            uri=trace_config.get("uri"),
         )
 
     async def generate_sequences(self, batch: DataProto) -> DataProto:
@@ -234,7 +234,9 @@ class AgentLoopWorker:
         else:
             index = np.arange(len(raw_prompts))
 
-        trajectory_info = await get_trajectory_info(batch.meta_info.get("global_steps", -1), index)
+        trajectory_info = await get_trajectory_info(
+            batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
+        )
 
         for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info):
             tasks.append(
@@ -253,7 +255,11 @@ class AgentLoopWorker:
         trajectory: Dict[str, Any],
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
-            step=trajectory["step"], sample_index=trajectory["sample_index"], rollout_n=trajectory["rollout_n"]
+            step=trajectory["step"],
+            sample_index=trajectory["sample_index"],
+            rollout_n=trajectory["rollout_n"],
+            validate=trajectory["validate"],
+            name="agent_loop",
         ):
             agent_loop_class = self.get_agent_loop_class(agent_name)
             agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer)
@@ -350,8 +356,7 @@ class AgentLoopWorker:
         return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
 
 
-async def get_trajectory_info(step, index):
-    """Get the trajectory info (step, sample_index, rollout_n) asynchrously"""
+async def get_trajectory_info(step, index, validate):
     trajectory_info = []
     rollout_n = 0
     for i in range(len(index)):
@@ -359,7 +364,7 @@ async def get_trajectory_info(step, index):
             rollout_n += 1
         else:
             rollout_n = 0
-        trajectory_info.append({"step": step, "sample_index": index[i], "rollout_n": rollout_n})
+        trajectory_info.append({"step": step, "sample_index": index[i], "rollout_n": rollout_n, "validate": validate})
     return trajectory_info
 
 
