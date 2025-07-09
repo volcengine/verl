@@ -179,10 +179,40 @@ def masked_mean(values, mask, axis=None):
             Defaults to None (over all elements).
 
     Returns:
-        Tensor: Masked mean, with shape equal to `values` reduced over `axis`.
+        Tensor: The mean of `values` over elements selected by `mask`.
     """
-    s = masked_sum(values, mask, axis)
-    return s / (mask.sum(axis=axis) + 1e-8)
+    if axis is None:
+        return (values * mask).sum() / (mask.sum() + 1e-8)
+    else:
+        return (values * mask).sum(axis=axis) / (mask.sum(axis=axis) + 1e-8)
+
+
+def masked_mean_unbiased(values, mask, axis=None, max_length=None):
+    """
+    Compute the mean of `values` over elements selected by `mask` without length bias.
+    
+    This version uses a constant normalizer (max_length) instead of the actual sequence length
+    to avoid the Response-level Length Bias issue described in Dr. GRPO paper.
+    
+    Args:
+        values (Tensor): Input tensor.
+        mask (Tensor): Boolean or numeric mask of the same shape as `values`.
+        axis (int or tuple of int, optional): Dimension(s) along which to compute the mean.
+            Defaults to None (over all elements).
+        max_length (int or Tensor, optional): Constant normalizer to use instead of actual length.
+            If None, falls back to the biased version.
+    
+    Returns:
+        Tensor: The mean of `values` over elements selected by `mask` without length bias.
+    """
+    if max_length is None:
+        # Fall back to biased version if no max_length provided
+        return masked_mean(values, mask, axis)
+    
+    if axis is None:
+        return (values * mask).sum() / max_length
+    else:
+        return (values * mask).sum(axis=axis) / max_length
 
 
 def masked_var(values, mask, unbiased=True):
