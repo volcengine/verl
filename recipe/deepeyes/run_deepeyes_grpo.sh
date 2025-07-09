@@ -2,6 +2,8 @@
 
 set -x
 
+export LLM_AS_A_JUDGE_BASE="your llm-as-a-judge server/v1"
+export WANDB_API_KEY="your wandb key"
 
 PROJECT_NAME="your_project_name"
 EXPERIMENT_NAME="your_experiment_name"
