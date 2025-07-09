@@ -22,7 +22,6 @@ import ast
 import linecache
 import subprocess
 from pathlib import Path
-from typing import List, Set, Tuple
 
 
 def get_changed_files() -> list[Path]:

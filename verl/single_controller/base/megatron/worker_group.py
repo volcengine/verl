@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict
 
 from verl.single_controller.base import ResourcePool, WorkerGroup
 

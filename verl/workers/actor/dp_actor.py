@@ -20,7 +20,6 @@ Single Process Actor
 import itertools
 import logging
 import os
-from typing import Tuple
 
 import torch
 from torch import nn

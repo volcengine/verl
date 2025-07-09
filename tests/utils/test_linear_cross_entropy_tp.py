@@ -30,7 +30,6 @@
 # limitations under the License.
 
 import os
-import typing
 
 import torch
 import torch.distributed as dist

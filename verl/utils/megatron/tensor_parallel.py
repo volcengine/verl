@@ -16,7 +16,7 @@
 Utilities for using tensor_parallel in megatron
 """
 
-from typing import TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING
 
 import torch
 import torch.distributed as dist

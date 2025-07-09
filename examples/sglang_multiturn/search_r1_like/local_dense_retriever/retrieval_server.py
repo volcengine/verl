@@ -18,7 +18,7 @@
 import argparse
 import json
 import warnings
-from typing import List, Optional
+from typing import Optional
 
 import datasets
 import faiss

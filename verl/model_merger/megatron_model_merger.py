@@ -16,7 +16,7 @@ import os
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, ContextManager, Dict, List
+from typing import Any, Callable, ContextManager
 
 import torch
 from accelerate import init_empty_weights

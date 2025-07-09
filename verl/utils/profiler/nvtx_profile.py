@@ -15,7 +15,7 @@
 
 import functools
 from contextlib import contextmanager
-from typing import Callable, Dict, Optional
+from typing import Callable, Optional
 
 import nvtx
 import torch

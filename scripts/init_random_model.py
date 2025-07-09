@@ -29,7 +29,7 @@ import argparse
 import json
 import os
 import warnings
-from typing import Any, Dict
+from typing import Any
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, PretrainedConfig
 

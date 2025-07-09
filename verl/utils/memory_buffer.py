@@ -15,7 +15,7 @@
 This file contains utilities to manipulate torch memory buffers
 """
 
-from typing import Dict, List, Optional
+from typing import Optional
 
 import torch
 from torch import nn

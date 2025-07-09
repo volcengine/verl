@@ -17,7 +17,7 @@ Registry module for model architecture components.
 """
 
 from enum import Enum
-from typing import Callable, Dict, Type
+from typing import Callable
 
 import torch
 import torch.nn as nn

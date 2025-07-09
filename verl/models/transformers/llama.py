@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import sys
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 
 import torch
 

@@ -13,7 +13,7 @@
 # limitations under the License.
 import json
 import os
-from typing import Any, Tuple
+from typing import Any
 
 import numpy as np
 import pytest

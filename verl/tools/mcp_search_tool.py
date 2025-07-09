@@ -16,7 +16,6 @@ import json
 import logging
 import os
 import re
-from typing import Tuple
 
 from verl.tools.mcp_base_tool import MCPBaseTool
 

@@ -19,7 +19,7 @@ import threading
 import time
 import traceback
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import requests
 

@@ -21,7 +21,7 @@ import importlib.util
 import os
 import warnings
 from functools import cache, wraps
-from typing import List, Optional
+from typing import Optional
 
 
 @cache

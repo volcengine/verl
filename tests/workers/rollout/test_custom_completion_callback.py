@@ -19,7 +19,7 @@ import socket
 import sys
 import tempfile
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List
+from typing import Any
 
 import fastapi
 import numpy as np

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import importlib
-from typing import List, Optional, Type
+from typing import Optional
 
 import torch.nn as nn
 

@@ -15,7 +15,7 @@
 import inspect
 import os
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import torch
 from transformers.modeling_flash_attention_utils import _flash_attention_forward

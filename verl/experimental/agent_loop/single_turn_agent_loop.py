@@ -13,7 +13,7 @@
 # limitations under the License.
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any
 from uuid import uuid4
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput

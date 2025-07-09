@@ -21,7 +21,7 @@ This is heavily inspired from CanineTokenizer in transformers package.
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Optional, Sequence
 
 from transformers.tokenization_utils import AddedToken, PreTrainedTokenizer
 

@@ -19,7 +19,7 @@ import logging
 import os
 import re
 from collections import defaultdict
-from typing import List, Optional
+from typing import Optional
 
 import datasets
 import numpy as np

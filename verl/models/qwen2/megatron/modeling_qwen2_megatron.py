@@ -19,7 +19,7 @@
 # limitations under the License.
 """PyTorch Qwen2 model."""
 
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import torch.utils.checkpoint

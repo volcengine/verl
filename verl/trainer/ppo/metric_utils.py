@@ -17,7 +17,7 @@ Metrics related to the PPO trainer.
 
 from collections import defaultdict
 from functools import partial
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable
 
 import numpy as np
 import torch

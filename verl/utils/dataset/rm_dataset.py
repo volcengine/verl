@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-from typing import List
 
 import pandas as pd
 import torch

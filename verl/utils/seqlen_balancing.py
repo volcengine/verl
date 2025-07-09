@@ -14,7 +14,6 @@
 
 import copy
 import heapq
-from typing import List, Tuple
 
 import torch
 from torch import distributed as dist

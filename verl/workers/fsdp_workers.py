@@ -20,7 +20,7 @@ import logging
 import os
 import warnings
 from dataclasses import asdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import psutil
 import torch

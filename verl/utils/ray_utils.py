@@ -17,7 +17,7 @@ Contains commonly used utilities for ray
 
 import concurrent.futures
 import os
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import ray
 

@@ -22,7 +22,7 @@ import queue  # Import the queue module for exception type hint
 import signal
 from functools import wraps
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple
+from typing import Any, Callable, Iterator, Optional
 
 
 # --- Top-level helper for multiprocessing timeout ---

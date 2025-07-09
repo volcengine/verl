@@ -16,7 +16,6 @@ The base class for Actor
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict
 
 import torch
 

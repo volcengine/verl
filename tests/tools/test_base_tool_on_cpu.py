@@ -14,7 +14,7 @@
 # Unit Tests for `initialize_tools_from_config`
 import json
 import os
-from typing import Any, Tuple
+from typing import Any
 
 import pytest
 from transformers.utils import get_json_schema

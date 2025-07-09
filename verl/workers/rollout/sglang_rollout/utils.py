@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import pickle
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 import torch

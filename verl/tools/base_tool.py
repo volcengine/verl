@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import json
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 from uuid import uuid4
 
 from verl.utils.rollout_trace import rollout_trace_op

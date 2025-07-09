@@ -20,7 +20,7 @@ import os
 from enum import Enum
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 
 class Tracking:

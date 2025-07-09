@@ -18,7 +18,7 @@ Utilities to create common models from huggingface
 import os
 import re
 import warnings
-from typing import Dict, Optional, Type
+from typing import Optional
 
 import numpy as np
 import torch

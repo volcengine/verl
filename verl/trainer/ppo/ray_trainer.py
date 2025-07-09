@@ -26,7 +26,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Optional, Type
+from typing import Optional
 
 import numpy as np
 import ray

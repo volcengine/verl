@@ -34,7 +34,7 @@ import threading
 from contextlib import contextmanager
 from copy import deepcopy
 from types import MethodType
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 import ray

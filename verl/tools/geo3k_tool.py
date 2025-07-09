@@ -16,7 +16,7 @@
 
 import logging
 import os
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 from uuid import uuid4
 
 from verl.utils.reward_score import geo3k

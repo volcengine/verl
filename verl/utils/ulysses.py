@@ -17,7 +17,7 @@ DeepSpeed Ulysses Paper: https://arxiv.org/abs/2309.14509
 Inspired from: https://github.com/deepspeedai/DeepSpeed/blob/master/deepspeed/sequence/layer.py
 """
 
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 import torch
 import torch.distributed as dist

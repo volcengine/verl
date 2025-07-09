@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Any, Dict, Optional, Type
+from typing import Any, Optional
 
 import numpy as np
 import ray

@@ -15,7 +15,6 @@
 import inspect
 from functools import wraps
 from types import FunctionType
-from typing import Dict, List, Tuple
 
 from verl.protocol import DataProtoFuture, _padding_size_key
 from verl.utils.py_functional import DynamicEnum

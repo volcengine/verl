@@ -24,7 +24,7 @@ import itertools
 import logging
 import os
 from functools import partial
-from typing import Dict, Iterable
+from typing import Iterable
 
 import torch
 import torch.distributed
