@@ -20,7 +20,7 @@ from omegaconf import DictConfig, ListConfig, OmegaConf
 __all__ = ["omega_conf_to_dataclass"]
 
 
-def omega_conf_to_dataclass(config: DictConfig | dict, dataclass_type: Optional[Type[Any]] = None) -> Any:
+def omega_conf_to_dataclass(config: DictConfig | dict, dataclass_type: Optional[type[Any]] = None) -> Any:
     """
     Convert an OmegaConf DictConfig to a dataclass.
 
@@ -59,7 +59,7 @@ def omega_conf_to_dataclass(config: DictConfig | dict, dataclass_type: Optional[
     return config_object
 
 
-def update_dict_with_config(dictionary: Dict, config: DictConfig):
+def update_dict_with_config(dictionary: dict, config: DictConfig):
     for key in dictionary:
         if hasattr(config, key):
             dictionary[key] = getattr(config, key)

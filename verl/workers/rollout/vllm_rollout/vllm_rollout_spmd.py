@@ -65,7 +65,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 # NOTE(sgm): add for verl. We can optimize it by making the dataloader yield List[int] without padding.
-def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[int]:
+def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[int]:
     # remove the left padding in the prompt token_id
     # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id
     # is not None else self.llm_engine.tokenizer.eos_token_id
@@ -443,7 +443,7 @@ class vLLMAsyncRollout:
     def get_zeromq_address(self):
         return self.address
 
-    def init_worker(self, all_kwargs: List[Dict[str, Any]]):
+    def init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
         all_kwargs[0]["local_rank"] = 0

@@ -575,7 +575,7 @@ class MegatronPPOActor(BasePPOActor):
         return losses_reduced
 
     @GPUMemoryLogger(role="megatron actor", logger=logger)
-    def update_policy(self, dataloader: Iterable[DataProto]) -> Dict:
+    def update_policy(self, dataloader: Iterable[DataProto]) -> dict:
         """Update the policy with an iterator of DataProto
 
         Args:

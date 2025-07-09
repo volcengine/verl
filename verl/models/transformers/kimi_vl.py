@@ -93,7 +93,7 @@ def _ulysses_flash_attn_forward(
     output_attentions: bool = False,
     use_cache: bool = False,
     **kwargs,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[tuple[torch.Tensor]]]:
     bsz, q_len, _ = hidden_states.size()
 
     if self.q_lora_rank is None:

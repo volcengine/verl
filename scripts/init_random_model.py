@@ -52,7 +52,7 @@ def check_output_path(output_path: str):
         print(f"Output path '{output_path}' created.")
 
 
-def check_configs(original_config: Dict[str, Any], new_config: Dict[str, Any]) -> bool:
+def check_configs(original_config: dict[str, Any], new_config: dict[str, Any]) -> bool:
     """
     Check if the original config and new config are compatible.
     This is a placeholder function; actual implementation may vary based on requirements.

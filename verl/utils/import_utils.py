@@ -72,7 +72,7 @@ def is_trl_available():
 def import_external_libs(external_libs=None):
     if external_libs is None:
         return
-    if not isinstance(external_libs, List):
+    if not isinstance(external_libs, list):
         external_libs = [external_libs]
     import importlib
 

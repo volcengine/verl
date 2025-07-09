@@ -81,7 +81,7 @@ class DataParallelPPOActor(BasePPOActor):
 
     def _forward_micro_batch(
         self, micro_batch, temperature, calculate_entropy=False
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Returns:
             entropy: # (bs, response_len)
@@ -315,7 +315,7 @@ class DataParallelPPOActor(BasePPOActor):
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
 
-        def _get_micro_batches(data: DataProto) -> Tuple[list, list | None]:
+        def _get_micro_batches(data: DataProto) -> tuple[list, list | None]:
             select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
             batch = data.select(batch_keys=select_keys).batch
             has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch

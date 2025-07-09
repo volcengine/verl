@@ -86,7 +86,7 @@ class CharTokenizer(PreTrainedTokenizer):
     def get_vocab(self):
         return self._vocab_str_to_int
 
-    def _tokenize(self, text: str) -> List[str]:
+    def _tokenize(self, text: str) -> list[str]:
         return list(text)
 
     def _convert_token_to_id(self, token: str) -> int:
@@ -99,8 +99,8 @@ class CharTokenizer(PreTrainedTokenizer):
         return "".join(tokens)
 
     def build_inputs_with_special_tokens(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
-    ) -> List[int]:
+        self, token_ids_0: list[int], token_ids_1: Optional[list[int]] = None
+    ) -> list[int]:
         sep = [self.sep_token_id]
         cls = [self.cls_token_id]
         result = cls + token_ids_0 + sep
@@ -110,10 +110,10 @@ class CharTokenizer(PreTrainedTokenizer):
 
     def get_special_tokens_mask(
         self,
-        token_ids_0: List[int],
-        token_ids_1: Optional[List[int]] = None,
+        token_ids_0: list[int],
+        token_ids_1: Optional[list[int]] = None,
         already_has_special_tokens: bool = False,
-    ) -> List[int]:
+    ) -> list[int]:
         if already_has_special_tokens:
             return super().get_special_tokens_mask(
                 token_ids_0=token_ids_0,
@@ -126,7 +126,7 @@ class CharTokenizer(PreTrainedTokenizer):
             result += ([0] * len(token_ids_1)) + [1]
         return result
 
-    def get_config(self) -> Dict:
+    def get_config(self) -> dict:
         return {
             "char_ords": [ord(ch) for ch in self.characters],
             "model_max_length": self.model_max_length,
@@ -134,7 +134,7 @@ class CharTokenizer(PreTrainedTokenizer):
         }
 
     @classmethod
-    def from_config(cls, config: Dict):
+    def from_config(cls, config: dict):
         cfg = {}
         cfg["characters"] = [chr(i) for i in config["char_ords"]]
         cfg["model_max_length"] = config["model_max_length"]

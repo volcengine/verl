@@ -169,7 +169,7 @@ def dispatch_megatron_compute(worker_group, *args, **kwargs):
 
     all_args = []
     for arg in args:
-        assert isinstance(arg, Tuple | List) and len(arg) == worker_group.dp_size
+        assert isinstance(arg, tuple | list) and len(arg) == worker_group.dp_size
         transformed_args = []
         for i in range(worker_group.world_size):
             local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
@@ -179,7 +179,7 @@ def dispatch_megatron_compute(worker_group, *args, **kwargs):
 
     all_kwargs = {}
     for k, v in kwargs.items():
-        assert isinstance(v, Tuple | List) and len(v) == worker_group.dp_size
+        assert isinstance(v, tuple | list) and len(v) == worker_group.dp_size
         transformed_v = []
         for i in range(worker_group.world_size):
             local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
@@ -216,7 +216,7 @@ def dispatch_megatron_compute_data_proto(worker_group, *args, **kwargs):
     return dispatch_megatron_compute(worker_group, *splitted_args, **splitted_kwargs)
 
 
-def _concat_data_proto_or_future(output: List):
+def _concat_data_proto_or_future(output: list):
     import ray
 
     from verl.protocol import DataProto, DataProtoFuture
@@ -265,7 +265,7 @@ def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
 
     all_args = []
     for arg in args:
-        assert isinstance(arg, List | Tuple) and len(arg) == pp_dp_cp_size
+        assert isinstance(arg, list | tuple) and len(arg) == pp_dp_cp_size
         transformed_args = []
         for i in range(worker_group.world_size):
             local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
@@ -290,7 +290,7 @@ def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
 
     all_kwargs = {}
     for k, v in kwargs.items():
-        assert isinstance(v, List | Tuple) and len(v) == pp_dp_cp_size, f"expect len(v)=={pp_dp_cp_size}, got {len(v)}"
+        assert isinstance(v, list | tuple) and len(v) == pp_dp_cp_size, f"expect len(v)=={pp_dp_cp_size}, got {len(v)}"
         transformed_v = []
         for i in range(worker_group.world_size):
             local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
@@ -359,9 +359,9 @@ def dispatch_dp_compute(worker_group, *args, **kwargs):
 
     assert isinstance(worker_group, WorkerGroup)
     for arg in args:
-        assert isinstance(arg, Tuple | List) and len(arg) == worker_group.world_size
+        assert isinstance(arg, tuple | list) and len(arg) == worker_group.world_size
     for k, v in kwargs.items():
-        assert isinstance(v, Tuple | List) and len(v) == worker_group.world_size
+        assert isinstance(v, tuple | list) and len(v) == worker_group.world_size
     return args, kwargs
 
 
@@ -489,10 +489,10 @@ def get_predefined_execute_fn(execute_mode):
 
 
 def _check_dispatch_mode(dispatch_mode):
-    assert isinstance(dispatch_mode, Dispatch | Dict), (
+    assert isinstance(dispatch_mode, Dispatch | dict), (
         f"dispatch_mode must be a Dispatch or a Dict. Got {dispatch_mode}"
     )
-    if isinstance(dispatch_mode, Dict):
+    if isinstance(dispatch_mode, dict):
         necessary_keys = ["dispatch_fn", "collect_fn"]
         for key in necessary_keys:
             assert key in dispatch_mode, f"key {key} should be in dispatch_mode if it is a dictionary"

@@ -308,7 +308,7 @@ def parallel_load_safetensors(filepath):
     return shard_states
 
 
-def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, torch.nn.Parameter]):
+def parallel_init_module_fn(module: torch.nn.Module, shard_states: dict[str, torch.nn.Parameter]):
     """
     Generate a function to initialize sub-modules in the `module` with `shard_states`
     from huggingface checkpoint.

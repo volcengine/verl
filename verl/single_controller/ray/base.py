@@ -62,7 +62,7 @@ def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, block
     return type(method_name, (Functor,), {})()
 
 
-def sort_placement_group_by_node_ip(pgs: List[PlacementGroup]) -> List[PlacementGroup]:
+def sort_placement_group_by_node_ip(pgs: list[PlacementGroup]) -> list[PlacementGroup]:
     """
     Sort the placement groups by node ip, all bundles in a single placement group should be on the same node.
 
@@ -85,7 +85,7 @@ def sort_placement_group_by_node_ip(pgs: List[PlacementGroup]) -> List[Placement
 class RayResourcePool(ResourcePool):
     def __init__(
         self,
-        process_on_nodes: Optional[List[int]] = None,
+        process_on_nodes: Optional[list[int]] = None,
         use_gpu: bool = True,
         name_prefix: str = None,
         max_colocate_count: int = 10,
@@ -134,8 +134,8 @@ class RayResourcePool(ResourcePool):
 
 
 def extract_pg_from_exist(
-    resource_pools: Dict[str, RayResourcePool], src_role_names: List[str], resource_pool: RayResourcePool
-) -> List:
+    resource_pools: dict[str, RayResourcePool], src_role_names: list[str], resource_pool: RayResourcePool
+) -> list:
     src_pgs = [
         pg
         for role_name, resource_pool in resource_pools.items()
@@ -146,7 +146,7 @@ def extract_pg_from_exist(
     sorted_src_pgs = sorted(src_pgs, key=lambda pg: pg.bundle_count, reverse=True)
     sorted_process_on_nodes = sorted([(val, idx) for idx, val in enumerate(resource_pool.store)], reverse=True)
 
-    unsorted_pgs: List[Tuple[int, PlacementGroup]] = []
+    unsorted_pgs: list[tuple[int, PlacementGroup]] = []
     searching_idx = 0
     for request_process, original_idx in sorted_process_on_nodes:
         assert searching_idx < len(sorted_src_pgs), f"no enough nodes for request: searching {searching_idx} th node"
@@ -195,7 +195,7 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         """
         self._additional_resource = additional_resource
 
-    def update_options(self, options: Dict):
+    def update_options(self, options: dict):
         """Update the Ray actor creation options.
 
         Args:
@@ -269,7 +269,7 @@ class RayWorkerGroup(WorkerGroup):
         name_prefix: str = None,
         detached=False,
         worker_names=None,
-        worker_handles: List[ray.actor.ActorHandle] = None,
+        worker_handles: list[ray.actor.ActorHandle] = None,
         ray_wait_register_center_timeout: int = 300,
         device_name="cuda",
         **kwargs,
@@ -739,7 +739,7 @@ def _unwrap_ray_remote(cls):
     return cls
 
 
-def _determine_fsdp_megatron_base_class(mros: List):
+def _determine_fsdp_megatron_base_class(mros: list):
     """
     - megatron: base class should be MegatronWorker
     - fsdp: base class should be Worker

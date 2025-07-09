@@ -84,12 +84,12 @@ class RLHFDataset(Dataset):
 
     def __init__(
         self,
-        data_files: str | List[str],
+        data_files: str | list[str],
         tokenizer: PreTrainedTokenizer,
         config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
     ):
-        if not isinstance(data_files, List | ListConfig):
+        if not isinstance(data_files, list | ListConfig):
             data_files = [data_files]
 
         self.data_files = copy.deepcopy(data_files)

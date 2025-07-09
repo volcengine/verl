@@ -75,7 +75,7 @@ class Gsm8kTool(BaseTool):
         return instance_id
 
     @rollout_trace_op
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         answer = parameters.get("answer", "")
         if not isinstance(answer, str):
             answer = str(answer)

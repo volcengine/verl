@@ -69,7 +69,7 @@ class SupportedModel(Enum):
 
 
 # Registry for model configuration converters
-MODEL_CONFIG_CONVERTER_REGISTRY: Dict[SupportedModel, Callable[[PretrainedConfig, torch.dtype], TransformerConfig]] = {
+MODEL_CONFIG_CONVERTER_REGISTRY: dict[SupportedModel, Callable[[PretrainedConfig, torch.dtype], TransformerConfig]] = {
     SupportedModel.LLAMA: hf_to_mcore_config_dense,
     SupportedModel.QWEN2: hf_to_mcore_config_dense,
     SupportedModel.QWEN2_MOE: hf_to_mcore_config_qwen2moe,
@@ -83,7 +83,7 @@ MODEL_CONFIG_CONVERTER_REGISTRY: Dict[SupportedModel, Callable[[PretrainedConfig
 }
 
 # Registry for model initializers
-MODEL_INITIALIZER_REGISTRY: Dict[SupportedModel, Type[BaseModelInitializer]] = {
+MODEL_INITIALIZER_REGISTRY: dict[SupportedModel, type[BaseModelInitializer]] = {
     SupportedModel.LLAMA: DenseModel,
     SupportedModel.QWEN2: DenseModel,
     SupportedModel.QWEN2_MOE: Qwen2MoEModel,
@@ -97,7 +97,7 @@ MODEL_INITIALIZER_REGISTRY: Dict[SupportedModel, Type[BaseModelInitializer]] = {
 }
 
 # Registry for model forward functions
-MODEL_FORWARD_REGISTRY: Dict[SupportedModel, Callable] = {
+MODEL_FORWARD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.LLAMA: gptmodel_forward,
     SupportedModel.QWEN2: gptmodel_forward,
     SupportedModel.QWEN2_MOE: gptmodel_forward,
@@ -112,7 +112,7 @@ MODEL_FORWARD_REGISTRY: Dict[SupportedModel, Callable] = {
 }
 
 # Registry for model weight converters
-MODEL_WEIGHT_CONVERTER_REGISTRY: Dict[SupportedModel, Type] = {
+MODEL_WEIGHT_CONVERTER_REGISTRY: dict[SupportedModel, type] = {
     SupportedModel.LLAMA: McoreToHFWeightConverterDense,
     SupportedModel.QWEN2: McoreToHFWeightConverterDense,
     SupportedModel.QWEN2_MOE: McoreToHFWeightConverterQwen2Moe,

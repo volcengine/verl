@@ -213,7 +213,7 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
     return transformer_config
 
 
-def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
+def init_megatron_optim_config(optim_config: dict) -> OptimizerConfig:
     config = OptimizerConfig(
         optimizer=optim_config.get("optimizer", "adam"),
         lr=optim_config.get("lr"),

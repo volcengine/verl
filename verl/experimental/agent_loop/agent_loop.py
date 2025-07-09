@@ -46,7 +46,7 @@ class AsyncLLMServerManager:
     - Sticky session: send multi-turn chat completions to same server for automatic prefix caching
     """
 
-    def __init__(self, config: DictConfig, server_handles: List[ray.actor.ActorHandle], max_cache_size: int = 10000):
+    def __init__(self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], max_cache_size: int = 10000):
         """Initialize the AsyncLLMServerManager.
 
         Args:
@@ -81,9 +81,9 @@ class AsyncLLMServerManager:
         self,
         request_id,
         *,
-        prompt_ids: List[int],
-        sampling_params: Dict[str, Any],
-    ) -> List[int]:
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+    ) -> list[int]:
         """Generate tokens from prompt ids.
 
         Args:
@@ -113,9 +113,9 @@ class AgentLoopMetrics(BaseModel):
 class AgentLoopOutput(BaseModel):
     """Agent loop output."""
 
-    prompt_ids: List[int]
-    response_ids: List[int]
-    response_mask: List[int]
+    prompt_ids: list[int]
+    response_ids: list[int]
+    response_mask: list[int]
     num_turns: int = 0
     metrics: AgentLoopMetrics
 
@@ -148,7 +148,7 @@ class AgentLoopBase(ABC):
         cls._class_initialized = True
 
     @abstractmethod
-    async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> AgentLoopOutput:
+    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
         """Run agent loop to interact with LLM server and environment.
 
         Args:
@@ -165,7 +165,7 @@ class AgentLoopBase(ABC):
 class AgentLoopWorker:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
-    def __init__(self, config: DictConfig, server_handles: List[ray.actor.ActorHandle]):
+    def __init__(self, config: DictConfig, server_handles: list[ray.actor.ActorHandle]):
         """Initialize agent loop manager.
 
         Args:
@@ -248,9 +248,9 @@ class AgentLoopWorker:
     async def _run_agent_loop(
         self,
         agent_name: str,
-        messages: List[Dict[str, Any]],
-        sampling_params: Dict[str, Any],
-        trajectory: Dict[str, Any],
+        messages: list[dict[str, Any]],
+        sampling_params: dict[str, Any],
+        trajectory: dict[str, Any],
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
             step=trajectory["step"], sample_index=trajectory["sample_index"], rollout_n=trajectory["rollout_n"]
@@ -260,7 +260,7 @@ class AgentLoopWorker:
             output = await agent_loop.run(messages, sampling_params)
             return output
 
-    def get_agent_loop_class(self, agent_name: str) -> Type[AgentLoopBase]:
+    def get_agent_loop_class(self, agent_name: str) -> type[AgentLoopBase]:
         # TODO: add tool agent registrary
         from verl.experimental.agent_loop.single_turn_agent_loop import SingleTurnAgentLoop
         from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop
@@ -271,7 +271,7 @@ class AgentLoopWorker:
             return ToolAgentLoop
         raise ValueError(f"Unknown agent_name: {agent_name}")
 
-    def _postprocess(self, inputs: List[AgentLoopOutput]) -> DataProto:
+    def _postprocess(self, inputs: list[AgentLoopOutput]) -> DataProto:
         # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
         # prompts: left pad
         # responses: right pad
@@ -450,7 +450,7 @@ class AgentLoopManager:
         output.meta_info = {"timing": timing}
         return output
 
-    def _performance_metrics(self, metrics: List[List[Dict[str, str]]], output: DataProto) -> Dict[str, float]:
+    def _performance_metrics(self, metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:
         timing = {}
         t_generate_sequences = np.array([metric["generate_sequences"] for chunk in metrics for metric in chunk])
         t_tool_calls = np.array([metric["tool_calls"] for chunk in metrics for metric in chunk])

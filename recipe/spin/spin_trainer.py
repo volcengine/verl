@@ -49,7 +49,7 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 
-WorkerType = Type[Worker]
+WorkerType = type[Worker]
 
 
 class Role(Enum):
@@ -142,7 +142,7 @@ class ResourcePoolManager:
                 )
 
 
-def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
+def _compute_response_info(batch: DataProto) -> dict[str, Any]:
     """Placeholder: Computes prompt and response lengths."""
     try:
         # Assuming 'prompts' and 'responses' keys exist after generation/union
@@ -189,7 +189,7 @@ def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
 
 
 # --- Modified Metric Function ---
-def compute_dpo_data_metrics(batch: DataProto) -> Dict[str, Any]:
+def compute_dpo_data_metrics(batch: DataProto) -> dict[str, Any]:
     """
     Computes and returns metrics relevant for the DPO-like process.
     Assumes 'batch' contains results after generation and preference marking,
@@ -354,7 +354,7 @@ def compute_onlineDPO_pref(data: DataProto):
 
 
 @contextmanager
-def _timer(name: str, timing_raw: Dict[str, float]):
+def _timer(name: str, timing_raw: dict[str, float]):
     with Timer(name=name, logger=None) as timer:
         yield
     timing_raw[name] = timer.last

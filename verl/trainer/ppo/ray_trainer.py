@@ -61,7 +61,7 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 
-WorkerType = Type[Worker]
+WorkerType = type[Worker]
 
 
 class Role(Enum):

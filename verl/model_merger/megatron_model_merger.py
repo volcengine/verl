@@ -140,7 +140,7 @@ class MegatronModelMerger(BaseModelMerger):
             "output_layer": "lm_head",
         }
 
-    def _load_state_dicts(self, model_ckpt_path: str) -> Dict[str, Any]:
+    def _load_state_dicts(self, model_ckpt_path: str) -> dict[str, Any]:
         """_summary_
         Use Megatron dist_checkpointing to load the model state dicts from the checkpoint directory.
 
@@ -270,7 +270,7 @@ class MegatronModelMerger(BaseModelMerger):
         else:
             return [tensor]
 
-    def _merge_state_dicts(self, model_state_dict_list: List[Dict[str, Any]]) -> dict[str, torch.Tensor]:
+    def _merge_state_dicts(self, model_state_dict_list: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
         state_dict = {}
         layers_cum = 0
 

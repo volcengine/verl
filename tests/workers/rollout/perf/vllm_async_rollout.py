@@ -72,7 +72,7 @@ def init_config(n_gpus_per_node) -> DictConfig:
     return config
 
 
-def initialize(config, backend) -> Tuple[AgentLoopManager | RayWorkerGroup, StatefulDataLoader]:
+def initialize(config, backend) -> tuple[AgentLoopManager | RayWorkerGroup, StatefulDataLoader]:
     env_vars = {
         "NCCL_DEBUG": "WARN",
         "VLLM_USE_V1": "1",

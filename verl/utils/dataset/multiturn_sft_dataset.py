@@ -48,7 +48,7 @@ class MultiTurnSFTDataset(Dataset):
     Dataset for multi-turn conversations where each assistant response should be trained
     """
 
-    def __init__(self, parquet_files: str | List[str], tokenizer, config=None):
+    def __init__(self, parquet_files: str | list[str], tokenizer, config=None):
         # Set defaults and extract parameters from config if provided
         config = config or {}
         self.truncation = config.get("truncation", "error")
@@ -60,7 +60,7 @@ class MultiTurnSFTDataset(Dataset):
         self.enable_thinking_key = multiturn_config.get("enable_thinking_key", "enable_thinking")
         assert self.truncation in ["error", "left", "right"]
 
-        if not isinstance(parquet_files, List):
+        if not isinstance(parquet_files, list):
             parquet_files = [parquet_files]
 
         self.parquet_files = parquet_files
@@ -109,13 +109,13 @@ class MultiTurnSFTDataset(Dataset):
 
     def _process_message_tokens(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         start_idx: int,
         end_idx: int,
         is_assistant: bool = False,
         enable_thinking: Optional[bool] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-    ) -> Tuple[List[int], List[int], List[int]]:
+        tools: Optional[list[dict[str, Any]]] = None,
+    ) -> tuple[list[int], list[int], list[int]]:
         """
         Process tokens for a single message or a group of messages.
 
@@ -185,10 +185,10 @@ class MultiTurnSFTDataset(Dataset):
     def _validate_and_convert_tokens(
         self,
         full_tokens: torch.Tensor,
-        concat_tokens: List[int],
-        concat_loss_mask: List[int],
-        concat_attention_mask: List[int],
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        concat_tokens: list[int],
+        concat_loss_mask: list[int],
+        concat_attention_mask: list[int],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Validate tokenization and convert to tensors.
 

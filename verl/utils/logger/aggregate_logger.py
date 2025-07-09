@@ -24,7 +24,7 @@ from typing import Dict
 import torch
 
 
-def concat_dict_to_str(dict: Dict, step):
+def concat_dict_to_str(dict: dict, step):
     output = [f"step:{step}"]
     for k, v in dict.items():
         if isinstance(v, numbers.Number):

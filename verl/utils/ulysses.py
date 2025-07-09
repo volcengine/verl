@@ -179,7 +179,7 @@ class SeqAllToAll(torch.autograd.Function):
         return all_to_all_tensor(local_input, scatter_dim, gather_dim, group, async_op)
 
     @staticmethod
-    def backward(ctx: Any, *grad_output: Tensor) -> Tuple[None, Tensor, None, None]:
+    def backward(ctx: Any, *grad_output: Tensor) -> tuple[None, Tensor, None, None]:
         input_t = torch.cat(grad_output[1:], dim=ctx.gather_dim).contiguous() if ctx.async_op else grad_output[0]
         return (
             None,

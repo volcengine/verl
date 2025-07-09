@@ -226,7 +226,7 @@ class SearchTool(BaseTool):
         return result_text, metadata
 
     @rollout_trace_op
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         """Execute the search tool.
 
         Args:

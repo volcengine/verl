@@ -30,7 +30,7 @@ class MCPSearchTool(MCPBaseTool):
     def __init__(self, config: dict, tool_schema: OpenAIFunctionToolSchema):
         super().__init__(config, tool_schema)
 
-    def _parse_tool_result(self, content: list) -> Tuple[str, dict]:
+    def _parse_tool_result(self, content: list) -> tuple[str, dict]:
         res = ""
         res_cnt = 0
         query_list = []
