@@ -58,8 +58,7 @@ from verl.utils.device import (
     get_torch_device,
 )
 from omegaconf import OmegaConf
-from verl.utils.seqlen_balancing import (get_reverse_idx,
-                                         rearrange_micro_batches)
+from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 import itertools
 from ..base import BaseEngine
 
@@ -69,12 +68,14 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
 
+
 class FSDPEngine(BaseEngine):
     """
     Concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP).
 
     Supports model sharding, activation/optimizer offloading, LoRA, and sequence parallelism.
     """
+
     def __init__(self, config):
         """
         Initialize the FSDPEngine.
@@ -131,7 +132,6 @@ class FSDPEngine(BaseEngine):
             )
         self._is_lora = self.config.model.get("lora_rank", 0) > 0
 
-
     def init_model(self):
         """
         Build the model, optimizer, and learning rate scheduler under FSDP.
@@ -159,7 +159,7 @@ class FSDPEngine(BaseEngine):
             processing_class=self.processor if self.processor is not None else self.tokenizer,
             checkpoint_contents=self.config.checkpoint,
         )
-    
+
     def _build_model_optimizer(self, config):
         # the following line is necessary
         from torch import optim
@@ -345,9 +345,7 @@ class FSDPEngine(BaseEngine):
         from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 
         if warmup_style == "constant":
-            lr_scheduler = get_constant_schedule_with_warmup(
-                optimizer=optimizer, num_warmup_steps=num_warmup_steps
-            )
+            lr_scheduler = get_constant_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=num_warmup_steps)
         elif warmup_style == "cosine":
             lr_scheduler = get_cosine_schedule_with_warmup(
                 optimizer=optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=total_steps
@@ -365,7 +363,6 @@ class FSDPEngine(BaseEngine):
         """
         return EngineTrainModeCtx(self)
 
-
     def eval_mode(self):
         """
         Return a context manager that switches to evaluation mode with FSDP-specific handling.
@@ -373,7 +370,6 @@ class FSDPEngine(BaseEngine):
         Includes activation offload entry/exit.
         """
         return EngineEvalModeCtx(self)
-    
 
     def shard_data(self, data):
         """
@@ -381,26 +377,21 @@ class FSDPEngine(BaseEngine):
         """
         return self.ulysses_sharding_manager.preprocess_data(data)
 
-
     def unshard_data(self, data):
         """
         Postprocess data from sharded format back to full format.
         """
         return self.ulysses_sharding_manager.postprocess_data(data)
 
-
     def get_default_ctx(self):
         use_value_head_model = hasattr(self.module, "v_head")
-        ctx = {"use_value_head_model": use_value_head_model,
-               "ulysses_sequence_parallel_size": self.ulysses_sequence_parallel_size}
+        ctx = {
+            "use_value_head_model": use_value_head_model,
+            "ulysses_sequence_parallel_size": self.ulysses_sequence_parallel_size,
+        }
         return ctx
 
-        
-    def infer_batch(self,
-                    data,
-                    ctx=None,
-                    preprocess_fn=None,
-                    postprocess_fn=None):
+    def infer_batch(self, data, ctx=None, preprocess_fn=None, postprocess_fn=None):
         """
         Perform forward pass using the FSDP-wrapped module.
 
@@ -461,18 +452,13 @@ class FSDPEngine(BaseEngine):
             assert len(indices) == values.size(0), f"{len(indices)} vs. {values.size()}"
             revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
             values = values[revert_indices]
-            
+
         response_mask = data.batch["response_mask"]
-        values = values * response_mask # Only action tokens have values
+        values = values * response_mask  # Only action tokens have values
         output = DataProto.from_dict(tensors={"values": values})
         return output, ctx
-        
 
-    def train_batch(self, 
-                    data, 
-                    ctx=None,
-                    preprocess_fn=None,
-                    postprocess_fn=None):
+    def train_batch(self, data, ctx=None, preprocess_fn=None, postprocess_fn=None):
         """
         Perform forward and backward pass using the FSDP-wrapped module.
 
@@ -489,7 +475,7 @@ class FSDPEngine(BaseEngine):
         # split batch into micro_batches
         mini_batch = data
         select_keys = ["input_ids", "responses", "response_mask", "attention_mask", "position_ids", "values", "returns"]
-        if  "multi_modal_inputs" in mini_batch:
+        if "multi_modal_inputs" in mini_batch:
             non_tensor_select_keys = ["multi_modal_inputs"]
             num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
             micro_batches = mini_batch.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
@@ -509,7 +495,7 @@ class FSDPEngine(BaseEngine):
                 micro_batch = {**micro_batch.batch.to(get_device_id()), **micro_batch.non_tensor_batch}
             else:
                 micro_batch = micro_batch.to(get_device_id())  # critic device is cpu when using offload
-            
+
             # optional microbatch preprocess
             if preprocess_fn is not None:
                 inputs, ctx = preprocess_fn(micro_batch, ctx)
@@ -533,15 +519,13 @@ class FSDPEngine(BaseEngine):
             losses.append(loss)
         return vpreds_list, losses, ctx
 
-
     def optimizer_zero_grad(self):
         """
         Zero gradients and enforce FSDP grad-clipping logic.
         """
         self.optimizer.zero_grad()
 
-
-    def optimizer_step(self):        
+    def optimizer_step(self):
         """
         Clip gradients, skip update if non-finite, and step optimizer.
 
@@ -565,7 +549,6 @@ class FSDPEngine(BaseEngine):
             self.optimizer.step()
         return grad_norm
 
-
     def lr_scheduler_step(self):
         """
         Advance FSDP scheduler and return updated learning rate.
@@ -573,7 +556,6 @@ class FSDPEngine(BaseEngine):
         self.lr_scheduler.step()
         lr = self.lr_scheduler.get_last_lr()
         return lr
-
 
     def set_loss_fn(self, loss_fn):
         """
@@ -583,7 +565,6 @@ class FSDPEngine(BaseEngine):
             loss_fn: Callable(data, preds, ctx) -> (loss_tensor, updated_ctx)
         """
         self.loss_fn = loss_fn
-
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
         """
@@ -606,8 +587,6 @@ class FSDPEngine(BaseEngine):
         else:
             raise ValueError(f"Invalid device type: {device}")
 
-
-
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         """
         Save FSDP checkpoint, handling parameter offload as needed.
@@ -615,12 +594,13 @@ class FSDPEngine(BaseEngine):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.module)
 
-        self.checkpoint_manager.save_checkpoint(local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep)
+        self.checkpoint_manager.save_checkpoint(
+            local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep
+        )
 
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.module)
-
 
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
         """
@@ -631,7 +611,9 @@ class FSDPEngine(BaseEngine):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.module)
 
-        self.checkpoint_manager.load_checkpoint(local_path=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load)
+        self.checkpoint_manager.load_checkpoint(
+            local_path=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load
+        )
 
         torch.distributed.barrier()
         if self._is_offload_param:
@@ -644,7 +626,7 @@ class FSDPEngine(BaseEngine):
 class EngineEvalModeCtx:
     def __init__(self, engine):
         self.engine = engine
-    
+
     def __enter__(self):
         self.engine.mode = "eval"
         if self.engine._is_offload_param:
@@ -653,19 +635,17 @@ class EngineEvalModeCtx:
         self.engine.ulysses_sharding_manager.__enter__()
         self.engine.module.eval()
 
-
     def __exit__(self, exc_type, exc_value, traceback):
         self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
         if self.engine._is_offload_param:
             offload_fsdp_model_to_cpu(self.engine.module)
         self.engine.mode = None
-        
+
 
 class EngineTrainModeCtx:
     def __init__(self, engine):
         self.engine = engine
-    
-    
+
     def __enter__(self):
         self.engine.mode = "train"
         if self.engine._is_offload_param:
@@ -675,7 +655,6 @@ class EngineTrainModeCtx:
 
         self.engine.ulysses_sharding_manager.__enter__()
         self.engine.module.train()
-
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)

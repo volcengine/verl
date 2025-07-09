@@ -22,6 +22,7 @@ class BaseEngine(object):
 
     Engine implementations must subclass BaseEngine and provide concrete behavior for all methods.
     """
+
     def __init__(self, config):
         """
         Initialize the BaseEngine.
@@ -49,7 +50,7 @@ class BaseEngine(object):
         """
         raise NotImplementedError
 
-    def eval_mode(self):        
+    def eval_mode(self):
         """
         Context manager entry for switching the engine and model into evaluation mode.
 
@@ -59,12 +60,7 @@ class BaseEngine(object):
         """
         raise NotImplementedError
 
-    
-    def infer_batch(self, 
-                    batch, 
-                    ctx=None,
-                    preprocess_fn=None, 
-                    postprocess_fn=None):
+    def infer_batch(self, batch, ctx=None, preprocess_fn=None, postprocess_fn=None):
         """
         Execute a forward pass over a batch of data.
 
@@ -78,13 +74,8 @@ class BaseEngine(object):
             (predictions, ctx)
         """
         raise NotImplementedError
-    
 
-    def train_batch(self, 
-                    batch, 
-                    ctx=None,
-                    preprocess_fn=None, 
-                    postprocess_fn=None):
+    def train_batch(self, batch, ctx=None, preprocess_fn=None, postprocess_fn=None):
         """
         Execute a forward pass and backward pass over a batch of data.
 
@@ -146,7 +137,6 @@ class BaseEngine(object):
             Unsharded, combined data.
         """
         raise NotImplementedError
-        
 
     def set_loss_fn(self, loss_fn):
         """
@@ -168,7 +158,6 @@ class BaseEngine(object):
         """
         raise NotImplementedError
 
-
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         """
         Save model, optimizer, and scheduler states to a checkpoint.
@@ -180,7 +169,6 @@ class BaseEngine(object):
             max_ckpt_to_keep: Maximum number of recent checkpoints to retain.
         """
         raise NotImplementedError
-
 
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
         """

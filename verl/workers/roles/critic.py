@@ -29,19 +29,17 @@ from verl.workers.engine.fsdp import FSDPEngine
 from verl.utils.torch_functional import masked_mean
 from verl.utils.py_functional import append_to_dict
 import torch
-from verl.utils.ulysses import (gather_outpus_and_unpad,
-                                ulysses_pad_and_slice_inputs)
+from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 from verl.utils.device import (
     get_device_id,
     is_cuda_available,
     is_npu_available,
 )
+
 if is_cuda_available:
-    from flash_attn.bert_padding import (index_first_axis, pad_input,
-                                         rearrange, unpad_input)
+    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import (
-        index_first_axis, pad_input, rearrange, unpad_input)
+    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
 from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.config import omega_conf_to_dataclass
@@ -65,7 +63,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         def loss_fn(batch, vpreds, ctx):
             values = batch["values"]
-            returns = batch["returns"]                    
+            returns = batch["returns"]
             response_mask = batch["response_mask"]
             micro_batch_metrics = {}
             vf_loss, vf_clipfrac = core_algos.compute_value_loss(
@@ -87,17 +85,16 @@ class CriticWorker(Worker, DistProfilerExtension):
                 "critic/vf_clipfrac": vf_clipfrac.detach().item(),
                 "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
             }
-            
+
             append_to_dict(ctx["metrics"], micro_batch_metrics)
 
             return loss, ctx
-        self.engine.set_loss_fn(loss_fn)
 
+        self.engine.set_loss_fn(loss_fn)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         self.engine.init_model()
-
 
     def get_microbatch_process_fn(self):
         def preprocess_fn_without_rmpad(batch, ctx):
@@ -115,7 +112,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 position_ids = position_ids.transpose(0, 1)
             inputs["position_ids"] = position_ids
             return inputs, ctx
-        
+
         def postprocess_fn_without_rmpad(outputs, ctx):
             response_length = ctx["response_length"]
             use_value_head_model = ctx["use_value_head_model"]
@@ -126,7 +123,6 @@ class CriticWorker(Worker, DistProfilerExtension):
                 values = outputs.logits
             values = values[:, -response_length - 1 : -1].squeeze(-1)
             return values, ctx
-
 
         def preprocess_fn_with_rmpad(batch, ctx):
             ctx["response_length"] = batch["responses"].size(-1)
@@ -143,18 +139,28 @@ class CriticWorker(Worker, DistProfilerExtension):
             if position_ids.dim() == 3:  # qwen2vl mrope
                 position_ids = position_ids.transpose(0, 1)
 
-            input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+            input_ids_rmpad, indices, *_ = unpad_input(
+                input_ids.unsqueeze(-1), attention_mask
+            )  # input_ids_rmpad (total_nnz, ...)
             input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
             # unpad the position_ids to align the rotary
             if position_ids.dim() == 3:
-                position_ids_rmpad = index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
+                position_ids_rmpad = (
+                    index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
+                    .transpose(0, 1)
+                    .unsqueeze(1)
+                )  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
             else:
-                position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(0, 1)
+                position_ids_rmpad = index_first_axis(
+                    rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
+                ).transpose(0, 1)
 
             # pad and slice the inputs if sp > 1
             if ctx["ulysses_sequence_parallel_size"] > 1:
-                input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size)
+                input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
+                    input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size
+                )
                 ctx["pad_size"] = pad_size
 
             inputs["input_ids"] = input_ids_rmpad
@@ -178,21 +184,20 @@ class CriticWorker(Worker, DistProfilerExtension):
 
             # gather output if sp > 1
             if ctx["ulysses_sequence_parallel_size"] > 1:
-                values_rmpad = gather_outpus_and_unpad(values_rmpad, gather_dim=0, unpad_dim=0, padding_size=ctx["pad_size"])
+                values_rmpad = gather_outpus_and_unpad(
+                    values_rmpad, gather_dim=0, unpad_dim=0, padding_size=ctx["pad_size"]
+                )
 
             # pad it back
             values = pad_input(values_rmpad, indices=ctx["indices"], batch=ctx["bs"], seqlen=ctx["seqlen"]).squeeze(-1)
             values = values[:, -response_length - 1 : -1]
             return values, ctx
 
-
         self.use_remove_padding = self.config.model.get("use_remove_padding", False)
         if self.use_remove_padding:
             return preprocess_fn_with_rmpad, postprocess_fn_with_rmpad
         else:
             return preprocess_fn_without_rmpad, postprocess_fn_without_rmpad
-
-
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="cyan")
@@ -208,15 +213,12 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         with self.engine.eval_mode():
             data = self.engine.shard_data(data=data)
-            output, _ = self.engine.infer_batch(data,
-                                                ctx=ctx,
-                                                preprocess_fn=preprocess_fn,
-                                                postprocess_fn=postprocess_fn)
+            output, _ = self.engine.infer_batch(
+                data, ctx=ctx, preprocess_fn=preprocess_fn, postprocess_fn=postprocess_fn
+            )
             output = self.engine.unshard_data(data=output)
         output = output.to("cpu")
         return output
-
-
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="pink")
@@ -229,7 +231,15 @@ class CriticWorker(Worker, DistProfilerExtension):
             data = self.engine.shard_data(data=data)
 
             with Timer(name="update_critic", logger=None) as timer:
-                select_keys = ["input_ids", "responses", "response_mask", "attention_mask", "position_ids", "values", "returns"]
+                select_keys = [
+                    "input_ids",
+                    "responses",
+                    "response_mask",
+                    "attention_mask",
+                    "position_ids",
+                    "values",
+                    "returns",
+                ]
                 batch = data.select(batch_keys=select_keys).batch
                 has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
 
@@ -244,16 +254,15 @@ class CriticWorker(Worker, DistProfilerExtension):
 
                 metrics = {}
                 for epoch in range(self.config.ppo_epochs):
-                    for batch_idx, mini_batch in enumerate(dataloader):   
+                    for batch_idx, mini_batch in enumerate(dataloader):
                         ctx = self.engine.get_default_ctx()
-                        ctx["metrics"] = metrics                     
+                        ctx["metrics"] = metrics
                         self.engine.optimizer_zero_grad()
-                        vpreds_list, losses, ctx = self.engine.train_batch(mini_batch,
-                                                                            ctx=ctx,
-                                                                            preprocess_fn=preprocess_fn,
-                                                                            postprocess_fn=postprocess_fn)
+                        vpreds_list, losses, ctx = self.engine.train_batch(
+                            mini_batch, ctx=ctx, preprocess_fn=preprocess_fn, postprocess_fn=postprocess_fn
+                        )
                         metrics = ctx["metrics"]
-                        grad_norm = self.engine.optimizer_step() 
+                        grad_norm = self.engine.optimizer_step()
                         mini_batch_metrics = {"critic/grad_norm": grad_norm.detach().item()}
                         append_to_dict(metrics, mini_batch_metrics)
                 self.engine.optimizer_zero_grad()
@@ -271,13 +280,10 @@ class CriticWorker(Worker, DistProfilerExtension):
         output = output.to("cpu")
         return output
 
-
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         self.engine.save_checkpoint(local_path, hdfs_path, global_step, max_ckpt_to_keep)
 
-
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
         self.engine.load_checkpoint(local_path, hdfs_path, del_local_after_load)
-
