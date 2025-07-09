@@ -20,6 +20,8 @@ This file contains a Megatron style Hybrid Engine that shares the weights of the
 import asyncio
 import logging
 import os
+from contextlib import contextmanager
+from typing import Optional
 
 import torch.distributed as dist
 from omegaconf import DictConfig
@@ -89,6 +91,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         device_mesh: DeviceMesh | None = None,
         offload_param: bool = False,
         bridge=None,
+        multi_stage_wake_up: bool = False,
     ):
         self.actor_module = actor_module
         self.inference_engine = inference_engine
@@ -100,6 +103,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         self.device_mesh = device_mesh
         self.bridge = bridge
         self.offload_param = offload_param
+        self.multi_stage_wake_up = multi_stage_wake_up
 
         if self.device_mesh is not None:
             self.infer_tp_size = self.device_mesh["tp"].mesh.size()[0]
@@ -117,6 +121,34 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         else:
             self.gen_random_states = None
 
+    @contextmanager
+    def offload_manager(self):
+        loop = asyncio.get_event_loop()
+        try:
+            if self.multi_stage_wake_up:
+                log_gpu_memory_usage("Before resume SGLang weights in sharding manager", logger=logger)
+                loop.run_until_complete(self.resume_memory(tags=["weights"]))
+                log_gpu_memory_usage("After resume SGLang weights in sharding manager", logger=logger)
+            else:
+                log_gpu_memory_usage("Before resume SGLang weights + kv_cache in sharding manager", logger=logger)
+                loop.run_until_complete(self.resume_memory())
+                log_gpu_memory_usage("After resume SGLang weights + kv_cache in sharding manager", logger=logger)
+            get_torch_device().empty_cache()
+            dist.barrier()
+
+            if self.offload_param:
+                load_megatron_model_to_gpu(self.actor_module)
+            yield
+        finally:
+            if self.offload_param:
+                offload_megatron_model_to_cpu(self.actor_module)
+            get_torch_device().empty_cache()
+            dist.barrier()
+
+            if self.multi_stage_wake_up:
+                loop.run_until_complete(self.resume_memory(tags=["kv_cache"]))
+                log_gpu_memory_usage("After resume SGLang kv_cache in sharding manager", logger=logger)
+
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     def __enter__(self):
         self.timing = {}
@@ -132,6 +164,8 @@ class MegatronSGLangShardingManager(BaseShardingManager):
     async def update_weights(self, params):
         if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.resume_memory_occupation()
+        # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
+        # named_tensors = [(k, v) for k, v in params.items()]
         named_tensors = params
         load_format = None
         for tensor_index, (name, tensor) in enumerate(named_tensors):
@@ -166,24 +200,25 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.release_memory_occupation()
 
+    async def resume_memory(self, tags: Optional[list[str]] = None):
+        if self.device_mesh["tp"].get_local_rank() == 0:
+            await self.inference_engine.resume_memory_occupation(tags=tags)
+
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     async def wake_up(self):
-        if self.offload_param:
-            load_megatron_model_to_gpu(self.actor_module)
-        if self.bridge is not None:
-            per_tensor_param = self.bridge.export_weights(self.actor_module)
-        else:
-            per_tensor_param = per_tensor_generator(
-                self.actor_module,
-                self.model_config,
-                self.weight_converter,
-                self.transformer_config,
-                self.layer_name_mapping,
-            )
-        await self.update_weights(per_tensor_param)
-        if self.offload_param:
-            offload_megatron_model_to_cpu(self.actor_module)
-        get_torch_device().empty_cache()
+        with self.offload_manager():
+            if self.bridge is not None:
+                per_tensor_param = self.bridge.export_weights(self.actor_module)
+            else:
+                per_tensor_param = per_tensor_generator(
+                    self.actor_module,
+                    self.model_config,
+                    self.weight_converter,
+                    self.transformer_config,
+                    self.layer_name_mapping,
+                )
+            await self.update_weights(per_tensor_param)
+
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:
             self.torch_random_states = get_torch_device().get_rng_state()
