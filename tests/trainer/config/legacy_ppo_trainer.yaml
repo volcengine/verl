@@ -1100,6 +1100,9 @@ trainer:
 
   # Device to run training on (e.g., "cuda", "cpu")
   device: cuda
+  
+  # whether to use legacy role implementation
+  use_legacy_worker_impl: True
 
 # configs related to ray initialization
 ray_init:
