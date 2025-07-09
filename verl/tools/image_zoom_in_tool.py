@@ -260,13 +260,13 @@ class ImageZoomInTool(BaseTool):
              logger.warning(f"Final bbox is invalid after processing: {current_bbox}")
              return None
 
-        final_height = final_bottom - final_top
-        final_width = final_right - final_left
+        final_height = floor(final_bottom) - floor(final_top)
+        final_width = floor(final_right) - floor(final_left)
 
         if final_height < self.MIN_DIMENSION or final_width < self.MIN_DIMENSION:
             logger.warning(
-                f"Final bbox dimensions ({final_width}x{final_height}) are still smaller "
-                f"than minimum ({self.MIN_DIMENSION}). Original bbox: {bbox_2d}"
+                f"Final bbox size ({final_width}x{final_height}) are still smaller than minimum ({self.MIN_DIMENSION})."
+                f"Original bbox: {bbox_2d}, original image size: {image_width}x{image_height}"
             )
             return None
 
@@ -275,7 +275,7 @@ class ImageZoomInTool(BaseTool):
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
 
-    async def create(self, instance_id: Optional[str], image: dict[str, str | Image.Image], **kwargs) -> str:
+    async def create(self, instance_id: Optional[str], image: Union[str, Image.Image], **kwargs) -> str:
         """
         Creates a new instance for image zoom-in tool.
 
@@ -286,14 +286,12 @@ class ImageZoomInTool(BaseTool):
         Args:
             instance_id: An optional unique identifier for the instance. If not
                 provided, a new UUID will be generated.
-            image: A dictionary specifying the image source. It should contain
-                either an "image" or "image_url" key with one of the following
-                as the value:
+            image: image can be one of the following:
                 - A PIL.Image.Image object.
                 - A string containing an HTTP or HTTPS URL.
                 - A string containing a local file path.
                 - A string containing a file URI (e.g., "file:///path/to/image.jpg").
-                - A string containing a base64-encoded image data URI.
+                - A string containing a base64-encoded image in the format of "data:image/jpeg;base64,..."
             
         Returns:
             The unique identifier for the created instance.
@@ -301,7 +299,7 @@ class ImageZoomInTool(BaseTool):
         if instance_id is None:
             instance_id = str(uuid4())
         
-        img = fetch_image(image)
+        img = fetch_image({"image": image})
         self._instance_dict[instance_id] = {
             "image": img,
             "response": "",
