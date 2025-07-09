@@ -213,8 +213,8 @@ class TaskRunner:
         from verl.utils.dataset.rl_dataset import collate_fn
 
         # Create training and validation datasets.
-        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor)
-        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor)
+        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor, is_train=True)
+        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor, is_train=False)
         train_sampler = create_rl_sampler(config.data, train_dataset)
 
         # Initialize the PPO trainer.
@@ -239,7 +239,7 @@ class TaskRunner:
         trainer.fit()
 
 
-def create_rl_dataset(data_paths, data_config, tokenizer, processor):
+def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=True):
     """Create a dataset.
 
     Arguments:
@@ -266,6 +266,13 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
                 f"The custom dataset class '{data_config.custom_cls.name}' from "
                 f"'{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset"
             )
+    elif "datagen" in data_config and data_config.datagen.get("path", None) is not None and is_train:
+        # If a data generation strategy is specified, use the DynamicGenDataset class
+        from verl.utils.dataset.dynamicgen_dataset import DynamicGenDataset
+
+        dataset_cls = DynamicGenDataset
+        print("Using DynamicGenDataset for data generation.")
+
     else:
         # Use the default RLHFDataset class if no custom class is specified
         dataset_cls = RLHFDataset
