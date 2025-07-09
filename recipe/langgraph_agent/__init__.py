@@ -11,11 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from typing import Dict
 
-from .agent_loop import AgentLoopBase, AgentLoopManager
-from .single_turn_agent_loop import SingleTurnAgentLoop
-from .tool_agent_loop import ToolAgentLoop
+from recipe.langgraph_agent.react_agent_loop import ReactAgentLoop
+from verl.experimental.agent_loop.agent_loop import AgentLoopBase
 
-_ = [SingleTurnAgentLoop, ToolAgentLoop]
 
-__all__ = ["AgentLoopBase", "AgentLoopManager"]
+def agent_loop_loader() -> Dict[str, AgentLoopBase]:
+    return {"react_agent": ReactAgentLoop}

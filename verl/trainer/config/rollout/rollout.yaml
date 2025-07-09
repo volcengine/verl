@@ -170,6 +170,10 @@ agent:
   # Number of agent loop workers
   num_workers: 8
 
+  # Path to the custom agent loop loader function, e.g: recipe.langgraph_agent.agent_loop_loader
+  # Loader should be function: Callable[] -> Dict[str, Type[AgentLoopBase]]
+  custom_agent_loop_loader: null
+
   # custom async server configs
   custom_async_server:
 

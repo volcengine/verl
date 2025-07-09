@@ -109,6 +109,7 @@ class WeatherTool(BaseTool):
         Returns:
             the temperature, the location, and the unit in a dict
         """
+        print(f"[DEBUG] get_current_temperature: {location}, {unit}")
         return {
             "temperature": 26.1,
             "location": location,
@@ -143,6 +144,7 @@ class WeatherToolWithData(BaseTool):
         Returns:
             the temperature, the location, the date and the unit in a dict
         """
+        print(f"[DEBUG] get_temperature_date: {location}, {date}, {unit}")
         return {
             "temperature": 25.9,
             "location": location,
@@ -174,11 +176,11 @@ def test_tool_agent(init_config):
     tool_config = {
         "tools": [
             {
-                "class_name": "tests.workers.rollout.rollout_vllm.test_vllm_chat_scheduler.WeatherTool",
+                "class_name": "tests.experimental.agent_loop.test_basic_agent_loop.WeatherTool",
                 "config": {"type": "native"},
             },
             {
-                "class_name": "tests.workers.rollout.rollout_vllm.test_vllm_chat_scheduler.WeatherToolWithData",
+                "class_name": "tests.experimental.agent_loop.test_basic_agent_loop.WeatherToolWithData",
                 "config": {"type": "native"},
             },
         ]
@@ -238,15 +240,29 @@ def test_tool_agent(init_config):
     tokenizer = hf_tokenizer(init_config.actor_rollout_ref.model.path)
     responses = result.batch["responses"]
     response_mask = result.batch["response_mask"]
+    attention_mask = result.batch["attention_mask"]
     assert responses.size() == response_mask.size(), f"{responses.size()} != {response_mask.size()}"
+    response_length = response_mask.size(1)
 
-    # Decode responses with response_mask
     for i in range(len(responses)):
+        # response with tool response
+        valid_tokens = responses[i][attention_mask[i][-response_length:].bool()]
+        response_with_obs = tokenizer.decode(valid_tokens)
+
+        # response without tool response
         valid_tokens = responses[i][response_mask[i].bool()]
-        response_str = tokenizer.decode(valid_tokens)
-        assert "<tool_response>" not in response_str, f"found <tool_response> in response: {response_str}"
-        assert "</tool_response>" not in response_str, f"found </tool_response> in response: {response_str}"
-        print(f"response: {response_str}")
+        response_without_obs = tokenizer.decode(valid_tokens)
+
+        assert "<tool_response>" not in response_without_obs, (
+            f"found <tool_response> in response: {response_without_obs}"
+        )
+        assert "</tool_response>" not in response_without_obs, (
+            f"found </tool_response> in response: {response_without_obs}"
+        )
+        print("=========================")
+        print(response_with_obs)
+        print("---")
+        print(response_without_obs)
 
     print("Test passed!")
     ray.shutdown()
