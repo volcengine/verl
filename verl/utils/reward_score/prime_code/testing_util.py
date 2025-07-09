@@ -440,14 +440,14 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                 try:
                     all_ints = all(
                         combined_int_check(e1) and combined_int_check(e2)
-                        for e1, e2 in zip(output, in_outs["outputs"][index])
+                        for e1, e2 in zip(output, in_outs["outputs"][index], strict=True)
                     )
                     if not all_ints:
                         if debug:
                             print(
                                 [
                                     combined_int_check(e1) and combined_int_check(e2)
-                                    for e1, e2 in zip(output, in_outs["outputs"][index])
+                                    for e1, e2 in zip(output, in_outs["outputs"][index], strict=True)
                                 ]
                             )
                         output_float = [float(e) for e in output]
@@ -465,7 +465,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                     if isinstance(output[0], list):
                         all_ints = all(
                             combined_int_check(e1) and combined_int_check(e2)
-                            for e1, e2 in zip(output[0], in_outs["outputs"][index])
+                            for e1, e2 in zip(output[0], in_outs["outputs"][index], strict=True)
                         )
                         if not all_ints:
                             output_float = [float(e) for e in output[0]]

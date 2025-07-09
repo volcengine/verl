@@ -23,6 +23,9 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
+from transformers import PretrainedConfig
+
+import verl.utils.megatron.tensor_parallel as tp_utils
 from megatron.core import ModelParallelConfig, mpu, tensor_parallel
 from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import DistributedDataParallelConfig
@@ -31,9 +34,6 @@ from megatron.core.optimizer import ChainedOptimizer, OptimizerConfig
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
-from transformers import PretrainedConfig
-
-import verl.utils.megatron.tensor_parallel as tp_utils
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.fs import local_mkdir_safe
 from verl.utils.model import normalize_model_name
@@ -831,7 +831,7 @@ def per_tensor_generator(
             global_expert_ids = [num_experts_per_rank * ep_rank + local_expert_id for ep_rank in range(ep_size)]
             global_expert_names = [f"{name_prefix}.weight{expert_id}" for expert_id in global_expert_ids]
 
-            for name, param in zip(global_expert_names, infer_params):
+            for name, param in zip(global_expert_names, infer_params, strict=True):
                 if etp_size > 1:
                     # gather etp
                     etp_params = [torch.empty_like(param) for _ in range(etp_size)]
@@ -853,7 +853,7 @@ def per_tensor_generator(
                     merge_params = [merge_params]
                 converted_names, converted_params = weight_converter.convert_param(name, merge_params)
 
-                yield from zip(converted_names, converted_params)
+                yield from zip(converted_names, converted_params, strict=True)
             continue
 
         # tp all gather
@@ -880,7 +880,7 @@ def per_tensor_generator(
             infer_params = [infer_params]
         converted_names, converted_params = weight_converter.convert_param(cur_name, infer_params)
 
-        yield from zip(converted_names, converted_params)
+        yield from zip(converted_names, converted_params, strict=True)
 
 
 def get_transformer_layer_offset(pipeline_rank, vp_rank, config: TransformerConfig):

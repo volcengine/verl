@@ -204,7 +204,7 @@ class MultiTurnSFTDataset(Dataset):
         full_tokens_list = full_tokens.tolist()
 
         if len(concat_tokens) != len(full_tokens_list) or not all(
-            a == b for a, b in zip(concat_tokens, full_tokens_list)
+            a == b for a, b in zip(concat_tokens, full_tokens_list, strict=True)
         ):
             logging.warning(
                 f"Token mismatch detected! Full tokenization length: {len(full_tokens_list)}, Concatenated tokens "

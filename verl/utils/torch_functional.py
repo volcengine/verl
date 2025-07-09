@@ -125,7 +125,7 @@ def logprobs_from_logits_v2(logits: torch.FloatTensor, labels):
     else:
         # logsumexp approach is unstable with bfloat16, fall back to slightly less efficent approach
         logprobs_labels = []
-        for row_logits, row_labels in zip(logits, labels):  # loop to reduce peak mem consumption
+        for row_logits, row_labels in zip(logits, labels, strict=True):  # loop to reduce peak mem consumption
             row_logprobs = F.log_softmax(row_logits, dim=-1)
             row_logprobs_labels = row_logprobs.gather(dim=-1, index=row_labels.unsqueeze(-1)).squeeze(-1)
             logprobs_labels.append(row_logprobs_labels)
@@ -414,7 +414,7 @@ def remove_pad_token(input_ids: torch.Tensor, attention_mask: torch.Tensor):
         no_padding_batch(List[List[int]]): contains the rmpad token ids per query.
     """
     no_padding_batch = []
-    for ids, mask in zip(input_ids, attention_mask):
+    for ids, mask in zip(input_ids, attention_mask, strict=True):
         no_padding_batch.append((ids[len(ids) - mask.sum() :]).cpu().numpy().tolist())
     return no_padding_batch
 

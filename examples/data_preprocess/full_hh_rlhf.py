@@ -23,7 +23,6 @@ import os
 import pandas as pd
 from datasets import load_dataset
 from tqdm.auto import tqdm
-
 from verl.utils.fs import copy, makedirs
 
 
@@ -62,7 +61,7 @@ def generate_rm_dataset(target_hdfs_path_dir, local_dir="~/data/full_hh_rlh/rm")
     local_dir = os.path.expanduser(local_dir)
     os.makedirs(local_dir, exist_ok=True)
 
-    for dataset, name in zip([train_dataset, test_dataset], ["train", "test"]):
+    for dataset, name in zip([train_dataset, test_dataset], ["train", "test"], strict=True):
         output = {"prompt": [], "chosen": [], "rejected": []}
         for data in tqdm(dataset):
             # add chosen

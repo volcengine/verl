@@ -365,7 +365,7 @@ def retrieve_endpoint(request: QueryRequest):
         if request.return_scores:
             # If scores are returned, combine them with results
             combined = []
-            for doc, score in zip(single_result, scores[i]):
+            for doc, score in zip(single_result, scores[i], strict=True):
                 combined.append({"document": doc, "score": score})
             resp.append(combined)
         else:

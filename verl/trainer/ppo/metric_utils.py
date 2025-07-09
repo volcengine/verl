@@ -416,7 +416,9 @@ def process_validation_metrics(
                         metric[f"best@{n}/mean"], metric[f"best@{n}/std"] = bon_mean, bon_std
                         metric[f"worst@{n}/mean"], metric[f"worst@{n}/std"] = won_mean, won_std
                         if var2vals.get("pred", None) is not None:
-                            vote_data = [{"val": val, "pred": pred} for val, pred in zip(var_vals, var2vals["pred"])]
+                            vote_data = [
+                                {"val": val, "pred": pred} for val, pred in zip(var_vals, var2vals["pred"], strict=True)
+                            ]
                             [(maj_n_mean, maj_n_std)] = bootstrap_metric(
                                 data=vote_data,
                                 subset_size=n,

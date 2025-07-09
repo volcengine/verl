@@ -835,7 +835,11 @@ def create_colocated_worker_raw_cls(class_dict: dict[str, RayClassWithInitArgs])
             self.init_kwargs_dict = init_kwargs_dict
 
             for cls_name, udc, ud_args, ud_kwargs in zip(
-                self.cls_names, self.raw_cls_dict.values(), self.init_args_dict.values(), self.init_kwargs_dict.values()
+                self.cls_names,
+                self.raw_cls_dict.values(),
+                self.init_args_dict.values(),
+                self.init_kwargs_dict.values(),
+                strict=True,
             ):
                 with patch.dict(os.environ, {"DISABLE_WORKER_INIT": "1"}):
                     udc._get_ray_actor_cls_name = lambda x, name_renamed=class_name_renamed: name_renamed

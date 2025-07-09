@@ -206,7 +206,9 @@ def _post_process_outputs(processing_class, output):
 
     def _map_each_response(resp):
         output_token_logprobs = resp["meta_info"]["output_token_logprobs"]
-        log_probs, output_token_ids = zip(*[(log_prob, token_ids) for log_prob, token_ids, _ in output_token_logprobs])
+        log_probs, output_token_ids = zip(
+            *[(log_prob, token_ids) for log_prob, token_ids, _ in output_token_logprobs], strict=True
+        )
         return torch.tensor(output_token_ids), torch.tensor(log_probs)
 
     out_map = map(lambda x: _map_each_response(x), output)
@@ -614,6 +616,7 @@ class SGLangRollout(BaseRollout):
             for raw_prompt_ids, multi_modal_data in zip(
                 non_tensor_batch.pop("raw_prompt_ids"),
                 non_tensor_batch.pop("multi_modal_data"),
+                strict=True,
             ):
                 sglang_inputs.append(
                     {
@@ -821,7 +824,7 @@ class SGLangRollout(BaseRollout):
                         ]
                     )
                     _req.add_tool_response_messages(self.processing_class, [resp for resp, _, _ in tool_call_results])
-                    for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results):
+                    for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results, strict=True):
                         _req.update_metrics(metrics, tool_call.function.name)
                     if len(_req.input_ids) >= self.config.max_model_len:
                         finish_reason_type = FinishReasonTypeEnum.STOP
@@ -1206,7 +1209,7 @@ class SGLangRollout(BaseRollout):
         )
 
         for data_idx, (raw_prompt, multi_modal_data) in enumerate(
-            zip(prompts.non_tensor_batch["raw_prompt"], multi_modal_data_list)
+            zip(prompts.non_tensor_batch["raw_prompt"], multi_modal_data_list, strict=True)
         ):
             if self._tool_schemas:
                 _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]

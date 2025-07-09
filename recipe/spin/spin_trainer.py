@@ -28,11 +28,10 @@ import ray
 import torch
 from codetiming import Timer
 from omegaconf import OmegaConf, open_dict
+from recipe.spin import core_algos
 from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
-
-from recipe.spin import core_algos
 from verl import DataProto
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
@@ -634,7 +633,7 @@ class RaySPINTrainer:
         import numpy as np
 
         # Create tuples of (input, output, score) and sort by input text
-        samples = list(zip(inputs, outputs, scores))
+        samples = list(zip(inputs, outputs, scores, strict=True))
         samples.sort(key=lambda x: x[0])  # Sort by input text
 
         # Use fixed random seed for deterministic shuffling
@@ -988,7 +987,6 @@ class RaySPINTrainer:
         import traceback  # Ensure traceback is imported
 
         from omegaconf import OmegaConf
-
         from verl.utils.tracking import Tracking
 
         # Initialize logger

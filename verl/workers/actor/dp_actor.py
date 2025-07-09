@@ -424,7 +424,7 @@ class DataParallelPPOActor(BasePPOActor):
                         )
 
                         for current_original_indices, text_mb_td in zip(
-                            textual_indices, rearranged_text_micro_batches_tds
+                            textual_indices, rearranged_text_micro_batches_tds, strict=True
                         ):
                             current_mm_inputs_list = [
                                 all_multi_modal_inputs_list[idx] for idx in current_original_indices

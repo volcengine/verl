@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import ray
-
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.ray.base import (
@@ -80,7 +79,7 @@ def test_fused_workers():
     print(y)
     z = fused_wg.foo(0.1)
     print(z)
-    for i, j in zip(y, z):
+    for i, j in zip(y, z, strict=True):
         assert i == j
 
     ray.shutdown()

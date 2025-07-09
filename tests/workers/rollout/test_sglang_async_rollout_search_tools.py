@@ -23,8 +23,6 @@ import numpy as np
 import pytest
 from tensordict import TensorDict
 from transformers import AutoConfig, AutoTokenizer
-from utils_sglang import get_rollout_config, prepare_inputs
-
 from verl.protocol import DataProto
 from verl.tools.schemas import (
     OpenAIFunctionParametersSchema,
@@ -35,6 +33,8 @@ from verl.tools.schemas import (
 from verl.tools.search_tool import SearchTool
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
+
+from utils_sglang import get_rollout_config, prepare_inputs
 
 DEFAULT_USER_CONTENT_PREFIX = (
     "Answer the given question. You must conduct reasoning inside <think> and </think> "
@@ -310,7 +310,7 @@ class TestRolloutWithSearchTools:
 
         mock_rollout._handle_engine_call = MagicMock()
         futures = [asyncio.Future() for i in expect_turn_array]
-        for idx, (i, turn) in enumerate(zip(futures, expect_turn_array)):
+        for idx, (i, turn) in enumerate(zip(futures, expect_turn_array, strict=True)):
             i.set_result(
                 {
                     "text": turn,
@@ -378,7 +378,7 @@ class TestRolloutWithSearchTools:
             req_list.append(MagicMock(wraps=tmp_req, spec=AsyncRolloutRequest))
 
             futures = [asyncio.Future() for _ in expect_turn_array]
-            for idx, (fut, turn) in enumerate(zip(futures, expect_turn_array)):
+            for idx, (fut, turn) in enumerate(zip(futures, expect_turn_array, strict=True)):
                 fut.set_result(
                     {
                         "text": turn,

@@ -24,7 +24,6 @@ from pprint import pprint
 import numpy as np
 import torch
 from tqdm import tqdm
-
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import (
@@ -56,7 +55,6 @@ class RayDAPOTrainer(RayPPOTrainer):
         The light-weight advantage computation is done on the driver process.
         """
         from omegaconf import OmegaConf
-
         from verl.utils.tracking import Tracking
 
         logger = Tracking(
@@ -209,7 +207,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                         # Collect the sequence reward for each trajectory
                         prompt_uid2metric_vals = defaultdict(list)
                         for uid, metric_val in zip(
-                            new_batch.non_tensor_batch["uid"], new_batch.non_tensor_batch[metric_name]
+                            new_batch.non_tensor_batch["uid"], new_batch.non_tensor_batch[metric_name], strict=True
                         ):
                             prompt_uid2metric_vals[uid].append(metric_val)
 

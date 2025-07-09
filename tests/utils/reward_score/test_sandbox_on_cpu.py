@@ -17,7 +17,6 @@ import json
 import os
 
 import pytest
-
 from verl.utils.reward_score import default_compute_score, prime_code, sandbox_fusion
 from verl.utils.reward_score.prime_code import apps_check_correctness
 from verl.workers.reward_manager.prime import parallel_compute_score_async
@@ -120,7 +119,7 @@ def test_prime_code():
     Test PRIME code sandbox.
     """
     data_source = "codecontests"
-    for completion, ground_truth, score_ in zip(prime_code_answers, prime_code_gts, prime_code_scores):
+    for completion, ground_truth, score_ in zip(prime_code_answers, prime_code_gts, prime_code_scores, strict=True):
         score = default_compute_score(data_source, completion, ground_truth)
         assert float(score) == score_
 
@@ -136,7 +135,7 @@ def test_prime_code_sandbox_fusion():
     sandbox_fusion_url = os.environ.get("SANDBOX_FUSION_URL")
     # Removed the previous 'if not sandbox_url' check block
 
-    for completion, ground_truth, score_ in zip(prime_code_answers, prime_code_gts, prime_code_scores):
+    for completion, ground_truth, score_ in zip(prime_code_answers, prime_code_gts, prime_code_scores, strict=True):
         score = default_compute_score(
             data_source, completion, ground_truth, extra_info={"sandbox_fusion_url": sandbox_fusion_url}
         )  # <-- Use the URL obtained from the environment variable
@@ -180,6 +179,6 @@ def test_check_correctness():
 
 def test_prime_math():
     data_source = "numina_aops_forum"
-    for completion, ground_truth in zip(prime_math_answers, prime_math_gts):
+    for completion, ground_truth in zip(prime_math_answers, prime_math_gts, strict=True):
         score = default_compute_score(data_source, completion, ground_truth)
         assert float(score) == 1.0

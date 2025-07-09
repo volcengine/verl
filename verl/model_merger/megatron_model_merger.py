@@ -306,7 +306,7 @@ class MegatronModelMerger(BaseModelMerger):
                     state_dict[hf_name] = split_tensor[0]
                 elif len(split_tensor) == 3:
                     # split qkv
-                    for n, d in zip(["q", "k", "v"], split_tensor):
+                    for n, d in zip(["q", "k", "v"], split_tensor, strict=True):
                         state_dict[hf_name.replace("qkv", n)] = d
                 elif len(split_tensor) == 2:
                     # split gate up

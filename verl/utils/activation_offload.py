@@ -448,7 +448,7 @@ class ActivationHandler:
         if len(kwarg_keys) == 0:
             return flat_args, {}
         args = flat_args[: -len(kwarg_keys)]
-        kwargs = dict(zip(kwarg_keys, flat_args[-len(kwarg_keys) :]))
+        kwargs = dict(zip(kwarg_keys, flat_args[-len(kwarg_keys) :], strict=True))
         return args, kwargs
 
     def _ckpt_forward(self, forward_method, *args, **kwargs):

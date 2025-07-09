@@ -53,7 +53,7 @@ async def parallel_compute_score_async(
             # Create tasks for all rows
             tasks_async = [
                 single_compute_score(evaluation_func, c, r, t, ei, executor, timeout=300.0)
-                for c, r, t, ei in zip(completions, references, tasks, extra_info)
+                for c, r, t, ei in zip(completions, references, tasks, extra_info, strict=True)
             ]
             results = await asyncio.gather(*tasks_async, return_exceptions=False)
         except Exception as e:
@@ -75,7 +75,7 @@ async def parallel_compute_score_async(
             print(f"[Shutdown] {terminated_count} subprocess(es) terminated.")
 
     # Process results
-    for result, completion, reference, task in zip(results, completions, references, tasks):
+    for result, completion, reference, task in zip(results, completions, references, tasks, strict=True):
         if isinstance(result, Exception) or result is None:
             # Handle failed or timed-out tasks
             scores.append(0.0)

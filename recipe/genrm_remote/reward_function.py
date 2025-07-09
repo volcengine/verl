@@ -16,7 +16,6 @@ from concurrent.futures import ThreadPoolExecutor
 from time import sleep
 
 import requests
-
 from verl.utils.reward_score.math import last_boxed_only_string, remove_boxed
 
 BASE_URL = "http://localhost:30000"
@@ -100,7 +99,7 @@ def compute_score_batch(data_sources, solution_strs, ground_truths, extra_infos)
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = []
         for data_source, solution_str, ground_truth, extra_info in zip(
-            data_sources, solution_strs, ground_truths, extra_infos
+            data_sources, solution_strs, ground_truths, extra_infos, strict=True
         ):
             future = executor.submit(compute_score, data_source, solution_str, ground_truth, extra_info)
             futures.append(future)

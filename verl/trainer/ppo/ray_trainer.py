@@ -653,7 +653,7 @@ class RayPPOTrainer:
         import numpy as np
 
         # Create tuples of (input, output, score) and sort by input text
-        samples = list(zip(inputs, outputs, scores))
+        samples = list(zip(inputs, outputs, scores, strict=True))
         samples.sort(key=lambda x: x[0])  # Sort by input text
 
         # Use fixed random seed for deterministic shuffling

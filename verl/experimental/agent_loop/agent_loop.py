@@ -236,7 +236,7 @@ class AgentLoopWorker:
 
         trajectory_info = await get_trajectory_info(batch.meta_info.get("global_steps", -1), index)
 
-        for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info):
+        for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
             tasks.append(
                 asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory))
             )
@@ -437,7 +437,10 @@ class AgentLoopManager:
             self.wake_up()
         chunkes = prompts.chunk(len(self.agent_loop_workers))
         outputs = ray.get(
-            [worker.generate_sequences.remote(chunk) for worker, chunk in zip(self.agent_loop_workers, chunkes)]
+            [
+                worker.generate_sequences.remote(chunk)
+                for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
+            ]
         )
         output = DataProto.concat(outputs)
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
