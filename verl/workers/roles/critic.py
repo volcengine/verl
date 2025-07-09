@@ -18,31 +18,30 @@ The main entry point to run the PPO algorithm
 import logging
 import os
 
+import torch
 from codetiming import Timer
 
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.trainer.ppo import core_algos
-from verl.workers.engine.fsdp import FSDPEngine
-
-from verl.utils.torch_functional import masked_mean
-from verl.utils.py_functional import append_to_dict
-import torch
-from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 from verl.utils.device import (
     get_device_id,
     is_cuda_available,
     is_npu_available,
 )
+from verl.utils.py_functional import append_to_dict
+from verl.utils.torch_functional import masked_mean
+from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
+from verl.workers.engine.fsdp import FSDPEngine
 
 if is_cuda_available:
     from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 elif is_npu_available:
     from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
-from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.config import omega_conf_to_dataclass
+from verl.utils.profiler import DistProfiler, DistProfilerExtension
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))

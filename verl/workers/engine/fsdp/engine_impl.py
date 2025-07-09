@@ -15,28 +15,37 @@
 The concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP)
 """
 
+import gc
+import itertools
 import logging
 import os
 import warnings
-import gc
 
 import torch
 import torch.distributed
+from omegaconf import OmegaConf
 from peft import LoraConfig, TaskType, get_peft_model
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
+from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.debug import log_gpu_memory_usage
-from verl.utils.device import get_device_name, get_torch_device
+from verl.utils.device import (
+    get_device_id,
+    get_device_name,
+    get_torch_device,
+)
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import (
     CPUOffloadPolicy,
+    FSDPModule,
     MixedPrecisionPolicy,
     apply_fsdp2,
+    fsdp2_clip_grad_norm_,
     fsdp2_load_full_state_dict,
     get_fsdp_wrap_policy,
     get_init_weight_context_manager,
@@ -48,19 +57,11 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.py_functional import convert_to_regular_types
-from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
-from .utils import create_device_mesh, get_sharding_strategy
-from verl import DataProto
-from verl.utils.device import (
-    get_device_id,
-    get_device_name,
-    get_torch_device,
-)
-from omegaconf import OmegaConf
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
-import itertools
+from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+
 from ..base import BaseEngine
+from .utils import create_device_mesh, get_sharding_strategy
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
