@@ -94,6 +94,17 @@ data:
   # Whether to return multi-modal inputs in the dataset. Set to False if rollout generates new multi-modal inputs.
   return_multi_modal_inputs: True
 
+  # Data generation configuration for augmenting the dataset.
+  datagen:
+
+    # The path to the file containing your customized data generation class.
+    # E.g. 'pkg://verl.experimental.dynamic_dataset.dynamicgen_dataset'
+    path: null
+
+    # The class name of the data generation class within the specified file.
+    # E.g. 'MockDataGenerator'
+    name: null
+
   # settings related to data sampler
   sampler:
 
