@@ -13,20 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import logging
 import os
 import threading
 from contextlib import ExitStack
 from enum import Enum
+from math import ceil, floor
 from typing import Any, Callable, Optional, Tuple, TypeVar, Union
 from uuid import uuid4
-from math import ceil, floor
 
 import ray
 import ray.actor
 from PIL import Image
-from verl.utils.dataset.vision_utils import process_image
 from qwen_vl_utils import fetch_image
 
 from .base_tool import BaseTool
@@ -137,7 +135,10 @@ class ImageZoomInTool(BaseTool):
             "type": "function",
             "function": {
                 "name": "image_zoom_in_tool",
-                "description": "Zoom in on a specific region of an image by cropping it based on a bounding box (bbox) and an optional object label.",
+                "description": (
+                    "Zoom in on a specific region of an image by cropping it based on a bounding box (bbox) and an "
+                    "optional object label."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -146,7 +147,10 @@ class ImageZoomInTool(BaseTool):
                             "items":{"type":"number"},
                             "minItems":4,
                             "maxItems":4,
-                            "description": "The bounding box of the region to zoom in, as [x1, y1, x2, y2], where (x1, y1) is the top-left corner and (x2, y2) is the bottom-right corner.",
+                            "description": (
+                                "The bounding box of the region to zoom in, as [x1, y1, x2, y2], where (x1, y1) is "
+                                "the top-left corner and (x2, y2) is the bottom-right corner."
+                            ),
                         },
                         "label": {
                             "type": "string",
@@ -193,7 +197,7 @@ class ImageZoomInTool(BaseTool):
             if max(height, width) / min(height, width) > 100:
                 logger.warning(f"Bbox aspect ratio > 100: left={left}, top={top}, right={right}, bottom={bottom}")
                 return False
-                
+
             return True
         except Exception as e:
             logger.warning(f"Bbox validation error: {e}")
@@ -206,7 +210,7 @@ class ImageZoomInTool(BaseTool):
         This function ensures the final bounding box is within image bounds and meets the minimum
         dimension requirements. If the initial box is too small, it attempts to expand it
         from its center. It performs a final check to guarantee the output dimensions are valid.
-        
+
         Returns:
             A valid bounding box as a list of coordinates, or None if validation fails.
         """
@@ -217,7 +221,7 @@ class ImageZoomInTool(BaseTool):
         top = max(0.0, float(top))
         right = min(float(image_width), float(right))
         bottom = min(float(image_height), float(bottom))
-        
+
         # 2. If clamped bbox is invalid, return immediately.
         if not self._validate_bbox(left, top, right, bottom):
             return None
@@ -231,7 +235,7 @@ class ImageZoomInTool(BaseTool):
             logger.info(f"Bbox {width}x{height} is smaller than {self.MIN_DIMENSION}, attempting resize.")
             center_x = (left + right) / 2.0
             center_y = (top + bottom) / 2.0
-            
+
             min_dim = min(height, width)
             # This should have been caught by _validate_bbox, but as a safeguard:
             if min_dim == 0:
@@ -240,7 +244,7 @@ class ImageZoomInTool(BaseTool):
             ratio = self.MIN_DIMENSION / min_dim
             new_half_height = ceil(height * ratio * 0.5)
             new_half_width = ceil(width * ratio * 0.5)
-            
+
             new_left = floor(center_x - new_half_width)
             new_right = ceil(center_x + new_half_width)
             new_top = floor(center_y - new_half_height)
@@ -251,14 +255,14 @@ class ImageZoomInTool(BaseTool):
             new_top = max(0.0, new_top)
             new_right = min(float(image_width), new_right)
             new_bottom = min(float(image_height), new_bottom)
-            
+
             current_bbox = [new_left, new_top, new_right, new_bottom]
 
         # 4. Final validation on the resulting bounding box (either original or resized).
         final_left, final_top, final_right, final_bottom = current_bbox
         if not self._validate_bbox(final_left, final_top, final_right, final_bottom):
-             logger.warning(f"Final bbox is invalid after processing: {current_bbox}")
-             return None
+            logger.warning(f"Final bbox is invalid after processing: {current_bbox}")
+            return None
 
         final_height = floor(final_bottom) - floor(final_top)
         final_width = floor(final_right) - floor(final_left)
@@ -292,13 +296,13 @@ class ImageZoomInTool(BaseTool):
                 - A string containing a local file path.
                 - A string containing a file URI (e.g., "file:///path/to/image.jpg").
                 - A string containing a base64-encoded image in the format of "data:image/jpeg;base64,..."
-            
+
         Returns:
             The unique identifier for the created instance.
         """
         if instance_id is None:
             instance_id = str(uuid4())
-        
+
         img = fetch_image({"image": image})
         self._instance_dict[instance_id] = {
             "image": img,
@@ -312,7 +316,7 @@ class ImageZoomInTool(BaseTool):
         label = parameters.get("label", "")
 
         if not bbox_2d or len(bbox_2d) != 4:
-            return f"Error: bbox_2d parameter is missing or not a list of 4 numbers.", -0.05, {"success": False}
+            return "Error: bbox_2d parameter is missing or not a list of 4 numbers.", -0.05, {"success": False}
 
         instance_data = self._instance_dict[instance_id]
         image = instance_data["image"]
@@ -322,7 +326,10 @@ class ImageZoomInTool(BaseTool):
             resized_bbox = self._maybe_resize_bbox(bbox_2d, image_width=image_width, image_height=image_height)
 
             if resized_bbox is None:
-                error_msg = f"Error: The specified bounding box {bbox_2d} is invalid or results in a crop smaller than the minimum size of {self.MIN_DIMENSION}x{self.MIN_DIMENSION}."
+                error_msg = (
+                    f"Error: The specified bounding box {bbox_2d} is invalid or results in a crop smaller than "
+                    f"the minimum size of {self.MIN_DIMENSION}x{self.MIN_DIMENSION}."
+                )
                 logger.warning(f"Tool execution failed: {error_msg}")
                 return error_msg, -0.05, {"success": False}
 
@@ -336,11 +343,15 @@ class ImageZoomInTool(BaseTool):
         if label:
             response_text = f"Zoomed in on the image to the region {bbox_2d} with label {label}."
 
-        return {
-            "image": [cropped_image],
-            "text": response_text,
-        }, 0.0, {"success": True}
+        return (
+            {
+                "image": [cropped_image],
+                "text": response_text,
+            },
+            0.0,
+            {"success": True},
+        )
 
     async def release(self, instance_id: str, **kwargs) -> None:
         if instance_id in self._instance_dict:
-            del self._instance_dict[instance_id] 
+            del self._instance_dict[instance_id]
