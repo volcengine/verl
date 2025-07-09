@@ -16,7 +16,7 @@ The abstract base class defining the interface for model training engines.
 """
 
 
-class BaseEngine(object):
+class BaseEngine:
     """
     Abstract base class defining the interface for model training engines.
 

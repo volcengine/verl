@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from torch.distributed.device_mesh import init_device_mesh
-from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
+
+from verl.utils.device import get_device_name
 
 
 def create_device_mesh(world_size, fsdp_size):
