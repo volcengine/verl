@@ -11,6 +11,9 @@ defaults:
   # actor_rollout_ref.actor: trainer/config/actor/dp_actor.yaml
   - actor@actor_rollout_ref.actor: dp_actor
 
+  # trainer.npu_profile: trainer/config/npu_profile/npu_profile.yaml
+  - npu_profile@trainer.npu_profile: npu_profile
+
   # data: trainer/config/data/legacy_data.yaml
   - data@data: legacy_data
 
@@ -99,7 +102,7 @@ actor_rollout_ref:
 
     # for huge model, layered summon can save memory (prevent OOM) but make it slower
     layered_summon: False
- 
+
 # configs for the critic
 critic:
 
