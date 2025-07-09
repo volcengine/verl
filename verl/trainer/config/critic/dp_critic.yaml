@@ -76,10 +76,10 @@ model:
   # LoRA target modules: "all-linear" or list of linear projection layers
   target_modules: all-linear
 
-# Forward-only batch size (global)
+# Forward-only batch size during inference (global)
 forward_micro_batch_size: ${critic.ppo_micro_batch_size}
 
-# Forward-only batch size (per GPU)
+# Forward-only batch size during inference (per GPU)
 forward_micro_batch_size_per_gpu: ${critic.ppo_micro_batch_size_per_gpu}
 
 # Sequence parallelism size for Ulysses-style model parallelism
