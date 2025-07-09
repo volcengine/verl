@@ -26,15 +26,12 @@ python recipe/deepeyes/deepeyes47k_preprocess.py --dataset_dir <your_local_data_
 Next, launch an inference service to act as a judge for reward calculation. You can use the following script as a reference:
 
 ```bash
-vllm serve /path/to/Qwen2.5-72B-Instruct \
+python -m sglang.launch_server --model-path /path/to/Qwen2.5-72B-Instruct \
     --port 18901 \
-    --gpu-memory-utilization 0.8 \
+    --tp-size 8 \
     --max-model-len 32768 \
-    --tensor-parallel-size 1 \
-    --served-model-name "judge" \
     --trust-remote-code \
-    --disable-log-requests \
-    --tensor-parallel-size 8 \
+    --log-requests false
 ```
 
 Finally, you can start the training:
