@@ -28,20 +28,15 @@ from verl.trainer.ppo import core_algos
 from verl.utils.device import (
     get_device_id,
     is_cuda_available,
-    is_npu_available,
 )
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
-from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 from verl.workers.engine import get_training_engine
 
-if is_cuda_available:
-    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
-elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.profiler import DistProfiler, DistProfilerExtension
+from verl.workers.roles.processor import get_processor_cls
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -61,7 +56,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         engine_cls = get_training_engine(self.config.strategy)
         self.engine = engine_cls(self.config)
 
-        def loss_fn(batch, vpreds, ctx):
+        def loss_fn(batch, vpreds, metrics):
             values = batch["values"]
             returns = batch["returns"]
             response_mask = batch["response_mask"]
@@ -78,7 +73,8 @@ class CriticWorker(Worker, DistProfilerExtension):
                 # relative to the dynamic bsz
                 loss = vf_loss * (len(batch) / self.config.ppo_mini_batch_size)
             else:
-                loss = vf_loss / ctx["gradient_accumulation"]
+                gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                loss = vf_loss / gradient_accumulation
 
             micro_batch_metrics = {
                 "critic/vf_loss": vf_loss.detach().item(),
@@ -86,9 +82,8 @@ class CriticWorker(Worker, DistProfilerExtension):
                 "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
             }
 
-            append_to_dict(ctx["metrics"], micro_batch_metrics)
-
-            return loss, ctx
+            append_to_dict(metrics, micro_batch_metrics)
+            return loss, metrics
 
         self.engine.set_loss_fn(loss_fn)
 
@@ -96,108 +91,6 @@ class CriticWorker(Worker, DistProfilerExtension):
     def init_model(self):
         self.engine.init_model()
 
-    def get_microbatch_process_fn(self):
-        def preprocess_fn_without_rmpad(batch, ctx):
-            ctx["response_length"] = batch["responses"].size(-1)
-
-            inputs = {}
-            if "multi_modal_inputs" in batch.keys():
-                for key in batch["multi_modal_inputs"][0].keys():
-                    inputs[key] = torch.cat([inputs[key] for inputs in batch["multi_modal_inputs"]], dim=0)
-
-            inputs["input_ids"] = batch["input_ids"]
-            inputs["attention_mask"] = batch["attention_mask"]
-            position_ids = batch["position_ids"]
-            if position_ids.dim() == 3:  # qwen2vl mrope
-                position_ids = position_ids.transpose(0, 1)
-            inputs["position_ids"] = position_ids
-            return inputs, ctx
-
-        def postprocess_fn_without_rmpad(outputs, ctx):
-            response_length = ctx["response_length"]
-            use_value_head_model = ctx["use_value_head_model"]
-            if use_value_head_model:
-                # For trl.AutoModelForCausalLMWithValueHead
-                values = outputs[2]
-            else:
-                values = outputs.logits
-            values = values[:, -response_length - 1 : -1].squeeze(-1)
-            return values, ctx
-
-        def preprocess_fn_with_rmpad(batch, ctx):
-            ctx["response_length"] = batch["responses"].size(-1)
-
-            inputs = {}
-            if "multi_modal_inputs" in batch.keys():
-                for key in batch["multi_modal_inputs"][0].keys():
-                    inputs[key] = torch.cat([inputs[key] for inputs in batch["multi_modal_inputs"]], dim=0)
-
-            input_ids = batch["input_ids"]
-            bs, seqlen = input_ids.shape
-            attention_mask = batch["attention_mask"]
-            position_ids = batch["position_ids"]
-            if position_ids.dim() == 3:  # qwen2vl mrope
-                position_ids = position_ids.transpose(0, 1)
-
-            input_ids_rmpad, indices, *_ = unpad_input(
-                input_ids.unsqueeze(-1), attention_mask
-            )  # input_ids_rmpad (total_nnz, ...)
-            input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
-
-            # unpad the position_ids to align the rotary
-            if position_ids.dim() == 3:
-                position_ids_rmpad = (
-                    index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
-                    .transpose(0, 1)
-                    .unsqueeze(1)
-                )  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
-            else:
-                position_ids_rmpad = index_first_axis(
-                    rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
-                ).transpose(0, 1)
-
-            # pad and slice the inputs if sp > 1
-            if ctx["ulysses_sequence_parallel_size"] > 1:
-                input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
-                    input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size
-                )
-                ctx["pad_size"] = pad_size
-
-            inputs["input_ids"] = input_ids_rmpad
-            inputs["attention_mask"] = None
-            inputs["position_ids"] = position_ids_rmpad
-
-            ctx["indices"] = indices
-            ctx["seqlen"] = seqlen
-            ctx["bs"] = bs
-            return inputs, ctx
-
-        def postprocess_fn_with_rmpad(outputs, ctx):
-            response_length = ctx["response_length"]
-            use_value_head_model = ctx["use_value_head_model"]
-            if use_value_head_model:
-                # For trl.AutoModelForCausalLMWithValueHead
-                values_rmpad = outputs[2].squeeze(0).unsqueeze(-1)
-            else:
-                values_rmpad = outputs.logits
-                values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
-
-            # gather output if sp > 1
-            if ctx["ulysses_sequence_parallel_size"] > 1:
-                values_rmpad = gather_outpus_and_unpad(
-                    values_rmpad, gather_dim=0, unpad_dim=0, padding_size=ctx["pad_size"]
-                )
-
-            # pad it back
-            values = pad_input(values_rmpad, indices=ctx["indices"], batch=ctx["bs"], seqlen=ctx["seqlen"]).squeeze(-1)
-            values = values[:, -response_length - 1 : -1]
-            return values, ctx
-
-        self.use_remove_padding = self.config.model.get("use_remove_padding", False)
-        if self.use_remove_padding:
-            return preprocess_fn_with_rmpad, postprocess_fn_with_rmpad
-        else:
-            return preprocess_fn_without_rmpad, postprocess_fn_without_rmpad
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="cyan")
@@ -208,13 +101,12 @@ class CriticWorker(Worker, DistProfilerExtension):
         data.meta_info["micro_batch_size"] = micro_batch_size
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
-        preprocess_fn, postprocess_fn = self.get_microbatch_process_fn()
-        ctx = self.engine.get_default_ctx()
+        processor = get_processor_cls("critic", self.config)(self.config)
 
         with self.engine.eval_mode():
             data = self.engine.shard_data(data=data)
-            output, _ = self.engine.infer_batch(
-                data, ctx=ctx, preprocess_fn=preprocess_fn, postprocess_fn=postprocess_fn
+            output = self.engine.infer_batch(
+                data, processor=processor
             )
             output = self.engine.unshard_data(data=output)
         output = output.to("cpu")
@@ -225,7 +117,6 @@ class CriticWorker(Worker, DistProfilerExtension):
     def update_critic(self, data: DataProto):
         # Support all hardwares
         data = data.to(get_device_id())
-        preprocess_fn, postprocess_fn = self.get_microbatch_process_fn()
         # perform forward computation
         with self.engine.train_mode():
             data = self.engine.shard_data(data=data)
@@ -253,15 +144,13 @@ class CriticWorker(Worker, DistProfilerExtension):
                     dataloader = batch.split(self.config.ppo_mini_batch_size)
 
                 metrics = {}
+                processor = get_processor_cls("critic", self.config)(self.config)
                 for epoch in range(self.config.ppo_epochs):
                     for batch_idx, mini_batch in enumerate(dataloader):
-                        ctx = self.engine.get_default_ctx()
-                        ctx["metrics"] = metrics
                         self.engine.optimizer_zero_grad()
-                        vpreds_list, losses, ctx = self.engine.train_batch(
-                            mini_batch, ctx=ctx, preprocess_fn=preprocess_fn, postprocess_fn=postprocess_fn
+                        vpreds_list, losses, metrics = self.engine.train_batch(
+                            mini_batch, metrics=metrics, processor=processor
                         )
-                        metrics = ctx["metrics"]
                         grad_norm = self.engine.optimizer_step()
                         mini_batch_metrics = {"critic/grad_norm": grad_norm.detach().item()}
                         append_to_dict(metrics, mini_batch_metrics)

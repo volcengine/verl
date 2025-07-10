@@ -60,7 +60,7 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def infer_batch(self, batch, ctx=None, preprocess_fn=None, postprocess_fn=None):
+    def infer_batch(self, batch, processor=None):
         """
         Execute a forward pass over a batch of data.
 
@@ -75,7 +75,7 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def train_batch(self, batch, ctx=None, preprocess_fn=None, postprocess_fn=None):
+    def train_batch(self, batch, metrics, processor=None):
         """
         Execute a forward pass and backward pass over a batch of data.
 
