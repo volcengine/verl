@@ -24,13 +24,13 @@ import numpy as np
 import pytest
 from tensordict import TensorDict
 from transformers import AutoConfig, AutoTokenizer
+from utils_sglang import get_rollout_config, prepare_inputs
+
 from verl.protocol import DataProto
 from verl.tools.mcp_search_tool import MCPSearchTool
 from verl.tools.utils.mcp_clients.McpClientManager import MCPClientManager
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
-
-from utils_sglang import get_rollout_config, prepare_inputs
 
 DEFAULT_USER_CONTENT_PREFIX = (
     "Answer the given question. You must conduct reasoning inside <think> and </think> "

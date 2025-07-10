@@ -23,6 +23,8 @@ import numpy as np
 import pytest
 from tensordict import TensorDict
 from transformers import AutoConfig, AutoTokenizer
+from utils_sglang import get_rollout_config, prepare_inputs
+
 from verl.protocol import DataProto
 from verl.tools.schemas import (
     OpenAIFunctionParametersSchema,
@@ -33,8 +35,6 @@ from verl.tools.schemas import (
 from verl.tools.search_tool import SearchTool
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
-
-from utils_sglang import get_rollout_config, prepare_inputs
 
 DEFAULT_USER_CONTENT_PREFIX = (
     "Answer the given question. You must conduct reasoning inside <think> and </think> "

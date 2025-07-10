@@ -20,9 +20,10 @@ from torch.distributed.fsdp import CPUOffload, MixedPrecision
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import ShardedStateDictConfig, ShardingStrategy, StateDictType
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from vllm import LLM, SamplingParams
+
 from verl.utils.distributed import initialize_global_process_group
 from verl.utils.torch_functional import pad_sequence_to_length
-from vllm import LLM, SamplingParams
 
 
 def levenshtein(s1, s2):
