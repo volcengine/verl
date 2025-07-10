@@ -112,9 +112,9 @@ megatron:
 
     recompute_modules: ['core_attn', 'mlp', 'moe', 'moe_act', 'layernorm', 'mla_up_proj']
 
-    recompute_method: uniform
+    recompute_method: null
 
-    recompute_num_layers: 1
+    recompute_num_layers: null
 
   # Whether to use distributed checkpointing
   use_dist_checkpointing: False

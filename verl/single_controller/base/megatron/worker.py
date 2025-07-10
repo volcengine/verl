@@ -104,8 +104,8 @@ class MegatronWorker(Worker):
                 recompute_modules=recompute_config.get(
                     "recompute_modules", ["core_attn", "mlp", "moe", "moe_act", "layernorm", "mla_up_proj"]
                 ),
-                recompute_method=recompute_config.get("recompute_method", "uniform"),
-                recompute_num_layers=recompute_config.get("recompute_num_layers", 1),
+                recompute_method=recompute_config.get("recompute_method", None),
+                recompute_num_layers=recompute_config.get("recompute_num_layers", None),
             )
         tf_config = hf_to_mcore_config(
             hf_config, dtype, recompute_config, enable_optimization_config, **override_transformer_config
