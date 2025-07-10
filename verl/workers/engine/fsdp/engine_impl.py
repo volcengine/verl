@@ -392,7 +392,7 @@ class FSDPEngine(BaseEngine):
         }
         return ctx
 
-    def infer_batch(self, data, ctx=None, preprocess_fn=None, postprocess_fn=None):
+    def infer_batch(self, data, processor=None):
         """
         Perform forward pass using the FSDP-wrapped module.
 
@@ -424,14 +424,15 @@ class FSDPEngine(BaseEngine):
             micro_batches = batch.split(micro_batch_size)
 
         values_lst = []
+        processor.engine_info["use_value_head_model"] = hasattr(self.module, "v_head")
         for micro_batch in micro_batches:
             if isinstance(micro_batch, DataProto):
                 micro_batch = {**micro_batch.batch, **micro_batch.non_tensor_batch}
 
             with torch.no_grad():
                 # optional microbatch preprocess
-                if preprocess_fn is not None:
-                    inputs, ctx = preprocess_fn(micro_batch, ctx)
+                if processor is not None:
+                    inputs = processor.preprocess(micro_batch)
                 else:
                     inputs = batch
 
@@ -440,8 +441,8 @@ class FSDPEngine(BaseEngine):
                 outputs = self.module(**inputs)
 
                 # optional microbatch postprocess
-                if postprocess_fn is not None:
-                    preds, ctx = postprocess_fn(outputs, ctx)
+                if processor is not None:
+                    preds = processor.postprocess(outputs)
                 else:
                     preds = outputs
 
@@ -457,9 +458,9 @@ class FSDPEngine(BaseEngine):
         response_mask = data.batch["response_mask"]
         values = values * response_mask  # Only action tokens have values
         output = DataProto.from_dict(tensors={"values": values})
-        return output, ctx
+        return output
 
-    def train_batch(self, data, ctx=None, preprocess_fn=None, postprocess_fn=None):
+    def train_batch(self, data, metrics, processor=None):
         """
         Perform forward and backward pass using the FSDP-wrapped module.
 
@@ -480,16 +481,17 @@ class FSDPEngine(BaseEngine):
             non_tensor_select_keys = ["multi_modal_inputs"]
             num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
             micro_batches = mini_batch.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
-            ctx["gradient_accumulation"] = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+            gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
         elif self.config.use_dynamic_bsz:
             max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
             micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
         else:
             micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
-            ctx["gradient_accumulation"] = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+            gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
 
         vpreds_list = []
         losses = []
+        processor.engine_info["use_value_head_model"] = hasattr(self.module, "v_head")
         for micro_batch in micro_batches:
             # Support all devices
             if isinstance(micro_batch, DataProto):
@@ -498,8 +500,8 @@ class FSDPEngine(BaseEngine):
                 micro_batch = micro_batch.to(get_device_id())  # critic device is cpu when using offload
 
             # optional microbatch preprocess
-            if preprocess_fn is not None:
-                inputs, ctx = preprocess_fn(micro_batch, ctx)
+            if processor is not None:
+                inputs = processor.preprocess(micro_batch)
             else:
                 inputs = micro_batch
 
@@ -508,17 +510,17 @@ class FSDPEngine(BaseEngine):
             outputs = self.module(**inputs)
 
             # optional microbatch postprocess
-            if postprocess_fn is not None:
-                preds, ctx = postprocess_fn(outputs, ctx)
+            if processor is not None:
+                preds = processor.postprocess(outputs)
             else:
                 preds = outputs
 
-            loss, ctx = self.loss_fn(micro_batch, preds, ctx)
+            loss, metrics = self.loss_fn(micro_batch, preds, metrics)
             loss.backward()
 
             vpreds_list.append(preds)
             losses.append(loss)
-        return vpreds_list, losses, ctx
+        return vpreds_list, losses, metrics
 
     def optimizer_zero_grad(self):
         """
