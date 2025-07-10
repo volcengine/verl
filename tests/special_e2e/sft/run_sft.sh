@@ -50,6 +50,39 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_training_steps=1 \
+    trainer.save_freq=1 \
+    trainer.checkpoint.save_contents=[model,optimizer,extra,hf_model] \
+    trainer.max_ckpt_to_keep=1 \
+    trainer.resume_mode=disable \
+    trainer.logger=['console'] $@
+
+torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
+    data.train_files="${TRAIN_FILES}" \
+    data.val_files="${VAL_FILES}" \
+    data.prompt_key=extra_info \
+    data.response_key=extra_info \
+    data.prompt_dict_keys=['question'] \
+    data.response_dict_keys=['answer'] \
+    data.multiturn.enable="${MULTITURN}" \
+    data.multiturn.messages_key=messages \
+    optim.lr=1e-4 \
+    data.micro_batch_size_per_gpu=${micro_bsz} \
+    model.strategy=fsdp \
+    model.partial_pretrain="${MODEL_PATH}" \
+    model.lora_rank="${LORA_RANK}" \
+    model.lora_alpha=16 \
+    model.target_modules=all-linear \
+    model.use_liger="${LIGER}" \
+    ulysses_sequence_parallel_size="${SP_SIZE}" \
+    use_remove_padding="${RM_PAD}" \
+    trainer.default_local_dir="${ckpts_home}" \
+    trainer.project_name="${project_name}" \
+    trainer.experiment_name="${exp_name}" \
+    trainer.total_training_steps=2 \
+    trainer.save_freq=1 \
+    trainer.save_contents=[model,optimizer,extra,hf_model] \
+    trainer.max_ckpt_to_keep=2 \
+    trainer.resume_mode=auto \
     trainer.logger=['console'] $@
 
 rm -rf "${ckpts_home:?}/*"
