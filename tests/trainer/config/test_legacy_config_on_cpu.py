@@ -23,7 +23,7 @@ from omegaconf import OmegaConf
 class TestConfigComparison(unittest.TestCase):
     """Test that current configs match their legacy counterparts exactly."""
 
-    def _compare_configs_recursively(self, current_config, legacy_config, path="", legacy_allow_missing=False):
+    def _compare_configs_recursively(self, current_config, legacy_config, path="", legacy_allow_missing=True):
         """Recursively compare two OmegaConf configs and assert they are identical.
 
         Args:
@@ -50,9 +50,7 @@ class TestConfigComparison(unittest.TestCase):
             for key in current_keys:
                 current_path = f"{path}.{key}" if path else key
                 if key in legacy_config:
-                    self._compare_configs_recursively(
-                        current_config[key], legacy_config[key], current_path, legacy_allow_missing=legacy_allow_missing
-                    )
+                    self._compare_configs_recursively(current_config[key], legacy_config[key], current_path)
         elif isinstance(current_config, list) and isinstance(legacy_config, list):
             self.assertEqual(
                 len(current_config),
@@ -60,9 +58,7 @@ class TestConfigComparison(unittest.TestCase):
                 f"List lengths differ at {path}: current={len(current_config)}, legacy={len(legacy_config)}",
             )
             for i, (current_item, legacy_item) in enumerate(zip(current_config, legacy_config)):
-                self._compare_configs_recursively(
-                    current_item, legacy_item, f"{path}[{i}]", legacy_allow_missing=legacy_allow_missing
-                )
+                self._compare_configs_recursively(current_item, legacy_item, f"{path}[{i}]")
         else:
             self.assertEqual(
                 current_config,
