@@ -33,7 +33,7 @@ from verl.utils.device import (
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
-from verl.workers.engine.fsdp import FSDPEngine
+from verl.workers.engine import get_training_engine
 
 if is_cuda_available:
     from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
@@ -58,7 +58,8 @@ class CriticWorker(Worker, DistProfilerExtension):
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend="nccl" if is_cuda_available else "hccl")
         self.config = config
-        self.engine = FSDPEngine(self.config)
+        engine_cls = get_training_engine(self.config.strategy)
+        self.engine = engine_cls(self.config)
 
         def loss_fn(batch, vpreds, ctx):
             values = batch["values"]
