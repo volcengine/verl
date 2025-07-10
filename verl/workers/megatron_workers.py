@@ -228,7 +228,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 return get_model(
                     megatron_actor_model_provider,
                     wrap_with_ddp=wrap_with_ddp,
-                    enable_optimization_config=self.config.actor.megatron.get("enabled_optimization_config", True),
                     use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
                 )
 
@@ -853,7 +852,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
                 model_provider_func=megatron_critic_model_provider,
                 model_type=ModelType.encoder_or_decoder,
                 wrap_with_ddp=True,
-                enable_optimization_config=self.config.megatron.get("enabled_optimization_config", True),
                 use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
             )
         # note that here critic_module will be a list to be compatible with the construction of interleaved pp (vpp).
@@ -1127,7 +1125,6 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
                 model_provider_func=megatron_rm_model_provider,
                 model_type=ModelType.encoder_or_decoder,
                 wrap_with_ddp=False,
-                enable_optimization_config=self.config.megatron.get("enabled_optimization_config", True),
                 use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
             )
             # note that here reward_model will be a list to be compatible with the construction of interleaved pp (vpp)
