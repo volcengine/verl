@@ -123,8 +123,7 @@ def _get_base_transformer_config(
             "tp_comm_overlap": True,
             # Operators Fusion
             "masked_softmax_fusion": True,
-            "bias_gelu_fusion": True,
-            "bias_swiglu_fusion": True,
+            "bias_activation_fusion": True,
             "bias_dropout_fusion": True,
             "apply_rope_fusion": True,
             "gradient_accumulation_fusion": True,
