@@ -273,7 +273,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         if self._is_actor:
             optim_config_megatron = init_megatron_optim_config(
                 optim_config,
-                enable_optimization_config=self.config.actor.megatron.get("enabled_optimization_config", True),
             )
             actor_optimizer = get_megatron_optimizer(model=actor_module, config=optim_config_megatron)
             actor_optimizer_scheduler = get_megatron_optimizer_param_scheduler(
@@ -872,9 +871,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             print_model_size(critic_module[0])
 
         # TODO: add more optimizer args into config
-        optim_config_megatron = init_megatron_optim_config(
-            optim_config, enable_optimization_config=self.config.megatron.get("enabled_optimization_config", True)
-        )
+        optim_config_megatron = init_megatron_optim_config(optim_config)
         critic_optimizer = get_megatron_optimizer(model=critic_module, config=optim_config_megatron)
         critic_optimizer_scheduler = get_megatron_optimizer_param_scheduler(
             optimizer=critic_optimizer, config=optim_config
@@ -1176,7 +1173,6 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             tokenizer=rm_tokenizer,
             override_model_config=override_model_config,
             override_transformer_config=override_transformer_config,
-            recompute_config=None,
             enable_optimization_config=self.config.megatron.get("enabled_optimization_config", True),
         )
         # FIXME(sgm): reward model param offload is implemented in MegatronRewardModel

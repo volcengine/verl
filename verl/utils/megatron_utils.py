@@ -223,7 +223,7 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
     return transformer_config
 
 
-def init_megatron_optim_config(optim_config: Dict, enable_optimization_config: bool = True) -> OptimizerConfig:
+def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
     config = OptimizerConfig(
         optimizer=optim_config.get("optimizer", "adam"),
         lr=optim_config.get("lr"),
@@ -233,7 +233,6 @@ def init_megatron_optim_config(optim_config: Dict, enable_optimization_config: b
         bf16=True,
         params_dtype=torch.bfloat16,
         use_distributed_optimizer=True,
-        overlap_param_gather_with_optimizer_step=enable_optimization_config,
     )
     return config
 
