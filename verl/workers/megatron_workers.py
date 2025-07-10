@@ -19,6 +19,7 @@ import datetime
 import logging
 import os
 import time
+import warnings
 from typing import Any, Dict, List, Optional, Union
 
 import psutil
@@ -427,6 +428,19 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         log_gpu_memory_usage("Before init actor model and optimizer", logger=logger)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         if self._is_actor or self._is_rollout:
+            enable_optimization_config = self.config.actor.megatron.get("enabled_optimization_config", True)
+            if enable_optimization_config:
+                from verl.utils.megatron.tensor_parallel import initialize_tp_communicators
+
+                if self.config.actor.use_dynamic_bsz:
+                    rmpad_seqlen = self.config.actor.get("ppo_max_token_len_per_gpu")
+                    initialize_tp_communicators(
+                        rmpad_seqlen=rmpad_seqlen, hidden_size=self.hf_config.hidden_size, use_fp8=False
+                    )
+                else:
+                    override_transformer_config["tp_comm_overlap"] = False
+                    warnings.warn("tp comm overlap is only works with dynamic batch size", stacklevel=2)
+
             # we need the model for actor and rollout
             optim_config = self.config.actor.optim if self._is_actor else None
             (
@@ -441,7 +455,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 override_model_config=override_model_config,
                 override_transformer_config=override_transformer_config,
                 recompute_config=recompute_config,
-                enable_optimization_config=self.config.actor.megatron.get("enabled_optimization_config", True),
+                enable_optimization_config=enable_optimization_config,
             )
             if self._is_offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
@@ -470,13 +484,25 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("After rollout init", logger=logger)
 
         if self._is_ref:
+            enable_optimization_config = self.config.ref.megatron.get("enabled_optimization_config", True)
+            if enable_optimization_config:
+                from verl.utils.megatron.tensor_parallel import initialize_tp_communicators
+
+                if self.config.ref.log_prob_use_dynamic_bsz:
+                    rmpad_seqlen = self.config.ref.get("ppo_max_token_len_per_gpu")
+                    initialize_tp_communicators(
+                        rmpad_seqlen=rmpad_seqlen, hidden_size=self.hf_config.hidden_size, use_fp8=False
+                    )
+                else:
+                    override_transformer_config["tp_comm_overlap"] = False
+                    warnings.warn("tp comm overlap is only works with dynamic batch size", stacklevel=2)
             self.ref_module, self.ref_model_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
                 optim_config=None,
                 override_model_config=override_model_config,
                 override_transformer_config=override_transformer_config,
                 recompute_config=None,
-                enable_optimization_config=self.config.ref.megatron.get("enabled_optimization_config", True),
+                enable_optimization_config=enable_optimization_config,
             )
             log_gpu_memory_usage("After ref model init", logger=logger)
             self.ref_policy = MegatronPPOActor(
@@ -899,6 +925,19 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         )
         self.param_dtype = torch.bfloat16
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
+
+        enable_optimization_config = self.config.megatron.get("enabled_optimization_config", True)
+        if enable_optimization_config:
+            from verl.utils.megatron.tensor_parallel import initialize_tp_communicators
+
+            if self.config.use_dynamic_bsz:
+                rmpad_seqlen = self.config.get("forward_max_token_len_per_gpu")
+                initialize_tp_communicators(
+                    rmpad_seqlen=rmpad_seqlen, hidden_size=self.hf_config.hidden_size, use_fp8=False
+                )
+            else:
+                override_transformer_config["tp_comm_overlap"] = False
+                warnings.warn("tp comm overlap is only works with dynamic batch size", stacklevel=2)
         (
             self.critic_module,
             self.critic_optimizer,
@@ -911,7 +950,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             override_model_config=override_model_config,
             override_transformer_config=override_transformer_config,
             recompute_config=recompute_config,
-            enable_optimization_config=self.config.megatron.get("enabled_optimization_config", True),
+            enable_optimization_config=enable_optimization_config,
         )
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.critic_module)
@@ -1168,6 +1207,18 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
         self.param_dtype = torch.bfloat16
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
 
+        enable_optimization_config = self.config.megatron.get("enabled_optimization_config", True)
+        if enable_optimization_config:
+            from verl.utils.megatron.tensor_parallel import initialize_tp_communicators
+
+            if self.config.use_dynamic_bsz:
+                rmpad_seqlen = self.config.get("forward_max_token_len_per_gpu")
+                initialize_tp_communicators(
+                    rmpad_seqlen=rmpad_seqlen, hidden_size=self.hf_config.hidden_size, use_fp8=False
+                )
+            else:
+                override_transformer_config["tp_comm_overlap"] = False
+                warnings.warn("tp comm overlap is only works with dynamic batch size", stacklevel=2)
         reward_model_module, reward_model_config = self._build_rm_model(
             model_path=self.config.model.path,
             tokenizer=rm_tokenizer,
