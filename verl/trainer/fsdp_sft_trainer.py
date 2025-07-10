@@ -136,11 +136,6 @@ class FSDPSFTTrainer:
         # build dataset
         config = self.config
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
-
-        # build dataloader
-        # Use data parallel rank and size instead of global rank and world size
-
-        # If doing SP, we need to use the local rank and size
         if self.config.ulysses_sequence_parallel_size > 1:
             rank = self.ulysses_device_mesh.get_local_rank("dp")
             world_size = self.ulysses_device_mesh.size(0)
@@ -626,7 +621,7 @@ class FSDPSFTTrainer:
                 
                 if samples_generated < max_samples_to_generate and rank == 0:
                     try:
-                        prompts, generations = self.generate_samples(data, max_new_tokens=100)
+                        prompts, generations = self.generate_samples(data)
                         all_prompts.extend(prompts)
                         all_generations.extend(generations)
                         samples_generated += len(prompts)
@@ -643,9 +638,8 @@ class FSDPSFTTrainer:
                     samples = []
                     num_samples_to_log = min(3, len(all_prompts))
                     for i in range(num_samples_to_log):
-                        # Truncate long texts for display
-                        prompt_text = all_prompts[i][:200] + "..." if len(all_prompts[i]) > 200 else all_prompts[i]
-                        generation_text = all_generations[i][:200] + "..." if len(all_generations[i]) > 200 else all_generations[i]
+                        prompt_text = all_prompts[i]
+                        generation_text = all_generations[i]
                         samples.append([prompt_text, generation_text, "N/A"])  # No score available
                     
                     # Log using the proper validation generations logger
@@ -702,7 +696,7 @@ def create_sft_dataset(data_paths, data_config, tokenizer):
         dataset_cls = SFTDataset
 
     # Create datasets based on the selected class
-    dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config, truncation="truncate_user")
+    dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config)
     return dataset
 
 
