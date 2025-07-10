@@ -253,6 +253,7 @@ def rearrange_micro_batches(
     num_batches_divided_by=None,
     same_micro_num_in_dp=True,
     min_num_micro_batch=None,
+    use_dynamic_bsz_balance=False,
 ):
     """
     Split a batch into micro-batches by total token count, with optional DP sync and padding.
@@ -264,6 +265,7 @@ def rearrange_micro_batches(
         num_batches_divided_by (optional): virtual pipeline parallel size, for megatron.
         same_micro_num_in_dp (bool): if True and dp_group set, pad all ranks to the same count.
         min_num_micro_batch (int, optional): force at least this many splits (pads empty ones).
+        use_dynamic_bsz_balance (bool, optional): if True, sort micro-batches by sequence length squared sum for improved computational balance.
 
     Returns:
         List[TensorDict]: the micro-batches.
@@ -292,6 +294,13 @@ def rearrange_micro_batches(
     assert num_micro_batches <= len(seq_len_effective)
 
     micro_bsz_idx = get_seqlen_balanced_partitions(seq_len_effective, num_micro_batches, equal_size=False)
+
+    if use_dynamic_bsz_balance:
+        def calculate_partition_squared_sum(partition):
+            return sum(seq_len_effective[idx] ** 2 for idx in partition)
+        partition_with_squared_sum = [(partition, calculate_partition_squared_sum(partition)) for partition in micro_bsz_idx]
+        sorted_partitions = sorted(partition_with_squared_sum, key=lambda x: x[1])
+        micro_bsz_idx = [partition for partition, _ in sorted_partitions]
 
     micro_batches = []
 
