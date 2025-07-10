@@ -73,11 +73,14 @@ megatron:
 
   dist_checkpointing_path: null
 
+  # oc.select: default val for ref.megatron.seed
   seed: 42
 
   # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
+  # oc.select: default val for ref.megatron.override_transformer_config
   override_transformer_config: {}
 
+  # oc.select: default val for ref.megatron.use_mbridge
   use_mbridge: False
 
 # profile the actor model in `update_policy` 

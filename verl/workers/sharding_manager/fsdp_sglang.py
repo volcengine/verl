@@ -168,6 +168,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         params = {
             k: v.to(device, non_blocking=True) if fsdp_version(self.module) == 2 else v for k, v in params.items()
         }
+
         # convert weight keys to match the model config
         params = convert_weight_keys(params, getattr(self.module, "_fsdp_wrapped_module", self.module))
 

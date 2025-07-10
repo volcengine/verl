@@ -10,108 +10,23 @@ defaults:
   # <folder_name>@<field_name>.<field_name>: <yaml_file_name>
   # actor_rollout_ref.actor: trainer/config/actor/dp_actor.yaml
   - actor@actor_rollout_ref.actor: dp_actor
+
+  # trainer.npu_profile: trainer/config/npu_profile/npu_profile.yaml
+  - npu_profile@trainer.npu_profile: npu_profile
+
+  # data: trainer/config/data/legacy_data.yaml
+  - data@data: legacy_data
+
   # load the reference default config, then apply the fields in the current yaml
+  # Reference model config.
+  # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
+  - ref@actor_rollout_ref.ref: dp_ref
+
+  # Rollout model config.
+  - rollout@actor_rollout_ref.rollout: rollout
+
+  # self config override anything above
   - _self_
-
-# dataset config
-data:
-
-  # Tokenizer class or path. If null, it will be inferred from the model.
-  tokenizer: null
-
-  # Whether to use shared memory for data loading.
-  use_shm: False
-
-  # Training set parquet. Can be a list or a single file.
-  # The program will read all files into memory, so it can't be too large (< 100GB).
-  # The path can be either a local path or an HDFS path.
-  # For HDFS path, we provide utils to download it to DRAM and convert it to a local path.
-  train_files: ~/data/rlhf/gsm8k/train.parquet
-
-  # Validation parquet. Can be a list or a single file.
-  val_files: ~/data/rlhf/gsm8k/test.parquet
-
-  # The field in the dataset where the prompt is located. Default is 'prompt'.
-  prompt_key: prompt
-
-  # The field used to select the reward function (if using different ones per example).
-  reward_fn_key: data_source
-
-  # Maximum prompt length. All prompts will be left-padded to this length.
-  # An error will be reported if the length is too long.
-  max_prompt_length: 512
-
-  # Maximum response length. Rollout in RL algorithms (e.g. PPO) generates up to this length.
-  max_response_length: 512
-
-  # Batch size sampled for one training iteration of different RL algorithms.
-  train_batch_size: 1024
-
-  # Batch size used during validation. Can be null.
-  val_batch_size: null
-
-  # Whether to return the original input_ids without adding chat template.
-  # This is used when the reward model's chat template differs from the policy.
-  # If using a model-based RM with different templates, this should be True.
-  return_raw_input_ids: False
-
-  # Whether to return the original chat (prompt) without applying chat template.
-  return_raw_chat: False
-
-  # Whether to return the full prompt with chat template.
-  return_full_prompt: False
-
-  # Whether to shuffle the data in the dataloader.
-  shuffle: True
-
-  # num dataloader workers
-  dataloader_num_workers: 8
-
-  # Whether to shuffle the validation set.
-  validation_shuffle: False
-
-  # Whether to filter overlong prompts.
-  filter_overlong_prompts: False
-
-  # Number of workers for filtering overlong prompts.
-  # For large-scale datasets, filtering can be time-consuming.
-  # Use multiprocessing to speed up. Default is 1.
-  filter_overlong_prompts_workers: 1
-
-  # Truncate the input_ids or prompt if they exceed max_prompt_length.
-  # Options: 'error', 'left', or 'right'. Default is 'error'.
-  truncation: error
-
-  # The field in the multi-modal dataset where the image is located. Default is 'images'.
-  image_key: images
-
-  # The field in the multi-modal dataset where the video is located.
-  video_key: videos
-
-  # If the remote tokenizer has a Python file, this flag determines whether to allow using it.
-  trust_remote_code: False
-
-  # Optional: specify a custom dataset class path and name if overriding default loading behavior.
-  custom_cls:
-
-    # The path to the file containing your customized dataset class. If not specified, pre-implemented dataset will be used.
-    path: null
-
-    # The name of the dataset class within the specified file.
-    name: null
-  
-  # Whether to return multi-modal inputs in the dataset. Set to False if rollout generates new multi-modal inputs.
-  return_multi_modal_inputs: True
-
-  # settings related to data sampler
-  sampler:
-
-    # the path to the module containing a curriculum class which implements the
-    # AbstractSampler interface
-    class_path: null
-
-    # the name of the curriculum class like `MySampler`
-    class_name: null
 
 # config for actor, rollout and reference model
 actor_rollout_ref:
@@ -175,113 +90,11 @@ actor_rollout_ref:
     # Whether to enable loading a remote code model
     trust_remote_code: false
 
-  # Reference model config.
-  # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
-  ref:
-
-    # actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it’s recommended to turn on offload for ref by default
-    strategy: ${actor_rollout_ref.actor.strategy}
-
-    # config for FSDP strategy
-    fsdp_config:
-
-      # whether to offload parameters in FSDP
-      param_offload: False
-
-      # whether to perform reshard after model forward to save memory.
-      # only for fsdp2, [True, False, int between 1 and fsdp_size]
-      reshard_after_forward: True
-
-      # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
-      # before the current forward computation.
-      forward_prefetch: False
-
-      # the wrap policy for FSDP model
-      wrap_policy:
-
-        # minimum number of params in a wrapped module
-        min_num_params: 0
-
-    # whether to enable torch.compile
-    use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
-
-    # [Will be deprecated, use log_prob_micro_batch_size_per_gpu]
-    # The batch size for one forward pass in the computation of log_prob. Global batch size.
-    log_prob_micro_batch_size: null
-
-    # The batch size for one forward pass in the computation of log_prob. Local batch size per GPU.
-    log_prob_micro_batch_size_per_gpu: null
-
-    # enable dynamic batch size (sequence packing) for log_prob computation
-    log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
-
-    # the max token length per GPU
-    log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
-
-    # sequence parallel size
-    ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size}
-
-    # calculate entropy with chunking to reduce memory peak
-    entropy_from_logits_with_chunking: False
-
-    # recompute entropy
-    entropy_checkpointing: False
-
-    # profiler configs
-    profiler:
-
-      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-      _target_: verl.utils.profiler.ProfilerConfig
-
-      # True for each task has its own database, False for all tasks in one training step share one database.
-      discrete: False
-
-      # Whether to profile all ranks.
-      all_ranks: False
-
-      # The ranks that will be profiled. [] or [0,1,...]
-      ranks: []
-
   # Rollout model config.
   rollout:
 
-    # actor_rollout_ref.rollout.name: hf/vllm/sglang.
-    name: vllm
-
-    # sync: LLM, async: AsyncLLM
-    mode: sync
-
-    # Sampling temperature for rollout.
-    temperature: 1.0
-
-    # Top-k sampling parameter. -1 for vLLM rollout, 0 for HF rollout.
-    top_k: -1
-
-    # Top-p sampling parameter. Default 1.0.
-    top_p: 1
-
-
-    # typically the same as data max prompt length
-    prompt_length: ${data.max_prompt_length}
-
-    # typically the same as data max response length
-    response_length: ${data.max_response_length}
-
-    # for vllm rollout
-    # Rollout model parameters type. Align with actor model's FSDP/Megatron type.
-    dtype: bfloat16
-
-    # Fraction of GPU memory used by vLLM/SGLang for KV cache.
-    gpu_memory_utilization: 0.5
-
-    # Whether to ignore EOS and continue generating after EOS is hit.
-    ignore_eos: False
-
-    # Whether to disable CUDA graph. Default True to allow cache freeing.
-    enforce_eager: True
-
-    # Whether to free engine KVCache after generation. Set enforce_eager=True when enabled.
-    free_cache_engine: True
+    # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
+    enable_chunked_prefill: True
 
     # Which loader to use for rollout model weights: dummy_dtensor, hf, megatron, etc.
     # safetensors (for huge model, and set use_shm=True); dummy_dtensor: randomly init model weight
@@ -328,7 +141,7 @@ actor_rollout_ref:
     n: 1
 
     # Whether to wake up inference engine in multi-stage to reduce peak memory during training-rollout transition.
-    multi_stage_wake_up: true
+    multi_stage_wake_up: false
 
     # Extra inference engine arguments (vllm, sglang).
     engine_kwargs:
@@ -447,6 +260,7 @@ actor_rollout_ref:
 
         # Class name of the custom async server class (e.g. AsyncvLLMServer)
         name: null
+
 
 # configs for the critic
 critic:
