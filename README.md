@@ -44,7 +44,8 @@ verl is fast with:
 </p>
 
 ## News
-- [2025/07] verl keynote at [AWS AI Hours Singapore](https://pages.awscloud.com/aws-ai-hours-sg.html#agenda) on 7/8, verl & verl-agent project updates at [Agent for SWE meetup](https://lu.ma/e498qhsi) by LF AI & Data Singapore on 7/11, and ICML @ Vancouver on 7/16.
+- [2025/07] The first verl meetup will be held at ICML Vancouver on July 16th! Please [join us](https://lu.ma/0ek2nyao) if you are at ICML! (onsite only)
+- [2025/07] verl keynote at [AWS AI Hours Singapore](https://pages.awscloud.com/aws-ai-hours-sg.html#agenda) on 7/8, verl & verl-agent project updates at [Agent for SWE meetup](https://lu.ma/e498qhsi) by LF AI & Data Singapore on 7/11.
 - [2025/06] verl with Megatron backend enables large MoE models such as [DeepSeek-671b and Qwen3-236b](https://verl.readthedocs.io/en/latest/perf/dpsk.html).
 - [2025/06] verl team will provide latest project updates at [PyTorch Day China](https://www.lfasiallc.com/pytorch-day-china/) on June 7th. Meet our dev team in Beijing!
 - [2025/04] [Seed-Thinking-v1.5](https://github.com/ByteDance-Seed/Seed-Thinking-v1.5/blob/main/seed-thinking-v1.5.pdf) tech report is released! Trained with verl, Seed-Thinking-v1.5 achieves 86.7 on AIME 2024, 55.0 on Codeforces and 77.3 on GPQA, demonstrating excellent reasoning abilities in STEM and coding. Beyond reasoning tasks, the method demonstrates notable generalization across diverse domains.
@@ -87,12 +88,12 @@ verl is fast with:
 
 ## Upcoming Features and Changes
 
-- Roadmap https://github.com/volcengine/verl/issues/710
-- DeepSeek 671b optimizations with Megatron v0.11 https://github.com/volcengine/verl/issues/708
+- Q3 Roadmap https://github.com/volcengine/verl/issues/2388
+- DeepSeek 671b optimizations with Megatron https://github.com/volcengine/verl/issues/1033
 - Multi-turn rollout and tools using optimizations https://github.com/volcengine/verl/issues/1882
-- Environment interactions https://github.com/volcengine/verl/issues/1172
-- List of breaking changes since v0.3 https://github.com/volcengine/verl/discussions/943, entropy_coeff defaults to 0
-- Lora for RL https://github.com/volcengine/verl/pull/1127 
+- [Agent integration](https://github.com/volcengine/verl/tree/main/verl/experimental/agent_loop)
+- Async and off-policy architecture https://github.com/volcengine/verl/pull/2231
+- List of breaking changes since v0.4 https://github.com/volcengine/verl/discussions/2270
 
 ## Getting Started
 
