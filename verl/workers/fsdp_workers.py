@@ -156,7 +156,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # We can still use ProfilerConfig for testing purpose (tests/utils/test_nvtx_profile.py)
         # as they provides DictConfig-like interface
         # The benefit of creating the dataclass config is to perform validation during __post_init__
-        profiler_config = omega_conf_to_dataclass(config.ref.get("profiler"))
+        profiler_config = omega_conf_to_dataclass(config.get("profiler"))
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=profiler_config, option=self.profile_option)
         )
