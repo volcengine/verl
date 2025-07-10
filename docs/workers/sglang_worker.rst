@@ -31,7 +31,7 @@ You can check the following dependencies are in your environment:
 .. note::
 
     - **flashinfer-python**: 0.2.6.post1
-    - **sglang**: 0.4.9
+    - **sglang**: 0.4.9.post1
 
 Using SGLang as the Inference Backend for PPO Training on a Single Machine
 -------------------------------------------------------------------------
