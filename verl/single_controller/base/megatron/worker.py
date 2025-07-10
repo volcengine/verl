@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from typing import Any, Optional, Union
 
 import torch
@@ -55,6 +56,8 @@ class MegatronWorker(Worker):
         enable_optimization_config: bool = True,
         trust_remote_code: bool = False,
         use_mbridge: bool = False,
+        use_dynamic_bsz: bool = False,
+        max_seqlens: Optional[int] = None,
     ):
         from transformers import AutoConfig
 
@@ -107,6 +110,16 @@ class MegatronWorker(Worker):
                 recompute_method=recompute_config.get("recompute_method", None),
                 recompute_num_layers=recompute_config.get("recompute_num_layers", None),
             )
+
+        if enable_optimization_config:
+            from verl.utils.megatron.tensor_parallel import initialize_tp_communicators
+
+            if use_dynamic_bsz:
+                initialize_tp_communicators(rmpad_seqlen=max_seqlens, hidden_size=hf_config.hidden_size, use_fp8=False)
+            else:
+                override_transformer_config["tp_comm_overlap"] = False
+                warnings.warn("tp comm overlap is only works with dynamic batch size", stacklevel=2)
+
         tf_config = hf_to_mcore_config(
             hf_config, dtype, recompute_config, enable_optimization_config, **override_transformer_config
         )
