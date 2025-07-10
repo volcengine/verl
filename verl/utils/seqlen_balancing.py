@@ -253,7 +253,7 @@ def rearrange_micro_batches(
     num_batches_divided_by=None,
     same_micro_num_in_dp=True,
     min_num_micro_batch=None,
-    use_dynamic_bsz_balance=False,
+    use_dynamic_bsz_balance=True,
 ):
     """
     Split a batch into micro-batches by total token count, with optional DP sync and padding.

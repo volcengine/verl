@@ -122,7 +122,6 @@ critic:
   ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
   ppo_micro_batch_size_per_gpu: null
   use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
-  use_dynamic_bsz_balance: ${actor_rollout_ref.actor.use_dynamic_bsz_balance}
   ppo_max_token_len_per_gpu: 32768 # (${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}) * 2
   forward_max_token_len_per_gpu: ${critic.ppo_max_token_len_per_gpu}
   ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
@@ -174,7 +173,6 @@ reward_model:
   micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
   micro_batch_size_per_gpu: null
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
-  use_dynamic_bsz_balance: ${critic.use_dynamic_bsz_balance}
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
   max_length: null
   reward_manager: naive

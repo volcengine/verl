@@ -174,7 +174,6 @@ class MegatronPPOActor(BasePPOActor):
         data.to(get_device_id())
         data.batch = data.batch.contiguous()
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
-        use_dynamic_bsz_balance = data.meta_info.get("use_dynamic_bsz_balance", False)
         micro_batch_size = data.meta_info.get("micro_batch_size", None)
         max_token_len = data.meta_info.get("max_token_len", None)
         assert micro_batch_size is not None, "micro batch size is needed for forward compute"
@@ -208,7 +207,6 @@ class MegatronPPOActor(BasePPOActor):
                     post_process_fn=compute_logprobs_fn,
                     calculate_entropy=calculate_entropy,
                     use_dynamic_bsz=use_dynamic_bsz,
-                    use_dynamic_bsz_balance=use_dynamic_bsz_balance,
                     micro_batch_size=micro_batch_size,
                     max_token_len=max_token_len,
                 )
@@ -313,7 +311,6 @@ class MegatronPPOActor(BasePPOActor):
         post_process_fn=None,
         calculate_entropy=False,
         use_dynamic_bsz=False,
-        use_dynamic_bsz_balance=False,
         micro_batch_size=None,
         max_token_len=None,
         mini_batch_size=None,
@@ -355,16 +352,13 @@ class MegatronPPOActor(BasePPOActor):
                     batch=mini_batch.batch,
                     num_batches_divided_by=microbatch_group_size_per_vp_stage,
                     max_token_len=max_token_len,
-                    use_dynamic_bsz_balance=use_dynamic_bsz_balance,
                 )
                 assert len(micro_batches) % self.tf_config.microbatch_group_size_per_vp_stage == 0, (
                     f"micro_batches {micro_batches} must be divisible by microbatch_group_size_per_vp_stage "
                     f"{microbatch_group_size_per_vp_stage} for megatron backend"
                 )
             else:
-                micro_batches, indices = rearrange_micro_batches(
-                    batch=mini_batch.batch, max_token_len=max_token_len, use_dynamic_bsz_balance=use_dynamic_bsz_balance
-                )
+                micro_batches, indices = rearrange_micro_batches(batch=mini_batch.batch, max_token_len=max_token_len)
             total_seqlen = max_token_len
         else:
             assert micro_batch_size is not None, (
@@ -615,7 +609,6 @@ class MegatronPPOActor(BasePPOActor):
                 data,
                 calculate_entropy=calculate_entropy,
                 use_dynamic_bsz=self.config.use_dynamic_bsz,
-                use_dynamic_bsz_balance=self.config.use_dynamic_bsz_balance,
                 micro_batch_size=micro_batch_size,
                 max_token_len=max_token_len,
                 mini_batch_size=self.config.ppo_mini_batch_size,

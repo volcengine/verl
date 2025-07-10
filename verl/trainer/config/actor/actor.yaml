@@ -21,9 +21,6 @@ ppo_micro_batch_size_per_gpu: null
 # oc.select: the default val for ref.log_prob_use_dynamic_bsz
 use_dynamic_bsz: false
 
-# Whether to balance the computational workload between micro-batches when using dynamic batch size
-use_dynamic_bsz_balance: false
-
 # Max tokens per GPU in one PPO batch; affects gradient accumulation
 # Typically it should be: n * ${data.max_prompt_length} + ${data.max_response_length}
 # oc.select: the default val for ref.log_prob_max_token_len_per_gpu
