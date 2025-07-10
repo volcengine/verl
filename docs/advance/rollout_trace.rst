@@ -47,9 +47,10 @@ Usage of wandb weave
 2. veRL Configuration Parameters
 
    1. ``trainer.rollout_trace.backend=weave``
-   2. ``trainer.logger=['console', 'wandb']``. This item is optional. Trace and logger are independent functions. When using Weave, it is recommended to also enable the wandb logger to implement both functions in one system.
+   2. ``trainer.logger=['console', 'wandb']``: This item is optional. Trace and logger are independent functions. When using Weave, it is recommended to also enable the wandb logger to implement both functions in one system.
    3. ``trainer.project_name=$project_name``
    4. ``trainer.experiment_name=$experiment_name``
+   5. ``actor_rollout_ref.rollout.mode=async``: Since trace is mainly used for agentic RL, need to enable agent toop using async mode for either vllm or sglang.
 
 Note:
 The Weave Free Plan comes with a default monthly network traffic allowance of 1GB. During the training process, the amount of trace data generated is substantial, reaching dozens of gigabytes per day, so it is necessary to select an appropriate wandb plan.
@@ -64,15 +65,14 @@ Each Trace project corresponds to a trajectory. You can filter and select the tr
 
 After enabling token2text, prompt_text and response_text will be automatically added to the output of ToolAgentLoop.run, making it convenient to view the input and output content.
 
-.. image:: https://private-user-images.githubusercontent.com/4373761/461954072-ff30bbca-f9c8-434f-a3c2-0e333d16fa68.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NTIwNTc3MjksIm5iZiI6MTc1MjA1NzQyOSwicGF0aCI6Ii80MzczNzYxLzQ2MTk1NDA3Mi1mZjMwYmJjYS1mOWM4LTQzNGYtYTNjMi0wZTMzM2QxNmZhNjgucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI1MDcwOSUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNTA3MDlUMTAzNzA5WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9ZTI1MGIzZjEwZTFmMDRjMTU0ODEyOTFkMWM5YjU3MzM2YzYzMjcyZmM4NGE1ZDY3NjMzYjZjNTAyN2JmZmMxOSZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QifQ.ydn_hzBMQZs_9lozSvwhGuy1dXRaxqjBDTxkvHFZAHw
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/weave_trace_list.png?raw=true
 
 1.3 Compare Trace Logs
 ~~~~~~~~~~~~~~~~~~~~~~
 
 Weave can select multiple trace items and then compare the differences among them.
 
-.. image:: https://private-user-images.githubusercontent.com/4373761/461954031-0b9ed8db-58a7-4769-88fb-bda204dc9fc8.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NTIwNTc3MjksIm5iZiI6MTc1MjA1NzQyOSwicGF0aCI6Ii80MzczNzYxLzQ2MTk1NDAzMS0wYjllZDhkYi01OGE3LTQ3NjktODhmYi1iZGEyMDRkYzlmYzgucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI1MDcwOSUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNTA3MDlUMTAzNzA5WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9MDg3NTAzYWZlOTM2NmY3ZmI2ZGFjOTY0ODFiNzRmMmUxNDg1ZWZjNjU0NWQwYjg5MTZjMjY5NzllZDRiNjEwNCZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QifQ.mlpKmPGUkKJOgFJXLlF8dwFzdcptpjIKwHcZMBgRB5k
-
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/weave_trace_compare.png?raw=true
 
 Usage of mlflow
 ---------------
@@ -100,14 +100,15 @@ Since ``trainer.project_name`` corresponds to Experiments in mlflow, in the mlfl
 
 For example, searching for ``"tags.step = '1'"`` can display all trajectories of step 1.
 
-.. image:: https://private-user-images.githubusercontent.com/4373761/464135842-38d11bf2-5c43-480c-88db-19e0c8443e74.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NTIwNTc5NDEsIm5iZiI6MTc1MjA1NzY0MSwicGF0aCI6Ii80MzczNzYxLzQ2NDEzNTg0Mi0zOGQxMWJmMi01YzQzLTQ4MGMtODhkYi0xOWUwYzg0NDNlNzQucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI1MDcwOSUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNTA3MDlUMTA0MDQxWiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9MzI1Nzc1ZWM0FTA3YWZlOTM2NmY3ZmI2ZGFjOTY0ODFiNzRmMmUxNDg1ZWZjNjU0NWQwYjg5MTZjMjY5NzllZDRiNjEwNCZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QifQ.Z3dkL00_7kf6bSutlGar24nKfYZuwrp01ivKr9iRwAc
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/mlflow_trace_list.png?raw=true
 
 Opening one of the trajectories allows you to view each function call process within it.
 
 After enabling token2text, prompt_text and response_text will be automatically added to the output of ToolAgentLoop.run, making it convenient to view the content.
 
-.. image:: https://private-user-images.githubusercontent.com/4373761/464135865-7f486e4a-59bb-46b0-a32d-5e8d0d08759b.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NTIwNTc5NDEsIm5iZiI6MTc1MjA1NzY0MSwicGF0aCI6Ii80MzczNzYxLzQ2NDEzNTg2NS03ZjQ4NmU0YS01OWJiLTQ2YjAtYTMyZC01ZThkMGQwODc1OWIucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI1MDcwOSUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNTA3MDlUMTA0MDQxWiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9ZmJkMmZiOGZhMTEzNjY1ZjM4MWE5YzM3ODQ0MjIzOTdlYWQzYjMwNjI4YWRhZDA1NjRjN2M4ZTNkYmJkZjBkYiZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QifQ.80MjKBgx9BxY62R9WpSCGduyjrgbvhfYV_zSJ_sqA7M
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/mlflow_trace_view.png?raw=true
 
 Note:
+
 1. mlflow does not support comparing multiple traces
 2. veRL failed to associate the trace with the run, so the trace content cannot be seen in the mlflow run logs.
