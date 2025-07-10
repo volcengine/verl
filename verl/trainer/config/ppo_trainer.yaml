@@ -34,6 +34,9 @@ actor_rollout_ref:
   # Whether it's a hybrid engine, currently only supports hybrid engine
   hybrid_engine: true
 
+  # Timeout for operations executed against the process group
+  nccl_timeout: 600
+
   # common configs for the model
   model:
 
@@ -111,6 +114,9 @@ critic:
 
   # fsdp or fsdp2 strategy used for critic model training
   strategy: ${actor_rollout_ref.actor.strategy}
+
+  # Timeout for operations executed against the process group
+  nccl_timeout: 600
 
   # optimizer configs
   optim:
@@ -279,6 +285,9 @@ reward_model:
 
   # FSDP strategy: "fsdp" or "fsdp2"
   strategy: ${actor_rollout_ref.actor.strategy}
+
+  # Timeout for operations executed against the process group
+  nccl_timeout: 600
 
   # model config for reward scoring
   model:
