@@ -1,4 +1,4 @@
-veRL Trace Function Usage Instructions
+Trace Function Usage Instructions
 ========================================
 
 Applicable Scenarios
@@ -6,7 +6,7 @@ Applicable Scenarios
 
 Agentic RL involves multiple turns of conversations, tool invocations, and user interactions during the rollout process. During the Model Training process, it is necessary to track function calls, inputs, and outputs to understand the flow path of data within the application. The Trace feature helps, in complex multi-round conversations, to view the transformation of data during each interaction and the entire process leading to the final output by recording the inputs, outputs, and corresponding timestamps of functions, which is conducive to understanding the details of how the model processes data and optimizing the training results.
 
-The veRL Trace feature integrates commonly used Agent trace tools, including wandb weave and mlflow, which are already supported. Users can choose the appropriate trace tool according to their own needs and preferences. Here, we introduce the usage of each tool.
+The Trace feature integrates commonly used Agent trace tools, including wandb weave and mlflow, which are already supported. Users can choose the appropriate trace tool according to their own needs and preferences. Here, we introduce the usage of each tool.
 
 
 Trace Parameter Configuration
@@ -20,7 +20,7 @@ Glossary
 --------
 
 +----------------+------------------------------------------------------------------------------------------------------+
-| Object         | Meaning                                                                                              |
+| Object         | Explaination                                                                                         |
 +================+======================================================================================================+
 | trajectory     | A complete multi-turn conversation includes:                                                         |
 |                | 1. LLM output at least once                                                                          |
@@ -44,7 +44,7 @@ Usage of wandb weave
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 1. Set the ``WANDB_API_KEY`` environment variable
-2. veRL Configuration Parameters
+2. Configuration Parameters
 
    1. ``trainer.rollout_trace.backend=weave``
    2. ``trainer.logger=['console', 'wandb']``: This item is optional. Trace and logger are independent functions. When using Weave, it is recommended to also enable the wandb logger to implement both functions in one system.
@@ -85,7 +85,7 @@ Usage of mlflow
    1. Http and https URLs corresponding to online services
    2. Local files or directories, such as ``sqlite:////tmp/mlruns.db``, indicate that data is stored in ``/tmp/mlruns.db``. When using local files, it is necessary to initialize the file first (e.g., start the UI: ``mlflow ui --backend-store-uri sqlite:////tmp/mlruns.db``) to avoid conflicts when multiple workers create files simultaneously.
 
-2. veRL Configuration Parameters
+2. Configuration Parameters
 
    1. ``trainer.rollout_trace.backend=mlflow``
    2. ``trainer.logger=['console', 'mlflow']``. This item is optional. Trace and logger are independent functions. When using mlflow, it is recommended to also enable the mlflow logger to implement both functions in one system.
@@ -111,4 +111,4 @@ After enabling token2text, prompt_text and response_text will be automatically a
 Note:
 
 1. mlflow does not support comparing multiple traces
-2. veRL failed to associate the trace with the run, so the trace content cannot be seen in the mlflow run logs.
+2. rollout_trace can not associate the mlflow trace with the run, so the trace content cannot be seen in the mlflow run logs.
