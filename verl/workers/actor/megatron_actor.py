@@ -19,7 +19,6 @@ In megatron actor, the differences are:
 Note that our model doesn't have to be `MegatronModule` because we don't share embedding in the last layer
 """
 
-import copy
 import itertools
 import logging
 import os
@@ -488,9 +487,9 @@ class MegatronPPOActor(BasePPOActor):
                     )
             responses = batch["responses"]
             response_length = responses.size(1)
-            label = copy.deepcopy(position_ids)
+            label = position_ids.clone()
             label[:, -response_length - 1 : -1] = responses
-            label_mask = copy.deepcopy(attention_mask)
+            label_mask = attention_mask.clone()
             label_mask[:, : -response_length - 1] = False
             label_mask[:, -1] = False
 
