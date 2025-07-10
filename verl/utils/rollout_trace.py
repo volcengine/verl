@@ -219,3 +219,26 @@ def rollout_trace_op(func):
             return func(self, *args, **kwargs)
 
     return async_wrapper if inspect.iscoroutinefunction(func) else wrapper
+
+
+def get_trajectory_info(step, index, validate):
+    """Get trajectory info.
+
+    Args:
+        step (int): global steps in the trainer.
+        index (list): form datastore extra_info.index column.
+        validate (bool): whether is a validate step.
+
+    Returns:
+        list: trajectory.
+    """
+    trajectory_info = []
+    rollout_n = 0
+    for i in range(len(index)):
+        if i > 0 and index[i - 1] == index[i]:
+            rollout_n += 1
+        else:
+            rollout_n = 0
+        trajectory_info.append({"step": step, "sample_index": index[i], "rollout_n": rollout_n, "validate": validate})
+
+    return trajectory_info

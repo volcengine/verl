@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
+from verl.utils.rollout_trace import RolloutTraceConfig, get_trajectory_info, rollout_trace_attr, rollout_trace_op
 
 
 @pytest.fixture(autouse=True)
@@ -168,3 +168,20 @@ async def test_rollout_trace_with_real_mlflow_backend():
     #     await instance.my_method_with_exception()
 
     print("\nWeave integration test ran successfully. Check your weave project for the trace.")
+
+
+def test_get_trajectory_info():
+    """Tests the get_trajectory_info method."""
+    # Initialize the class to set up class-level attributes
+    step = 10
+    index = [1, 1, 3, 3]
+    expected_info = [
+        {"step": step, "sample_index": 1, "rollout_n": 0, "validate": False},
+        {"step": step, "sample_index": 1, "rollout_n": 1, "validate": False},
+        {"step": step, "sample_index": 3, "rollout_n": 0, "validate": False},
+        {"step": step, "sample_index": 3, "rollout_n": 1, "validate": False},
+    ]
+
+    trajectory_info = get_trajectory_info(step, index, validate=False)
+
+    assert trajectory_info == expected_info

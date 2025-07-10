@@ -849,6 +849,7 @@ class RayPPOTrainer:
                 config=self.config.actor_rollout_ref,
                 role="actor_rollout",
                 profile_option=self.config.trainer.npu_profile.options,
+                trainer_option=self.config.trainer,
             )
             self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
         else:

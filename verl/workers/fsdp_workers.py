@@ -72,6 +72,7 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing
 from verl.utils.py_functional import convert_to_regular_types
+from verl.utils.rollout_trace import RolloutTraceConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 logger = logging.getLogger(__file__)
@@ -113,6 +114,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         self.config = config
         self.profile_option = kwargs.get("profile_option", None)
+        self.trainer_option = kwargs.get("trainer_option", None)
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -468,7 +470,19 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         rollout_device_mesh = init_device_mesh(
             device_name, mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
         )
+
+        # init rollout trace in this process
+        if self.trainer_option:
+            trace_config = self.trainer_option.get("rollout_trace", {})
+            RolloutTraceConfig.init(
+                self.trainer_option.project_name,
+                self.trainer_option.experiment_name,
+                trace_config.get("backend"),
+                trace_config.get("token2text", False),
+            )
+
         rollout_name = self.config.rollout.name
+
         if rollout_name == "hf":
             from verl.workers.rollout import HFRollout
             from verl.workers.sharding_manager.base import BaseShardingManager

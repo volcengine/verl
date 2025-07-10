@@ -32,7 +32,7 @@ from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
-from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
+from verl.utils.rollout_trace import RolloutTraceConfig, get_trajectory_info, rollout_trace_attr, rollout_trace_op
 from verl.workers.rollout.async_server import async_server_class
 
 logger = logging.getLogger(__file__)
@@ -233,7 +233,7 @@ class AgentLoopWorker:
         else:
             index = np.arange(len(raw_prompts))
 
-        trajectory_info = await get_trajectory_info(
+        trajectory_info = get_trajectory_info(
             batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
         )
 
@@ -353,28 +353,6 @@ class AgentLoopWorker:
         num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
         metrics = [input.metrics.model_dump() for input in inputs]
         return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
-
-
-async def get_trajectory_info(step, index, validate):
-    """Get trajectory info.
-
-    Args:
-        step (int): global steps in the trainer.
-        index (list): form datastore extra_info.index column.
-        validate (bool): whether is a validate step.
-
-    Returns:
-        list: trajectory.
-    """
-    trajectory_info = []
-    rollout_n = 0
-    for i in range(len(index)):
-        if i > 0 and index[i - 1] == index[i]:
-            rollout_n += 1
-        else:
-            rollout_n = 0
-        trajectory_info.append({"step": step, "sample_index": index[i], "rollout_n": rollout_n, "validate": validate})
-    return trajectory_info
 
 
 class AgentLoopManager:

@@ -16,12 +16,15 @@
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
+from verl.utils.rollout_trace import rollout_trace_op
+
 
 class BaseInteraction:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.name: str = config.get("name", "interaction_agent")  # More general agent default role name
 
+    @rollout_trace_op
     async def start_interaction(self, instance_id: Optional[str] = None, **kwargs) -> str:
         """Create a tool instance.
 
