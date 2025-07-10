@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from tensordict import TensorDict
 from transformers import AutoTokenizer
 
+from verl.experimental.agent_loop.utils import AgentLoopOutput, agent_loop_perf, agent_loop_postprocess
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils import hf_tokenizer
@@ -101,23 +102,6 @@ class AsyncLLMServerManager:
             sampling_params=sampling_params,
         )
         return output
-
-
-class AgentLoopMetrics(BaseModel):
-    """Agent loop performance metrics."""
-
-    generate_sequences: float = 0.0
-    tool_calls: float = 0.0
-
-
-class AgentLoopOutput(BaseModel):
-    """Agent loop output."""
-
-    prompt_ids: List[int]
-    response_ids: List[int]
-    response_mask: List[int]
-    num_turns: int = 0
-    metrics: AgentLoopMetrics
 
 
 class AgentLoopBase(ABC):
@@ -241,8 +225,7 @@ class AgentLoopWorker:
                 asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory))
             )
         outputs = await asyncio.gather(*tasks)
-
-        output = self._postprocess(outputs)
+        output = agent_loop_postprocess(tokenizer=self.tokenizer, inputs=outputs, max_prompt_length=self.config.actor_rollout_ref.rollout.prompt_length, max_response_length=self.config.actor_rollout_ref.rollout.response_length)
         return output
 
     async def _run_agent_loop(
@@ -284,70 +267,6 @@ class AgentLoopWorker:
         elif agent_name == "tool_agent":
             return ToolAgentLoop
         raise ValueError(f"Unknown agent_name: {agent_name}")
-
-    def _postprocess(self, inputs: List[AgentLoopOutput]) -> DataProto:
-        # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
-        # prompts: left pad
-        # responses: right pad
-        # input_ids: prompt + response
-        # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
-        # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
-
-        # prompts
-        self.tokenizer.padding_side = "left"
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.prompt_ids} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.prompt_length,
-            return_tensors="pt",
-            return_attention_mask=True,
-        )
-        prompt_ids, prompt_attention_mask = outputs["input_ids"], outputs["attention_mask"]
-
-        # responses
-        self.tokenizer.padding_side = "right"
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.response_ids} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.response_length,
-            return_tensors="pt",
-            return_attention_mask=True,
-        )
-        response_ids, response_attention_mask = outputs["input_ids"], outputs["attention_mask"]
-
-        # response_mask
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.response_mask} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.response_length,
-            return_tensors="pt",
-            return_attention_mask=False,
-        )
-        response_mask = outputs["input_ids"]
-        assert response_ids.shape == response_mask.shape, (
-            f"mismatch in response_ids and response_mask shape: {response_ids.shape} vs {response_mask.shape}"
-        )
-        response_mask = response_mask * response_attention_mask
-
-        input_ids = torch.cat([prompt_ids, response_ids], dim=1)
-        attention_mask = torch.cat([prompt_attention_mask, response_attention_mask], dim=1)
-        position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
-
-        batch = TensorDict(
-            {
-                "prompts": prompt_ids,  # [bsz, prompt_length]
-                "responses": response_ids,  # [bsz, response_length]
-                "response_mask": response_mask,  # [bsz, response_length]
-                "input_ids": input_ids,  # [bsz, prompt_length + response_length]
-                "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
-                "position_ids": position_ids,  # [bsz, prompt_length + response_length]
-            },
-            batch_size=len(input_ids),
-        )
-
-        num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
-        metrics = [input.metrics.model_dump() for input in inputs]
-        return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
 
 
 async def get_trajectory_info(step, index):
