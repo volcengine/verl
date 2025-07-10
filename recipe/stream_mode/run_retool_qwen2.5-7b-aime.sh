@@ -110,7 +110,6 @@ python3 -m recipe.stream_mode.main_stream_ppo \
     actor_rollout_ref.rollout.stream_mode=True \
     actor_rollout_ref.rollout.chat_scheduler.micro_batch.max_inflight_req=256 \
     actor_rollout_ref.rollout.chat_scheduler.name='stream' \
-    actor_rollout_ref.rollout.multi_turn.completion_callback='recipe.stream_mode.chat_scheduler.chat_scheduler.AsyncToolCompletionCallback' \
     trainer.log_val_generations=100 \
     trainer.nnodes=1 \
     trainer.save_freq=30 \

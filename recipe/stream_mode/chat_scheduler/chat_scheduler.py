@@ -14,37 +14,40 @@
 import asyncio
 import functools
 import heapq
-import importlib
-import itertools
-import json
 import logging
 import math
 import os
 import random
-import time
-from abc import ABC, abstractmethod
 from concurrent.futures.thread import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Protocol, Tuple
+from typing import Any, Dict, Iterable, List, Protocol, Tuple
 from uuid import uuid4
 
 import numpy as np
 import ray
-import torch
 from cachetools import LRUCache
 from omegaconf import DictConfig
-from openai.types.chat.chat_completion import ChatCompletion
-from tensordict import TensorDict
-from transformers import PreTrainedTokenizer
 from typing_extensions import runtime_checkable
 
-from recipe.stream_mode.chat_scheduler.apis import AsyncCallbackMixin, CallsReq, CoroExternalCallsPlugin, ReduceResp, RolloutReq, RolloutResp
-from recipe.stream_mode.chat_scheduler.utils import ActorMeta, DeathLetter, QueueGroup, WorkStealingActor, _MgrProxy, concat_data_proto, get_agent_loop_class
+from recipe.stream_mode.chat_scheduler.apis import (
+    AsyncCallbackMixin,
+    ReduceResp,
+    RolloutReq,
+    RolloutResp,
+)
+from recipe.stream_mode.chat_scheduler.utils import (
+    ActorMeta,
+    DeathLetter,
+    QueueGroup,
+    WorkStealingActor,
+    _MgrProxy,
+    concat_data_proto,
+    get_agent_loop_class,
+)
 from verl.experimental.agent_loop.agent_loop import AgentLoopOutput
-from verl.experimental.agent_loop.utils import agent_loop_postprocess
+from verl.experimental.agent_loop.utils import agent_loop_perf, agent_loop_postprocess
 from verl.protocol import DataProto
-from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.fs import copy_to_local
 from verl.utils.tokenizer import hf_tokenizer
 
@@ -52,296 +55,11 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))
 
 
-class CompletionCallback(ABC):
-    def __init__(self, config: DictConfig, scheduler: "ChatCompletionScheduler"):
-        self.config = config
-        self.scheduler = scheduler
-
-        # Initialize tools from config file
-        self.max_turns = config.actor_rollout_ref.rollout.multi_turn.max_turns
-        tool_config_path = config.actor_rollout_ref.rollout.multi_turn.tool_config_path
-        tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
-        self.tools = {tool.name: tool for tool in tool_list}
-        self._tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
-        print(f"Initialized tools: {self.tools}", flush=True)
-
-        local_path = copy_to_local(config.actor_rollout_ref.model.path)
-        self.tokenizer: PreTrainedTokenizer = hf_tokenizer(local_path, trust_remote_code=True)
-
-    @property
-    def tool_schemas(self):
-        """OpenAI JSON tool schemas."""
-        return self._tool_schemas
-
-    @property
-    def extra_body(self) -> Dict[str, Any]:
-        """Extra body pass to OpenAI API."""
-        return None
-
-    @abstractmethod
-    async def __call__(self, messages: List[Dict[str, str]], completions: ChatCompletion, info: Dict[str, Any]):
-        """Call back function to process completions.
-
-        Args:
-            messages: List of messages including raw prompt and assistant, tool response generated so far.
-            completions: Chat completions from OpenAI compatible server.
-            info: Any other auxiliary information pass across multi-turn.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def postprocess(self, batch: DataProto, batch_conversations: List[List[Dict[str, str]]], n: int) -> DataProto:
-        """Post process batch data.
-
-        Args:
-            batch: Batch input messages from RLHFDataset.
-            batch_conversations: List of messages including raw prompt, assistant response, tool response.
-                Note that `len(batch_conversations) == len(batch) * n`, e.g n=2,
-                batch_conversations=[messages_0_0, messages_0_1, messages_1_0, messages_1_1, ...]
-            n: How many chat completion choices to generate for each input message.
-
-        Returns:
-            Batch data, should include ["prompts", "responses", "response_mask", "input_ids", "attention_mask", "position_ids"].
-        """
-        raise NotImplementedError
-
-
-class ToolCompletionCallback(CompletionCallback):
-    def __init__(self, config: DictConfig, scheduler: "ChatCompletionScheduler"):
-        super().__init__(config, scheduler)
-
-        # TODO: add reward manager to calculate reward score once a sample finish
-
-    async def __call__(self, messages: List[Dict[str, str]], completions: ChatCompletion, info: Dict[str, Any]):
-        message = completions.choices[0].message.model_dump(exclude_unset=True, exclude_none=True)
-        if "content" not in message:
-            message["content"] = ""
-        messages.append(message)
-        finish_reason = completions.choices[0].finish_reason
-
-        # STEP 0: check if we reach max turns
-        if self.max_turns and len(messages) >= self.max_turns:
-            print(f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] Reach max turns, done!")
-            return
-
-        # STEP 1: check if the model called tools
-        if finish_reason != "tool_calls":
-            # print(f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] No tool called, done!")
-            return
-
-        # STEP 2: call tools
-        tool_calls = completions.choices[0].message.tool_calls
-        print(f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] Call {len(tool_calls)} tools")
-        tasks = []
-        for tool_call in tool_calls:
-            tasks.append(self._call_tool(tool_call))
-        tool_responses = await asyncio.gather(*tasks)
-        if any(isinstance(item, Exception) for item in tool_responses):
-            logger.debug(f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] Error when calling tools, done!")
-            return
-        messages.extend(tool_responses)
-
-        # STEP 3: resubmit completion request with tool responses
-        self.scheduler.submit_chat_completions(messages=messages, request_id=completions.id, info=info)
-
-    async def _call_tool(self, tool_call) -> Dict[str, str]:
-        """Call tool and return tool response."""
-        tool_name = tool_call.function.name
-        tool_args = json.loads(tool_call.function.arguments)
-        tool = self.tools[tool_name]
-
-        instance_id = await tool.create()
-        try:
-            tool_response, tool_reward_score, tool_metrics = await tool.execute(instance_id, tool_args)
-        except Exception as e:
-            logger.exception(f"Error when executing tool: {e}")
-            return e
-        finally:
-            await tool.release(instance_id)
-
-        return {
-            "role": "tool",
-            "content": tool_response,
-            "tool_call_id": tool_call.id,
-        }
-
-    def postprocess(self, batch: DataProto, batch_conversations: List[List[Dict[str, str]]], n: int) -> DataProto:
-        # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
-        # prompts: left pad
-        # responses: right pad
-        # input_ids: prompt + response
-        # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
-        # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
-
-        # prompts: [prompt] from input dataset
-        prompts = [self.tokenizer.apply_chat_template(prompt, tools=self.tool_schemas, add_generation_prompt=True, tokenize=False) for prompt in batch.non_tensor_batch["raw_prompt"]]
-        assert len(batch_conversations) == len(prompts) * n
-
-        # sequences: [prompt + response]
-        sequences = [self.tokenizer.apply_chat_template(conversation, tools=self.tool_schemas, add_generation_prompt=False, tokenize=False) for conversation in batch_conversations]
-
-        # responses: [response]
-        responses = [sequence[len(prompts[i // n]) :] for i, sequence in enumerate(sequences)]
-
-        prompts = self.tokenizer(prompts, return_tensors="pt", padding="longest", padding_side="left")
-        responses = self.tokenizer(responses, return_tensors="pt", padding="longest", padding_side="right")
-        if n > 1:
-            prompts["input_ids"] = prompts["input_ids"].repeat_interleave(n, dim=0)
-            prompts["attention_mask"] = prompts["attention_mask"].repeat_interleave(n, dim=0)
-
-        # response_mask: response mask with tools calling masked out
-        response_mask = self._mask_out_tools_calling_tokens(batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0), batch_conversations, responses["input_ids"], responses["attention_mask"])
-
-        input_ids = torch.cat([prompts["input_ids"], responses["input_ids"]], dim=1)
-        attention_mask = torch.cat([prompts["attention_mask"], responses["attention_mask"]], dim=1)
-        position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
-
-        batch = TensorDict(
-            {
-                "prompts": prompts["input_ids"],  # [bsz, prompt_length]
-                "responses": responses["input_ids"],  # [bsz, response_length]
-                "response_mask": response_mask,  # [bsz, response_length]
-                "input_ids": input_ids,  # [bsz, prompt_length + response_length]
-                "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
-                "position_ids": position_ids,  # [bsz, prompt_length + response_length]
-            },
-            batch_size=len(input_ids),
-        )
-
-        num_turns = np.array([len(conversation) for conversation in batch_conversations], dtype=np.int32)
-        return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns})
-
-    def _mask_out_tools_calling_tokens(
-        self,
-        raw_prompts: List[List[Dict[str, str]]],
-        batch_conversations: List[List[Dict[str, str]]],
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-    ) -> torch.Tensor:
-        """Mask out tools calling tokens in the responses.
-
-        Args:
-            raw_prompts: [prompt] from input dataset
-            batch_conversations: [prompt + response]
-            input_ids: responses tokens
-            attention_mask: responses attention mask
-
-        Returns:
-            mask: (batch_size, response_length)
-        """
-        batch_size = input_ids.size(0)
-        assert len(raw_prompts) == batch_size, f"{len(raw_prompts)} != {batch_size}"
-        assert len(batch_conversations) == batch_size, f"{len(batch_conversations)} != {batch_size}"
-
-        # Deduplicate adjacent tool calls, since they're merged into one turn.
-        # [user, assistant, tool, tool, assistant] -> [user, assistant, tool, assistant]
-        # TODO: it's chat_template specific, find a more generic way to do this.
-        def deduplicate_adjacent_tool_calls(roles):
-            result = []
-            for role, group in itertools.groupby(roles):
-                if role == "tool":
-                    result.append(role)
-                else:
-                    result.extend(group)
-            return result
-
-        loss_mask = attention_mask.clone()
-        for i in range(batch_size):
-            responses = batch_conversations[i][len(raw_prompts[i]) :]
-            assert len(responses) > 0, f"responses is empty: {responses}"
-
-            roles = deduplicate_adjacent_tool_calls([response["role"] for response in responses])
-            # Each turn should be: [BOS]...[EOS]
-            eos_indices = input_ids[i].eq(self.tokenizer.eos_token_id).nonzero().squeeze(1)[: len(roles)]
-            for j in range(len(roles)):
-                if roles[j] == "tool":
-                    bos = eos_indices[j - 1] + 1 if j > 0 else 0
-                    eos = eos_indices[j]
-                    loss_mask[i, bos : eos + 1] = 0
-
-        return loss_mask
-
-
-class AsyncToolCompletionCallback(ToolCompletionCallback, CoroExternalCallsPlugin):
-    def __init__(self, config: DictConfig, scheduler: "ChatCompletionScheduler"):
-        print("init_async tools")
-        ToolCompletionCallback.__init__(self, config, scheduler)
-        CoroExternalCallsPlugin.__init__(self, num_workers=5)
-
-    def hit(self, req: CallsReq):
-        completions = req.completions
-        messages = req.messages
-        finish_reason = completions.choices[0].finish_reason
-
-        # STEP 0: check if we reach max turns
-        if self.max_turns and len(messages) >= self.max_turns:
-            logger.debug(f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] Reach max turns, done!")
-            return True
-
-        # STEP 1: check if the model called tools
-        if finish_reason != "tool_calls":
-            logger.debug(f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] No tool called, done!")
-            return False
-
-    def postprocess(self, batch, batch_conversations, n):
-        data_proto = super().postprocess(batch, batch_conversations, n)
-        return data_proto
-
-    def new_postprocess(self, batch_conversations: List[ReduceResp], n) -> DataProto:
-        # do collate function
-        # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
-        # prompts: left pad
-        # responses: right pad
-        # input_ids: prompt + response
-        # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
-        # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
-
-        raw_prompts = np.array([resp.raw_prompt for resp in batch_conversations], dtype=object)
-
-        raw_messages = [message for resp in batch_conversations for message in resp.messages]
-        # prompts: [prompt] from input dataset
-        prompts = [self.tokenizer.apply_chat_template(resp.raw_prompt, tools=self.tool_schemas, add_generation_prompt=True, tokenize=False) for resp in batch_conversations]
-
-        # sequences: [prompt + response]
-
-        sequences = [self.tokenizer.apply_chat_template(message, tools=self.tool_schemas, add_generation_prompt=False, tokenize=False) for resp in batch_conversations for message in resp.messages]
-
-        assert len(sequences) == len(prompts) * n
-        # responses: [response]
-        responses = [sequence[len(prompts[i // n]) :] for i, sequence in enumerate(sequences)]
-
-        prompts = self.tokenizer(prompts, return_tensors="pt", padding="longest", padding_side="left")
-        responses = self.tokenizer(responses, return_tensors="pt", padding="longest", padding_side="right")
-        if n > 1:
-            prompts["input_ids"] = prompts["input_ids"].repeat_interleave(n, dim=0)
-            prompts["attention_mask"] = prompts["attention_mask"].repeat_interleave(n, dim=0)
-
-        # response_mask: response mask with tools calling masked out
-        response_mask = self._mask_out_tools_calling_tokens(raw_prompts.repeat(n, axis=0), raw_messages, responses["input_ids"], responses["attention_mask"])
-
-        input_ids = torch.cat([prompts["input_ids"], responses["input_ids"]], dim=1)
-        attention_mask = torch.cat([prompts["attention_mask"], responses["attention_mask"]], dim=1)
-        position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
-
-        batch = TensorDict(
-            {
-                "prompts": prompts["input_ids"],  # [bsz, prompt_length]
-                "responses": responses["input_ids"],  # [bsz, response_length]
-                "response_mask": response_mask,  # [bsz, response_length]
-                "input_ids": input_ids,  # [bsz, prompt_length + response_length]
-                "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
-                "position_ids": position_ids,  # [bsz, prompt_length + response_length]
-            },
-            batch_size=len(input_ids),
-        )
-
-        num_turns = np.array([len(conversation) for conversation in raw_messages], dtype=np.int32)
-        return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns})
-
-
 @runtime_checkable
 class StreamSchedulerMixin(Protocol):
-    async def stream_generate_sequences(self, data_iter: Iterable, batch_size: int) -> Tuple[bool, DataProto, DataProto, DataProto]: ...
+    async def stream_generate_sequences(
+        self, data_iter: Iterable, batch_size: int
+    ) -> Tuple[bool, DataProto, DataProto, DataProto]: ...
 
 
 class ChatCompletionScheduler:
@@ -372,28 +90,6 @@ class ChatCompletionScheduler:
         self.request_id_to_server = LRUCache(maxsize=max_cache_size)
 
         self.background_tasks = set()
-        if self.config.multi_turn.completion_callback is None:
-            self.completion_callback = ToolCompletionCallback(config, self)
-            logger.warning("completion_callback is None, use ToolCompletionCallback")
-        else:
-            module_path, class_name = self.config.multi_turn.completion_callback.rsplit(".", 1)
-            module = importlib.import_module(module_path)
-            self.completion_callback = getattr(module, class_name)(config, self)
-
-    def submit_chat_completions(self, *, messages: List[Dict[str, str]], request_id: str, info: Dict[str, Any], address: Optional[str] = None):
-        """Submit chat completion request without wait, completion_callback will be called when the request is done.
-
-        Args:
-            messages: List of messages.
-            request_id: Request id.
-            info: Any other auxiliary information pass across multi-turn.
-        """
-        info["__depth__"] += 1
-        task = asyncio.create_task(self._submit_chat_completions_and_callback(messages, request_id, info, address))
-
-        # “fire-and-forget” background tasks
-        self.background_tasks.add(task)
-        task.add_done_callback(self.background_tasks.discard)
 
     def _routing(self, request_id: str, handle) -> ray.actor.ActorHandle:
         if handle is not None:
@@ -408,130 +104,38 @@ class ChatCompletionScheduler:
         self.request_id_to_server[request_id] = server
         return server
 
-    async def _submit_chat_completions_and_callback(
-        self,
-        messages: List[Dict[str, str]],
-        request_id: str,
-        info: Dict[str, Any],
-        address: str = None,
-    ):
-        """Submit chat completion request, wait request finish and do callback."""
-        address = self._routing(request_id, address)
-        # use new request_id to avoid duplicate request_id problem
-        request_id = uuid4().hex
-        self.request_id_to_address[request_id] = address
-
-        completions, exception = None, None
-        try:
-            # NOTE: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
-            completions = await self._chat_completions_aiohttp(
-                address,
-                messages=messages,
-                tools=self.completion_callback.tool_schemas,
-                extra_body=self.completion_callback.extra_body,
-                extra_headers={"x-request-id": request_id},
-                **info["__sampling_params__"],
-            )
-        except Exception as e:
-            # Let user handle the exception
-            exception = e
-
-        info["__depth__"] -= 1
-
-        if exception is not None:
-            logger.exception(f"chat completion failed with exception: {exception}")
-        else:
-            try:
-                await self.completion_callback(messages, completions, info)
-            except Exception as e:
-                logger.exception(f"completion callback failed with exception: {e}")
-
-        # No more ongoing completion requests
-        if info["__depth__"] == 0:
-            info["__done__"].set()
-
-    async def _chat_completions_openai(self, address: str, **chat_complete_request) -> ChatCompletion:
-        from recipe.stream_mode.chat_scheduler.requests import chat_completions_openai
-
-        return await chat_completions_openai(address, **chat_complete_request)
-
-    async def _chat_completions_aiohttp(self, address: str, **chat_complete_request) -> ChatCompletion:
-        from recipe.stream_mode.chat_scheduler.requests import chat_completions_aiohttp
-
-        return await chat_completions_aiohttp(address, **chat_complete_request)
-
-    async def generate_sequences(self, batch: DataProto) -> DataProto:
-        # stop_iter , gen_batch_output, gen_batch, batch
-        # this follow the same pattern for sync mode, therefore we take one batch from data_iter
-        t_start = time.time()
-        kwargs = dict(
-            model=self.model_name,
-            temperature=self.config.temperature,
-            top_p=self.config.top_p,
-        )
-
-        # override sampling params for validation
-        if batch.meta_info.get("validate", False):
-            kwargs["top_p"] = self.config.val_kwargs.top_p
-            kwargs["temperature"] = self.config.val_kwargs.temperature
-
-        print(f"[ChatCompletionScheduler] generate_sequences sampling params: {kwargs}")
-
-        # NOTE: For multi-turn rollout, repeat raw_prompt n times and process each prompt independently,
-        # validation dataset has already been repeated in `PPOTrainer._validate`.
-        n = 1 if batch.meta_info.get("validate", False) else self.config.n
-        tasks, batch_conversations = [], [None] * len(batch) * n
-        for batch_index, conversation in enumerate(batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0)):
-            # raw_prompt: [{"role": "user", "content": ""}, ["role": "assistant", "content"], ...]
-            batch_conversations[batch_index] = conversation.tolist()
-
-            tasks.append(
-                asyncio.create_task(
-                    self._submit_chat_completions_semaphore(
-                        messages=batch_conversations[batch_index],
-                        request_id=None,
-                        sampling_params=kwargs,
-                    )
-                )
-            )
-
-        await asyncio.gather(*tasks)
-        print("[ChatCompletionScheduler] generate_sequences done")
-
-        gen_batch_output = self.completion_callback.postprocess(batch, batch_conversations, n=n)
-        gen_batch_output.meta_info["timing"] = {"generate_sequences": time.time() - t_start}
-        return gen_batch_output
-
-    async def _submit_chat_completions_semaphore(self, messages: List[Dict[str, str]], request_id: str, sampling_params: Dict[str, Any], address: str = None):
-        done = asyncio.Event()
-
-        info = {
-            "__done__": done,
-            "__depth__": 0,  # indicate how many ongoing completion requests
-            "__sampling_params__": sampling_params,
-        }
-
-        self.submit_chat_completions(messages=messages, request_id=request_id, info=info, address=address)
-
-        # Wait until all completion requests are done
-        await done.wait()
-
 
 class MicroBatchScheduler(ChatCompletionScheduler):
-    def __init__(self, config, server_handles, max_cache_size=10000, rollout_rate=1, max_inflight_req=8, rollout_req_handler=None, reduce_handler=None, enable_work_stealing=True):
+    def __init__(
+        self,
+        config,
+        server_handles,
+        max_cache_size=10000,
+        rollout_rate=1,
+        max_inflight_req=8,
+        rollout_req_handler=None,
+        reduce_handler=None,
+        enable_work_stealing=True,
+    ):
         super().__init__(config, server_handles, max_cache_size)
         self.mirco_batch_config = config.actor_rollout_ref.rollout.chat_scheduler
         print(self.config)
-        self._validate_callback()
-        self.micro_batch_per_dp = self.mirco_batch_config.micro_batch.max_inflight_req if self.mirco_batch_config.micro_batch.max_inflight_req else max_inflight_req
+        self.micro_batch_per_dp = (
+            self.mirco_batch_config.micro_batch.max_inflight_req
+            if self.mirco_batch_config.micro_batch.max_inflight_req
+            else max_inflight_req
+        )
         self.server_handles = server_handles
-        self.enable_work_stealing = self.mirco_batch_config.micro_batch.enable_work_stealing if self.mirco_batch_config.micro_batch.enable_work_stealing else enable_work_stealing
+        self.enable_work_stealing = (
+            self.mirco_batch_config.micro_batch.enable_work_stealing
+            if self.mirco_batch_config.micro_batch.enable_work_stealing
+            else enable_work_stealing
+        )
         self.number_of_servers = len(server_handles)
         self.rollout_rate = 1
-        self.rollout_req_handler = rollout_req_handler if rollout_req_handler else self.default_handle_rollout_req
-        self.reduce_handler = reduce_handler if reduce_handler else self.default_handle_reduce_req
+        self.rollout_req_handler = rollout_req_handler
+        self.reduce_handler = reduce_handler
         self.initialized = False
-        self.reduce_format = "ReduceResp"
 
     def set_rollout_rate(self, rate):
         assert rate <= 1 and rate > 0, "rollout rate must be in (0, 1]"
@@ -539,13 +143,6 @@ class MicroBatchScheduler(ChatCompletionScheduler):
 
     def _get_rollout_batch_size(self, data_batch_size):
         return int(data_batch_size * self.rollout_rate)
-
-    def _validate_callback(self):
-        if self.completion_callback is None:
-            raise ValueError("completion_callback is None")
-        if not isinstance(self.completion_callback, AsyncCallbackMixin):
-            raise ValueError("completion_callback mixin AsyncCallbackMixin")
-        logger.info(f"completion_callback: {self.completion_callback}")
 
     def _lazy_init_global_resource(self):
         if self.initialized:
@@ -556,13 +153,20 @@ class MicroBatchScheduler(ChatCompletionScheduler):
         self.loop = asyncio.get_event_loop()
         self.death_letter = asyncio.Queue()
         self.global_data_queue = asyncio.Queue()
-        self.local_data_queue_group = QueueGroup(self.number_of_servers, [asyncio.Queue() for _ in range(self.number_of_servers)])
+        self.local_data_queue_group = QueueGroup(
+            self.number_of_servers, [asyncio.Queue() for _ in range(self.number_of_servers)]
+        )
         self.reduce_data_queue = asyncio.Queue()
-        # TODO better implement a supervisor-tree pattern, include dead-letter-queue to monitor whether any actor exit unexpectly
-        self.engine_call_actors: List[WorkStealingActor] = self._init_engine_call_actors(server_address=self.server_handles, max_inflight_req=self.micro_batch_per_dp)
-        self.completion_callback.init_plugin_callers()
+        # TODO better implement a supervisor-tree pattern, include dead-letter-queue
+        # to monitor whether any actor exit unexpectly
+        self.engine_call_actors: List[WorkStealingActor] = self._init_engine_call_actors(
+            server_address=self.server_handles, max_inflight_req=self.micro_batch_per_dp
+        )
         self._init_death_letter_consumer()
-        logger.info(f"start MicroBatchChatCompletionScheduler, with max_inflight_req: {self.micro_batch_per_dp}, enable_work_stealing: {self.enable_work_stealing}, server_handles: {self.server_handles}")
+        logger.info(
+            f"start MicroBatchChatCompletionScheduler, with max_inflight_req: {self.micro_batch_per_dp}, \
+            enable_work_stealing: {self.enable_work_stealing}, server_handles: {self.server_handles}"
+        )
 
     def _init_death_letter_consumer(self):
         async def consume_death_letter():
@@ -579,7 +183,10 @@ class MicroBatchScheduler(ChatCompletionScheduler):
         actors = []
         counter = 0
         for idx, addr in enumerate(server_address):
-            print(f"[MicroBatchChatCompletionScheduler] init engine call actor {addr}, max_inflight_req: {max_inflight_req}")
+            print(
+                f"[MicroBatchChatCompletionScheduler] init engine call actor  \
+                {addr}, max_inflight_req: {max_inflight_req}"
+            )
             for _ in range(max_inflight_req):
                 work_fn = functools.partial(
                     self.rollout_req_handler,
@@ -587,7 +194,15 @@ class MicroBatchScheduler(ChatCompletionScheduler):
                     self.reduce_data_queue,
                     self.completion_callback,
                 )
-                actor = WorkStealingActor(worker_id=idx, local_id=counter, local_queues=self.local_data_queue_group, global_queue=self.global_data_queue, work_fn=work_fn, enable_work_stealing=self.enable_work_stealing, death_letter=self.death_letter)
+                actor = WorkStealingActor(
+                    worker_id=idx,
+                    local_id=counter,
+                    local_queues=self.local_data_queue_group,
+                    global_queue=self.global_data_queue,
+                    work_fn=work_fn,
+                    enable_work_stealing=self.enable_work_stealing,
+                    death_letter=self.death_letter,
+                )
                 actors.append(actor)
                 counter += 1
         print(f"[MicroBatchChatCompletionScheduler] init engine call actors done, total: {len(actors)}")
@@ -598,7 +213,6 @@ class MicroBatchScheduler(ChatCompletionScheduler):
     ):
         for actor in self.engine_call_actors:
             actor.wakeup()
-        self.completion_callback.wake_up()
 
     async def shut_down_actors(self):
         print("shut down engine actors with length: ", len(self.engine_call_actors))
@@ -606,118 +220,54 @@ class MicroBatchScheduler(ChatCompletionScheduler):
             print("ready to shutdown actor: ", actor.actor_meta)
             await actor.shutdown()
         print("[MicroBatchChatCompletionScheduler] shut down engine actor")
-        await self.completion_callback.shutdown()
-        print("[MicroBatchChatCompletionScheduler] shut down completion callback")
 
-    async def default_handle_rollout_req(self, addr, reduce_queue: asyncio.Queue, external_call: AsyncCallbackMixin, actor_meta: ActorMeta, rollout_req: RolloutReq):
-        from recipe.stream_mode.chat_scheduler.requests import chat_completions_aiohttp
+    async def generate_sequences(self, batch: DataProto) -> DataProto:
+        """Generate sequences from agent loop.
 
-        logger.debug(f"[MicroBatchChatCompletionScheduler] _consumer process get sample, addr: {addr}, actor_meta: {actor_meta}")
-        request_id = uuid4().hex
-        completions, exception, message = None, None, {}
-        messages = rollout_req.messages
-        try:
-            # NOTE: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
-            logger.debug(f"[MicroBatchChatCompletionScheduler] _consumer process get sample, submit to engine {addr}")
-            completions = await chat_completions_aiohttp(
-                address=addr,
-                messages=messages,
-                tools=rollout_req.tools_schema,
-                extra_body=rollout_req.extra_body,
-                extra_headers={"x-request-id": request_id},
-                **rollout_req.sampling_params,
-            )
-            message = completions.choices[0].message.model_dump(exclude_unset=True, exclude_none=True)
-        except asyncio.CancelledError as cancel_err:
-            logger.warning(f"chat completion failed with exception: {cancel_err}")
-            raise cancel_err
-        except Exception as e:
-            logger.warning(f"chat completion failed with exception: {e}")
-            exception = e
-        logger.debug(f"[MicroBatchChatCompletionScheduler] _consumer process get sample done,meesage: {message}", actor_meta)
-        if "content" not in message:
-            message["content"] = ""
-        messages.append(message)
-        resp = RolloutResp(request=rollout_req, completions=completions, exception=exception, req_id=request_id, messages=messages)
-        try:
-            if external_call.hit(resp):
-                logger.debug(f"[id={completions.id},turn={len(messages)},finish_reason={completions.choices[0].finish_reason}] Call tools")
-                external_call.put(CallsReq(rollout_resp=resp, actor_meta=actor_meta))
-            else:
-                logger.debug(f"[MicroBatchChatCompletionScheduler] _consumer process put sample to reduce_queue,idx: {actor_meta.actor_id}")
-                reduce_queue.put_nowait(resp)
-        except Exception as e:
-            logger.warning(f"[MicroBatchChatCompletionScheduler] _consumer process put sample to reduce_queue failed,idx: {actor_meta.actor_id}, exception: {e}")
-            resp.exception = e
-            reduce_queue.put_nowait(resp)
-        print("[MicroBatchChatCompletionScheduler] _consumer process done")
+        Args:
+            batch (DataProto): Input batch.
 
-    # maybe we can make this sink_queue as a pubsub proxy using zmq
-    async def default_handle_reduce_req(self, batch_size, n_sample, sink_queue: asyncio.Queue = None, format="ReduceResp"):
-        batch_conversations = [None] * batch_size
-        # joiner_buffer worked as key for raw_prompt,value for result.
-        # make sure n-sample arrived correctlly then ship to batch_conversations as result
-        joiner_buffer: Dict[str, List[List[Dict[str, str]]]] = {}
-        counter = 0
-        while counter < batch_size:
-            print(f"[MicroBatchChatCompletionScheduler] _gather_result counter: {counter}")
-            sample: RolloutResp = await self.reduce_data_queue.get()
-            if sink_queue is not None:
-                sink_queue.put(sample)
-            if sample.exception is not None:
-                raise sample.exception
-            sample_id = sample.request.sample_id
-            if sample_id in joiner_buffer.keys():
-                joiner_buffer[sample_id].append(sample.messages)
-            else:
-                joiner_buffer[sample_id] = [sample.messages]
-            if len(joiner_buffer[sample_id]) == n_sample:
-                logger.debug(f"finished for samples: {sample_id}")
-                batch_conversations[sample.request.sample_id] = ReduceResp(raw_prompt=sample.request.raw_prompt, messages=joiner_buffer[sample_id])
-                counter += 1
-        print("[MicroBatchChatCompletionScheduler] _gather_result done for one batch")
-        return batch_conversations
-
-    async def generate_sequences(self, batch: DataProto, **sampling_params) -> DataProto:
-        self._lazy_init_global_resource()
-        self.wake_up_engine_actor()
-        kwargs = dict(
-            model=self.model_name,
-            temperature=self.config.temperature,
-            top_p=self.config.top_p,
+        Returns:
+            DataProto: Output batch.
+        """
+        config = self.original_config.actor_rollout_ref.rollout
+        sampling_params = dict(
+            temperature=config.temperature,
+            top_p=config.top_p,
+            repetition_penalty=1.0,
         )
 
         # override sampling params for validation
         if batch.meta_info.get("validate", False):
-            kwargs["top_p"] = self.config.val_kwargs.top_p
-            kwargs["temperature"] = self.config.val_kwargs.temperature
+            sampling_params["top_p"] = config.val_kwargs.top_p
+            sampling_params["temperature"] = config.val_kwargs.temperature
 
-        # NOTE: For multi-turn rollout, repeat raw_prompt n times and process each prompt independently,
-        # validation dataset has already been repeated in `PPOTrainer._validate`.
-        n = 1 if batch.meta_info.get("validate", False) else self.config.n
-        print(f"[ChatCompletionScheduler] generate_sequences sampling params: {kwargs}")
-        for batch_index, conversation in enumerate(batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0)):
-            # raw_prompt: [{"role": "user", "content": ""}, ["role": "assistant", "content"], ...]
-            self.global_data_queue.put_nowait(
-                RolloutReq(
-                    raw_prompt=conversation,
-                    messages=conversation.tolist(),
-                    model_name=self.model_name,
-                    sampling_params=kwargs,
-                    tools_schema=self.completion_callback.tool_schemas,
-                    extra_body=self.completion_callback.extra_body,
-                    verl_session_id=uuid4().hex,
-                    sample_id=batch_index // n,
-                )
+        n = 1 if batch.meta_info.get("validate", False) else config.n
+        tasks = []
+
+        # by default, we assume it's a single turn agent
+        if "agent_name" not in batch.non_tensor_batch:
+            batch.non_tensor_batch["agent_name"] = np.array(["single_turn_agent"] * len(batch), dtype=object)
+
+        agent_names = batch.non_tensor_batch["agent_name"].repeat(n, axis=0)
+        raw_prompts = batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0)
+        for agent_name, messages in zip(agent_names, raw_prompts):
+            proxy_mgr = _MgrProxy(routing_method=functools.partial(self._routing, handle=None))
+            tasks.append(
+                asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, proxy_mgr))
             )
-        print("[MicroBatchChatCompletionScheduler] generate_sequences start, with len(batch): ", len(batch))
-        batch_conversations = await self.reduce_handler(self._get_rollout_batch_size(len(batch)), n_sample=n, format=self.reduce_format)
-        print(f"partial rollout done, cancel all left request, real size: {len(batch_conversations)}")
-        print("[MicroBatchChatCompletionScheduler] generate_sequences done")
-        if self.reduce_format == "ReduceResp":
-            return self.completion_callback.new_postprocess(batch_conversations, n=n)
-        else:
-            return self.completion_callback.postprocess(batch, batch_conversations, n=n)
+        print(f"length of tasks: {len(tasks)}")
+        outputs = await asyncio.gather(*tasks)
+
+        output = agent_loop_postprocess(self.tokenizer, outputs, self.max_prompt_length, self.max_response_length)
+        print("[StreamChatCompletionScheduler] generate_sequences done")
+        # calculate performance metrics
+        metrics = [output.meta_info["metrics"]]  # List[List[Dict[str, str]]]
+        timing = agent_loop_perf(metrics, output)
+
+        output.meta_info = {"timing": timing}
+
+        return output
 
 
 @dataclass
@@ -729,33 +279,19 @@ class _Sample:
 
 
 class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
-    # StreamScheduler is designed for partial rollout,which aiming to sovle the long tail generations,
-    # which means for one batch generation, some samples might be too long to become the struggler.
-    # to solve this, we have following solotions
-
-    # 1. using dynamic batching strategy: we might drop those long tail request, and put them into next batch.
-    # this strategy offer user options like
-    # # a. percentages: engine will stop generation when x% samples have been done.
-    # # b. tokens: engine will stop generation when then training samples have generate more then X Tokens.
-
-    # 2. prefetching data from next batch: this strategy will keep fetch data from data iterator and send it to
-    # serving engine until the stop terms are met. this strategy works since we basiclly select the shortest generation
-    # samples to fill this batch and postpone those long tail samples (even though those will be sent to engine, but eventually
-    # they will be 'dropped' since other prefetched samples will be in the output buffer faster then them).
-    # couple things we might need to be careful with:
-
-    # # a. host memory issue, there might be a chances that the data fetcher will fetch expect_batch_size*n size of prompts into
-    # memory, since it tries to maximize the engine utilization by feeding data as much as possiable. we need to control the maximum
-    # number of inflight req (data in global queue, tool-calling state, serving state) to avoid loading too much req in mem.
-
-    # # b. abort pattern: when we hit those stop terms, we should cancel those inflight req. the question is how should we deal
-    # with the result of partial generations. drop/save kv cache/ save result/ staleness factor, might be considered.
-    # we also need to worry about the requeue pattern, since for grpo, we need to requeue n-samples all-together
-
-    # # c.re-generate batch/gen_batch for training.
-
-    # # d. intergation for pytorch dataloader and asyncio.
-    def __init__(self, config, server_handles, rollout_rate=1, max_inflight_req=8, rollout_req_handler=None, reduce_handler=None, enable_work_stealing=True, data_fetcher=None, batch_size=1024, prefetch_factor=2):
+    def __init__(
+        self,
+        config,
+        server_handles,
+        rollout_rate=1,
+        max_inflight_req=8,
+        rollout_req_handler=None,
+        reduce_handler=None,
+        enable_work_stealing=True,
+        data_fetcher=None,
+        batch_size=1024,
+        prefetch_factor=2,
+    ):
         self.original_config = config
         self.max_in_mem_samples = prefetch_factor * batch_size
         self.data_loader_blocker = asyncio.Event()
@@ -771,28 +307,47 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
         self.data_iter_length = 0
         self.buffer_size = 30
         logger.info("init stream scheduler")
-        super().__init__(config, server_handles, 1000, rollout_rate, max_inflight_req, self.rollout_req_handler, self.reduce_handler, enable_work_stealing)
+        super().__init__(
+            config,
+            server_handles,
+            1000,
+            rollout_rate,
+            max_inflight_req,
+            self.rollout_req_handler,
+            self.reduce_handler,
+            enable_work_stealing,
+        )
         self.max_prompt_length = self.config.prompt_length
         self.max_response_length = self.config.response_length
         model_path = config.actor_rollout_ref.model.path
         self.model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
-        print(f"init with resource: tokenizer: {self.tokenizer},model name: {self.model_name}, max prompt length: {self.max_prompt_length}, max response length: {self.max_response_length}")
+        print(
+            f"init with resource: tokenizer: {self.tokenizer},model name: {self.model_name}, max \
+            prompt length: {self.max_prompt_length}, max response length: {self.max_response_length}"
+        )
 
     async def _memory_monitor(self, blocker: asyncio.Event, max_in_mem_sample):
         await asyncio.sleep(1)
         in_memory_sample = len(self.pending_sample) + len(self.active_sample)
         if in_memory_sample > max_in_mem_sample:
-            logger.debug(f"memory utilization {max_in_mem_sample} exceed threshold {self.data_memory_utils}, stop data fetcher")
+            logger.debug(
+                f"memory utilization {max_in_mem_sample} exceed threshold {self.data_memory_utils}, stop \
+                data fetcher"
+            )
             blocker.clear()
         else:
             # wake up data fetcher
-            logger.debug(f"memory utilization {in_memory_sample} under threshold {max_in_mem_sample}, wake up data fetcher")
+            logger.debug(
+                f"memory utilization {in_memory_sample} under threshold {max_in_mem_sample}, wake up data fetcher"
+            )
             blocker.set()
 
     def start_memory_monitor(self):
-        self.mem_monitor_actor = asyncio.create_task(self._memory_monitor(self.data_loader_blocker, self.max_in_mem_samples))
+        self.mem_monitor_actor = asyncio.create_task(
+            self._memory_monitor(self.data_loader_blocker, self.max_in_mem_samples)
+        )
 
         def callback(task):
             if task.exception() is not None:
@@ -863,7 +418,16 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
                 # assert len(batch) == 1
                 for agent_name, messages in zip(agent_names, raw_prompts):
                     sample_id = self._generate_unique_id()
-                    rollout_req = RolloutReq(agent_name=agent_name, messages=messages.tolist(), model_name=self.model_name, sampling_params=sampling_params, tools_schema=self.completion_callback.tool_schemas, extra_body=self.completion_callback.extra_body, generation=0, sample_id=sample_id)
+                    rollout_req = RolloutReq(
+                        agent_name=agent_name,
+                        messages=messages.tolist(),
+                        model_name=self.model_name,
+                        sampling_params=sampling_params,
+                        tools_schema=self.completion_callback.tool_schemas,
+                        extra_body=self.completion_callback.extra_body,
+                        generation=0,
+                        sample_id=sample_id,
+                    )
                     self.pending_sample[sample_id] = _Sample(rollout_req, batch, gen_batch, generation=0)
                     for _ in range(n):
                         _rollout_req = deepcopy(rollout_req)
@@ -947,22 +511,38 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
                 return False
             else:
                 # stale generation,skip this
-                logger.debug(f"[StreamScheduler] _consumer process get sample,stage: {stage}, skip pending sample, sample_id: {sample_id}")
+                logger.debug(
+                    f"[StreamScheduler] _consumer process get sample,stage: {stage}, skip  \
+                    pending sample, sample_id: {sample_id}"
+                )
                 return True
         elif sample_id in self.active_sample.keys():
             #  in active sample, must be n_sample cases
             if self.active_sample[sample_id].generation != rollout_req.generation:
                 # stale generation,skip this
-                logger.debug(f"[StreamScheduler] _consumer process get sample, stage: {stage}, skip active sample, sample_id: {sample_id}")
+                logger.debug(
+                    f"[StreamScheduler] _consumer process get sample, stage: {stage}, \
+                    skip active sample, sample_id: {sample_id}"
+                )
                 return True
         else:
             # not in pending and active, should be a finished one but with stale generation
             # TODO better sanity check
-            logger.debug(f"[StreamScheduler] _consumer process get sample, stage: {stage}, sample_id: {sample_id} not in pending and active")
+            logger.debug(
+                f"[StreamScheduler] _consumer process get sample, stage: {stage}, \
+                sample_id: {sample_id} not in pending and active"
+            )
             return True
         return False
 
-    async def stream_handle_rollout_req(self, server_handle, reduce_queue: asyncio.Queue, external_call: AsyncCallbackMixin, actor_meta: ActorMeta, rollout_req: RolloutReq):
+    async def stream_handle_rollout_req(
+        self,
+        server_handle,
+        reduce_queue: asyncio.Queue,
+        external_call: AsyncCallbackMixin,
+        actor_meta: ActorMeta,
+        rollout_req: RolloutReq,
+    ):
         if self._skip_if_stale_request(rollout_req, stage="handle_rollout_req"):
             return
         logger.debug(f"[StreamScheduler] _consumer process get sample, addr: {server_handle}, actor_meta: {actor_meta}")
@@ -972,8 +552,13 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
         agent_loop_output, exception = None, None
         try:
             # NOTE: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
-            logger.debug(f"[StreamScheduler] _consumer process get sample, submit to engine {server_handle}，sample_id: {rollout_req.sample_id}")
-            agent_loop_output = await self._run_agent_loop(rollout_req.agent_name, rollout_req.messages, rollout_req.sampling_params, proxy_mgr=proxy_mgr)
+            logger.debug(
+                f"[StreamScheduler] _consumer process get sample, \
+                  submit to engine {server_handle}，sample_id: {rollout_req.sample_id}"
+            )
+            agent_loop_output = await self._run_agent_loop(
+                rollout_req.agent_name, rollout_req.messages, rollout_req.sampling_params, proxy_mgr=proxy_mgr
+            )
         except asyncio.CancelledError as cancel_err:
             request_id = proxy_mgr.request_id
             logger.debug(f"chat completion failed with exception: {cancel_err}")
@@ -989,18 +574,28 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
             logger.warning(f"[StreamScheduler] _consumer process get sample,chat completion failed with exception: {e}")
             exception = e
         request_id = proxy_mgr.request_id
-        logger.debug(f"[StreamScheduler] _consumer process get sample done,metrics: {agent_loop_output.metrics}, actor_meta: {actor_meta}")
-        resp = RolloutResp(request=rollout_req, exception=exception, req_id=request_id, agent_loop_output=agent_loop_output)
+        logger.debug(
+            f"[StreamScheduler] _consumer process get sample \
+              done,metrics: {agent_loop_output.metrics}, actor_meta: {actor_meta}"
+        )
+        resp = RolloutResp(
+            request=rollout_req, exception=exception, req_id=request_id, agent_loop_output=agent_loop_output
+        )
         try:
             logger.debug(f"[StreamScheduler] _consumer process put sample to reduce_queue,idx: {actor_meta.actor_id}")
             reduce_queue.put_nowait(resp)
         except Exception as e:
-            logger.warning(f"[StreamScheduler] _consumer process put sample to reduce_queue failed,idx: {actor_meta.actor_id}, exception: {e}")
+            logger.warning(
+                f"[StreamScheduler] _consumer process put sample \
+                to reduce_queue failed,idx: {actor_meta.actor_id}, exception: {e}"
+            )
             resp.exception = e
             reduce_queue.put_nowait(resp)
 
     # maybe we can make this sink_queue as a pubsub proxy using zmq
-    async def stream_handle_reduce_req(self, batch_size, n_sample, sink_queue: asyncio.Queue = None, format="ReduceResp"):
+    async def stream_handle_reduce_req(
+        self, batch_size, n_sample, sink_queue: asyncio.Queue = None, format="ReduceResp"
+    ):
         batch_agent_output = []
         # joiner_buffer worked as key for sample_id,value for result.
         # make sure n-sample arrived correctlly then ship to batch_conversations as result
@@ -1012,7 +607,10 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
         _print_div = math.ceil(batch_size * print_rate)
         if print_rate == 0:
             _print_div = 1
-        print(f"[stream_handle_reduce_req] _gather_result launch, current queue size: {self.reduce_data_queue.qsize()}, batch_size: {batch_size}, print_rate: {print_rate}")
+        print(
+            f"[stream_handle_reduce_req] _gather_result launch, current queue size: \
+            {self.reduce_data_queue.qsize()}, batch_size: {batch_size}, print_rate: {print_rate}"
+        )
         while counter < batch_size:
             if counter % _print_div == 0:
                 print(f"[stream_handle_reduce_req] _gather_result counter: {counter}")
@@ -1042,48 +640,9 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
         gen_batch = concat_data_proto(gen_batch_proto_list)
         return batch_agent_output, gen_batch, batch
 
-    async def generate_sequences(self, batch):
-        """Generate sequences from agent loop.
-
-        Args:
-            batch (DataProto): Input batch.
-
-        Returns:
-            DataProto: Output batch.
-        """
-        config = self.original_config.actor_rollout_ref.rollout
-        sampling_params = dict(
-            temperature=config.temperature,
-            top_p=config.top_p,
-            repetition_penalty=1.0,
-        )
-
-        # override sampling params for validation
-        if batch.meta_info.get("validate", False):
-            sampling_params["top_p"] = config.val_kwargs.top_p
-            sampling_params["temperature"] = config.val_kwargs.temperature
-
-        n = 1 if batch.meta_info.get("validate", False) else config.n
-        tasks = []
-
-        # by default, we assume it's a single turn agent
-        if "agent_name" not in batch.non_tensor_batch:
-            batch.non_tensor_batch["agent_name"] = np.array(["single_turn_agent"] * len(batch), dtype=object)
-
-        agent_names = batch.non_tensor_batch["agent_name"].repeat(n, axis=0)
-        raw_prompts = batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0)
-        for agent_name, messages in zip(agent_names, raw_prompts):
-            proxy_mgr = _MgrProxy(routing_method=functools.partial(self._routing, handle=None))
-            tasks.append(asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, proxy_mgr)))
-        print(f"length of tasks: {len(tasks)}")
-        outputs = await asyncio.gather(*tasks)
-
-        output = agent_loop_postprocess(self.tokenizer, outputs, self.max_prompt_length, self.max_response_length)
-        print("[StreamChatCompletionScheduler] generate_sequences done")
-
-        return output
-
-    async def _run_agent_loop(self, agent_name: str, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any], proxy_mgr) -> AgentLoopOutput:
+    async def _run_agent_loop(
+        self, agent_name: str, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any], proxy_mgr
+    ) -> AgentLoopOutput:
         agent_loop_class = get_agent_loop_class(agent_name)
         agent_loop = agent_loop_class(self.original_config, proxy_mgr, self.tokenizer)
         output = await agent_loop.run(messages, sampling_params)
@@ -1102,8 +661,9 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
                 self.global_data_queue.put_nowait(req)
         assert len(self.active_sample) == 0
 
-    async def stream_generate_sequences(self, data_iter: Iterable, batch_size: int, renew=False) -> Tuple[bool, DataProto, DataProto, DataProto]:
-        t_start = time.time()
+    async def stream_generate_sequences(
+        self, data_iter: Iterable, batch_size: int, renew=False
+    ) -> Tuple[bool, DataProto, DataProto, DataProto]:
         self.buffer_size = batch_size
         self._lazy_init_global_resource(data_iter, renew)
         self.wake_up_engine_actor()
@@ -1118,14 +678,21 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
             self.buffer_size = bsz
             print(f"last batch for epoch, size: {bsz}")
         print(f"waiting for rollout done, self.buffer_size: {self.buffer_size}")
-        batch_conversations, gen_batch, batch = await self.reduce_handler(self.buffer_size, n_sample=self.config.n, format=self.reduce_format)
+        batch_conversations, gen_batch, batch = await self.reduce_handler(
+            self.buffer_size, n_sample=self.config.n, format=self.reduce_format
+        )
         print(f"partial rollout done, cancel all left request, real size: {len(batch_conversations)}")
         await self.cancel_all_req()
         self._requeue_preempt_req()
         self.done_sample_counter += len(batch_conversations)
-        print(f"[MicroBatchChatCompletionScheduler] generate_sequences done with {len(batch_conversations)} samples, done_sample_counter: {self.done_sample_counter}")
+        print(
+            f"[MicroBatchChatCompletionScheduler] generate_sequences done with {len(batch_conversations)} samples, \
+            done_sample_counter: {self.done_sample_counter}"
+        )
         # TODO make an adaptor,unpack the agent_loop list and make sure they correspond with the batch order
-        agent_loop_output_list = [item for reduce_resp in batch_conversations for item in reduce_resp.agent_loop_output_list]
+        agent_loop_output_list = [
+            item for reduce_resp in batch_conversations for item in reduce_resp.agent_loop_output_list
+        ]
         gen_batch_output = agent_loop_postprocess(
             self.tokenizer,
             agent_loop_output_list,
@@ -1133,7 +700,10 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
             self.max_response_length,
         )
         self.last_batch_sanity_check(last_batch)
-        gen_batch_output.meta_info["timing"] = {"generate_sequences": time.time() - t_start}
+        metrics = [gen_batch_output.meta_info["metrics"]]  # List[List[Dict[str, str]]]
+        timing = agent_loop_perf(metrics, gen_batch_output)
+
+        gen_batch_output.meta_info = {"timing": timing}
         return last_batch, gen_batch_output, gen_batch, batch
 
     def last_batch(self, expect_buffer_size) -> Tuple[bool, int]:
@@ -1147,7 +717,7 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
         if not is_last_batch:
             return
         assert self.done_sample_counter == self.data_iter_length
-        assert len(self.pending_sample) == 0
-        assert len(self.active_sample) == 0
-        assert self.global_data_queue.empty()
-        assert self.reduce_data_queue.empty()
+        assert len(self.pending_sample) == 0, f"pending_sample not empty, {self.pending_sample}"
+        assert len(self.active_sample) == 0, f"active_sample not empty, {self.active_sample}"
+        assert self.global_data_queue.empty(), "global_data_queue not empty"
+        assert self.reduce_data_queue.empty(), "reduce_data_queue not empty"

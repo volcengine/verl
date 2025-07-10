@@ -67,7 +67,6 @@ config.actor_rollout_ref.rollout.mode = "async"
 config.actor_rollout_ref.rollout.multi_turn.format = "hermes"
 config.actor_rollout_ref.rollout.chat_scheduler.micro_batch.max_inflight_req = 256
 config.actor_rollout_ref.rollout.chat_scheduler.name = "stream"
-config.actor_rollout_ref.rollout.multi_turn.completion_callback = "recipe.stream_mode.chat_scheduler.chat_scheduler.AsyncToolCompletionCallback"
 config.actor_rollout_ref.rollout.mode = "async"
 config.actor_rollout_ref.rollout.multi_turn.format = "hermes"
 config.actor_rollout_ref.rollout.prompt_length = 2048
@@ -185,7 +184,9 @@ for _ in range(1):
         print(f"length of data proto : {len(dataloader)}, renew: {renew}")
         async_rollout_manager.wake_up()
         print("all wake up")
-        stop_epoch, gen_batch_result, gen_batch, batch = async_rollout_manager.stream_generate_sequences(data_iter, batch_size, renew=renew)
+        stop_epoch, gen_batch_result, gen_batch, batch = async_rollout_manager.stream_generate_sequences(
+            data_iter, batch_size, renew
+        )
         async_rollout_manager.sleep()
         print("sleep finished")
         epoch_data.append(gen_batch_result)

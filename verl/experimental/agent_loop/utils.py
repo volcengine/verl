@@ -25,7 +25,9 @@ class AgentLoopOutput(BaseModel):
     metrics: AgentLoopMetrics
 
 
-def agent_loop_postprocess(tokenizer, inputs: List[AgentLoopOutput], max_prompt_length: int, max_response_length: int) -> DataProto:
+def agent_loop_postprocess(
+    tokenizer, inputs: List[AgentLoopOutput], max_prompt_length: int, max_response_length: int
+) -> DataProto:
     # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
     # prompts: left pad
     # responses: right pad
@@ -65,7 +67,9 @@ def agent_loop_postprocess(tokenizer, inputs: List[AgentLoopOutput], max_prompt_
         return_attention_mask=False,
     )
     response_mask = outputs["input_ids"]
-    assert response_ids.shape == response_mask.shape, f"mismatch in response_ids and response_mask shape: {response_ids.shape} vs {response_mask.shape}"
+    assert response_ids.shape == response_mask.shape, (
+        f"mismatch in response_ids and response_mask shape: {response_ids.shape} vs {response_mask.shape}"
+    )
     response_mask = response_mask * response_attention_mask
 
     input_ids = torch.cat([prompt_ids, response_ids], dim=1)
@@ -89,21 +93,24 @@ def agent_loop_postprocess(tokenizer, inputs: List[AgentLoopOutput], max_prompt_
     return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
 
 
-def agent_loop_perf(outputs: List[DataProto]) -> Dict[str, float]:
-    # calculate performance metrics
+def agent_loop_perf(metrics: List[List[Dict[str, str]]], output: DataProto) -> Dict[str, float]:
     timing = {}
-    metrics = [output.meta_info["metrics"] for output in outputs]  # List[List[Dict[str, str]]]
     t_generate_sequences = np.array([metric["generate_sequences"] for chunk in metrics for metric in chunk])
     t_tool_calls = np.array([metric["tool_calls"] for chunk in metrics for metric in chunk])
-    timing["generate_sequences/min"] = t_generate_sequences.min()
-    timing["generate_sequences/max"] = t_generate_sequences.max()
-    timing["generate_sequences/mean"] = t_generate_sequences.mean()
-    timing["tool_calls/min"] = t_tool_calls.min()
-    timing["tool_calls/max"] = t_tool_calls.max()
-    timing["tool_calls/mean"] = t_tool_calls.mean()
+    timing["agent_loop/generate_sequences/min"] = t_generate_sequences.min()
+    timing["agent_loop/generate_sequences/max"] = t_generate_sequences.max()
+    timing["agent_loop/generate_sequences/mean"] = t_generate_sequences.mean()
+    timing["agent_loop/tool_calls/min"] = t_tool_calls.min()
+    timing["agent_loop/tool_calls/max"] = t_tool_calls.max()
+    timing["agent_loop/tool_calls/mean"] = t_tool_calls.mean()
 
     # batch sequence generation is bounded by the slowest sample
     slowest = np.argmax(t_generate_sequences + t_tool_calls)
-    timing["slowest/generate_sequences"] = t_generate_sequences[slowest]
-    timing["slowest/tool_calls"] = t_tool_calls[slowest]
+    attention_mask = output.batch["attention_mask"][slowest]
+    prompt_length = output.batch["prompts"].shape[1]
+    timing["agent_loop/slowest/generate_sequences"] = t_generate_sequences[slowest]
+    timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
+    timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
+    timing["agent_loop/slowest/response_length"] = attention_mask[prompt_length:].sum().item()
+
     return timing
