@@ -1,55 +1,39 @@
-# Start from the NVIDIA official image (ubuntu-22.04 + python-3.10)
-# https://docs.nvidia.com/deeplearning/frameworks/pytorch-release-notes/rel-24-08.html
-FROM nvcr.io/nvidia/pytorch:24.08-py3
+# Start from the verl base image
+# Dockerfile.base
+FROM verlai/verl:base-verl0.5-cu126-cudnn9.8-torch2.7.1-fa2.8.0-fi0.2.6
 
 # Define environments
-ENV MAX_JOBS=32
+ENV MAX_JOBS=8
+ENV VLLM_WORKER_MULTIPROC_METHOD=spawn
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_OPTIONS=""
+ENV PIP_ROOT_USER_ACTION=ignore
+ENV HF_HUB_ENABLE_HF_TRANSFER="1"
 
-# Define installation arguments
-ARG APT_SOURCE=https://mirrors.ustc.edu.cn/ubuntu/
+# Install sglang-0.4.9 and torch-memory-saver
+# Install FlashInfer Python package
+RUN pip install --resume-retries 999 --no-cache-dir --no-build-isolation flashinfer-python==0.2.6.post1
+RUN pip install --resume-retries 999  --no-cache-dir "sglang[all]==0.4.9" && pip install torch-memory-saver --no-cache-dir
 
-# Set apt source
-RUN cp /etc/apt/sources.list /etc/apt/sources.list.bak && \
-    { \
-    echo "deb ${APT_SOURCE} jammy main restricted universe multiverse"; \
-    echo "deb ${APT_SOURCE} jammy-updates main restricted universe multiverse"; \
-    echo "deb ${APT_SOURCE} jammy-backports main restricted universe multiverse"; \
-    echo "deb ${APT_SOURCE} jammy-security main restricted universe multiverse"; \
-    } > /etc/apt/sources.list
+# Fix packages
+RUN pip install --no-cache-dir "tensordict==0.6.2" "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
+    "numpy<2.0.0" "pyarrow>=19.0.1" pandas \
+    ray[default] codetiming hydra-core pylatexenc qwen-vl-utils wandb dill pybind11 liger-kernel mathruler blobfile xgrammar \
+    pytest py-spy pyext pre-commit ruff
 
-# Install systemctl
-RUN apt-get update && \
-    apt-get install -y -o Dpkg::Options::="--force-confdef" systemd && \
-    apt-get clean
-
-# Install tini
-RUN apt-get update && \
-    apt-get install -y tini && \
-    apt-get clean
-
-# Change pip source
-ARG PIP_INDEX=https://mirrors.aliyun.com/pypi/simple/
-
-RUN pip config set global.index-url "${PIP_INDEX}" && \
-    pip config set global.extra-index-url "${PIP_INDEX}" && \
-    python -m pip install --upgrade pip
-
-# Install sglang-0.4.6.post5 and torch-memory-saver
-RUN pip uninstall -y cuda-python && pip install "sglang[all]==0.4.6.post5" --no-cache-dir --find-links https://flashinfer.ai/whl/cu124/torch2.6/flashinfer-python && pip install torch-memory-saver --no-cache-dir
-
-# Install torch-2.6.0
-RUN pip install --no-cache-dir torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 tensordict torchdata \
-    transformers>=4.49.0 accelerate datasets peft hf_transfer \
-    ray[default] codetiming hydra-core pandas pyarrow>=15.0.0 pylatexenc qwen-vl-utils wandb liger-kernel \
-    pytest pre-commit py-spy pyext
-
-# Install flash_attn-2.7.4.post1
-RUN pip uninstall -y transformer-engine flash-attn && \
-    wget -v https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl && \
-    pip install --no-cache-dir flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
-
-# Fix cv2
 RUN pip uninstall -y pynvml nvidia-ml-py && \
-    pip install --no-cache-dir nvidia-ml-py>=12.560.30 opencv-python-headless==4.8.0.74 fastapi==0.115.6
+    pip install --resume-retries 999 --no-cache-dir --upgrade "nvidia-ml-py>=12.560.30" "fastapi[standard]>=0.115.0" "optree>=0.13.0" "pydantic>=2.9" "grpcio>=1.62.1"
+
+RUN pip install --resume-retries 999 --no-cache-dir nvidia-cudnn-cu12==9.8.0.87
+
+RUN pip uninstall -y transformers
+RUN pip install --no-cache-dir "transformers[hf_xet]==4.52.3" # try to pin down transformers
+
+# Install TransformerEngine
+RUN export NVTE_FRAMEWORK=pytorch && pip3 install --resume-retries 999 --no-deps --no-cache-dir --no-build-isolation git+https://github.com/NVIDIA/TransformerEngine.git@v2.3
+
+# Install Megatron-LM
+RUN pip3 install --no-deps --no-cache-dir --no-build-isolation git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.1
+
+# Install mbridge
+RUN pip3 install --no-cache-dir mbridge
