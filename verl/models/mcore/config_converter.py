@@ -168,6 +168,9 @@ def _get_mla_transformer_config(
     Returns:
         MLATransformerConfig with common parameters
     """
+    if recompute_config.recompute_modules is not None:
+        recompute_config.recompute_modules.append("mla_up_proj")
+
     base_config = _get_base_transformer_config(
         hf_config=hf_config,
         dtype=dtype,
