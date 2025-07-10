@@ -84,5 +84,6 @@ version = {file = "verl/version/version"}
 [tool.setuptools.package-data]
 verl = [
   "version/*",
-  "trainer/config/*.yaml"
+  "trainer/config/*.yaml",
+  "trainer/config/*/*.yaml",
 ]
