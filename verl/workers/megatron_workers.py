@@ -979,14 +979,14 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             offload_megatron_optimizer(self.critic_optimizer)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, checkpoint_path, hdfs_path=None, remote_path=None, global_steps=0, max_ckpt_to_keep=None):
+    def save_checkpoint(self, checkpoint_path, hdfs_path=None, remote_path=None, global_step=0, max_ckpt_to_keep=None):
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.critic_module)
         self.checkpoint_mananager.save_checkpoint(
             local_path=checkpoint_path,
             hdfs_path=hdfs_path,
             remote_path=remote_path,
-            global_step=global_steps,
+            global_step=global_step,
             max_ckpt_to_keep=max_ckpt_to_keep,
         )
         if self._is_offload_param:
