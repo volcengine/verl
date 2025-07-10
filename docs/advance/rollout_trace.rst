@@ -1,6 +1,8 @@
 Trace Function Usage Instructions
 ========================================
 
+Last updated: 07/10/2025.
+
 Applicable Scenarios
 --------------------
 
