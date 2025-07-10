@@ -284,11 +284,7 @@ class AgentLoopWorker:
         elif agent_name == "tool_agent":
             return ToolAgentLoop
 
-        cfg_agent = getattr(
-            self.config.actor_rollout_ref.rollout.agent,
-            "custom_agent_loop",
-            None
-        )
+        cfg_agent = self.config.actor_rollout_ref.rollout.agent.get("custom_agent_loop")
         if cfg_agent:
             module_path, class_name = cfg_agent.rsplit(".", 1)
             module = importlib.import_module(module_path)
