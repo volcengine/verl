@@ -17,6 +17,9 @@
 # convert huggingface config to mcore transformer config
 
 
+import importlib.util
+from dataclasses import dataclass
+
 import torch
 import torch.nn.functional as F
 from megatron.core import parallel_state as mpu
@@ -24,8 +27,24 @@ from megatron.core.transformer import MLATransformerConfig, TransformerConfig
 from transformers import PretrainedConfig
 
 
+@dataclass
+class RecomputeConfig:
+    """
+    Configuration for recompute settings in Megatron.
+    """
+
+    recompute_granularity: str = None
+    recompute_modules: list = None
+    recompute_method: str = None
+    recompute_num_layers: int = None
+
+
 def _get_base_transformer_config(
-    hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
+    hf_config: PretrainedConfig,
+    dtype: torch.dtype,
+    recompute_config: RecomputeConfig = None,
+    enable_optimization_config: bool = True,
+    **override_transformer_config_kwargs,
 ) -> dict:
     """
     Create a base TransformerConfig with common parameters across different model architectures.
@@ -84,6 +103,44 @@ def _get_base_transformer_config(
         "moe_token_dispatcher_type": "alltoall",
     }
 
+    if recompute_config is not None:
+        # Recompute configuration
+        base_config.update(
+            {
+                "recompute_granularity": recompute_config.recompute_granularity,
+                "recompute_modules": recompute_config.recompute_modules,
+                "recompute_method": recompute_config.recompute_method,
+                "recompute_num_layers": recompute_config.recompute_num_layers,
+            }
+        )
+
+    if enable_optimization_config:
+        deep_ep_spec = importlib.util.find_spec("deepep")
+        use_deep_ep = deep_ep_spec is not None
+
+        optimization_configs = {
+            # Communication/Computation overlap
+            "tp_comm_overlap": True,
+            # Operators Fusion
+            "masked_softmax_fusion": True,
+            "bias_gelu_fusion": True,
+            "bias_swiglu_fusion": True,
+            "bias_dropout_fusion": True,
+            "apply_rope_fusion": True,
+            "gradient_accumulation_fusion": True,
+            # MoE Optimizations
+            "moe_shared_expert_overlap": True,
+            "moe_grouped_gemm": True,
+            "moe_enable_deepep": use_deep_ep,  # requires DeepEP
+            "moe_permute_fusion": True,  # requires TE 2.1
+            "moe_token_dispatcher_type": "flex",
+            # Extra
+            "deallocate_pipeline_outputs": True,
+            "persist_layer_norm": True,
+        }
+
+        base_config.update(optimization_configs)
+
     # Update with any provided overrides
     # override_transformer_config_kwargs as kwargs shall never be none
     base_config.update(override_transformer_config_kwargs)
@@ -92,7 +149,12 @@ def _get_base_transformer_config(
 
 
 def _get_mla_transformer_config(
-    hf_config: PretrainedConfig, mla_rope_config: dict, dtype: torch.dtype, **override_transformer_config_kwargs
+    hf_config: PretrainedConfig,
+    mla_rope_config: dict,
+    dtype: torch.dtype,
+    recompute_config: RecomputeConfig = None,
+    enable_optimization_config: bool = True,
+    **override_transformer_config_kwargs,
 ) -> dict:
     """
     Create a MLATransformerConfig with common parameters across different model architectures.
@@ -107,7 +169,13 @@ def _get_mla_transformer_config(
     Returns:
         MLATransformerConfig with common parameters
     """
-    base_config = _get_base_transformer_config(hf_config=hf_config, dtype=dtype, **override_transformer_config_kwargs)
+    base_config = _get_base_transformer_config(
+        hf_config=hf_config,
+        dtype=dtype,
+        recompute_config=recompute_config,
+        enable_optimization_config=enable_optimization_config,
+        **override_transformer_config_kwargs,
+    )
     mla_config = {
         # MLA specific parameters
         "q_lora_rank": hf_config.q_lora_rank,
@@ -130,7 +198,11 @@ def _get_mla_transformer_config(
 
 
 def hf_to_mcore_config_dense(
-    hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
+    hf_config: PretrainedConfig,
+    dtype: torch.dtype,
+    recompute_config: RecomputeConfig = None,
+    enable_optimization_config: bool = True,
+    **override_transformer_config_kwargs,
 ) -> TransformerConfig:
     # for LlamaForCausalLM or Qwen2ForCausalLM
     qkv_bias = True if "Qwen2ForCausalLM" in hf_config.architectures else getattr(hf_config, "attention_bias", False)
@@ -139,6 +211,8 @@ def hf_to_mcore_config_dense(
     args: dict = _get_base_transformer_config(
         hf_config=hf_config,
         dtype=dtype,
+        recompute_config=recompute_config,
+        enable_optimization_config=enable_optimization_config,
         use_cpu_initialization=False,
         add_bias_linear=False,
         add_qkv_bias=qkv_bias,
@@ -151,11 +225,17 @@ def hf_to_mcore_config_dense(
 
 
 def hf_to_mcore_config_qwen2moe(
-    hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
+    hf_config: PretrainedConfig,
+    dtype: torch.dtype,
+    recompute_config: RecomputeConfig = None,
+    enable_optimization_config: bool = True,
+    **override_transformer_config_kwargs,
 ) -> TransformerConfig:
     args: dict = _get_base_transformer_config(
         hf_config=hf_config,
         dtype=dtype,
+        recompute_config=recompute_config,
+        enable_optimization_config=enable_optimization_config,
         use_cpu_initialization=False,
         add_bias_linear=False,
         layernorm_epsilon=hf_config.rms_norm_eps,
@@ -168,13 +248,7 @@ def hf_to_mcore_config_qwen2moe(
         moe_aux_loss_coeff=hf_config.router_aux_loss_coef,
         # moe_aux_loss_coeff=0.0,
         moe_router_load_balancing_type="none",  # turn off aux_loss as it hurts perf in RL
-        moe_shared_expert_overlap=True,
-        moe_grouped_gemm=True,
         moe_router_score_function="softmax",
-        # Other optimizations
-        persist_layer_norm=True,
-        bias_activation_fusion=True,
-        bias_dropout_fusion=True,
         # Qwen specific
         moe_router_pre_softmax=True,
         add_qkv_bias=True,
@@ -186,11 +260,17 @@ def hf_to_mcore_config_qwen2moe(
 
 
 def hf_to_mcore_config_mixtral(
-    hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
+    hf_config: PretrainedConfig,
+    dtype: torch.dtype,
+    recompute_config: RecomputeConfig = None,
+    enable_optimization_config: bool = True,
+    **override_transformer_config_kwargs,
 ) -> TransformerConfig:
     args: dict = _get_base_transformer_config(
         hf_config=hf_config,
         dtype=dtype,
+        recompute_config=recompute_config,
+        enable_optimization_config=enable_optimization_config,
         use_cpu_initialization=False,
         add_bias_linear=False,
         layernorm_epsilon=hf_config.rms_norm_eps,
@@ -205,13 +285,6 @@ def hf_to_mcore_config_mixtral(
         moe_shared_expert_overlap=False,  # mixtral has no shared expert
         moe_ffn_hidden_size=hf_config.intermediate_size,
         moe_router_bias_update_rate=0.001,
-        # moe_permute_fusion=True, # need TE 2.1+
-        moe_grouped_gemm=True,
-        # Other optimizations
-        persist_layer_norm=True,
-        apply_rope_fusion=True,
-        bias_activation_fusion=True,
-        bias_dropout_fusion=True,
     )
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
@@ -220,11 +293,17 @@ def hf_to_mcore_config_mixtral(
 
 
 def hf_to_mcore_config_qwen3moe(
-    hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
+    hf_config: PretrainedConfig,
+    dtype: torch.dtype,
+    recompute_config: RecomputeConfig = None,
+    enable_optimization_config: bool = True,
+    **override_transformer_config_kwargs,
 ) -> TransformerConfig:
     args: dict = _get_base_transformer_config(
         hf_config=hf_config,
         dtype=dtype,
+        recompute_config=recompute_config,
+        enable_optimization_config=enable_optimization_config,
         use_cpu_initialization=False,
         add_bias_linear=False,
         layernorm_epsilon=hf_config.rms_norm_eps,
@@ -238,10 +317,6 @@ def hf_to_mcore_config_qwen3moe(
         moe_router_load_balancing_type="none",  # turn off aux_loss as it hurts perf in RL
         moe_grouped_gemm=True,
         moe_router_score_function="softmax",
-        # Other optimizations
-        persist_layer_norm=True,
-        bias_activation_fusion=True,
-        bias_dropout_fusion=True,
         # Qwen specific
         moe_router_pre_softmax=False,
         qk_layernorm=True,
@@ -253,7 +328,11 @@ def hf_to_mcore_config_qwen3moe(
 
 
 def hf_to_mcore_config_dpskv3(
-    hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
+    hf_config: PretrainedConfig,
+    dtype: torch.dtype,
+    recompute_config: RecomputeConfig = None,
+    enable_optimization_config: bool = True,
+    **override_transformer_config_kwargs,
 ) -> MLATransformerConfig:
     # DeepseekV3ForCausalLM
     from megatron.core.transformer.enums import AttnBackend
@@ -290,6 +369,8 @@ def hf_to_mcore_config_dpskv3(
         hf_config=hf_config,
         mla_rope_config=mla_rope_config,
         dtype=dtype,
+        recompute_config=recompute_config,
+        enable_optimization_config=enable_optimization_config,
         # Additional parameters
         use_cpu_initialization=False,
         add_bias_linear=False,
@@ -315,12 +396,6 @@ def hf_to_mcore_config_dpskv3(
         # mcore 0.12 moe
         moe_router_dtype="fp64",
         disable_bf16_reduced_precision_matmul=True,
-        # Other optimizations
-        # deallocate_pipeline_outputs=True,
-        # gradient_accumulation_fusion=True,
-        persist_layer_norm=True,
-        bias_activation_fusion=True,
-        bias_dropout_fusion=True,
     )
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
@@ -335,13 +410,19 @@ def hf_to_mcore_config_dpskv3(
 
 
 def hf_to_mcore_config_qwen2_5_vl(
-    hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
+    hf_config: PretrainedConfig,
+    dtype: torch.dtype,
+    recompute_config: RecomputeConfig = None,
+    enable_optimization_config: bool = True,
+    **override_transformer_config_kwargs,
 ) -> TransformerConfig:
     # Qwen2_5_VLForConditionalGeneration
 
     args = _get_base_transformer_config(
         hf_config=hf_config,
         dtype=dtype,
+        recompute_config=recompute_config,
+        enable_optimization_config=enable_optimization_config,
         add_bias_linear=False,
         # qwen specific
         add_qkv_bias=True,

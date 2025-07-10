@@ -49,6 +49,7 @@ def get_model(
     model_type=ModelType.encoder_or_decoder,
     wrap_with_ddp=True,
     use_distributed_optimizer=True,
+    enable_optimization_config=True,
     transformer_config=None,
 ):
     """Build the model."""
@@ -130,16 +131,25 @@ def get_model(
 
     if wrap_with_ddp:
         ddp_models = []
+        if enable_optimization_config:
+            ddp_config = DistributedDataParallelConfig(
+                grad_reduce_in_fp32=True,  # [old] accumulate_allreduce_grads_in_fp32=True,
+                overlap_grad_reduce=True,
+                overlap_param_gather=True,
+                use_distributed_optimizer=use_distributed_optimizer,
+            )
+        else:
+            ddp_config = DistributedDataParallelConfig(
+                grad_reduce_in_fp32=True,  # [old] accumulate_allreduce_grads_in_fp32=True,
+                overlap_grad_reduce=False,
+                use_distributed_optimizer=use_distributed_optimizer,
+            )
         for model_chunk_idx, model_chunk in enumerate(model):
             ddp_model = DDP(
                 config=tfconfig,
                 module=model_chunk,
                 disable_bucketing=(model_chunk_idx > 0),
-                ddp_config=DistributedDataParallelConfig(
-                    overlap_grad_reduce=False,
-                    use_distributed_optimizer=use_distributed_optimizer,
-                    grad_reduce_in_fp32=True,  # [old] accumulate_allreduce_grads_in_fp32=True,
-                ),
+                ddp_config=ddp_config,
             )
             ddp_models.append(ddp_model)
         model = ddp_models
@@ -213,7 +223,7 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
     return transformer_config
 
 
-def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
+def init_megatron_optim_config(optim_config: Dict, enable_optimization_config: bool = True) -> OptimizerConfig:
     config = OptimizerConfig(
         optimizer=optim_config.get("optimizer", "adam"),
         lr=optim_config.get("lr"),
@@ -223,6 +233,7 @@ def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
         bf16=True,
         params_dtype=torch.bfloat16,
         use_distributed_optimizer=True,
+        overlap_param_gather_with_optimizer_step=enable_optimization_config,
     )
     return config
 

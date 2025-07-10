@@ -12,6 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any, Optional, Union
+
+import torch
+from omegaconf import DictConfig
+
 from verl.single_controller.base.worker import DistGlobalInfo, DistRankInfo, Worker
 
 
@@ -41,13 +46,15 @@ class MegatronWorker(Worker):
 
     def _init_hf_config_and_tf_config(
         self,
-        model_path,
-        tokenizer_or_path,
-        dtype,
-        override_model_config,
-        override_transformer_config,
-        trust_remote_code=False,
-        use_mbridge=False,
+        model_path: str,
+        tokenizer_or_path: Union[str, Any],
+        dtype: torch.dtype,
+        override_model_config: DictConfig,
+        override_transformer_config: DictConfig,
+        recompute_config: Optional[DictConfig] = None,
+        enable_optimization_config: bool = True,
+        trust_remote_code: bool = False,
+        use_mbridge: bool = False,
     ):
         from transformers import AutoConfig
 
@@ -89,7 +96,20 @@ class MegatronWorker(Worker):
         self.architectures = getattr(hf_config, "architectures", None)
         if self.rank == 0:
             print(f"Model config after override: {hf_config}")
-        tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
+        if recompute_config is not None:
+            from verl.models.mcore.config_converter import RecomputeConfig
+
+            recompute_config = RecomputeConfig(
+                recompute_granularity=recompute_config.get("recompute_granularity", "selective"),
+                recompute_modules=recompute_config.get(
+                    "recompute_modules", ["core_attn", "mlp", "moe", "moe_act", "layernorm", "mla_up_proj"]
+                ),
+                recompute_method=recompute_config.get("recompute_method", "uniform"),
+                recompute_num_layers=recompute_config.get("recompute_num_layers", 1),
+            )
+        tf_config = hf_to_mcore_config(
+            hf_config, dtype, recompute_config, enable_optimization_config, **override_transformer_config
+        )
 
         def add_optimization_config_to_tf_config(tf_config):
             # add optimization config to tf_config, e.g. checkpointing

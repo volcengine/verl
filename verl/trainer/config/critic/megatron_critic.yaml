@@ -104,6 +104,18 @@ megatron:
   # Whether to use distributed optimizer
   use_distributed_optimizer: True
 
+  # Recompute configuration, same as in megatron.training.arguments
+  # default use minimal performance-interference recompute methods
+  recompute_config:
+
+    recompute_granularity: selective
+
+    recompute_modules: ['core_attn', 'mlp', 'moe', 'moe_act', 'layernorm', 'mla_up_proj']
+
+    recompute_method: uniform
+
+    recompute_num_layers: 1
+
   # Whether to use distributed checkpointing
   use_dist_checkpointing: False
 
@@ -118,6 +130,9 @@ megatron:
 
   # Whether to use mBridge communications
   use_mbridge: ${actor_rollout_ref.actor.megatron.use_mbridge}
+
+  # enable megatron optimization config: communication/computation overlap, operators fusion, etc.
+  enabled_optimization_config: ${actor_rollout_ref.actor.megatron.enabled_optimization_config}
 
 # Whether to load initial weights
 load_weight: True

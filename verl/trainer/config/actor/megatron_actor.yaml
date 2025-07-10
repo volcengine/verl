@@ -69,6 +69,18 @@ megatron:
 
   use_distributed_optimizer: True
 
+  # Recompute configuration, same as in megatron.training.arguments
+  # default use minimal performance-interference recompute methods
+  recompute_config:
+
+    recompute_granularity: selective
+
+    recompute_modules: ['core_attn', 'mlp', 'moe', 'moe_act', 'layernorm', 'mla_up_proj']
+
+    recompute_method: uniform
+
+    recompute_num_layers: 1
+
   use_dist_checkpointing: False
 
   dist_checkpointing_path: null
@@ -82,6 +94,9 @@ megatron:
 
   # oc.select: default val for ref.megatron.use_mbridge
   use_mbridge: False
+
+  # enable megatron optimization config: communication/computation overlap, operators fusion, etc.
+  enabled_optimization_config: True
 
 # profile the actor model in `update_policy` 
 profile:

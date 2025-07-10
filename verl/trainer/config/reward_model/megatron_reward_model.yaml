@@ -57,5 +57,8 @@ megatron:
   # Whether to use mbridge for faster comms
   use_mbridge: ${actor_rollout_ref.actor.megatron.use_mbridge}
 
+  # enable megatron optimization config: communication/computation overlap, operators fusion, etc.
+  enabled_optimization_config: ${actor_rollout_ref.actor.megatron.enabled_optimization_config}
+
 # Whether to load weights (default True)
 load_weight: True
