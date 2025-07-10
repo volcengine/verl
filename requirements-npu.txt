@@ -10,7 +10,7 @@ peft
 pyarrow>=15.0.0
 pybind11
 pylatexenc
-tensordict<=0.6.2
+tensordict>=0.8.0,<=0.9.0
 transformers==4.52.4
 ray==2.46.0
 wandb
