@@ -41,7 +41,7 @@ class MultiTurnSFTDataset(Dataset):
         self.messages_key = multiturn_config.get("messages_key", "messages")
         self.loss_mask_key = multiturn_config.get("loss_mask_key", "loss_mask")
 
-        assert self.truncation in ["error", "left", "right"]
+        assert self.truncation in ["error", "left", "right", "truncate_middle"]
 
         if not isinstance(parquet_files, List):
             parquet_files = [parquet_files]
@@ -91,7 +91,6 @@ class MultiTurnSFTDataset(Dataset):
 
         # Create loss mask by identifying assistant responses
         loss_mask = torch.zeros_like(input_ids, dtype=torch.long)
-
         # Process each message to find assistant responses
         for i, msg in enumerate(messages):
             # Get tokens for messages up to this point to find the start position
@@ -130,6 +129,58 @@ class MultiTurnSFTDataset(Dataset):
                 input_ids = input_ids[: self.max_length]
                 attention_mask = attention_mask[: self.max_length]
                 loss_mask = loss_mask[: self.max_length]
+
+            elif self.truncation == "truncate_middle":
+                first_system_idx = None
+                first_user_idx = None
+                
+                for i, msg in enumerate(messages):
+                    if msg["role"] == "system" and first_system_idx is None:
+                        first_system_idx = i
+                    elif msg["role"] == "user" and first_user_idx is None:
+                        first_user_idx = i
+                        break 
+                
+                keep_end = 0
+                
+                if first_system_idx is not None and first_user_idx is not None:
+                    keep_messages = messages[:first_user_idx]
+                    keep_tokens = tokenizer.apply_chat_template(keep_messages, tokenize=True, return_tensors="pt", add_generation_prompt=False)
+                    keep_end = keep_tokens[0].shape[0]
+                elif first_user_idx is not None:
+                    keep_messages = messages[:first_user_idx + 1]
+                    keep_tokens = tokenizer.apply_chat_template(keep_messages, tokenize=True, return_tensors="pt", add_generation_prompt=False)
+                    keep_end = keep_tokens[0].shape[0]
+                else:
+                    input_ids = input_ids[:self.max_length]
+                    attention_mask = attention_mask[:self.max_length]
+                    loss_mask = loss_mask[:self.max_length]
+                    return {
+                        "input_ids": input_ids,
+                        "attention_mask": attention_mask,
+                        "position_ids": torch.arange(len(input_ids), dtype=torch.long) * attention_mask,
+                        "loss_mask": loss_mask,
+                    }
+                
+                if keep_end > self.max_length:
+                    input_ids = input_ids[:self.max_length]
+                    attention_mask = attention_mask[:self.max_length]
+                    loss_mask = loss_mask[:self.max_length]
+                else:
+                    remaining_length = self.max_length - keep_end
+                    if remaining_length > 0:
+                        end_tokens = input_ids[-remaining_length:]
+                        end_attention = attention_mask[-remaining_length:]
+                        end_loss_mask = loss_mask[-remaining_length:]
+                        
+                        input_ids = torch.cat([input_ids[:keep_end], end_tokens])
+                        attention_mask = torch.cat([attention_mask[:keep_end], end_attention])
+                        loss_mask = torch.cat([loss_mask[:keep_end], end_loss_mask])
+                    else:
+                        # keep_end equals max_length, just truncate
+                        input_ids = input_ids[:keep_end]
+                        attention_mask = attention_mask[:keep_end]
+                        loss_mask = loss_mask[:keep_end]
             elif self.truncation == "error":
                 raise ValueError(f"{sequence_length=} is larger than {self.max_length=}")
             else:
