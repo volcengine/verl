@@ -99,7 +99,6 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.ref.megatron.use_dist_checkpointing=True \
     actor_rollout_ref.actor.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
     actor_rollout_ref.ref.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
-    trainer.default_hdfs_dir=null \
     trainer.default_local_dir=$CKPT_DIR \
     trainer.val_before_train=False \
     trainer.total_epochs=100 $@

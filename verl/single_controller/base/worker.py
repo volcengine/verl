@@ -22,7 +22,7 @@ from typing import Dict
 
 import ray
 
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_torch_device, get_visible_devices_keyword
 
 from .decorator import Dispatch, Execute, register
 
@@ -144,7 +144,7 @@ class Worker(WorkerHelper):
             "LOCAL_RANK",
             "MASTER_ADDR",
             "MASTER_PORT",
-            "CUDA_VISIBLE_DEVICES",
+            get_visible_devices_keyword().upper(),
         ]
 
     def __init__(self, cuda_visible_devices=None) -> None:
@@ -180,7 +180,7 @@ class Worker(WorkerHelper):
             "_master_port": master_port,
         }
         if cuda_visible_devices is not None:
-            store["_cuda_visible_devices"] = cuda_visible_devices
+            store[f"_{get_visible_devices_keyword()}".lower()] = cuda_visible_devices
 
         self._configure_with_store(store=store)
 
@@ -218,6 +218,7 @@ class Worker(WorkerHelper):
             else:
                 cuda_val = val
                 os.environ["CUDA_VISIBLE_DEVICES"] = val
+                # os.environ["HIP_VISIBLE_DEVICES"] = val
 
         if rocr_val:
             # You must take care if both HIP/CUDA and ROCR env vars are set as they have
@@ -269,8 +270,8 @@ class Worker(WorkerHelper):
         """Get the CUDA visible devices configuration."""
         import os
 
-        cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "not set")
-        return cuda_visible_devices
+        visible_devices = os.environ.get(get_visible_devices_keyword().upper(), "not set")
+        return visible_devices
 
     @property
     def world_size(self):

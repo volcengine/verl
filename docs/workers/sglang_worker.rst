@@ -78,7 +78,6 @@ We use Qwen/Qwen2-7B-Instruct on the gsm8k dataset for a simple test.
         algorithm.kl_ctrl.kl_coef=0.001 \
         trainer.logger=['console'] \
         trainer.val_before_train=False \
-        trainer.default_hdfs_dir=null \
         trainer.n_gpus_per_node=4 \
         trainer.nnodes=1 \
         trainer.save_freq=-1 \
@@ -231,7 +230,6 @@ You can see that the cluster has two nodes with 16 GPUs:
         trainer.critic_warmup=0 \
         trainer.logger=['console'] \
         trainer.val_before_train=True \
-        trainer.default_hdfs_dir=null \
         trainer.n_gpus_per_node=8 \
         trainer.nnodes=2 \
         trainer.save_freq=-1 \

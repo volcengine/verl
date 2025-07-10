@@ -29,8 +29,7 @@
 #     - new workflow yaml is added to `.github/workflows`
 #     - new tests are added to workflow mentioned in 2.
 
-name: e2e_ppo_trainer_megatron
-# latest version: Megatron-LM core_r0.11.0 https://github.com/NVIDIA/Megatron-LM/tree/core_r0.11.0
+name: e2e_ppo_trainer_megatron_vllm
 
 on:
   # Trigger the workflow on push or pull request,
@@ -69,7 +68,7 @@ on:
       # FSDP
       - "!verl/workers/**/*dp_*.py"
       # Entrypoints
-      - ".github/workflows/e2e_ppo_trainer_megatron.yml"
+      - ".github/workflows/e2e_ppo_trainer_megatron_vllm.yml"
       - "examples/data_preprocess/gsm8k.py"
       - "examples/data_preprocess/geo3k.py"
       - "tests/special_e2e/run_ppo_trainer_megatron.sh"
@@ -86,34 +85,24 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.0-te2.3"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.1"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
   setup:
+    if: github.repository_owner == 'volcengine'
     runs-on: ubuntu-latest
     outputs:
-      runner-label: ${{ steps.create-runner.outputs.runner_label }}
-      mlp-task-id: ${{ steps.create-runner.outputs.mlp_task_id }}
+      runner-label: ${{ steps.create-runner.outputs.runner-label }}
+      mlp-task-id: ${{ steps.create-runner.outputs.mlp-task-id }}
     steps:
-      - name: create runner
-        id: create-runner
-        shell: bash
-        run: |
-          if [[ "${{ github.event.repository.full_name }}" != "volcengine/verl" ]]; then
-            echo "no need create runner, skip"
-            exit 0
-          fi
-          resp=$(curl -X POST "${{ env.DYNAMIC_RUNNER_ENDPOINT }}/create" \
-          -d '{"Image": "${{ env.IMAGE }}"}')
-          runner_label=$(echo $resp | jq -r '.runner_label')
-          if [[ -z $runner_label || $runner_label == "null" ]]; then
-            echo "create runner failed"
-            exit 1
-          fi
-          echo "runner_label=$runner_label" >> $GITHUB_OUTPUT   
-          mlp_task_id=$(echo $resp | jq -r '.task_id')
-          echo "mlp_task_id=$mlp_task_id" >> $GITHUB_OUTPUT 
+      - uses: actions/checkout@v4
+      - id: create-runner
+        uses: volcengine/vemlp-github-runner@v1 
+        with:
+          mode: "create"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-image: "${{ env.IMAGE }}"
 
   e2e_ppo_trainer_megatron-deepseek:
     needs: setup
@@ -311,6 +300,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install --no-deps -e .[test]
+          pip3 install mbridge
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
@@ -320,7 +310,7 @@ jobs:
           ADV_ESTIMATOR=grpo USE_DUMMY_MODEL=True DUMMY_MODEL_CONFIG_PATH=tests/special_e2e/ppo_trainer/expert_parallel/qwen2moe_minimal.json \
           PPO_MAX_TOKEN_LEN=512 FWD_MAX_TOKEN_LEN=512 \
           MAX_PROMPT_LENGTH=256 MAX_RESPONSE_LENGTH=256 \
-          MODEL_ID=Qwen/Qwen1.5-MoE-A2.7B-Chat \
+          MODEL_ID=Qwen/Qwen1.5-MoE-A2.7B-Chat USE_MBRIDGE=True \
           COMMON_PP=2 COMMON_VPP=null COMMON_CP=1 COMMON_TP=4 COMMON_EP=4 COMMON_ETP=1 INFER_TP=8 \
           USE_DIST_CKPT=True ALL_OFFLOAD=True SKIP_SAVE_HF_MODEL=1 bash tests/special_e2e/run_ppo_trainer_megatron.sh
       - name: clean up
@@ -343,6 +333,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install --no-deps -e .[test]
+          pip3 install "transformers[hf_xet]<4.52.0"
       - name: Prepare Geo3k dataset
         run: |
           python3 examples/data_preprocess/geo3k.py
@@ -357,8 +348,8 @@ jobs:
         run: |
           rm -rf checkpoints
 
-  cleanup: 
-    runs-on: ubuntu-latest  
+  cleanup:
+    runs-on: ubuntu-latest
     needs: [setup, 
       e2e_ppo_trainer_megatron-deepseek, 
       e2e_ppo_trainer_megatron-qwen3,
@@ -366,14 +357,12 @@ jobs:
       e2e_ppo_trainer_megatron-qwen-override-transformer-config,
       e2e_ppo_trainer_megatron-deepseek-override-transformer-config,
       e2e_ppo_trainer_megatron-moe-expert-parallel,
-      e2e_ppo_trainer_megatron-qwen2_5vl-3b]        
-    if: always()          
+      e2e_ppo_trainer_megatron-qwen2_5vl-3b]
+    if: always()
     steps:
-      - name: remove runner
-        run: |
-          if [[ -z "${{ needs.setup.outputs.mlp-task-id }}" ]]; then
-            echo "no need remove runner, skip"
-            exit 0
-          fi
-          resp=$(curl -X POST "${{ env.DYNAMIC_RUNNER_ENDPOINT }}/delete" \
-          -d '{"TaskId": "${{ needs.setup.outputs.mlp-task-id }}"}')
+      - id: destroy-runner
+        uses: volcengine/vemlp-github-runner@v1
+        with:
+          mode: "destroy"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-task-id: "${{ needs.setup.outputs.mlp-task-id }}"

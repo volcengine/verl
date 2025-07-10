@@ -34,7 +34,6 @@ from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.fsdp_utils import (
     fsdp_version,
@@ -43,6 +42,7 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_model_to_cpu,
 )
 from verl.utils.model import check_exclude_modules, check_target_modules, convert_weight_keys
+from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.torch_functional import check_device_is_available
 from verl.utils.vllm_utils import TensorLoRARequest, VLLMHijack, is_version_ge, patch_vllm_moe_model_weight_loader
 
@@ -53,6 +53,13 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class FSDPVLLMShardingManager(BaseShardingManager):
+    """Sharding manager for FSDP models with vLLM inference engine integration.
+
+    Manages parameter synchronization between FSDP training models and vLLM
+    inference engines, handling both full parameters and LoRA adapters with
+    efficient memory management and device placement.
+    """
+
     @check_device_is_available()
     def __init__(
         self,
@@ -263,6 +270,16 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         return data.chunk(chunks=self.tp_size)[self.tp_rank]
 
     def update_params(self, updated_params, peft_config=None):
+        """Update model parameters in the vLLM inference engine.
+
+        Synchronizes parameters from the FSDP training model to the vLLM inference
+        engine, handling both full model parameters and LoRA adapters with proper
+        device placement and memory management.
+
+        Args:
+            updated_params (dict): Dictionary of parameter names to tensor values.
+            peft_config (optional): PEFT configuration for LoRA adapters.
+        """
         model = self.model_runner.model
         if peft_config:
             if self.base_sync_done:
@@ -280,6 +297,17 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             else:
 
                 def replace_lora_wrapper(k):
+                    """Replace LoRA parameter keys with base layer equivalents.
+
+                    Transforms LoRA parameter names to their corresponding base layer
+                    names for proper weight loading in vLLM when base model sync is not done.
+
+                    Args:
+                        k (str): Original parameter key name.
+
+                    Returns:
+                        str: Transformed parameter key for base layer.
+                    """
                     stacked_params = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
                     if k.endswith(".weight"):
                         module_k = k[: -len(".weight")]
