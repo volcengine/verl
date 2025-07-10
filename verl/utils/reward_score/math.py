@@ -30,15 +30,10 @@ def compute_score(solution_str, ground_truth) -> float:
 
 # string normalization from https://github.com/EleutherAI/lm-evaluation-harness/blob/master/lm_eval/tasks/hendrycks_math.py
 import re
+
 def _canonical_int_if_safe(s: str) -> str:
-    """
-    If s is an integer (±digits), drop leading zeros; else return unchanged.
-    """
     if re.fullmatch(r'[-+]?\d+', s):
-        sign = s[0] if s[0] in '+-' else ''
-        num  = s[1:] if sign else s
-        num  = num.lstrip('0') or '0'
-        return sign + num
+        return str(int(s))
     return s
 
 def is_equiv(str1, str2, verbose=False):
