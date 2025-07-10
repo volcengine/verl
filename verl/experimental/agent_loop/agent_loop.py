@@ -357,6 +357,16 @@ class AgentLoopWorker:
 
 
 async def get_trajectory_info(step, index, validate):
+    """Get trajectory info.
+
+    Args:
+        step (int): global steps in the trainer.
+        index (list): form datastore extra_info.index column.
+        validate (bool): whether is a validate step.
+
+    Returns:
+        list: trajectory.
+    """
     trajectory_info = []
     rollout_n = 0
     for i in range(len(index)):
