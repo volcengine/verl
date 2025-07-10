@@ -362,7 +362,9 @@ class MegatronPPOActor(BasePPOActor):
                     f"{microbatch_group_size_per_vp_stage} for megatron backend"
                 )
             else:
-                micro_batches, indices = rearrange_micro_batches(batch=mini_batch.batch, max_token_len=max_token_len, use_dynamic_bsz_balance=use_dynamic_bsz_balance)
+                micro_batches, indices = rearrange_micro_batches(
+                    batch=mini_batch.batch, max_token_len=max_token_len, use_dynamic_bsz_balance=use_dynamic_bsz_balance
+                )
             total_seqlen = max_token_len
         else:
             assert micro_batch_size is not None, (
