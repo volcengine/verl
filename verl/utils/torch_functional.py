@@ -344,7 +344,7 @@ def postprocess_data(
         max_length: Target sequence length
         pad_token_id: Padding token ID
         left_pad: Pad left if True
-        truncation: "left", "right" or "error"
+        truncation: "left", "right", "middle" or "error"
 
     Returns:
         (input_ids, attention_mask) padded/truncated to max_length
