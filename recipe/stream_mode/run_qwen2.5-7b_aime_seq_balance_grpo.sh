@@ -15,8 +15,6 @@ fi
 TRAIN_FILE="/demo-huabei2/lusz/dataset/DAPO-Math-17k/data/dapo-math-17k.parquet"
 TEST_FILE="/demo-huabei2/lusz/dataset/BytedTsinghua-SIA-AIME-2024/data/aime-2024.parquet"
 
-# TRAIN_FILE=/demo-huabei2/lusz/dataset/gsm8k/train.parquet 
-# TEST_FILE=/demo-huabei2/lusz/dataset/gsm8k/test.parquet 
 
 python3 -m recipe.stream_mode.main_stream_ppo \
     algorithm.adv_estimator=grpo \

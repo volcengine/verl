@@ -2,12 +2,16 @@ import asyncio
 import logging
 import os
 import threading
-from typing import Any, Dict, List, Tuple, Type
+from typing import Tuple, Type
 
 import ray
 from omegaconf import DictConfig
 
-from recipe.stream_mode.chat_scheduler.chat_scheduler import ChatCompletionScheduler, MicroBatchScheduler, StreamScheduler, StreamSchedulerMixin
+from recipe.stream_mode.chat_scheduler.chat_scheduler import (
+    ChatCompletionScheduler,
+    StreamScheduler,
+    StreamSchedulerMixin,
+)
 from verl import DataProto
 from verl.single_controller.ray import RayWorkerGroup
 from verl.workers.rollout.async_server import async_server_class
@@ -77,7 +81,9 @@ class AsyncLLMServerManager:
         self.chat_scheduler_exception: Exception = None
         self.chat_scheduler_loop = None
         self.chat_scheduler_ready = threading.Event()
-        self.chat_scheduler_thread = threading.Thread(target=self._init_chat_scheduler, daemon=True, name="chat_scheduler_thread")
+        self.chat_scheduler_thread = threading.Thread(
+            target=self._init_chat_scheduler, daemon=True, name="chat_scheduler_thread"
+        )
         self.chat_scheduler_thread.start()
         self.chat_scheduler_ready.wait()
         self.agent_loop_mode = self.config.get("rollout.agent_loop_mode", True)
@@ -109,37 +115,23 @@ class AsyncLLMServerManager:
         """Sleep all vllm instances."""
         ray.get([server.sleep.remote() for server in self.async_llm_servers])
 
-    def submit_chat_completions(
-        self,
-        messages: List[Dict[str, str]],
-        sampling_params: Dict[str, Any],
-    ):
-        """Submit a chat completion request to chat scheduler and wait until it is done.
-        To submit multiple requests in parallel, please use `generate_sequences` instead.
-
-        Args: same as ChatCompletionScheduler.submit_chat_completions.
-        """
-        assert self.chat_scheduler is not None, "chat scheduler is not initialized."
-        future = asyncio.run_coroutine_threadsafe(
-            self.chat_scheduler._submit_chat_completions_semaphore(
-                messages=messages,
-                request_id=None,
-                sampling_params=sampling_params,
-            ),
-            self.chat_scheduler_loop,
-        )
-        future.result()
-
     def generate_sequences(self, batch: DataProto, **sampling_params) -> DataProto:
         """Generate multiple sequences in parallel via chat scheduler."""
         assert self.chat_scheduler is not None, "chat scheduler is not initialized."
-        future = asyncio.run_coroutine_threadsafe(self.chat_scheduler.generate_sequences(batch, **sampling_params), self.chat_scheduler_loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self.chat_scheduler.generate_sequences(batch, **sampling_params), self.chat_scheduler_loop
+        )
         return future.result()
 
-    def stream_generate_sequences(self, data_iter, batch_size, renew, **sampling_params) -> Tuple[bool, DataProto, DataProto, DataProto]:
+    def stream_generate_sequences(
+        self, data_iter, batch_size, renew, **sampling_params
+    ) -> Tuple[bool, DataProto, DataProto, DataProto]:
         assert self.chat_scheduler is not None, "chat scheduler is not initialized."
         assert isinstance(self.chat_scheduler, StreamSchedulerMixin), "this should mix in StreamSchedulerMixin"
-        future = asyncio.run_coroutine_threadsafe(self.chat_scheduler.stream_generate_sequences(data_iter, batch_size, renew, **sampling_params), self.chat_scheduler_loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self.chat_scheduler.stream_generate_sequences(data_iter, batch_size, renew, **sampling_params),
+            self.chat_scheduler_loop,
+        )
         return future.result()
 
 
@@ -150,9 +142,7 @@ def chat_scheduler_class(scheduler_str: str) -> Type[ChatCompletionScheduler]:
     Returns:
         Type[ChatCompletionScheduler]: chat scheduler class.
     """
-    if scheduler_str == "micro_batch":
-        return MicroBatchScheduler
-    elif scheduler_str == "stream":
+    if scheduler_str == "stream":
         return StreamScheduler
     else:
-        return ChatCompletionScheduler
+        raise NotImplementedError

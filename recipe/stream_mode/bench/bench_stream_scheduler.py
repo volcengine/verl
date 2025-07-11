@@ -82,8 +82,8 @@ config.actor_rollout_ref.rollout.presence_penalty = 0.0
 config.actor_rollout_ref.rollout.frequency_penalty = 0.0
 
 tokenizer = hf_tokenizer(large_model_path())
-local_path = get_code_data()
-# local_path = get_gsm8k_data()
+# local_path = get_code_data()
+local_path = get_gsm8k_data()
 # local_path = get_dapo_data()
 data_config = OmegaConf.create(
     {

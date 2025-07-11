@@ -31,7 +31,6 @@ from omegaconf import DictConfig
 from typing_extensions import runtime_checkable
 
 from recipe.stream_mode.chat_scheduler.apis import (
-    AsyncCallbackMixin,
     ReduceResp,
     RolloutReq,
     RolloutResp,
@@ -119,16 +118,15 @@ class MicroBatchScheduler(ChatCompletionScheduler):
     ):
         super().__init__(config, server_handles, max_cache_size)
         self.mirco_batch_config = config.actor_rollout_ref.rollout.chat_scheduler
-        print(self.config)
         self.micro_batch_per_dp = (
             self.mirco_batch_config.micro_batch.max_inflight_req
-            if self.mirco_batch_config.micro_batch.max_inflight_req
+            if self.mirco_batch_config.micro_batch.max_inflight_req is not None
             else max_inflight_req
         )
         self.server_handles = server_handles
         self.enable_work_stealing = (
             self.mirco_batch_config.micro_batch.enable_work_stealing
-            if self.mirco_batch_config.micro_batch.enable_work_stealing
+            if self.mirco_batch_config.micro_batch.enable_work_stealing is not None
             else enable_work_stealing
         )
         self.number_of_servers = len(server_handles)
@@ -192,7 +190,6 @@ class MicroBatchScheduler(ChatCompletionScheduler):
                     self.rollout_req_handler,
                     addr,
                     self.reduce_data_queue,
-                    self.completion_callback,
                 )
                 actor = WorkStealingActor(
                     worker_id=idx,
@@ -260,7 +257,7 @@ class MicroBatchScheduler(ChatCompletionScheduler):
         outputs = await asyncio.gather(*tasks)
 
         output = agent_loop_postprocess(self.tokenizer, outputs, self.max_prompt_length, self.max_response_length)
-        print("[StreamChatCompletionScheduler] generate_sequences done")
+        print("[MicroBatchScheduler] generate_sequences done")
         # calculate performance metrics
         metrics = [output.meta_info["metrics"]]  # List[List[Dict[str, str]]]
         timing = agent_loop_perf(metrics, output)
@@ -323,7 +320,7 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
         self.model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
-        print(
+        logger.info(
             f"init with resource: tokenizer: {self.tokenizer},model name: {self.model_name}, max \
             prompt length: {self.max_prompt_length}, max response length: {self.max_response_length}"
         )
@@ -358,9 +355,9 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
                 if self.death_letter is not None:
                     self.death_letter.put_nowait(letter)
                 else:
-                    logger.warning("global data fetcher exit")
+                    logger.warning("memory monitor exit")
 
-        self.data_fetcher_actor.add_done_callback(callback)
+        self.mem_monitor_actor.add_done_callback(callback)
 
     async def _default_data_fetcher(self, data_iter):
         class _Iter:
@@ -405,7 +402,7 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
         )
         n = self.config.n
 
-        print(f"[ChatCompletionScheduler] generate_sequences sampling params: {sampling_params}")
+        logger.info(f"[ChatCompletionScheduler] generate_sequences sampling params: {sampling_params}")
         try:
             async for gen_next_batch in _Iter(data_iter):
                 gen_batch, batch = gen_next_batch
@@ -423,8 +420,6 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
                         messages=messages.tolist(),
                         model_name=self.model_name,
                         sampling_params=sampling_params,
-                        tools_schema=self.completion_callback.tool_schemas,
-                        extra_body=self.completion_callback.extra_body,
                         generation=0,
                         sample_id=sample_id,
                     )
@@ -436,10 +431,10 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
                         # raw_prompt: [{"role": "user", "content": ""}, ["role": "assistant", "content"], ...]
                         await self.global_data_queue.put(_rollout_req)
         except asyncio.CancelledError:
-            print("data fetcher cancled")
+            logger.warning("data fetcher cancled")
         except Exception as e:
-            print(f"exit data fetcher for exception: {e}")
-        print(f"exit data fetcher, pending sample size: {len(self.pending_sample)}")
+            logger.warning(f"exit data fetcher for exception: {e}")
+        logger.info(f"exit data fetcher, pending sample size: {len(self.pending_sample)}")
         self.data_fetcher_exit.set()
 
     def _generate_unique_id(self):
@@ -449,7 +444,7 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
                 return sample_id
 
     def init_async_data_fetcher(self, data_iter, renew):
-        print(f"[start_async_data_fetcher]: data iter: {data_iter}，renew: {renew}, {self.data_iter},{data_iter}")
+        logger.info(f"[start_async_data_fetcher]: data iter: {data_iter}，renew: {renew}, {self.data_iter},{data_iter}")
         if not renew:
             return
         if self.data_fetcher_actor is not None and self.data_fetcher_actor.done():
@@ -468,14 +463,13 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
                 )
                 if self.death_letter is not None:
                     self.death_letter.put_nowait(letter)
-                print(f"global data fetcher exit for execption: {task}")
+                logger.exception(f"global data fetcher exit for execption: {task}, exception: {task.exception()}")
 
         self.data_fetcher_actor.add_done_callback(callback)
         self.data_loader_blocker.set()
-        print(f"[start_async_data_fetcher]: data fetcher actor: {self.data_fetcher_actor}")
+        logger.info(f"[start_async_data_fetcher]: data fetcher actor: {self.data_fetcher_actor}")
 
     def _lazy_init_global_resource(self, data_iter: Iterable, renew):
-        print("_lazy_init_global_resource")
         super()._lazy_init_global_resource()
         self.start_memory_monitor()
         self.init_async_data_fetcher(data_iter, renew)
@@ -493,11 +487,9 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
             maybe_set_evt: asyncio.Event = actor.cancel_task()
             if not maybe_set_evt.is_set():
                 evts.append(maybe_set_evt.wait())
-        print(f"cancel req with length: {len(evts)}")
+        logger.info(f"cancel req with length: {len(evts)}")
         # cancel tool-calls
-        print("[MicroBatchChatCompletionScheduler] shut down completion callback")
-        await self.completion_callback.shutdown()
-        print("[MicroBatchChatCompletionScheduler] shut down completion callback done")
+        logger.info("[StreamScheduler] shut down completion callback")
         await asyncio.gather(*evts)
 
     def _skip_if_stale_request(self, rollout_req: RolloutReq, stage: str):
@@ -539,7 +531,6 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
         self,
         server_handle,
         reduce_queue: asyncio.Queue,
-        external_call: AsyncCallbackMixin,
         actor_meta: ActorMeta,
         rollout_req: RolloutReq,
     ):
@@ -593,9 +584,7 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
             reduce_queue.put_nowait(resp)
 
     # maybe we can make this sink_queue as a pubsub proxy using zmq
-    async def stream_handle_reduce_req(
-        self, batch_size, n_sample, sink_queue: asyncio.Queue = None, format="ReduceResp"
-    ):
+    async def stream_handle_reduce_req(self, batch_size, n_sample, sink_queue: asyncio.Queue = None):
         batch_agent_output = []
         # joiner_buffer worked as key for sample_id,value for result.
         # make sure n-sample arrived correctlly then ship to batch_conversations as result
@@ -678,9 +667,7 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
             self.buffer_size = bsz
             print(f"last batch for epoch, size: {bsz}")
         print(f"waiting for rollout done, self.buffer_size: {self.buffer_size}")
-        batch_conversations, gen_batch, batch = await self.reduce_handler(
-            self.buffer_size, n_sample=self.config.n, format=self.reduce_format
-        )
+        batch_conversations, gen_batch, batch = await self.reduce_handler(self.buffer_size, n_sample=self.config.n)
         print(f"partial rollout done, cancel all left request, real size: {len(batch_conversations)}")
         await self.cancel_all_req()
         self._requeue_preempt_req()

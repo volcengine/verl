@@ -14,8 +14,8 @@
 import asyncio
 import logging
 import os
-from contextlib import ExitStack
 import pickle
+from contextlib import ExitStack
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import ray
@@ -25,6 +25,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
+from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ErrorResponse
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from vllm.entrypoints.openai.serving_models import BaseModelPath, OpenAIServingModels
@@ -284,6 +285,7 @@ class AsyncvLLMServer(AsyncServerBase):
             enable_auto_tools=config.multi_turn.tool_config_path is not None,
             tool_parser=config.multi_turn.format,  # hermes, llama3_json, ...
         )
+
         async def _force_log(stat_log_interval=10):
             print("stat_log_interval", stat_log_interval)
             while True:
@@ -291,7 +293,6 @@ class AsyncvLLMServer(AsyncServerBase):
                 await self.engine.do_log_stats()
 
         asyncio.create_task(_force_log(stat_log_interval))
-
 
     def _create_engine_config(self, engine_args: AsyncEngineArgs):
         vllm_config = engine_args.create_engine_config()
@@ -339,7 +340,9 @@ class AsyncvLLMServer(AsyncServerBase):
 
         return final_res.outputs[0].token_ids
 
-    async def generate_with_cancel(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+    async def generate_with_cancel(
+        self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str
+    ) -> List[int]:
         with ExitStack() as stack:
             self.active_req[request_id] = asyncio.Event()
             stack.callback(lambda: self.active_req.pop(request_id, None))
