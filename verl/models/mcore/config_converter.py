@@ -132,7 +132,7 @@ def _get_base_transformer_config(
             "moe_grouped_gemm": True,
             "moe_enable_deepep": use_deep_ep,  # requires DeepEP
             "moe_permute_fusion": True,  # requires TE 2.1
-            "moe_token_dispatcher_type": "flex",
+            # "moe_token_dispatcher_type": "flex",  # Not compatible with moe_shared_expert_overlap
             # Extra
             "deallocate_pipeline_outputs": True,
             "persist_layer_norm": True,
