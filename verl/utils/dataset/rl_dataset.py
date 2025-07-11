@@ -342,7 +342,7 @@ class RLHFDataset(Dataset):
         return self.__dict__.copy()
 
     def __setstate__(self, state):
-        """Restore dataset state when unpickled, reconstructing dataframe if needed e.g. when serialize_dataset=False."""
+        """Restore dataset state, reconstructing dataframe when serialize_dataset=False."""
         self.__dict__.update(state)
         
         # If dataframe was not serialized, reconstruct it
