@@ -27,6 +27,7 @@ from langgraph.prebuilt import ToolNode
 
 from recipe.langgraph_agent.chat_model import (
     ChatModel,
+    MaxTokenExceededError,
     convert_to_agent_output,
 )
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput
@@ -35,8 +36,12 @@ from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutp
 async def call_model(state: MessagesState, config: RunnableConfig):
     model = config["configurable"]["model"]
     sampling_params = config["configurable"]["sampling_params"]
-    message = await model.ainvoke(state["messages"], sampling_params=sampling_params)
-    return {"messages": [message]}
+    try:
+        message = await model.ainvoke(state["messages"], sampling_params=sampling_params)
+        return {"messages": [message]}
+    except MaxTokenExceededError:
+        # last message is ToolMessage
+        return {"messages": []}
 
 
 def should_continue(state: MessagesState, config: RunnableConfig) -> Literal["tools", END]:
@@ -46,10 +51,21 @@ def should_continue(state: MessagesState, config: RunnableConfig) -> Literal["to
         if message.type == "ai":
             num_assistant_turns += 1
 
-    if (max_assistant_turns and num_assistant_turns >= max_assistant_turns) or not state["messages"][-1].tool_calls:
+    last_message = state["messages"][-1]
+
+    # LLM call failed, e.g: max response length exceeded
+    if last_message.type == "tool":
         return END
-    else:
-        return "tools"
+
+    # max assistant turns exceeded
+    if max_assistant_turns and num_assistant_turns >= max_assistant_turns:
+        return END
+
+    # no tool calls
+    if not last_message.tool_calls:
+        return END
+
+    return "tools"
 
 
 class ReactAgentLoop(AgentLoopBase):
