@@ -1,4 +1,17 @@
-# Copyright (c) 2025 RedAccel Authors. All Rights Reserved.
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
+# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import threading
 import time
@@ -25,9 +38,7 @@ def check_textual_version():
     from packaging.version import Version
 
     if Version(textual.__version__) != Version("0.52.1"):
-        raise ImportError(
-            f"Textual version {textual.__version__} is not supported, please install version 0.52.1 or later."
-        )
+        raise ImportError(f"Textual version {textual.__version__} is not supported, please pip install textual==0.52.1")
 
 
 check_textual_version()
@@ -55,7 +66,7 @@ def load_data(path: Path, data, pbar, suffix=".jsonl"):
         tmp = []
         i = 0
         with open(p, encoding="utf-8") as f:
-            for line in open(p):
+            for line in f:
                 d = json.loads(line)
                 for k in d:
                     if ("input" in k or "output" in k) and isinstance(d[k], str):
