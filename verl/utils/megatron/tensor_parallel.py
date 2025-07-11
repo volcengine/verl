@@ -205,7 +205,7 @@ def initialize_tp_communicators(rmpad_seqlen: int, hidden_size: int, use_fp8: bo
     ub_cfgs = {}
 
     input_shape = [
-        rmpad_seqlen // mpu.get_context_parallel_size(),
+        rmpad_seqlen // mpu.get_context_parallel_world_size(),
         hidden_size,
     ]
 

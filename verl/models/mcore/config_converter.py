@@ -429,6 +429,7 @@ def hf_to_mcore_config_qwen2_5_vl(
         # qwen specific
         add_qkv_bias=True,
         mrope_section=hf_config.rope_scaling["mrope_section"],
+        apply_rope_fusion=False,  # no rope fusion in Qwen2.5 VL
     )
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
