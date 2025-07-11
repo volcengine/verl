@@ -33,8 +33,8 @@ from verl.trainer.ppo.metric_utils import _compute_response_info
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
-from verl.utils.debug.performance import simple_timer
 from verl.utils.metric import reduce_metrics
+from verl.utils.profiler.performance import simple_timer
 
 from . import prime_core_algos
 
@@ -376,6 +376,7 @@ class RayPRIMETrainer(RayPPOTrainer):
 
                 # pop those keys for generation
                 gen_batch = batch.pop(batch_keys=["input_ids", "attention_mask", "position_ids"])
+                gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
                 with simple_timer("step", timing_raw):
                     # generate a batch

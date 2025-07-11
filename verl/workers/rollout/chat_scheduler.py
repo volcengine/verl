@@ -35,6 +35,7 @@ from verl.protocol import DataProto
 from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
+from verl.utils.import_utils import deprecated
 
 logger = logging.getLogger(__file__)
 
@@ -268,6 +269,7 @@ class ToolCompletionCallback(CompletionCallback):
         return loss_mask
 
 
+@deprecated("verl.experimental.agent_loop.AgentLoopManager")
 class ChatCompletionScheduler:
     def __init__(
         self,

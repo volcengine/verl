@@ -26,7 +26,8 @@ For custom environment interaction tools, you can implement your own tools based
 
     tools:
       - class_name: ""
-        config: {}
+        config: 
+            type: native
         tool_schema:
 
 You may refer to GSM8KTool_example_configuration_, which is one example of the tool configurations. Its implementation can be found in gsm8k_tool.py_.
@@ -40,7 +41,7 @@ Finally, set the ``tools_config_file`` in your rollout config:
             tool_kwargs:
                 tools_config_file: <path_to_tool_yaml_file>
 
-This allows integration of customized tool behaviors during actor rollout steps. 
+This allows integration of customized tool behaviors during actor rollout steps.
 
 If you want rollout with simulated interaction, you can set the ``interaction_config_file`` in your rollout config:
 
@@ -55,6 +56,74 @@ If you want rollout with simulated interaction, you can set the ``interaction_co
     actor_rollout_ref:
         rollout:
             interaction_config_file: <path_to_interaction_yaml_file>
+
+If your tool creates multi-modal inputs, you should return a list of multi-modal inputs in your tool.execute() implementation.
+
+Image and video should be processed before returning. For example, if you are using Qwen2.5-VL, you can use the following code to get the representations:
+
+.. code-block:: python
+
+    async def execute(self, ...) -> Tuple[str | Dict[str, Any], float, dict]:
+        ...
+        from verl.utils.dataset.vision_utils import process_image, process_video
+
+        img1 = process_image(img1)
+        video1 = process_video(video1)
+
+        # due to the (image | video) key is ("image" | "video") instead of ("images" | "videos") in vllm, we need to use ("image" | "video") to specify list of images/videos
+        # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
+        return {"image": [img1, ...], "video": [video1, ...], "text": "..."}, 0, {}
+
+remeber to set ``return_multi_modal_inputs: False`` in your dataset config in order to process the multi-modal inputs in the rollout correctly.
+Refer to the `Handling Multi-Modal Inputs in Datasets`_ section for more details.
+
+MCP Tool Configuration
+~~~~~~~~~~~~~~~~~~~~~~
+
+For MCP interaction tools, you can flexibly configure them using a YAML file. The typical setup is as follows:
+
+.. code-block:: yaml
+
+    tools:
+      - class_name: ""
+        config:
+            type: mcp
+        mcp:
+            mcp_servers_config_path: ./mcp_server.json
+            tool_selected_list: {}
+
+The ``tool_selected_list`` field is optional and specifies which tools to use from the servers. If you want to enable all available tools, simply omit this attribute. Besides, ``mcp_servers_config_path`` points to a JSON file containing the MCP server configurations. For example:
+
+.. code-block:: json
+
+      {
+          "mcpServers": {
+              "SSE Server": {
+                  "url": "your_server_url",
+                  "auth_token": "your_server_api_token"
+              },
+              "STDIO Server": {
+                  "command": "npx",
+                  "args": ["-y", "server-mcp@0.2.1"],
+                  "env": {
+                    "SERVER_API_KEY": "your_server_api_token"
+                  }
+              }
+          }
+      }
+
+Since the content formats returned by the MCP server may vary, users can inherit from ``MCPBaseTool`` and override the ``_parse_tool_result`` method to implement custom parsing logic.
+
+.. code-block:: python
+
+   class MCPYourTool(MCPBaseTool):
+       def __init__(self, config: dict, tool_schema: OpenAIFunctionToolSchema):
+           super().__init__(config, tool_schema)
+
+       def _parse_tool_result(self, content: list) -> Tuple[str, dict]:
+           ...
+
+Overall, you may refer to mcp_search_tool.py_ and mcp_tool_config.yaml_ for custom implementation and configuration.
 
 Multi-turn Tokenization
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -103,7 +172,7 @@ The tokenization sanity check mode can be configured using the ``actor_rollout_r
 
 - ``ignore_strippable``: Ignores differences in whitespace characters (``\n``, ``\t``, ``\r``, spaces) while still checking for meaningful text mismatches. This is useful when debugging chat template issues where whitespace variations are expected and acceptable.
 
-- ``off``: Completely disables the tokenization sanity check. Only use this if you have thoroughly validated that tokenization discrepancies are expected and won't impact training.
+- ``disable``: Completely disables the tokenization sanity check. Only use this if you have thoroughly validated that tokenization discrepancies are expected and won't impact training.
 
 Example configuration:
 
@@ -112,7 +181,17 @@ Example configuration:
     actor_rollout_ref:
         rollout:
             multi_turn:
-                tokenization_sanity_check_mode: "ignore_strippable"  # Choose from: "strict", "ignore_strippable", "off"
+                tokenization_sanity_check_mode: "ignore_strippable"  # Choose from: "disable", "ignore_strippable", "strict"
+
+Handling Multi-Modal Inputs in Datasets
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If your dataset includes multi-modal inputs (such as images or videos), you can control whether these are pre-processed and included in each sample by setting the return_multi_modal_inputs flag in your dataset config (used by RLHFDataset).
+
+- ``return_multi_modal_inputs: True`` (default): The dataset will pre-process and include a multi_modal_inputs dictionary for each sample. This dict contains the model-ready representations (e.g., image tensors, video tensors, etc.) as produced by your processor. This is useful for single-turn or SFT-style training, where the model expects all modalities to be present in the batch.
+
+- ``return_multi_modal_inputs: False``: The dataset will not include the multi_modal_inputs field. This is recommended for multi-turn RL or tool-augmented rollouts, where the model may generate new multi-modal inputs dynamically during rollout, and you want to avoid conflicts or redundant data in the batch.
+
 
 Special Cases
 ^^^^^^^^^^^^^
@@ -236,6 +315,10 @@ See the training performance of multi-turn rollout on the GSM8K task HERE_.
 .. _GSM8KTool_example_configuration: https://github.com/volcengine/verl/blob/main/examples/sglang_multiturn/config/tool_config/gsm8k_tool_config.yaml
 
 .. _gsm8k_tool.py: https://github.com/volcengine/verl/blob/main/verl/tools/gsm8k_tool.py
+
+.. _mcp_search_tool.py: https://github.com/volcengine/verl/blob/main/verl/tools/mcp_search_tool.py
+
+.. _mcp_tool_config.yaml: https://github.com/volcengine/verl/blob/main/examples/sglang_multiturn/config/tool_config/mcp_tool_config.yaml
 
 Interaction System
 ~~~~~~~~~~~~~~~~~~

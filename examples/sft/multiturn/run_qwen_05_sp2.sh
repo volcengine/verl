@@ -24,7 +24,6 @@ torchrun --nnodes=1 --nproc_per_node=$nproc_per_node \
     trainer.project_name=multiturn-sft \
     trainer.experiment_name=multiturn-sft-qwen-2.5-0.5b-instruct-sp2 \
     trainer.logger=['console'] \
-    trainer.total_training_steps=1 \
-    trainer.default_hdfs_dir=null $@ \
+    trainer.total_training_steps=1 $@ \
     ulysses_sequence_parallel_size=2 \
     use_remove_padding=true
