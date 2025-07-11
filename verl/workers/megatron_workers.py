@@ -295,7 +295,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
             # init rollout trace in this process
-            if self.trainer_config:
+            # only in sync mode, because async use trace in agent loop
+            if self.trainer_config and self.config.rollout.mode == "sync":
                 trace_config = self.config.rollout.get("trace", {})
                 RolloutTraceConfig.init(
                     self.trainer_config.project_name,
