@@ -127,6 +127,8 @@ class MegatronWorker(Worker):
                 enabled=optimization_config["enabled"],
                 disabled_config=optimization_config["disabled_config"],
             )
+        else:
+            optimization_config = None
 
         tf_config = hf_to_mcore_config(
             hf_config, dtype, recompute_config, optimization_config, **override_transformer_config
