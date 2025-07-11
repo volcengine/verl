@@ -46,7 +46,7 @@ class OptimizationConfig:
     """
 
     enabled: bool = True
-    disabled_config: list = ["tp_comm_overlap"]
+    disabled_config: list = ["tp_comm_overlap", "use_deep_ep"]
 
 
 def _get_base_transformer_config(
