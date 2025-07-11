@@ -17,7 +17,6 @@ import logging
 import os
 import warnings
 from dataclasses import asdict, dataclass
-from threading import Thread
 from typing import Optional, Union
 
 import torch
@@ -29,7 +28,7 @@ from torch.distributed.fsdp import ShardedOptimStateDictConfig, ShardedStateDict
 from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.device import is_cuda_available
-from verl.utils.fs import S3_PREFIX, copy_to_local, copy_to_remote, is_non_local, local_mkdir_safe
+from verl.utils.fs import S3_PREFIX, copy_to_local, is_non_local, local_mkdir_safe
 from verl.utils.fsdp_utils import fsdp_version, get_fsdp_full_state_dict, get_fsdp_state_ctx
 from verl.utils.hdfs_io import HDFS_PREFIX
 from verl.utils.logger import log_with_rank
@@ -85,8 +84,6 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 "`tokenizer` is deprecated. use `processing_class` instead.", DeprecationWarning, stacklevel=2
             )
             processing_class = kwargs.pop("tokenizer")
-
-        self.checkpoint_upload_threads = []
 
         super().__init__(
             model,
@@ -279,14 +276,14 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                     model_state_dict = self.model.state_dict()
                     torch.save(model_state_dict, model_path)
                     if remote_path is not None and remote_path.startswith(S3_PREFIX):
-                        self._upload_checkpoint_in_background(os.path.join(remote_path, model_file), model_path)
+                        self.upload_checkpoint_in_background(os.path.join(remote_path, model_file), model_path)
                     log_with_rank(f"Saved model to {os.path.abspath(model_path)}", rank=self.rank, logger=logger)
 
                 if self.should_save_optimizer:
                     optimizer_state_dict = self.optimizer.state_dict()
                     torch.save(optimizer_state_dict, optim_path)
                     if remote_path is not None and remote_path.startswith(S3_PREFIX):
-                        self._upload_checkpoint_in_background(os.path.join(remote_path, optim_file), optim_path)
+                        self.upload_checkpoint_in_background(os.path.join(remote_path, optim_file), optim_path)
                     log_with_rank(f"Saved optim to {os.path.abspath(optim_path)}", rank=self.rank, logger=logger)
 
                 if self.should_save_extra:
@@ -297,7 +294,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                     }
                     torch.save(extra_state_dict, extra_path)
                     if remote_path is not None and remote_path.startswith(S3_PREFIX):
-                        self._upload_checkpoint_in_background(os.path.join(remote_path, extra_file), extra_path)
+                        self.upload_checkpoint_in_background(os.path.join(remote_path, extra_file), extra_path)
                     log_with_rank(f"Saved extra_state to {os.path.abspath(extra_path)}", rank=self.rank, logger=logger)
 
         if self.rank == 0:
@@ -391,25 +388,3 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             torch.distributed.barrier()
 
         self.previous_saved_paths.append(local_path)
-
-    def _upload_checkpoint_in_background(self, s3_path: str, local_path: str) -> None:
-        upload_thread = Thread(
-            target=copy_to_remote,
-            args=(
-                s3_path,
-                local_path,
-            ),
-            kwargs={"verbose": True},
-        )
-        upload_thread.start()
-        self.checkpoint_upload_threads.append(upload_thread)
-
-    def wait_for_all_uploads(self):
-        # print waiting threads
-        waiting_threads = sum(t.is_alive() for t in self.checkpoint_upload_threads)
-        if waiting_threads > 0:
-            print(f"Rank {self.rank} waiting for {waiting_threads} checkpoint upload thread(s)")
-
-        for thread in self.checkpoint_upload_threads:
-            thread.join()
-        self.checkpoint_upload_threads = []

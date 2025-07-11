@@ -28,12 +28,15 @@ except ImportError as excn:
     raise RuntimeError("Boto3 required for s3 checkpointing, please install boto3==1.34.162") from excn
 
 import botocore
+from botocore.config import Config
 from botocore.exceptions import ClientError
 from pydantic import BaseModel
 
 PARALLEL_UPLOAD_COUNT = 100
 
 TRIES = 8
+
+_RETRY_CFG = Config(retries={"mode": "standard", "max_attempts": 4})
 
 
 class CLIException(Exception):
@@ -54,7 +57,7 @@ class FilenameInfo(BaseModel):  # type: ignore
 
 def _get_s3_client() -> Any:
     s3_session = boto3.Session()
-    s3 = s3_session.client("s3")
+    s3 = s3_session.client("s3", config=_RETRY_CFG)
     return s3
 
 

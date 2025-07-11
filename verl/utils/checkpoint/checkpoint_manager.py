@@ -15,6 +15,7 @@
 import os
 import random
 import shutil
+from threading import Thread
 from typing import Union
 
 import numpy as np
@@ -24,6 +25,7 @@ from omegaconf import DictConfig
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.device import get_device_name, get_torch_device
+from verl.utils.fs import copy_to_remote
 
 
 class BaseCheckpointManager:
@@ -68,6 +70,7 @@ class BaseCheckpointManager:
 
         self.rank = torch.distributed.get_rank()
         self.world_size = torch.distributed.get_world_size()
+        self.checkpoint_upload_threads = []
 
     @property
     def should_save_model(self) -> bool:
@@ -168,6 +171,29 @@ class BaseCheckpointManager:
 
         if get_device_name() != "cpu":
             get_torch_device().set_rng_state(rng_state[get_device_name()])
+
+    @staticmethod
+    def upload_checkpoint_in_background(self, s3_path: str, local_path: str) -> None:
+        upload_thread = Thread(
+            target=copy_to_remote,
+            args=(
+                s3_path,
+                local_path,
+            ),
+            kwargs={"verbose": True},
+        )
+        upload_thread.start()
+        self.checkpoint_upload_threads.append(upload_thread)
+
+    def wait_for_all_uploads(self):
+        # print waiting threads
+        waiting_threads = sum(t.is_alive() for t in self.checkpoint_upload_threads)
+        if waiting_threads > 0:
+            print(f"Rank {self.rank} waiting for {waiting_threads} checkpoint upload thread(s)")
+
+        for thread in self.checkpoint_upload_threads:
+            thread.join()
+        self.checkpoint_upload_threads = []
 
 
 def find_latest_ckpt_path(path, directory_format="global_step_{}"):

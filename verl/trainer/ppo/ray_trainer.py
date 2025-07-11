@@ -144,6 +144,41 @@ class ResourcePoolManager:
                 )
 
 
+@dataclass
+class RemotePath:
+    config: any
+    global_steps: int
+    s3_global_step_folder: str
+
+    actor_remote_path: Optional[str] = None
+    critic_remote_path: Optional[str] = None
+
+    def __post_init__(self):
+        trainer_cfg = self.config.trainer
+
+        if trainer_cfg.get("default_remote_dir"):
+            self.actor_remote_path = os.path.join(self.s3_global_step_folder, "actor")
+
+            self.critic_remote_path = os.path.join(self.s3_global_step_folder, "critic")
+
+        elif getattr(trainer_cfg, "default_hdfs_dir", None):
+            self.actor_remote_path = os.path.join(
+                trainer_cfg.default_hdfs_dir,
+                f"global_step_{self.global_steps}",
+                "actor",
+            )
+
+            self.critic_remote_path = os.path.join(
+                trainer_cfg.default_hdfs_dir,
+                f"global_step_{self.global_steps}",
+                "critic",
+            )
+
+        else:
+            self.actor_remote_path = None
+            self.critic_remote_path = None
+
+
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty="kl"):
     """Apply KL penalty to the token-level rewards.
 
@@ -927,14 +962,9 @@ class RayPPOTrainer:
 
         actor_local_path = os.path.join(local_global_step_folder, "actor")
 
-        if self.config.trainer.get("default_remote_dir", None):
-            actor_remote_path = os.path.join(self.s3_global_step_folder, "actor")
-        elif self.config.trainer.default_hdfs_dir:
-            actor_remote_path = os.path.join(
-                self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "actor"
-            )
-        else:
-            actor_remote_path = None
+        remote_path = RemotePath(self.config, self.global_steps, self.s3_global_step_folder)
+
+        actor_remote_path = remote_path.actor_remote_path
 
         remove_previous_ckpt_in_save = self.config.trainer.get("remove_previous_ckpt_in_save", False)
         if remove_previous_ckpt_in_save:
@@ -958,14 +988,7 @@ class RayPPOTrainer:
 
         if self.use_critic:
             critic_local_path = os.path.join(local_global_step_folder, "critic")
-            if self.config.trainer.get("default_remote_dir", None):
-                critic_remote_path = os.path.join(self.s3_global_step_folder, "critic")
-            elif self.config.trainer.default_hdfs_dir:
-                critic_remote_path = os.path.join(
-                    self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "critic"
-                )
-            else:
-                critic_remote_path = None
+            critic_remote_path = remote_path.critic_remote_path
 
             self.critic_wg.save_checkpoint(
                 critic_local_path,
