@@ -111,7 +111,7 @@ class MegatronWorker(Worker):
                 recompute_num_layers=recompute_config.get("recompute_num_layers", None),
             )
 
-        if optimization_config.enabled and "tp_comm_overlap" not in optimization_config.disabled_config:
+        if optimization_config["enabled"] and "tp_comm_overlap" not in optimization_config["disabled_config"]:
             from verl.utils.megatron.tensor_parallel import initialize_tp_communicators
 
             if use_dynamic_bsz:

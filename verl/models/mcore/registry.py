@@ -140,7 +140,7 @@ def hf_to_mcore_config(
     hf_config: PretrainedConfig,
     dtype: torch.dtype,
     recompute_config: RecomputeConfig = None,
-    optimization_config: OptimizationConfig = True,
+    optimization_config: OptimizationConfig = None,
     **override_transformer_config_kwargs,
 ) -> TransformerConfig:
     """Convert huggingface PretrainedConfig to mcore TransformerConfig.

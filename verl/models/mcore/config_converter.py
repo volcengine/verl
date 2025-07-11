@@ -128,7 +128,7 @@ def _get_base_transformer_config(
             }
         )
 
-    if optimization_config.enabled:
+    if optimization_config is not None and optimization_config.enabled:
         use_deep_ep = "use_deep_ep" not in optimization_config.disabled_config
         if use_deep_ep:
             deep_ep_spec = importlib.util.find_spec("deepep")
