@@ -63,7 +63,7 @@ filter_overlong_prompts: False
 filter_overlong_prompts_workers: 1
 
 # Truncate the input_ids or prompt if they exceed max_prompt_length.
-# Options: 'error', 'left', or 'right'. Default is 'error'.
+# Options: 'error', 'left', 'right', 'middle'. Default is 'error'.
 truncation: error
 
 # The field in the multi-modal dataset where the image is located. Default is 'images'.
@@ -96,3 +96,14 @@ sampler:
 
   # the name of the curriculum class like `MySampler`
   class_name: null
+
+# Data generation configuration for augmenting the dataset.
+datagen:
+
+  # The path to the file containing your customized data generation class.
+  # E.g. 'pkg://verl.experimental.dynamic_dataset.dynamicgen_dataset'
+  path: null
+
+  # The class name of the data generation class within the specified file.
+  # E.g. 'MockDataGenerator'
+  name: null

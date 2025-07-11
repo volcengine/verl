@@ -67,7 +67,9 @@ Data
 - ``data.truncation``: Truncate the input_ids or prompt length if they
   exceed max_prompt_length. Default is 'error', not allow exceed the
   max_prompt_length. The users should increase the max_prompt_length if
-  throwing the error. You can also set ``left`` and ``right``.
+  throwing the error. You can also set ``left``, ``right`` and ``middle``. 
+  When ``middle`` is selected, the logic splits the allowed max length roughly in half 
+  and keeps the head and tail of the sequence, effectively discarding the middle section.
 - ``data.image_key``: The field in the multi-modal dataset where the image is
   located. Default is 'images'.
 - ``data.trust_remote_code``: If the remote tokenizer has python file, we can use this field to allow 

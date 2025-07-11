@@ -19,7 +19,7 @@ import datetime
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Union
 
 import psutil
 import torch
@@ -48,7 +48,6 @@ from verl.utils.profiler import (
     DistProfiler,
     DistProfilerExtension,
     GPUMemoryLogger,
-    ProfilerConfig,
     log_gpu_memory_usage,
     simple_timer,
 )
@@ -86,7 +85,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     or a hybrid engine based on the config.rollout
     """
 
-    def __init__(self, config: DictConfig, role: str):
+    def __init__(self, config: DictConfig, role: str, **kwargs):
         MegatronWorker.__init__(self)
         self.config = config
 
@@ -128,14 +127,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
-        profiler_config: Optional[ProfilerConfig] = None
-        if self._is_actor:
-            profiler_config = omega_conf_to_dataclass(config.actor.get("profiler"))
-        if self._is_rollout:
-            profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler"))
-        if self._is_ref:
-            profiler_config = omega_conf_to_dataclass(config.ref.get("profiler"))
-
+        profiler_config = omega_conf_to_dataclass(config.get("profiler"))
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
 
         # TODO(sgm): Currently, we only support reference model param offload
