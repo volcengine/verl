@@ -55,8 +55,10 @@ actor_rollout_ref:
       # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
       activations_checkpoint_num_layers: null # not used with 'selective'
 
-    trust_remote_code: False
+    use_fused_kernels: False # Whether to use custom fused kernels (PostProcessing, for memory efficiency)
 
+    trust_remote_code: False
+    
   rollout:
     # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
     enable_chunked_prefill: False
