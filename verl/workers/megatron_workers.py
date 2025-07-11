@@ -484,8 +484,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 override_model_config=override_model_config,
                 override_transformer_config=override_transformer_config,
                 recompute_config=None,
-                enable_optimization_config=self.config.ref.megatron.get("enable_optimization_config", True),
-                enable_tp_comm_overlap=self.config.ref.megatron.get("enable_tp_comm_overlap", False),
+                optimization_config=self.config.ref.megatron.get("optimization_config", True),
                 use_dynamic_bsz=self.config.ref.megatron.get("use_dynamic_bsz", False),
                 max_seqlens=self.config.ref.megatron.get("log_prob_max_token_len_per_gpu", None),
             )
