@@ -63,7 +63,7 @@ filter_overlong_prompts: False
 filter_overlong_prompts_workers: 1
 
 # Truncate the input_ids or prompt if they exceed max_prompt_length.
-# Options: 'error', 'left', or 'right'. Default is 'error'.
+# Options: 'error', 'left', 'right', 'middle'. Default is 'error'.
 truncation: error
 
 # The field in the multi-modal dataset where the image is located. Default is 'images'.
