@@ -1108,22 +1108,24 @@ class RayPPOTrainer:
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
+                metrics = {}
+                timing_raw = {}
+
                 do_profile = (
                     self.global_steps in self.config.trainer.profile_steps
                     if self.config.trainer.profile_steps is not None
                     else False
                 )
-                if do_profile:
-                    self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
-                    if self.use_reference_policy:
-                        self.ref_policy_wg.start_profile()
-                    if self.use_critic:
-                        self.critic_wg.start_profile()
-                    if self.use_rm:
-                        self.rm_wg.start_profile()
+                with marked_timer("start_profile", timing_raw):
+                    if do_profile:
+                        self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
+                        if self.use_reference_policy:
+                            self.ref_policy_wg.start_profile()
+                        if self.use_critic:
+                            self.critic_wg.start_profile()
+                        if self.use_rm:
+                            self.rm_wg.start_profile()
 
-                metrics = {}
-                timing_raw = {}
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
                 # pop those keys for generation
@@ -1362,8 +1364,19 @@ class RayPPOTrainer:
                         with marked_timer("save_checkpoint", timing_raw, color="green"):
                             self._save_checkpoint()
 
+                with marked_timer("stop_profile", timing_raw):
+                    if do_profile:
+                        self.actor_rollout_wg.stop_profile()
+                        if self.use_reference_policy:
+                            self.ref_policy_wg.stop_profile()
+                        if self.use_critic:
+                            self.critic_wg.stop_profile()
+                        if self.use_rm:
+                            self.rm_wg.stop_profile()
+
                 steps_duration = timing_raw["step"]
                 self.max_steps_duration = max(self.max_steps_duration, steps_duration)
+
                 # training metrics
                 metrics.update(
                     {
@@ -1387,15 +1400,6 @@ class RayPPOTrainer:
 
                 progress_bar.update(1)
                 self.global_steps += 1
-
-                if do_profile:
-                    self.actor_rollout_wg.stop_profile()
-                    if self.use_reference_policy:
-                        self.ref_policy_wg.stop_profile()
-                    if self.use_critic:
-                        self.critic_wg.stop_profile()
-                    if self.use_rm:
-                        self.rm_wg.stop_profile()
 
                 if is_last_step:
                     pprint(f"Final validation metrics: {last_val_metrics}")
