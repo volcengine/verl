@@ -24,7 +24,7 @@ from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     AutoModelForTokenClassification,
-    AutoModelForVision2Seq,
+    AutoModelForImageTextToText,
     GenerationConfig,
 )
 
@@ -169,7 +169,7 @@ class BaseModelMerger(ABC):
         elif "ForCausalLM" in self.model_config.architectures[0]:
             return AutoModelForCausalLM
         elif "ForConditionalGeneration" in self.model_config.architectures[0]:
-            return AutoModelForVision2Seq
+            return AutoModelForImageTextToText
 
         raise NotImplementedError(f"Unknown architecture {self.model_config.architectures}")
 

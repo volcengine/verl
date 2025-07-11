@@ -619,7 +619,7 @@ def patch_valuehead_model(model) -> None:
 
 
 def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_code):
-    from transformers import AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq
+    from transformers import AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForImageTextToText
 
     try:
         model = AutoModelForTokenClassification.from_pretrained(
@@ -640,8 +640,8 @@ def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_cod
 
     from trl import AutoModelForCausalLMWithValueHead
 
-    if type(model_config) in AutoModelForVision2Seq._model_mapping.keys():
-        module_class = AutoModelForVision2Seq
+    if type(model_config) in AutoModelForImageTextToText._model_mapping.keys():
+        module_class = AutoModelForImageTextToText
     else:
         module_class = AutoModelForCausalLM
     ori_model = module_class.from_pretrained(
