@@ -265,6 +265,7 @@ def hf_to_mcore_config_qwen2moe(
         add_bias_linear=False,
         layernorm_epsilon=hf_config.rms_norm_eps,
         # MoE specific
+        moe_grouped_gemm=True,
         moe_ffn_hidden_size=hf_config.moe_intermediate_size,
         moe_router_bias_update_rate=0.001,
         moe_router_topk=hf_config.num_experts_per_tok,
