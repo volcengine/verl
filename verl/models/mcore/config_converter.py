@@ -273,8 +273,8 @@ def hf_to_mcore_config_qwen2moe(
         moe_aux_loss_coeff=hf_config.router_aux_loss_coef,
         # moe_aux_loss_coeff=0.0,
         moe_router_load_balancing_type="none",  # turn off aux_loss as it hurts perf in RL
-        moe_router_score_function="softmax",
         moe_grouped_gemm=True,
+        moe_router_score_function="softmax",
         # Qwen specific
         moe_router_pre_softmax=True,
         add_qkv_bias=True,
