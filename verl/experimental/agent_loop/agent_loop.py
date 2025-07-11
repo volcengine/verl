@@ -180,13 +180,12 @@ class AgentLoopWorker:
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
 
-        trace_config = self.config.trainer.get("rollout_trace", {})
+        trace_config = self.config.actor_rollout_ref.rollout.get("trace", {})
         RolloutTraceConfig.init(
             self.config.trainer.project_name,
             self.config.trainer.experiment_name,
             trace_config.get("backend"),
             trace_config.get("token2text", False),
-            uri=trace_config.get("uri"),
         )
 
     async def generate_sequences(self, batch: DataProto) -> DataProto:

@@ -40,7 +40,7 @@ class RolloutTraceConfig:
         return cls._instance
 
     @classmethod
-    def init(cls, project_name: str, experiment_name: str, backend: str, token2text: bool = False, uri=None):
+    def init(cls, project_name: str, experiment_name: str, backend: str, token2text: bool = False):
         config = cls.get_instance()
         if config._initialized:
             return
