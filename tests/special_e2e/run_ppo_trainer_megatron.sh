@@ -4,6 +4,7 @@ set -xeuo pipefail
 export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation overlapping
 export VERL_LOGGING_LEVEL=INFO
 export VERL_PPO_LOGGING_LEVEL=INFO
+export UB_SKIPMC=1
 
 NUM_GPUS=${NUM_GPUS:-8}
 
