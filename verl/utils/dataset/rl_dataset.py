@@ -340,3 +340,14 @@ class RLHFDataset(Dataset):
             return state
 
         return self.__dict__.copy()
+
+    def __setstate__(self, state):
+        """Restore dataset state when unpickled, reconstructing dataframe if needed.
+        This is needed as the StatefulDataLoader pickles the dataset for its workers but doesn't call the resume_dataset_state."""
+        self.__dict__.update(state)
+        
+        # If dataframe was not serialized, reconstruct it
+        if not hasattr(self, 'dataframe') and hasattr(self, 'original_data_files'):
+            print(f"__setstate__ called: reconstructing dataframe")
+            self._download(use_origin_parquet=True)
+            self._read_files_and_tokenize()
