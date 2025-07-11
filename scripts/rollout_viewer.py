@@ -54,14 +54,15 @@ def load_data(path: Path, data, pbar, suffix=".jsonl"):
     for p in paths:
         tmp = []
         i = 0
-        for line in open(p):
-            d = json.loads(line)
-            for k in d:
-                if ("input" in k or "output" in k) and isinstance(d[k], str):
-                    d[k] = d[k].replace("<|imgpad|>", ".").replace("<|image_pad|>", ".")
-            d[INDEX_KEY] = i
-            tmp.append(d)
-            i += 1
+        with open(p, encoding="utf-8") as f:
+            for line in open(p):
+                d = json.loads(line)
+                for k in d:
+                    if ("input" in k or "output" in k) and isinstance(d[k], str):
+                        d[k] = d[k].replace("<|imgpad|>", ".").replace("<|image_pad|>", ".")
+                d[INDEX_KEY] = i
+                tmp.append(d)
+                i += 1
         data.append({"results": tmp})
         pbar.advance(1)
     return data
@@ -278,7 +279,7 @@ class JsonLineViewer(App):
                 content = self.highlighter(text)
         except IndexError:
             content = f"Loading data async，progress: {len(self.data)}/{self.row_num} step"
-        except BaseException:
+        except Exception:
             content = self.highlighter(traceback.format_exc())
 
         self.content_display.update(content)
