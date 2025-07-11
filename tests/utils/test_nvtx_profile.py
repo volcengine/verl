@@ -32,10 +32,8 @@ class TestProfilerConfig(unittest.TestCase):
         arr = cfg.actor_rollout_ref
         for config in [
             cfg.critic.profiler,
-            arr.actor.profiler,
+            arr.profiler,
             cfg.reward_model.profiler,
-            arr.ref.profiler,
-            arr.rollout.profiler,
         ]:
             profiler_config = omega_conf_to_dataclass(config)
             self.assertEqual(profiler_config.discrete, config.discrete)
