@@ -1,3 +1,13 @@
+import contextlib
+import math
+import re
+from math import isclose
+from typing import Union
+from sympy import N, simplify
+from sympy.parsing.latex import parse_latex
+from sympy.parsing.sympy_parser import parse_expr
+from verl.utils.py_functional import timeout_limit
+import sympy
 # Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -92,19 +102,10 @@ This logic is largely copied from the Hendrycks' MATH release (math_equivalence)
 - https://github.com/openai/prm800k
 """
 
-import contextlib
-import math
-import re
-from math import isclose
-from typing import Union
 
 # sympy related
-from sympy import N, simplify
-from sympy.parsing.latex import parse_latex
-from sympy.parsing.sympy_parser import parse_expr
 
 # verl related
-from verl.utils.py_functional import timeout_limit
 
 
 def is_digit(s):
@@ -299,7 +300,7 @@ def math_equal(
     elif "\begin{pmatrix}" in reference and prediction.startswith("[") and prediction.endswith("]"):
         if isinstance(eval(prediction), list):
             try:
-                pred_matrix = eval(prediction)
+                pred_matrix = sympy.sympify(prediction, evaluate=True)
                 # ref_matrix_items = reference.split()[1:-1:2]
                 ref_matrix_items = (
                     reference.lstrip("\\begin{pmatrix}")  # noqa: B005
