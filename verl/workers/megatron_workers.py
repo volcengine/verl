@@ -177,7 +177,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         recompute_config=None,
         enable_optimization_config=True,
         use_dynamic_bsz: bool = False,
-        max_seqlens: Optional[int] = None,
+        max_seqlens: int = None,
     ):
         from verl.utils.megatron.optimizer import get_megatron_optimizer, get_megatron_optimizer_param_scheduler
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
