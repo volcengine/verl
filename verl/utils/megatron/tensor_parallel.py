@@ -213,7 +213,7 @@ def initialize_tp_communicators(rmpad_seqlen: int, hidden_size: int, use_fp8: bo
     # The process group with the target bootstrap backend is created in Transformer Engine.
     te_module.base.initialize_ub(
         shape=input_shape,
-        tp_size=mpu.get_tensor_model_parallel_size(),
+        tp_size=mpu.get_tensor_model_parallel_world_size(),
         use_fp8=use_fp8,
         ub_cfgs=ub_cfgs,
         bootstrap_backend=get_nccl_backend(),
