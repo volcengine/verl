@@ -120,12 +120,12 @@ class MegatronWorker(Worker):
                 override_transformer_config["tp_comm_overlap"] = False
                 warnings.warn("tp comm overlap is only works with dynamic batch size", stacklevel=2)
 
-        if optimization_config.enabled:
+        if optimization_config["enabled"]:
             from verl.models.mcore.config_converter import OptimizationConfig
 
             optimization_config = OptimizationConfig(
-                enabled=optimization_config.enabled,
-                disabled_config=optimization_config.disabled_config,
+                enabled=optimization_config["enabled"],
+                disabled_config=optimization_config["disabled_config"],
             )
 
         tf_config = hf_to_mcore_config(
