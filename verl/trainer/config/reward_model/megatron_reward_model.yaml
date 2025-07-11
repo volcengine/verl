@@ -60,9 +60,9 @@ megatron:
   # enable megatron optimization config: communication/computation overlap, operators fusion, etc.
   optimization_config:
     
-    enabled: ${actor_rollout_ref.actor.megatron.enable_optimization_config}
+    enabled: ${actor_rollout_ref.actor.megatron.optimization_config.enabled}
     
-    disabled_config: ${actor_rollout_ref.actor.megatron.disabled_optimization_config}
+    disabled_config: ${actor_rollout_ref.actor.megatron.optimization_config.disabled_config}
 
 # Whether to load weights (default True)
 load_weight: True
