@@ -818,7 +818,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             override_model_config=override_model_config,
             override_transformer_config=override_transformer_config,
             recompute_config=recompute_config,
-            optimization_config=optim_config,
+            optimization_config=optimization_config,
             trust_remote_code=self.config.model.get("trust_remote_code", False),
             use_mbridge=self.config.megatron.use_mbridge,
             use_dynamic_bsz=self.config.use_dynamic_bsz,
