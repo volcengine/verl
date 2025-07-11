@@ -146,6 +146,10 @@ class ResourcePoolManager:
 
 @dataclass
 class RemotePath:
+    """
+    Stores variables for remote paths (either S3 or HDFS currently).
+    """
+
     config: any
     global_steps: int
     s3_global_step_folder: str
@@ -154,6 +158,9 @@ class RemotePath:
     critic_remote_path: Optional[str] = None
 
     def __post_init__(self):
+        """
+        Initialize the remote path vars.
+        """
         trainer_cfg = self.config.trainer
 
         if trainer_cfg.get("default_remote_dir"):
