@@ -151,6 +151,18 @@ jobs:
         run: |
           ray stop --force
           USE_KL=True bash tests/special_e2e/ppo_trainer/run_function_reward.sh
+      - name: Running GSM8K E2E training tests on 8 L20 GPUs with rmpad using function rm with saving ckpt by best metric and by epoch
+        run: |
+          ray stop --force
+          SAVE_BEST_VAL_METRIC="acc" SAVE_AFTER_EPOCHS=1 VERL_EXP_NAME="qwen2.5-0.5b-function-reward-minimal-save-by-best-metric" bash tests/special_e2e/ppo_trainer/run_function_reward.sh
+      - name: Assert checkpoints by best metric and epoch exist
+        run: |
+          exp_name="qwen2.5-0.5b-function-reward-minimal-save-by-best-metric"
+          base_dir="checkpoints/verl-test/${exp_name}"
+          # Assert that a directory starting with "best_val_step_" exists. The command will fail if no match is found.
+          ls -d "${base_dir}"/best_val_step_*
+          # Assert that a directory starting with "epoch_" exists. The command will fail if no match is found.
+          ls -d "${base_dir}"/epoch_*
       # LoRA tests
       - name: Running GSM8K E2E training tests on 8 L20 GPUs with grpo lora using function rm with use_shm
         run: |
