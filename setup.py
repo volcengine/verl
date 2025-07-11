@@ -35,11 +35,11 @@ install_requires = [
     "pyarrow>=19.0.0",
     "pybind11",
     "pylatexenc",
-    "ray[default]>=2.41.0",
+    # "ray[default]>=2.41.0",
     "torchdata",
     "tensordict<=0.6.2",
     "transformers",
-    "wandb",
+    # "wandb",
     "packaging>=20.0",
 ]
 

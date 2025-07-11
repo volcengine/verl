@@ -821,12 +821,13 @@ class SGLangRollout(BaseRollout):
         if "n" not in kwargs or (kwargs["n"] > 1 and override_n):  # group size is supported in preprocess
             kwargs["n"] = 1
         # users can customize different sampling_params at different run
-        with self.update_sampling_params(**kwargs):
-            output = await self._engine.async_generate(
-                input_ids=generation_prompt_ids,
-                sampling_params=self.sampling_params,
-                return_logprob=False,
-            )
+        params = deepcopy(self.sampling_params)
+        params.update(kwargs)
+        output = await self._engine.async_generate(
+            input_ids=generation_prompt_ids,
+            sampling_params=params,
+            return_logprob=False,
+        )
         return output
 
     async def _handle_pending_state(self, _req: AsyncRolloutRequest) -> AsyncRolloutRequest:
