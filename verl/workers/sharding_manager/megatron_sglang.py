@@ -150,10 +150,10 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
         named_tensors = params
         load_format = None
-        fetch_chunk_size = self.rollout_config.get("update_weight_chunk_size", 1)
-        for batch in batched(named_tensors, fetch_chunk_size):
+        chunk_size = self.rollout_config.get("update_weight_chunk_size", 1)
+        for chunk in batched(named_tensors, chunk_size):
             named_tensors_chunk = [
-                (name, MultiprocessingSerializer.serialize(tensor.detach())) for name, tensor in batch
+                (name, MultiprocessingSerializer.serialize(tensor.detach())) for name, tensor in chunk
             ]
             if self.device_mesh["tp"].get_local_rank() == 0:
                 gathered_serialized_tensors = [None for _ in range(self.device_mesh["tp"].mesh.size()[0])]
@@ -166,13 +166,12 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                 group=self.device_mesh["tp"].get_group(),
             )
             if self.device_mesh["tp"].get_local_rank() == 0:
-                # permute from tp x chunk_size x (name, tensor) => chunk_size x (name, tp x tensor)
-                named_tensors_chunk = [
-                    (i[0][0], LocalSerializedTensor(values=[j[1] for j in i]))
-                    for i in zip(*gathered_serialized_tensors)
-                ]
                 await self.inference_engine.update_weights_from_tensor(
-                    named_tensors=named_tensors_chunk,
+                    # permute from tp x chunk_size x (name, tensor) => chunk_size x (name, tp x tensor)
+                    named_tensors=[
+                        (i[0][0], LocalSerializedTensor(values=[j[1] for j in i]))
+                        for i in zip(*gathered_serialized_tensors)
+                    ],
                     load_format=load_format,
                     flush_cache=False,
                 )
