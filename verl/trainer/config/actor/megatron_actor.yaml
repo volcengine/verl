@@ -100,7 +100,7 @@ megatron:
     
     enabled: True
     
-    disabled_config: ["tp_comm_overlap", "use_deep_ep"]
+    disabled_config: ["use_deep_ep"]
 
 # profile the actor model in `update_policy` 
 profile:
