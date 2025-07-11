@@ -20,7 +20,7 @@ import logging
 import os
 import warnings
 from dataclasses import asdict
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Union
 
 import psutil
 import torch
@@ -69,7 +69,7 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
-from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
+from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing
 from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
@@ -150,20 +150,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
-        profiler_config: Optional[ProfilerConfig] = None
         # TODO(haibin.lin):
         # As of now the type of config is DictConfig, if we assign config.profiler with ProfilerConfig,
         # it will actually convert the ProfilerConfig dataclass back to a DictConfig.
         # We can still use ProfilerConfig for testing purpose (tests/utils/test_nvtx_profile.py)
         # as they provides DictConfig-like interface
         # The benefit of creating the dataclass config is to perform validation during __post_init__
-        if self._is_actor:
-            profiler_config = omega_conf_to_dataclass(config.actor.get("profiler"))
-        if self._is_rollout:
-            profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler"))
-        if self._is_ref:
-            profiler_config = omega_conf_to_dataclass(config.ref.get("profiler"))
-
+        profiler_config = omega_conf_to_dataclass(config.get("profiler"))
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=profiler_config, option=self.profile_option)
         )
