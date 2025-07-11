@@ -298,7 +298,10 @@ def rearrange_micro_batches(
     if use_dynamic_bsz_balance:
         # Use the sum of squared sequence lengths to approximate attention computation workload
         micro_bsz_idx.sort(
-            key=lambda partition: sum(seq_len_effective[idx] ** 2 for idx in partition),
+            key=lambda partition: (
+                sum(seq_len_effective[idx] ** 2 for idx in partition),
+                min(partition) if partition else 0,
+            ),
             reverse=True,
         )
 
