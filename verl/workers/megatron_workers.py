@@ -174,8 +174,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         optim_config,
         override_model_config,
         override_transformer_config,
-        recompute_config=None,
-        enable_optimization_config=True,
+        recompute_config,
+        optimization_config,
         use_dynamic_bsz: bool = False,
         max_seqlens: int = None,
     ):
@@ -190,7 +190,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             override_model_config=override_model_config,
             override_transformer_config=override_transformer_config,
             recompute_config=recompute_config,
-            enable_optimization_config=enable_optimization_config,
+            optimization_config=optimization_config,
             trust_remote_code=self.config.model.get("trust_remote_code", False),
             use_mbridge=self.config.actor.megatron.use_mbridge,
             use_dynamic_bsz=use_dynamic_bsz,
@@ -426,6 +426,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         recompute_config = OmegaConf.to_container(
             self.config.actor.megatron.get("recompute_config", OmegaConf.create()), resolve=True
         )
+        optimization_config = OmegaConf.to_container(
+            self.config.actor.megatron.get("optimization_config", OmegaConf.create()), resolve=True
+        )
         self.param_dtype = torch.bfloat16
         log_gpu_memory_usage("Before init actor model and optimizer", logger=logger)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
@@ -444,7 +447,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 override_model_config=override_model_config,
                 override_transformer_config=override_transformer_config,
                 recompute_config=recompute_config,
-                enable_optimization_config=self.config.actor.megatron.get("enabled_optimization_config", True),
+                optimization_config=optimization_config,
                 use_dynamic_bsz=self.config.actor.megatron.get("use_dynamic_bsz", False),
                 max_seqlens=self.config.actor.megatron.get("ppo_max_token_len_per_gpu", None),
             )
@@ -481,7 +484,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 override_model_config=override_model_config,
                 override_transformer_config=override_transformer_config,
                 recompute_config=None,
-                enable_optimization_config=self.config.ref.megatron.get("enabled_optimization_config", True),
+                enable_optimization_config=self.config.ref.megatron.get("enable_optimization_config", True),
+                enable_tp_comm_overlap=self.config.ref.megatron.get("enable_tp_comm_overlap", False),
                 use_dynamic_bsz=self.config.ref.megatron.get("use_dynamic_bsz", False),
                 max_seqlens=self.config.ref.megatron.get("log_prob_max_token_len_per_gpu", None),
             )
@@ -798,8 +802,8 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         optim_config,
         override_model_config,
         override_transformer_config,
-        recompute_config=None,
-        enable_optimization_config=True,
+        recompute_config,
+        optimization_config,
     ):
         from megatron.core.models.gpt.gpt_model import ModelType
 
@@ -814,7 +818,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             override_model_config=override_model_config,
             override_transformer_config=override_transformer_config,
             recompute_config=recompute_config,
-            enable_optimization_config=enable_optimization_config,
+            optimization_config=optim_config,
             trust_remote_code=self.config.model.get("trust_remote_code", False),
             use_mbridge=self.config.megatron.use_mbridge,
             use_dynamic_bsz=self.config.use_dynamic_bsz,
@@ -905,6 +909,9 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         recompute_config = OmegaConf.to_container(
             self.config.megatron.get("recompute_config", OmegaConf.create()), resolve=True
         )
+        optimization_config = OmegaConf.to_container(
+            self.config.megatron.get("optimization_config", OmegaConf.create()), resolve=True
+        )
         self.param_dtype = torch.bfloat16
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         (
@@ -919,7 +926,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             override_model_config=override_model_config,
             override_transformer_config=override_transformer_config,
             recompute_config=recompute_config,
-            enable_optimization_config=self.config.megatron.get("enabled_optimization_config", True),
+            optimization_config=optimization_config,
         )
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.critic_module)
@@ -1076,7 +1083,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
     def _build_rm_model(
-        self, model_path, tokenizer, override_model_config, override_transformer_config, enable_optimization_config=True
+        self, model_path, tokenizer, override_model_config, override_transformer_config, optimization_config
     ):
         from megatron.core.models.gpt.gpt_model import ModelType
 
@@ -1089,7 +1096,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             override_model_config=override_model_config,
             override_transformer_config=override_transformer_config,
             recompute_config=None,
-            enable_optimization_config=enable_optimization_config,
+            optimization_config=optimization_config,
             trust_remote_code=self.config.model.get("trust_remote_code", False),
             use_mbridge=self.config.megatron.use_mbridge,
             use_dynamic_bsz=self.config.use_dynamic_bsz,
@@ -1162,6 +1169,9 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
         override_transformer_config = OmegaConf.to_container(
             self.config.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True
         )
+        optimization_config = OmegaConf.to_container(
+            self.config.megatron.get("optimization_config", OmegaConf.create()), resolve=True
+        )
 
         use_shm = self.config.model.get("use_shm", False)
         sft_tokenizer_local_path = copy_to_local(self.config.model.input_tokenizer, use_shm=use_shm)
@@ -1182,7 +1192,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             tokenizer=rm_tokenizer,
             override_model_config=override_model_config,
             override_transformer_config=override_transformer_config,
-            enable_optimization_config=self.config.megatron.get("enabled_optimization_config", True),
+            optimization_config=optimization_config,
         )
         # FIXME(sgm): reward model param offload is implemented in MegatronRewardModel
         # should be implemented in workers

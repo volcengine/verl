@@ -52,8 +52,8 @@ class MegatronWorker(Worker):
         dtype: torch.dtype,
         override_model_config: DictConfig,
         override_transformer_config: DictConfig,
-        recompute_config: Optional[DictConfig] = None,
-        enable_optimization_config: bool = True,
+        recompute_config: DictConfig,
+        optimization_config: DictConfig,
         trust_remote_code: bool = False,
         use_mbridge: bool = False,
         use_dynamic_bsz: bool = False,
@@ -111,7 +111,7 @@ class MegatronWorker(Worker):
                 recompute_num_layers=recompute_config.get("recompute_num_layers", None),
             )
 
-        if enable_optimization_config:
+        if optimization_config.enabled and "tp_comm_overlap" not in optimization_config.disabled_config:
             from verl.utils.megatron.tensor_parallel import initialize_tp_communicators
 
             if use_dynamic_bsz:
@@ -120,8 +120,16 @@ class MegatronWorker(Worker):
                 override_transformer_config["tp_comm_overlap"] = False
                 warnings.warn("tp comm overlap is only works with dynamic batch size", stacklevel=2)
 
+        if optimization_config.enabled:
+            from verl.models.mcore.config_converter import OptimizationConfig
+
+            optimization_config = OptimizationConfig(
+                enabled=optimization_config.enabled,
+                disabled_config=optimization_config.disabled_config,
+            )
+
         tf_config = hf_to_mcore_config(
-            hf_config, dtype, recompute_config, enable_optimization_config, **override_transformer_config
+            hf_config, dtype, recompute_config, optimization_config, **override_transformer_config
         )
 
         def add_optimization_config_to_tf_config(tf_config):

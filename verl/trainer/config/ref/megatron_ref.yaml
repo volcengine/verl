@@ -37,7 +37,11 @@ megatron:
   use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
 
   # enable megatron optimization config: communication/computation overlap, operators fusion, etc.
-  enabled_optimization_config: ${actor_rollout_ref.actor.megatron.enabled_optimization_config}
+  optimization_config:
+    
+    enabled: ${actor_rollout_ref.actor.megatron.enable_optimization_config}
+    
+    disabled_config: ${actor_rollout_ref.actor.megatron.disabled_optimization_config}
 
 profile:
 
