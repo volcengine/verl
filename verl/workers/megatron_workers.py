@@ -26,7 +26,7 @@ import torch
 import torch.distributed
 from codetiming import Timer
 from megatron.core import parallel_state as mpu
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 
 from verl import DataProto
 from verl.single_controller.base.decorator import Dispatch, register
@@ -425,6 +425,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 log_gpu_memory_usage("After offload actor optimizer during init", logger=logger)
 
         if self._is_actor:
+            OmegaConf.set_struct(self.config.actor, True)
+            with open_dict(self.config.actor):
+                use_fused_kernels = self.config.model.get("use_fused_kernels", False)
+                self.config.actor.use_fused_kernels = use_fused_kernels
             self.actor = MegatronPPOActor(
                 config=self.config.actor,
                 model_config=self.actor_model_config,
