@@ -265,7 +265,6 @@ def hf_to_mcore_config_qwen2moe(
         add_bias_linear=False,
         layernorm_epsilon=hf_config.rms_norm_eps,
         # MoE specific
-        moe_grouped_gemm=True,
         moe_ffn_hidden_size=hf_config.moe_intermediate_size,
         moe_router_bias_update_rate=0.001,
         moe_router_topk=hf_config.num_experts_per_tok,
@@ -275,6 +274,7 @@ def hf_to_mcore_config_qwen2moe(
         # moe_aux_loss_coeff=0.0,
         moe_router_load_balancing_type="none",  # turn off aux_loss as it hurts perf in RL
         moe_router_score_function="softmax",
+        moe_grouped_gemm=True,
         # Qwen specific
         moe_router_pre_softmax=True,
         add_qkv_bias=True,
