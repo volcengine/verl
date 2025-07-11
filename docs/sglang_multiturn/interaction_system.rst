@@ -180,7 +180,7 @@ The GSM8K interaction demonstrates a complete implementation for math problem-so
             return instance_id
 
         async def generate_response(self, instance_id, messages, **kwargs):
-            # Extract last user message content
+            # Extract last assistant message content
             content = ""
             for item in reversed(messages):
                 if item.get("role") == "assistant":
