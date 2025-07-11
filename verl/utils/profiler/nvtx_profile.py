@@ -113,7 +113,7 @@ def marked_timer(
 class NsightSystemsProfiler(DistProfiler):
     """Nsight system profiler. Installed in a worker to control the Nsight system profiler."""
 
-    def __init__(self, rank: int, config: Optional[ProfilerConfig]):
+    def __init__(self, rank: int, config: Optional[ProfilerConfig], **kwargs):
         """Initialize the NsightSystemsProfiler.
 
         Args:
@@ -128,10 +128,10 @@ class NsightSystemsProfiler(DistProfiler):
         self.this_rank: bool = False
         if config.all_ranks:
             self.this_rank = True
-        elif not config.ranks:
+        elif config.ranks:
             self.this_rank = rank in config.ranks
 
-    def start(self):
+    def start(self, **kwargs):
         if self.this_rank:
             self.this_step = True
             if not self.discrete:
@@ -149,6 +149,7 @@ class NsightSystemsProfiler(DistProfiler):
         color: Optional[str] = None,
         domain: Optional[str] = None,
         category: Optional[str] = None,
+        **kwargs,
     ) -> Callable:
         """Decorate a Worker member function to profile the current rank in the current training step.
 

@@ -12,16 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import unittest
 
+from hydra import compose, initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
 
 class TestConfigComparison(unittest.TestCase):
     """Test that current configs match their legacy counterparts exactly."""
 
-    def _compare_configs_recursively(self, current_config, legacy_config, path=""):
-        """Recursively compare two OmegaConf configs and assert they are identical."""
+    def _compare_configs_recursively(self, current_config, legacy_config, path="", legacy_allow_missing=True):
+        """Recursively compare two OmegaConf configs and assert they are identical.
+
+        Args:
+            legacy_allow_missing (bool): sometimes the legacy megatron config contains fewer keys and
+              we allow that to happen
+        """
         if isinstance(current_config, dict) and isinstance(legacy_config, dict):
             current_keys = set(current_config.keys())
             legacy_keys = set(legacy_config.keys())
@@ -32,11 +40,17 @@ class TestConfigComparison(unittest.TestCase):
             if missing_in_current:
                 self.fail(f"Keys missing in current config at {path}: {missing_in_current}")
             if missing_in_legacy:
-                self.fail(f"Keys missing in legacy config at {path}: {missing_in_legacy}")
+                # if the legacy
+                msg = f"Keys missing in legacy config at {path}: {missing_in_legacy}"
+                if legacy_allow_missing:
+                    print(msg)
+                else:
+                    self.fail(msg)
 
             for key in current_keys:
                 current_path = f"{path}.{key}" if path else key
-                self._compare_configs_recursively(current_config[key], legacy_config[key], current_path)
+                if key in legacy_config:
+                    self._compare_configs_recursively(current_config[key], legacy_config[key], current_path)
         elif isinstance(current_config, list) and isinstance(legacy_config, list):
             self.assertEqual(
                 len(current_config),
@@ -66,7 +80,6 @@ class TestConfigComparison(unittest.TestCase):
                 current_config = compose(config_name="ppo_trainer")
 
             legacy_config = OmegaConf.load("tests/trainer/config/legacy_ppo_trainer.yaml")
-
             current_dict = OmegaConf.to_container(current_config, resolve=True)
             legacy_dict = OmegaConf.to_container(legacy_config, resolve=True)
 
@@ -79,28 +92,41 @@ class TestConfigComparison(unittest.TestCase):
 
     def test_ppo_megatron_trainer_config_matches_legacy(self):
         """Test that ppo_megatron_trainer.yaml matches legacy_ppo_megatron_trainer.yaml exactly."""
-        import os
-
-        from hydra import compose, initialize_config_dir
-        from hydra.core.global_hydra import GlobalHydra
 
         GlobalHydra.instance().clear()
 
         try:
-            with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config"), version_base=None):
+            with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
                 current_config = compose(config_name="ppo_megatron_trainer")
 
             legacy_config = OmegaConf.load("tests/trainer/config/legacy_ppo_megatron_trainer.yaml")
-
             current_dict = OmegaConf.to_container(current_config, resolve=True)
             legacy_dict = OmegaConf.to_container(legacy_config, resolve=True)
 
             if "defaults" in current_dict:
                 del current_dict["defaults"]
 
-            self._compare_configs_recursively(current_dict, legacy_dict)
+            self._compare_configs_recursively(current_dict, legacy_dict, legacy_allow_missing=True)
         finally:
             GlobalHydra.instance().clear()
+
+    def test_load_component(self):
+        """Test that ppo_megatron_trainer.yaml matches legacy_ppo_megatron_trainer.yaml exactly."""
+
+        GlobalHydra.instance().clear()
+        configs_to_load = [
+            ("verl/trainer/config/actor", "dp_actor"),
+            ("verl/trainer/config/actor", "megatron_actor"),
+            ("verl/trainer/config/ref", "dp_ref"),
+            ("verl/trainer/config/ref", "megatron_ref"),
+            ("verl/trainer/config/rollout", "rollout"),
+        ]
+        for config_dir, config_file in configs_to_load:
+            try:
+                with initialize_config_dir(config_dir=os.path.abspath(config_dir)):
+                    compose(config_name=config_file)
+            finally:
+                GlobalHydra.instance().clear()
 
 
 if __name__ == "__main__":

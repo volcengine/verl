@@ -37,6 +37,7 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
 from verl import DataProto
+from verl.experimental.dataset.sampler import AbstractCurriculumSampler
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
@@ -52,7 +53,6 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
-from verl.utils.dataset.sampler import AbstractCurriculumSampler
 from verl.utils.debug import marked_timer
 from verl.utils.metric import (
     reduce_metrics,
@@ -89,6 +89,13 @@ class ResourcePoolManager:
     resource_pool_dict: dict[str, RayResourcePool] = field(default_factory=dict)
 
     def create_resource_pool(self):
+        """Create Ray resource pools for distributed training.
+
+        Initializes resource pools based on the resource pool specification,
+        with each pool managing GPU resources across multiple nodes.
+        For FSDP backend, uses max_colocate_count=1 to merge WorkerGroups.
+        For Megatron backend, uses max_colocate_count>1 for different models.
+        """
         for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
             # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
             # For FSDP backend, we recommend using max_colocate_count=1 that merge all WorkerGroups into one.
@@ -285,6 +292,13 @@ def compute_advantage(
 
 
 class RayPPOTrainer:
+    """Distributed PPO trainer using Ray for scalable reinforcement learning.
+
+    This trainer orchestrates distributed PPO training across multiple nodes and GPUs,
+    managing actor rollouts, critic training, and reward computation with Ray backend.
+    Supports various model architectures including FSDP, Megatron, and vLLM integration.
+    """
+
     # TODO: support each role have individual ray_worker_group_cls,
     # i.e., support different backend of different role
     def __init__(
@@ -403,6 +417,19 @@ class RayPPOTrainer:
         # A helper function to check "micro_batch_size" vs "micro_batch_size_per_gpu"
         # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
         def check_mutually_exclusive(mbs, mbs_per_gpu, name: str):
+            """Validate mutually exclusive micro batch size configuration options.
+
+            Ensures that users don't set both deprecated micro_batch_size and
+            the new micro_batch_size_per_gpu parameters simultaneously.
+
+            Args:
+                mbs: Deprecated micro batch size parameter value.
+                mbs_per_gpu: New micro batch size per GPU parameter value.
+                name (str): Configuration section name for error messages.
+
+            Raises:
+                ValueError: If both parameters are set or neither is set.
+            """
             settings = {
                 "actor_rollout_ref.actor": "micro_batch_size",
                 "critic": "micro_batch_size",
@@ -560,12 +587,6 @@ class RayPPOTrainer:
             collate_fn = default_collate_fn
 
         num_workers = self.config.data["dataloader_num_workers"]
-        if isinstance(train_sampler, AbstractCurriculumSampler):
-            assert num_workers == 0, (
-                "If using curriculum, num_workers must be 0 to prevent data caching. "
-                "If the dataloader caches data before the batch is done the "
-                "curriculum sampler won't have the opportunity to reorder it. "
-            )
 
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
@@ -826,6 +847,7 @@ class RayPPOTrainer:
                 cls=self.role_worker_mapping[Role.ActorRollout],
                 config=self.config.actor_rollout_ref,
                 role="actor_rollout",
+                profile_option=self.config.trainer.npu_profile.options,
             )
             self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
         else:
@@ -841,7 +863,10 @@ class RayPPOTrainer:
         if self.use_reference_policy:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
             ref_policy_cls = RayClassWithInitArgs(
-                self.role_worker_mapping[Role.RefPolicy], config=self.config.actor_rollout_ref, role="ref"
+                self.role_worker_mapping[Role.RefPolicy],
+                config=self.config.actor_rollout_ref,
+                role="ref",
+                profile_option=self.config.trainer.npu_profile.options,
             )
             self.resource_pool_to_cls[resource_pool]["ref"] = ref_policy_cls
 
@@ -1089,7 +1114,7 @@ class RayPPOTrainer:
                     else False
                 )
                 if do_profile:
-                    self.actor_rollout_wg.start_profile()
+                    self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
                     if self.use_reference_policy:
                         self.ref_policy_wg.start_profile()
                     if self.use_critic:
@@ -1353,6 +1378,7 @@ class RayPPOTrainer:
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
 
+                # this is experimental and may be changed/removed in the future in favor of a general-purpose one
                 if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):
                     self.train_dataloader.sampler.update(batch=batch)
 
@@ -1375,3 +1401,9 @@ class RayPPOTrainer:
                     pprint(f"Final validation metrics: {last_val_metrics}")
                     progress_bar.close()
                     return
+
+                # this is experimental and may be changed/removed in the future
+                # in favor of a general-purpose data buffer pool
+                if hasattr(self.train_dataset, "on_batch_end"):
+                    # The dataset may be changed after each training batch
+                    self.train_dataset.on_batch_end(batch=batch)
