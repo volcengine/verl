@@ -529,10 +529,12 @@ class MegatronPPOActor(BasePPOActor):
                     assert logits.shape[:2] == label.shape[:2]
                     assert label.shape == label_mask.shape
                     ret = {}
-                    logits_bak = logits.clone()
                     if calculate_entropy:
+                        logits_bak = logits.clone()
                         entropy = vocab_parallel_entropy(logits)
                         ret["entropy"] = entropy
+                    else:
+                        logits_bak = logits
                     log_probs = vocab_parallel_log_probs_from_logits(logits_bak, label)
                     log_probs = log_probs.masked_fill(~label_mask, 0.0)
                     ret["log_probs"] = log_probs
