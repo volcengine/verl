@@ -680,7 +680,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @DistProfiler.annotate(color="red", role="actor_update")
     def update_actor(self, data: DataProto):
         # Support all hardwares
-        data = data.to("cpu")  # data will to device with each micro batch on actor.update_policy
+        data = data.to(get_device_id())
 
         assert self._is_actor
         if self._is_offload_param:
