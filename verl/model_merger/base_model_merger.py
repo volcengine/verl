@@ -23,8 +23,8 @@ from accelerate import init_empty_weights
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
-    AutoModelForTokenClassification,
     AutoModelForImageTextToText,
+    AutoModelForTokenClassification,
     GenerationConfig,
 )
 
