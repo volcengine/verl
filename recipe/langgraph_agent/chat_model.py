@@ -43,6 +43,12 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
+class MaxTokenExceededError(Exception):
+    """Indicate that history chat messages + tool message exceeds LLM max_tokens."""
+
+    pass
+
+
 class ChatModel(BaseChatModel):
     model_name: str = Field(alias="model")
     """The name of the model"""
@@ -208,8 +214,7 @@ class ChatModel(BaseChatModel):
 
         # stop generation if response length exceeds max response length
         if len(messages[i].response_metadata["response_mask"]) + len(tool_response_ids) >= self.max_tokens:
-            # TODO: gracefully exit graph execution
-            raise ValueError(f"Max response length {self.max_tokens} exceeded")
+            raise MaxTokenExceededError(f"Max response length {self.max_tokens} exceeded")
 
         # append tool response to prompt
         request_id = messages[i].response_metadata.pop("request_id")
@@ -248,6 +253,8 @@ class ChatModel(BaseChatModel):
         for function_call in function_calls:
             try:
                 args = json.loads(function_call.arguments)
+                if not isinstance(args, dict):
+                    raise json.JSONDecodeError(f"Invalid json tool arguments: {args}")
                 tool_call = ToolCall(
                     args=args,
                     name=function_call.name,
@@ -317,7 +324,11 @@ def convert_to_agent_output(messages: List[BaseMessage], response_length: int) -
     Returns:
         AgentLoopOutput: agent loop output trajectory used for training.
     """
-    last_message = messages[-1]
+    # skip last tool calls
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].type != "tool":
+            break
+    last_message = messages[i]
     assert last_message.type == "ai", f"Last message must be assistant, but got {last_message.type}"
     assert "prompt_ids" in last_message.response_metadata, "Last message must have prompt_ids in response_metadata"
     assert "response_mask" in last_message.response_metadata, (
