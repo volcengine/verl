@@ -14,8 +14,8 @@ The Trace feature integrates commonly used Agent trace tools, including wandb we
 Trace Parameter Configuration
 -----------------------------
 
-- ``trainer.rollout_trace.backend=mlflow|weave`` # the trace backend type
-- ``trainer.rollout_trace.token2text=True`` # To show decoded text in trace view
+- ``actor_rollout_ref.rollout.trace.backend=mlflow|weave`` # the trace backend type
+- ``actor_rollout_ref.rollout.trace.token2text=True`` # To show decoded text in trace view
 
 
 Glossary
@@ -48,11 +48,10 @@ Usage of wandb weave
 1. Set the ``WANDB_API_KEY`` environment variable
 2. Configuration Parameters
 
-   1. ``trainer.rollout_trace.backend=weave``
+   1. ``actor_rollout_ref.rollout.trace.backend=weave``
    2. ``trainer.logger=['console', 'wandb']``: This item is optional. Trace and logger are independent functions. When using Weave, it is recommended to also enable the wandb logger to implement both functions in one system.
    3. ``trainer.project_name=$project_name``
    4. ``trainer.experiment_name=$experiment_name``
-   5. ``actor_rollout_ref.rollout.mode=async``: Since trace is mainly used for agentic RL, need to enable agent toop using async mode for either vllm or sglang.
 
 Note:
 The Weave Free Plan comes with a default monthly network traffic allowance of 1GB. During the training process, the amount of trace data generated is substantial, reaching dozens of gigabytes per day, so it is necessary to select an appropriate wandb plan.
@@ -89,7 +88,7 @@ Usage of mlflow
 
 2. Configuration Parameters
 
-   1. ``trainer.rollout_trace.backend=mlflow``
+   1. ``actor_rollout_ref.rollout.trace.backend=mlflow``
    2. ``trainer.logger=['console', 'mlflow']``. This item is optional. Trace and logger are independent functions. When using mlflow, it is recommended to also enable the mlflow logger to implement both functions in one system.
    3. ``trainer.project_name=$project_name``
    4. ``trainer.experiment_name=$experiment_name``

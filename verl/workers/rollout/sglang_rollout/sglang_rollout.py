@@ -784,7 +784,6 @@ class SGLangRollout(BaseRollout):
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
-    @rollout_trace_op
     async def _async_rollout_a_request(
         self,
         req: AsyncRolloutRequest,
@@ -835,7 +834,11 @@ class SGLangRollout(BaseRollout):
         request_sampling_params.update(kwargs)
 
         with rollout_trace_attr(
-            step=trajectory["step"], sample_index=trajectory["sample_index"], rollout_n=trajectory["rollout_n"]
+            step=trajectory["step"],
+            sample_index=trajectory["sample_index"],
+            rollout_n=trajectory["rollout_n"],
+            validate=trajectory["validate"],
+            name="_async_rollout_a_request",
         ):
             while current_turns < self.config.multi_turn.max_assistant_turns:
                 if _req.state == AsyncRolloutRequestStateEnum.PENDING:
@@ -981,23 +984,25 @@ class SGLangRollout(BaseRollout):
                         else:
                             _req.state = AsyncRolloutRequestStateEnum.RUNNING
 
-        if current_turns >= self.config.multi_turn.max_assistant_turns:
-            finish_reason_type = FinishReasonTypeEnum.STOP
+            if current_turns >= self.config.multi_turn.max_assistant_turns:
+                finish_reason_type = FinishReasonTypeEnum.STOP
 
-        # Calculate the reward for each tool
-        async def calc_reward_and_release_fn(name: str, tool: BaseTool):
-            reward = await tool.calc_reward(_req.request_id, **_req.tools_kwargs[name].get("calc_reward_kwargs", {}))
-            await tool.release(_req.request_id, **_req.tools_kwargs[name].get("release_kwargs", {}))
-            return name, reward
+            # Calculate the reward for each tool
+            async def calc_reward_and_release_fn(name: str, tool: BaseTool):
+                reward = await tool.calc_reward(
+                    _req.request_id, **_req.tools_kwargs[name].get("calc_reward_kwargs", {})
+                )
+                await tool.release(_req.request_id, **_req.tools_kwargs[name].get("release_kwargs", {}))
+                return name, reward
 
-        tool_reward_tasks = []
-        for name in _req.tools_kwargs.keys():
-            tool = self._tool_map[name]
-            tool_reward_tasks.append(calc_reward_and_release_fn(name, tool))
-        tool_reward_scores = await asyncio.gather(*tool_reward_tasks)
-        tool_reward_scores = dict(tool_reward_scores)
-        all_rewards = {**tool_reward_scores, **{"user_turn_rewards": user_turn_rewards}}
-        _req.finalize(self.processing_class, all_rewards, finish_reason_type)
+            tool_reward_tasks = []
+            for name in _req.tools_kwargs.keys():
+                tool = self._tool_map[name]
+                tool_reward_tasks.append(calc_reward_and_release_fn(name, tool))
+            tool_reward_scores = await asyncio.gather(*tool_reward_tasks)
+            tool_reward_scores = dict(tool_reward_scores)
+            all_rewards = {**tool_reward_scores, **{"user_turn_rewards": user_turn_rewards}}
+            _req.finalize(self.processing_class, all_rewards, finish_reason_type)
 
         return _req
 
@@ -1073,9 +1078,9 @@ class SGLangRollout(BaseRollout):
         else:
             index = np.arange(len(prompts))
         trajectory_info = get_trajectory_info(
-            prompts.meta_info.get("global_steps"),
-            index,
+            prompts.meta_info.get("global_steps", -1), index, prompts.meta_info.get("validate", False)
         )
+
         if self._tp_rank == 0:
             req_list = self._preprocess_prompt_to_async_rollout_requests(
                 prompts,

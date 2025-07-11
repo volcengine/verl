@@ -113,8 +113,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         Worker.__init__(self)
 
         self.config = config
-        self.profile_option = kwargs.get("profile_option", None)
-        self.trainer_option = kwargs.get("trainer_option", None)
+        self.trainer_config = kwargs.get("trainer_config", None)
+        if self.trainer_config is not None and "npu_profile" in self.trainer_config:
+            self.profile_option = self.trainer_config.npu_profile.options
+        else:
+            self.profile_option = None
+
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -472,11 +476,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         )
 
         # init rollout trace in this process
-        if self.trainer_option:
-            trace_config = self.trainer_option.get("rollout_trace", {})
+        if self.trainer_config:
+            trace_config = self.config.rollout.get("trace", {})
             RolloutTraceConfig.init(
-                self.trainer_option.project_name,
-                self.trainer_option.experiment_name,
+                self.trainer_config.project_name,
+                self.trainer_config.experiment_name,
                 trace_config.get("backend"),
                 trace_config.get("token2text", False),
             )

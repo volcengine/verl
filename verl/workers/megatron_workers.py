@@ -89,7 +89,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config: DictConfig, role: str, **kwargs):
         MegatronWorker.__init__(self)
         self.config = config
-        self.trainer_option = kwargs.get("trainer_option", None)
+        self.trainer_config = kwargs.get("trainer_config", None)
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
@@ -295,11 +295,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
             # init rollout trace in this process
-            if self.trainer_option:
-                trace_config = self.trainer_option.get("rollout_trace", {})
+            if self.trainer_config:
+                trace_config = self.config.rollout.get("trace", {})
                 RolloutTraceConfig.init(
-                    self.trainer_option.project_name,
-                    self.trainer_option.experiment_name,
+                    self.trainer_config.project_name,
+                    self.trainer_config.experiment_name,
                     trace_config.get("backend"),
                     trace_config.get("token2text", False),
                 )

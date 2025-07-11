@@ -848,8 +848,7 @@ class RayPPOTrainer:
                 cls=self.role_worker_mapping[Role.ActorRollout],
                 config=self.config.actor_rollout_ref,
                 role="actor_rollout",
-                profile_option=self.config.trainer.npu_profile.options,
-                trainer_option=self.config.trainer,
+                trainer_config=self.config.trainer,
             )
             self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
         else:
@@ -868,7 +867,7 @@ class RayPPOTrainer:
                 self.role_worker_mapping[Role.RefPolicy],
                 config=self.config.actor_rollout_ref,
                 role="ref",
-                profile_option=self.config.trainer.npu_profile.options,
+                trainer_config=self.config.trainer,
             )
             self.resource_pool_to_cls[resource_pool]["ref"] = ref_policy_cls
 
