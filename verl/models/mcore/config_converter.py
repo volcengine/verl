@@ -152,7 +152,10 @@ def _get_base_transformer_config(
 
         for key in optimization_config_dict.keys():
             if key in optimization_config.disabled_config:
-                optimization_config_dict[key] = False
+                if isinstance(optimization_config_dict[key], bool):
+                    optimization_config_dict[key] = False
+                else:
+                    optimization_config_dict.pop(key, None)
 
         base_config.update(optimization_config_dict)
 
