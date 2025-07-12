@@ -57,7 +57,7 @@ class TestConfigComparison(unittest.TestCase):
                 len(legacy_config),
                 f"List lengths differ at {path}: current={len(current_config)}, legacy={len(legacy_config)}",
             )
-            for i, (current_item, legacy_item) in enumerate(zip(current_config, legacy_config)):
+            for i, (current_item, legacy_item) in enumerate(zip(current_config, legacy_config, strict=True)):
                 self._compare_configs_recursively(current_item, legacy_item, f"{path}[{i}]")
         else:
             self.assertEqual(

@@ -16,7 +16,7 @@ import json
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any
 from uuid import uuid4
 
 import regex as re
@@ -46,7 +46,7 @@ class FunctionCall(BaseModel):
 
 class ToolParser(ABC):
     @abstractmethod
-    async def extract_tool_calls(self, responses_ids: List[int]) -> List[FunctionCall]:
+    async def extract_tool_calls(self, responses_ids: list[int]) -> list[FunctionCall]:
         """Extract tool calls from the responses.
 
         Args:
@@ -69,7 +69,7 @@ class HermesToolParser(ToolParser):
         self.tool_call_regex = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
 
     @rollout_trace_op
-    async def extract_tool_calls(self, responses_ids: List[int]) -> List[FunctionCall]:
+    async def extract_tool_calls(self, responses_ids: list[int]) -> list[FunctionCall]:
         loop = asyncio.get_running_loop()
         text = await loop.run_in_executor(None, self.tokenizer.decode, responses_ids)
         if self.tool_call_start_token not in text or self.tool_call_end_token not in text:
@@ -117,7 +117,7 @@ class ToolAgentLoop(AgentLoopBase):
         cls.system_prompt = tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
 
     @rollout_trace_op
-    async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> AgentLoopOutput:
+    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
         metrics = {}
         request_id = uuid4().hex
         prompt_ids = await self.loop.run_in_executor(
@@ -194,7 +194,7 @@ class ToolAgentLoop(AgentLoopBase):
         )
         return output
 
-    async def _call_tool(self, tool_call: FunctionCall) -> Dict[str, str]:
+    async def _call_tool(self, tool_call: FunctionCall) -> dict[str, str]:
         """Call tool and return tool response."""
         tool, instance_id = None, None
         try:
