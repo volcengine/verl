@@ -306,9 +306,10 @@ class TestRolloutWithTools:
         mock_rollout._handle_engine_call.return_value = future
         mock_rollout._tp_rank = 0
         loop = asyncio.get_event_loop()
+        trajectory={"step": 1, "sample_index":2, "rollout_n":3, "validate":False} 
         output_req_list = loop.run_until_complete(
             asyncio.gather(
-                *[mock_rollout._async_rollout_a_request(req, True, False) for req in req_list],
+                *[mock_rollout._async_rollout_a_request(req, True, False, trajectory=trajectory) for req in req_list],
             )
         )
         assert len(output_req_list) == 1
