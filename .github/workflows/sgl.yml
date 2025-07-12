@@ -131,7 +131,11 @@ jobs:
       - name: Test the latest SGLang Rollout async with mcp search tool
         run: |
           cd tests/workers/rollout
-          pytest -s test_sglang_async_rollout_mcp_tools.py
+          pytest -s test_sglang_async_rollout_search_mcp_tools.py
+      - name: Test the latest SGLang Rollout async with sandbox mcp tool
+        run: |
+          cd tests/workers/rollout
+          pytest -s test_sglang_async_rollout_sandbox_mcp_tools.py
       - name: Test the latest SGLang Rollout async with agent loop
         run: |
           ROLLOUT_NAME=sglang pytest -svvv tests/experimental/agent_loop/test_basic_agent_loop.py

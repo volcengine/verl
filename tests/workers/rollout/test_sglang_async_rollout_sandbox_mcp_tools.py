@@ -24,86 +24,107 @@ import numpy as np
 import pytest
 from tensordict import TensorDict
 from transformers import AutoConfig, AutoTokenizer
-from utils_sglang import get_rollout_config, prepare_inputs
+from utils_sglang import (
+    get_rollout_config,
+    prepare_inputs,
+)
 
 from verl.protocol import DataProto
-from verl.tools.mcp_search_tool import MCPSearchTool
+from verl.tools.mcp_sandbox_tool import MCPSandboxTool
 from verl.tools.utils.mcp_clients.McpClientManager import MCPClientManager
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
 
-DEFAULT_USER_CONTENT_PREFIX = (
-    "Answer the given question. You must conduct reasoning inside <think> and </think> "
-    "first every time you get new information. After reasoning, if you find you lack "
-    "some knowledge, you can call a search engine by <tool_call> query </tool_call> "
-    "and it will return the top searched results between <tool_response> and "
-    "</tool_response>. You can search as many times as your want. If you find no "
-    "further external knowledge needed, you can directly provide the answer inside "
-    "<answer> and </answer>, without detailed illustrations. For example, "
-    "<answer> Beijing </answer>. Question: "
-)
-user_content = DEFAULT_USER_CONTENT_PREFIX.rstrip("\n") + "How's the weather lately?"
 
-
-def get_search_messages():
+def get_sandbox_messages():
     user_prompt = {
         "role": "user",
-        "content": user_content,
+        "content": """
+            Solve the following problem step by step. You now have the ability to selectively 
+            write executable Python code to enhance your reasoning process. \n\n**user question:**\nThere 
+            are 152 students at Dala High School. Assume the following: \n- 100 students take a Math class \n- 94 
+            students take a Science class \n- 57 students take an English class \n- 73 students take a Math class 
+            and a Science class \n- 24 students take a Math class and an English class \n- 27 students take a Science 
+            class and an English class \n- 22 students take a Math class and a Science class and an English class
+            \n \nHow many students take neither a Math class nor a Science class nor an Eglish class?\n\nRemember
+            to place the final answer in the last part using the format: \n<answer>\n\boxed{'The final answer 
+            goes here.'}\n</answer>
+        """,
     }
-
     expect_turn_0_msg = {
         "role": "assistant",
-        "content": "Let me search the web.",
+        "content": """
+            Okay, so I need to find out how many students at Dala High School are not taking any of 
+            the three classes: Math, Science, or English. The total number of students is 152. 
+            Let me see... I remember this is a problem about sets and maybe using the principle 
+            of inclusion-exclusion. Let me recall how that works.\n\nFirst, the inclusion-exclusion 
+            principle for three sets says that the total number of students taking at least one of 
+            the classes is equal to the sum of the numbers in each individual class, minus the sum 
+            of the numbers in each pair of classes, plus the number in all three classes. Then, subtract 
+            that total from the overall number of students to get those not taking any of the 
+            three. \n\nLet me write that down step by step. Let M be the set of students taking Math, 
+            S for Science, and E for English. Then:\n\nTotal in at least one class = |M ∪ S ∪ E| = 
+            |M| + |S| + |E| - |M ∩ S| - |M ∩ E| - |S ∩ E| + |M ∩ S ∩ E|\n\nGiven the numbers:\n\n|M| = 
+            100\n\n|S| = 94\n\n|E| = 57\n\n|M ∩ S| = 73\n\n|M ∩ E| = 24\n\n|S ∩ E| = 27\n\n|M ∩ S ∩ E| 
+            = 22\n\nSo plugging these into the formula:\n\nTotal = 100 + 94 + 57 - 73 - 24 - 27 + 22\n\n
+            Let me compute that step by step using code to ensure accuracy.\n
+        """,
         "tool_calls": [
             {
-                "id": "10",
                 "type": "function",
                 "function": {
-                    "name": "tavily_search_tool",
+                    "name": "run_code",
                     "arguments": {
-                        "what_is_your_intent": "Search for the weather lately",
-                        "query": "the weather in Beijing today",
-                        "search_depth": "basic",
-                        "time_range": "day",
-                        "include_domains": ["google.com", "baidu.com"],
-                        "max_results": 2,
+                        "codeStr": """M = 100\\nS = 94\\nE = 57\\nM_S = 73\\nM_E = 24\\nS_E = 27\\nM_S_E = 
+                        22\\n\\ntotal_in_any = M + S + E - M_S - M_E - S_E + M_S_E\\nstudents_neither = 152 
+                        - total_in_any\\nprint(students_neither)""",
+                        "language": "python",
                     },
                 },
             }
         ],
+    }
+
+    tool_return_0_msg = {
+        "role": "tool",
+        "content": """3""",
     }
 
     expect_turn_1_msg = {
         "role": "assistant",
-        "content": "Let me search again.",
+        "content": """
+            The code returns 3, indicating that 3 students take none of the classes. To verify, I'll break down each
+            category to ensure the total matches:\n\n- Only Math and Science: 73 - 22 = 51\n- Only Math and English:
+            24 - 22 = 2\n- Only Science and English: 27 - 22 = 5\n- Only Math: 100 - 51 - 2 - 22 = 25\n- Only Science:
+            94 - 51 - 5 - 22 = 16\n- Only English: 57 - 2 - 5 - 22 = 28\n\nSumming all categories:\n
+        """,
         "tool_calls": [
             {
                 "type": "function",
                 "function": {
-                    "name": "tavily_search_tool",
+                    "name": "run_code",
                     "arguments": {
-                        "what_is_your_intent": "Search for the weather lately",
-                        "query": "the weather in Beijing tomorrow",
-                        "search_depth": "basic",
-                        "time_range": "day",
-                        "include_domains": ["google.com", "baidu.com"],
-                        "max_results": 2,
+                        "code": """only_M_S = 73 - 22\\nonly_M_E = 24 - 22\\nonly_S_E = 27 - 22\\n\\nonly_M
+                        = 100 - only_M_S - only_M_E - 22\\nonly_S = 94 - only_M_S - only_S_E - 22\\nonly_E 
+                        = 57 - only_M_E - only_S_E - 22\\n\\ntotal_verify = only_M + only_S + only_E + 
+                        only_M_S + only_M_E + only_S_E + 22\\nprint(total_verify)""",
+                        "language": "python",
                     },
                 },
             }
         ],
     }
 
-    expect_turn_2_msg = {
-        "role": "assistant",
-        "content": "<answer>Today is sunny and tomorrow will be cloudy in Beijing.</answer>",
-    }
-
-    # Mock search tool responses
-    tool_return_0_msg = {"role": "tool", "content": [{"type": "text", "text": "Today's weather in Beijing is sunny."}]}
     tool_return_1_msg = {
         "role": "tool",
-        "content": [{"type": "text", "text": "Tomorrow's weather in Beijing is cloudy."}],
+        "content": """149""",
+    }
+    expect_turn_2_msg = {
+        "role": "assistant",
+        "content": """
+            The verification total is 149, so students not taking any classes are 152 - 149 = 3, confirming the initial
+            result.\n\n<answer>\n\\boxed{3}\n</answer>
+        """,
     }
 
     user_prompts = [user_prompt]
@@ -113,7 +134,7 @@ def get_search_messages():
     return user_prompts, expect_turn_array, tool_return_array
 
 
-class TestRolloutWithMCPSearchTools:
+class TestRolloutWithMCPSandboxTools:
     @pytest.fixture
     def qwen_tokenizer(self):
         local_model_path = "Qwen/Qwen2.5-0.5B"
@@ -129,8 +150,37 @@ class TestRolloutWithMCPSearchTools:
         return config
 
     @pytest.fixture
-    def search_data(self, qwen_tokenizer):
-        user_prompt, expect_turn_array, tool_return_array = get_search_messages()
+    def sandbox_tool_schemas(self):
+        tool_schemas = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "run_code",
+                    "description": "run your code str in sandbox server with your provided language,...",
+                    "parameters": {
+                        "properties": {
+                            "codeStr": {
+                                "title": "codeStr",
+                                "type": "string",
+                            },
+                            "language": {
+                                "title": "language",
+                                "type": "string",
+                            },
+                        },
+                        "required": ["codeStr", "language"],
+                        "title": "run_codeArguments",
+                        "type": "object",
+                    },
+                    "strict": False,
+                },
+            }
+        ]
+        return tool_schemas
+
+    @pytest.fixture
+    def sandbox_data(self, qwen_tokenizer):
+        user_prompt, expect_turn_array, tool_return_array = get_sandbox_messages()
         prompts = [[message] for message in user_prompt]
         preencode_turn_array = [
             qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=False)
@@ -143,20 +193,20 @@ class TestRolloutWithMCPSearchTools:
         return prompts, preencode_turn_array, preencode_tool_return_array
 
     @pytest.fixture
-    def search_rollout_config(self):
+    def sandbox_rollout_config(self):
         max_prompt_length = 4096
         max_response_length = 3000
         dtype = "bfloat16"
         tensor_parallel_size = 1
-        tool_path = "./resource/tool_configs/mcp_tool_config"
+        tool_path = "./resource/tool_configs/sandbox_mcp_tool_config"
         rollout_config = get_rollout_config(
             max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_path
         )
         return rollout_config
 
     @pytest.fixture
-    def search_data_proto(self, search_data, qwen_tokenizer):
-        preencode_prompts, _, _ = search_data
+    def sandbox_data_proto(self, sandbox_data, qwen_tokenizer):
+        preencode_prompts, _, _ = sandbox_data
         prompts = [
             qwen_tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True)
             for message in preencode_prompts
@@ -175,8 +225,8 @@ class TestRolloutWithMCPSearchTools:
         tools_kwargs = np.array(
             [
                 {
-                    "tavily_search_tool": {
-                        "create_kwargs": {"ground_truth": "Today is sunny and tomorrow will be cloudy in Beijing."},
+                    "run_code": {
+                        "create_kwargs": {"ground_truth": "test-solution-str"},
                     },
                 }
             ],
@@ -189,93 +239,47 @@ class TestRolloutWithMCPSearchTools:
         return prompts
 
     @pytest.fixture
-    def mock_rollout(self, search_rollout_config, qwen_tokenizer, qwen_model_config):
+    def mock_rollout(self, sandbox_rollout_config, qwen_tokenizer, qwen_model_config):
         """Mock the rollout instance with sampling_params initialized."""
         tool_schema = [
             {
                 "type": "function",
                 "function": {
-                    "name": "tavily_search_tool",
-                    "description": "A powerful web search tool...",
+                    "name": "run_code",
+                    "description": "run your code str in sandbox server with your provided language,...",
                     "parameters": {
-                        "type": "object",
                         "properties": {
-                            "what_is_your_intent": {
+                            "codeStr": {
+                                "title": "codeStr",
                                 "type": "string",
-                                "description": "Describe your intent for using Tavily",
                             },
-                            "query": {"type": "string", "description": "Search query"},
-                            "search_depth": {
+                            "language": {
+                                "title": "language",
                                 "type": "string",
-                                "description": "The depth of the search ('basic' or 'advanced')",
-                            },
-                            "topic": {
-                                "type": "string",
-                                "description": "The category of the search ('general' or 'news')",
-                            },
-                            "days": {
-                                "type": "integer",
-                                "description": "Number of days back to include in search results (only for "
-                                "'news' topic)",
-                            },
-                            "time_range": {
-                                "type": "string",
-                                "description": "Time range for results ('day', 'week', 'month', 'year', 'd', "
-                                "'w', 'm', 'y')",
-                            },
-                            "include_domains": {
-                                "type": "array",
-                                "description": "List of domains to specifically include in search results",
-                            },
-                            "exclude_domains": {
-                                "type": "array",
-                                "description": "List of domains to specifically exclude from search results",
-                            },
-                            "include_answer": {
-                                "type": "boolean",
-                                "description": "Whether to include an answer summary generated by an LLM",
-                            },
-                            "include_raw_content": {
-                                "type": "boolean",
-                                "description": "Whether to include the cleaned and parsed HTML content of each result",
-                            },
-                            "include_images": {
-                                "type": "boolean",
-                                "description": "Whether to include images from search results",
-                            },
-                            "include_image_descriptions": {
-                                "type": "boolean",
-                                "description": "Whether to include descriptions with images",
-                            },
-                            "max_results": {
-                                "type": "integer",
-                                "description": "Maximum number of results to return (5-20)",
-                            },
-                            "async_search": {
-                                "type": "boolean",
-                                "description": "Whether to perform the search asynchronously",
                             },
                         },
-                        "required": ["what_is_your_intent", "query"],
+                        "required": ["codeStr", "language"],
+                        "title": "run_codeArguments",
+                        "type": "object",
                     },
                     "strict": False,
                 },
             }
         ]
         with patch.object(MCPClientManager, "fetch_tool_schemas", return_value=tool_schema), patch.object(
-            SGLangRollout, "_init_distributed_env", return_value=None
-        ), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(
-            SGLangRollout, "_init_sampling_params", return_value=None
-        ):
+            MCPClientManager, "initialize", return_value=None
+        ), patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(
+            SGLangRollout, "_init_inference_engine", return_value=None
+        ), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
             rollout = SGLangRollout(
                 actor_module="",
-                config=search_rollout_config,
+                config=sandbox_rollout_config,
                 processing_class=qwen_tokenizer,
                 model_hf_config=qwen_model_config,
             )
             rollout.sampling_params = {
                 "n": 1,
-                "max_new_tokens": search_rollout_config.response_length,
+                "max_new_tokens": sandbox_rollout_config.response_length,
                 "presence_penalty": 0.0,
                 "frequency_penalty": 0.0,
                 "repetition_penalty": 1.0,
@@ -284,27 +288,27 @@ class TestRolloutWithMCPSearchTools:
 
     def test_tools_registration(self, mock_rollout):
         assert len(mock_rollout._tool_schemas) != 0
-        assert "tavily_search_tool" in mock_rollout._tool_map.keys()
-        from verl.tools.mcp_search_tool import MCPSearchTool
+        assert "run_code" in mock_rollout._tool_map.keys()
+        from verl.tools.mcp_sandbox_tool import MCPSandboxTool
 
-        assert isinstance(mock_rollout._tool_map["tavily_search_tool"], MCPSearchTool)
+        assert isinstance(mock_rollout._tool_map["run_code"], MCPSandboxTool)
         # depend on the tokenizer
         assert mock_rollout._tool_call_parser_type == "qwen25"
 
-    def test_rollout_req_creation(self, mock_rollout, search_data_proto):
-        req_list = mock_rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)
+    def test_rollout_req_creation(self, mock_rollout, sandbox_data_proto):
+        req_list = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)
         assert len(req_list) == 1
         assert req_list[0].state == AsyncRolloutRequestStateEnum.PENDING
         assert len(req_list[0].tool_schemas) == 1
 
-    def test_over_size_case(self, mock_rollout, search_data_proto, search_data):
+    def test_over_size_case(self, mock_rollout, sandbox_data_proto, sandbox_data):
         mock_rollout.config.multi_turn.max_assistant_turns = 1
-        req = mock_rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)[0]
+        req = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
         req.finalize = MagicMock()
         req_list = [req]
 
-        _, expect_turn_array, _ = search_data
+        _, expect_turn_array, _ = sandbox_data
         # here we mock a meta info with 'length'. indicate the response is truncate
         mock_rollout._handle_engine_call = MagicMock()
         future = asyncio.Future()
@@ -313,11 +317,11 @@ class TestRolloutWithMCPSearchTools:
                 "text": expect_turn_array[0],
                 "meta_info": {
                     "id": "d1188d81cba840359df5b352b344bc8e",
-                    "finish_reason": {"type": "length", "length": 3000},
+                    "finish_reason": {"type": "length", "length": 1024},
                     "prompt_tokens": 132,
                     "completion_tokens": 100,
                     "cached_tokens": 0,
-                    "e2e_latency": 2.23543,
+                    "e2e_latency": 9.9304039478302,
                 },
             }
         )
@@ -332,7 +336,7 @@ class TestRolloutWithMCPSearchTools:
         assert len(output_req_list) == 1
         output_req = output_req_list[0]
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-        assert output_req.reward_scores.get("tavily_search_tool") == []
+        assert output_req.reward_scores.get("run_code") == []
         # we should only have two message, one for prompt, second for response.
         assert len(output_req.messages) == 2
         assert output_req.messages[1] == Message(
@@ -341,14 +345,14 @@ class TestRolloutWithMCPSearchTools:
             tool_calls=None,
         )
 
-    @patch.object(MCPSearchTool, "execute", new_callable=AsyncMock)
-    def test_tool_call_basic_case(self, mock_execute, mock_rollout, search_data_proto, search_data):
-        _, expect_turn_array, tool_return_array = search_data
-        # Mock search tool execution to return predefined responses
+    @patch.object(MCPSandboxTool, "execute", new_callable=AsyncMock)
+    def test_tool_call_basic_case(self, mock_execute, mock_rollout, sandbox_data_proto, sandbox_data):
+        _, expect_turn_array, tool_return_array = sandbox_data
+        # Mock sandbox tool execution to return predefined responses
         mock_execute.side_effect = [(msg, 0.0, {"status": "success"}) for msg in tool_return_array]
 
         mock_rollout.config.multi_turn.max_assistant_turns = 10
-        req = mock_rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)[0]
+        req = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
         req.finalize = MagicMock()
         req_list = [req]
@@ -365,7 +369,7 @@ class TestRolloutWithMCPSearchTools:
                         "prompt_tokens": len(turn),
                         "completion_tokens": 100,
                         "cached_tokens": 0,
-                        "e2e_latency": 2.23543,
+                        "e2e_latency": 9.9304039478302,
                     },
                 }
             )
@@ -384,21 +388,21 @@ class TestRolloutWithMCPSearchTools:
         # Verify conversation completed successfully with proper tool usage
         output_req = output_req_list[0]
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-        assert "tavily_search_tool" in output_req.metrics
-        assert output_req.metrics["tavily_search_tool"][0]["status"] == "success"
+        assert "run_code" in output_req.metrics
+        assert output_req.metrics["run_code"][0]["status"] == "success"
         assert mock_execute.await_count == 2
         assert len(output_req.messages) == 6
         # Verify tool response messages contain expected content
-        search_counter = 0
+        sandbox_counter = 0
         for msg in output_req.messages:
             if msg.role == "tool":
-                assert msg.content == tool_return_array[search_counter]
-                search_counter += 1
-        assert search_counter == 2
+                assert msg.content == tool_return_array[sandbox_counter]
+                sandbox_counter += 1
+        assert sandbox_counter == 2
 
-    @patch.object(MCPSearchTool, "execute", new_callable=AsyncMock)
-    def test_tool_call_batch_case(self, mock_execute, mock_rollout, search_data_proto, search_data):
-        _, expect_turn_array, tool_return_array = search_data
+    @patch.object(MCPSandboxTool, "execute", new_callable=AsyncMock)
+    def test_tool_call_batch_case(self, mock_execute, mock_rollout, sandbox_data_proto, sandbox_data):
+        _, expect_turn_array, tool_return_array = sandbox_data
         # Mock tool execution for large batch (100 requests * 2 calls each)
         mock_execute.side_effect = [
             (tool_return_array[0], 0.0, {"status": "success"}),
@@ -406,7 +410,7 @@ class TestRolloutWithMCPSearchTools:
         ] * 100
 
         mock_rollout.config.multi_turn.max_assistant_turns = 10
-        base_req = mock_rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)[0]
+        base_req = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
 
         req_nums = 100
         req_list = []
@@ -451,8 +455,8 @@ class TestRolloutWithMCPSearchTools:
         assert len(output_req_list) == req_nums
         for out_req in output_req_list:
             assert out_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-            assert "tavily_search_tool" in out_req.metrics
-            for metric in out_req.metrics["tavily_search_tool"]:
+            assert "run_code" in out_req.metrics
+            for metric in out_req.metrics["run_code"]:
                 assert metric["status"] == "success"
             assert len(out_req.messages) == 6
             assert sum(1 for m in out_req.messages if m.role == "tool") == 2
