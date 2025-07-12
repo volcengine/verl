@@ -13,6 +13,7 @@
 # limitations under the License.
 import asyncio
 import heapq
+import importlib
 import logging
 import os
 import random
@@ -161,6 +162,20 @@ class AgentLoopBase(ABC):
         raise NotImplementedError
 
 
+"""Agent loop registry."""
+_agent_loop_registry = {}
+
+
+def register(agent_name: str):
+    """Register agent loop class."""
+
+    def decorator(subclass: Type[AgentLoopBase]) -> Type[AgentLoopBase]:
+        _agent_loop_registry[agent_name] = subclass
+        return subclass
+
+    return decorator
+
+
 @ray.remote
 class AgentLoopWorker:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
@@ -180,8 +195,26 @@ class AgentLoopWorker:
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
 
-        trace_config = config.trainer.get("rollout_trace", {})
+        custom_agent_loop_loader = config.actor_rollout_ref.rollout.agent.custom_agent_loop_loader
+        if custom_agent_loop_loader:
+            module_path, func_name = custom_agent_loop_loader.rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            custom_agent_loop_classes = getattr(module, func_name)()
+            assert isinstance(custom_agent_loop_classes, dict), (
+                "custom_agent_loop_loader should be function: Callable[] -> Dict[str, Type[AgentLoopBase]]"
+            )
 
+            for agent_name, agent_loop_cls in custom_agent_loop_classes.items():
+                assert issubclass(agent_loop_cls, AgentLoopBase), (
+                    f"invalid custom agent loop class {agent_name}: {agent_loop_cls}"
+                )
+                assert agent_name not in _agent_loop_registry, (
+                    f"custom agent loop class {agent_name} already registered"
+                )
+                _agent_loop_registry[agent_name] = agent_loop_cls
+                print(f"register custom agent loop class {agent_name}: {agent_loop_cls}")
+
+        trace_config = config.trainer.get("rollout_trace", {})
         RolloutTraceConfig.init(
             config.trainer.project_name,
             config.trainer.experiment_name,
@@ -255,35 +288,14 @@ class AgentLoopWorker:
         with rollout_trace_attr(
             step=trajectory["step"], sample_index=trajectory["sample_index"], rollout_n=trajectory["rollout_n"]
         ):
-            agent_loop_class = self.get_agent_loop_class(agent_name)
+            assert agent_name in _agent_loop_registry, (
+                f"Agent loop {agent_name} not registered, registered agent loops: {_agent_loop_registry.keys()}"
+            )
+
+            agent_loop_class = _agent_loop_registry[agent_name]
             agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer)
             output = await agent_loop.run(messages, sampling_params)
             return output
-
-    def get_agent_loop_class(self, agent_name: str) -> Type[AgentLoopBase]:
-        """Get the appropriate agent loop class based on agent name.
-
-        Factory method that returns the correct agent loop class implementation
-        for the specified agent type.
-
-        Args:
-            agent_name (str): Name of the agent type ('single_turn_agent' or 'tool_agent').
-
-        Returns:
-            Type[AgentLoopBase]: Agent loop class corresponding to the agent name.
-
-        Raises:
-            ValueError: If the agent_name is not recognized.
-        """
-        # TODO: add tool agent registrary
-        from verl.experimental.agent_loop.single_turn_agent_loop import SingleTurnAgentLoop
-        from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop
-
-        if agent_name == "single_turn_agent":
-            return SingleTurnAgentLoop
-        elif agent_name == "tool_agent":
-            return ToolAgentLoop
-        raise ValueError(f"Unknown agent_name: {agent_name}")
 
     def _postprocess(self, inputs: List[AgentLoopOutput]) -> DataProto:
         # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
