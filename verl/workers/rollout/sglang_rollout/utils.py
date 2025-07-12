@@ -93,7 +93,7 @@ def batched(iterable: Iterable, n: int) -> Iterator[List]:
         import itertools
 
         if n < 1:
-            raise ValueError("batch size must be at least one")
+            raise ValueError("batch size must be at least one") from None
 
         it = iter(iterable)
         while True:
