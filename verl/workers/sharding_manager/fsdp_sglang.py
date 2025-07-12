@@ -115,7 +115,6 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         named_tensors = [(k, v) for k, v in params.items()]
         load_format = None
         update_weights_batch_size = self.rollout_config.get("update_weights_batch_size", 1)
-        print(f"update_weights_batch_size: {update_weights_batch_size}")
         for batch in batched(named_tensors, update_weights_batch_size):
             # On each rank, serialize a batch of (name, tensor) tuples.
             # named_tensors_batch will be a list like:
@@ -124,9 +123,9 @@ class FSDPSGLangShardingManager(BaseShardingManager):
                 (name, MultiprocessingSerializer.serialize(tensor.detach())) for name, tensor in batch
             ]
 
-            if self.device_mesh["tp"].get_local_rank() == 0:
+            if self.device_mesh["infer_tp"].get_local_rank() == 0:
                 # On rank 0, prepare a list to hold the gathered batches from all ranks.
-                gathered_serialized_batches = [None for _ in range(self.device_mesh["tp"].mesh.size()[0])]
+                gathered_serialized_batches = [None for _ in range(self.device_mesh["infer_tp"].mesh.size()[0])]
             else:
                 gathered_serialized_batches = None
 
@@ -139,11 +138,11 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             dist.gather_object(
                 obj=named_tensors_batch,
                 object_gather_list=gathered_serialized_batches,
-                dst=self.device_mesh["tp"].mesh.tolist()[0],
-                group=self.device_mesh["tp"].get_group(),
+                dst=self.device_mesh["infer_tp"].mesh.tolist()[0],
+                group=self.device_mesh["infer_tp"].get_group(),
             )
 
-            if self.device_mesh["tp"].get_local_rank() == 0:
+            if self.device_mesh["infer_tp"].get_local_rank() == 0:
                 # Use zip(*) to "transpose" the data structure.
                 # This groups the serialized parts for each individual tensor across all TP ranks.
                 # Example: from [[(n0, t0_tp0), (n1, t1_tp0)], [(n0, t0_tp1), (n1, t1_tp1)]]
@@ -167,7 +166,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
                     flush_cache=False,
                 )
 
-        if self.device_mesh["tp"].get_local_rank() == 0:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0:
             await self.inference_engine.flush_cache()
 
     async def release_memory(self):
