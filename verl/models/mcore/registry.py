@@ -116,7 +116,7 @@ MODEL_FORWARD_REGISTRY: dict[SupportedModel, Callable] = {
 }
 
 # Registry for model forward functions
-MODEL_FORWARD_FUSED_REGISTRY: Dict[SupportedModel, Callable] = {
+MODEL_FORWARD_FUSED_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.LLAMA: fused_forward_gptmodel,
     SupportedModel.QWEN2: fused_forward_gptmodel,
     SupportedModel.QWEN2_MOE: fused_forward_gptmodel,
