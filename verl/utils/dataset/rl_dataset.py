@@ -340,3 +340,12 @@ class RLHFDataset(Dataset):
             return state
 
         return self.__dict__.copy()
+
+    def __setstate__(self, state):
+        """Restore dataset state, reconstructing dataframe when serialize_dataset=False."""
+        self.__dict__.update(state)
+        
+        # If dataframe was not serialized, reconstruct it
+        if not hasattr(self, 'dataframe') and hasattr(self, 'original_data_files'):
+            self._download(use_origin_parquet=True)
+            self._read_files_and_tokenize()
