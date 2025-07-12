@@ -160,7 +160,7 @@ def collate_fn(data_list: list[dict]) -> dict:
 
     Returns:
         Dict where tensor entries are stacked into a torch.Tensor of shape
-        (batch_size, \*dims) and non-tensor entries are converted to
+        (batch_size, \\*dims) and non-tensor entries are converted to
         np.ndarray of dtype object with shape (batch_size,).
     """
     tensors = defaultdict(list)
@@ -225,7 +225,8 @@ class RLHFDataset(Dataset):
         self.truncation = config.get("truncation", "error")
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
 
-        self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
+        cpu_count = os.cpu_count() or 1
+        self.num_workers = config.get("filter_overlong_prompts_workers", max(1, cpu_count // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
         self.use_shm = config.get("use_shm", False)
         self.chat_template_func = config.get("chat_template_func", None)
@@ -270,9 +271,7 @@ class RLHFDataset(Dataset):
 
                 def doc2len(doc) -> int:
                     messages = self._build_messages(doc)
-                    raw_prompt = self.processor.apply_chat_template(
-                        messages, add_generation_prompt=True, tokenize=False
-                    )
+                    raw_prompt = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
                     images = (
                         [process_image(image) for image in messages.pop(image_key)] if image_key in messages else None
                     )
@@ -401,7 +400,7 @@ class RLHFDataset(Dataset):
 
             # Process images
             if self.image_key in context.raw_row and context.raw_row.get(self.image_key) is not None:
-                images_data = context.raw_row.pop(self.image_key)
+                images_data = context.raw_row.pop(self.image_key, None)
                 if images_data is not None:
                     images = [process_image(image) for image in images_data]
                     # Use "image" key for vllm compatibility
@@ -409,7 +408,7 @@ class RLHFDataset(Dataset):
 
             # Process videos
             if self.video_key in context.raw_row and context.raw_row.get(self.video_key) is not None:
-                videos_data = context.raw_row.pop(self.video_key)
+                videos_data = context.raw_row.pop(self.video_key, None)
                 if videos_data is not None:
                     videos = [process_video(video) for video in videos_data]
                     # Use "video" key for vllm compatibility
