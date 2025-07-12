@@ -40,6 +40,21 @@ from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_ti
 
 from .base import BaseShardingManager
 
+try:
+    # python >= 3.13
+    from itertools import batched
+except ImportError:
+    from itertools import islice
+
+    def batched(iterable, n):
+        # batched('ABCDEFG', 3) --> ABC DEF G
+        if n < 1:
+            raise ValueError("n must be at least one")
+        it = iter(iterable)
+        while batch := tuple(islice(it, n)):
+            yield batch
+
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
 
@@ -132,35 +147,37 @@ class MegatronSGLangShardingManager(BaseShardingManager):
     async def update_weights(self, params):
         if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.resume_memory_occupation()
+
         named_tensors = params
         load_format = None
-        for tensor_index, (name, tensor) in enumerate(named_tensors):
-            serialized_tensor = MultiprocessingSerializer.serialize(tensor.detach())
-
+        chunk_size = self.rollout_config.get("update_weight_chunk_size", 1)
+        for chunk in batched(named_tensors, chunk_size):
+            named_tensors_chunk = [
+                (name, MultiprocessingSerializer.serialize(tensor.detach())) for name, tensor in chunk
+            ]
             if self.device_mesh["tp"].get_local_rank() == 0:
                 gathered_serialized_tensors = [None for _ in range(self.device_mesh["tp"].mesh.size()[0])]
             else:
                 gathered_serialized_tensors = None
             dist.gather_object(
-                obj=serialized_tensor,
+                obj=named_tensors_chunk,
                 object_gather_list=gathered_serialized_tensors,
                 dst=self.device_mesh["tp"].mesh.tolist()[0],
                 group=self.device_mesh["tp"].get_group(),
             )
-
             if self.device_mesh["tp"].get_local_rank() == 0:
                 await self.inference_engine.update_weights_from_tensor(
+                    # permute from tp x chunk_size x (name, tensor) => chunk_size x (name, tp x tensor)
                     named_tensors=[
-                        (
-                            name,
-                            LocalSerializedTensor(values=gathered_serialized_tensors),
-                        )
+                        (i[0][0], LocalSerializedTensor(values=[j[1] for j in i]))
+                        for i in zip(*gathered_serialized_tensors)
                     ],
                     load_format=load_format,
                     flush_cache=False,
                 )
-            if self.device_mesh["tp"].get_local_rank() == 0:
-                await self.inference_engine.flush_cache()
+
+        if self.device_mesh["tp"].get_local_rank() == 0:
+            await self.inference_engine.flush_cache()
 
     async def release_memory(self):
         if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
