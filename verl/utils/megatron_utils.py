@@ -19,10 +19,12 @@
 import gc
 import os
 import warnings
+from dataclasses import dataclass
 from typing import Any, Dict
 
 import torch
 import torch.nn.functional as F
+from mbridge import AutoBridge
 from megatron.core import ModelParallelConfig, mpu, tensor_parallel
 from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import DistributedDataParallelConfig
@@ -148,6 +150,61 @@ def get_model(
         for model_module in model:
             model_module.broadcast_params()
     return model
+
+
+@dataclass
+class McoreModuleWrapperConfig:
+    """Configuration for Mcore module wrapper."""
+
+    is_value_model: bool = False
+    share_embeddings_and_output_weights: bool = False
+    wrap_with_ddp: bool = True
+    use_distributed_optimizer: bool = True
+
+
+def make_megatron_module(
+    wrap_config: McoreModuleWrapperConfig,
+    tf_config: TransformerConfig,
+    hf_config: PretrainedConfig,
+    bridge: AutoBridge = None,
+    override_model_config: Dict[str, Any] = None,
+):
+    if override_model_config is None:
+        override_model_config = {}
+
+    if bridge is not None:
+        from verl.models.mcore.mbridge import freeze_moe_router, make_value_model
+
+        post_model_creation_callbacks = []
+        if wrap_config.is_value_model:
+            post_model_creation_callbacks.append(make_value_model)
+        if override_model_config.get("moe_config", {}).get("freeze_moe_router", False):
+            post_model_creation_callbacks.append(freeze_moe_router)
+        return bridge.get_model(
+            post_model_creation_callbacks=post_model_creation_callbacks, wrap_with_ddp=wrap_config.wrap_with_ddp
+        )
+    else:
+
+        def megatron_model_provider(pre_process, post_process):
+            from verl.models.mcore import init_mcore_model
+
+            parallel_model = init_mcore_model(
+                tf_config,
+                hf_config,
+                pre_process,
+                post_process,
+                share_embeddings_and_output_weights=wrap_config.share_embeddings_and_output_weights,
+                value=wrap_config.is_value_model,
+                freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False),
+            )
+            parallel_model.to(get_device_name())
+            return parallel_model
+
+        return get_model(
+            megatron_model_provider,
+            wrap_with_ddp=wrap_config.wrap_with_ddp,
+            use_distributed_optimizer=wrap_config.use_distributed_optimizer,
+        )
 
 
 ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module)
