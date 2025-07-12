@@ -18,6 +18,7 @@
 
 
 import importlib.util
+import warnings
 from dataclasses import dataclass
 
 import torch
@@ -443,12 +444,16 @@ def hf_to_mcore_config_qwen2_5_vl(
     **override_transformer_config_kwargs,
 ) -> TransformerConfig:
     # Qwen2_5_VLForConditionalGeneration
+    if optimization_config is not None and optimization_config.enabled:
+        warnings.warn(
+            "OptimizationConfig is not supported for Qwen2.5 VL, please manually enable trusted ones", stacklevel=2
+        )
 
     args = _get_base_transformer_config(
         hf_config=hf_config,
         dtype=dtype,
         recompute_config=recompute_config,
-        optimization_config=optimization_config,
+        optimization_config=None,
         add_bias_linear=False,
         # qwen specific
         add_qkv_bias=True,
