@@ -245,7 +245,7 @@ class RLHFDataset(Dataset):
         for i, parquet_file in enumerate(data_files):
             self.data_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir, use_shm=self.use_shm)
 
-    def _read_files_and_tokenize(self):
+    def _read_files_and_tokenize(self) -> None:
         dataframes = []
         for parquet_file in self.data_files:
             # read parquet files and cache
@@ -400,7 +400,7 @@ class RLHFDataset(Dataset):
 
             # Process images
             if self.image_key in context.raw_row and context.raw_row.get(self.image_key) is not None:
-                images_data = context.raw_row.pop(self.image_key, None)
+                images_data = context.raw_row.pop(self.image_key, None)  # type: ignore[misc]
                 if images_data is not None:
                     images = [process_image(image) for image in images_data]
                     # Use "image" key for vllm compatibility
@@ -408,7 +408,7 @@ class RLHFDataset(Dataset):
 
             # Process videos
             if self.video_key in context.raw_row and context.raw_row.get(self.video_key) is not None:
-                videos_data = context.raw_row.pop(self.video_key, None)
+                videos_data = context.raw_row.pop(self.video_key, None)  # type: ignore[misc]
                 if videos_data is not None:
                     videos = [process_video(video) for video in videos_data]
                     # Use "video" key for vllm compatibility
