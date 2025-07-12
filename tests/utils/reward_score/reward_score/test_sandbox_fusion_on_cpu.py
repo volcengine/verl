@@ -666,3 +666,27 @@ class Solution:
     assert "error" not in metadata_list[0]
     assert metadata_list[0].get("status") != "compilation error"
     assert metadata_list[0].get("status") != "runtime error"
+
+
+@pytest.mark.skipif(skip_condition, reason=skip_reason)
+def test_none_and_empty_stdin_passed_correctly():
+    """
+    Tests that when stdin data is set to an empty string or None, it is still
+    is passed correctly to Sandbox Fusion as an empty string.
+    """
+    echo_code = """
+import sys
+print(f"You said '{sys.stdin.readline().strip()}'")
+"""
+    in_outs = {
+        "inputs": [None, "", "hello"],
+        "outputs": ["You said ''", "You said ''", "You said 'hello'"],
+    }
+
+    # Use a short timeout for fast tests
+    results, metadata_list = check_correctness(SANDBOX_URL, in_outs, echo_code, timeout=5)
+
+    assert results == [True, True, True]
+    assert "error" not in metadata_list[0]
+    assert metadata_list[0].get("status") != "compilation error"
+    assert metadata_list[0].get("status") != "runtime error"
