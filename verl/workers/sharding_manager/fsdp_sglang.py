@@ -44,7 +44,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-def _preprocess_tensor_for_update_weights(tensor: torch.Tensor):
+def preprocess_tensor_for_update_weights(tensor: torch.Tensor):
     if isinstance(tensor, DTensor):
         return tensor.full_tensor()
     return tensor
@@ -120,7 +120,8 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             # named_tensors_batch will be a list like:
             # [(name0, serialized_tensor0_tp0), (name1, serialized_tensor1_tp0), ...]
             named_tensors_batch = [
-                (name, MultiprocessingSerializer.serialize(tensor.detach())) for name, tensor in batch
+                (name, MultiprocessingSerializer.serialize(preprocess_tensor_for_update_weights(tensor)))
+                for name, tensor in batch
             ]
 
             if self.device_mesh["infer_tp"].get_local_rank() == 0:
@@ -250,8 +251,8 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:
-        """Get batch data of this tp rank since we do all gather in preprocess."""
+        """Get chunk data of this tp rank since we do all gather in preprocess."""
         if self.tp_size == 1:
             return data
 
-        return data.batch(chunks=self.tp_size)[self.tp_rank]
+        return data.chunk(chunks=self.tp_size)[self.tp_rank]
