@@ -43,7 +43,7 @@ def are_lists_similar(a, b, threshold=10):
         return False
     total_length = 0
     total_diff = 0
-    for s1, s2 in zip(a, b):
+    for s1, s2 in zip(a, b, strict=True):
         max_len = max(len(s1), len(s2))
         total_length += max_len
         total_diff += levenshtein(s1, s2)

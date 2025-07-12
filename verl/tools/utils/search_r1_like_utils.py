@@ -19,7 +19,7 @@ import threading
 import time
 import traceback
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import requests
 
@@ -33,11 +33,11 @@ logger = logging.getLogger(__name__)
 
 def call_search_api(
     retrieval_service_url: str,
-    query_list: List[str],
+    query_list: list[str],
     topk: int = 3,
     return_scores: bool = True,
     timeout: int = DEFAULT_TIMEOUT,
-) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     """
     Calls the remote search API to perform retrieval with retry logic for various errors,
     using increasing delay between retries. Logs internal calls with a unique ID.
@@ -140,11 +140,11 @@ def _passages2string(retrieval_result):
 
 def perform_single_search_batch(
     retrieval_service_url: str,
-    query_list: List[str],
+    query_list: list[str],
     topk: int = 3,
     concurrent_semaphore: Optional[threading.Semaphore] = None,
     timeout: int = DEFAULT_TIMEOUT,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     """
     Performs a single batch search for multiple queries (original search tool behavior).
 

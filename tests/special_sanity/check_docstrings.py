@@ -20,7 +20,6 @@ Checks that every public function and class has proper docstring documentation.
 import ast
 import os
 import sys
-from typing import List, Tuple
 
 
 class DocstringChecker(ast.NodeVisitor):
@@ -28,7 +27,7 @@ class DocstringChecker(ast.NodeVisitor):
 
     def __init__(self, filename: str):
         self.filename = filename
-        self.missing_docstrings: List[Tuple[str, str, int]] = []
+        self.missing_docstrings: list[tuple[str, str, int]] = []
         self.current_class = None
         self.function_nesting_level = 0
 
@@ -70,7 +69,7 @@ class DocstringChecker(ast.NodeVisitor):
         return ast.get_docstring(node) is not None
 
 
-def check_file_docstrings(filepath: str) -> List[Tuple[str, str, int]]:
+def check_file_docstrings(filepath: str) -> list[tuple[str, str, int]]:
     """Check docstrings in a single file."""
     try:
         with open(filepath, encoding="utf-8") as f:

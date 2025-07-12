@@ -14,7 +14,7 @@
 # Unit Tests for `initialize_tools_from_config`
 import json
 import os
-from typing import Any, Tuple
+from typing import Any
 
 import pytest
 from transformers.utils import get_json_schema
@@ -44,7 +44,7 @@ class WeatherToolForTest(BaseTool):
         schema = get_json_schema(self.get_current_temperature)
         return OpenAIFunctionToolSchema(**schema)
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         try:
             result = self.get_current_temperature(**parameters)
             return json.dumps(result), 0, {}
@@ -75,7 +75,7 @@ class WeatherToolWithDataForTest(BaseTool):
             "unit": unit,
         }
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         try:
             result = self.get_temperature_date(**parameters)
             return json.dumps(result), 0, {}

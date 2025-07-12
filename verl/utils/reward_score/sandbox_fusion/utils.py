@@ -19,7 +19,7 @@ import threading
 import time
 import traceback
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import requests
 
@@ -72,7 +72,7 @@ def call_sandbox_api(
     run_timeout: int,
     memory_limit_mb: int,
     language: str = "python",
-) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:  # <-- Remove request_id parameter
+) -> tuple[Optional[dict[str, Any]], Optional[str]]:  # <-- Remove request_id parameter
     """
     Calls the remote sandbox API to execute code with retry logic for Gateway Timeout,
     using increasing delay between retries. Logs internal calls with a unique ID.
@@ -182,7 +182,7 @@ def _process_single_case(
     language: str,
     concurrent_semaphore: Optional[threading.Semaphore] = None,
     fn_name: Optional[str] = None,
-) -> Tuple[int, Dict[str, Any]]:
+) -> tuple[int, dict[str, Any]]:
     """Helper function to process a single test case."""
     api_response = None
     error_msg = None
@@ -453,7 +453,7 @@ def check_correctness(
     memory_limit_mb: int = 1024,
     language: str = "python",
     concurrent_semaphore: Optional[threading.Semaphore] = None,
-) -> Tuple[List[Any], List[Dict[str, Any]]]:
+) -> tuple[list[Any], list[dict[str, Any]]]:
     """
     Checks the correctness of code generation using the remote sandbox API,
     processing test cases concurrently.

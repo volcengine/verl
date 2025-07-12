@@ -282,7 +282,7 @@ def grade_answer(given_answer: str, ground_truth: str) -> bool:
     ):
         is_correct = False
     else:
-        for ground_truth_elem, given_elem in zip(ground_truth_elems, given_elems):
+        for ground_truth_elem, given_elem in zip(ground_truth_elems, given_elems, strict=True):
             if _is_frac(ground_truth_elem) and _is_frac(given_elem):
                 # if fractions aren't reduced, then shouldn't be marked as correct
                 # so, we don't want to allow sympy.simplify in this case

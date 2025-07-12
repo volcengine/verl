@@ -18,7 +18,6 @@ the class for Worker
 import os
 import socket
 from dataclasses import dataclass
-from typing import Dict
 
 import ray
 
@@ -246,7 +245,7 @@ class Worker(WorkerHelper):
             os.environ["LOCAL_RANK"] = local_rank
             get_torch_device().set_device(int(local_rank))
 
-    def _configure_with_store(self, store: Dict):
+    def _configure_with_store(self, store: dict):
         """
         This function should only be called inside by WorkerGroup
         """

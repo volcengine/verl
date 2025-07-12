@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import pickle
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 import torch
@@ -24,7 +24,7 @@ from verl.utils.device import get_device_name
 
 
 def broadcast_pyobj(
-    data: List[Any],
+    data: list[Any],
     rank: int,
     dist_group: Optional[torch.distributed.ProcessGroup] = None,
     src: int = 0,

@@ -100,7 +100,7 @@ def merge_megatron_ckpt_llama(wrapped_models, config, dtype, is_value_model=Fals
         assert pp_rank == 0, f"pp_rank:[{pp_rank}] != 0 on rank #0"
         assert dp_rank == 0, f"dp_rank:[{dp_rank}] != 0 on rank #0"
 
-    if not isinstance(wrapped_models, (list, tuple)):
+    if not isinstance(wrapped_models, list | tuple):
         wrapped_models = list(wrapped_models)
 
     assert len(wrapped_models) == virtual_pp_size

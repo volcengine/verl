@@ -17,7 +17,7 @@ import logging
 import os
 import warnings
 from dataclasses import asdict, dataclass
-from typing import Optional, Union
+from typing import Optional
 
 import torch
 import torch.distributed
@@ -73,7 +73,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         model: FSDP,
         optimizer: Optional[torch.optim.Optimizer] = None,
         lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
-        processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
+        processing_class: PreTrainedTokenizer | ProcessorMixin = None,
         checkpoint_config: DictConfig = None,
         **kwargs,
     ):

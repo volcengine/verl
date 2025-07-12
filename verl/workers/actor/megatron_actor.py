@@ -23,7 +23,7 @@ import itertools
 import logging
 import os
 from functools import partial
-from typing import Dict, Iterable
+from typing import Iterable
 
 import torch
 import torch.distributed
@@ -591,7 +591,7 @@ class MegatronPPOActor(BasePPOActor):
         return losses_reduced
 
     @GPUMemoryLogger(role="megatron actor", logger=logger)
-    def update_policy(self, dataloader: Iterable[DataProto]) -> Dict:
+    def update_policy(self, dataloader: Iterable[DataProto]) -> dict:
         """Update the policy with an iterator of DataProto
 
         Args:

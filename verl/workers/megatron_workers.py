@@ -19,7 +19,7 @@ import datetime
 import logging
 import os
 import time
-from typing import Any, Dict, List, Union
+from typing import Any
 
 import psutil
 import torch
@@ -669,7 +669,7 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     # ============================ vLLM related ============================
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
+    def execute_method(self, method: str | bytes, *args, **kwargs):
         """Called by ExternalRayDistributedExecutor collective_rpc."""
         if self.vllm_tp_rank == 0 and method != "execute_model":
             print(
@@ -690,7 +690,7 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         return ret
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
-    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id)
         return ret
 

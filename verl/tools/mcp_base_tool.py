@@ -15,7 +15,7 @@
 import json
 import logging
 import os
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 from uuid import uuid4
 
 from fastmcp.exceptions import ClientError
@@ -60,7 +60,7 @@ class MCPBaseTool(BaseTool):
         }
         return instance_id
 
-    async def _call_tool(self, instance_id, parameters) -> Tuple[str, dict]:
+    async def _call_tool(self, instance_id, parameters) -> tuple[str, dict]:
         err_msg = ""
         try:
             call_tool_result = await ClientManager.call_tool(self.name, parameters, self.timeout)
@@ -77,7 +77,7 @@ class MCPBaseTool(BaseTool):
         return result, metadata
 
     @rollout_trace_op
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         if self.name == "" or self.name is None or parameters is None:
             error_msg = "Error: 'parameters' is missing or empty."
             logger.error(f"[MCPTool] {error_msg} Received tool name: {self.name}, parameters: {parameters}")
@@ -111,6 +111,6 @@ class MCPBaseTool(BaseTool):
         if instance_id in self._instance_dict:
             del self._instance_dict[instance_id]
 
-    def _parse_tool_result(self, content: list) -> Tuple[str, dict]:
+    def _parse_tool_result(self, content: list) -> tuple[str, dict]:
         tools_content = [part.text for part in filter(lambda x: x.type == "text", content)]
         return " ".join(tools_content), {}

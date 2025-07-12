@@ -14,7 +14,6 @@
 
 import copy
 import heapq
-from typing import List, Tuple
 
 import torch
 from torch import distributed as dist
@@ -22,7 +21,7 @@ from torch import distributed as dist
 from verl.utils.device import get_device_name
 
 
-def karmarkar_karp(seqlen_list: List[int], k_partitions: int, equal_size: bool):
+def karmarkar_karp(seqlen_list: list[int], k_partitions: int, equal_size: bool):
     # see: https://en.wikipedia.org/wiki/Largest_differencing_method
     class Set:
         def __init__(self) -> None:
@@ -46,7 +45,7 @@ def karmarkar_karp(seqlen_list: List[int], k_partitions: int, equal_size: bool):
             return self.items < other.items
 
     class State:
-        def __init__(self, items: List[Tuple[int, int]], k: int) -> None:
+        def __init__(self, items: list[tuple[int, int]], k: int) -> None:
             self.k = k
             # sets should always be decreasing order
             self.sets = [Set() for _ in range(k)]
@@ -126,7 +125,7 @@ def karmarkar_karp(seqlen_list: List[int], k_partitions: int, equal_size: bool):
     return partitions
 
 
-def greedy_partition(seqlen_list: List[int], k_partitions: int, equal_size: bool):
+def greedy_partition(seqlen_list: list[int], k_partitions: int, equal_size: bool):
     bias = sum(seqlen_list) + 1 if equal_size else 0
     sorted_seqlen = [(seqlen + bias, i) for i, seqlen in enumerate(seqlen_list)]
     partitions = [[] for _ in range(k_partitions)]
@@ -146,7 +145,7 @@ def greedy_partition(seqlen_list: List[int], k_partitions: int, equal_size: bool
     return partitions
 
 
-def get_seqlen_balanced_partitions(seqlen_list: List[int], k_partitions: int, equal_size: bool):
+def get_seqlen_balanced_partitions(seqlen_list: list[int], k_partitions: int, equal_size: bool):
     """
     Calculates partitions of indices from seqlen_list such that the sum of sequence lengths
     in each partition is balanced. Uses the Karmarkar-Karp differencing method.
@@ -190,7 +189,7 @@ def get_seqlen_balanced_partitions(seqlen_list: List[int], k_partitions: int, eq
     return _check_and_sort_partitions(partitions)
 
 
-def log_seqlen_unbalance(seqlen_list: List[int], partitions: List[List[int]], prefix):
+def log_seqlen_unbalance(seqlen_list: list[int], partitions: list[list[int]], prefix):
     """
     Calculate and log metrics related to sequence length imbalance before and after partitioning.
 

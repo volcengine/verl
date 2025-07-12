@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import torch
 from transformers.cache_utils import Cache
@@ -73,7 +73,7 @@ def forward_with_torch_backend(
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[Union["Cache", List[torch.FloatTensor]]] = None,
+    past_key_values: Optional[Union["Cache", list[torch.FloatTensor]]] = None,
     inputs_embeds: Optional[torch.FloatTensor] = None,
     labels: Optional[torch.LongTensor] = None,
     use_cache: Optional[bool] = None,
@@ -81,10 +81,10 @@ def forward_with_torch_backend(
     output_hidden_states: Optional[bool] = None,
     return_dict: Optional[bool] = None,
     cache_position: Optional[torch.LongTensor] = None,
-    logits_to_keep: Union[int, torch.Tensor] = 0,
+    logits_to_keep: int | torch.Tensor = 0,
     temperature: float = 1.0,
     **loss_kwargs,
-) -> Union[Tuple, CausalLMOutputForPPO]:
+) -> tuple | CausalLMOutputForPPO:
     from verl.utils.experimental.torch_functional import FusedLinearForPPO
 
     outputs = forward_base_model(
@@ -135,7 +135,7 @@ def forward_with_triton_backend(
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[Union["Cache", List[torch.FloatTensor]]] = None,
+    past_key_values: Optional[Union["Cache", list[torch.FloatTensor]]] = None,
     inputs_embeds: Optional[torch.FloatTensor] = None,
     labels: Optional[torch.LongTensor] = None,
     use_cache: Optional[bool] = None,
@@ -143,10 +143,10 @@ def forward_with_triton_backend(
     output_hidden_states: Optional[bool] = None,
     return_dict: Optional[bool] = None,
     cache_position: Optional[torch.LongTensor] = None,
-    logits_to_keep: Union[int, torch.Tensor] = 0,
+    logits_to_keep: int | torch.Tensor = 0,
     temperature: float = 1.0,
     **loss_kwargs,
-) -> Union[Tuple, CausalLMOutputForPPO]:
+) -> tuple | CausalLMOutputForPPO:
     from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
 
     outputs = forward_base_model(

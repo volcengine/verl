@@ -26,7 +26,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Optional, Type
+from typing import Optional
 
 import numpy as np
 import ray
@@ -61,7 +61,7 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 
-WorkerType = Type[Worker]
+WorkerType = type[Worker]
 
 
 class Role(Enum):
@@ -674,7 +674,7 @@ class RayPPOTrainer:
         import numpy as np
 
         # Create tuples of (input, output, score) and sort by input text
-        samples = list(zip(inputs, outputs, scores))
+        samples = list(zip(inputs, outputs, scores, strict=True))
         samples.sort(key=lambda x: x[0])  # Sort by input text
 
         # Use fixed random seed for deterministic shuffling

@@ -32,7 +32,6 @@ packages:
 
 import os
 import time
-from typing import Tuple, Union
 
 import ray
 from omegaconf import DictConfig
@@ -72,7 +71,7 @@ def init_config(n_gpus_per_node) -> DictConfig:
     return config
 
 
-def initialize(config, backend) -> Tuple[Union[AgentLoopManager, RayWorkerGroup], StatefulDataLoader]:
+def initialize(config, backend) -> tuple[AgentLoopManager | RayWorkerGroup, StatefulDataLoader]:
     env_vars = {
         "NCCL_DEBUG": "WARN",
         "VLLM_USE_V1": "1",

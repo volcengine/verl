@@ -16,7 +16,7 @@ import difflib
 import logging
 import os
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional
 
 import torch
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -55,8 +55,8 @@ class FinishReasonTypeEnum(str, Enum):
 
 class Message(BaseModel):
     role: str
-    content: str | Dict[str, Any] | List[Dict[str, Any]]
-    tool_calls: Optional[List[OpenAIFunctionToolCall]] = None
+    content: str | dict[str, Any] | list[dict[str, Any]]
+    tool_calls: Optional[list[OpenAIFunctionToolCall]] = None
 
 
 class AsyncRolloutRequestStateEnum(str, Enum):
@@ -87,13 +87,13 @@ class AsyncRolloutRequest(BaseModel):
     rollout_offset: int = 0
     request_id: str
     state: AsyncRolloutRequestStateEnum
-    messages: List[Message]
-    multi_modal_keys: Optional[List[str]] = None
-    multi_modal_data: Optional[Dict[str, Any]] = None
-    multi_modal_inputs: Optional[Dict[str, torch.Tensor]] = None
-    tool_schemas: Optional[List[OpenAIFunctionToolSchema]] = None
-    tools_kwargs: Dict[str, Any] = {}
-    interaction_kwargs: Dict[str, Any] = {}
+    messages: list[Message]
+    multi_modal_keys: Optional[list[str]] = None
+    multi_modal_data: Optional[dict[str, Any]] = None
+    multi_modal_inputs: Optional[dict[str, torch.Tensor]] = None
+    tool_schemas: Optional[list[OpenAIFunctionToolSchema]] = None
+    tools_kwargs: dict[str, Any] = {}
+    interaction_kwargs: dict[str, Any] = {}
     input_ids: Optional[torch.Tensor] = None
     prompt_ids: Optional[torch.Tensor] = None
     response_ids: Optional[torch.Tensor] = None
@@ -106,11 +106,11 @@ class AsyncRolloutRequest(BaseModel):
     loss_mask: Optional[torch.Tensor] = None
     prompt_loss_mask: Optional[torch.Tensor] = None
     response_loss_mask: Optional[torch.Tensor] = None
-    reward_scores: Dict[str, float]
+    reward_scores: dict[str, float]
     max_prompt_len: int
     max_response_len: int = 8192
     max_model_len: int = 32768
-    metrics: Dict[str, List[Any]] = {}
+    metrics: dict[str, list[Any]] = {}
 
     use_inference_chat_template: bool
     tokenization_sanity_check_mode: TokenizationSanityCheckModeEnum
@@ -218,10 +218,10 @@ class AsyncRolloutRequest(BaseModel):
 
     @staticmethod
     def _handle_apply_chat_template(
-        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
-        messages: List[Message],
-        multi_modal_data: Dict[str, Any],
-        tools: Optional[List[OpenAIFunctionToolSchema]] = None,
+        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
+        messages: list[Message],
+        multi_modal_data: dict[str, Any],
+        tools: Optional[list[OpenAIFunctionToolSchema]] = None,
         add_generation_prompt: bool = False,
         tokenize: bool = False,
         return_dict: bool = False,
@@ -254,10 +254,10 @@ class AsyncRolloutRequest(BaseModel):
 
     @staticmethod
     def _get_position_ids(
-        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
+        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        multi_modal_inputs: Optional[Dict[str, torch.Tensor]] = None,
+        multi_modal_inputs: Optional[dict[str, torch.Tensor]] = None,
     ) -> torch.Tensor:
         # special case for qwen2vl
         is_qwen2vl = (
@@ -293,11 +293,11 @@ class AsyncRolloutRequest(BaseModel):
 
     def _update_input_ids(
         self,
-        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
+        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
         new_input_ids: torch.Tensor,
         attention_mask: bool,
         loss_mask: bool,
-        new_multi_modal_inputs: Optional[Dict[str, torch.Tensor]] = None,
+        new_multi_modal_inputs: Optional[dict[str, torch.Tensor]] = None,
     ) -> None:
         """
         Update the input_ids, attention_mask, position_ids, and loss_mask of the request in additive manner.
@@ -328,7 +328,7 @@ class AsyncRolloutRequest(BaseModel):
         ), f"""Request {self.request_id} has different length of {self.input_ids.shape[-1]=}, 
             {self.attention_mask.shape[-1]=}, {self.position_ids.shape[-1]=}, {self.loss_mask.shape[-1]=}"""
 
-    def _update_multi_modal_inputs(self, new_multi_modal_inputs: Dict[str, torch.Tensor]) -> None:
+    def _update_multi_modal_inputs(self, new_multi_modal_inputs: dict[str, torch.Tensor]) -> None:
         """
         Update the multi_modal_inputs of the request in additive manner.
         """
@@ -341,8 +341,8 @@ class AsyncRolloutRequest(BaseModel):
             )
 
     def get_generation_prompt_ids(
-        self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin]
-    ) -> List[int]:
+        self, processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin
+    ) -> list[int]:
         """
         Get the generation prompt ids for rollout engine.
 
@@ -373,7 +373,7 @@ class AsyncRolloutRequest(BaseModel):
 
     def add_user_message(
         self,
-        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
+        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
         content: str,
     ) -> None:
         self.messages.append(Message(role="user", content=content))
@@ -389,9 +389,9 @@ class AsyncRolloutRequest(BaseModel):
 
     def add_assistant_message(
         self,
-        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
+        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
         content: str,
-        tool_calls: Optional[List[OpenAIFunctionToolCall]] = None,
+        tool_calls: Optional[list[OpenAIFunctionToolCall]] = None,
     ) -> None:
         self.messages.append(Message(role="assistant", content=content, tool_calls=tool_calls))
 
@@ -407,8 +407,8 @@ class AsyncRolloutRequest(BaseModel):
 
     def add_tool_response_messages(
         self,
-        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
-        contents: list[str | Dict[str, Any]],
+        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
+        contents: list[str | dict[str, Any]],
     ) -> None:
         if not contents:
             return
@@ -492,11 +492,11 @@ class AsyncRolloutRequest(BaseModel):
 
     def _get_prompt_diffs(
         self,
-        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
+        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
         full_prompt_ids: torch.Tensor,
         current_prompt_ids: torch.Tensor,
         diff_surrounding_chars: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get differences between full prompt and current prompt with surrounding context.
 
         This function helps debug tokenization mismatches by showing the differences between
@@ -549,8 +549,8 @@ class AsyncRolloutRequest(BaseModel):
 
     def finalize(
         self,
-        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
-        reward_scores: Dict[str, List[float]],
+        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
+        reward_scores: dict[str, list[float]],
         finish_reason_type: FinishReasonTypeEnum = FinishReasonTypeEnum.STOP,
     ) -> None:
         self.state = AsyncRolloutRequestStateEnum.COMPLETED
@@ -659,7 +659,7 @@ class AsyncRolloutRequest(BaseModel):
             {self.attention_mask.shape[-1]=}, {self.position_ids.shape[-1]=}, {self.loss_mask.shape[-1]=}"""
 
     def truncate_output_ids(
-        self, processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin]
+        self, processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin
     ) -> None:
         self.input_ids = self.input_ids[..., : self.max_model_len]
         self.attention_mask = self.attention_mask[..., : self.max_model_len]

@@ -262,10 +262,11 @@ class TestRolloutWithMCPSearchTools:
                 },
             }
         ]
-        with patch.object(MCPClientManager, "fetch_tool_schemas", return_value=tool_schema), patch.object(
-            SGLangRollout, "_init_distributed_env", return_value=None
-        ), patch.object(SGLangRollout, "_init_inference_engine", return_value=None), patch.object(
-            SGLangRollout, "_init_sampling_params", return_value=None
+        with (
+            patch.object(MCPClientManager, "fetch_tool_schemas", return_value=tool_schema),
+            patch.object(SGLangRollout, "_init_distributed_env", return_value=None),
+            patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
+            patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
         ):
             rollout = SGLangRollout(
                 actor_module="",
@@ -355,7 +356,7 @@ class TestRolloutWithMCPSearchTools:
 
         mock_rollout._handle_engine_call = MagicMock()
         futures = [asyncio.Future() for i in expect_turn_array]
-        for idx, (i, turn) in enumerate(zip(futures, expect_turn_array)):
+        for idx, (i, turn) in enumerate(zip(futures, expect_turn_array, strict=True)):
             i.set_result(
                 {
                     "text": turn,
@@ -420,7 +421,7 @@ class TestRolloutWithMCPSearchTools:
             req_list.append(MagicMock(wraps=tmp_req, spec=AsyncRolloutRequest))
 
             futures = [asyncio.Future() for _ in expect_turn_array]
-            for idx, (fut, turn) in enumerate(zip(futures, expect_turn_array)):
+            for idx, (fut, turn) in enumerate(zip(futures, expect_turn_array, strict=True)):
                 fut.set_result(
                     {
                         "text": turn,

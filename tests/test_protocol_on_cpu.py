@@ -79,7 +79,7 @@ def test_tensor_dict_make_iterator():
     for data in data_iter_2:
         data_list_2.append(data)
 
-    for data1, data2 in zip(data_list_1, data_list_2):
+    for data1, data2 in zip(data_list_1, data_list_2, strict=True):
         assert isinstance(data1, DataProto)
         assert isinstance(data2, DataProto)
         result = torch.all(torch.eq(data1.batch["obs"], data2.batch["obs"]))

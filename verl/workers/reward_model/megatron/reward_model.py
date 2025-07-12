@@ -74,7 +74,7 @@ class MegatronRewardModel(BasePPORewardModel):
         position_ids_for_rm = []
         print_decode = True
         ori_seqlen = ori_seqlen + 128
-        for id, mask in zip(input_ids, attention_mask):
+        for id, mask in zip(input_ids, attention_mask, strict=True):
             # 1. remove pad for each sequence
             non_zero_indices = torch.nonzero(mask).view(-1)
             begin_pos, end_pos = non_zero_indices[0].item(), non_zero_indices[-1].item()

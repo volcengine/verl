@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Tuple
 
 import torch
 import torch_npu
@@ -28,7 +27,7 @@ from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2RMSNorm
 # https://github.com/huggingface/transformers/pull/38491
 def apply_rotary_pos_emb_flashatt_npu(
     q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     cos = cos.chunk(2, dim=-1)[0].contiguous()
     sin = sin.chunk(2, dim=-1)[0].contiguous()
     cos = cos.repeat(1, 2)

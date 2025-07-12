@@ -96,7 +96,7 @@ def test_data_transfer():
         # takes around 40 seconds
         output_lst = ray.get(output_ref)
 
-    for input_data, output_data in zip(data_list, output_lst):
+    for input_data, output_data in zip(data_list, output_lst, strict=True):
         for key in input_data.batch.keys():
             assert torch.all(torch.eq(input_data.batch[key] + 1, output_data.batch[key])), (
                 input_data.batch[key],

@@ -19,7 +19,6 @@ import math
 import os
 from collections import OrderedDict
 from contextlib import contextmanager, nullcontext
-from typing import Dict
 
 import torch
 import torch.distributed as dist
@@ -308,7 +307,7 @@ def parallel_load_safetensors(filepath):
     return shard_states
 
 
-def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, torch.nn.Parameter]):
+def parallel_init_module_fn(module: torch.nn.Module, shard_states: dict[str, torch.nn.Parameter]):
     """
     Generate a function to initialize sub-modules in the `module` with `shard_states`
     from huggingface checkpoint.
@@ -339,7 +338,7 @@ def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, tor
         else:  # buffer
             param = torch.empty_like(state.data, device=device)
         loaded = shard_states[param_name]
-        if isinstance(loaded, (torch.nn.Parameter, torch.Tensor)):
+        if isinstance(loaded, torch.nn.Parameter | torch.Tensor):
             # NOTE: loaded.dtype can be different with param.dtype
             param.data.copy_(loaded.data)
             dist.broadcast(param.data, src=dist.get_rank())

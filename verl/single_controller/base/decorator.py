@@ -15,7 +15,6 @@
 import inspect
 from functools import wraps
 from types import FunctionType
-from typing import Dict, List, Tuple
 
 from verl.protocol import DataProtoFuture, _padding_size_key
 from verl.utils.py_functional import DynamicEnum
@@ -79,12 +78,12 @@ def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
 
     splitted_args = []
     for arg in args:
-        assert isinstance(arg, (DataProto, DataProtoFuture))
+        assert isinstance(arg, DataProto | DataProtoFuture)
         splitted_args.append(arg.chunk(chunks=chunks))
 
     splitted_kwargs = {}
     for key, val in kwargs.items():
-        assert isinstance(val, (DataProto, DataProtoFuture))
+        assert isinstance(val, DataProto | DataProtoFuture)
         splitted_kwargs[key] = val.chunk(chunks=chunks)
 
     return splitted_args, splitted_kwargs
@@ -99,7 +98,7 @@ def _split_args_kwargs_data_proto_with_auto_padding(chunks, *args, **kwargs):
     data_proto_len = None
     padding_size = None
     for arg in args:
-        assert isinstance(arg, (DataProto, DataProtoFuture))
+        assert isinstance(arg, DataProto | DataProtoFuture)
         if isinstance(arg, DataProto) and arg.is_padding_enabled():
             # for padding, we only support DataProto with same length
             if data_proto_len is None:
@@ -116,7 +115,7 @@ def _split_args_kwargs_data_proto_with_auto_padding(chunks, *args, **kwargs):
         splitted_args.append(arg.chunk(chunks=chunks))
 
     for key, val in kwargs.items():
-        assert isinstance(val, (DataProto, DataProtoFuture))
+        assert isinstance(val, DataProto | DataProtoFuture)
         if isinstance(val, DataProto) and val.is_padding_enabled():
             # for padding, we only support DataProto with same length
             if data_proto_len is None:
@@ -169,7 +168,7 @@ def dispatch_megatron_compute(worker_group, *args, **kwargs):
 
     all_args = []
     for arg in args:
-        assert isinstance(arg, (Tuple, List)) and len(arg) == worker_group.dp_size
+        assert isinstance(arg, tuple | list) and len(arg) == worker_group.dp_size
         transformed_args = []
         for i in range(worker_group.world_size):
             local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
@@ -179,7 +178,7 @@ def dispatch_megatron_compute(worker_group, *args, **kwargs):
 
     all_kwargs = {}
     for k, v in kwargs.items():
-        assert isinstance(v, (Tuple, List)) and len(v) == worker_group.dp_size
+        assert isinstance(v, tuple | list) and len(v) == worker_group.dp_size
         transformed_v = []
         for i in range(worker_group.world_size):
             local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
@@ -216,7 +215,7 @@ def dispatch_megatron_compute_data_proto(worker_group, *args, **kwargs):
     return dispatch_megatron_compute(worker_group, *splitted_args, **splitted_kwargs)
 
 
-def _concat_data_proto_or_future(output: List):
+def _concat_data_proto_or_future(output: list):
     import ray
 
     from verl.protocol import DataProto, DataProtoFuture
@@ -245,7 +244,7 @@ def collect_megatron_compute_data_proto(worker_group, output):
 
     output = collect_megatron_compute(worker_group, output)
     for o in output:
-        assert isinstance(o, (DataProto, ray.ObjectRef)), f"expecting {o} to be DataProto, but got {type(o)}"
+        assert isinstance(o, DataProto | ray.ObjectRef), f"expecting {o} to be DataProto, but got {type(o)}"
 
     return _concat_data_proto_or_future(output)
 
@@ -265,7 +264,7 @@ def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
 
     all_args = []
     for arg in args:
-        assert isinstance(arg, (List, Tuple)) and len(arg) == pp_dp_cp_size
+        assert isinstance(arg, list | tuple) and len(arg) == pp_dp_cp_size
         transformed_args = []
         for i in range(worker_group.world_size):
             local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
@@ -290,7 +289,7 @@ def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
 
     all_kwargs = {}
     for k, v in kwargs.items():
-        assert isinstance(v, (List, Tuple)) and len(v) == pp_dp_cp_size, f"expect len(v)=={pp_dp_cp_size}, got {len(v)}"
+        assert isinstance(v, list | tuple) and len(v) == pp_dp_cp_size, f"expect len(v)=={pp_dp_cp_size}, got {len(v)}"
         transformed_v = []
         for i in range(worker_group.world_size):
             local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
@@ -359,9 +358,9 @@ def dispatch_dp_compute(worker_group, *args, **kwargs):
 
     assert isinstance(worker_group, WorkerGroup)
     for arg in args:
-        assert isinstance(arg, (Tuple, List)) and len(arg) == worker_group.world_size
+        assert isinstance(arg, tuple | list) and len(arg) == worker_group.world_size
     for k, v in kwargs.items():
-        assert isinstance(v, (Tuple, List)) and len(v) == worker_group.world_size
+        assert isinstance(v, tuple | list) and len(v) == worker_group.world_size
     return args, kwargs
 
 
@@ -403,7 +402,7 @@ def collect_dp_compute_data_proto(worker_group, output):
     from verl.protocol import DataProto
 
     for o in output:
-        assert isinstance(o, (DataProto, ray.ObjectRef)), f"expecting {o} to be DataProto, but got {type(o)}"
+        assert isinstance(o, DataProto | ray.ObjectRef), f"expecting {o} to be DataProto, but got {type(o)}"
 
     output = collect_dp_compute(worker_group, output)
     return _concat_data_proto_or_future(output)
@@ -489,10 +488,10 @@ def get_predefined_execute_fn(execute_mode):
 
 
 def _check_dispatch_mode(dispatch_mode):
-    assert isinstance(dispatch_mode, (Dispatch, Dict)), (
+    assert isinstance(dispatch_mode, Dispatch | dict), (
         f"dispatch_mode must be a Dispatch or a Dict. Got {dispatch_mode}"
     )
-    if isinstance(dispatch_mode, Dict):
+    if isinstance(dispatch_mode, dict):
         necessary_keys = ["dispatch_fn", "collect_fn"]
         for key in necessary_keys:
             assert key in dispatch_mode, f"key {key} should be in dispatch_mode if it is a dictionary"
