@@ -92,6 +92,9 @@ def batched(iterable: Iterable, n: int) -> Iterator[List]:
         # Fallback implementation for Python 3.12 and earlier
         import itertools
 
+        if n < 1:
+            raise ValueError("batch size must be at least one")
+
         it = iter(iterable)
         while True:
             chunk = list(itertools.islice(it, n))

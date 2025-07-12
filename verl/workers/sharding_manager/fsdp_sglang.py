@@ -114,7 +114,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
         named_tensors = [(k, v) for k, v in params.items()]
         load_format = None
-        update_weights_batch_size = self.rollout_config.get("update_weights_batch_size", 1)
+        update_weights_batch_size = self.rollout_config.get("update_weights_batch_size", 16)
         for batch in batched(named_tensors, update_weights_batch_size):
             # On each rank, serialize a batch of (name, tensor) tuples.
             # named_tensors_batch will be a list like:
