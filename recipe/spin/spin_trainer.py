@@ -522,7 +522,7 @@ class RaySPINTrainer:
                 assert config.critic.ppo_micro_batch_size * sp_size >= n_gpus
 
         # Check if use_remove_padding is enabled when using sequence parallelism for fsdp
-        if config.actor_rollout_ref.actor.strategy == "fsdp":
+        if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             if (
                 config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1) > 1
                 or config.actor_rollout_ref.ref.get("ulysses_sequence_parallel_size", 1) > 1
@@ -531,7 +531,7 @@ class RaySPINTrainer:
                     "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
                 )
 
-        if self.use_critic and config.critic.strategy == "fsdp":
+        if self.use_critic and config.critic.strategy in {"fsdp", "fsdp2"}:
             if config.critic.get("ulysses_sequence_parallel_size", 1) > 1:
                 assert config.critic.model.use_remove_padding, (
                     "When using sequence parallelism for critic, you must enable `use_remove_padding`."
