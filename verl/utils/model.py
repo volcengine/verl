@@ -19,7 +19,7 @@ import os
 import re
 import warnings
 from dataclasses import dataclass
-from typing import Dict, Optional, Type
+from typing import Optional
 
 import numpy as np
 import torch
@@ -64,10 +64,10 @@ def update_model_config(module_config, override_config_kwargs):
             setattr(module_config, key, val)
 
 
-def get_huggingface_actor_config(model_name: str, override_config_kwargs=None, trust_remote_code=False) -> Dict:
+def get_huggingface_actor_config(model_name: str, override_config_kwargs=None, trust_remote_code=False) -> dict:
     if override_config_kwargs is None:
         override_config_kwargs = {}
-    assert isinstance(override_config_kwargs, Dict), (
+    assert isinstance(override_config_kwargs, dict), (
         f"override_config_kwargs must be a dict, got {type(override_config_kwargs)}"
     )
     module_config = AutoConfig.from_pretrained(model_name, trust_remote_code=trust_remote_code)
@@ -107,7 +107,7 @@ def create_huggingface_actor(model_name: str, override_config_kwargs=None, autom
         override_config_kwargs = {}
     if automodel_kwargs is None:
         automodel_kwargs = {}
-    assert isinstance(override_config_kwargs, Dict), (
+    assert isinstance(override_config_kwargs, dict), (
         f"override_config_kwargs must be a dict, got {type(override_config_kwargs)}"
     )
     module_config = get_huggingface_actor_config(
@@ -220,7 +220,7 @@ def compute_position_id_with_mask(mask):
     return torch.clip(torch.cumsum(mask, dim=-1) - 1, min=0, max=None)
 
 
-def convert_weight_keys(state_dict: Dict[str, torch.Tensor], model: PreTrainedModel):
+def convert_weight_keys(state_dict: dict[str, torch.Tensor], model: PreTrainedModel):
     # convert state dict keys: https://github.com/huggingface/transformers/pull/38385
     if not hasattr(model, "_checkpoint_conversion_mapping"):
         return state_dict
@@ -378,7 +378,7 @@ def get_parallel_model_from_config(
     return model
 
 
-def _get_parallel_model_architecture_from_config(config: PretrainedConfig, value=False) -> Type[nn.Module]:
+def _get_parallel_model_architecture_from_config(config: PretrainedConfig, value=False) -> type[nn.Module]:
     architectures = getattr(config, "architectures", [])
     for arch in architectures:
         model_cls = ModelRegistry.load_model_cls(arch, value)

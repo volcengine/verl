@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import sys
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 
 import torch
 
@@ -46,9 +46,9 @@ def llama_flash_attn_forward(
     output_attentions: bool = False,
     use_cache: bool = False,
     cache_position: Optional[torch.LongTensor] = None,
-    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
+    position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
     **kwargs,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[tuple[torch.Tensor]]]:
     """
     Adapted from transformers 4.47.1 to support Ulysses sequence parallelism.
 
@@ -168,12 +168,12 @@ def llama_flash_attn_forward(
 def llama_attn_forward(
     self,
     hidden_states: torch.Tensor,
-    position_embeddings: Tuple[torch.Tensor, torch.Tensor],
+    position_embeddings: tuple[torch.Tensor, torch.Tensor],
     attention_mask: Optional[torch.Tensor],
     past_key_value: Optional[Cache] = None,
     cache_position: Optional[torch.LongTensor] = None,
     **kwargs,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[tuple[torch.Tensor]]]:
     """
     Adapted from transformers 4.49.0 to support Ulysses sequence parallelism for transformers >= 4.48.0.
 
