@@ -40,7 +40,7 @@ from verl.trainer.ppo.ray_trainer import (
     compute_advantage,
     compute_response_mask,
 )
-from verl.utils.debug import marked_timer
+from verl.utils.profiler import marked_timer
 
 
 class RayDAPOTrainer(RayPPOTrainer):
@@ -96,7 +96,7 @@ class RayDAPOTrainer(RayPPOTrainer):
             for batch_dict in self.train_dataloader:
                 do_profile = self.global_steps in (self.config.trainer.profile_steps or [])
                 if do_profile:
-                    self.actor_rollout_wg.start_profile()
+                    self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
                     if self.use_reference_policy:
                         self.ref_policy_wg.start_profile()
                     if self.use_critic:
@@ -119,6 +119,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                         batch_keys=["input_ids", "attention_mask", "position_ids"],
                         non_tensor_batch_keys=["raw_prompt_ids"],
                     )
+                gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
                 is_last_step = self.global_steps >= self.total_training_steps
 

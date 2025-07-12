@@ -50,7 +50,6 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_training_steps=1 \
-    trainer.logger=['console'] \
-    trainer.default_hdfs_dir=null $@
+    trainer.logger=['console'] $@
 
 rm -rf "${ckpts_home:?}/*"

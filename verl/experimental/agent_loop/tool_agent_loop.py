@@ -24,7 +24,8 @@ from pydantic import BaseModel
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput
 from verl.tools.utils.tool_registry import initialize_tools_from_config
-from verl.utils.debug import simple_timer
+from verl.utils.profiler import simple_timer
+from verl.utils.rollout_trace import rollout_trace_op
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -67,6 +68,7 @@ class HermesToolParser(ToolParser):
         self.tool_call_end_token: str = "</tool_call>"
         self.tool_call_regex = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
 
+    @rollout_trace_op
     async def extract_tool_calls(self, responses_ids: List[int]) -> List[FunctionCall]:
         loop = asyncio.get_running_loop()
         text = await loop.run_in_executor(None, self.tokenizer.decode, responses_ids)
@@ -114,6 +116,7 @@ class ToolAgentLoop(AgentLoopBase):
         cls.response_length = config.actor_rollout_ref.rollout.response_length
         cls.system_prompt = tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
 
+    @rollout_trace_op
     async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> AgentLoopOutput:
         metrics = {}
         request_id = uuid4().hex
@@ -143,6 +146,10 @@ class ToolAgentLoop(AgentLoopBase):
             if self.max_assistant_turns and assistant_turns >= self.max_assistant_turns:
                 break
 
+            # reach max user turns
+            if self.max_user_turns and user_turns >= self.max_user_turns:
+                break
+
             # no tool calls
             tool_calls = await self.tool_parser.extract_tool_calls(response_ids)
             if not tool_calls:
@@ -165,15 +172,15 @@ class ToolAgentLoop(AgentLoopBase):
                 ),
             )
             tool_response_ids = tool_response_ids[len(self.system_prompt) :]
+
+            # NOTE: last turn should not be user turn, or the EOS token reward
+            # can't be propagated to previous token in GAE.
+            if len(response_mask) + len(tool_response_ids) >= self.response_length:
+                break
+
             prompt_ids += tool_response_ids
             response_mask += [0] * len(tool_response_ids)
             user_turns += 1
-
-            # reach max user turns or max response length
-            if (self.max_user_turns and user_turns >= self.max_user_turns) or len(
-                response_mask
-            ) >= self.response_length:
-                break
 
         response_ids = prompt_ids[-len(response_mask) :]
         prompt_ids = prompt_ids[: len(prompt_ids) - len(response_mask)]
@@ -197,7 +204,7 @@ class ToolAgentLoop(AgentLoopBase):
             tool = self.tools[tool_name]
 
             instance_id = await tool.create()
-            tool_response, tool_reward_score, tool_metrics = await tool.execute(instance_id, tool_args)
+            tool_response, _, _ = await tool.execute(instance_id, tool_args)
         except Exception as e:
             logger.exception(f"Error when executing tool: {e}")
             return e

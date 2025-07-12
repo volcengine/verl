@@ -227,11 +227,9 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         """
         if sharing_with is not None:
             target_node_id = ray.get(sharing_with.get_node_id.remote())
-            cuda_visible_devices = ray.get(sharing_with.get_cuda_visible_devices.remote())
+            visible_devices = ray.get(sharing_with.get_cuda_visible_devices.remote())
             options = {"scheduling_strategy": NodeAffinitySchedulingStrategy(node_id=target_node_id, soft=False)}
-            return self.cls.options(**options).remote(
-                *self.args, cuda_visible_devices=cuda_visible_devices, **self.kwargs
-            )
+            return self.cls.options(**options).remote(*self.args, cuda_visible_devices=visible_devices, **self.kwargs)
 
         options = {
             "scheduling_strategy": PlacementGroupSchedulingStrategy(
@@ -388,7 +386,7 @@ class RayWorkerGroup(WorkerGroup):
                 cia_name = match.group(1) if match else cia_name  # "ActorClass(Obj)" -> "Obj"
                 name = f"{self.name_prefix}{cia_name}_{pg_idx}:{local_rank}"  # e.g. Worker_2:5
 
-                if self.profile_steps:
+                if self.profile_steps and self.device_name == "cuda":
                     ray_cls_with_init.update_options(
                         {
                             "runtime_env": {
