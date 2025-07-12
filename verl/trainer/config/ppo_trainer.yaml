@@ -327,6 +327,7 @@ ray_init:
 
   # Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.
   num_cpus: null
+  num_gpus: null
 
   # Path to save Ray timeline JSON for performance profiling
   timeline_json_file: null

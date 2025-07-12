@@ -15,6 +15,7 @@
 import datetime
 import inspect
 import logging
+import psutil
 from contextlib import contextmanager
 from typing import Any, Dict, Optional, Tuple
 
@@ -22,7 +23,7 @@ import torch
 import torch.distributed as dist
 from codetiming import Timer
 
-from verl.utils.device import get_device_id, get_torch_device
+from verl.utils.device import get_device_id, get_torch_device, get_device_name
 from verl.utils.logger import DecoratorLoggerBase
 
 
@@ -30,12 +31,22 @@ def _get_current_mem_info(unit: str = "GB", precision: int = 2) -> Tuple[str]:
     """Get current memory usage."""
     assert unit in ["GB", "MB", "KB"]
     divisor = 1024**3 if unit == "GB" else 1024**2 if unit == "MB" else 1024
-    mem_allocated = get_torch_device().memory_allocated()
-    mem_reserved = get_torch_device().memory_reserved()
     # use get_torch_device().mem_get_info to profile device memory
     # since vllm's sleep mode works below pytorch
     # see https://github.com/vllm-project/vllm/pull/11743#issuecomment-2754338119
-    mem_free, mem_total = get_torch_device().mem_get_info()
+    device_name = get_device_name()
+    if device_name in ["cuda", "npu"]:
+        device_module = get_torch_device()
+        mem_allocated = device_module.memory_allocated()
+        mem_reserved = device_module.memory_reserved()
+        mem_free, mem_total = device_module.mem_get_info()
+    else:
+        mem = psutil.virtual_memory()
+        mem_total = mem.total
+        mem_free = mem.available
+        mem_allocated = mem_total - mem_free
+        mem_reserved = mem_free
+
     mem_used = mem_total - mem_free
     mem_allocated = f"{mem_allocated / divisor:.{precision}f}"
     mem_reserved = f"{mem_reserved / divisor:.{precision}f}"
@@ -199,7 +210,11 @@ def reduce_timing(timing_raw: Dict[str, float]) -> Dict[str, float]:
         key_list.append(key)
         timing_list.append(timing_raw[key])
     timing_list = torch.tensor(timing_list, dtype=torch.float32, device=get_device_id())
-    torch.distributed.all_reduce(timing_list, op=torch.distributed.ReduceOp.AVG)
+    if torch.distributed.get_backend() in ["nccl", "hccl"]:
+        torch.distributed.all_reduce(timing_list, op=torch.distributed.ReduceOp.AVG)
+    else:
+        torch.distributed.all_reduce(timing_list, op=torch.distributed.ReduceOp.SUM)
+        timing_list /= torch.distributed.get_world_size()
     timing_list = [tensor.item() for tensor in timing_list.to("cpu")]
     timing_generate = {key_list[i]: timing_list[i] for i in range(len(key_list))}
     return timing_generate

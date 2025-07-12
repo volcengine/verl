@@ -113,13 +113,21 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         self.config = config
         self.profile_option = kwargs.get("profile_option", None)
+        self.device_name = get_device_name()
+        if self.device_name in ["mps", "cpu"]:
+            backend = "cpu:gloo"
+            self.attn_impl = "eager"
+        else:
+            backend = f"cpu:gloo,{device_name}:{get_nccl_backend()}"
+            self.attn_impl = "flash_attention_2"
+
         import torch.distributed
 
         if not torch.distributed.is_initialized():
             rank = int(os.environ.get("RANK", 0))
             world_size = int(os.environ.get("WORLD_SIZE", 1))
             torch.distributed.init_process_group(
-                backend=f"cpu:gloo,{get_device_name()}:{get_nccl_backend()}",
+                backend=backend,
                 rank=rank,
                 world_size=world_size,
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
@@ -251,7 +259,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # override model kwargs
         actor_model_config = AutoConfig.from_pretrained(
-            local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+            local_path, trust_remote_code=trust_remote_code, attn_implementation=self.attn_impl
         )
 
         # patch for kimi-vl
@@ -367,7 +375,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
         cpu_offload = None if role == "actor" else CPUOffload(offload_params=True)
         fsdp_strategy = self.config.actor.strategy
-        if fsdp_strategy == "fsdp":
+        if self.device_name in ["mps", "cpu"]:
+            print(f"[Warning] FSDP not supported on device '{self.device_name}'. Falling back to normal module.")
+            actor_module_fsdp = actor_module.to(self.device_name)
+        elif fsdp_strategy == "fsdp":
             actor_module_fsdp = FSDP(
                 actor_module,
                 cpu_offload=cpu_offload,
@@ -692,8 +703,18 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             metrics["perf/mfu/actor"] = (
                 estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
             )
-            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
-            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
+            if self.device_name in ["cuda", "npu"]:
+                device_module = get_torch_device()
+                max_memory_allocated = device_module.max_memory_allocated() / (1024**3)
+                max_memory_reserved = device_module.max_memory_reserved() / (1024**3)
+            else:
+                # For local/dev environments
+                mem = psutil.virtual_memory()
+                max_memory_allocated = (mem.total - mem.available) / (1024**3)
+                max_memory_reserved = mem.available / (1024**3)
+
+            metrics["perf/max_memory_allocated_gb"] = max_memory_allocated
+            metrics["perf/max_memory_reserved_gb"] = max_memory_reserved
             metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
 
             lr = self.actor_lr_scheduler.get_last_lr()[0]
@@ -752,7 +773,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         output = output.to("cpu")
 
         # clear kv cache
-        get_torch_device().empty_cache()
+        device_module = get_torch_device()
+        if hasattr(device_module, "empty_cache"):
+            device_module.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -921,11 +944,20 @@ class CriticWorker(Worker, DistProfilerExtension):
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
         )
+
+        self.device_name = get_device_name()
+        if self.device_name in ["mps", "cpu"]:
+            backend = "cpu:gloo"
+            self.attn_impl = "eager"
+        else:
+            backend = get_nccl_backend()
+            self.attn_impl = "flash_attention_2"
+
         import torch.distributed
 
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(
-                backend=get_nccl_backend(), init_method=os.environ.get("DIST_INIT_METHOD", None)
+                backend=backend, init_method=os.environ.get("DIST_INIT_METHOD", None)
             )
         self.config = config
 
@@ -1014,9 +1046,10 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         critic_model_config = AutoConfig.from_pretrained(
             local_path,
-            attn_implementation="flash_attention_2",
+            attn_implementation=self.attn_impl,
             trust_remote_code=config.model.get("trust_remote_code", False),
         )
+        critic_model_config.attn_implementation = self.attn_impl
         critic_model_config.num_labels = 1
         # patch for kimi-vl
         if getattr(critic_model_config, "model_type", None) == "kimi_vl":
@@ -1096,7 +1129,10 @@ class CriticWorker(Worker, DistProfilerExtension):
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
         # Note: We force turn off CPUOffload for critic because it causes incorrect results when using grad accumulation
-        if config.strategy == "fsdp":
+        if self.device_name in ["mps", "cpu"]:
+            print(f"[Warning] FSDP not supported on device '{self.device_name}'. Falling back to normal module.")
+            critic_module = critic_module.to(self.device_name)
+        elif config.strategy == "fsdp":
             critic_module = FSDP(
                 critic_module,
                 param_init_fn=init_fn,
@@ -1309,11 +1345,19 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
         )
 
+        self.device_name = get_device_name()
+        if self.device_name in ["mps", "cpu"]:
+            backend = "cpu:gloo"
+            self.attn_impl = "eager"
+        else:
+            backend = get_nccl_backend()
+            self.attn_impl = "flash_attention_2"
+
         import torch.distributed
 
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(
-                backend=get_nccl_backend(), init_method=os.environ.get("DIST_INIT_METHOD", None)
+                backend=backend, init_method=os.environ.get("DIST_INIT_METHOD", None)
             )
         self.config = config
 
@@ -1376,7 +1420,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 pretrained_model_name_or_path=local_path,
                 config=model_config,
                 torch_dtype=torch.bfloat16,
-                attn_implementation="flash_attention_2",
+                attn_implementation=self.attn_impl,
                 trust_remote_code=trust_remote_code,
             )
 
@@ -1393,7 +1437,10 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
-        if config.strategy == "fsdp":
+        if self.device_name in ["mps", "cpu"]:
+            print(f"[Warning] FSDP not supported on device '{self.device_name}'. Falling back to normal module.")
+            reward_module = reward_module.to(self.device_name)
+        elif config.strategy == "fsdp":
             reward_module = FSDP(
                 reward_module,
                 param_init_fn=init_fn,

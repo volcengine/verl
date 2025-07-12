@@ -18,6 +18,7 @@ import copy
 import logging
 import os
 import re
+import time
 from collections import defaultdict
 from typing import List, Optional, Union
 
@@ -216,6 +217,11 @@ class RLHFDataset(Dataset):
         """
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
+        while not hasattr(self, "dataframe") or self.dataframe is None:
+            print(".", end="")
+            self._read_files_and_tokenize()
+            time.sleep(0.001)  # 等待数据加载完成
+
         row_dict: dict = self.dataframe[item]
         messages = self._build_messages(row_dict)
         model_inputs = {}
