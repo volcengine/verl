@@ -127,6 +127,9 @@ class FSDPSGLangShardingManager(BaseShardingManager):
                 group=self.device_mesh["infer_tp"].get_group(),
             )
 
+            del serialized_tensor
+            torch.cuda.empty_cache()
+
             if self.device_mesh["infer_tp"].get_local_rank() == 0:
                 await self.inference_engine.update_weights_from_tensor(
                     named_tensors=[
