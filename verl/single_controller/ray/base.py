@@ -16,9 +16,9 @@ import inspect
 import logging
 import os
 import time
+from contextlib import contextmanager
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
-from unittest.mock import patch
 
 import ray
 from ray.experimental.state.api import get_actor
@@ -752,6 +752,26 @@ def _determine_fsdp_megatron_base_class(mros: List):
             return cls
     raise ValueError(f"Cannot determine base class for {mros}")
 
+@contextmanager
+def temp_env_var(key: str, value: str):
+    """Context manager for temporarily setting an environment variable.
+    
+    Args:
+        key: Environment variable name
+        value: Environment variable value
+        
+    Yields:
+        None
+    """
+    original = os.environ.get(key)
+    os.environ[key] = value
+    try:
+        yield
+    finally:
+        if original is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = original
 
 # deprecated, switching to FusedWorker
 def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
@@ -783,7 +803,7 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
                 # directly instantiate the class without remote
                 # in worker class, e.g. <verl.single_controller.base.worker.Worker>
                 # when DISABLE_WORKER_INIT == 1 it will return immediately
-                with patch.dict(os.environ, {"DISABLE_WORKER_INIT": "1"}):
+                with temp_env_var("DISABLE_WORKER_INIT", "1"):
                     self.worker_dict[key] = user_defined_cls(
                         *init_args_dict[key].get("args", ()), **init_args_dict[key].get("kwargs", {})
                     )
@@ -838,7 +858,7 @@ def create_colocated_worker_raw_cls(class_dict: dict[str, RayClassWithInitArgs])
             for cls_name, udc, ud_args, ud_kwargs in zip(
                 self.cls_names, self.raw_cls_dict.values(), self.init_args_dict.values(), self.init_kwargs_dict.values()
             ):
-                with patch.dict(os.environ, {"DISABLE_WORKER_INIT": "1"}):
+                with temp_env_var("DISABLE_WORKER_INIT", "1"):
                     udc._get_ray_actor_cls_name = lambda x, name_renamed=class_name_renamed: name_renamed
                     udc._get_ray_method_prefix = lambda x, name_prefixed=cls_name: f"{name_prefixed}_"
                     # cls_name = "actor", "critic", udc = ActorWorker, CriticWorker
