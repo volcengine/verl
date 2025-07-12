@@ -833,11 +833,13 @@ class SGLangRollout(BaseRollout):
         # Update with any additional kwargs
         request_sampling_params.update(kwargs)
 
+        if trajectory is None:
+            trajectory = {}
         with rollout_trace_attr(
-            step=trajectory["step"],
-            sample_index=trajectory["sample_index"],
-            rollout_n=trajectory["rollout_n"],
-            validate=trajectory["validate"],
+            step=trajectory.get("step"),
+            sample_index=trajectory.get("sample_index"),
+            rollout_n=trajectory.get("rollout_n"),
+            validate=trajectory.get("validate"),
             name="_async_rollout_a_request",
         ):
             while current_turns < self.config.multi_turn.max_assistant_turns:

@@ -254,10 +254,10 @@ class AgentLoopWorker:
         trajectory: Dict[str, Any],
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
-            step=trajectory["step"],
-            sample_index=trajectory["sample_index"],
-            rollout_n=trajectory["rollout_n"],
-            validate=trajectory["validate"],
+            step=trajectory.get("step"),
+            sample_index=trajectory.get("sample_index"),
+            rollout_n=trajectory.get("rollout_n"),
+            validate=trajectory.get("validate"),
             name="agent_loop",
         ):
             agent_loop_class = self.get_agent_loop_class(agent_name)
