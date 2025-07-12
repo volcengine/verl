@@ -26,14 +26,16 @@ def initialize_global_process_group(timeout_second=36000):
     torch.distributed.init_process_group(
         get_nccl_backend(),
         timeout=timedelta(seconds=timeout_second),
-        init_method=os.environ.get("DIST_INIT_METHOD", None),
+        init_method=os.environ.get("DIST_INIT_METHOD", "env://")
     )
     local_rank = int(os.environ["LOCAL_RANK"])
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
 
     if torch.distributed.is_initialized():
-        get_torch_device().set_device(local_rank)
+        torch_device = get_torch_device()
+        if torch_device not in [torch.cpu, torch.mps]:
+            torch_device.set_device(local_rank)
     return local_rank, rank, world_size
 
 
