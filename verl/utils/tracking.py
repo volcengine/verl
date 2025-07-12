@@ -321,23 +321,16 @@ class ValidationGenerationsLogger:
         """Log samples to swanlab as text"""
         import swanlab
 
-        swanlab_text_list = []
-        for i, sample in enumerate(samples):
-            row_text = f"""
-            input: {sample[0]}
-            
-            ---
-            
-            output: {sample[1]}
-            
-            ---
-            
-            score: {sample[2]}
-            """
-            swanlab_text_list.append(swanlab.Text(row_text, caption=f"sample {i + 1}"))
+        swanlab_table = swanlab.echarts.Table()
+
+        # Create column names
+        headers = ["step", "input", "output", "score"]
+
+        swanlab_row_list = [[step, *sample] for sample in samples]
+        swanlab_table.add(headers=headers, rows=swanlab_row_list)
 
         # Log to swanlab
-        swanlab.log({"val/generations": swanlab_text_list}, step=step)
+        swanlab.log({"val/generations": swanlab_table}, step=step)
 
     def log_generations_to_mlflow(self, samples, step):
         """Log validation generation to mlflow as artifacts"""
