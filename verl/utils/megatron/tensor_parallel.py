@@ -184,3 +184,37 @@ def vocab_parallel_log_probs_from_logits_response_rmpad(input_ids, attention_mas
     )
     output = full_output.squeeze(-1)[:, -response_length - 1 : -1]  # [batch_size, response_length]
     return output
+
+
+def initialize_tp_communicators(rmpad_seqlen: int, hidden_size: int, use_fp8: bool = False):
+    """Copy Paste and simplify from https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/training/initialize.py:_initialize_tp_communicators"""
+
+    """initializing the communicators with user buffers for high-performance tensor-model-parallel
+    communication overlap"""
+
+    from megatron.core.utils import get_te_version, is_te_min_version
+
+    from verl.utils.device import get_nccl_backend
+
+    try:
+        from transformer_engine.pytorch import module as te_module
+
+    except ImportError:
+        print("Tensor Parallel Communication/GEMM Overlap optimization needs 'yaml' and 'transformer_engine' packages")
+
+    ub_cfgs = {}
+
+    input_shape = [
+        rmpad_seqlen // mpu.get_context_parallel_world_size(),
+        hidden_size,
+    ]
+
+    assert is_te_min_version("1.9.0"), f"current TE version {get_te_version()} is not supported, please use TE >= 1.9.0"
+    # The process group with the target bootstrap backend is created in Transformer Engine.
+    te_module.base.initialize_ub(
+        shape=input_shape,
+        tp_size=mpu.get_tensor_model_parallel_world_size(),
+        use_fp8=use_fp8,
+        ub_cfgs=ub_cfgs,
+        bootstrap_backend=get_nccl_backend(),
+    )

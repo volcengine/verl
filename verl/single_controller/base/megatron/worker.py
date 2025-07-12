@@ -12,6 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
+from typing import Any, Optional, Union
+
+import torch
+from omegaconf import DictConfig
+
 from verl.single_controller.base.worker import DistGlobalInfo, DistRankInfo, Worker
 
 
@@ -41,13 +47,17 @@ class MegatronWorker(Worker):
 
     def _init_hf_config_and_tf_config(
         self,
-        model_path,
-        tokenizer_or_path,
-        dtype,
-        override_model_config,
-        override_transformer_config,
-        trust_remote_code=False,
-        use_mbridge=False,
+        model_path: str,
+        tokenizer_or_path: Union[str, Any],
+        dtype: torch.dtype,
+        override_model_config: DictConfig,
+        override_transformer_config: DictConfig,
+        recompute_config: DictConfig,
+        optimization_config: DictConfig,
+        trust_remote_code: bool = False,
+        use_mbridge: bool = False,
+        use_dynamic_bsz: bool = False,
+        max_seqlens: Optional[int] = None,
     ):
         from transformers import AutoConfig
 
@@ -89,7 +99,39 @@ class MegatronWorker(Worker):
         self.architectures = getattr(hf_config, "architectures", None)
         if self.rank == 0:
             print(f"Model config after override: {hf_config}")
-        tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
+        if recompute_config is not None:
+            from verl.models.mcore.config_converter import RecomputeConfig
+
+            recompute_config = RecomputeConfig(
+                recompute_granularity=recompute_config.get("recompute_granularity", "selective"),
+                recompute_modules=recompute_config.get("recompute_modules", ["core_attn", "mlp", "layernorm"]),
+                recompute_method=recompute_config.get("recompute_method", None),
+                recompute_num_layers=recompute_config.get("recompute_num_layers", None),
+            )
+
+        if optimization_config["enable"] and "tp_comm_overlap" not in optimization_config["disabled_config"]:
+            from verl.utils.megatron.tensor_parallel import initialize_tp_communicators
+
+            if use_dynamic_bsz:
+                initialize_tp_communicators(rmpad_seqlen=max_seqlens, hidden_size=hf_config.hidden_size, use_fp8=False)
+            else:
+                override_transformer_config["tp_comm_overlap"] = False
+                warnings.warn("tp comm overlap is only works with dynamic batch size", stacklevel=2)
+
+        if optimization_config["enable"]:
+            from verl.models.mcore.config_converter import OptimizationConfig
+
+            optimization_config = OptimizationConfig(
+                enable=optimization_config["enable"],
+                enable_moe_optimization=optimization_config["enable_moe_optimization"],
+                disabled_config=optimization_config["disabled_config"],
+            )
+        else:
+            optimization_config = None
+
+        tf_config = hf_to_mcore_config(
+            hf_config, dtype, recompute_config, optimization_config, **override_transformer_config
+        )
 
         def add_optimization_config_to_tf_config(tf_config):
             # add optimization config to tf_config, e.g. checkpointing

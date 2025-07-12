@@ -23,7 +23,9 @@ import torch
 import torch.nn as nn
 
 from .config_converter import (
+    OptimizationConfig,
     PretrainedConfig,
+    RecomputeConfig,
     TransformerConfig,
     hf_to_mcore_config_dense,
     hf_to_mcore_config_dpskv3,
@@ -154,7 +156,11 @@ def get_supported_model(model_type: str) -> SupportedModel:
 
 
 def hf_to_mcore_config(
-    hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
+    hf_config: PretrainedConfig,
+    dtype: torch.dtype,
+    recompute_config: RecomputeConfig = None,
+    optimization_config: OptimizationConfig = None,
+    **override_transformer_config_kwargs,
 ) -> TransformerConfig:
     """Convert huggingface PretrainedConfig to mcore TransformerConfig.
 
@@ -168,7 +174,9 @@ def hf_to_mcore_config(
     """
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     model = get_supported_model(hf_config.architectures[0])
-    return MODEL_CONFIG_CONVERTER_REGISTRY[model](hf_config, dtype, **override_transformer_config_kwargs)
+    return MODEL_CONFIG_CONVERTER_REGISTRY[model](
+        hf_config, dtype, recompute_config, optimization_config, **override_transformer_config_kwargs
+    )
 
 
 def init_mcore_model(

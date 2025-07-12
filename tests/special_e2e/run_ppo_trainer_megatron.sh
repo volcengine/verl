@@ -4,6 +4,7 @@ set -xeuo pipefail
 export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation overlapping
 export VERL_LOGGING_LEVEL=INFO
 export VERL_PPO_LOGGING_LEVEL=INFO
+export UB_SKIPMC=1
 
 NUM_GPUS=${NUM_GPUS:-8}
 
@@ -107,6 +108,8 @@ USE_FUSED_KERNELS=${USE_FUSED_KERNELS:-False}
 
 LR_WARMUP_STEPS=${LR_WARMUP_STEPS:-null}
 
+ENABLE_OPTIMIZATION=${ENABLE_OPTIMIZATION:-True}
+
 CHECKPOINT_CONTENTS=['model','hf_model','optimizer','extra']
 SKIP_SAVE_HF_MODEL=${SKIP_SAVE_HF_MODEL:-0}
 if [ $SKIP_SAVE_HF_MODEL -eq 1 ]; then
@@ -167,6 +170,8 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.actor.megatron.grad_offload=${ACTOR_GRAD_OFFLOAD} \
     actor_rollout_ref.actor.megatron.use_dist_checkpointing=${USE_DIST_CKPT} \
     actor_rollout_ref.actor.megatron.dist_checkpointing_path=${DIST_CKPT_PATH} \
+    actor_rollout_ref.actor.megatron.optimization_config.enable=$ENABLE_OPTIMIZATION \
+    actor_rollout_ref.actor.megatron.optimization_config.disabled_config=["tp_comm_overlap","use_deep_ep","apply_rope_fusion"] \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
