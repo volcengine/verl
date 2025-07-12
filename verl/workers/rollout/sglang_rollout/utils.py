@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import pickle
-from typing import Any, List, Optional
+from typing import Any, Iterable, Iterator, List, Optional
 
 import numpy as np
 import torch
@@ -66,3 +66,35 @@ def broadcast_pyobj(
         serialized_data = bytes(tensor_data.cpu().numpy())
         data = pickle.loads(serialized_data)
         return data
+
+
+def batched(iterable: Iterable, n: int) -> Iterator[List]:
+    """
+    Split an iterable into batches of size n.
+
+    Args:
+        iterable: The input iterable to be batched
+        n: The size of each batch
+
+    Yields:
+        Batches of size n from the input iterable
+
+    Example:
+        >>> list(batched([1, 2, 3, 4, 5], 2))
+        [[1, 2], [3, 4], [5]]
+    """
+    try:
+        # Try to use the built-in batched function from Python 3.13+
+        from itertools import batched as _batched
+
+        return _batched(iterable, n)
+    except ImportError:
+        # Fallback implementation for Python 3.12 and earlier
+        import itertools
+
+        it = iter(iterable)
+        while True:
+            chunk = list(itertools.islice(it, n))
+            if not chunk:
+                return
+            yield chunk
