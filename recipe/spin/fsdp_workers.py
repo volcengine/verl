@@ -47,6 +47,7 @@ from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import log_gpu_memory_usage
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
+from verl.workers.rollout.schemas import force_chat_end_with_eos
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 logger = logging.getLogger(__file__)
@@ -505,8 +506,9 @@ class RewardModelWorker(Worker):
 
             chat.append({"role": "assistant", "content": response})
 
-            prompt_with_chat_template = target_tokenizer.apply_chat_template(
-                chat, add_generation_prompt=False, tokenize=False
+            prompt_with_chat_template = force_chat_end_with_eos(
+                target_tokenizer.apply_chat_template(chat, add_generation_prompt=False, tokenize=False),
+                eos_token=target_tokenizer.eos_token,
             )
             if self.rank == 0 and i == 0:
                 # for debugging purpose
