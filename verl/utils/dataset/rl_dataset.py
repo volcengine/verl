@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, TypedDict, Union
 
-import datasets
+import datasets  # type: ignore
 import numpy as np
 import torch
 from omegaconf import DictConfig, ListConfig
@@ -84,9 +84,9 @@ class ProcessingContext:
     raw_row: RawDataRow
     messages: List[ChatMessage]
     raw_prompt: str
-    model_inputs: Dict[str, torch.Tensor]
+    model_inputs: Dict[str, Any]
     multi_modal_data: Optional[Dict[str, Any]] = None
-    extra_info: ExtraInfo = field(default_factory=dict)
+    extra_info: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -270,17 +270,16 @@ class RLHFDataset(Dataset):
 
                 def doc2len(doc) -> int:
                     messages = self._build_messages(doc)
-                    raw_prompt = self.processor.apply_chat_template(
-                        messages, add_generation_prompt=True, tokenize=False
-                    )
-                    images = (
-                        [process_image(image) for image in messages.pop(image_key)] if image_key in messages else None
-                    )
-                    videos = (
-                        [process_video(video) for video in messages.pop(video_key)] if video_key in messages else None
-                    )
+                    if processor is not None:
+                        raw_prompt = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+                        images = [process_image(image) for image in doc.pop(image_key)] if image_key in doc else None
+                        videos = [process_video(video) for video in doc.pop(video_key)] if video_key in doc else None
 
-                    return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+                        result = processor(text=[raw_prompt], images=images, videos=videos)
+                        if result and "input_ids" in result and len(result["input_ids"]) > 0:
+                            return len(result["input_ids"][0])
+                        return 0
+                    return 0
 
             else:
 
@@ -366,51 +365,59 @@ class RLHFDataset(Dataset):
         extra_info = self._extract_extra_info(raw_row)
 
         return ProcessingContext(
-            raw_row=row_copy,
+            raw_row=row_copy,  # type: ignore[arg-type]
             messages=messages,
             raw_prompt="",  # Will be set in processing steps
             model_inputs={},
             extra_info=extra_info,
         )
 
-    def _extract_extra_info(self, raw_row: RawDataRow) -> ExtraInfo:
+    def _extract_extra_info(self, raw_row: RawDataRow) -> Dict[str, Any]:
         """Safely extract extra_info with defaults."""
-        extra_info_raw = raw_row.get("extra_info", {})
-        return ExtraInfo(
-            index=extra_info_raw.get("index", 0),
-            tools_kwargs=extra_info_raw.get("tools_kwargs", {}),
-            interaction_kwargs=extra_info_raw.get("interaction_kwargs", {}),
-            need_tools_kwargs=extra_info_raw.get("need_tools_kwargs", self.need_tools_kwargs),
-        )
+        extra_info_raw = raw_row.get("extra_info")
+        if extra_info_raw is None:
+            extra_info_raw = {}
+
+        return {
+            "index": extra_info_raw.get("index", 0),
+            "tools_kwargs": extra_info_raw.get("tools_kwargs", {}),
+            "interaction_kwargs": extra_info_raw.get("interaction_kwargs", {}),
+            "need_tools_kwargs": extra_info_raw.get("need_tools_kwargs", self.need_tools_kwargs),
+        }
 
     def _process_multimodal_inputs(self, context: ProcessingContext) -> None:
         """Process multimodal inputs using the processor."""
         from verl.utils.dataset.vision_utils import process_image, process_video
 
-        context.raw_prompt = self.processor.apply_chat_template(
-            context.messages, add_generation_prompt=True, tokenize=False
-        )
+        if self.processor is not None:
+            context.raw_prompt = self.processor.apply_chat_template(
+                context.messages, add_generation_prompt=True, tokenize=False
+            )
 
-        multi_modal_data = {}
-        images = None
-        videos = None
+            multi_modal_data = {}
+            images = None
+            videos = None
 
-        # Process images
-        if self.image_key in context.raw_row and context.raw_row.get(self.image_key) is not None:
-            images = [process_image(image) for image in context.raw_row.pop(self.image_key)]
-            # Use "image" key for vllm compatibility
-            multi_modal_data["image"] = images
+            # Process images
+            if self.image_key in context.raw_row and context.raw_row.get(self.image_key) is not None:
+                images_data = context.raw_row.pop(self.image_key)
+                if images_data is not None:
+                    images = [process_image(image) for image in images_data]
+                    # Use "image" key for vllm compatibility
+                    multi_modal_data["image"] = images
 
-        # Process videos
-        if self.video_key in context.raw_row and context.raw_row.get(self.video_key) is not None:
-            videos = [process_video(video) for video in context.raw_row.pop(self.video_key)]
-            # Use "video" key for vllm compatibility
-            multi_modal_data["video"] = [video.numpy() for video in videos]
+            # Process videos
+            if self.video_key in context.raw_row and context.raw_row.get(self.video_key) is not None:
+                videos_data = context.raw_row.pop(self.video_key)
+                if videos_data is not None:
+                    videos = [process_video(video) for video in videos_data]
+                    # Use "video" key for vllm compatibility
+                    multi_modal_data["video"] = [video.numpy() for video in videos]
 
-        context.model_inputs = self.processor(
-            text=[context.raw_prompt], images=images, videos=videos, return_tensors="pt"
-        )
-        context.multi_modal_data = multi_modal_data
+            context.model_inputs = self.processor(
+                text=[context.raw_prompt], images=images, videos=videos, return_tensors="pt"
+            )
+            context.multi_modal_data = multi_modal_data
 
     def _process_text_only_inputs(self, context: ProcessingContext) -> None:
         """Process text-only inputs using the tokenizer."""
@@ -470,16 +477,23 @@ class RLHFDataset(Dataset):
 
     def _apply_truncation(self, raw_prompt_ids: List[int], strategy: TruncationStrategy) -> List[int]:
         """Apply truncation strategy to prompt IDs."""
+        max_length = self.max_prompt_length
+        if max_length is None:
+            return raw_prompt_ids
+
+        # Ensure max_length is an int for mypy
+        assert isinstance(max_length, int)
+
         if strategy == TruncationStrategy.LEFT:
-            return raw_prompt_ids[-self.max_prompt_length :]
+            return raw_prompt_ids[-max_length:]
         elif strategy == TruncationStrategy.RIGHT:
-            return raw_prompt_ids[: self.max_prompt_length]
+            return raw_prompt_ids[:max_length]
         elif strategy == TruncationStrategy.MIDDLE:
-            left_half = self.max_prompt_length // 2
-            right_half = self.max_prompt_length - left_half
+            left_half = max_length // 2
+            right_half = max_length - left_half
             return raw_prompt_ids[:left_half] + raw_prompt_ids[-right_half:]
         elif strategy == TruncationStrategy.ERROR:
-            raise RuntimeError(f"Prompt length {len(raw_prompt_ids)} exceeds max length {self.max_prompt_length}")
+            raise RuntimeError(f"Prompt length {len(raw_prompt_ids)} exceeds max length {max_length}")
 
     def _build_processed_item(self, context: ProcessingContext) -> ProcessedDataItem:
         """Build the structured ProcessedDataItem from context."""
@@ -521,10 +535,10 @@ class RLHFDataset(Dataset):
                 optional.multi_modal_inputs = multi_modal_inputs
 
         # Validate tools_kwargs if needed
-        if context.extra_info.get("need_tools_kwargs", False) and not context.extra_info["tools_kwargs"]:
+        if context.extra_info.get("need_tools_kwargs", False) and not context.extra_info.get("tools_kwargs", {}):
             logger.warning(
                 "tools_kwargs is empty for index %s, data source: %s",
-                context.extra_info["index"],
+                context.extra_info.get("index", 0),
                 context.raw_row.get("data_source", "unknown"),
             )
 
