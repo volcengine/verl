@@ -32,7 +32,7 @@ from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
-from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
+from verl.utils.rollout_trace import RolloutTraceConfig, get_trajectory_info, rollout_trace_attr, rollout_trace_op
 from verl.workers.rollout.async_server import async_server_class
 
 logger = logging.getLogger(__file__)
@@ -180,11 +180,10 @@ class AgentLoopWorker:
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
 
-        trace_config = config.trainer.get("rollout_trace", {})
-
+        trace_config = self.config.actor_rollout_ref.rollout.get("trace", {})
         RolloutTraceConfig.init(
-            config.trainer.project_name,
-            config.trainer.experiment_name,
+            self.config.trainer.project_name,
+            self.config.trainer.experiment_name,
             trace_config.get("backend"),
             trace_config.get("token2text", False),
         )
@@ -234,7 +233,9 @@ class AgentLoopWorker:
         else:
             index = np.arange(len(raw_prompts))
 
-        trajectory_info = await get_trajectory_info(batch.meta_info.get("global_steps", -1), index)
+        trajectory_info = get_trajectory_info(
+            batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
+        )
 
         for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info):
             tasks.append(
@@ -253,7 +254,11 @@ class AgentLoopWorker:
         trajectory: Dict[str, Any],
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
-            step=trajectory["step"], sample_index=trajectory["sample_index"], rollout_n=trajectory["rollout_n"]
+            step=trajectory.get("step"),
+            sample_index=trajectory.get("sample_index"),
+            rollout_n=trajectory.get("rollout_n"),
+            validate=trajectory.get("validate"),
+            name="agent_loop",
         ):
             agent_loop_class = self.get_agent_loop_class(agent_name)
             agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer)
@@ -348,19 +353,6 @@ class AgentLoopWorker:
         num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
         metrics = [input.metrics.model_dump() for input in inputs]
         return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
-
-
-async def get_trajectory_info(step, index):
-    """Get the trajectory info (step, sample_index, rollout_n) asynchrously"""
-    trajectory_info = []
-    rollout_n = 0
-    for i in range(len(index)):
-        if i > 0 and index[i - 1] == index[i]:
-            rollout_n += 1
-        else:
-            rollout_n = 0
-        trajectory_info.append({"step": step, "sample_index": index[i], "rollout_n": rollout_n})
-    return trajectory_info
 
 
 class AgentLoopManager:

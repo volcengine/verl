@@ -93,6 +93,7 @@ class Gsm8kTool(BaseTool):
 
         return f"Current parsed {answer=} {reward=}", tool_reward, {}
 
+    @rollout_trace_op
     async def calc_reward(self, instance_id: str, **kwargs) -> float:
         return gsm8k.compute_score(
             self._instance_dict[instance_id]["response"],

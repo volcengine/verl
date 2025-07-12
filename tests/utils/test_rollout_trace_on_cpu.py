@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
+from verl.utils.rollout_trace import RolloutTraceConfig, get_trajectory_info, rollout_trace_attr, rollout_trace_op
 
 
 @pytest.fixture(autouse=True)
@@ -46,22 +46,26 @@ def mock_weave_client():
 class TracedClass:
     @rollout_trace_op
     # @weave.op
+    # @mlflow.trace
     async def my_method(self, a, b="default"):
         return f"result: {a}, {b}"
 
     @rollout_trace_op
     # @weave.op
+    # @mlflow.trace
     async def middle_method(self, a, b="default"):
         await self.my_method("test_a1", b="test_b1")
         return f"result: {a}, {b}"
 
     @rollout_trace_op
+    # @mlflow.trace
     async def my_method_with_exception(self):
         raise ValueError("Test Exception")
 
     async def upper_method(self):
         await self.my_method("test_a0", b="test_b0")
         await self.middle_method("test_a2", b="test_b2")
+        return True
 
 
 class UntracedClass:
@@ -143,3 +147,41 @@ async def test_rollout_trace_with_real_weave_backend():
         await instance.my_method_with_exception()
 
     print("\nWeave integration test ran successfully. Check your weave project for the trace.")
+
+
+@pytest.mark.skipif(
+    os.environ.get("RUN_MLFLOW_INTEGRATION_TESTS", "false").lower() != "true",
+    reason="Skipping mlflow integration test. Set RUN_MLFLOW_INTEGRATION_TESTS=true to run.",
+)
+async def test_rollout_trace_with_real_mlflow_backend():
+    """Integration test with a real mlflow backend."""
+
+    # This assumes that the mlflow environment (e.g., project) is configured
+    RolloutTraceConfig.init(project_name="my-project", experiment_name="my-experiment", backend="mlflow")
+
+    instance = TracedClass()
+
+    with rollout_trace_attr(step=1, sample_index=2, rollout_n=3, name="agent_run"):
+        assert await instance.upper_method()
+
+    # with pytest.raises(ValueError, match="Test Exception"):
+    #     await instance.my_method_with_exception()
+
+    print("\nWeave integration test ran successfully. Check your weave project for the trace.")
+
+
+def test_get_trajectory_info():
+    """Tests the get_trajectory_info method."""
+    # Initialize the class to set up class-level attributes
+    step = 10
+    index = [1, 1, 3, 3]
+    expected_info = [
+        {"step": step, "sample_index": 1, "rollout_n": 0, "validate": False},
+        {"step": step, "sample_index": 1, "rollout_n": 1, "validate": False},
+        {"step": step, "sample_index": 3, "rollout_n": 0, "validate": False},
+        {"step": step, "sample_index": 3, "rollout_n": 1, "validate": False},
+    ]
+
+    trajectory_info = get_trajectory_info(step, index, validate=False)
+
+    assert trajectory_info == expected_info

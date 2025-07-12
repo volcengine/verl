@@ -52,6 +52,7 @@ from verl.utils.profiler import (
     simple_timer,
 )
 from verl.utils.profiler.performance import reduce_timing
+from verl.utils.rollout_trace import RolloutTraceConfig
 from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
@@ -88,6 +89,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config: DictConfig, role: str, **kwargs):
         MegatronWorker.__init__(self)
         self.config = config
+        self.trainer_config = kwargs.get("trainer_config", None)
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
@@ -291,6 +293,17 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 get_device_name(), mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
             )
             log_gpu_memory_usage("Before building vllm rollout", logger=None)
+
+            # init rollout trace in this process
+            # only in sync mode, because async use trace in agent loop
+            if self.trainer_config and self.config.rollout.mode == "sync":
+                trace_config = self.config.rollout.get("trace", {})
+                RolloutTraceConfig.init(
+                    self.trainer_config.project_name,
+                    self.trainer_config.experiment_name,
+                    trace_config.get("backend"),
+                    trace_config.get("token2text", False),
+                )
 
             local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
             from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout

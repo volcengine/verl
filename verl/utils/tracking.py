@@ -63,9 +63,8 @@ class Tracking:
 
             import mlflow
 
-            MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", None)
-            if MLFLOW_TRACKING_URI:
-                mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+            MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:////tmp/mlruns.db")
+            mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
             # Project_name is actually experiment_name in MLFlow
             # If experiment does not exist, will create a new experiment

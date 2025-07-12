@@ -114,6 +114,7 @@ verl is fast with:
    advance/placement
    advance/dpo_extension
    examples/sandbox_fusion_example
+   advance/rollout_trace.rst
 
 .. toctree::
    :maxdepth: 1

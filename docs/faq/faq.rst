@@ -177,21 +177,3 @@ Comparing to using global https_proxy env variable, this approach won't mess up 
 
   +trainer.wandb_proxy=http://<your proxy and port>
 
-How to trace rollout and toolcall data?
----------------------------------------
-
-To enable trace rollout data, you can set the config term ``trainer.rollout_trace.backend`` to a backend name.
-
-For example:
-
-.. code:: bash
-
-  +trainer.rollout_trace.backend=weave # only wandb weave is support now
-
-To show decoded text in trace view, you can set the config term ``trainer.rollout_trace.token2text`` to True.
-For example:
-
-.. code:: bash
-
-  +trainer.rollout_trace.token2text=True # default to False for better performance
-

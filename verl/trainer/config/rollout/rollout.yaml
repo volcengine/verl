@@ -178,3 +178,12 @@ agent:
 
     # Class name of the custom async server class (e.g. AsyncvLLMServer)
     name: null
+
+# trace rollout data
+trace:
+  
+  # trace backend, support mlflow, weave
+  backend: null
+
+  # whether translate token id to text in output
+  token2text: False

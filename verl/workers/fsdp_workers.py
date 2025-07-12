@@ -72,6 +72,7 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing
 from verl.utils.py_functional import convert_to_regular_types
+from verl.utils.rollout_trace import RolloutTraceConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 logger = logging.getLogger(__file__)
@@ -112,7 +113,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         Worker.__init__(self)
 
         self.config = config
-        self.profile_option = kwargs.get("profile_option", None)
+        self.trainer_config = kwargs.get("trainer_config", None)
+        if self.trainer_config is not None and "npu_profile" in self.trainer_config:
+            self.profile_option = self.trainer_config.npu_profile.options
+        else:
+            self.profile_option = None
+
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -468,7 +474,20 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         rollout_device_mesh = init_device_mesh(
             device_name, mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
         )
+
+        # init rollout trace in this process
+        # only in sync mode, because async use trace in agent loop
+        if self.trainer_config and self.config.rollout.mode == "sync":
+            trace_config = self.config.rollout.get("trace", {})
+            RolloutTraceConfig.init(
+                self.trainer_config.project_name,
+                self.trainer_config.experiment_name,
+                trace_config.get("backend"),
+                trace_config.get("token2text", False),
+            )
+
         rollout_name = self.config.rollout.name
+
         if rollout_name == "hf":
             from verl.workers.rollout import HFRollout
             from verl.workers.sharding_manager.base import BaseShardingManager
