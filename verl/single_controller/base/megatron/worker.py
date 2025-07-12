@@ -13,6 +13,13 @@
 # limitations under the License.
 
 from verl.single_controller.base.worker import DistGlobalInfo, DistRankInfo, Worker
+from verl.utils.device import is_npu_available
+
+if is_npu_available:
+    try:
+        from mindspeed import megatron_adaptor  # noqa: F401
+    except ImportError:
+        print("Failed to import megatron_adpator from mindspeed.")
 
 
 class MegatronWorker(Worker):
