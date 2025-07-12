@@ -50,6 +50,7 @@ on:
       - "tests/special_distributed/test_fsdp_ckpt.py"
       - "tests/models/**"
       - "tests/special_distributed/run_all.sh"
+      - "tests/special_distributed/test_fsdp_ckpt_s3.py"
 
 # Declare permissions just read content.
 permissions:

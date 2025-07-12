@@ -360,7 +360,14 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     logger=logger,
                 )
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep=None):
+    def save_checkpoint(
+        self,
+        local_path: str,
+        hdfs_path: str = None,
+        remote_path: str = None,
+        global_step: int = 0,
+        max_ckpt_to_keep=None,
+    ):
         # record the previous global step
         self.previous_global_step = global_step
 
