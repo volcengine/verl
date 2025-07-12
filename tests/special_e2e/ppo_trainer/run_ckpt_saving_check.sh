@@ -6,9 +6,10 @@ NUM_GPUS=${NUM_GPUS:-8}
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
+python tests/special_e2e/ppo_trainer/gsm8k_256samples_download.py
 
-TRAIN_FILES=${TRAIN_FILES:-$HOME/data/gsm8k/train.parquet}
-VAL_FILES=${VAL_FILES:-$HOME/data/gsm8k/test.parquet}
+TRAIN_FILES=${TRAIN_FILES:-$HOME/data/gsm8k-256/train.parquet}
+VAL_FILES=${VAL_FILES:-$HOME/data/gsm8k-256/test.parquet}
 MAX_PROMPT_LEN=${MAX_PROMPT_LEN:-512}
 MAX_RESPONSE_LEN=${MAX_RESPONSE_LEN:-512}
 
@@ -47,7 +48,7 @@ TEST_FREQ=${TEST_FREQ:--1}
 RESUME_MODE=${RESUME_MODE:-disable}
 SAVE_FREQ=${SAVE_FREQ:--1}
 TOTAL_TRAIN_STEPS=${TOTAL_TRAIN_STEPS:-1}
-SAVE_BEST_VAL_METRIC=${SAVE_BEST_VAL_METRIC:"None"}
+SAVE_BEST_VAL_METRIC="${SAVE_BEST_VAL_METRIC:-None}"
 SAVE_AFTER_EPOCHS=${SAVE_AFTER_EPOCHS:-1}
 
 # whether to save hf_model
@@ -74,7 +75,7 @@ reward_fn_file_path=null
 output_file="$(pwd)/output.txt"
 
 
-exp_name="${VERL_EXP_NAME:-$(basename "${MODEL_ID,,}")-ckpt-check-minimal-save-by-best-metric"
+exp_name="${VERL_EXP_NAME:-$(basename "${MODEL_ID,,}")-ckpt-check-minimal-save-by-best-metric}"
 base_dir="checkpoints/verl-test/${exp_name}"
 
 python3 -m verl.trainer.main_ppo \
@@ -148,6 +149,8 @@ if [ "${SAVE_BEST_VAL_METRIC}" != -1 ]; then
     ls -d "${base_dir}"/best_val_step_* > /dev/null 2>&1
     check_exit_code=$?
     if [ $check_exit_code -ne 0 ]; then
+        echo "No best validation metric checkpoint found."
+        echo "Check failed with exit code: $check_exit_code"
         exit $check_exit_code
     fi
 fi
@@ -156,6 +159,10 @@ if [ "${SAVE_AFTER_EPOCHS}" != "None" ]; then
     ls -d "${base_dir}"/epoch_* > /dev/null 2>&1
     check_exit_code=$?
     if [ $check_exit_code -ne 0 ]; then
+        echo "No epoch checkpoint found."
+        echo "Check failed with exit code: $check_exit_code"
         exit $check_exit_code
     fi
 fi
+
+echo "Checkpoint saving check passed successfully."
