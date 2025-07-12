@@ -160,7 +160,7 @@ def collate_fn(data_list: list[dict]) -> dict:
 
     Returns:
         Dict where tensor entries are stacked into a torch.Tensor of shape
-        (batch_size, \\*dims) and non-tensor entries are converted to
+        (batch_size, \*dims) and non-tensor entries are converted to
         np.ndarray of dtype object with shape (batch_size,).
     """
     tensors = defaultdict(list)
@@ -270,16 +270,17 @@ class RLHFDataset(Dataset):
 
                 def doc2len(doc) -> int:
                     messages = self._build_messages(doc)
-                    if processor is not None:
-                        raw_prompt = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-                        images = [process_image(image) for image in doc.pop(image_key)] if image_key in doc else None
-                        videos = [process_video(video) for video in doc.pop(video_key)] if video_key in doc else None
+                    raw_prompt = self.processor.apply_chat_template(
+                        messages, add_generation_prompt=True, tokenize=False
+                    )
+                    images = (
+                        [process_image(image) for image in messages.pop(image_key)] if image_key in messages else None
+                    )
+                    videos = (
+                        [process_video(video) for video in messages.pop(video_key)] if video_key in messages else None
+                    )
 
-                        result = processor(text=[raw_prompt], images=images, videos=videos)
-                        if result and "input_ids" in result and len(result["input_ids"]) > 0:
-                            return len(result["input_ids"][0])
-                        return 0
-                    return 0
+                    return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
 
             else:
 
