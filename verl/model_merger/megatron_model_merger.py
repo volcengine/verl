@@ -364,12 +364,21 @@ class MegatronModelMerger(BaseModelMerger):
             torch.testing.assert_close(loaded_weight.to("cpu"), param, atol=1e-2, rtol=5e-2)
 
     def _replace_name(self, megatron_name: str, name_mapping: dict[str, str]) -> str:
+        def convert_name_fast(old_name):
+            parts = old_name.split('.')
+            left_half = ".".join(parts[:5])
+            right_half = parts[5]
+            expert_idx = parts[-1].replace("weight", "")  
+            new_name = f"{left_half}.{expert_idx}.{right_half}.weight"
+            return new_name
         for m_name, v_name in name_mapping.items():
             if m_name not in megatron_name:
                 continue
 
             megatron_name = megatron_name.replace("decoder", "model")
             param_name = megatron_name.replace(m_name, v_name)
+            if "mlp.experts" in param_name:
+                param_name = convert_name_fast(param_name)
             return param_name
 
         return None  # Return None if no mapping found
