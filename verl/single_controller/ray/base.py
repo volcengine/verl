@@ -752,14 +752,15 @@ def _determine_fsdp_megatron_base_class(mros: List):
             return cls
     raise ValueError(f"Cannot determine base class for {mros}")
 
+
 @contextmanager
 def temp_env_var(key: str, value: str):
     """Context manager for temporarily setting an environment variable.
-    
+
     Args:
         key: Environment variable name
         value: Environment variable value
-        
+
     Yields:
         None
     """
@@ -772,6 +773,7 @@ def temp_env_var(key: str, value: str):
             os.environ.pop(key, None)
         else:
             os.environ[key] = original
+
 
 # deprecated, switching to FusedWorker
 def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
