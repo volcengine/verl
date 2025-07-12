@@ -109,7 +109,7 @@ class MegatronWorker(Worker):
                 recompute_num_layers=recompute_config.get("recompute_num_layers", None),
             )
 
-        if optimization_config["enabled"] and "tp_comm_overlap" not in optimization_config["disabled_config"]:
+        if optimization_config["enable"] and "tp_comm_overlap" not in optimization_config["disabled_config"]:
             from verl.utils.megatron.tensor_parallel import initialize_tp_communicators
 
             if use_dynamic_bsz:
@@ -118,11 +118,12 @@ class MegatronWorker(Worker):
                 override_transformer_config["tp_comm_overlap"] = False
                 warnings.warn("tp comm overlap is only works with dynamic batch size", stacklevel=2)
 
-        if optimization_config["enabled"]:
+        if optimization_config["enable"]:
             from verl.models.mcore.config_converter import OptimizationConfig
 
             optimization_config = OptimizationConfig(
-                enabled=optimization_config["enabled"],
+                enable=optimization_config["enable"],
+                enable_moe_optimization=optimization_config["enable_moe_optimization"],
                 disabled_config=optimization_config["disabled_config"],
             )
         else:

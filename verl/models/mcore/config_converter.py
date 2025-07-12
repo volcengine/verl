@@ -46,7 +46,8 @@ class OptimizationConfig:
     Configuration for optimization settings in Megatron.
     """
 
-    enabled: bool = True
+    enable: bool = True
+    enable_moe_optimization: bool = False
     disabled_config: list = None
 
     def __post_init__(self):
@@ -129,11 +130,12 @@ def _get_base_transformer_config(
             }
         )
 
-    if optimization_config is not None and optimization_config.enabled:
+    if optimization_config is not None and optimization_config.enable:
         use_deep_ep = "use_deep_ep" not in optimization_config.disabled_config
         if use_deep_ep:
             deep_ep_spec = importlib.util.find_spec("deepep")
             use_deep_ep = deep_ep_spec is not None
+            warnings.warn("will not use DeepEP because it is not installed properly", stacklevel=1)
 
         optimization_config_dict = {
             # Communication/Computation overlap
@@ -144,16 +146,21 @@ def _get_base_transformer_config(
             "bias_dropout_fusion": True,
             "apply_rope_fusion": True,
             "gradient_accumulation_fusion": True,
-            # MoE Optimizations
-            "moe_shared_expert_overlap": True,
-            "moe_grouped_gemm": True,
-            "moe_enable_deepep": use_deep_ep,  # requires DeepEP
-            "moe_permute_fusion": True,  # requires TE 2.1
-            # "moe_token_dispatcher_type": "flex",  # Not compatible with moe_shared_expert_overlap
             # Extra
             "deallocate_pipeline_outputs": True,
             "persist_layer_norm": True,
         }
+
+        if optimization_config.enable_moe_optimization:
+            moe_optimization_config_dict = {
+                # MoE Optimizations
+                "moe_shared_expert_overlap": True,
+                "moe_grouped_gemm": True,
+                "moe_enable_deepep": use_deep_ep,  # requires DeepEP
+                "moe_permute_fusion": True,  # requires TE 2.1
+                # "moe_token_dispatcher_type": "flex",  # Not compatible with moe_shared_expert_overlap
+            }
+            optimization_config_dict.update(moe_optimization_config_dict)
 
         for key in optimization_config_dict.keys():
             if key in optimization_config.disabled_config:
@@ -442,7 +449,7 @@ def hf_to_mcore_config_qwen2_5_vl(
     **override_transformer_config_kwargs,
 ) -> TransformerConfig:
     # Qwen2_5_VLForConditionalGeneration
-    if optimization_config is not None and optimization_config.enabled:
+    if optimization_config is not None and optimization_config.enable:
         warnings.warn(
             "OptimizationConfig is not supported for Qwen2.5 VL, please manually enable trusted ones", stacklevel=2
         )

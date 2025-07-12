@@ -60,7 +60,9 @@ megatron:
   # enable megatron optimization config: communication/computation overlap, operators fusion, etc.
   optimization_config:
     
-    enabled: ${actor_rollout_ref.actor.megatron.optimization_config.enabled}
+    enabled: ${actor_rollout_ref.actor.megatron.optimization_config.enable}
+
+    enable_moe_optimization: ${actor_rollout_ref.actor.megatron.optimization_config.enable_moe_optimization}
     
     disabled_config: ${actor_rollout_ref.actor.megatron.optimization_config.disabled_config}
 

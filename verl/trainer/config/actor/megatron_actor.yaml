@@ -102,10 +102,11 @@ megatron:
   optimization_config:
     # default enabled config like megatron pretrain:
     # tp_comm_overlap, masked_softmax_fusion, bias_activation_fusion, apply_rope_fusion, gradient_accumulation_fusion, deallocate_pipeline_outputs, persist_layer_norm
-    # MoE enabled
+    enable: True
+
+    # MoE optimization
     # moe_shared_expert_overlap, moe_grouped_gemm, moe_permute_fusion
-    
-    enabled: True
+    enable_moe_optimization: False
     
     disabled_config: ["use_deep_ep"]
 
