@@ -54,17 +54,6 @@ class OptimizationConfig:
             self.disabled_config = []
 
 
-def merge_list_unique(dst: list, src: list):
-    """
-    Append elements from src to dst if they are not already present in dst.
-    """
-    assert isinstance(src, list) and isinstance(dst, list), "Merge src and dst lists together with unique values"
-    for item in src:
-        if item not in dst:
-            dst.append(item)
-    return dst
-
-
 def _get_base_transformer_config(
     hf_config: PretrainedConfig,
     dtype: torch.dtype,
@@ -203,8 +192,6 @@ def _get_mla_transformer_config(
     Returns:
         MLATransformerConfig with common parameters
     """
-    if recompute_config.recompute_modules is not None:
-        recompute_config.recompute_modules = merge_list_unique(recompute_config.recompute_modules, ["mla_up_proj"])
 
     base_config = _get_base_transformer_config(
         hf_config=hf_config,
@@ -304,9 +291,6 @@ def hf_to_mcore_config_mixtral(
     optimization_config: OptimizationConfig = None,
     **override_transformer_config_kwargs,
 ) -> TransformerConfig:
-    if recompute_config is not None:
-        recompute_config.recompute_modules = merge_list_unique(recompute_config.recompute_modules, ["moe", "moe_act"])
-
     args: dict = _get_base_transformer_config(
         hf_config=hf_config,
         dtype=dtype,
@@ -340,9 +324,6 @@ def hf_to_mcore_config_qwen3moe(
     optimization_config: OptimizationConfig = None,
     **override_transformer_config_kwargs,
 ) -> TransformerConfig:
-    if recompute_config is not None:
-        recompute_config.recompute_modules = merge_list_unique(recompute_config.recompute_modules, ["moe", "moe_act"])
-
     args: dict = _get_base_transformer_config(
         hf_config=hf_config,
         dtype=dtype,
@@ -408,8 +389,6 @@ def hf_to_mcore_config_dpskv3(
     assert "quantization_config" not in hf_config or not hf_config.quantization_config, (
         "quantization is not supported for now, please modify the config.json to remove quantization_config"
     )
-    if recompute_config is not None:
-        recompute_config.recompute_modules = merge_list_unique(recompute_config.recompute_modules, ["moe", "moe_act"])
 
     args: dict = _get_mla_transformer_config(
         hf_config=hf_config,
