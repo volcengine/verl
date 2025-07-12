@@ -373,6 +373,7 @@ class RayStreamPPOTrainer:
         print(
             f"Size of train dataloader: {len(self.train_dataloader)}, Size of val dataloader: "
             f"{len(self.val_dataloader)}"
+            f"total epochs: {self.config.trainer.total_epochs}"
         )
 
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
@@ -888,7 +889,7 @@ class RayStreamPPOTrainer:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
                             stop_iter, gen_batch_output, gen_batch, batch = self.async_generate_sequence(
-                                data_iter=data_iter, batch_size=self.train_batch, renew=renew
+                                data_iter=data_iter, renew=renew
                             )
                             renew = False
                             if stop_iter:
@@ -1121,11 +1122,11 @@ class RayStreamPPOTrainer:
                     progress_bar.close()
                     return
 
-    def async_generate_sequence(self, data_iter: Iterable, batch_size, renew=False):
+    def async_generate_sequence(self, data_iter: Iterable, renew=False):
         self.async_rollout_manager.wake_up()
         if self.stream_mode:
             stop_iter, gen_batch_output, gen_batch, batch = self.async_rollout_manager.stream_generate_sequences(
-                data_iter, batch_size=batch_size, renew=renew
+                data_iter, renew=renew
             )
             if stop_iter:
                 return True, None, None, None

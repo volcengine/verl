@@ -26,8 +26,7 @@ def ray_env():
 
 
 def large_model_path():
-    return "/demo-huabei2/common-models/Qwen/Qwen2.5-7B-Instruct"
-    # return "Qwen/Qwen3-8B"
+    return "Qwen/Qwen2.5-7B-Instruct"
 
 
 def get_gsm8k_data():
@@ -39,14 +38,14 @@ def get_gsm8k_data():
 
 
 def get_dapo_data():
-    local_folder = os.path.expanduser("/demo-huabei2/lusz/dataset/BytedTsinghua-SIA-AIME-2024/data/")
+    local_folder = os.path.expanduser("~/BytedTsinghua-SIA-AIME-2024/data/")
     local_path = os.path.join(local_folder, "aime-2024.parquet")
     os.makedirs(local_folder, exist_ok=True)
     return local_path
 
 
 def get_code_data():
-    local_folder = os.path.expanduser("/demo-huabei2/chenhaiquan/dataset/Eurus-2-RL-Data/")
+    local_folder = os.path.expanduser("~/Eurus-2-RL-Data/")
     local_path = os.path.join(local_folder, "train.parquet")
     os.makedirs(local_folder, exist_ok=True)
     return local_path
@@ -58,7 +57,7 @@ ray.init(
 os.environ["VERL_QUEUE_LOGGING_LEVEL"] = "INFO"
 os.environ["VERL_LOGGING_LEVEL"] = "DEBUG"
 
-
+batch_size = 1024
 # Load config
 config = OmegaConf.load("recipe/stream_mode/config/stream_ppo_trainer.yaml")
 config.trainer.n_gpus_per_node = 4
@@ -80,6 +79,9 @@ config.actor_rollout_ref.rollout.top_p = 0.6
 config.actor_rollout_ref.rollout.top_k = -1
 config.actor_rollout_ref.rollout.presence_penalty = 0.0
 config.actor_rollout_ref.rollout.frequency_penalty = 0.0
+config.data.train_batch_size = batch_size
+config.actor_rollout_ref.rollout.n = 2
+config.actor_rollout_ref.rollout.chat_scheduler.prefetch_factor = 2
 
 tokenizer = hf_tokenizer(large_model_path())
 # local_path = get_code_data()
@@ -98,7 +100,6 @@ dataset = RLHFDataset(data_files=local_path, tokenizer=tokenizer, config=data_co
 dataset.dataframe = dataset.dataframe.select(range(5000))
 # # assert len(dataset) == 1000
 print("dataset length", len(dataset))
-batch_size = 1024
 dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, drop_last=False, collate_fn=collate_fn)
 
 # Init sandbox and async rollout manager
@@ -152,7 +153,7 @@ for _ in range(1):
 ray.shutdown()
 
 
-# print(f"time cost for each epoch for native scheduler : {native_epoch_times}")
+print(f"time cost for each epoch for native scheduler : {native_epoch_times}")
 
 ray.init(
     runtime_env=ray_env(),
@@ -185,7 +186,7 @@ for _ in range(1):
         async_rollout_manager.wake_up()
         print("all wake up")
         stop_epoch, gen_batch_result, gen_batch, batch = async_rollout_manager.stream_generate_sequences(
-            data_iter, batch_size, renew
+            data_iter, renew
         )
         async_rollout_manager.sleep()
         print("sleep finished")

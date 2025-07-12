@@ -57,7 +57,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))
 @runtime_checkable
 class StreamSchedulerMixin(Protocol):
     async def stream_generate_sequences(
-        self, data_iter: Iterable, batch_size: int
+        self, data_iter: Iterable, renew: bool
     ) -> Tuple[bool, DataProto, DataProto, DataProto]: ...
 
 
@@ -103,6 +103,8 @@ class ChatCompletionScheduler:
         self.request_id_to_server[request_id] = server
         return server
 
+    async def generate_sequences(self, batch: DataProto) -> DataProto: ...
+
 
 class MicroBatchScheduler(ChatCompletionScheduler):
     def __init__(
@@ -110,7 +112,6 @@ class MicroBatchScheduler(ChatCompletionScheduler):
         config,
         server_handles,
         max_cache_size=10000,
-        rollout_rate=1,
         max_inflight_req=8,
         rollout_req_handler=None,
         reduce_handler=None,
@@ -280,17 +281,13 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
         self,
         config,
         server_handles,
-        rollout_rate=1,
         max_inflight_req=8,
         rollout_req_handler=None,
         reduce_handler=None,
         enable_work_stealing=True,
         data_fetcher=None,
-        batch_size=1024,
-        prefetch_factor=2,
     ):
         self.original_config = config
-        self.max_in_mem_samples = prefetch_factor * batch_size
         self.data_loader_blocker = asyncio.Event()
         self.data_iter = None
         self.data_fetcher = data_fetcher if data_fetcher else self._default_data_fetcher
@@ -308,7 +305,6 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
             config,
             server_handles,
             1000,
-            rollout_rate,
             max_inflight_req,
             self.rollout_req_handler,
             self.reduce_handler,
@@ -316,48 +312,20 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
         )
         self.max_prompt_length = self.config.prompt_length
         self.max_response_length = self.config.response_length
+        self.prefetch_factor = self.config.chat_scheduler.prefetch_factor
+        self.batch_size = config.data.train_batch_size
+        self.max_in_mem_samples = self.prefetch_factor * self.batch_size
         model_path = config.actor_rollout_ref.model.path
         self.model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
         logger.info(
             f"init with resource: tokenizer: {self.tokenizer},model name: {self.model_name}, max \
-            prompt length: {self.max_prompt_length}, max response length: {self.max_response_length}"
+            prompt length: {self.max_prompt_length}, max response length: {self.max_response_length} \
+            max_in_mem_samples: {self.max_in_mem_samples}"
+            f"batch_size: {self.batch_size}"
+            f"prefetch_factor: {self.prefetch_factor}"
         )
-
-    async def _memory_monitor(self, blocker: asyncio.Event, max_in_mem_sample):
-        await asyncio.sleep(1)
-        in_memory_sample = len(self.pending_sample) + len(self.active_sample)
-        if in_memory_sample > max_in_mem_sample:
-            logger.debug(
-                f"memory utilization {max_in_mem_sample} exceed threshold {self.data_memory_utils}, stop \
-                data fetcher"
-            )
-            blocker.clear()
-        else:
-            # wake up data fetcher
-            logger.debug(
-                f"memory utilization {in_memory_sample} under threshold {max_in_mem_sample}, wake up data fetcher"
-            )
-            blocker.set()
-
-    def start_memory_monitor(self):
-        self.mem_monitor_actor = asyncio.create_task(
-            self._memory_monitor(self.data_loader_blocker, self.max_in_mem_samples)
-        )
-
-        def callback(task):
-            if task.exception() is not None:
-                letter = DeathLetter(
-                    actor_meta=self.actor_meta,
-                    async_task=task,
-                )
-                if self.death_letter is not None:
-                    self.death_letter.put_nowait(letter)
-                else:
-                    logger.warning("memory monitor exit")
-
-        self.mem_monitor_actor.add_done_callback(callback)
 
     async def _default_data_fetcher(self, data_iter):
         class _Iter:
@@ -430,12 +398,23 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
                         logger.debug(f"put {sample_id} to global data queue")
                         # raw_prompt: [{"role": "user", "content": ""}, ["role": "assistant", "content"], ...]
                         await self.global_data_queue.put(_rollout_req)
+                await self._stop_fetch_if_max_in_mem_samples()
         except asyncio.CancelledError:
             logger.warning("data fetcher cancled")
         except Exception as e:
             logger.warning(f"exit data fetcher for exception: {e}")
         logger.info(f"exit data fetcher, pending sample size: {len(self.pending_sample)}")
         self.data_fetcher_exit.set()
+
+    async def _stop_fetch_if_max_in_mem_samples(self):
+        if len(self.pending_sample) + len(self.active_sample) > self.max_in_mem_samples:
+            self.data_loader_blocker.clear()
+            logger.info(
+                f"stop fetch data if max in mem samples, pending sample size: {len(self.pending_sample)}, \
+                active_sample: {len(self.active_sample)}"
+            )
+            await self.data_loader_blocker.wait()
+            logger.info(f"resume fetch data after stop, pending sample size: {len(self.pending_sample)}")
 
     def _generate_unique_id(self):
         while 1:
@@ -471,7 +450,6 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
 
     def _lazy_init_global_resource(self, data_iter: Iterable, renew):
         super()._lazy_init_global_resource()
-        self.start_memory_monitor()
         self.init_async_data_fetcher(data_iter, renew)
 
     def _data_fetcher_done(self) -> bool:
@@ -651,9 +629,8 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
         assert len(self.active_sample) == 0
 
     async def stream_generate_sequences(
-        self, data_iter: Iterable, batch_size: int, renew=False
+        self, data_iter: Iterable, renew=False
     ) -> Tuple[bool, DataProto, DataProto, DataProto]:
-        self.buffer_size = batch_size
         self._lazy_init_global_resource(data_iter, renew)
         self.wake_up_engine_actor()
         # detect wether there is any active request
@@ -661,16 +638,19 @@ class StreamScheduler(MicroBatchScheduler, StreamSchedulerMixin):
         pending_sample_length = len(self.pending_sample)
         if self._data_fetcher_done() and pending_sample_length == 0:
             return True, None, None, None
-        last_batch, bsz = self.last_batch(self.buffer_size)
+        bsz = self.batch_size
+        last_batch, bsz = self.last_batch(self.batch_size)
         if last_batch:
             last_batch = True
-            self.buffer_size = bsz
             print(f"last batch for epoch, size: {bsz}")
-        print(f"waiting for rollout done, self.buffer_size: {self.buffer_size}")
-        batch_conversations, gen_batch, batch = await self.reduce_handler(self.buffer_size, n_sample=self.config.n)
+        print(f"waiting for rollout done, bsz: {bsz}")
+        batch_conversations, gen_batch, batch = await self.reduce_handler(bsz, n_sample=self.config.n)
         print(f"partial rollout done, cancel all left request, real size: {len(batch_conversations)}")
         await self.cancel_all_req()
         self._requeue_preempt_req()
+        # resume data fetch for next batch
+        self.data_loader_blocker.set()
+        print(f"resume data fetch for next batch, pending sample size: {len(self.pending_sample)}")
         self.done_sample_counter += len(batch_conversations)
         print(
             f"[MicroBatchChatCompletionScheduler] generate_sequences done with {len(batch_conversations)} samples, \

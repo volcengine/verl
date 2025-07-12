@@ -124,12 +124,12 @@ class AsyncLLMServerManager:
         return future.result()
 
     def stream_generate_sequences(
-        self, data_iter, batch_size, renew, **sampling_params
+        self, data_iter, renew, **sampling_params
     ) -> Tuple[bool, DataProto, DataProto, DataProto]:
         assert self.chat_scheduler is not None, "chat scheduler is not initialized."
         assert isinstance(self.chat_scheduler, StreamSchedulerMixin), "this should mix in StreamSchedulerMixin"
         future = asyncio.run_coroutine_threadsafe(
-            self.chat_scheduler.stream_generate_sequences(data_iter, batch_size, renew, **sampling_params),
+            self.chat_scheduler.stream_generate_sequences(data_iter, renew, **sampling_params),
             self.chat_scheduler_loop,
         )
         return future.result()

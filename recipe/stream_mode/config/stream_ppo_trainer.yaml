@@ -588,6 +588,8 @@ actor_rollout_ref:
 
     chat_scheduler:
 
+      prefetch_factor: 2
+
       name: null
 
       micro_batch:

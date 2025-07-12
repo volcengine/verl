@@ -223,7 +223,7 @@ class AsyncvLLMServer(AsyncServerBase):
         max_num_batched_tokens = config.get("max_num_batched_tokens", 8192)
         max_model_len = config.max_model_len if config.max_model_len else config.prompt_length + config.response_length
         self.max_model_len = int(max_model_len)
-        stat_log_interval = config.get("stat_log_interval", 10)
+        stat_log_interval = config.get("stat_log_interval", 100)
         # Override default generation config from hugging face model config,
         # user can still override them by passing kwargs in each request.
         kwargs = dict(

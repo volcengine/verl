@@ -23,7 +23,7 @@ python3 -m recipe.stream_mode.main_stream_ppo \
     data.return_raw_chat=$return_raw_chat \
     data.train_batch_size=1024 \
     data.max_prompt_length=4096 \
-    data.max_response_length=16384 \
+    data.max_response_length=4096 \
     data.filter_overlong_prompts=False \
     data.truncation='error' \
     actor_rollout_ref.model.path=/demo-huabei2/common-models/Qwen/Qwen2.5-7B-Instruct \
@@ -45,6 +45,7 @@ python3 -m recipe.stream_mode.main_stream_ppo \
     actor_rollout_ref.rollout.multi_turn.format=hermes \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.rollout.response_length=4096 \
     actor_rollout_ref.rollout.val_kwargs.temperature=1.0 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
@@ -59,6 +60,6 @@ python3 -m recipe.stream_mode.main_stream_ppo \
     trainer.test_freq=20 \
     trainer.total_training_steps=105 \
     actor_rollout_ref.rollout.stream_mode=True \
-    actor_rollout_ref.rollout.chat_scheduler.micro_batch.max_inflight_req=256 \
+    actor_rollout_ref.rollout.chat_scheduler.micro_batch.max_inflight_req=300 \
     actor_rollout_ref.rollout.chat_scheduler.name='stream' \
     trainer.total_epochs=15 $@

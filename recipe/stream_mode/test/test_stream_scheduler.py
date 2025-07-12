@@ -30,14 +30,14 @@ def skip_if_false(exp):
 
 def get_gsm8k_data():
     # prepare test dataset
-    local_folder = os.path.expanduser("/demo-huabei2/lusz/dataset/gsm8k/")
+    local_folder = os.path.expanduser("~/dataset/gsm8k/")
     local_path = os.path.join(local_folder, "train.parquet")
     os.makedirs(local_folder, exist_ok=True)
     return local_path
 
 
 def get_code_data():
-    local_folder = os.path.expanduser("/demo-huabei2/chenhaiquan/dataset/Eurus-2-RL-Data/")
+    local_folder = os.path.expanduser("~/dataset/Eurus-2-RL-Data/")
     local_path = os.path.join(local_folder, "train.parquet")
     os.makedirs(local_folder, exist_ok=True)
     return local_path
@@ -71,7 +71,7 @@ class TestStreamScheduler:
     @pytest.fixture
     def code_dataset(self):
         def gen_code():
-            dataset = load_dataset("/demo-huabei2/chenhaiquan/dataset/Eurus-2-RL-Data/", split="train")
+            dataset = load_dataset("~/dataset/Eurus-2-RL-Data/", split="train")
             print("finish")
             prompts = DataProto(
                 non_tensor_batch={"raw_prompt": np.array([dataset[idx]["prompt"] for idx in range(256, 256 + 8192)])}
@@ -86,7 +86,7 @@ class TestStreamScheduler:
 
     @pytest.fixture
     def large_model_path(self):
-        return "/demo-huabei2/common-models/Qwen/Qwen2.5-7B-Instruct"
+        return "Qwen/Qwen2.5-7B-Instruct"
 
     @pytest.fixture
     def sampling_params(self):
@@ -156,7 +156,9 @@ class TestStreamScheduler:
         config.actor_rollout_ref.rollout.temperature = 0.5
         config.actor_rollout_ref.rollout.gpu_memory_utilization = 0.5
         config.actor_rollout_ref.rollout.repetition_penalty = 1.0
+        config.data.train_batch_size = 3
         config.actor_rollout_ref.rollout.n = 2
+        config.actor_rollout_ref.rollout.chat_scheduler.prefetch_factor = 2
 
         from verl.utils import hf_tokenizer
         from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
@@ -180,7 +182,6 @@ class TestStreamScheduler:
 
         # Init sandbox and async rollout manager
         async_rollout_manager = init_async_rollout_manager(config)
-        batch_size = 3
         start_time = time.time()
         epoch_data = []
         stop_epoch = False
@@ -198,7 +199,7 @@ class TestStreamScheduler:
                 async_rollout_manager.wake_up()
                 print("all wake up")
                 stop_epoch, gen_batch_result, gen_batch, batch = async_rollout_manager.stream_generate_sequences(
-                    data_iter, batch_size, renew=renew
+                    data_iter, renew=renew
                 )
                 async_rollout_manager.sleep()
                 print("sleep finished")
@@ -217,9 +218,4 @@ class TestStreamScheduler:
             for j in range(4):
                 assert len(total_gen_batch[i][j]) == expect_length[i][j]
 
-        # torch.save(micro_result, "micro_result.pt")
-        # assert len(gen_batch_result) == len(gen_batch)*config.actor_rollout_ref.rollout.n
-        # assert len(gen_batch) == len(batch)
-        # assert stop_epoch is False
-        # then we need to verify the micro data order valid
         ray.shutdown()
