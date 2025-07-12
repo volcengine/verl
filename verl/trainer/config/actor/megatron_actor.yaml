@@ -73,9 +73,12 @@ megatron:
   # default use minimal performance-interference recompute methods
   recompute_config:
 
+    # Recompute granualarity, choices: ["full", "selective"]
     recompute_granularity: selective
 
-    recompute_modules: ['core_attn']
+    # Recompute modules, multiple choices: ["core_attn", "moe_act", "layernorm", "mla_up_proj", "mlp", "moe"]
+    # Please use correct module in matched model
+    recompute_modules: ["core_attn"]
 
     recompute_method: null
 
@@ -97,6 +100,10 @@ megatron:
 
   # enable megatron optimization config: communication/computation overlap, operators fusion, etc.
   optimization_config:
+    # default enabled config like megatron pretrain:
+    # tp_comm_overlap, masked_softmax_fusion, bias_activation_fusion, apply_rope_fusion, gradient_accumulation_fusion, deallocate_pipeline_outputs, persist_layer_norm
+    # MoE enabled
+    # moe_shared_expert_overlap, moe_grouped_gemm, moe_permute_fusion
     
     enabled: True
     

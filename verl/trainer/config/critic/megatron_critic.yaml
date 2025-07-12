@@ -108,9 +108,12 @@ megatron:
   # default use minimal performance-interference recompute methods
   recompute_config:
 
+    # Recompute granualarity, choices: ["full", "selective"]
     recompute_granularity: selective
 
-    recompute_modules: ['core_attn', 'mlp', 'layernorm']
+    # Recompute modules, multiple choices: ["core_attn", "moe_act", "layernorm", "mla_up_proj", "mlp", "moe"]
+    # Please use correct module in matched model
+    recompute_modules: ["core_attn"]
 
     recompute_method: null
 
