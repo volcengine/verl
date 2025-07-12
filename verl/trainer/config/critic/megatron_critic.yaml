@@ -110,7 +110,7 @@ megatron:
 
     recompute_granularity: selective
 
-    recompute_modules: ['core_attn', 'mlp', 'moe', 'moe_act', 'layernorm']
+    recompute_modules: ['core_attn', 'mlp', 'layernorm']
 
     recompute_method: null
 

@@ -104,9 +104,7 @@ class MegatronWorker(Worker):
 
             recompute_config = RecomputeConfig(
                 recompute_granularity=recompute_config.get("recompute_granularity", "selective"),
-                recompute_modules=recompute_config.get(
-                    "recompute_modules", ["core_attn", "mlp", "moe", "moe_act", "layernorm"]
-                ),
+                recompute_modules=recompute_config.get("recompute_modules", ["core_attn", "mlp", "layernorm"]),
                 recompute_method=recompute_config.get("recompute_method", None),
                 recompute_num_layers=recompute_config.get("recompute_num_layers", None),
             )
