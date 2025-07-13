@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import ClassVar, Set
+from typing import ClassVar
 
 from verl.base_config import BaseConfig
 
@@ -32,7 +32,7 @@ class ProfilerConfig(BaseConfig):
     """
 
     # the fields expected to be frozen
-    _frozen_fields: ClassVar[Set[str]] = {"discrete", "all_ranks", "ranks"}
+    _frozen_fields: ClassVar[set[str]] = {"discrete", "all_ranks", "ranks"}
 
     discrete: bool = False
 
