@@ -21,7 +21,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, TypedDict, Union
+from typing import Any, Dict, List, Optional, Union
 
 import datasets  # type: ignore
 import numpy as np
@@ -43,34 +43,10 @@ class TruncationStrategy(Enum):
     ERROR = "error"
 
 
-class MessageContent(TypedDict):
-    type: str  # "text", "image", "video"
-    text: Optional[str]
-
-
-class ChatMessage(TypedDict):
-    role: str  # "user", "assistant", "system"
-    content: Union[str, List[MessageContent]]
-
-
-class ExtraInfo(TypedDict, total=False):
-    index: int
-    tools_kwargs: Dict[str, Any]
-    interaction_kwargs: Dict[str, Any]
-    need_tools_kwargs: bool
-
-
-class RawDataRow(TypedDict, total=False):
-    prompt: List[ChatMessage]
-    images: Optional[List[str]]
-    videos: Optional[List[str]]
-    extra_info: Optional[ExtraInfo]
-
-
 @dataclass
 class ProcessingContext:
-    raw_row: RawDataRow
-    messages: List[ChatMessage]
+    raw_row: dict
+    messages: list[dict]
     raw_prompt: str
     model_inputs: Dict[str, Any]
     multi_modal_data: Optional[Dict[str, Any]] = None
@@ -94,7 +70,7 @@ class ItemMetadata:
 
 @dataclass
 class OptionalOutputs:
-    raw_prompt: Optional[List[ChatMessage]] = None
+    raw_prompt: Optional[list[dict]] = None
     full_prompts: Optional[str] = None
     multi_modal_data: Optional[Dict[str, Any]] = None
     multi_modal_inputs: Optional[Dict[str, Any]] = None
@@ -313,7 +289,7 @@ class RLHFDataset(Dataset):
         Note: We return raw_input_ids so it can be combined with other chat templates.
         """
 
-        raw_row: RawDataRow = self.dataframe[item]
+        raw_row: dict = self.dataframe[item]
         context = self._create_processing_context(raw_row)
 
         if self.processor is not None:
@@ -328,7 +304,7 @@ class RLHFDataset(Dataset):
         processed_item = self._build_processed_item(context)
         return processed_item.to_dict()
 
-    def _create_processing_context(self, raw_row: RawDataRow) -> ProcessingContext:
+    def _create_processing_context(self, raw_row: dict) -> ProcessingContext:
         """Create processing context from raw data row."""
         # Make a copy to avoid modifying the original
         row_copy = dict(raw_row)
@@ -343,7 +319,7 @@ class RLHFDataset(Dataset):
             extra_info=extra_info,
         )
 
-    def _extract_extra_info(self, raw_row: RawDataRow) -> Dict[str, Any]:
+    def _extract_extra_info(self, raw_row: dict) -> Dict[str, Any]:
         """Safely extract extra_info with defaults."""
         extra_info_raw = raw_row.get("extra_info")
         if extra_info_raw is None:
@@ -443,12 +419,13 @@ class RLHFDataset(Dataset):
         if len(raw_prompt_ids) > self.max_prompt_length:
             try:
                 strategy = TruncationStrategy(self.truncation)
-            except ValueError:
+            except ValueError as err:
                 raise ValueError(
                     f"Invalid truncation strategy: '{self.truncation}'. "
                     f"Valid options are: {[s.value for s in TruncationStrategy]}"
-                )
+                ) from err
 
+            raw_prompt_ids = self._apply_truncation(raw_prompt_ids, strategy)
 
         context.model_inputs["raw_prompt_ids"] = raw_prompt_ids
 
