@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict
 
 import ray
 
@@ -22,7 +21,7 @@ class WorkerGroupRegisterCenter:
     def __init__(self, rank_zero_info):
         self.rank_zero_info = rank_zero_info
         # rank -> node_id
-        self.workers_info: Dict[int, str] = {}
+        self.workers_info: dict[int, str] = {}
 
     def get_rank_zero_info(self):
         return self.rank_zero_info
@@ -30,7 +29,7 @@ class WorkerGroupRegisterCenter:
     def set_worker_info(self, rank, node_id) -> None:
         self.workers_info[rank] = node_id
 
-    def get_worker_info(self) -> Dict[int, str]:
+    def get_worker_info(self) -> dict[int, str]:
         return self.workers_info
 
 

@@ -263,10 +263,7 @@ class AsyncDoubleBufferGroupOffloadHandler(SynchronizedGroupOffloadHandler):
     def tensor_push(self, tensor: torch.Tensor, **kwargs) -> Any:
         torch_stray_tensor = isinstance(
             tensor,
-            (
-                torch._subclasses.fake_tensor.FakeTensor,
-                torch._subclasses.functional_tensor.FunctionalTensor,
-            ),
+            torch._subclasses.fake_tensor.FakeTensor | torch._subclasses.functional_tensor.FunctionalTensor,
         )
         need_offload = not torch_stray_tensor
         need_offload = need_offload and self.tensor_need_offloading_checker(tensor)
@@ -451,7 +448,7 @@ class ActivationHandler:
         if len(kwarg_keys) == 0:
             return flat_args, {}
         args = flat_args[: -len(kwarg_keys)]
-        kwargs = dict(zip(kwarg_keys, flat_args[-len(kwarg_keys) :]))
+        kwargs = dict(zip(kwarg_keys, flat_args[-len(kwarg_keys) :], strict=True))
         return args, kwargs
 
     def _ckpt_forward(self, forward_method, *args, **kwargs):
@@ -526,7 +523,7 @@ def enable_activation_offloading(model, strategy, enable_ckpt=False):
 
     def get_layers(module):
         for name, child in module.named_children():
-            if not isinstance(child, (FSDP, FSDP2)):
+            if not isinstance(child, FSDP | FSDP2):
                 get_layers(child)
             else:
                 wrapped_module = child
