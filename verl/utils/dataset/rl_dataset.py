@@ -441,8 +441,14 @@ class RLHFDataset(Dataset):
         raw_prompt_ids = self.tokenizer.encode(context.raw_prompt, add_special_tokens=False)
 
         if len(raw_prompt_ids) > self.max_prompt_length:
-            strategy = TruncationStrategy(self.truncation)
-            raw_prompt_ids = self._apply_truncation(raw_prompt_ids, strategy)
+            try:
+                strategy = TruncationStrategy(self.truncation)
+            except ValueError:
+                raise ValueError(
+                    f"Invalid truncation strategy: '{self.truncation}'. "
+                    f"Valid options are: {[s.value for s in TruncationStrategy]}"
+                )
+
 
         context.model_inputs["raw_prompt_ids"] = raw_prompt_ids
 
