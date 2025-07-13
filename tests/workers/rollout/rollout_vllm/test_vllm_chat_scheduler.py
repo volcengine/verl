@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import json
-from typing import Any, Tuple
+from typing import Any
 
 import numpy as np
 import pytest
 import ray
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from transformers.utils import get_json_schema
 
 from tests.workers.rollout.async_rollout_utils import init_async_rollout_manager
@@ -28,7 +28,12 @@ from verl.utils import hf_tokenizer
 
 @pytest.fixture
 def init_config() -> DictConfig:
-    config = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
+    import os
+
+    from hydra import compose, initialize_config_dir
+
+    with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
+        config = compose(config_name="ppo_trainer")
     model_path = "Qwen/Qwen2.5-1.5B-Instruct"
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.rollout.mode = "async"
@@ -115,7 +120,7 @@ class WeatherTool(BaseTool):
         schema = get_json_schema(self.get_current_temperature)
         return OpenAIFunctionToolSchema(**schema)
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         try:
             result = self.get_current_temperature(**parameters)
             return json.dumps(result), 0, {}
@@ -146,7 +151,7 @@ class WeatherToolWithData(BaseTool):
             "unit": unit,
         }
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         try:
             result = self.get_temperature_date(**parameters)
             return json.dumps(result), 0, {}
@@ -195,7 +200,11 @@ def test_vllm_async_rollout_with_tool_calls(init_config):
             {"role": "user", "content": "What's the temperature in Los Angeles now?"},
         ],
         [
-            {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.\n\nCurrent Date: 2024-09-30"},
+            {
+                "role": "system",
+                "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.\n\n"
+                "Current Date: 2024-09-30",
+            },
             {"role": "user", "content": "What's the temperature in San Francisco now? How about tomorrow?"},
         ],
     ]

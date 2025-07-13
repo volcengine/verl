@@ -19,7 +19,7 @@ import json
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any
 from uuid import uuid4
 
 import aiohttp
@@ -35,6 +35,7 @@ from verl.protocol import DataProto
 from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
+from verl.utils.import_utils import deprecated
 
 logger = logging.getLogger(__file__)
 
@@ -61,12 +62,12 @@ class CompletionCallback(ABC):
         return self._tool_schemas
 
     @property
-    def extra_body(self) -> Dict[str, Any]:
+    def extra_body(self) -> dict[str, Any]:
         """Extra body pass to OpenAI API."""
         return None
 
     @abstractmethod
-    async def __call__(self, messages: List[Dict[str, str]], completions: ChatCompletion, info: Dict[str, Any]):
+    async def __call__(self, messages: list[dict[str, str]], completions: ChatCompletion, info: dict[str, Any]):
         """Call back function to process completions.
 
         Args:
@@ -77,7 +78,7 @@ class CompletionCallback(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def postprocess(self, batch: DataProto, batch_conversations: List[List[Dict[str, str]]], n: int) -> DataProto:
+    def postprocess(self, batch: DataProto, batch_conversations: list[list[dict[str, str]]], n: int) -> DataProto:
         """Post process batch data.
 
         Args:
@@ -88,7 +89,8 @@ class CompletionCallback(ABC):
             n: How many chat completion choices to generate for each input message.
 
         Returns:
-            Batch data, should include ["prompts", "responses", "response_mask", "input_ids", "attention_mask", "position_ids"].
+            Batch data, should include ["prompts", "responses", "response_mask", "input_ids", "attention_mask",
+            "position_ids"].
         """
         raise NotImplementedError
 
@@ -99,7 +101,7 @@ class ToolCompletionCallback(CompletionCallback):
 
         # TODO: add reward manager to calculate reward score once a sample finish
 
-    async def __call__(self, messages: List[Dict[str, str]], completions: ChatCompletion, info: Dict[str, Any]):
+    async def __call__(self, messages: list[dict[str, str]], completions: ChatCompletion, info: dict[str, Any]):
         message = completions.choices[0].message.model_dump(exclude_unset=True, exclude_none=True)
         if "content" not in message:
             message["content"] = ""
@@ -124,14 +126,17 @@ class ToolCompletionCallback(CompletionCallback):
             tasks.append(self._call_tool(tool_call))
         tool_responses = await asyncio.gather(*tasks)
         if any(isinstance(item, Exception) for item in tool_responses):
-            print(f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] Error when calling tools, done!")
+            print(
+                f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] Error when calling tools, "
+                f"done!"
+            )
             return
         messages.extend(tool_responses)
 
         # STEP 3: resubmit completion request with tool responses
         self.scheduler.submit_chat_completions(messages=messages, request_id=completions.id, info=info)
 
-    async def _call_tool(self, tool_call) -> Dict[str, str]:
+    async def _call_tool(self, tool_call) -> dict[str, str]:
         """Call tool and return tool response."""
         tool_name = tool_call.function.name
         tool_args = json.loads(tool_call.function.arguments)
@@ -152,7 +157,7 @@ class ToolCompletionCallback(CompletionCallback):
             "tool_call_id": tool_call.id,
         }
 
-    def postprocess(self, batch: DataProto, batch_conversations: List[List[Dict[str, str]]], n: int) -> DataProto:
+    def postprocess(self, batch: DataProto, batch_conversations: list[list[dict[str, str]]], n: int) -> DataProto:
         # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
         # prompts: left pad
         # responses: right pad
@@ -161,11 +166,21 @@ class ToolCompletionCallback(CompletionCallback):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
 
         # prompts: [prompt] from input dataset
-        prompts = [self.tokenizer.apply_chat_template(prompt, tools=self.tool_schemas, add_generation_prompt=True, tokenize=False) for prompt in batch.non_tensor_batch["raw_prompt"]]
+        prompts = [
+            self.tokenizer.apply_chat_template(
+                prompt, tools=self.tool_schemas, add_generation_prompt=True, tokenize=False
+            )
+            for prompt in batch.non_tensor_batch["raw_prompt"]
+        ]
         assert len(batch_conversations) == len(prompts) * n
 
         # sequences: [prompt + response]
-        sequences = [self.tokenizer.apply_chat_template(conversation, tools=self.tool_schemas, add_generation_prompt=False, tokenize=False) for conversation in batch_conversations]
+        sequences = [
+            self.tokenizer.apply_chat_template(
+                conversation, tools=self.tool_schemas, add_generation_prompt=False, tokenize=False
+            )
+            for conversation in batch_conversations
+        ]
 
         # responses: [response]
         responses = [sequence[len(prompts[i // n]) :] for i, sequence in enumerate(sequences)]
@@ -177,7 +192,12 @@ class ToolCompletionCallback(CompletionCallback):
             prompts["attention_mask"] = prompts["attention_mask"].repeat_interleave(n, dim=0)
 
         # response_mask: response mask with tools calling masked out
-        response_mask = self._mask_out_tools_calling_tokens(batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0), batch_conversations, responses["input_ids"], responses["attention_mask"])
+        response_mask = self._mask_out_tools_calling_tokens(
+            batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0),
+            batch_conversations,
+            responses["input_ids"],
+            responses["attention_mask"],
+        )
 
         input_ids = torch.cat([prompts["input_ids"], responses["input_ids"]], dim=1)
         attention_mask = torch.cat([prompts["attention_mask"], responses["attention_mask"]], dim=1)
@@ -200,8 +220,8 @@ class ToolCompletionCallback(CompletionCallback):
 
     def _mask_out_tools_calling_tokens(
         self,
-        raw_prompts: List[List[Dict[str, str]]],
-        batch_conversations: List[List[Dict[str, str]]],
+        raw_prompts: list[list[dict[str, str]]],
+        batch_conversations: list[list[dict[str, str]]],
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
     ) -> torch.Tensor:
@@ -249,11 +269,12 @@ class ToolCompletionCallback(CompletionCallback):
         return loss_mask
 
 
+@deprecated("verl.experimental.agent_loop.AgentLoopManager")
 class ChatCompletionScheduler:
     def __init__(
         self,
         config: DictConfig,
-        server_addresses: List[str],
+        server_addresses: list[str],
         max_cache_size: int = 10000,
     ):
         """
@@ -282,7 +303,7 @@ class ChatCompletionScheduler:
             module = importlib.import_module(module_path)
             self.completion_callback = getattr(module, class_name)(config, self)
 
-    def submit_chat_completions(self, *, messages: List[Dict[str, str]], request_id: str, info: Dict[str, Any]):
+    def submit_chat_completions(self, *, messages: list[dict[str, str]], request_id: str, info: dict[str, Any]):
         """Submit chat completion request without wait, completion_callback will be called when the request is done.
 
         Args:
@@ -299,9 +320,9 @@ class ChatCompletionScheduler:
 
     async def _submit_chat_completions_and_callback(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         request_id: str,
-        info: Dict[str, Any],
+        info: dict[str, Any],
     ):
         """Submit chat completion request, wait request finish and do callback."""
         if request_id:
@@ -406,7 +427,9 @@ class ChatCompletionScheduler:
         print("[ChatCompletionScheduler] generate_sequences done")
         return output_batch
 
-    async def _submit_chat_completions_semaphore(self, messages: List[Dict[str, str]], request_id: str, sampling_params: Dict[str, Any]):
+    async def _submit_chat_completions_semaphore(
+        self, messages: list[dict[str, str]], request_id: str, sampling_params: dict[str, Any]
+    ):
         done = asyncio.Event()
 
         info = {

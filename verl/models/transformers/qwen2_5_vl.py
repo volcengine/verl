@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import Optional
 
 import torch
 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
@@ -33,7 +33,7 @@ def forward_base_model(
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[List[torch.FloatTensor]] = None,
+    past_key_values: Optional[list[torch.FloatTensor]] = None,
     inputs_embeds: Optional[torch.FloatTensor] = None,
     use_cache: Optional[bool] = None,
     output_attentions: Optional[bool] = None,
@@ -46,13 +46,15 @@ def forward_base_model(
     rope_deltas: Optional[torch.LongTensor] = None,
     cache_position: Optional[torch.LongTensor] = None,
     second_per_grid_ts: Optional[torch.Tensor] = None,
-) -> Union[Tuple, Qwen2_5_VLCausalLMOutputWithPast]:
+) -> tuple | Qwen2_5_VLCausalLMOutputWithPast:
     r"""
     Copy paste Qwen2_5_VL's forward
     https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/transformers/model/qwen2_5_vl.py
     ```"""
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-    output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    output_hidden_states = (
+        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    )
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
     if inputs_embeds is None:
@@ -63,7 +65,10 @@ def forward_base_model(
             n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
             n_image_features = image_embeds.shape[0]
             if n_image_tokens != n_image_features:
-                raise ValueError(f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}")
+                raise ValueError(
+                    f"Image features and image tokens do not match: tokens: {n_image_tokens}, "
+                    f"features {n_image_features}"
+                )
 
             mask = input_ids == self.config.image_token_id
             mask_unsqueezed = mask.unsqueeze(-1)
@@ -79,7 +84,10 @@ def forward_base_model(
             n_video_tokens = (input_ids == self.config.video_token_id).sum().item()
             n_video_features = video_embeds.shape[0]
             if n_video_tokens != n_video_features:
-                raise ValueError(f"Video features and video tokens do not match: tokens: {n_video_tokens}, features {n_video_features}")
+                raise ValueError(
+                    f"Video features and video tokens do not match: tokens: {n_video_tokens}, "
+                    f"features {n_video_features}"
+                )
 
             mask = input_ids == self.config.video_token_id
             mask_unsqueezed = mask.unsqueeze(-1)
@@ -135,7 +143,7 @@ def forward_with_torch_backend(
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[List[torch.FloatTensor]] = None,
+    past_key_values: Optional[list[torch.FloatTensor]] = None,
     inputs_embeds: Optional[torch.FloatTensor] = None,
     labels: Optional[torch.LongTensor] = None,
     use_cache: Optional[bool] = None,
@@ -151,7 +159,7 @@ def forward_with_torch_backend(
     second_per_grid_ts: Optional[torch.Tensor] = None,
     temperature: float = 1.0,
     **loss_kwargs,
-) -> Union[Tuple, Qwen2_5_VLCausalLMOutputForPPO]:
+) -> tuple | Qwen2_5_VLCausalLMOutputForPPO:
     from verl.utils.experimental.torch_functional import FusedLinearForPPO
 
     outputs = forward_base_model(
@@ -210,7 +218,7 @@ def forward_with_triton_backend(
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[List[torch.FloatTensor]] = None,
+    past_key_values: Optional[list[torch.FloatTensor]] = None,
     inputs_embeds: Optional[torch.FloatTensor] = None,
     labels: Optional[torch.LongTensor] = None,
     use_cache: Optional[bool] = None,
@@ -226,7 +234,7 @@ def forward_with_triton_backend(
     second_per_grid_ts: Optional[torch.Tensor] = None,
     temperature: float = 1.0,
     **loss_kwargs,
-) -> Union[Tuple, Qwen2_5_VLCausalLMOutputForPPO]:
+) -> tuple | Qwen2_5_VLCausalLMOutputForPPO:
     from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
 
     outputs = forward_base_model(

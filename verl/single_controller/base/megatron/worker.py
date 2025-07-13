@@ -47,6 +47,7 @@ class MegatronWorker(Worker):
         override_model_config,
         override_transformer_config,
         trust_remote_code=False,
+        use_mbridge=False,
     ):
         from transformers import AutoConfig
 
@@ -95,7 +96,9 @@ class MegatronWorker(Worker):
             if self.config.model.get("enable_gradient_checkpointing", False):
                 gradient_checkpointing_cfg = dict(self.config.model.get("gradient_checkpointing_kwargs", dict()))
                 tf_config.recompute_method = gradient_checkpointing_cfg.get("activations_checkpoint_method", "full")
-                tf_config.recompute_granularity = gradient_checkpointing_cfg.get("activations_checkpoint_granularity", "full")
+                tf_config.recompute_granularity = gradient_checkpointing_cfg.get(
+                    "activations_checkpoint_granularity", "full"
+                )
                 tf_config.recompute_num_layers = gradient_checkpointing_cfg.get("activations_checkpoint_num_layers", -1)
             if megatron_config := self.config.get("megatron", {}):
                 if extra := megatron_config.get("extra", {}):
@@ -103,6 +106,15 @@ class MegatronWorker(Worker):
                         setattr(tf_config, k, v)
 
         add_optimization_config_to_tf_config(tf_config)
+        if use_mbridge:
+            from verl.models.mcore.mbridge import AutoBridge
+
+            bridge = AutoBridge.from_config(hf_config)
+            bridge.set_extra_args(**override_transformer_config)
+            tf_config = bridge.config
+            self.bridge = bridge
+        else:
+            self.bridge = None
 
         print(f"TF config: {tf_config}")
         self.hf_config = hf_config

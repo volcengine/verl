@@ -102,14 +102,7 @@ Solution 2nd:
 Illegal memory access
 ---------------------------------
 
-If you encounter the error message like ``CUDA error: an illegal memory access was encountered`` during rollout, most likely it is due to a known issue from vllm(<=0.6.3).
-Please set the following environment variable. The env var must be set before the ``ray start`` command if any.
-
-.. code:: bash
-
-    export VLLM_ATTENTION_BACKEND=XFORMERS
-
-If in doubt, print this env var in each rank to make sure it is properly set.
+If you encounter the error message like ``CUDA error: an illegal memory access was encountered`` during rollout, please check the vLLM documentation for troubleshooting steps specific to your vLLM version.
 
 Checkpoints
 ------------------------
@@ -183,3 +176,22 @@ Comparing to using global https_proxy env variable, this approach won't mess up 
 .. code:: bash
 
   +trainer.wandb_proxy=http://<your proxy and port>
+
+How to trace rollout and toolcall data?
+---------------------------------------
+
+To enable trace rollout data, you can set the config term ``trainer.rollout_trace.backend`` to a backend name.
+
+For example:
+
+.. code:: bash
+
+  +trainer.rollout_trace.backend=weave # only wandb weave is support now
+
+To show decoded text in trace view, you can set the config term ``trainer.rollout_trace.token2text`` to True.
+For example:
+
+.. code:: bash
+
+  +trainer.rollout_trace.token2text=True # default to False for better performance
+

@@ -37,16 +37,15 @@ from types import ModuleType
 from typing import Iterable
 
 _ALLOW_LIST = [
-    "verl.third_party.vllm.LLMEngine",
     "verl.third_party.vllm.LLM",
     "verl.third_party.vllm.parallel_state",
-    "verl.utils.debug.WorkerProfiler",
-    "verl.utils.debug.WorkerProfilerExtension",
-    "verl.utils.debug.log_gpu_memory_usage",
-    "verl.utils.debug.log_print",
-    "verl.utils.debug.mark_annotate",
-    "verl.utils.debug.mark_end_range",
-    "verl.utils.debug.mark_start_range",
+    "verl.utils.profiler.WorkerProfiler",
+    "verl.utils.profiler.WorkerProfilerExtension",
+    "verl.utils.profiler.log_gpu_memory_usage",
+    "verl.utils.profiler.log_print",
+    "verl.utils.profiler.mark_annotate",
+    "verl.utils.profiler.mark_end_range",
+    "verl.utils.profiler.mark_start_range",
     "verl.models.mcore.qwen2_5_vl.get_vision_model_config",
     "verl.models.mcore.qwen2_5_vl.get_vision_projection_config",
 ]

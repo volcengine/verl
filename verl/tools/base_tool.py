@@ -13,8 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import json
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 from uuid import uuid4
+
+from verl.utils.rollout_trace import rollout_trace_op
 
 from .schemas import OpenAIFunctionToolSchema
 
@@ -55,7 +57,8 @@ class BaseTool:
         else:
             return instance_id
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    @rollout_trace_op
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         """Execute the tool.
 
         Args:

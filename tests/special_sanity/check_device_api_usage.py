@@ -25,12 +25,10 @@ from pathlib import Path
 # directory or file path must contain keyword ".cuda" or "cuda"
 CUDA_KEYWORD_CHECK_WHITELIST = [
     "verl/utils/device.py",
-    "verl/third_party/vllm/vllm_v_0_5_4",
-    "verl/third_party/vllm/vllm_v_0_6_3",
     "recipe/prime/prime_ray_trainer.py",  # appear in default device_name
     "recipe/spin/spin_trainer.py",  # appear in default device_name
     "recipe/sppo/sppo_ray_trainer.py",  # appear in default device_name
-    "verl/utils/debug/nvtx_profile.py",  # appear in NsightSystemsProfiler
+    "verl/utils/profiler/nvtx_profile.py",  # appear in NsightSystemsProfiler
     "verl/utils/kernel/linear_cross_entropy.py",  # appear in nvidia nvtx
     "verl/utils/rendezvous/ray_backend.py",  # appear in cupy importance
     "verl/single_controller/ray/base.py",  # appear in default device_name
@@ -42,8 +40,6 @@ CUDA_KEYWORD_CHECK_WHITELIST = [
 # directory or file path must contain keyword "nccl"
 NCCL_KEYWORD_CHECK_WHITELIST = [
     "verl/utils/device.py",
-    "verl/third_party/vllm/vllm_v_0_5_4",
-    "verl/third_party/vllm/vllm_v_0_6_3",
     "verl/third_party/sglang/parallel_state.py",  # appear in default backend
 ]
 
@@ -86,6 +82,12 @@ if __name__ == "__main__":
                     find_invalid_device_management = True
                     break
 
-            print(f"[CHECK] File {path_in_str} is detected for device api usage check, check result: {'success' if not find_invalid_device_management else f'failed, because detect {sk}'}.")
+            print(
+                f"[CHECK] File {path_in_str} is detected for device api usage check, check result: "
+                f"{'success' if not find_invalid_device_management else f'failed, because detect {sk}'}."
+            )
 
-            assert not find_invalid_device_management, f'file {path_in_str} contains .cuda/"cuda"/"nccl" usage, please use api in verl/utils/device.py directly.'
+            assert not find_invalid_device_management, (
+                f'file {path_in_str} contains .cuda/"cuda"/"nccl" usage, please use api in '
+                f"verl/utils/device.py directly."
+            )

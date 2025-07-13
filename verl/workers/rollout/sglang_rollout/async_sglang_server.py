@@ -14,7 +14,7 @@
 # limitations under the License.
 import asyncio
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 import ray
 from omegaconf import DictConfig
@@ -43,7 +43,9 @@ class AsyncSglangServer(AsyncServerBase):
             # avoid init twice
             return
         all_actors = ray.util.list_named_actors(all_namespaces=True)
-        matched_actors = [actor for actor in all_actors if actor.get("name", None).startswith(self.wg_prefix + "WorkerDict_")]
+        matched_actors = [
+            actor for actor in all_actors if actor.get("name", None).startswith(self.wg_prefix + "WorkerDict_")
+        ]
 
         for matched_actor in matched_actors:
             fields = matched_actor["name"].split(":")
@@ -64,7 +66,7 @@ class AsyncSglangServer(AsyncServerBase):
         [outputs] = await asyncio.gather(output_future)
         return JSONResponse(outputs)
 
-    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
         return await self.master_worker.generate.remote(prompt_ids, sampling_params, request_id)
 
     async def wake_up(self):

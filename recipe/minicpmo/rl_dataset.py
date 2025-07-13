@@ -19,7 +19,7 @@ import logging
 import math
 import os
 import re
-from typing import Dict, List, Optional, Union
+from typing import Optional
 
 import datasets
 import torch
@@ -88,7 +88,7 @@ def preprocess(
     assert conversations[0]["role"] == "user", "the first role must be user"
 
     if slice_config is not None:
-        assert isinstance(slice_config, Dict)
+        assert isinstance(slice_config, dict)
         assert "patch_size" in slice_config
         assert "max_slice_nums" in slice_config
         assert "scale_resolution" in slice_config
@@ -116,7 +116,9 @@ def preprocess(
                     for j in range(len(patches[0])):
                         images.append(patches[i][j])
                 if use_image_id:
-                    image_placeholder = f"{tokenizer.im_id_start}{image_id_cnt}{tokenizer.im_id_end}" + image_placeholder
+                    image_placeholder = (
+                        f"{tokenizer.im_id_start}{image_id_cnt}{tokenizer.im_id_end}" + image_placeholder
+                    )
                     image_id_cnt += 1
                 image_placeholder += get_grid_placeholder(tokenizer, best_grid, query_nums, new_schema=new_schema)
             image_placeholder_dict[img_name] = image_placeholder
@@ -341,14 +343,18 @@ def init_minicpmo_config(processor, config):
         "transform": build_transform(),
         "patch_size": config.get("patch_size", 14),
         "query_nums": config.get("query_nums", 64),
-        "slice_config": config.get("slice_config", {"max_slice_nums": 9, "patch_size": config.get("patch_size", 14), "scale_resolution": 448}),
+        "slice_config": config.get(
+            "slice_config", {"max_slice_nums": 9, "patch_size": config.get("patch_size", 14), "scale_resolution": 448}
+        ),
         "llm_type": config.get("llm_type", "qwen"),
         "batch_vision": config.get("batch_vision", True),
     }
     return minicpmo_config
 
 
-def process_minicpmo_data(row_dict, messages, tokenizer, minicpmo_config, image_key, max_prompt_length, truncation, logger):
+def process_minicpmo_data(
+    row_dict, messages, tokenizer, minicpmo_config, image_key, max_prompt_length, truncation, logger
+):
     """Process data for MiniCPM-o model"""
     if len(row_dict[image_key]) == 1:
         multi_modal_data = {}
@@ -398,12 +404,12 @@ class RLHFDataset(Dataset):
 
     def __init__(
         self,
-        data_files: Union[str, List[str]],
+        data_files: str | list[str],
         tokenizer: PreTrainedTokenizer,
         config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
     ):
-        if not isinstance(data_files, (List, ListConfig)):
+        if not isinstance(data_files, list | ListConfig):
             data_files = [data_files]
 
         self.data_files = copy.deepcopy(data_files)

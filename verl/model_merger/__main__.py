@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """
-This script is used to merge huggingface model and test verl checkpoints from FSDP and Megatron backends.
+This module is used to merge huggingface model and test verl checkpoints from FSDP and Megatron backends.
 
 To merge FSDP checkpoints:
 ```sh

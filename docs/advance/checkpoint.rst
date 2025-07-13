@@ -1,3 +1,5 @@
+.. _checkpoint-page:
+
 Using Checkpoints to Support Fault Tolerance Training
 =====================================================
 
@@ -28,12 +30,14 @@ So the inner checkpoint structure of **FSDP** is like:
     checkpoints/${trainer.project_name}/${trainer.experiment_name}
     ├── global_steps_${i}
     │   ├── actor
-    │   │   ├── huggingface     # default save config and tokenizer, save huggingface model if include ``hf_model`` in checkpoint.contents
+    │   │   ├── huggingface      # default save config and tokenizer, save huggingface model if include ``hf_model`` in checkpoint.contents
+    │   │   └── fsdp_config.json # FSDP config file, including world_size and fsdp version
     │   │   ├── model_world_size_{self.world_size}_rank_{self.rank}.pt
     │   │   ├── optim_world_size_{self.world_size}_rank_{self.rank}.pt
     │   │   └── extra_state_world_size_{self.world_size}_rank_{self.rank}.pt
     │   ├── critic
     │   │   ├── huggingface
+    │   │   └── fsdp_config.json
     │   │   ├── model_world_size_{self.world_size}_rank_{self.rank}.pt
     │   │   ├── optim_world_size_{self.world_size}_rank_{self.rank}.pt
     │   │   └── extra_state_world_size_{self.world_size}_rank_{self.rank}.pt
@@ -59,16 +63,15 @@ Convert FSDP and Megatron Checkpoints to HuggingFace Format Model
 -----------------------------------------------------------------
 
 We provide a tool to convert the FSDP and Megatron checkpoints to HuggingFace format model.
-The tool is located in ``verl/model_merger``.
+The tool is located in ``verl/model_merger``. For older versions of verl that don't include fsdp_config.json in checkpoints, you can use the legacy model merger located at ``verl/scripts/legacy_model_merger.py``.
 
 The script supports two main sub-commands: `merge` (to convert and save checkpoints) and `test` (to validate merged checkpoints against a reference model).
 The arguments for the `merge` sub-command are as follows:
 
 .. code:: bash
 
-    usage: python -m verl.model_merger merge [-h] --backend {fsdp,megatron} --local_dir LOCAL_DIR [--hf_model_path HF_MODEL_PATH]
-                                [--tie-word-embedding] [--is-value-model] [--target_dir TARGET_DIR]
-                                [--hf_upload_path HF_UPLOAD_PATH] [--private]
+    usage: python -m verl.model_merger merge [-h] --backend {fsdp,megatron} [--local_dir LOCAL_DIR] [--tie-word-embedding] [--is-value-model] [--use_cpu_initialization] [--target_dir TARGET_DIR]
+                         [--hf_upload_path HF_UPLOAD_PATH] [--private]
 
     options:
     -h, --help            show this help message and exit
@@ -76,10 +79,10 @@ The arguments for the `merge` sub-command are as follows:
                             The backend of the model
     --local_dir LOCAL_DIR
                             Path to the saved model checkpoints
-    --hf_model_path HF_MODEL_PATH
-                            (Deprecated) Path to the original Hugging Face model for config.
     --tie-word-embedding  Whether to tie word embedding weights (currently only Megatron supported)
     --is-value-model      Whether the model is a value model (currently only Megatron supported)
+    --use_cpu_initialization
+                            Whether to use CPU initialization for the model. This is useful for large models that cannot fit into GPU memory during initialization.
     --target_dir TARGET_DIR
                             Directory to save the merged huggingface model
     --hf_upload_path HF_UPLOAD_PATH

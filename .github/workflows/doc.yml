@@ -94,3 +94,7 @@ jobs:
             echo "🚨 Sphinx doc build contained WARNING. Please check inline emphasis is correct. See _build/sphinx.log for details"
             exit 1
           fi
+          if grep -q "WARNING: Definition list ends without a blank line" _build/sphinx.log; then
+            echo "🚨 Sphinx doc build contained WARNING. Please check if the indentation is correct. See _build/sphinx.log for details"
+            exit 1
+          fi

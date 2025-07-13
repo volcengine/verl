@@ -104,7 +104,9 @@ def fit(self):
 
                         del gen_baseline_batch, gen_baseline_output
 
-                batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+                batch.non_tensor_batch["uid"] = np.array(
+                    [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
+                )
                 # repeat to align with repeated responses in rollout
                 batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                 batch = batch.union(gen_batch_output)
@@ -151,7 +153,9 @@ def fit(self):
 
                     # compute rewards. apply_kl_penalty if available
                     if self.config.algorithm.use_kl_in_reward:
-                        batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty)
+                        batch, kl_metrics = apply_kl_penalty(
+                            batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty
+                        )
                         metrics.update(kl_metrics)
                     else:
                         batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
@@ -167,16 +171,18 @@ def fit(self):
                         norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                     )
 
+                # implement critic warmup
+                if self.config.trainer.critic_warmup <= self.global_steps:
+                    # update actor
+                    with marked_timer("update_actor_call", timing_raw):
+                        actor_output = self.actor_rollout_wg.update_actor(batch)
+                else:
+                    actor_output = None
+
                 # update critic
                 if self.use_critic:
                     with marked_timer("update_critic_call", timing_raw):
                         critic_output = self.critic_wg.update_critic(batch)
-
-                    # implement critic warmup
-                    if self.config.trainer.critic_warmup <= self.global_steps:
-                        # update actor
-                        with marked_timer("update_actor_call", timing_raw):
-                            actor_output = self.actor_rollout_wg.update_actor(batch)
 
                     # NOTE: make sure you set blocking=False in update_actor and update_crtic in the worker class
                     with marked_timer("update_actor_critic", timing_raw):
@@ -184,19 +190,26 @@ def fit(self):
                         critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
                         metrics.update(critic_output_metrics)
 
-                        actor_output = actor_output.get()
-                        actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
-                        metrics.update(actor_output_metrics)
+                if actor_output is not None:
+                    actor_output = actor_output.get()
+                    actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
+                    metrics.update(actor_output_metrics)
 
                 # validate
-                if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0):
+                if (
+                    self.val_reward_fn is not None
+                    and self.config.trainer.test_freq > 0
+                    and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+                ):
                     with marked_timer("testing", timing_raw):
                         val_metrics: dict = self._validate()
                         if is_last_step:
                             last_val_metrics = val_metrics
                     metrics.update(val_metrics)
 
-                if self.config.trainer.save_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0):
+                if self.config.trainer.save_freq > 0 and (
+                    is_last_step or self.global_steps % self.config.trainer.save_freq == 0
+                ):
                     with marked_timer("save_checkpoint", timing_raw):
                         self._save_checkpoint()
 

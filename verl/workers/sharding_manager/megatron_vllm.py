@@ -28,12 +28,12 @@ from torch import nn
 from verl import DataProto
 from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
 from verl.protocol import all_gather_data_proto
-from verl.third_party.vllm import LLM, customized_vllm
+from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
-from verl.utils.debug.performance import simple_timer
 from verl.utils.device import get_torch_device
 from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, per_tensor_generator
+from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage
+from verl.utils.profiler.performance import simple_timer
 from verl.utils.torch_functional import check_device_is_available
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
@@ -91,24 +91,25 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         weight_converter: McoreToHFWeightConverterBase,
         device_mesh,
         offload_param: bool = True,
+        bridge=None,
     ):
         self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.offload_param = offload_param
 
         # For AsyncLLM, inference_engine and model_runner are defer initialized in vLLMAsyncRollout.load_model
-        if "vllm_v_0_6_3" in str(type(self.inference_engine)) or "vllm_v_0_5_4" in str(type(self.inference_engine)):
-            # vLLM <= v0.6.3
-            self.model_runner = self.inference_engine.llm_engine.model_executor.worker.model_runner if self.inference_engine else None
-        else:
-            # vLLM > v0.6.3
-            self.model_runner = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if self.inference_engine else None
+        self.model_runner = (
+            self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner
+            if self.inference_engine
+            else None
+        )
 
         self.model_config = model_config
         self.transformer_config = transformer_config
         self.rollout_config = rollout_config
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
+        self.bridge = bridge
         # initialize groups for vllm inference
         self.rank = torch.distributed.get_rank()
         self.world_size = torch.distributed.get_world_size()
@@ -148,16 +149,14 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             if self.offload_param:
                 load_megatron_model_to_gpu(self.actor_module)
 
-            if customized_vllm:
-                per_tensor_param = per_tensor_generator(self.actor_module, self.model_config, self.weight_converter, self.transformer_config, self.layer_name_mapping, convert_qkv_gate_up_by_simple_split=False)
-                self.inference_engine.sync_model_weights(per_tensor_param, load_format="megatron")
+            if self.rollout_config.free_cache_engine:
+                if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+                    self.inference_engine.wake_up(tags=["weights"])
+                else:
+                    self.inference_engine.wake_up()
+            if self.bridge is not None:
+                per_tensor_param = self.bridge.export_weights(self.actor_module)
             else:
-                # > 0.7.2
-                if self.rollout_config.free_cache_engine:
-                    if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
-                        self.inference_engine.wake_up(tags=["weights"])
-                    else:
-                        self.inference_engine.wake_up()
                 per_tensor_param = per_tensor_generator(
                     self.actor_module,
                     self.model_config,
@@ -165,17 +164,20 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                     self.transformer_config,
                     self.layer_name_mapping,
                 )
-                model = self.model_runner.model
-                patch_vllm_moe_model_weight_loader(model)
-                loaded_params = model.load_weights(per_tensor_param)
-                info = f"vLLM load weights, loaded_params: {len(loaded_params)}"
-                logger.info(info)
+            model = self.model_runner.model
+            patch_vllm_moe_model_weight_loader(model)
+            loaded_params = model.load_weights(per_tensor_param)
+            info = f"vLLM load weights, loaded_params: {len(loaded_params)}"
+            logger.info(info)
 
             if self.offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
             get_torch_device().empty_cache()
 
-            if self.rollout_config.free_cache_engine and "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+            if (
+                self.rollout_config.free_cache_engine
+                and "tags" in inspect.signature(self.inference_engine.wake_up).parameters
+            ):
                 self.inference_engine.wake_up(tags=["kv_cache"])
 
             # important: need to manually set the random states of each tp to be identical.
@@ -185,9 +187,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        if customized_vllm:
-            self.inference_engine.offload_model_weights()
-        elif self.rollout_config.free_cache_engine:
+        if self.rollout_config.free_cache_engine:
             self.inference_engine.sleep(level=1)
         for model in self.actor_module:
             model.train()
@@ -206,10 +206,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             return data
 
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
-        if customized_vllm:
-            group = vllm_ps.get_tensor_model_parallel_group()
-        else:
-            group = vllm_ps.get_tensor_model_parallel_group().device_group
+        group = vllm_ps.get_tensor_model_parallel_group().device_group
 
         all_gather_data_proto(data=data, process_group=group)
         return data
