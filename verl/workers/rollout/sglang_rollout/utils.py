@@ -24,7 +24,7 @@ from verl.utils.device import get_device_name
 
 
 def broadcast_pyobj(
-    data: List[Any],
+    data: list[Any],
     rank: int,
     dist_group: Optional[torch.distributed.ProcessGroup] = None,
     src: int = 0,
