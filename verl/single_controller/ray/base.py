@@ -14,9 +14,7 @@
 
 import inspect
 import logging
-import os
 import time
-from contextlib import contextmanager
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -29,6 +27,7 @@ from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy, Place
 from verl.protocol import DataProto, _padding_size_key
 from verl.single_controller.base import ClassWithInitArgs, ResourcePool, Worker, WorkerGroup
 from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch
+from verl.utils.py_functional import temp_env_var
 
 __all__ = ["Worker"]
 
@@ -751,28 +750,6 @@ def _determine_fsdp_megatron_base_class(mros: List):
         if cls.__name__ == "Worker":
             return cls
     raise ValueError(f"Cannot determine base class for {mros}")
-
-
-@contextmanager
-def temp_env_var(key: str, value: str):
-    """Context manager for temporarily setting an environment variable.
-
-    Args:
-        key: Environment variable name
-        value: Environment variable value
-
-    Yields:
-        None
-    """
-    original = os.environ.get(key)
-    os.environ[key] = value
-    try:
-        yield
-    finally:
-        if original is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = original
 
 
 # deprecated, switching to FusedWorker
