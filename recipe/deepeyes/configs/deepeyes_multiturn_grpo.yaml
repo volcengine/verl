@@ -12,6 +12,9 @@ data:
   train_batch_size: 256
   return_raw_chat: True
   return_multi_modal_inputs: False
+  custom_cls:
+    path: "recipe/deepeyes/deepeyes.py"
+    name: CustomRLHFDataset
 
 actor_rollout_ref:
   hybrid_engine: True
@@ -22,8 +25,8 @@ actor_rollout_ref:
     multi_turn:
       enable: True
       max_assistant_turns: 5
-      tool_config_path: "recipe/deepeyes/configs/image_zoom_in_tool_config.yaml"
+      tool_config_path: "recipe/deepeyes/config/image_zoom_in_tool_config.yaml"
 
 custom_reward_function:
-  path: "recipe/deepeyes/reward_function.py"
+  path: "recipe/deepeyes/deepeyes.py"
   name: compute_score

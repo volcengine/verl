@@ -237,26 +237,47 @@ class ImageZoomInTool(BaseTool):
             center_y = (top + bottom) / 2.0
 
             min_dim = min(height, width)
-            # This should have been caught by _validate_bbox, but as a safeguard:
-            if min_dim == 0:
+            if min_dim == 0:  # Safeguard for zero-area boxes
                 return None
 
+            # 1. Calculate the target dimensions to make the smallest side MIN_DIMENSION.
             ratio = self.MIN_DIMENSION / min_dim
-            new_half_height = ceil(height * ratio * 0.5)
-            new_half_width = ceil(width * ratio * 0.5)
+            target_width = width * ratio
+            target_height = height * ratio
 
-            new_left = floor(center_x - new_half_width)
-            new_right = ceil(center_x + new_half_width)
-            new_top = floor(center_y - new_half_height)
-            new_bottom = ceil(center_y + new_half_height)
+            # 2. If the target size is larger than the image, scale it down to fit.
+            #    This preserves the aspect ratio while respecting image boundaries.
+            if target_width > image_width:
+                scale_down = image_width / target_width
+                target_width = image_width
+                target_height *= scale_down
 
-            # Clamp the resized box again
-            new_left = max(0.0, new_left)
-            new_top = max(0.0, new_top)
-            new_right = min(float(image_width), new_right)
-            new_bottom = min(float(image_height), new_bottom)
+            if target_height > image_height:
+                scale_down = image_height / target_height
+                target_height = image_height
+                target_width *= scale_down
 
-            current_bbox = [new_left, new_top, new_right, new_bottom]
+            # 3. Determine the coordinates for the box centered on the original center.
+            new_half_width = target_width / 2.0
+            new_half_height = target_height / 2.0
+            new_left = center_x - new_half_width
+            new_top = center_y - new_half_height
+
+            # 4. Shift the box if it extends beyond the image boundaries to keep its size.
+            if new_left < 0:
+                new_left = 0
+            if new_top < 0:
+                new_top = 0
+            if new_left + target_width > image_width:
+                new_left = image_width - target_width
+            if new_top + target_height > image_height:
+                new_top = image_height - target_height
+
+            new_right = new_left + target_width
+            new_bottom = new_top + target_height
+
+            # Use floor and ceil for final integer coordinates.
+            current_bbox = [floor(new_left), floor(new_top), ceil(new_right), ceil(new_bottom)]
 
         # 4. Final validation on the resulting bounding box (either original or resized).
         final_left, final_top, final_right, final_bottom = current_bbox
