@@ -11,8 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-import hydra
+try:
+    import hydra
+except ImportError as e:
+    raise ImportError("Please install hydra-core via 'pip install hydra-core' and retry.") from e
 
 
 @hydra.main(config_path="../verl/trainer/config", config_name="ppo_trainer", version_base=None)
