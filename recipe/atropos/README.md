@@ -40,13 +40,37 @@ GRPO trainer implementation:
 - Integrates token-level advantages from Atropos
 - Provides fallback to standard GRPO
 
-### 3. `core_algos.py` (modified)
+### 3. `launch_atropos_verl_services.py`
+Service orchestration script:
+- Automatically launches Atropos environment server
+- Starts vLLM inference workers
+- Manages service lifecycle and cleanup
+- Provides health checks and monitoring
+
+### 4. `core_algos.py` (modified)
 - Added `grpo_atropos` advantage estimator
 - Supports token-level advantage overrides
 
 ## Usage
 
-### Prerequisites
+### Quick Start (Automated)
+
+The easiest way to get started is using the automated launcher:
+
+```bash
+# Launch all services automatically
+python recipe/atropos/launch_atropos_verl_services.py \
+    --config recipe/atropos/config/gsm8k_grpo_example.yaml
+```
+
+This will:
+1. Start the Atropos environment server
+2. Launch vLLM inference workers (if configured)
+3. Begin the GRPO training process
+
+### Manual Setup
+
+#### Prerequisites
 
 1. Start Atropos environment server:
 ```bash
@@ -59,15 +83,15 @@ python environments/gsm8k_server.py serve --slurm false
 curl http://localhost:9001/health
 ```
 
-### Training with GRPO-Atropos
+#### Training with GRPO-Atropos
 
-#### Using Example Script
+##### Using Example Script
 ```bash
 cd verl/recipe/atropos
 python example_gsm8k_grpo.py --config-name gsm8k_grpo_example
 ```
 
-#### Using Configuration File
+##### Using Configuration File
 ```bash
 cd verl
 python -m verl.trainer.main_ppo \
