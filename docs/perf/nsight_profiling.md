@@ -29,11 +29,11 @@ In `trainer`, three new config entries control the profiler behaviors:
 
 Verl manages mulitiple RL roles, _Actor_, _Ref_, _Rollout_, _Critic_, _Reward_, which are implemented in different Worker classes. And these workers can be combined into one Ray Actor, running in a process group. Each RL role has its own profiling config group, `profiler`, which consists of three fields:
 
-* **`all_ranks` and `ranks`**. When `all_ranks` is set `True` then all ranks will be profiled; when set `False`, `ranks` will be profiled. By default, verl profiles the whole training process in a single ` worker_process_<PID>.<step>.nsys-rep` file for each process rank. Be noted the `<step>` is continuously counted from `1` and not `trainer.profile_steps` itself.
+* **`all_ranks` and `ranks`**. When `all_ranks` is set `True` then all ranks will be profiled; when set `False`, `ranks` will be profiled. By default, verl profiles the whole training process in a series ` worker_process_<PID>.<RID>.nsys-rep` files for each process rank. PID is the process ID; RID is the capture range ID.
 
-* **`discrete`**. When set `False`, all the roles actions in one training step will be dumped in one database. When set `True`, the actions annotated by `DistProfiler.annotate` will be dumped into a discrete database. In this case, each role's action occupies one `<step>`.
+* **`discrete`**. When set `False`, all the roles actions in one training step will be dumped in one database. When set `True`, the actions annotated by `DistProfiler.annotate` will be dumped into a discrete database. In this case, each role's action occupies one `<RID>`.
 
-* **`actor_rollout_ref`**. This Worker can be configured to contain at most 3 roles and executes together. The final `profiler` config is a union of the three roles' configs.
+* **`actor_rollout_ref`**. This Worker can be configured to contain at most 3 roles and executes together. So `actor_rollout_ref` has a `profiler` config and all the inside roles inherit it.
 
 * **Verl collocate mode**. Verl can combine two Worker sub classes to one Worker Actor. In this case, the user should take care that the combined Workers have consistent `discrete`. The Nsight Systems profiler uses a `torch.cuda.profiler.start()` and `stop()` pair to dump a `<step>` database anyway.
 
@@ -58,22 +58,16 @@ To enable profiling for specific components and steps, modify your ppo_trainer.y
     trainer:
         profile_steps: [1, 2, 5]
     actor_rollout_ref:
-        actor:
-            profiler:
-                discrete: False
-                all_ranks: False
-                ranks: [0, 1]
-        rollout:
-            profiler:
-                discrete: False
-                all_ranks: False
-                ranks: [0, 1]
-        ref:
-            profiler:
-                discrete: False
-                all_ranks: False
-                ranks: [0, 1]
+        profiler:
+            discrete: False
+            all_ranks: False
+            ranks: [0, 1]
     critic:
+        profiler:
+            discrete: False
+            all_ranks: False
+            ranks: [0, 1]
+    reward_model:
         profiler:
             discrete: False
             all_ranks: False
@@ -85,22 +79,16 @@ To enable profiling for specific components and steps, modify your ppo_trainer.y
     trainer:
         profile_steps: [1, 2, 5]
     actor_rollout_ref:
-        actor:
-            profiler:
-                discrete: True
-                all_ranks: False
-                ranks: [0, 1]
-        rollout:
-            profiler:
-                discrete: True
-                all_ranks: False
-                ranks: [0, 1]
-        ref:
-            profiler:
-                discrete: True
-                all_ranks: False
-                ranks: [0, 1]
+        profiler:
+            discrete: True
+            all_ranks: False
+            ranks: [0, 1]
     critic:
+        profiler:
+            discrete: True
+            all_ranks: False
+            ranks: [0, 1]
+    reward_model:
         profiler:
             discrete: True
             all_ranks: False

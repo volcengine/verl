@@ -22,7 +22,7 @@ import os
 import time
 from copy import deepcopy
 from json import JSONDecodeError
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple
 from uuid import uuid4
 
 import numpy as np
@@ -206,7 +206,9 @@ def _post_process_outputs(processing_class, output):
 
     def _map_each_response(resp):
         output_token_logprobs = resp["meta_info"]["output_token_logprobs"]
-        log_probs, output_token_ids = zip(*[(log_prob, token_ids) for log_prob, token_ids, _ in output_token_logprobs])
+        log_probs, output_token_ids = zip(
+            *[(log_prob, token_ids) for log_prob, token_ids, _ in output_token_logprobs], strict=True
+        )
         return torch.tensor(output_token_ids), torch.tensor(log_probs)
 
     out_map = map(lambda x: _map_each_response(x), output)
@@ -223,7 +225,7 @@ def _post_process_outputs(processing_class, output):
 
 
 def get_tool_call_parser_type(
-    processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
+    processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
 ) -> str:
     items = FunctionCallParser.ToolCallParserEnum.items()
     for parser_type, parser_cls in items:
@@ -251,7 +253,7 @@ class SGLangRollout(BaseRollout):
         self,
         actor_module: str,
         config: DictConfig,
-        processing_class: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin],
+        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
         model_hf_config,
         port=None,
         trust_remote_code: bool = False,
@@ -373,9 +375,37 @@ class SGLangRollout(BaseRollout):
             self.config.max_model_len >= self.config.prompt_length + self.config.response_length
         ), f"""max_model_len should be greater than total sequence length (prompt_length + response_length): 
             {self.config.max_model_len} >= {self.config.prompt_length} + {self.config.response_length}"""
-        assert model_hf_config.max_position_embeddings >= self.config.max_model_len, (
-            "model context length should be greater than total sequence length"
-        )
+        max_position_embeddings = None
+        if hasattr(model_hf_config, "max_position_embeddings"):
+            max_position_embeddings = model_hf_config.max_position_embeddings
+        elif hasattr(model_hf_config, "llm_config") and hasattr(model_hf_config.llm_config, "max_position_embeddings"):
+            max_position_embeddings = model_hf_config.llm_config.max_position_embeddings
+        elif hasattr(model_hf_config, "text_config") and hasattr(
+            model_hf_config.text_config, "max_position_embeddings"
+        ):
+            max_position_embeddings = model_hf_config.text_config.max_position_embeddings
+        if max_position_embeddings is None:
+            raise ValueError("max_position_embeddings not found in model_hf_config")
+        rope_scaling_config = getattr(model_hf_config, "rope_scaling", None)
+        if not rope_scaling_config:
+            assert max_position_embeddings >= self.config.prompt_length + self.config.response_length, (
+                "model context length should be greater than total sequence length"
+            )
+        else:
+            # handle type where there's a length extend factor
+            # see https://qwen.readthedocs.io/en/latest/deployment/vllm.html#extended-context-support
+            # for using yarn as an example
+            rope_scaling_factor = rope_scaling_config.get("factor", 1.0)
+
+            assert (
+                model_hf_config.max_position_embeddings * rope_scaling_factor
+                >= self.config.prompt_length + self.config.response_length
+            ), (
+                f"model context length should be greater than total sequence length, "
+                f"got rope_scaling_factor={rope_scaling_factor} and "
+                f"max_position_embeddings={model_hf_config.max_position_embeddings}"
+            )
+
         # currently max_assistant_turns stand for max number of tool calls
         if self.config.multi_turn.max_assistant_turns is None:
             self.config.multi_turn.max_assistant_turns = self.config.max_model_len // 3
@@ -614,6 +644,7 @@ class SGLangRollout(BaseRollout):
             for raw_prompt_ids, multi_modal_data in zip(
                 non_tensor_batch.pop("raw_prompt_ids"),
                 non_tensor_batch.pop("multi_modal_data"),
+                strict=True,
             ):
                 sglang_inputs.append(
                     {
@@ -749,7 +780,7 @@ class SGLangRollout(BaseRollout):
             batch["rollout_log_probs"] = rollout_log_probs
 
         # free cache engine
-        if self._engine is not None:
+        if self._engine is not None and self._tp_rank == 0:
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self._engine.flush_cache())
 
@@ -821,7 +852,7 @@ class SGLangRollout(BaseRollout):
                         ]
                     )
                     _req.add_tool_response_messages(self.processing_class, [resp for resp, _, _ in tool_call_results])
-                    for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results):
+                    for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results, strict=True):
                         _req.update_metrics(metrics, tool_call.function.name)
                     if len(_req.input_ids) >= self.config.max_model_len:
                         finish_reason_type = FinishReasonTypeEnum.STOP
@@ -1206,7 +1237,7 @@ class SGLangRollout(BaseRollout):
         )
 
         for data_idx, (raw_prompt, multi_modal_data) in enumerate(
-            zip(prompts.non_tensor_batch["raw_prompt"], multi_modal_data_list)
+            zip(prompts.non_tensor_batch["raw_prompt"], multi_modal_data_list, strict=True)
         ):
             if self._tool_schemas:
                 _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]

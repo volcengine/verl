@@ -16,7 +16,7 @@
 
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 from uuid import uuid4
 
 from verl.utils.reward_score import gsm8k
@@ -53,8 +53,8 @@ class Gsm8kInteraction(BaseInteraction):
         return instance_id
 
     async def generate_response(
-        self, instance_id: str, messages: List[Dict[str, Any]], **kwargs
-    ) -> Tuple[bool, str, float, dict]:
+        self, instance_id: str, messages: list[dict[str, Any]], **kwargs
+    ) -> tuple[bool, str, float, dict]:
         content = ""
         for i in range(len(messages) - 1, -1, -1):
             item = messages[i]

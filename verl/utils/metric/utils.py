@@ -15,12 +15,12 @@
 Metrics utils.
 """
 
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 
 
-def reduce_metrics(metrics: Dict[str, List[Any]]) -> Dict[str, Any]:
+def reduce_metrics(metrics: dict[str, list[Any]]) -> dict[str, Any]:
     """
     Reduces a dictionary of metric lists by computing the mean, max, or min of each list.
     The reduce operation is determined by the key name:

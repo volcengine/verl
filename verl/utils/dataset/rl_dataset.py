@@ -19,7 +19,7 @@ import logging
 import os
 import re
 from collections import defaultdict
-from typing import List, Optional, Union
+from typing import Optional
 
 import datasets
 import numpy as np
@@ -84,12 +84,12 @@ class RLHFDataset(Dataset):
 
     def __init__(
         self,
-        data_files: Union[str, List[str]],
+        data_files: str | list[str],
         tokenizer: PreTrainedTokenizer,
         config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
     ):
-        if not isinstance(data_files, (List, ListConfig)):
+        if not isinstance(data_files, list | ListConfig):
             data_files = [data_files]
 
         self.data_files = copy.deepcopy(data_files)
@@ -137,6 +137,9 @@ class RLHFDataset(Dataset):
 
         print(f"dataset len: {len(self.dataframe)}")
 
+        self.dataframe = self.maybe_filter_out_long_prompts(self.dataframe)
+
+    def maybe_filter_out_long_prompts(self, dataframe: datasets.Dataset = None):
         # filter out too long prompts
         if self.filter_overlong_prompts:
             tokenizer = self.tokenizer
@@ -167,13 +170,14 @@ class RLHFDataset(Dataset):
                 def doc2len(doc) -> int:
                     return len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True))
 
-            self.dataframe = self.dataframe.filter(
+            dataframe = dataframe.filter(
                 lambda doc: doc2len(doc) <= self.max_prompt_length,
                 num_proc=self.num_workers,
                 desc=f"Filtering prompts longer than {self.max_prompt_length} tokens",
             )
 
-            print(f"filter dataset len: {len(self.dataframe)}")
+            print(f"filter dataset len: {len(dataframe)}")
+        return dataframe
 
     def resume_dataset_state(self):
         self.serialize_dataset = not hasattr(self, "original_data_files")

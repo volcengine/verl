@@ -19,7 +19,7 @@ import socket
 import sys
 import tempfile
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List
+from typing import Any
 
 import fastapi
 import numpy as np
@@ -128,7 +128,7 @@ class CustomCompletionCallback(ToolCompletionCallback):
         # TODO: support asyncio executor
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max(32, os.cpu_count() * 5))
 
-    async def sandbox_code_execution(self, code: str) -> Dict[str, Any]:
+    async def sandbox_code_execution(self, code: str) -> dict[str, Any]:
         loop = asyncio.get_running_loop()
         result_status, metadata = await loop.run_in_executor(
             self.executor,
@@ -153,7 +153,7 @@ class CustomCompletionCallback(ToolCompletionCallback):
         }
         return extra
 
-    async def __call__(self, messages: List[Dict[str, str]], completions: ChatCompletion, info: Dict[str, Any]):
+    async def __call__(self, messages: list[dict[str, str]], completions: ChatCompletion, info: dict[str, Any]):
         role, content, finish_reason = (
             completions.choices[0].message.role,
             completions.choices[0].message.content,

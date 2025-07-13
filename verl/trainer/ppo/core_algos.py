@@ -34,6 +34,15 @@ POLICY_LOSS_REGISTRY = {}
 
 
 def register_policy_loss(name):
+    """Register a policy loss function with the given name.
+
+    Args:
+        name (str): The name to register the policy loss function under.
+
+    Returns:
+        function: Decorator function that registers the policy loss function.
+    """
+
     def decorator(func):
         POLICY_LOSS_REGISTRY[name] = func
         return func
@@ -131,6 +140,12 @@ class AdaptiveKLController:
         self.horizon = horizon
 
     def update(self, current_kl, n_steps):
+        """Update the KL coefficient based on current KL divergence.
+
+        Args:
+            current_kl (float): Current KL divergence value.
+            n_steps (int): Number of steps taken.
+        """
         target = self.target
         proportional_error = np.clip(current_kl / target - 1, -0.2, 0.2)
         mult = 1 + proportional_error * n_steps / self.horizon
@@ -144,10 +159,28 @@ class FixedKLController:
         self.value = kl_coef
 
     def update(self, current_kl, n_steps):
+        """Update method for fixed KL controller (no-op).
+
+        Args:
+            current_kl (float): Current KL divergence value (unused).
+            n_steps (int): Number of steps taken (unused).
+        """
         pass
 
 
 def get_kl_controller(kl_ctrl):
+    """Factory function to create appropriate KL controller based on configuration.
+
+    Args:
+        kl_ctrl: Configuration object containing KL controller settings.
+
+    Returns:
+        KL controller instance (FixedKLController or AdaptiveKLController).
+
+    Raises:
+        NotImplementedError: If controller type is not supported.
+        AssertionError: If adaptive controller horizon is not positive.
+    """
     if kl_ctrl.type == "fixed":
         return FixedKLController(kl_coef=kl_ctrl.kl_coef)
     elif kl_ctrl.type == "adaptive":
@@ -635,6 +668,17 @@ def compute_gpg_outcome_advantage(
 
 
 def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
+    """Compute token-level rewards with KL penalty.
+
+    Args:
+        token_level_scores (torch.Tensor): Token-level reward scores.
+        old_log_prob (torch.Tensor): Log probabilities from current policy.
+        ref_log_prob (torch.Tensor): Log probabilities from reference policy.
+        kl_ratio (float): KL penalty coefficient.
+
+    Returns:
+        torch.Tensor: Token-level rewards with KL penalty applied.
+    """
     kl = old_log_prob - ref_log_prob
     return token_level_scores - kl * kl_ratio
 
@@ -1043,6 +1087,19 @@ def compute_pf_ppo_reweight_data(
 
     @torch.no_grad()
     def compute_weights(scores: torch.Tensor, reweight_method: str, weight_pow: float) -> torch.Tensor:
+        """Compute importance weights for resampling based on scores.
+
+        Args:
+            scores (torch.Tensor): Tensor of scores to compute weights from.
+            reweight_method (str): Method for computing weights ('pow', 'max_min', 'max_random').
+            weight_pow (float): Power exponent for 'pow' method.
+
+        Returns:
+            torch.Tensor: Computed importance weights.
+
+        Raises:
+            ValueError: If reweight_method is not supported.
+        """
         if reweight_method == "pow":
             weights = torch.pow(torch.abs(scores), weight_pow)
         elif reweight_method == "max_min":
