@@ -17,7 +17,7 @@ cat $tmp_header > $target_cfg
 sed -n '/^actor_rollout_ref/,$p' "$tmp_cfg" >> $target_cfg
 
 # 3. Clean up
-rm "$tmp_cfg"
+rm "$tmp_cfg" "$tmp_header"
 
 # 4. Verify that verl/trainer/config/_generated_ppo_trainer.yaml wasn't changed on disk
 if ! git diff --exit-code -- "$target_cfg" >/dev/null; then
