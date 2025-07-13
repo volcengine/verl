@@ -330,30 +330,21 @@ class RLHFDataset(Dataset):
 
     def __getitem__(self, item: int) -> Dict[str, Any]:
         """
-        Get a processed data item by index.
-
         Note: We return raw_input_ids so it can be combined with other chat templates.
         """
-        # Step 1: Extract raw data and build processing context
+
         raw_row: RawDataRow = self.dataframe[item]
         context = self._create_processing_context(raw_row)
 
-        # Step 2: Process multimodal or text-only inputs
         if self.processor is not None:
             self._process_multimodal_inputs(context)
         else:
             self._process_text_only_inputs(context)
 
-        # Step 3: Create core tensors
         self._create_core_tensors(context)
-
-        # Step 4: Handle position IDs (special case for Qwen2VL)
         self._compute_position_ids(context)
-
-        # Step 5: Process raw prompt IDs with truncation
         self._process_raw_prompt_ids(context)
 
-        # Step 6: Build structured result and convert to dict
         processed_item = self._build_processed_item(context)
         return processed_item.to_dict()
 
