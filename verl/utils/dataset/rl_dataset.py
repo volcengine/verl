@@ -37,8 +37,6 @@ logger = logging.getLogger(__name__)
 
 
 class TruncationStrategy(Enum):
-    """Enumeration of available truncation strategies."""
-
     LEFT = "left"
     RIGHT = "right"
     MIDDLE = "middle"
@@ -46,22 +44,16 @@ class TruncationStrategy(Enum):
 
 
 class MessageContent(TypedDict):
-    """Type definition for message content items."""
-
     type: str  # "text", "image", "video"
     text: Optional[str]
 
 
 class ChatMessage(TypedDict):
-    """Type definition for chat messages."""
-
     role: str  # "user", "assistant", "system"
     content: Union[str, List[MessageContent]]
 
 
 class ExtraInfo(TypedDict, total=False):
-    """Type definition for extra_info field. All fields are optional."""
-
     index: int
     tools_kwargs: Dict[str, Any]
     interaction_kwargs: Dict[str, Any]
@@ -69,8 +61,6 @@ class ExtraInfo(TypedDict, total=False):
 
 
 class RawDataRow(TypedDict, total=False):
-    """Type definition for raw data row from dataset."""
-
     prompt: List[ChatMessage]
     images: Optional[List[str]]
     videos: Optional[List[str]]
@@ -79,8 +69,6 @@ class RawDataRow(TypedDict, total=False):
 
 @dataclass
 class ProcessingContext:
-    """Context object to pass data between processing steps."""
-
     raw_row: RawDataRow
     messages: List[ChatMessage]
     raw_prompt: str
@@ -91,8 +79,6 @@ class ProcessingContext:
 
 @dataclass
 class CoreTensors:
-    """Core tensor outputs from processing."""
-
     input_ids: torch.Tensor
     attention_mask: torch.Tensor
     position_ids: torch.Tensor
@@ -101,8 +87,6 @@ class CoreTensors:
 
 @dataclass
 class ItemMetadata:
-    """Metadata extracted from the data item."""
-
     index: int = 0
     tools_kwargs: Dict[str, Any] = field(default_factory=dict)
     interaction_kwargs: Dict[str, Any] = field(default_factory=dict)
@@ -110,8 +94,6 @@ class ItemMetadata:
 
 @dataclass
 class OptionalOutputs:
-    """Optional outputs based on configuration."""
-
     raw_prompt: Optional[List[ChatMessage]] = None
     full_prompts: Optional[str] = None
     multi_modal_data: Optional[Dict[str, Any]] = None
@@ -120,8 +102,6 @@ class OptionalOutputs:
 
 @dataclass
 class ProcessedDataItem:
-    """Complete processed data item with all components."""
-
     core: CoreTensors
     metadata: ItemMetadata
     optional: OptionalOutputs
