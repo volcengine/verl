@@ -76,7 +76,7 @@ We use Qwen/Qwen2-7B-Instruct on the gsm8k dataset for a simple test.
         critic.model.fsdp_config.param_offload=True \
         critic.model.fsdp_config.optimizer_offload=True \
         algorithm.kl_ctrl.kl_coef=0.001 \
-        trainer.logger=['console'] \
+        trainer.logger=console \
         trainer.val_before_train=False \
         trainer.n_gpus_per_node=4 \
         trainer.nnodes=1 \
@@ -228,7 +228,7 @@ You can see that the cluster has two nodes with 16 GPUs:
         critic.model.fsdp_config.optimizer_offload=True \
         algorithm.kl_ctrl.kl_coef=0.001 \
         trainer.critic_warmup=0 \
-        trainer.logger=['console'] \
+        trainer.logger=console \
         trainer.val_before_train=True \
         trainer.n_gpus_per_node=8 \
         trainer.nnodes=2 \

@@ -16,7 +16,7 @@ import os
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, ContextManager, Dict, List
+from typing import Any, Callable, ContextManager
 
 import torch
 from accelerate import init_empty_weights
@@ -140,7 +140,7 @@ class MegatronModelMerger(BaseModelMerger):
             "output_layer": "lm_head",
         }
 
-    def _load_state_dicts(self, model_ckpt_path: str) -> Dict[str, Any]:
+    def _load_state_dicts(self, model_ckpt_path: str) -> dict[str, Any]:
         """_summary_
         Use Megatron dist_checkpointing to load the model state dicts from the checkpoint directory.
 
@@ -270,7 +270,7 @@ class MegatronModelMerger(BaseModelMerger):
         else:
             return [tensor]
 
-    def _merge_state_dicts(self, model_state_dict_list: List[Dict[str, Any]]) -> dict[str, torch.Tensor]:
+    def _merge_state_dicts(self, model_state_dict_list: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
         state_dict = {}
         layers_cum = 0
 
@@ -306,7 +306,7 @@ class MegatronModelMerger(BaseModelMerger):
                     state_dict[hf_name] = split_tensor[0]
                 elif len(split_tensor) == 3:
                     # split qkv
-                    for n, d in zip(["q", "k", "v"], split_tensor):
+                    for n, d in zip(["q", "k", "v"], split_tensor, strict=True):
                         state_dict[hf_name.replace("qkv", n)] = d
                 elif len(split_tensor) == 2:
                     # split gate up
