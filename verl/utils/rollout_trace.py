@@ -26,6 +26,8 @@ class RolloutTraceConfig:
     client: Optional[object] = None
     token2text: bool = False
     _initialized: bool = False
+    project_name: str = None
+    experiment_name: str = None
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -91,14 +93,15 @@ def rollout_trace_attr(sample_index=None, step=None, rollout_n=None, name="rollo
     """A context manager to add attributes to a trace for the configured backend."""
     backend = RolloutTraceConfig.get_backend()
     attributes = {}
-    if sample_index is not None:
-        attributes["sample_index"] = sample_index
-    if step is not None:
-        attributes["step"] = step
-    if rollout_n is not None:
-        attributes["rollout_n"] = rollout_n
-    attributes["validate"] = validate
-    attributes["experiment_name"] = RolloutTraceConfig.get_instance().experiment_name
+    if backend:
+        if sample_index is not None:
+            attributes["sample_index"] = sample_index
+        if step is not None:
+            attributes["step"] = step
+        if rollout_n is not None:
+            attributes["rollout_n"] = rollout_n
+        attributes["validate"] = validate
+        attributes["experiment_name"] = RolloutTraceConfig.get_instance().experiment_name
 
     if not attributes or backend is None:
         yield

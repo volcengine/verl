@@ -14,8 +14,8 @@ The Trace feature integrates commonly used Agent trace tools, including wandb we
 Trace Parameter Configuration
 -----------------------------
 
-- ``trainer.rollout_trace.backend=mlflow|weave`` # the trace backend type
-- ``trainer.rollout_trace.token2text=True`` # To show decoded text in trace view
+- ``actor_rollout_ref.rollout.trace.backend=mlflow|weave`` # the trace backend type
+- ``actor_rollout_ref.rollout.trace.token2text=True`` # To show decoded text in trace view
 
 
 Glossary
@@ -39,6 +39,15 @@ Glossary
 | validate       | Whether the test dataset is used for evaluation?                                                     |
 +----------------+------------------------------------------------------------------------------------------------------+
 
+Rollout trace functions
+-----------------------
+
+There are 2 functions used for tracing:
+
+1. ``rollout_trace_op``: This is a decorator function used to mark the functions to trace. In default, only few method has it, you can add it to more functions to trace more infor.
+2. ``rollout_trace_attr``: This function is used to mark the entry of a trajectory and input some info to trace. If you add new type of agent, you may need to add it to enable trace.
+
+
 Usage of wandb weave
 --------------------
 
@@ -48,7 +57,7 @@ Usage of wandb weave
 1. Set the ``WANDB_API_KEY`` environment variable
 2. Configuration Parameters
 
-   1. ``trainer.rollout_trace.backend=weave``
+   1. ``actor_rollout_ref.rollout.trace.backend=weave``
    2. ``trainer.logger=['console', 'wandb']``: This item is optional. Trace and logger are independent functions. When using Weave, it is recommended to also enable the wandb logger to implement both functions in one system.
    3. ``trainer.project_name=$project_name``
    4. ``trainer.experiment_name=$experiment_name``
@@ -89,7 +98,7 @@ Usage of mlflow
 
 2. Configuration Parameters
 
-   1. ``trainer.rollout_trace.backend=mlflow``
+   1. ``actor_rollout_ref.rollout.trace.backend=mlflow``
    2. ``trainer.logger=['console', 'mlflow']``. This item is optional. Trace and logger are independent functions. When using mlflow, it is recommended to also enable the mlflow logger to implement both functions in one system.
    3. ``trainer.project_name=$project_name``
    4. ``trainer.experiment_name=$experiment_name``
