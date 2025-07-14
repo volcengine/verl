@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+import pickle
+import tempfile
 
 import torch
 from omegaconf import OmegaConf
@@ -111,3 +113,87 @@ def test_image_rl_data():
     output = tokenizer.batch_decode([data])[0]
     print(f"type: type{output}")
     print(f"\n\noutput: {output}")
+
+
+def test_rl_dataset_pickle_unpickle():
+    """Test that RLHFDataset can be pickled and unpickled correctly."""
+    from verl.utils import hf_tokenizer
+    from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+
+    tokenizer = hf_tokenizer("deepseek-ai/deepseek-coder-1.3b-instruct")
+    local_path = get_gsm8k_data()
+    config = OmegaConf.create(
+        {
+            "prompt_key": "prompt",
+            "max_prompt_length": 256,
+            "filter_overlong_prompts": True,
+            "filter_overlong_prompts_workers": 2,
+        }
+    )
+
+    # Test case 1: serialize_dataset=False (default behavior)
+    dataset_no_serialize = RLHFDataset(data_files=local_path, tokenizer=tokenizer, config=config)
+    original_length = len(dataset_no_serialize)
+    original_item = dataset_no_serialize[0]
+
+    # Pickle and unpickle
+    with tempfile.NamedTemporaryFile(mode="wb", delete=False) as f:
+        pickle.dump(dataset_no_serialize, f)
+        temp_path = f.name
+
+    try:
+        with open(temp_path, "rb") as f:
+            unpickled_dataset = pickle.load(f)
+
+        # Verify the unpickled dataset works correctly
+        assert len(unpickled_dataset) == original_length, "Dataset length should be preserved after unpickling"
+        assert hasattr(unpickled_dataset, "dataframe"), "Dataframe should be reconstructed after unpickling"
+
+        # Verify we can access items and they have the same structure
+        unpickled_item = unpickled_dataset[0]
+        assert set(unpickled_item.keys()) == set(original_item.keys()), "Item keys should be the same"
+        assert unpickled_item["input_ids"].shape == original_item["input_ids"].shape, "Input IDs shape should match"
+        assert unpickled_item["attention_mask"].shape == original_item["attention_mask"].shape, (
+            "Attention mask shape should match"
+        )
+
+        # Verify the dataset can be used in a DataLoader
+        dataloader = DataLoader(dataset=unpickled_dataset, batch_size=2, shuffle=False, collate_fn=collate_fn)
+        batch = next(iter(dataloader))
+        assert "input_ids" in batch, "Batch should contain input_ids"
+        assert "attention_mask" in batch, "Batch should contain attention_mask"
+
+    finally:
+        # Clean up temporary file
+        os.unlink(temp_path)
+
+    # Test case 2: serialize_dataset=True
+    dataset_serialize = RLHFDataset(data_files=local_path, tokenizer=tokenizer, config=config)
+    dataset_serialize.serialize_dataset = True
+
+    # Pickle and unpickle
+    with tempfile.NamedTemporaryFile(mode="wb", delete=False) as f:
+        pickle.dump(dataset_serialize, f)
+        temp_path = f.name
+
+    try:
+        with open(temp_path, "rb") as f:
+            unpickled_dataset_serialize = pickle.load(f)
+
+        # Verify the unpickled dataset works correctly
+        assert len(unpickled_dataset_serialize) == original_length, (
+            "Dataset length should be preserved after unpickling"
+        )
+        assert hasattr(unpickled_dataset_serialize, "dataframe"), (
+            "Dataframe should be preserved when serialize_dataset=True"
+        )
+
+        # Verify we can access items
+        unpickled_item = unpickled_dataset_serialize[0]
+        assert set(unpickled_item.keys()) == set(original_item.keys()), "Item keys should be the same"
+
+    finally:
+        # Clean up temporary file
+        os.unlink(temp_path)
+
+    print("All pickle/unpickle tests passed!")
