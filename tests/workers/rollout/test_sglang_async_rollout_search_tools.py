@@ -166,9 +166,11 @@ class TestRolloutWithSearchTools:
     @pytest.fixture
     def mock_rollout(self, search_rollout_config, qwen_tokenizer, qwen_model_config):
         """Mock the rollout instance with sampling_params initialized."""
-        with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(
-            SGLangRollout, "_init_inference_engine", return_value=None
-        ), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
+        with (
+            patch.object(SGLangRollout, "_init_distributed_env", return_value=None),
+            patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
+            patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
+        ):
             rollout = SGLangRollout(
                 actor_module="",
                 config=search_rollout_config,
@@ -308,7 +310,7 @@ class TestRolloutWithSearchTools:
 
         mock_rollout._handle_engine_call = MagicMock()
         futures = [asyncio.Future() for i in expect_turn_array]
-        for idx, (i, turn) in enumerate(zip(futures, expect_turn_array)):
+        for idx, (i, turn) in enumerate(zip(futures, expect_turn_array, strict=True)):
             i.set_result(
                 {
                     "text": turn,
@@ -376,7 +378,7 @@ class TestRolloutWithSearchTools:
             req_list.append(MagicMock(wraps=tmp_req, spec=AsyncRolloutRequest))
 
             futures = [asyncio.Future() for _ in expect_turn_array]
-            for idx, (fut, turn) in enumerate(zip(futures, expect_turn_array)):
+            for idx, (fut, turn) in enumerate(zip(futures, expect_turn_array, strict=True)):
                 fut.set_result(
                     {
                         "text": turn,

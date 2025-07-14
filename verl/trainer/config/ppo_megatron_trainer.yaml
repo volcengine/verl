@@ -55,8 +55,10 @@ actor_rollout_ref:
       # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
       activations_checkpoint_num_layers: null # not used with 'selective'
 
-    trust_remote_code: False
+    use_fused_kernels: False # Whether to use custom fused kernels (PostProcessing, for memory efficiency)
 
+    trust_remote_code: False
+    
   rollout:
     # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
     enable_chunked_prefill: False
@@ -68,6 +70,12 @@ actor_rollout_ref:
     layer_name_map:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up
+
+  profiler:
+    _target_: verl.utils.profiler.ProfilerConfig
+    discrete: False
+    all_ranks: False
+    ranks: []
 
 custom_reward_function:
   path: null
@@ -109,7 +117,7 @@ trainer:
   n_gpus_per_node: 8
   save_freq: -1
   esi_redundant_time: 0
-  
+
   # auto: find the last ckpt to resume. If can't find, start from scratch
   resume_mode: auto # or disable or resume_path if resume_from_path is set
   resume_from_path: null

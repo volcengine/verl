@@ -90,7 +90,7 @@ data:
 
     # The name of the dataset class within the specified file.
     name: null
-  
+
   # Whether to return multi-modal inputs in the dataset. Set to False if rollout generates new multi-modal inputs.
   return_multi_modal_inputs: True
 
@@ -157,7 +157,7 @@ actor_rollout_ref:
     # Target modules to apply LoRA. Options: "all-linear" (not recommended for VLMs) or
     # [q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]
     target_modules: all-linear
-    
+
     # Exclude modules from applying Lora. Similar usage to target_modules and Peft.
     # Example: '.*visual.*' for excluding the ViT in Qwen2.5-VL, as currently vllm does not support ViT Lora.
     exclude_modules: null
@@ -213,10 +213,10 @@ actor_rollout_ref:
 
     # policy loss config
     policy_loss:
-    
+
       # Loss function mode: vanilla / clip-cov / kl-cov /gpg from https://arxiv.org/abs/2505.22617
       loss_mode: "vanilla"
-      
+
       # Ratio of tokens to be clipped for clip-cov loss
       clip_cov_ratio: 0.0002
 
@@ -333,21 +333,6 @@ actor_rollout_ref:
       # before the current forward computation.
       forward_prefetch: False
 
-    # profiler configs
-    profiler:
-
-      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-      _target_: verl.utils.profiler.ProfilerConfig
-
-      # True for each task has its own database, False for all tasks in one training step share one database.
-      discrete: False
-
-      # Whether to profile all ranks.
-      all_ranks: False
-
-      # The ranks that will be profiled. [] or [0,1,...]
-      ranks: []
-
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
   ref:
@@ -399,21 +384,6 @@ actor_rollout_ref:
 
     # recompute entropy
     entropy_checkpointing: False
-
-    # profiler configs
-    profiler:
-
-      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-      _target_: verl.utils.profiler.ProfilerConfig
-
-      # True for each task has its own database, False for all tasks in one training step share one database.
-      discrete: False
-
-      # Whether to profile all ranks.
-      all_ranks: False
-
-      # The ranks that will be profiled. [] or [0,1,...]
-      ranks: []
 
   # Rollout model config.
   rollout:
@@ -591,21 +561,6 @@ actor_rollout_ref:
     # support logging rollout prob for debugging purpose
     calculate_log_probs: False
 
-    # profiler configs
-    profiler:
-
-      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-      _target_: verl.utils.profiler.ProfilerConfig
-
-      # True for each task has its own database, False for all tasks in one training step share one database.
-      discrete: False
-
-      # Whether to profile all ranks.
-      all_ranks: False
-
-      # The ranks that will be profiled. [] or [0,1,...]
-      ranks: []
-
     # [Experimental] agent loop based rollout configs
     agent:
 
@@ -620,6 +575,21 @@ actor_rollout_ref:
 
         # Class name of the custom async server class (e.g. AsyncvLLMServer)
         name: null
+
+  # profiler configs
+  profiler:
+
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    _target_: verl.utils.profiler.ProfilerConfig
+
+    # True for each task has its own database, False for all tasks in one training step share one database.
+    discrete: False
+
+    # Whether to profile all ranks.
+    all_ranks: False
+
+    # The ranks that will be profiled. [] or [0,1,...]
+    ranks: []
 
 # configs for the critic
 critic:

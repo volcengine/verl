@@ -107,7 +107,7 @@ def default_compute_score(
 
     if isinstance(res, dict):
         return res
-    elif isinstance(res, (int, float, bool)):
+    elif isinstance(res, int | float | bool):
         return float(res)
     else:
         return float(res[0])
