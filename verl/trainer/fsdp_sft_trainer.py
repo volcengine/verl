@@ -80,6 +80,18 @@ def extract_step(path):
     return None
 
 
+def validate_json_generation(generation_text):
+    import json
+    
+    try:
+        parsed_json = json.loads(generation_text)
+        return True, None, parsed_json
+    except json.JSONDecodeError as json_err:
+        return False, f"JSON decode error: {json_err}", None
+    except Exception as parse_err:
+        return False, f"Parsing error: {parse_err}", None
+
+
 def convert_to_regular_types(obj):
     """Convert Hydra configs and other special types to regular Python types."""
     from omegaconf import DictConfig, ListConfig
@@ -243,18 +255,25 @@ class FSDPSFTTrainer:
         else:
             cpu_offload = CPUOffload(offload_params=self.config.model.fsdp_config.offload_params)
 
-        self.fsdp_model = FSDP(
-            module=self.model,
-            auto_wrap_policy=auto_wrap_policy,
-            param_init_fn=init_fn,
-            sharding_strategy=ShardingStrategy.FULL_SHARD,
-            mixed_precision=mixed_precision,
-            device_mesh=self.device_mesh,
-            sync_module_states=True,
-            device_id=torch.cuda.current_device(),
-            cpu_offload=cpu_offload,
-            use_orig_params=False,
-        )
+        if self.device_mesh.size() == 1:
+            if self.device_mesh.get_rank() == 0:
+                print("Single GPU detected - using model directly without FSDP")
+            self.fsdp_model = self.model.to('cuda')
+        else:
+            if self.device_mesh.get_rank() == 0:
+                print("Multi-GPU detected - using FSDP with FULL_SHARD strategy")
+            self.fsdp_model = FSDP(
+                module=self.model,
+                auto_wrap_policy=auto_wrap_policy,
+                param_init_fn=init_fn,
+                sharding_strategy=ShardingStrategy.FULL_SHARD,
+                mixed_precision=mixed_precision,
+                device_mesh=self.device_mesh,
+                sync_module_states=True,
+                device_id=torch.cuda.current_device(),
+                cpu_offload=cpu_offload,
+                use_orig_params=False,
+            )
 
         log_gpu_memory_usage("After FSDP wrapping", logger=logger)
 
@@ -385,7 +404,10 @@ class FSDPSFTTrainer:
             loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
             step_loss += loss.item()
 
-        grad_norm = self.fsdp_model.clip_grad_norm_(max_norm=self.config.optim.clip_grad)
+        if self.device_mesh.size() == 1:
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.fsdp_model.parameters(), max_norm=self.config.optim.clip_grad)
+        else:
+            grad_norm = self.fsdp_model.clip_grad_norm_(max_norm=self.config.optim.clip_grad)
 
         log_gpu_memory_usage("Before optimizer step", logger=logger)
 
@@ -436,6 +458,7 @@ class FSDPSFTTrainer:
         prompt_data = []
         
         input_ids = batch["input_ids"]
+        
         for seq in input_ids:
             seq = seq[seq != self.tokenizer.pad_token_id]
             text = self.tokenizer.decode(seq, skip_special_tokens=True)
@@ -541,13 +564,19 @@ class FSDPSFTTrainer:
         return prompt_texts, generated_texts
 
     def save_checkpoint(self, step):
-        from torch.distributed.fsdp import FullStateDictConfig, StateDictType
-
-        cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-        with FSDP.state_dict_type(self.fsdp_model, StateDictType.FULL_STATE_DICT, cfg):
-            state_dict = self.fsdp_model.state_dict()
-
         path = os.path.join(self.config.trainer.default_local_dir, f"global_step_{step}")
+        
+        # Handle both FSDP and non-FSDP cases
+        if self.device_mesh.size() == 1:
+            # Single GPU case - model is not FSDP wrapped
+            state_dict = self.fsdp_model.state_dict()
+        else:
+            # Multi-GPU case - model is FSDP wrapped
+            from torch.distributed.fsdp import FullStateDictConfig, StateDictType
+            cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+            with FSDP.state_dict_type(self.fsdp_model, StateDictType.FULL_STATE_DICT, cfg):
+                state_dict = self.fsdp_model.state_dict()
+        
         # save huggingface model
         if self.device_mesh.get_rank() == 0:
             os.makedirs(path, exist_ok=True)
@@ -559,18 +588,64 @@ class FSDPSFTTrainer:
         torch.distributed.barrier()
 
     def fit(self):
+        print("=== FIT METHOD STARTED ===")
         rank = self.device_mesh.get_rank()
-
+        print(f"Current rank: {rank}")
+        
         # TODO: add a unified tracking
         if rank == 0:
+            from omegaconf import OmegaConf
             tracking = Tracking(
                 project_name=self.config.trainer.project_name,
                 experiment_name=self.config.trainer.experiment_name,
                 default_backend=self.config.trainer.logger,
+                config=OmegaConf.to_container(self.config, resolve=True),
             )
             # Initialize validation generations logger for proper media logging
             from verl.utils.tracking import ValidationGenerationsLogger
             val_generations_logger = ValidationGenerationsLogger()
+        
+        print("Generating initial samples before training starts...")
+        initial_prompts = []
+        initial_generations = []
+        
+        ten = 0
+        for data in self.val_dataloader:
+            if rank == 0:
+                prompts, generations = self.generate_samples(data)
+                initial_prompts.extend(prompts)
+                initial_generations.extend(generations)
+            ten += 1
+            if ten == 10:
+                break
+        
+        if rank == 0 and initial_prompts and initial_generations:
+            initial_samples = []
+            num_initial_samples_to_log = min(10, len(initial_prompts))
+            for i in range(num_initial_samples_to_log):
+                prompt_text = initial_prompts[i]
+                generation_text = initial_generations[i]
+                initial_samples.append([prompt_text, generation_text, "N/A"])  # No score available
+            
+            val_generations_logger.log(tracking.logger.keys(), initial_samples, 0)  # Step 0 for initial samples
+            
+            print(f"\n=== Initial Samples (Before Training) ===")
+            for i in range(min(2, len(initial_prompts))):
+                print(f"Initial Prompt {i+1}: {initial_prompts[i]}")
+                print(f"Initial Generation {i+1}: {initial_generations[i]}")
+                print("-" * 50)
+            
+            # Log initial samples without JSON metrics
+            tracking.log(data={"initial/samples_generated": len(initial_generations)}, step=0)
+            
+            # Log sample examples as text to wandb
+            for i, (prompt, generation) in enumerate(zip(initial_prompts[:3], initial_generations[:3])):
+                tracking.log(data={
+                    f"initial/prompt_{i+1}": prompt,
+                    f"initial/generation_{i+1}": generation
+                }, step=0)
+        
+        torch.distributed.barrier()
 
         global_step = 0
         # compute the total training steps.
@@ -611,7 +686,7 @@ class FSDPSFTTrainer:
             
             # Collect a few samples for generation (limit to avoid too much output)
             max_samples_to_generate = int(os.getenv("VERL_MAX_VAL_SAMPLES", 
-                getattr(self.config.trainer, "max_val_samples", 5) if hasattr(self.config.trainer, "max_val_samples") else 5))
+                getattr(self.config.trainer, "max_val_samples", 10) if hasattr(self.config.trainer, "max_val_samples") else 10))
             samples_generated = 0
             
             for data in self.val_dataloader:
@@ -625,6 +700,23 @@ class FSDPSFTTrainer:
                         all_prompts.extend(prompts)
                         all_generations.extend(generations)
                         samples_generated += len(prompts)
+                        # script to check how many outputs parsed correctly 
+                        json_valid_count = 0
+                        total_generations = len(generations)
+                        
+                        for i, generation in enumerate(generations):
+                            is_valid, error_msg, parsed_json = validate_json_generation(generation)
+                            
+                            if is_valid:
+                                json_valid_count += 1
+                                print(f"✓ Generation {i+1} parses as valid JSON")
+                            else:
+                                print(f"✗ Generation {i+1} failed JSON parsing: {error_msg}")
+                        
+                        # Print summary statistics
+                        json_valid_rate = (json_valid_count / total_generations * 100) if total_generations > 0 else 0
+                        print(f"JSON Validation Summary: {json_valid_count}/{total_generations} ({json_valid_rate:.1f}%) valid JSON generations")
+                            
                     except Exception as e:
                         print(f"Warning: Failed to generate samples during validation: {e}")
             
@@ -632,25 +724,31 @@ class FSDPSFTTrainer:
                 val_loss = torch.mean(torch.stack(val_losses))
                 metric = {"val/loss": val_loss.detach().item()}
                 
-                # Log sample generations if available using proper media logging
+                if all_generations:
+                    metric.update({
+                        "val/samples_generated": len(all_generations)
+                    })
+                
+                # Log sample generations if available
                 if all_prompts and all_generations:
-                    # Prepare samples for the validation logger (input, output, score format)
-                    samples = []
-                    num_samples_to_log = min(3, len(all_prompts))
-                    for i in range(num_samples_to_log):
-                        prompt_text = all_prompts[i]
-                        generation_text = all_generations[i]
-                        samples.append([prompt_text, generation_text, "N/A"])  # No score available
-                    
-                    # Log using the proper validation generations logger
-                    val_generations_logger.log(tracking.logger.keys(), samples, global_step)
-                    
-                    # Also print some samples to console
                     print(f"\n=== Validation Samples (Step {global_step}) ===")
                     for i in range(min(2, len(all_prompts))):
                         print(f"Prompt {i+1}: {all_prompts[i]}")
                         print(f"Generation {i+1}: {all_generations[i]}")
                         print("-" * 50)
+                    
+                    # Log sample examples as text to wandb
+                    for i, (prompt, generation) in enumerate(zip(all_prompts[:3], all_generations[:3])):
+                        tracking.log(data={
+                            f"val/prompt_{i+1}": prompt,
+                            f"val/generation_{i+1}": generation
+                        }, step=global_step)
+                
+                
+                    val_samples = []
+                    for prompt, generation in zip(all_prompts, all_generations):
+                        val_samples.append([prompt, generation, "N/A"])  # You can add a score or JSON validity if desired
+                    val_generations_logger.log(tracking.logger.keys(), val_samples, global_step)
                 
                 tracking.log(data=metric, step=global_step)
             torch.distributed.barrier()
@@ -675,7 +773,6 @@ def main(config):
     val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
 
     trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh, tokenizer=tokenizer, train_dataset=train_dataset, val_dataset=val_dataset)
-
     trainer.fit()
 
 
