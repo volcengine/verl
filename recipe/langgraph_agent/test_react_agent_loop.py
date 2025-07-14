@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import json
 import os
 
 import numpy as np
@@ -89,14 +90,10 @@ def get_temperature_date(location: str, date: str, unit: str = "celsius"):
 
 class TestReactAgentLoop(ReactAgentLoop):
     @classmethod
-    def init_class(cls, config, tokenizer):
+    def init_class(cls, config, tokenizer, **kwargs):
         # TODO: find better way to configure tools
         cls.tools = [get_current_temperature, get_temperature_date]
-        super().init_class(config, tokenizer)
-
-
-def agent_loop_loader():
-    return {"react_agent": TestReactAgentLoop}
+        super().init_class(config, tokenizer, **kwargs)
 
 
 def test_react_agent(init_config):
@@ -112,13 +109,21 @@ def test_react_agent(init_config):
     )
 
     # =========================== 1. Init rollout manager ===========================
+    agent_loop_config = [
+        {
+            "_target_": "recipe.langgraph_agent.test_react_agent_loop.TestReactAgentLoop",
+            "name": "react_agent",
+        },
+    ]
+    agent_loop_config_path = "/tmp/agent_loop_config.json"
+    with open(agent_loop_config_path, "w") as f:
+        json.dump(agent_loop_config, f)
+
     n = 2
     init_config.actor_rollout_ref.rollout.n = n
     # init_config.actor_rollout_ref.rollout.multi_turn.tool_config_path = tool_config_path
     init_config.actor_rollout_ref.rollout.multi_turn.max_parallel_calls = 2
-    init_config.actor_rollout_ref.rollout.agent.custom_agent_loop_loader = (
-        "recipe.langgraph_agent.test_react_agent_loop.agent_loop_loader"
-    )
+    init_config.actor_rollout_ref.rollout.agent.agent_loop_config_path = agent_loop_config_path
     agent_loop_manager = init_agent_loop_manager(init_config)
 
     # =========================== 2. Generate sequences  ===========================

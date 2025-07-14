@@ -69,11 +69,8 @@ def should_continue(state: MessagesState, config: RunnableConfig) -> Literal["to
 
 
 class ReactAgentLoop(AgentLoopBase):
-    def __init__(self, config, server_manager, tokenizer):
-        super().__init__(config, server_manager, tokenizer)
-
     @classmethod
-    def init_class(cls, config, tokenizer):
+    def init_class(cls, config, tokenizer, **kwargs):
         if cls._class_initialized:
             return
         cls._class_initialized = True

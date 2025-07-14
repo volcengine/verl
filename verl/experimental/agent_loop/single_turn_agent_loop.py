@@ -27,10 +27,10 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class SingleTurnAgentLoop(AgentLoopBase):
     """Naive agent loop that only do single turn chat completion."""
 
-    def __init__(self, config, server_manager, tokenizer):
-        super().__init__(config, server_manager, tokenizer)
-        self.prompt_length = config.actor_rollout_ref.rollout.prompt_length
-        self.response_length = config.actor_rollout_ref.rollout.response_length
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.prompt_length = self.config.actor_rollout_ref.rollout.prompt_length
+        self.response_length = self.config.actor_rollout_ref.rollout.response_length
 
     async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
         metrics = {}

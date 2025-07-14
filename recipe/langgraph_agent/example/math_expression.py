@@ -34,10 +34,6 @@ def calculate(a: int, b: int, operand: str) -> int:
 
 class MathExpressionReactAgentLoop(ReactAgentLoop):
     @classmethod
-    def init_class(cls, config, tokenizer):
+    def init_class(cls, config, tokenizer, **kwargs):
         cls.tools = [calculate]
         super().init_class(config, tokenizer)
-
-
-def agent_loop_loader():
-    return {"math_expression": MathExpressionReactAgentLoop}

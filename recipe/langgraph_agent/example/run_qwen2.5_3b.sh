@@ -10,7 +10,7 @@ train_files=$DATA_ROOT/dataset/math_expression_tool/train.parquet
 test_files=$DATA_ROOT/dataset/math_expression_tool/test.parquet
 
 # agent
-custom_agent_loop_loader=recipe.langgraph_agent.example.math_expression.agent_loop_loader
+agent_loop_config_path=recipe/langgraph_agent/example/agent.yaml
 
 # wandb
 project_name=math_expression_tool
@@ -80,7 +80,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.multi_turn.max_user_turns=$max_turns \
     actor_rollout_ref.rollout.multi_turn.max_assistant_turns=$max_turns \
     actor_rollout_ref.rollout.multi_turn.format=hermes \
-    actor_rollout_ref.rollout.agent.custom_agent_loop_loader=$custom_agent_loop_loader \
+    actor_rollout_ref.rollout.agent.agent_loop_config_path=$agent_loop_config_path \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.9 \
     actor_rollout_ref.rollout.n=$n_resp_per_prompt \
     actor_rollout_ref.rollout.val_kwargs.top_p=0.6 \

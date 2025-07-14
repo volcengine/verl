@@ -32,10 +32,10 @@ class MathExpressionReactAgentLoop(ReactAgentLoop):
         super().init_class(config, tokenizer)
 ```
 
-Next, let's define a agent loop loader function, which will be used by `AgentLoopWorker` to load custom agent loop class:
-```python
-def agent_loop_loader():
-    return {"math_expression": MathExpressionReactAgentLoop}
+We can define agent loop config in yaml file, which will be used by AgentLoopWorker to dynamic load custom AgentLoop class.
+```yaml
+- name: math_expression
+  _target_: recipe.langgraph_agent.example.math_expression.MathExpressionReactAgentLoop
 ```
 
 ### Prepare dataset
