@@ -13,133 +13,131 @@
 # limitations under the License.
 
 import os
-import unittest
+
+import pytest
 
 from verl.utils.py_functional import temp_env_var
 
 
-class TestTempEnvVarOnCPU(unittest.TestCase):
-    """Test cases for temp_env_var context manager on CPU.
+def setup_function():
+    """Set up function called before each test function."""
+    # Store original environment state to restore after each test
+    global original_env
+    original_env = dict(os.environ)
 
-    Test Plan:
-    1. Test setting and restoring environment variables that didn't exist before
-    2. Test setting and restoring environment variables that already existed
-    3. Test that environment variables are restored even when exceptions occur
-    4. Test multiple nested context managers
-    5. Test that original environment state is preserved after context exit
-    """
+    # Clean up any test variables that might exist
+    test_vars = ["TEST_VAR", "TEST_VAR_2", "EXISTING_VAR"]
+    for var in test_vars:
+        if var in os.environ:
+            del os.environ[var]
 
-    def setUp(self):
-        # Store original environment state to restore after each test
-        self.original_env = dict(os.environ)
 
-        # Clean up any test variables that might exist
-        test_vars = ["TEST_VAR", "TEST_VAR_2", "EXISTING_VAR"]
-        for var in test_vars:
-            if var in os.environ:
-                del os.environ[var]
+def teardown_function():
+    """Tear down function called after each test function."""
+    # Restore original environment state
+    os.environ.clear()
+    os.environ.update(original_env)
 
-    def tearDown(self):
-        # Restore original environment state
-        os.environ.clear()
-        os.environ.update(self.original_env)
 
-    def test_set_new_env_var(self):
-        """Test setting a new environment variable that didn't exist before."""
-        # Ensure variable doesn't exist
-        self.assertNotIn("TEST_VAR", os.environ)
+def test_set_new_env_var():
+    """Test setting a new environment variable that didn't exist before."""
+    # Ensure variable doesn't exist
+    assert "TEST_VAR" not in os.environ
 
-        with temp_env_var("TEST_VAR", "test_value"):
-            # Variable should be set inside context
-            self.assertEqual(os.environ["TEST_VAR"], "test_value")
-            self.assertIn("TEST_VAR", os.environ)
+    with temp_env_var("TEST_VAR", "test_value"):
+        # Variable should be set inside context
+        assert os.environ["TEST_VAR"] == "test_value"
+        assert "TEST_VAR" in os.environ
 
-        # Variable should be removed after context
-        self.assertNotIn("TEST_VAR", os.environ)
+    # Variable should be removed after context
+    assert "TEST_VAR" not in os.environ
 
-    def test_restore_existing_env_var(self):
-        """Test restoring an environment variable that already existed."""
-        # Set up existing variable
-        os.environ["EXISTING_VAR"] = "original_value"
 
+def test_restore_existing_env_var():
+    """Test restoring an environment variable that already existed."""
+    # Set up existing variable
+    os.environ["EXISTING_VAR"] = "original_value"
+
+    with temp_env_var("EXISTING_VAR", "temporary_value"):
+        # Variable should be temporarily changed
+        assert os.environ["EXISTING_VAR"] == "temporary_value"
+
+    # Variable should be restored to original value
+    assert os.environ["EXISTING_VAR"] == "original_value"
+
+
+def test_env_var_restored_on_exception():
+    """Test that environment variables are restored even when exceptions occur."""
+    # Set up existing variable
+    os.environ["EXISTING_VAR"] = "original_value"
+
+    with pytest.raises(ValueError):
         with temp_env_var("EXISTING_VAR", "temporary_value"):
-            # Variable should be temporarily changed
-            self.assertEqual(os.environ["EXISTING_VAR"], "temporary_value")
+            # Verify variable is set
+            assert os.environ["EXISTING_VAR"] == "temporary_value"
+            # Raise exception
+            raise ValueError("Test exception")
 
-        # Variable should be restored to original value
-        self.assertEqual(os.environ["EXISTING_VAR"], "original_value")
-
-    def test_env_var_restored_on_exception(self):
-        """Test that environment variables are restored even when exceptions occur."""
-        # Set up existing variable
-        os.environ["EXISTING_VAR"] = "original_value"
-
-        with self.assertRaises(ValueError):
-            with temp_env_var("EXISTING_VAR", "temporary_value"):
-                # Verify variable is set
-                self.assertEqual(os.environ["EXISTING_VAR"], "temporary_value")
-                # Raise exception
-                raise ValueError("Test exception")
-
-        # Variable should still be restored despite exception
-        self.assertEqual(os.environ["EXISTING_VAR"], "original_value")
-
-    def test_nested_context_managers(self):
-        """Test nested temp_env_var context managers."""
-        # Set up original variable
-        os.environ["TEST_VAR"] = "original"
-
-        with temp_env_var("TEST_VAR", "level1"):
-            self.assertEqual(os.environ["TEST_VAR"], "level1")
-
-            with temp_env_var("TEST_VAR", "level2"):
-                self.assertEqual(os.environ["TEST_VAR"], "level2")
-
-            # Should restore to level1
-            self.assertEqual(os.environ["TEST_VAR"], "level1")
-
-        # Should restore to original
-        self.assertEqual(os.environ["TEST_VAR"], "original")
-
-    def test_multiple_different_vars(self):
-        """Test setting multiple different environment variables."""
-        # Set up one existing variable
-        os.environ["EXISTING_VAR"] = "existing_value"
-
-        with temp_env_var("EXISTING_VAR", "modified"):
-            with temp_env_var("TEST_VAR", "new_value"):
-                self.assertEqual(os.environ["EXISTING_VAR"], "modified")
-                self.assertEqual(os.environ["TEST_VAR"], "new_value")
-
-        # Check restoration
-        self.assertEqual(os.environ["EXISTING_VAR"], "existing_value")
-        self.assertNotIn("TEST_VAR", os.environ)
-
-    def test_empty_string_value(self):
-        """Test setting environment variable to empty string."""
-        with temp_env_var("TEST_VAR", ""):
-            self.assertEqual(os.environ["TEST_VAR"], "")
-            self.assertIn("TEST_VAR", os.environ)
-
-        # Should be removed after context
-        self.assertNotIn("TEST_VAR", os.environ)
-
-    def test_overwrite_with_empty_string(self):
-        """Test overwriting existing variable with empty string."""
-        os.environ["EXISTING_VAR"] = "original"
-
-        with temp_env_var("EXISTING_VAR", ""):
-            self.assertEqual(os.environ["EXISTING_VAR"], "")
-
-        # Should restore original value
-        self.assertEqual(os.environ["EXISTING_VAR"], "original")
-
-    def test_context_manager_returns_none(self):
-        """Test that context manager yields None."""
-        with temp_env_var("TEST_VAR", "value") as result:
-            self.assertIsNone(result)
-            self.assertEqual(os.environ["TEST_VAR"], "value")
+    # Variable should still be restored despite exception
+    assert os.environ["EXISTING_VAR"] == "original_value"
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_nested_context_managers():
+    """Test nested temp_env_var context managers."""
+    # Set up original variable
+    os.environ["TEST_VAR"] = "original"
+
+    with temp_env_var("TEST_VAR", "level1"):
+        assert os.environ["TEST_VAR"] == "level1"
+
+        with temp_env_var("TEST_VAR", "level2"):
+            assert os.environ["TEST_VAR"] == "level2"
+
+        # Should restore to level1
+        assert os.environ["TEST_VAR"] == "level1"
+
+    # Should restore to original
+    assert os.environ["TEST_VAR"] == "original"
+
+
+def test_multiple_different_vars():
+    """Test setting multiple different environment variables."""
+    # Set up one existing variable
+    os.environ["EXISTING_VAR"] = "existing_value"
+
+    with temp_env_var("EXISTING_VAR", "modified"):
+        with temp_env_var("TEST_VAR", "new_value"):
+            assert os.environ["EXISTING_VAR"] == "modified"
+            assert os.environ["TEST_VAR"] == "new_value"
+
+    # Check restoration
+    assert os.environ["EXISTING_VAR"] == "existing_value"
+    assert "TEST_VAR" not in os.environ
+
+
+def test_empty_string_value():
+    """Test setting environment variable to empty string."""
+    with temp_env_var("TEST_VAR", ""):
+        assert os.environ["TEST_VAR"] == ""
+        assert "TEST_VAR" in os.environ
+
+    # Should be removed after context
+    assert "TEST_VAR" not in os.environ
+
+
+def test_overwrite_with_empty_string():
+    """Test overwriting existing variable with empty string."""
+    os.environ["EXISTING_VAR"] = "original"
+
+    with temp_env_var("EXISTING_VAR", ""):
+        assert os.environ["EXISTING_VAR"] == ""
+
+    # Should restore original value
+    assert os.environ["EXISTING_VAR"] == "original"
+
+
+def test_context_manager_returns_none():
+    """Test that context manager yields None."""
+    with temp_env_var("TEST_VAR", "value") as result:
+        assert result is None
+        assert os.environ["TEST_VAR"] == "value"
