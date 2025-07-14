@@ -28,7 +28,7 @@ python3 main_ppo_split.py \
     critic.model.fsdp_config.optimizer_offload=False \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_example_gsm8k' \
     trainer.experiment_name='deepseek_llm_7b_function_rm' \
     trainer.n_gpus_per_node=8 \
