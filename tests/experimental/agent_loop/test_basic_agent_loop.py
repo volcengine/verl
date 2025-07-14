@@ -13,7 +13,7 @@
 # limitations under the License.
 import json
 import os
-from typing import Any, Tuple, Dict, List
+from typing import Any
 
 import numpy as np
 import pytest
@@ -22,7 +22,7 @@ from omegaconf import DictConfig
 from transformers.utils import get_json_schema
 
 from tests.experimental.agent_loop.agent_utils import init_agent_loop_manager
-from verl.experimental.agent_loop.agent_loop import get_trajectory_info, AgentLoopOutput
+from verl.experimental.agent_loop.agent_loop import AgentLoopOutput, get_trajectory_info
 from verl.experimental.agent_loop.single_turn_agent_loop import SingleTurnAgentLoop
 from verl.protocol import DataProto
 from verl.tools.base_tool import BaseTool, OpenAIFunctionToolSchema
@@ -158,8 +158,9 @@ class WeatherToolWithData(BaseTool):
         except Exception as e:
             return str(e), 0, {}
 
+
 class PaddingAgentLoop(SingleTurnAgentLoop):
-    async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> AgentLoopOutput:
+    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
         original_output = await super().run(messages, sampling_params)
 
         # unique qwen2.5 sequence: <tool_call></tool_call><|im_end|>
@@ -167,6 +168,7 @@ class PaddingAgentLoop(SingleTurnAgentLoop):
         original_output.response_mask += [1] * 3
 
         return original_output
+
 
 def test_custom_agent(init_config):
     ray.init(
@@ -183,7 +185,9 @@ def test_custom_agent(init_config):
     # =========================== 1. Init rollout manager ===========================
     n = 2
     init_config.actor_rollout_ref.rollout.n = n
-    init_config.actor_rollout_ref.rollout.agent.custom_agent_loop = "tests.experimental.agent_loop.test_basic_agent_loop.PaddingAgentLoop"
+    init_config.actor_rollout_ref.rollout.agent.custom_agent_loop = (
+        "tests.experimental.agent_loop.test_basic_agent_loop.PaddingAgentLoop"
+    )
     agent_loop_manager = init_agent_loop_manager(init_config)
 
     # =========================== 2. Generate sequences  ===========================
@@ -301,7 +305,6 @@ def test_tool_agent(init_config):
 
     print("Test passed!")
     ray.shutdown()
-
 
 
 @pytest.mark.asyncio
