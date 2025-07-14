@@ -26,12 +26,12 @@ From this version, we divide images built for vLLM and SGLang as the divergence 
 
 There are four types of application images available:
 
-- **vLLM with FSDP and Megatron**: ``verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.1``
-- **SGLang with FSDP and Megatron**: ``verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.1``
-- **Preview version of SGLang with FSDP and Megatron, CUDA 12.6**: ``verlai/verl:app-verl0.5-sglang0.4.8-mcore0.12.1``
-- **Preview version of SGLang with FSDP and Megatron, CUDA 12.8**: ``verlai/verl:app-preview-verl0.5-sglang0.4.8-mcore0.12.1``
+- **vLLM with FSDP and Megatron**: ``verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.2``
+- **SGLang with FSDP and Megatron**: ``verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.2``
+- **Preview version of SGLang with FSDP and Megatron, CUDA 12.6**: ``verlai/verl:app-verl0.5-sglang0.4.8-mcore0.12.2``
+- **Preview version of SGLang with FSDP and Megatron, CUDA 12.8**: ``verlai/verl:app-preview-verl0.5-sglang0.4.8-mcore0.12.2``
 
-For Megatron 0.13.0, we offer preview images, to use latest codes, just replace ``mcore0.12.1`` with ``mcore0.13.0-preview`` in the above image tag.
+For Megatron 0.13.0, we offer preview images, to use latest codes, just replace ``mcore0.12.2`` with ``mcore0.13.0-preview`` in the above image tag.
 
 The latest vLLM support is coming soon.
 
