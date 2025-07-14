@@ -46,7 +46,7 @@ def noop_context() -> Any:
     yield
 
 
-def get_dynamic_pipeline_shards(layer_num: int, pp_size: int) -> List[int]:
+def get_dynamic_pipeline_shards(layer_num: int, pp_size: int) -> list[int]:
     """Calculate the pipeline sharding configuration for Megatron-LM.
 
     Args:
