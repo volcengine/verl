@@ -228,12 +228,14 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             return common_path
         return os.path.join(common_path, basename)
 
-    def generate_state_dict(self):
+    def generate_state_dict(
+        self, generate_model: bool = True, generate_optimizer: bool = True, generate_extra: bool = True
+    ):
         # For save dist checkpointing
         state_dict = {}
 
         # All ranks Save Model to reduce memory pressure
-        if self.should_save_model or self.should_load_model:
+        if generate_model:
             # Get sharded state dict, notice that state_dict will collect among dp groups, causing memory pressure
             for vpp_rank, model in enumerate(self.model):
                 if len(self.model) > 1:
@@ -246,7 +248,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 state_dict[key] = model.sharded_state_dict()
 
         # Optimizer State Dict
-        if self.should_save_optimizer or self.should_load_optimizer:
+        if generate_optimizer:
             torch.distributed.barrier()
             optimizer_sharded_states = self.optimizer.sharded_state_dict(state_dict)
             state_dict["optimizer"] = optimizer_sharded_states
@@ -256,7 +258,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 state_dict["lr_scheduler"] = lr_state_dict
 
         # RNG States State Dict
-        if self.should_save_extra or self.should_load_extra:
+        if generate_extra:
             torch.distributed.barrier()
             rng_state = self.get_rng_state()
             state_dict["rng_state"] = rng_state
@@ -288,7 +290,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         dist_checkpoint_path = get_dist_checkpoint_path(local_path)
 
         # Get State Dict for loading
-        sharded_state_dict = self.generate_state_dict()
+        sharded_state_dict = self.generate_state_dict(
+            self.should_load_model, self.should_load_optimizer, self.should_load_extra
+        )
         log_with_rank(f"Generated state dict for saving: {sharded_state_dict.keys()}", rank=self.rank, logger=logger)
         for vpp_rank, model in enumerate(self.model):
             if len(self.model) > 1:
@@ -378,9 +382,13 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         local_path = local_mkdir_safe(local_path)
         dist_checkpoint_path = get_dist_checkpoint_path(local_path)
 
+        # Note that model weights, optimizer states, and extra states are generated
+        # together in a state dict, we save them in one time
         if self.use_dist_checkpointing:
             # Generate state dict for saving
-            state_dict = self.generate_state_dict()
+            state_dict = self.generate_state_dict(
+                self.should_save_model, self.should_save_optimizer, self.should_save_extra
+            )
             log_with_rank(f"Generated state dict for saving: {state_dict.keys()}", rank=self.rank, logger=logger)
             for vpp_rank, model in enumerate(self.model):
                 if len(self.model) > 1:
@@ -402,13 +410,34 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 assert async_save_request is None, "Async save request should be None when not using async save."
                 torch.distributed.barrier()
         else:
-            assert self.use_hf_checkpoint, "use_hf_checkpoint should be True when not using dist checkpointing"
-            log_with_rank(f"Saving HF model checkpoint to {local_path} with bridge", rank=self.rank, logger=logger)
-            hf_ckpt_path = get_hf_model_checkpoint_path(local_path)
-            self.bridge.save_weights(self.model, hf_ckpt_path)
-            log_with_rank(f"Saved bridge checkpoint to {hf_ckpt_path}", rank=self.rank, logger=logger)
+            assert self.use_hf_checkpoint, "When not using distributed checkpointing, use_hf_checkpoint should be True."
+            # Generate optimizer and exra state dicts
+            state_dict = self.generate_state_dict(
+                generate_model=False,
+                generate_optimizer=self.should_save_optimizer,
+                generate_extra=self.should_save_extra,
+            )
+            # Save optimizer and extra states to local path
+            # Start Async save if enabled
+            async_save_request = save_dist_checkpointing(
+                sharded_state_dict=state_dict,
+                ckpt_path=dist_checkpoint_path,
+                async_save=self.checkpoint_config.async_save,
+            )
+
+            # Synchronize all async save requests
+            if not self.checkpoint_config.async_save:
+                assert async_save_request is None, "Async save request should be None when not using async save."
+                torch.distributed.barrier()
 
         if self.should_save_model:
+            if self.use_hf_checkpoint:
+                # Use mbridge to save HF model checkpoint
+                log_with_rank(f"Saving HF model checkpoint to {local_path} with bridge", rank=self.rank, logger=logger)
+                hf_ckpt_path = get_hf_model_checkpoint_path(local_path)
+                self.bridge.save_weights(self.model, hf_ckpt_path)
+                log_with_rank(f"Saved bridge checkpoint to {hf_ckpt_path}", rank=self.rank, logger=logger)
+
             # Only rank 0 saves the hf config and tokenizer to huggingface path
             # No matter whether we save hf model or not
             if self.rank == 0:
@@ -452,7 +481,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 with open(transformer_config_path, "w") as f:
                     json.dump(transformer_config_dict, f, indent=2)
 
-        if self.should_save_hf_model:
+        if self.should_save_hf_model and not self.use_hf_checkpoint:
             # wait for everyone to dump to local
             state_dict = self.weight_saver(
                 self.model,
