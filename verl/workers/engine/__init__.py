@@ -11,9 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from . import fsdp, megatron
 from .base import BaseEngine
-from . import fsdp
-from . import megatron
 
 
 def get_training_engine(key):
