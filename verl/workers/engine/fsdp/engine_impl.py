@@ -423,7 +423,7 @@ class FSDPEngine(BaseEngine):
         else:
             micro_batches = batch.split(micro_batch_size)
 
-        values_lst = []
+        mb_preds_list = []
         processor.engine_info["use_value_head_model"] = hasattr(self.module, "v_head")
         for micro_batch in micro_batches:
             if isinstance(micro_batch, DataProto):
@@ -446,19 +446,16 @@ class FSDPEngine(BaseEngine):
                 else:
                     preds = outputs
 
-            values_lst.append(preds)
-        values = torch.concat(values_lst, dim=0)
+            mb_preds_list.append(preds)
+        mb_preds = torch.concat(mb_preds_list, dim=0)
 
         if use_dynamic_bsz:
             indices = list(itertools.chain.from_iterable(indices))
-            assert len(indices) == values.size(0), f"{len(indices)} vs. {values.size()}"
+            assert len(indices) == mb_preds.size(0), f"{len(indices)} vs. {mb_preds.size()}"
             revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-            values = values[revert_indices]
+            mb_preds = mb_preds[revert_indices]
+        return mb_preds
 
-        response_mask = data.batch["response_mask"]
-        values = values * response_mask  # Only action tokens have values
-        output = DataProto.from_dict(tensors={"values": values})
-        return output
 
     def train_batch(self, data, metrics, processor=None):
         """
@@ -476,7 +473,7 @@ class FSDPEngine(BaseEngine):
         assert self.mode == "train"
         # split batch into micro_batches
         mini_batch = data
-        select_keys = ["input_ids", "responses", "response_mask", "attention_mask", "position_ids", "values", "returns"]
+        select_keys = ["input_ids", "responses", "response_mask", "attention_mask", "position_ids"]
         if "multi_modal_inputs" in mini_batch:
             non_tensor_select_keys = ["multi_modal_inputs"]
             num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
