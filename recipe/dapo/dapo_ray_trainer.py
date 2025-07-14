@@ -103,7 +103,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                 )
                 with marked_timer("start_profile", timing_raw):
                     if do_profile:
-                        self.actor_rollout_wg.start_profile()
+                        self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
                         if self.use_reference_policy:
                             self.ref_policy_wg.start_profile()
                         if self.use_critic:
