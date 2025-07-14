@@ -38,4 +38,4 @@
 - [ ] Add / Update [the documentation](https://github.com/volcengine/verl/tree/main/docs).
 - [ ] Add unit or end-to-end test(s) to [the CI workflow](https://github.com/volcengine/verl/tree/main/.github/workflows) to cover all the code. If not feasible, explain why: ...
 - [ ] Once your PR is ready for CI, send a message in [the `ci-request` channel](https://verl-project.slack.com/archives/C091TCESWB1) in [the `verl` Slack workspace](https://join.slack.com/t/verl-project/shared_invite/zt-3855yhg8g-CTkqXu~hKojPCmo7k_yXTQ).
-- [ ] Record the API and functional updates of `single_controller` module on this [issue](https://github.com/volcengine/verl/issues/2528) if this PR updates any of the APIs.
+- [ ] If this PR updates any `single_controller` APIs, record the changes in this [tracking issue](https://github.com/volcengine/verl/issues/2528).
