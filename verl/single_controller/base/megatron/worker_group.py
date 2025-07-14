@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict
 
 from verl.single_controller.base import ResourcePool, WorkerGroup
 
@@ -25,7 +24,7 @@ class MegatronWorkerGroup(WorkerGroup):
         self._megatron_rank_info = None
         self._megatron_global_info: DistGlobalInfo = None
 
-    def init_megatron(self, default_megatron_kwargs: Dict = None):
+    def init_megatron(self, default_megatron_kwargs: dict = None):
         raise NotImplementedError("MegatronWorkerGroup.init_megatron should be overwritten")
 
     def get_megatron_rank_info(self, rank: int) -> DistRankInfo:

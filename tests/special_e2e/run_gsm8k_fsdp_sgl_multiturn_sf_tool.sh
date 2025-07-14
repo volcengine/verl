@@ -50,7 +50,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='retool_async_rl' \
     trainer.experiment_name='qwen3-4b_function_rm-retool-async-sgl-no-sft-n8-v2505271300' \
     trainer.val_before_train=False \

@@ -103,6 +103,7 @@ CRITIC_GRAD_OFFLOAD=${CRITIC_GRAD_OFFLOAD:-$COMMON_GRAD_OFFLOAD}
 CRITIC_OPTIMIZER_OFFLOAD=${CRITIC_OPTIMIZER_OFFLOAD:-$COMMON_OPTIMIZER_OFFLOAD}
 RM_PARAM_OFFLOAD=${RM_PARAM_OFFLOAD:-$COMMON_PARAM_OFFLOAD}
 USE_MBRIDGE=${USE_MBRIDGE:-False}
+USE_FUSED_KERNELS=${USE_FUSED_KERNELS:-False}
 
 LR_WARMUP_STEPS=${LR_WARMUP_STEPS:-null}
 
@@ -148,6 +149,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
+    actor_rollout_ref.model.use_fused_kernels=${USE_FUSED_KERNELS} \
     actor_rollout_ref.actor.optim.lr_warmup_steps=$LR_WARMUP_STEPS \
     actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
@@ -221,7 +223,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     algorithm.kl_penalty=kl \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
-    trainer.logger=['console'] \
+    trainer.logger=console \
     trainer.project_name='verl-test' \
     trainer.experiment_name="${exp_name}" \
     trainer.nnodes=1 \

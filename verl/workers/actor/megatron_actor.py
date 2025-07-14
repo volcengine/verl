@@ -23,7 +23,7 @@ import itertools
 import logging
 import os
 from functools import partial
-from typing import Dict, Iterable
+from typing import Iterable
 
 import torch
 import torch.distributed
@@ -123,6 +123,13 @@ class MegatronPPOActor(BasePPOActor):
         self.actor_module = actor_module
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
         self.prof = Profiler(self.config.profile)
+        self.use_fused_kernels = self.config.get("use_fused_kernels", False)
+        if self.use_fused_kernels:
+            from verl.models.mcore.model_forward_fused import patch_fused_forward
+
+            for model in self.actor_module:
+                patch_fused_forward(model)
+
         self.optimizer_step_args = OmegaConf.create(
             {
                 "skip_grad": None,
@@ -493,37 +500,47 @@ class MegatronPPOActor(BasePPOActor):
             label_mask[:, : -response_length - 1] = False
             label_mask[:, -1] = False
 
-            def logits_processor(logits, label, label_mask):
-                assert logits.shape[:2] == label.shape[:2]
-                assert label.shape == label_mask.shape
+            from verl.models.mcore import get_mcore_forward_fn, get_mcore_forward_fused_fn
 
-                ret = {}
+            if self.use_fused_kernels:
+                forward_fn = get_mcore_forward_fused_fn(self.hf_config)
+                # return dict of [logits, entropy]
+                output = forward_fn(
+                    model,
+                    input_ids,
+                    position_ids,
+                    attention_mask,
+                    sequence_parallel=self.tf_config.sequence_parallel,
+                    multi_modal_inputs=multi_modal_inputs,
+                    labels=label,
+                    labels_mask=label_mask,
+                )
+            else:
+                forward_fn = get_mcore_forward_fn(self.hf_config)
 
-                if calculate_entropy:
-                    entropy = vocab_parallel_entropy(logits)
-                    ret["entropy"] = entropy
+                def logits_processor(logits, label, label_mask):
+                    assert logits.shape[:2] == label.shape[:2]
+                    assert label.shape == label_mask.shape
+                    ret = {}
+                    if calculate_entropy:
+                        entropy = vocab_parallel_entropy(logits)
+                        ret["entropy"] = entropy
+                    log_probs = vocab_parallel_log_probs_from_logits(logits, label)
+                    log_probs = log_probs.masked_fill(~label_mask, 0.0)
+                    ret["log_probs"] = log_probs
+                    return ret
 
-                log_probs = vocab_parallel_log_probs_from_logits(logits, label)
-                log_probs = log_probs.masked_fill(~label_mask, 0.0)
-                ret["log_probs"] = log_probs
-                return ret
-
-            logits_processor_args = {"label": label, "label_mask": label_mask}
-
-            from verl.models.mcore import get_mcore_forward_fn
-
-            forward_fn = get_mcore_forward_fn(self.hf_config)
-
-            output = forward_fn(
-                model,
-                input_ids,
-                attention_mask,
-                position_ids,
-                sequence_parallel=self.tf_config.sequence_parallel,
-                multi_modal_inputs=multi_modal_inputs,
-                logits_processor=logits_processor,
-                logits_processor_args=logits_processor_args,
-            )
+                logits_processor_args = {"label": label, "label_mask": label_mask}
+                output = forward_fn(
+                    model,
+                    input_ids,
+                    attention_mask,
+                    position_ids,
+                    sequence_parallel=self.tf_config.sequence_parallel,
+                    multi_modal_inputs=multi_modal_inputs,
+                    logits_processor=logits_processor,
+                    logits_processor_args=logits_processor_args,
+                )
 
             if forward_only:
                 meta_info = None
@@ -574,7 +591,7 @@ class MegatronPPOActor(BasePPOActor):
         return losses_reduced
 
     @GPUMemoryLogger(role="megatron actor", logger=logger)
-    def update_policy(self, dataloader: Iterable[DataProto]) -> Dict:
+    def update_policy(self, dataloader: Iterable[DataProto]) -> dict:
         """Update the policy with an iterator of DataProto
 
         Args:

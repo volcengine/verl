@@ -18,7 +18,7 @@ import logging
 import os
 import random
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Type
+from typing import Any
 
 import numpy as np
 import ray
@@ -47,7 +47,7 @@ class AsyncLLMServerManager:
     - Sticky session: send multi-turn chat completions to same server for automatic prefix caching
     """
 
-    def __init__(self, config: DictConfig, server_handles: List[ray.actor.ActorHandle], max_cache_size: int = 10000):
+    def __init__(self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], max_cache_size: int = 10000):
         """Initialize the AsyncLLMServerManager.
 
         Args:
@@ -82,9 +82,9 @@ class AsyncLLMServerManager:
         self,
         request_id,
         *,
-        prompt_ids: List[int],
-        sampling_params: Dict[str, Any],
-    ) -> List[int]:
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+    ) -> list[int]:
         """Generate tokens from prompt ids.
 
         Args:
@@ -114,9 +114,9 @@ class AgentLoopMetrics(BaseModel):
 class AgentLoopOutput(BaseModel):
     """Agent loop output."""
 
-    prompt_ids: List[int]
-    response_ids: List[int]
-    response_mask: List[int]
+    prompt_ids: list[int]
+    response_ids: list[int]
+    response_mask: list[int]
     num_turns: int = 0
     metrics: AgentLoopMetrics
 
@@ -149,7 +149,7 @@ class AgentLoopBase(ABC):
         cls._class_initialized = True
 
     @abstractmethod
-    async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> AgentLoopOutput:
+    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
         """Run agent loop to interact with LLM server and environment.
 
         Args:
@@ -166,7 +166,7 @@ class AgentLoopBase(ABC):
 class AgentLoopWorker:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
-    def __init__(self, config: DictConfig, server_handles: List[ray.actor.ActorHandle]):
+    def __init__(self, config: DictConfig, server_handles: list[ray.actor.ActorHandle]):
         """Initialize agent loop manager.
 
         Args:
@@ -181,11 +181,10 @@ class AgentLoopWorker:
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
 
-        trace_config = config.trainer.get("rollout_trace", {})
-
+        trace_config = self.config.actor_rollout_ref.rollout.get("trace", {})
         RolloutTraceConfig.init(
-            config.trainer.project_name,
-            config.trainer.experiment_name,
+            self.config.trainer.project_name,
+            self.config.trainer.experiment_name,
             trace_config.get("backend"),
             trace_config.get("token2text", False),
         )
@@ -235,9 +234,11 @@ class AgentLoopWorker:
         else:
             index = np.arange(len(raw_prompts))
 
-        trajectory_info = await get_trajectory_info(batch.meta_info.get("global_steps", -1), index)
+        trajectory_info = await get_trajectory_info(
+            batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
+        )
 
-        for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info):
+        for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
             tasks.append(
                 asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory))
             )
@@ -249,19 +250,23 @@ class AgentLoopWorker:
     async def _run_agent_loop(
         self,
         agent_name: str,
-        messages: List[Dict[str, Any]],
-        sampling_params: Dict[str, Any],
-        trajectory: Dict[str, Any],
+        messages: list[dict[str, Any]],
+        sampling_params: dict[str, Any],
+        trajectory: dict[str, Any],
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
-            step=trajectory["step"], sample_index=trajectory["sample_index"], rollout_n=trajectory["rollout_n"]
+            step=trajectory["step"],
+            sample_index=trajectory["sample_index"],
+            rollout_n=trajectory["rollout_n"],
+            validate=trajectory["validate"],
+            name="agent_loop",
         ):
             agent_loop_class = self.get_agent_loop_class(agent_name)
             agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer)
             output = await agent_loop.run(messages, sampling_params)
             return output
 
-    def get_agent_loop_class(self, agent_name: str) -> Type[AgentLoopBase]:
+    def get_agent_loop_class(self, agent_name: str) -> type[AgentLoopBase]:
         """Get the appropriate agent loop class based on agent name.
 
         Factory method that returns the correct agent loop class implementation
@@ -293,7 +298,7 @@ class AgentLoopWorker:
 
         raise ValueError(f"Unknown agent_name: {agent_name}")
 
-    def _postprocess(self, inputs: List[AgentLoopOutput]) -> DataProto:
+    def _postprocess(self, inputs: list[AgentLoopOutput]) -> DataProto:
         # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
         # prompts: left pad
         # responses: right pad
@@ -358,8 +363,17 @@ class AgentLoopWorker:
         return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
 
 
-async def get_trajectory_info(step, index):
-    """Get the trajectory info (step, sample_index, rollout_n) asynchrously"""
+async def get_trajectory_info(step, index, validate):
+    """Get trajectory info.
+
+    Args:
+        step (int): global steps in the trainer.
+        index (list): form datastore extra_info.index column.
+        validate (bool): whether is a validate step.
+
+    Returns:
+        list: trajectory.
+    """
     trajectory_info = []
     rollout_n = 0
     for i in range(len(index)):
@@ -367,7 +381,7 @@ async def get_trajectory_info(step, index):
             rollout_n += 1
         else:
             rollout_n = 0
-        trajectory_info.append({"step": step, "sample_index": index[i], "rollout_n": rollout_n})
+        trajectory_info.append({"step": step, "sample_index": index[i], "rollout_n": rollout_n, "validate": validate})
     return trajectory_info
 
 
@@ -460,7 +474,10 @@ class AgentLoopManager:
             self.wake_up()
         chunkes = prompts.chunk(len(self.agent_loop_workers))
         outputs = ray.get(
-            [worker.generate_sequences.remote(chunk) for worker, chunk in zip(self.agent_loop_workers, chunkes)]
+            [
+                worker.generate_sequences.remote(chunk)
+                for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
+            ]
         )
         output = DataProto.concat(outputs)
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
@@ -473,7 +490,7 @@ class AgentLoopManager:
         output.meta_info = {"timing": timing}
         return output
 
-    def _performance_metrics(self, metrics: List[List[Dict[str, str]]], output: DataProto) -> Dict[str, float]:
+    def _performance_metrics(self, metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:
         timing = {}
         t_generate_sequences = np.array([metric["generate_sequences"] for chunk in metrics for metric in chunk])
         t_tool_calls = np.array([metric["tool_calls"] for chunk in metrics for metric in chunk])

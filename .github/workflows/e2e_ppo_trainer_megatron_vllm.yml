@@ -133,7 +133,7 @@ jobs:
           ray stop --force
           export VLLM_USE_V1=1
           ray start --head
-          MODE=async RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 bash tests/special_e2e/run_ppo_trainer_megatron.sh
+          MODE=async USE_FUSED_KERNELS=True RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 bash tests/special_e2e/run_ppo_trainer_megatron.sh
       - name: Test Megatron checkpoints merging function (DeepSeek Actor and Critic)
         run: |
           exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"

@@ -181,3 +181,12 @@ agent:
   
   # custom agent loop config
   custom_agent_loop: null
+
+# trace rollout data
+trace:
+  
+  # trace backend, support mlflow, weave
+  backend: null
+
+  # whether translate token id to text in output
+  token2text: False

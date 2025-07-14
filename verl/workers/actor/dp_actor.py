@@ -20,7 +20,6 @@ Single Process Actor
 import itertools
 import logging
 import os
-from typing import Tuple
 
 import torch
 from torch import nn
@@ -81,7 +80,7 @@ class DataParallelPPOActor(BasePPOActor):
 
     def _forward_micro_batch(
         self, micro_batch, temperature, calculate_entropy=False
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Returns:
             entropy: # (bs, response_len)
@@ -315,7 +314,7 @@ class DataParallelPPOActor(BasePPOActor):
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
 
-        def _get_micro_batches(data: DataProto) -> Tuple[list, list | None]:
+        def _get_micro_batches(data: DataProto) -> tuple[list, list | None]:
             select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
             batch = data.select(batch_keys=select_keys).batch
             has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch
@@ -425,7 +424,7 @@ class DataParallelPPOActor(BasePPOActor):
                         )
 
                         for current_original_indices, text_mb_td in zip(
-                            textual_indices, rearranged_text_micro_batches_tds
+                            textual_indices, rearranged_text_micro_batches_tds, strict=True
                         ):
                             current_mm_inputs_list = [
                                 all_multi_modal_inputs_list[idx] for idx in current_original_indices
@@ -513,7 +512,7 @@ class DataParallelPPOActor(BasePPOActor):
                             old_log_prob=old_log_prob,
                             log_prob=log_prob,
                             advantages=advantages,
-                            response_mask=advantages,
+                            response_mask=response_mask,
                             loss_agg_mode=loss_agg_mode,
                             config=self.config,
                         )

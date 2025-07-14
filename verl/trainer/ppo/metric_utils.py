@@ -17,7 +17,7 @@ Metrics related to the PPO trainer.
 
 from collections import defaultdict
 from functools import partial
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable
 
 import numpy as np
 import torch
@@ -27,7 +27,7 @@ from verl.utils.import_utils import deprecated
 
 
 @deprecated("verl.utils.metric.reduce_metrics")
-def reduce_metrics(metrics: Dict[str, List[Any]]) -> Dict[str, Any]:
+def reduce_metrics(metrics: dict[str, list[Any]]) -> dict[str, Any]:
     """
     Reduces a dictionary of metric lists by computing the mean of each list.
 
@@ -47,7 +47,7 @@ def reduce_metrics(metrics: Dict[str, List[Any]]) -> Dict[str, Any]:
     return reduce_metrics(metrics)
 
 
-def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
+def _compute_response_info(batch: DataProto) -> dict[str, Any]:
     """
     Computes information about prompts and responses from a batch.
 
@@ -77,7 +77,7 @@ def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
     )
 
 
-def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str, Any]:
+def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str, Any]:
     """
     Computes various metrics from a batch of data for PPO training.
 
@@ -180,7 +180,7 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
     return metrics
 
 
-def compute_timing_metrics(batch: DataProto, timing_raw: Dict[str, float]) -> Dict[str, Any]:
+def compute_timing_metrics(batch: DataProto, timing_raw: dict[str, float]) -> dict[str, Any]:
     """
     Computes timing metrics for different processing stages in PPO training.
 
@@ -222,7 +222,7 @@ def compute_timing_metrics(batch: DataProto, timing_raw: Dict[str, float]) -> Di
     }
 
 
-def compute_throughout_metrics(batch: DataProto, timing_raw: Dict[str, float], n_gpus: int) -> Dict[str, Any]:
+def compute_throughout_metrics(batch: DataProto, timing_raw: dict[str, float], n_gpus: int) -> dict[str, Any]:
     """
     Computes throughput metrics for PPO training.
 
@@ -416,7 +416,9 @@ def process_validation_metrics(
                         metric[f"best@{n}/mean"], metric[f"best@{n}/std"] = bon_mean, bon_std
                         metric[f"worst@{n}/mean"], metric[f"worst@{n}/std"] = won_mean, won_std
                         if var2vals.get("pred", None) is not None:
-                            vote_data = [{"val": val, "pred": pred} for val, pred in zip(var_vals, var2vals["pred"])]
+                            vote_data = [
+                                {"val": val, "pred": pred} for val, pred in zip(var_vals, var2vals["pred"], strict=True)
+                            ]
                             [(maj_n_mean, maj_n_std)] = bootstrap_metric(
                                 data=vote_data,
                                 subset_size=n,

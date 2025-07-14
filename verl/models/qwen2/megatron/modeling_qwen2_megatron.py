@@ -19,7 +19,7 @@
 # limitations under the License.
 """PyTorch Qwen2 model."""
 
-from typing import Optional, Tuple, Union
+from typing import Optional
 
 import torch
 import torch.utils.checkpoint
@@ -126,7 +126,7 @@ class ParallelQwen2Model(nn.Module):
         input_ids: torch.LongTensor = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-    ) -> Union[Tuple, BaseModelOutputWithPast]:
+    ) -> tuple | BaseModelOutputWithPast:
         """
 
         Args:
@@ -185,7 +185,7 @@ class ParallelQwen2ForCausalLM(nn.Module):
         input_ids: torch.LongTensor = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-    ) -> Union[Tuple, CausalLMOutputWithPast]:
+    ) -> tuple | CausalLMOutputWithPast:
         r"""
         Args:
             labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
@@ -256,7 +256,7 @@ class ParallelQwen2ModelRmPad(nn.Module):
         indices: torch.Tensor = None,
         cu_seqlens: int = None,
         max_seqlen_in_batch: int = None,
-    ) -> Union[Tuple, BaseModelOutputWithPast]:
+    ) -> tuple | BaseModelOutputWithPast:
         """
 
         Args:
@@ -326,7 +326,7 @@ class ParallelQwen2ForCausalLMRmPad(nn.Module):
         input_ids: torch.LongTensor = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-    ) -> Union[Tuple, CausalLMOutputWithPast]:
+    ) -> tuple | CausalLMOutputWithPast:
         r"""
         Args:
             labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
@@ -405,7 +405,7 @@ class ParallelQwen2ForValueRmPad(ParallelQwen2ForCausalLMRmPad):
         input_ids: torch.LongTensor = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-    ) -> Union[Tuple, CausalLMOutputWithPast]:
+    ) -> tuple | CausalLMOutputWithPast:
         output = super().forward(input_ids, attention_mask, position_ids)
         output.logits = torch.squeeze(output.logits, dim=-1)
         return output
@@ -487,7 +487,7 @@ class ParallelQwen2ModelRmPadPP(nn.Module):
         indices: torch.Tensor = None,
         cu_seqlens: int = None,
         max_seqlen_in_batch: int = None,
-    ) -> Union[Tuple, BaseModelOutputWithPast]:
+    ) -> tuple | BaseModelOutputWithPast:
         """
 
         Args:
@@ -645,7 +645,7 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
         input_ids: torch.LongTensor = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-    ) -> Union[Tuple, CausalLMOutputWithPast]:
+    ) -> tuple | CausalLMOutputWithPast:
         r"""
         Args:
             labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
@@ -728,7 +728,7 @@ class ParallelQwen2ForValueRmPadPP(ParallelQwen2ForCausalLMRmPadPP):
         input_ids: torch.LongTensor = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-    ) -> Union[Tuple, CausalLMOutputWithPast]:
+    ) -> tuple | CausalLMOutputWithPast:
         output = super().forward(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids)
         if self.post_process:
             output.logits = torch.squeeze(output.logits, dim=-1)
