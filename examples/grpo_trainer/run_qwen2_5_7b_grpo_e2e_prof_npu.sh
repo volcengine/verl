@@ -62,7 +62,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.npu_profile.options.with_stack=$WITH_STACK \
     trainer.npu_profile.options.analysis=$ANALYSIS \
     trainer.critic_warmup=0 \
-    trainer.logger=['console'] \
+    trainer.logger=console \
     trainer.project_name='verl_grpo_example_gsm8k' \
     trainer.experiment_name='qwen2_5_7b_function_rm' \
     trainer.n_gpus_per_node=16 \
