@@ -37,23 +37,9 @@ from verl.utils.megatron_utils import (
     per_tensor_generator,
 )
 from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
+from verl.workers.rollout.sglang_rollout.utils import get_named_tensor_buckets
 
 from .base import BaseShardingManager
-
-try:
-    # python >= 3.13
-    from itertools import batched
-except ImportError:
-    from itertools import islice
-
-    def batched(iterable, n):
-        # batched('ABCDEFG', 3) --> ABC DEF G
-        if n < 1:
-            raise ValueError("n must be at least one")
-        it = iter(iterable)
-        while batch := tuple(islice(it, n)):
-            yield batch
-
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
@@ -145,32 +131,69 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         loop.run_until_complete(self.sleep())
 
     async def update_weights(self, params):
+        """
+        Update model weights using tensor buckets (default size = 512MB), similar to THUDM/slime's implementation.
+
+        Notes:
+          - For the best performance of `rebuild_cuda_tensor`, it is recommended to:
+              1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`.
+              2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
+            when using Tensor Parallelism (TP >= 8).
+          - See reference implementations in SLIME:
+            - Main logic: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L452
+            - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
+        """
         if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.resume_memory_occupation()
-
         named_tensors = params
         load_format = None
-        chunk_size = self.rollout_config.get("update_weight_chunk_size", 1)
-        for chunk in batched(named_tensors, chunk_size):
-            named_tensors_chunk = [
-                (name, MultiprocessingSerializer.serialize(tensor.detach())) for name, tensor in chunk
+
+        update_weights_bucket_bytes = self.rollout_config.get("update_weights_bucket_bytes", 512 << 20)
+        for batch in get_named_tensor_buckets(named_tensors, update_weights_bucket_bytes):
+            # On each rank, serialize a batch of (name, tensor) tuples.
+            # named_tensors_batch will be a list like:
+            # [(name0, serialized_tensor0_tp0), (name1, serialized_tensor1_tp0), ...]
+            named_tensors_batch = [
+                (name, MultiprocessingSerializer.serialize(tensor.detach())) for name, tensor in batch
             ]
+
             if self.device_mesh["tp"].get_local_rank() == 0:
-                gathered_serialized_tensors = [None for _ in range(self.device_mesh["tp"].mesh.size()[0])]
+                # On rank 0, prepare a list to hold the gathered batches from all ranks.
+                gathered_serialized_batches = [None for _ in range(self.device_mesh["tp"].mesh.size()[0])]
             else:
-                gathered_serialized_tensors = None
+                gathered_serialized_batches = None
+
+            # Gather the named_tensors_batch from all ranks to rank 0.
+            # After this, on rank 0, gathered_serialized_batches will be a list of lists:
+            # [ [ (name0, s_t0_tp0), (name1, s_t1_tp0), ... ],  # batch from TP rank 0
+            #   [ (name0, s_t0_tp1), (name1, s_t1_tp1), ... ],  # batch from TP rank 1
+            #   ... ]
+            # On other ranks, gathered_serialized_batches will be None.
             dist.gather_object(
-                obj=named_tensors_chunk,
-                object_gather_list=gathered_serialized_tensors,
+                obj=named_tensors_batch,
+                object_gather_list=gathered_serialized_batches,
                 dst=self.device_mesh["tp"].mesh.tolist()[0],
                 group=self.device_mesh["tp"].get_group(),
             )
+
             if self.device_mesh["tp"].get_local_rank() == 0:
+                # Use zip(*) to "transpose" the data structure.
+                # This groups the serialized parts for each individual tensor across all TP ranks.
+                # Example: from [[(n0, t0_tp0), (n1, t1_tp0)], [(n0, t0_tp1), (n1, t1_tp1)]]
+                # to [ ( (n0, t0_tp0), (n0, t0_tp1) ), ( (n1, t1_tp0), (n1, t1_tp1) ) ]
+                logical_tensors = zip(*gathered_serialized_batches, strict=False)
                 await self.inference_engine.update_weights_from_tensor(
-                    # permute from tp x chunk_size x (name, tensor) => chunk_size x (name, tp x tensor)
                     named_tensors=[
-                        (i[0][0], LocalSerializedTensor(values=[j[1] for j in i]))
-                        for i in zip(*gathered_serialized_tensors)
+                        # 'tensor_group' represents a single logical tensor's data from all ranks.
+                        (
+                            tensor_group[0][0],  # Get the name from the first rank's data.
+                            LocalSerializedTensor(
+                                # 'rank_part' is the (name, serialized_tensor) tuple from one specific rank.
+                                values=[rank_part[1] for rank_part in tensor_group]
+                            ),
+                        )
+                        for tensor_group in logical_tensors
+                        # each tensor_group is like ( (n0, t0_tp0), (n0, t0_tp1) )
                     ],
                     load_format=load_format,
                     flush_cache=False,
