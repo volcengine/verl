@@ -19,10 +19,10 @@ import pytest
 from verl.utils.py_functional import temp_env_var
 
 
-def setup_function():
-    """Set up function called before each test function."""
-    # Store original environment state to restore after each test
-    global original_env
+@pytest.fixture(autouse=True)
+def clean_env():
+    """Fixture to clean up environment variables before and after each test."""
+    # Store original environment state
     original_env = dict(os.environ)
 
     # Clean up any test variables that might exist
@@ -31,10 +31,10 @@ def setup_function():
         if var in os.environ:
             del os.environ[var]
 
+    # Yield control to the test function
+    yield
 
-def teardown_function():
-    """Tear down function called after each test function."""
-    # Restore original environment state
+    # Restore original environment state after test
     os.environ.clear()
     os.environ.update(original_env)
 
