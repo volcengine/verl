@@ -405,7 +405,7 @@ PPO
      critic.model.path=$MODEL_PATH \
      critic.ppo_micro_batch_size_per_gpu=4 \
      algorithm.kl_ctrl.kl_coef=0.001 \
-     trainer.logger=['console'] \
+     trainer.logger=console \
      trainer.project_name=$YOUR_PROJECT_NAME \
      trainer.experiment_name=$YOUR_RUN_NAME \
      trainer.val_before_train=False \
@@ -467,7 +467,7 @@ GRPO
         actor_rollout_ref.ref.fsdp_config.param_offload=False \
         algorithm.kl_ctrl.kl_coef=0.001 \
         trainer.critic_warmup=0 \
-        trainer.logger=['console'] \
+        trainer.logger=console \
         trainer.project_name=$YOUR_PROJECT_NAME \
         trainer.experiment_name=$YOUR_RUN_NAME \
         trainer.n_gpus_per_node=$GPUS_PER_NODE \
@@ -775,7 +775,7 @@ slurm_script.sh
         critic.model.fsdp_config.optimizer_offload=False \
         algorithm.kl_ctrl.kl_coef=0.0001 \
         trainer.critic_warmup=0 \
-        trainer.logger=['console','wandb'] \
+        trainer.logger='["console","wandb"]' \
         trainer.project_name='verl_example' \
         trainer.experiment_name='Qwen2.5-32B-Instruct_function_rm' \
         trainer.n_gpus_per_node=${SLURM_GPUS_PER_NODE} \
