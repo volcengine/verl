@@ -55,37 +55,8 @@ class CriticWorker(Worker, DistProfilerExtension):
         self.config = config
         engine_cls = get_training_engine(self.config.strategy)
         self.engine = engine_cls(self.config)
+        self.engine.set_loss_fn(self.loss_fn)
 
-        def loss_fn(batch, vpreds, metrics):
-            values = batch["values"]
-            returns = batch["returns"]
-            response_mask = batch["response_mask"]
-            micro_batch_metrics = {}
-            vf_loss, vf_clipfrac = core_algos.compute_value_loss(
-                vpreds=vpreds,
-                values=values,
-                returns=returns,
-                response_mask=response_mask,
-                cliprange_value=self.config.cliprange_value,
-                loss_agg_mode=self.config.loss_agg_mode,
-            )
-            if self.config.use_dynamic_bsz:
-                # relative to the dynamic bsz
-                loss = vf_loss * (len(batch) / self.config.ppo_mini_batch_size)
-            else:
-                gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
-                loss = vf_loss / gradient_accumulation
-
-            micro_batch_metrics = {
-                "critic/vf_loss": vf_loss.detach().item(),
-                "critic/vf_clipfrac": vf_clipfrac.detach().item(),
-                "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
-            }
-
-            append_to_dict(metrics, micro_batch_metrics)
-            return loss, metrics
-
-        self.engine.set_loss_fn(loss_fn)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -116,6 +87,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         output = self.engine.unshard_data(data=output)
         output = output.to("cpu")
         return output
+
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="pink")
@@ -173,6 +145,37 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         output = output.to("cpu")
         return output
+
+
+    def loss_fn(self, batch, vpreds, metrics):
+        values = batch["values"]
+        returns = batch["returns"]
+        response_mask = batch["response_mask"]
+        micro_batch_metrics = {}
+        vf_loss, vf_clipfrac = core_algos.compute_value_loss(
+            vpreds=vpreds,
+            values=values,
+            returns=returns,
+            response_mask=response_mask,
+            cliprange_value=self.config.cliprange_value,
+            loss_agg_mode=self.config.loss_agg_mode,
+        )
+        if self.config.use_dynamic_bsz:
+            # relative to the dynamic bsz
+            loss = vf_loss * (len(batch) / self.config.ppo_mini_batch_size)
+        else:
+            gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+            loss = vf_loss / gradient_accumulation
+
+        micro_batch_metrics = {
+            "critic/vf_loss": vf_loss.detach().item(),
+            "critic/vf_clipfrac": vf_clipfrac.detach().item(),
+            "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
+        }
+
+        append_to_dict(metrics, micro_batch_metrics)
+        return loss, metrics
+
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
