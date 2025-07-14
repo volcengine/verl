@@ -296,6 +296,7 @@ You can also use the `RolloutViewer` TUI tool to view the dumped rollout data:
 
 
 .. code-block:: bash
+
     python scripts/rollout_viewer.py ${trainer.rollout_data_dir}
 
 
