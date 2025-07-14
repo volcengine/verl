@@ -68,9 +68,6 @@ def load_data(path: Path, data, pbar, suffix=".jsonl"):
         with open(p, encoding="utf-8") as f:
             for line in f:
                 d = json.loads(line)
-                for k in d:
-                    if ("input" in k or "output" in k) and isinstance(d[k], str):
-                        d[k] = d[k].replace("<|imgpad|>", ".").replace("<|image_pad|>", ".")
                 d[INDEX_KEY] = i
                 tmp.append(d)
                 i += 1
