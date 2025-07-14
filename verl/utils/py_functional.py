@@ -22,12 +22,12 @@ import queue  # Import the queue module for exception type hint
 import signal
 from functools import wraps
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple
+from typing import Any, Callable, Iterator, Optional
 
 
 # --- Top-level helper for multiprocessing timeout ---
 # This function MUST be defined at the top level to be pickleable
-def _mp_target_wrapper(target_func: Callable, mp_queue: multiprocessing.Queue, args: Tuple, kwargs: Dict[str, Any]):
+def _mp_target_wrapper(target_func: Callable, mp_queue: multiprocessing.Queue, args: tuple, kwargs: dict[str, Any]):
     """
     Internal wrapper function executed in the child process.
     Calls the original target function and puts the result or exception into the queue.
@@ -143,7 +143,7 @@ def timeout_limit(seconds: float, use_signals: bool = False):
     return decorator
 
 
-def union_two_dict(dict1: Dict, dict2: Dict):
+def union_two_dict(dict1: dict, dict2: dict):
     """Union two dict. Will throw an error if there is an item not the same object with the same key.
 
     Args:
@@ -161,7 +161,7 @@ def union_two_dict(dict1: Dict, dict2: Dict):
     return dict1
 
 
-def append_to_dict(data: Dict, new_data: Dict):
+def append_to_dict(data: dict, new_data: dict):
     """Append values from new_data to lists in data.
 
     For each key in new_data, this function appends the corresponding value to a list
@@ -230,7 +230,7 @@ class DynamicEnumMeta(type):
 
 
 class DynamicEnum(metaclass=DynamicEnumMeta):
-    _registry: Dict[str, "DynamicEnum"] = {}
+    _registry: dict[str, "DynamicEnum"] = {}
     _next_value: int = 0
 
     def __init__(self, name: str, value: int):
@@ -276,9 +276,9 @@ def convert_to_regular_types(obj):
     """Convert Hydra configs and other special types to regular Python types."""
     from omegaconf import DictConfig, ListConfig
 
-    if isinstance(obj, (ListConfig, DictConfig)):
+    if isinstance(obj, ListConfig | DictConfig):
         return {k: convert_to_regular_types(v) for k, v in obj.items()} if isinstance(obj, DictConfig) else list(obj)
-    elif isinstance(obj, (list, tuple)):
+    elif isinstance(obj, list | tuple):
         return [convert_to_regular_types(x) for x in obj]
     elif isinstance(obj, dict):
         return {k: convert_to_regular_types(v) for k, v in obj.items()}
