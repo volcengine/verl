@@ -18,10 +18,8 @@ class MegatronEngine(BaseEngine):
     def __init__(self, config):
         raise NotImplementedError
 
-
     def init_model(self):
         raise NotImplementedError
-
 
     def train_mode(self):
         """
@@ -33,7 +31,6 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-
     def eval_mode(self):
         """
         Context manager entry for switching the engine and model into evaluation mode.
@@ -43,7 +40,6 @@ class MegatronEngine(BaseEngine):
                 # runs in evaluation mode
         """
         raise NotImplementedError
-
 
     def infer_batch(self, data, processor=None):
         """
@@ -58,7 +54,6 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-
     def train_batch(self, data, metrics, processor=None):
         """
         Perform a training step on a mini-batch of data.
@@ -72,14 +67,12 @@ class MegatronEngine(BaseEngine):
             tuple: A tuple containing lists of value predictions, losses, and updated metrics.
         """
         raise NotImplementedError
-    
 
     def optimizer_zero_grad(self):
         """
         Zero out gradients of all parameters before starting a new backward pass.
         """
         raise NotImplementedError
-
 
     def optimizer_step(self):
         """
@@ -90,7 +83,6 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-
     def lr_scheduler_step(self):
         """
         Advance the learning rate scheduler by one step.
@@ -99,7 +91,6 @@ class MegatronEngine(BaseEngine):
             current_lr (float or list[float]): Updated learning rate(s).
         """
         raise NotImplementedError
-
 
     def shard_data(self, data):
         """
@@ -113,7 +104,6 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-
     def unshard_data(self, data):
         """
         Reconstruct or gather sharded data back to a unified format.
@@ -126,7 +116,6 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-
     def set_loss_fn(self, loss_fn):
         """
         Set the loss function to be used during training.
@@ -135,7 +124,6 @@ class MegatronEngine(BaseEngine):
             loss_fn: Callable(data, predictions, ctx) -> (loss_tensor, new_ctx)
         """
         raise NotImplementedError
-
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
         """
@@ -148,7 +136,6 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         """
         Save model, optimizer, and scheduler states to a checkpoint.
@@ -160,7 +147,6 @@ class MegatronEngine(BaseEngine):
             max_ckpt_to_keep: Maximum number of recent checkpoints to retain.
         """
         raise NotImplementedError
-
 
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
         """

@@ -15,6 +15,7 @@ from .base import BaseEngine
 from . import fsdp
 from . import megatron
 
+
 def get_training_engine(key):
     if key == "fsdp":
         return fsdp.FSDPEngine
@@ -22,5 +23,6 @@ def get_training_engine(key):
         raise megatron.MegatronEngine
     else:
         raise NotImplementedError(f"Unknown engine: {key}")
+
 
 __all__ = ["BaseEngine", "get_training_engine"]

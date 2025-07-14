@@ -454,7 +454,6 @@ class FSDPEngine(BaseEngine):
             mb_preds = mb_preds[revert_indices]
         return mb_preds
 
-
     def train_batch(self, data, metrics, processor=None):
         """
         Perform a training step on a mini-batch of data.

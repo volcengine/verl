@@ -73,7 +73,6 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-
     def train_batch(self, data, metrics, processor=None):
         """
         Perform a training step on a mini-batch of data.
@@ -87,7 +86,6 @@ class BaseEngine:
             tuple: A tuple containing lists of value predictions, losses, and updated metrics.
         """
         raise NotImplementedError
-
 
     def optimizer_zero_grad(self):
         """
