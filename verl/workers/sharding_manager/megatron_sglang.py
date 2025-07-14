@@ -132,7 +132,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
     async def update_weights(self, params):
         """
-        Update model weights using tensor buckets (default size = 512MB), similar to THUDM/slime's implementation.
+        Update model weights using tensor buckets, similar to THUDM/slime's implementation.
 
         Notes:
           - For the best performance of `rebuild_cuda_tensor`, it is recommended to:
@@ -148,7 +148,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         named_tensors = params
         load_format = None
 
-        update_weights_bucket_bytes = self.rollout_config.get("update_weights_bucket_bytes", 512 << 20)
+        update_weights_bucket_bytes = self.rollout_config.update_weights_bucket_bytes
         for batch in get_named_tensor_buckets(named_tensors, update_weights_bucket_bytes):
             # On each rank, serialize a batch of (name, tensor) tuples.
             # named_tensors_batch will be a list like:
