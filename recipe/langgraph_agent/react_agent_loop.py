@@ -19,7 +19,7 @@ This implementation is exact same as `ToolAgentLoop`.
 Ref: https://langchain-ai.github.io/langgraph/tutorials/workflows/
 """
 
-from typing import Any, Dict, List, Literal
+from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, MessagesState, StateGraph
@@ -102,7 +102,7 @@ class ReactAgentLoop(AgentLoopBase):
         graph = workflow.compile()
         return graph
 
-    async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> AgentLoopOutput:
+    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
         model_path = self.config.actor_rollout_ref.model.path
         model_name = "/".join(model_path.split("/")[-2:])
 

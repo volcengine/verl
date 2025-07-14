@@ -11,11 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Dict
-
 from recipe.langgraph_agent.react_agent_loop import ReactAgentLoop
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase
 
 
-def agent_loop_loader() -> Dict[str, AgentLoopBase]:
+def agent_loop_loader() -> dict[str, AgentLoopBase]:
     return {"react_agent": ReactAgentLoop}

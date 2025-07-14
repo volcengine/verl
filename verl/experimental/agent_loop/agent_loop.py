@@ -169,7 +169,7 @@ _agent_loop_registry = {}
 def register(agent_name: str):
     """Register agent loop class."""
 
-    def decorator(subclass: Type[AgentLoopBase]) -> Type[AgentLoopBase]:
+    def decorator(subclass: type[AgentLoopBase]) -> type[AgentLoopBase]:
         _agent_loop_registry[agent_name] = subclass
         return subclass
 

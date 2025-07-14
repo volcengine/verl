@@ -20,7 +20,7 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.language_models.base import LanguageModelInput
@@ -96,11 +96,11 @@ class ChatModel(BaseChatModel):
 
     def with_structured_output(
         self,
-        schema: Union[Dict, type],
+        schema: dict | type,
         *,
         include_raw: bool = False,
         **kwargs: Any,
-    ) -> Runnable[LanguageModelInput, Union[Dict, BaseChatModel]]:
+    ) -> Runnable[LanguageModelInput, dict | BaseChatModel]:
         """Ref: https://langchain-ai.github.io/langgraph/how-tos/react-agent-structured-output/"""
         raise NotImplementedError
 
@@ -172,14 +172,14 @@ class ChatModel(BaseChatModel):
         Returns:
             tuple[str, list[int], list[int]]: Request id, prompt ids, response mask.
         """
-        # messages: [system], user, assistant, tool, assistant, tool, ...
+        # messages: [system], human, ai, human|tool, ai, human|tool, ...
         assert messages[-1].type in ["human", "tool"], (
             f"Last message must be human or tool, but got {messages[-1].type}"
         )
         loop = asyncio.get_running_loop()
 
-        # Case 1: initial chat completion
-        if messages[-1].type == "human":
+        # Case 1: initial chat completion: [system], human
+        if messages[-1].type == "human" and (len(messages) == 1 or messages[-2].type != "ai"):
             prompt_ids = await loop.run_in_executor(
                 None,
                 lambda: self.tokenizer.apply_chat_template(
@@ -191,12 +191,10 @@ class ChatModel(BaseChatModel):
             )
             return str(uuid.uuid4()), prompt_ids, []
 
-        # Case 2: follow up chat completion with tool response
-        # find last message that is not tool
+        # Case 2: follow up chat completion with tool/human response: [system], human, ai, human|tool, ...
         for i in range(len(messages) - 1, -1, -1):
-            if messages[i].type != "tool":
+            if messages[i].type == "ai":
                 break
-        assert messages[i].type == "ai", f"Last message must be assistant, but got {messages[i].type}"
         assert "prompt_ids" in messages[i].response_metadata, "Last message must have prompt_ids in response_metadata"
         assert "response_mask" in messages[i].response_metadata, (
             "Last message must have response_mask in response_metadata"
@@ -313,7 +311,7 @@ class TruncateStructuredTool(StructuredTool):
         return tool_response
 
 
-def convert_to_agent_output(messages: List[BaseMessage], response_length: int) -> AgentLoopOutput:
+def convert_to_agent_output(messages: list[BaseMessage], response_length: int) -> AgentLoopOutput:
     """Convert messages to AgentLoopOutput.
 
     Args:

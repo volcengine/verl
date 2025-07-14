@@ -16,7 +16,6 @@ import json
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Dict, List, Tuple, Type
 
 import regex as re
 from pydantic import BaseModel
@@ -41,13 +40,13 @@ class FunctionCall(BaseModel):
 
 
 class ToolParser(ABC):
-    _registry: Dict[str, Type["ToolParser"]] = {}
+    _registry: dict[str, type["ToolParser"]] = {}
 
     def __init__(self, tokenizer) -> None:
         self.tokenizer = tokenizer
 
     @abstractmethod
-    async def extract_tool_calls(self, responses_ids: List[int]) -> Tuple[str, List[FunctionCall]]:
+    async def extract_tool_calls(self, responses_ids: list[int]) -> tuple[str, list[FunctionCall]]:
         """Extract tool calls from the responses.
 
         Args:
@@ -66,7 +65,7 @@ class ToolParser(ABC):
 
     @classmethod
     def register(cls, name: str):
-        def decorator(subclass: Type[ToolParser]) -> Type[ToolParser]:
+        def decorator(subclass: type[ToolParser]) -> type[ToolParser]:
             cls._registry[name] = subclass
             return subclass
 
@@ -85,7 +84,7 @@ class HermesToolParser(ToolParser):
         self.tool_call_regex = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
 
     @rollout_trace_op
-    async def extract_tool_calls(self, responses_ids: List[int]) -> Tuple[str, List[FunctionCall]]:
+    async def extract_tool_calls(self, responses_ids: list[int]) -> tuple[str, list[FunctionCall]]:
         loop = asyncio.get_running_loop()
         text = await loop.run_in_executor(None, self.tokenizer.decode, responses_ids)
         if self.tool_call_start_token not in text or self.tool_call_end_token not in text:
