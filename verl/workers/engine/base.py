@@ -60,35 +60,34 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def infer_batch(self, batch, processor=None):
+    def infer_batch(self, data, processor=None):
         """
-        Execute a forward pass over a batch of data.
+        Perform inference on a mini batch of data using the FSDP-wrapped module.
 
         Args:
-            batch: Raw batch data (e.g., tensors or mappings) to process.
-            ctx: Optional context dict passed to preprocess/postprocess functions.
-            preprocess_fn: Function(batch, ctx) -> (inputs, ctx), applied before model call.
-            postprocess_fn: Function(outputs, ctx) -> (predictions, ctx), applied after model call.
+            data: The input data for inference, typically containing tensors and metadata.
+            processor (optional): An optional processor object for preprocessing and postprocessing.
 
         Returns:
-            (predictions, ctx)
+            torch.Tensor: The concatenated predictions from all micro-batches.
         """
         raise NotImplementedError
 
-    def train_batch(self, batch, metrics, processor=None):
+
+    def train_batch(self, data, metrics, processor=None):
         """
-        Execute a forward pass and backward pass over a batch of data.
+        Perform a training step on a mini-batch of data.
 
         Args:
-            batch: Raw batch data (e.g., tensors or mappings) to process.
-            ctx: Optional context dict passed to preprocess/postprocess functions.
-            preprocess_fn: Function(batch, ctx) -> (inputs, ctx), applied before model call.
-            postprocess_fn: Function(outputs, ctx) -> (predictions, ctx), applied after model call.
+            data: The input data for training, typically containing tensors and metadata.
+            metrics: A dictionary to store training metrics.
+            processor (optional): An optional processor object for preprocessing and postprocessing.
 
         Returns:
-            (predictions, loss, ctx)
+            tuple: A tuple containing lists of value predictions, losses, and updated metrics.
         """
         raise NotImplementedError
+
 
     def optimizer_zero_grad(self):
         """
@@ -140,10 +139,10 @@ class BaseEngine:
 
     def set_loss_fn(self, loss_fn):
         """
-        Set the loss function to be used during training.
+        Register custom loss function for training.
 
         Args:
-            loss_fn: Callable(data, predictions, ctx) -> (loss_tensor, new_ctx)
+            loss_fn: Callable(batch, vpreds, metrics) -> (loss_tensor, updated_metrics)
         """
         raise NotImplementedError
 

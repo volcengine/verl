@@ -18,8 +18,10 @@ class MegatronEngine(BaseEngine):
     def __init__(self, config):
         raise NotImplementedError
 
+
     def init_model(self):
         raise NotImplementedError
+
 
     def train_mode(self):
         """
@@ -31,6 +33,7 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
+
     def eval_mode(self):
         """
         Context manager entry for switching the engine and model into evaluation mode.
@@ -41,41 +44,42 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-    def infer_batch(self, batch, ctx=None, preprocess_fn=None, postprocess_fn=None):
+
+    def infer_batch(self, data, processor=None):
         """
-        Execute a forward pass over a batch of data.
+        Perform inference on a mini batch of data using the FSDP-wrapped module.
 
         Args:
-            batch: Raw batch data (e.g., tensors or mappings) to process.
-            ctx: Optional context dict passed to preprocess/postprocess functions.
-            preprocess_fn: Function(batch, ctx) -> (inputs, ctx), applied before model call.
-            postprocess_fn: Function(outputs, ctx) -> (predictions, ctx), applied after model call.
+            data: The input data for inference, typically containing tensors and metadata.
+            processor (optional): An optional processor object for preprocessing and postprocessing.
 
         Returns:
-            (predictions, ctx)
+            torch.Tensor: The concatenated predictions from all micro-batches.
         """
         raise NotImplementedError
 
-    def train_batch(self, batch, ctx=None, preprocess_fn=None, postprocess_fn=None):
+
+    def train_batch(self, data, metrics, processor=None):
         """
-        Execute a forward pass and backward pass over a batch of data.
+        Perform a training step on a mini-batch of data.
 
         Args:
-            batch: Raw batch data (e.g., tensors or mappings) to process.
-            ctx: Optional context dict passed to preprocess/postprocess functions.
-            preprocess_fn: Function(batch, ctx) -> (inputs, ctx), applied before model call.
-            postprocess_fn: Function(outputs, ctx) -> (predictions, ctx), applied after model call.
+            data: The input data for training, typically containing tensors and metadata.
+            metrics: A dictionary to store training metrics.
+            processor (optional): An optional processor object for preprocessing and postprocessing.
 
         Returns:
-            (predictions, loss, ctx)
+            tuple: A tuple containing lists of value predictions, losses, and updated metrics.
         """
         raise NotImplementedError
+    
 
     def optimizer_zero_grad(self):
         """
         Zero out gradients of all parameters before starting a new backward pass.
         """
         raise NotImplementedError
+
 
     def optimizer_step(self):
         """
@@ -86,6 +90,7 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
+
     def lr_scheduler_step(self):
         """
         Advance the learning rate scheduler by one step.
@@ -94,6 +99,7 @@ class MegatronEngine(BaseEngine):
             current_lr (float or list[float]): Updated learning rate(s).
         """
         raise NotImplementedError
+
 
     def shard_data(self, data):
         """
@@ -107,6 +113,7 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
+
     def unshard_data(self, data):
         """
         Reconstruct or gather sharded data back to a unified format.
@@ -119,6 +126,7 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
+
     def set_loss_fn(self, loss_fn):
         """
         Set the loss function to be used during training.
@@ -127,6 +135,7 @@ class MegatronEngine(BaseEngine):
             loss_fn: Callable(data, predictions, ctx) -> (loss_tensor, new_ctx)
         """
         raise NotImplementedError
+
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
         """
@@ -139,6 +148,7 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
+
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         """
         Save model, optimizer, and scheduler states to a checkpoint.
@@ -150,6 +160,7 @@ class MegatronEngine(BaseEngine):
             max_ckpt_to_keep: Maximum number of recent checkpoints to retain.
         """
         raise NotImplementedError
+
 
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
         """
