@@ -513,7 +513,7 @@ class DataParallelPPOActor(BasePPOActor):
                             old_log_prob=old_log_prob,
                             log_prob=log_prob,
                             advantages=advantages,
-                            response_mask=advantages,
+                            response_mask=response_mask,
                             loss_agg_mode=loss_agg_mode,
                             config=self.config,
                         )
