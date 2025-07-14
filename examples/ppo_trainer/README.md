@@ -39,7 +39,7 @@ Most critic configs are similar to those of actors. Note that the critic model i
 
 - `critic.ppo_epochs`: Number of epochs for PPO updates on one set of sampled trajectories for critic. Defaults to `actor_rollout_ref.actor.ppo_epochs`
 
-- `algorithm.gemma`: discount factor
+- `algorithm.gamma`: discount factor
 
 - `algorithm.lam`: The lambda term that trades off between bias and variance in the GAE estimator
 

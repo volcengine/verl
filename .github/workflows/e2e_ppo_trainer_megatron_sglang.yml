@@ -68,7 +68,7 @@ on:
       # FSDP
       - "!verl/workers/**/*dp_*.py"
       # Entrypoints
-      - ".github/workflows/e2e_ppo_trainer_megatron.yml"
+      - ".github/workflows/e2e_ppo_trainer_megatron_sglang.yml"
       - "examples/data_preprocess/gsm8k.py"
       - "examples/data_preprocess/geo3k.py"
       - "tests/special_e2e/run_ppo_trainer_megatron.sh"
@@ -90,29 +90,19 @@ env:
 
 jobs:
   setup:
+    if: github.repository_owner == 'volcengine'
     runs-on: ubuntu-latest
     outputs:
-      runner-label: ${{ steps.create-runner.outputs.runner_label }}
-      mlp-task-id: ${{ steps.create-runner.outputs.mlp_task_id }}
+      runner-label: ${{ steps.create-runner.outputs.runner-label }}
+      mlp-task-id: ${{ steps.create-runner.outputs.mlp-task-id }}
     steps:
-      - name: create runner
-        id: create-runner
-        shell: bash
-        run: |
-          if [[ "${{ github.event.repository.full_name }}" != "volcengine/verl" ]]; then
-            echo "no need create runner, skip"
-            exit 0
-          fi
-          resp=$(curl -X POST "${{ env.DYNAMIC_RUNNER_ENDPOINT }}/create" \
-          -d '{"Image": "${{ env.IMAGE }}"}')
-          runner_label=$(echo $resp | jq -r '.runner_label')
-          if [[ -z $runner_label || $runner_label == "null" ]]; then
-            echo "create runner failed"
-            exit 1
-          fi
-          echo "runner_label=$runner_label" >> $GITHUB_OUTPUT   
-          mlp_task_id=$(echo $resp | jq -r '.task_id')
-          echo "mlp_task_id=$mlp_task_id" >> $GITHUB_OUTPUT 
+      - uses: actions/checkout@v4
+      - id: create-runner
+        uses: volcengine/vemlp-github-runner@v1 
+        with:
+          mode: "create"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-image: "${{ env.IMAGE }}"
 
   e2e_ppo_trainer_megatron-deepseek:
     needs: setup
@@ -356,8 +346,8 @@ jobs:
         run: |
           rm -rf checkpoints
 
-  cleanup: 
-    runs-on: ubuntu-latest  
+  cleanup:
+    runs-on: ubuntu-latest
     needs: [setup, 
       e2e_ppo_trainer_megatron-deepseek, 
       e2e_ppo_trainer_megatron-qwen3,
@@ -365,14 +355,12 @@ jobs:
       e2e_ppo_trainer_megatron-qwen-override-transformer-config,
       e2e_ppo_trainer_megatron-deepseek-override-transformer-config,
       e2e_ppo_trainer_megatron-moe-expert-parallel,
-      e2e_ppo_trainer_megatron-qwen2_5vl-3b]        
-    if: always()          
+      e2e_ppo_trainer_megatron-qwen2_5vl-3b]
+    if: always()
     steps:
-      - name: remove runner
-        run: |
-          if [[ -z "${{ needs.setup.outputs.mlp-task-id }}" ]]; then
-            echo "no need remove runner, skip"
-            exit 0
-          fi
-          resp=$(curl -X POST "${{ env.DYNAMIC_RUNNER_ENDPOINT }}/delete" \
-          -d '{"TaskId": "${{ needs.setup.outputs.mlp-task-id }}"}')
+      - id: destroy-runner
+        uses: volcengine/vemlp-github-runner@v1
+        with:
+          mode: "destroy"
+          faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
+          mlp-task-id: "${{ needs.setup.outputs.mlp-task-id }}"

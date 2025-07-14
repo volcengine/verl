@@ -17,7 +17,7 @@ import argparse
 import os
 import warnings
 from contextlib import contextmanager
-from typing import Any, Callable, ContextManager, Optional, Tuple
+from typing import Any, Callable, ContextManager, Optional
 
 import numpy as np
 import torch
@@ -105,8 +105,9 @@ def test_conversion(megatron_model_provider, tfconfig, output_path, model):
     print("Conversion test passed!")
 
 
+@torch.inference_mode()
 def convert_checkpoint_from_transformers_to_megatron(
-    hf_model, model, hf_config, layer_start_end: Optional[Tuple[int, int]] = None
+    hf_model, model, hf_config, layer_start_end: Optional[tuple[int, int]] = None
 ):
     if layer_start_end is None:
         layer_start_end = (0, len(model.decoder.layers))
@@ -123,64 +124,61 @@ def convert_checkpoint_from_transformers_to_megatron(
         print("[WARNING] Converting GQA model")
     has_qkv_bias = getattr(hf_config, "qkv_bias", False) or getattr(hf_config, "attention_bias", False)
     has_share_expert = getattr(hf_config, "shared_expert_intermediate_size", None)
-    with torch.no_grad():
-        if pp_rank == 0:
-            numel += safe_copy(hf_model.model.embed_tokens.weight, model.embedding.word_embeddings.weight)
+    if pp_rank == 0:
+        numel += safe_copy(hf_model.model.embed_tokens.weight, model.embedding.word_embeddings.weight)
 
-        assert len(model.decoder.layers) == (layer_end - layer_start), (
-            f"Expected {len(model.decoder.layers)} layers, but got {layer_end - layer_start}"
+    assert len(model.decoder.layers) == (layer_end - layer_start), (
+        f"Expected {len(model.decoder.layers)} layers, but got {layer_end - layer_start}"
+    )
+    for layer_idx, (layer, hf_layer) in enumerate(
+        zip(model.decoder.layers, hf_model.model.layers[layer_start:layer_end], strict=True)
+    ):
+        global_layer_idx = layer_idx + layer_start
+        numel_cur = numel
+        numel += safe_copy(hf_layer.input_layernorm.weight, layer.self_attention.linear_qkv.layer_norm_weight)
+
+        q = hf_layer.self_attn.q_proj.weight.view(
+            [num_key_value_heads, head_dim * num_attention_heads // num_key_value_heads, -1]
         )
-        for layer_idx, (layer, hf_layer) in enumerate(
-            zip(model.decoder.layers, hf_model.model.layers[layer_start:layer_end])
-        ):
-            global_layer_idx = layer_idx + layer_start
-            numel_cur = numel
-            numel += safe_copy(hf_layer.input_layernorm.weight, layer.self_attention.linear_qkv.layer_norm_weight)
+        k = hf_layer.self_attn.k_proj.weight.view([num_key_value_heads, head_dim, -1])
+        v = hf_layer.self_attn.v_proj.weight.view([num_key_value_heads, head_dim, -1])
+        qkv = torch.cat([q, k, v], dim=1).view(-1, hidden_dim).contiguous()
+        numel += safe_copy(qkv, layer.self_attention.linear_qkv.weight)
 
-            q = hf_layer.self_attn.q_proj.weight.view(
-                [num_key_value_heads, head_dim * num_attention_heads // num_key_value_heads, -1]
+        if has_qkv_bias:
+            q_bias = hf_layer.self_attn.q_proj.bias.view([num_key_value_heads, -1])
+            k_bias = hf_layer.self_attn.k_proj.bias.view([num_key_value_heads, -1])
+            v_bias = hf_layer.self_attn.v_proj.bias.view([num_key_value_heads, -1])
+            qkv_bias = torch.cat([q_bias, k_bias, v_bias], dim=1).view(-1).contiguous()
+            numel += safe_copy(qkv_bias, layer.self_attention.linear_qkv.bias)
+
+        if hasattr(hf_layer.self_attn, "q_norm"):
+            numel += safe_copy(hf_layer.self_attn.q_norm.weight.data, layer.self_attention.q_layernorm.weight)
+            numel += safe_copy(hf_layer.self_attn.k_norm.weight.data, layer.self_attention.k_layernorm.weight)
+
+        numel += safe_copy(hf_layer.self_attn.o_proj.weight, layer.self_attention.linear_proj.weight)
+        numel += safe_copy(hf_layer.post_attention_layernorm.weight, layer.pre_mlp_layernorm.weight)
+
+        numel += safe_copy(hf_layer.mlp.gate.weight, layer.mlp.router.weight)
+
+        for idx, hf_expert in enumerate(hf_layer.mlp.experts):
+            fc1_weight = torch.cat([hf_expert.gate_proj.weight, hf_expert.up_proj.weight])
+            numel += safe_copy(fc1_weight, layer.mlp.experts.linear_fc1._parameters[f"weight{idx}"])
+            numel += safe_copy(hf_expert.down_proj.weight, layer.mlp.experts.linear_fc2._parameters[f"weight{idx}"])
+
+        if has_share_expert:
+            numel += safe_copy(hf_layer.mlp.shared_expert_gate.weight, layer.mlp.shared_experts.gate_weight)
+            shared_fc1_weight = torch.cat(
+                [hf_layer.mlp.shared_expert.gate_proj.weight, hf_layer.mlp.shared_expert.up_proj.weight]
             )
-            k = hf_layer.self_attn.k_proj.weight.view([num_key_value_heads, head_dim, -1])
-            v = hf_layer.self_attn.v_proj.weight.view([num_key_value_heads, head_dim, -1])
-            qkv = torch.cat([q, k, v], dim=1).view(-1, hidden_dim).contiguous()
-            numel += safe_copy(qkv, layer.self_attention.linear_qkv.weight)
+            numel += safe_copy(shared_fc1_weight, layer.mlp.shared_experts.linear_fc1.weight)
+            numel += safe_copy(hf_layer.mlp.shared_expert.down_proj.weight, layer.mlp.shared_experts.linear_fc2.weight)
+        print(f"{pp_rank=} {global_layer_idx=} {layer_idx=} {numel=} numel this layer={numel - numel_cur}")
 
-            if has_qkv_bias:
-                q_bias = hf_layer.self_attn.q_proj.bias.view([num_key_value_heads, -1])
-                k_bias = hf_layer.self_attn.k_proj.bias.view([num_key_value_heads, -1])
-                v_bias = hf_layer.self_attn.v_proj.bias.view([num_key_value_heads, -1])
-                qkv_bias = torch.cat([q_bias, k_bias, v_bias], dim=1).view(-1).contiguous()
-                numel += safe_copy(qkv_bias, layer.self_attention.linear_qkv.bias)
-
-            if hasattr(hf_layer.self_attn, "q_norm"):
-                numel += safe_copy(hf_layer.self_attn.q_norm.weight.data, layer.self_attention.q_layernorm.weight)
-                numel += safe_copy(hf_layer.self_attn.k_norm.weight.data, layer.self_attention.k_layernorm.weight)
-
-            numel += safe_copy(hf_layer.self_attn.o_proj.weight, layer.self_attention.linear_proj.weight)
-            numel += safe_copy(hf_layer.post_attention_layernorm.weight, layer.pre_mlp_layernorm.weight)
-
-            numel += safe_copy(hf_layer.mlp.gate.weight, layer.mlp.router.weight)
-
-            for idx, hf_expert in enumerate(hf_layer.mlp.experts):
-                fc1_weight = torch.cat([hf_expert.gate_proj.weight, hf_expert.up_proj.weight])
-                numel += safe_copy(fc1_weight, layer.mlp.experts.linear_fc1._parameters[f"weight{idx}"])
-                numel += safe_copy(hf_expert.down_proj.weight, layer.mlp.experts.linear_fc2._parameters[f"weight{idx}"])
-
-            if has_share_expert:
-                numel += safe_copy(hf_layer.mlp.shared_expert_gate.weight, layer.mlp.shared_experts.gate_weight)
-                shared_fc1_weight = torch.cat(
-                    [hf_layer.mlp.shared_expert.gate_proj.weight, hf_layer.mlp.shared_expert.up_proj.weight]
-                )
-                numel += safe_copy(shared_fc1_weight, layer.mlp.shared_experts.linear_fc1.weight)
-                numel += safe_copy(
-                    hf_layer.mlp.shared_expert.down_proj.weight, layer.mlp.shared_experts.linear_fc2.weight
-                )
-            print(f"{pp_rank=} {global_layer_idx=} {layer_idx=} {numel=} numel this layer={numel - numel_cur}")
-
-        if pp_rank == pp_size - 1:
-            numel += safe_copy(hf_model.model.norm.weight, model.decoder.final_layernorm.weight)
-            numel += safe_copy(hf_model.lm_head.weight, model.output_layer.weight)
-        return numel
+    if pp_rank == pp_size - 1:
+        numel += safe_copy(hf_model.model.norm.weight, model.decoder.final_layernorm.weight)
+        numel += safe_copy(hf_model.lm_head.weight, model.output_layer.weight)
+    return numel
 
 
 def safe_copy(
@@ -214,7 +212,7 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
     copied_numel = 0
     safe_copy(hfvision.rotary_pos_emb.inv_freq, mgvision.rotary_pos_emb.inv_freq)
     copied_numel += safe_copy(hfvision.patch_embed.proj.weight, mgvision.patch_embed.proj.weight)
-    for hfblock, mgblock in zip(hfvision.blocks, mgvision.decoder.layers):
+    for hfblock, mgblock in zip(hfvision.blocks, mgvision.decoder.layers, strict=True):
         # norm1 --> linear_qkv.norm
         copied_numel += safe_copy(hfblock.norm1.weight, mgblock.self_attention.linear_qkv.layer_norm_weight)
         # norm2 --> mlp.linear_fc1.norm
@@ -263,7 +261,7 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
     mgllm = mgmodel.language_model
     copied_numel = 0
     copied_numel += safe_copy(hfllm.embed_tokens.weight, mgllm.embedding.word_embeddings.weight)
-    for mglayer, hflayer in zip(mgllm.decoder.layers, hfllm.layers):
+    for mglayer, hflayer in zip(mgllm.decoder.layers, hfllm.layers, strict=True):
         copied_numel += safe_copy(hflayer.input_layernorm.weight, mglayer.self_attention.linear_qkv.layer_norm_weight)
 
         q_proj_weight = hflayer.self_attn.q_proj.weight.view(num_query_groups, -1, head_dim, hidden_size)
@@ -294,13 +292,13 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
     assert n_params == copied_numel
 
 
-@torch.no_grad()
+@torch.inference_mode()
 def convert_checkpoint_from_transformers_to_megatron_dpskv3(
     hf_model,
     model,
     hf_config,
     tfconfig,
-    layer_start_end: Optional[Tuple[int, int]] = None,
+    layer_start_end: Optional[tuple[int, int]] = None,
 ):
     warnings.warn("MTP model is not supported yet", stacklevel=2)
     if layer_start_end is None:
@@ -316,7 +314,7 @@ def convert_checkpoint_from_transformers_to_megatron_dpskv3(
         f"Expected {len(model.decoder.layers)} layers, but got {layer_end - layer_start}"
     )
     for layer_idx, (layer, hf_layer) in enumerate(
-        zip(model.decoder.layers, hf_model.model.layers[layer_start:layer_end])
+        zip(model.decoder.layers, hf_model.model.layers[layer_start:layer_end], strict=True)
     ):
         global_layer_idx = layer_idx + layer_start
         numel_cur: int = numel

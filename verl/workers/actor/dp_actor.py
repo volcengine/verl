@@ -20,7 +20,6 @@ Single Process Actor
 import itertools
 import logging
 import os
-from typing import Tuple
 
 import torch
 from torch import nn
@@ -29,9 +28,9 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, get_policy_loss_fn, kl_penalty
-from verl.utils.debug import GPUMemoryLogger
 from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
+from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import logprobs_from_logits
@@ -81,7 +80,7 @@ class DataParallelPPOActor(BasePPOActor):
 
     def _forward_micro_batch(
         self, micro_batch, temperature, calculate_entropy=False
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Returns:
             entropy: # (bs, response_len)
@@ -315,7 +314,7 @@ class DataParallelPPOActor(BasePPOActor):
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
 
-        def _get_micro_batches(data: DataProto) -> Tuple[list, list | None]:
+        def _get_micro_batches(data: DataProto) -> tuple[list, list | None]:
             select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
             batch = data.select(batch_keys=select_keys).batch
             has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch
@@ -425,7 +424,7 @@ class DataParallelPPOActor(BasePPOActor):
                         )
 
                         for current_original_indices, text_mb_td in zip(
-                            textual_indices, rearranged_text_micro_batches_tds
+                            textual_indices, rearranged_text_micro_batches_tds, strict=True
                         ):
                             current_mm_inputs_list = [
                                 all_multi_modal_inputs_list[idx] for idx in current_original_indices

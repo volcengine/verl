@@ -16,7 +16,7 @@ import json
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any
 from uuid import uuid4
 
 import regex as re
@@ -24,7 +24,8 @@ from pydantic import BaseModel
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput
 from verl.tools.utils.tool_registry import initialize_tools_from_config
-from verl.utils.debug import simple_timer
+from verl.utils.profiler import simple_timer
+from verl.utils.rollout_trace import rollout_trace_op
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -45,7 +46,7 @@ class FunctionCall(BaseModel):
 
 class ToolParser(ABC):
     @abstractmethod
-    async def extract_tool_calls(self, responses_ids: List[int]) -> List[FunctionCall]:
+    async def extract_tool_calls(self, responses_ids: list[int]) -> list[FunctionCall]:
         """Extract tool calls from the responses.
 
         Args:
@@ -67,7 +68,8 @@ class HermesToolParser(ToolParser):
         self.tool_call_end_token: str = "</tool_call>"
         self.tool_call_regex = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
 
-    async def extract_tool_calls(self, responses_ids: List[int]) -> List[FunctionCall]:
+    @rollout_trace_op
+    async def extract_tool_calls(self, responses_ids: list[int]) -> list[FunctionCall]:
         loop = asyncio.get_running_loop()
         text = await loop.run_in_executor(None, self.tokenizer.decode, responses_ids)
         if self.tool_call_start_token not in text or self.tool_call_end_token not in text:
@@ -114,7 +116,8 @@ class ToolAgentLoop(AgentLoopBase):
         cls.response_length = config.actor_rollout_ref.rollout.response_length
         cls.system_prompt = tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
 
-    async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> AgentLoopOutput:
+    @rollout_trace_op
+    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
         metrics = {}
         request_id = uuid4().hex
         prompt_ids = await self.loop.run_in_executor(
@@ -191,7 +194,7 @@ class ToolAgentLoop(AgentLoopBase):
         )
         return output
 
-    async def _call_tool(self, tool_call: FunctionCall) -> Dict[str, str]:
+    async def _call_tool(self, tool_call: FunctionCall) -> dict[str, str]:
         """Call tool and return tool response."""
         tool, instance_id = None, None
         try:
@@ -201,7 +204,7 @@ class ToolAgentLoop(AgentLoopBase):
             tool = self.tools[tool_name]
 
             instance_id = await tool.create()
-            tool_response, tool_reward_score, tool_metrics = await tool.execute(instance_id, tool_args)
+            tool_response, _, _ = await tool.execute(instance_id, tool_args)
         except Exception as e:
             logger.exception(f"Error when executing tool: {e}")
             return e

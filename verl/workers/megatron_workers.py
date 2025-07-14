@@ -19,29 +19,21 @@ import datetime
 import logging
 import os
 import time
-from typing import Union
+from typing import Any
 
 import psutil
 import torch
 import torch.distributed
 from codetiming import Timer
 from megatron.core import parallel_state as mpu
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 
 from verl import DataProto
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.base.megatron.worker import MegatronWorker
-from verl.utils import hf_tokenizer, omega_conf_to_dataclass
+from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
-from verl.utils.debug import (
-    DistProfiler,
-    DistProfilerExtension,
-    GPUMemoryLogger,
-    ProfilerConfig,
-    log_gpu_memory_usage,
-    simple_timer,
-)
-from verl.utils.debug.performance import reduce_timing
+from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
@@ -52,6 +44,14 @@ from verl.utils.megatron_utils import (
     offload_megatron_optimizer,
 )
 from verl.utils.model import get_hf_model_path, load_mcore_dist_weights, load_megatron_gptmodel_weights
+from verl.utils.profiler import (
+    DistProfiler,
+    DistProfilerExtension,
+    GPUMemoryLogger,
+    log_gpu_memory_usage,
+    simple_timer,
+)
+from verl.utils.profiler.performance import reduce_timing
 from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
@@ -85,7 +85,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     or a hybrid engine based on the config.rollout
     """
 
-    def __init__(self, config: DictConfig, role: str):
+    def __init__(self, config: DictConfig, role: str, **kwargs):
         MegatronWorker.__init__(self)
         self.config = config
 
@@ -127,20 +127,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
-        profiler_config = ProfilerConfig()
-        if self._is_actor:
-            profiler_config = profiler_config.union(
-                ProfilerConfig(**OmegaConf.to_object(config.actor.get("profiler", DictConfig({}))))
-            )
-        if self._is_rollout:
-            profiler_config = profiler_config.union(
-                ProfilerConfig(**OmegaConf.to_object(config.rollout.get("profiler", DictConfig({}))))
-            )
-        if self._is_ref:
-            profiler_config = profiler_config.union(
-                ProfilerConfig(**OmegaConf.to_object(config.ref.get("profiler", DictConfig({}))))
-            )
-
+        profiler_config = omega_conf_to_dataclass(config.get("profiler"))
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
 
         # TODO(sgm): Currently, we only support reference model param offload
@@ -399,8 +386,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
             importlib.import_module(self.config.model.external_lib)
 
-        from omegaconf import OmegaConf
-
         from verl.utils.torch_dtypes import PrecisionType
 
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
@@ -440,6 +425,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 log_gpu_memory_usage("After offload actor optimizer during init", logger=logger)
 
         if self._is_actor:
+            OmegaConf.set_struct(self.config.actor, True)
+            with open_dict(self.config.actor):
+                use_fused_kernels = self.config.model.get("use_fused_kernels", False)
+                self.config.actor.use_fused_kernels = use_fused_kernels
             self.actor = MegatronPPOActor(
                 config=self.config.actor,
                 model_config=self.actor_model_config,
@@ -680,7 +669,7 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     # ============================ vLLM related ============================
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
+    def execute_method(self, method: str | bytes, *args, **kwargs):
         """Called by ExternalRayDistributedExecutor collective_rpc."""
         if self.vllm_tp_rank == 0 and method != "execute_model":
             print(
@@ -698,6 +687,11 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def chat_completion(self, json_request):
         ret = await self.rollout.chat_completion(json_request)
+        return ret
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
+    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
+        ret = await self.rollout.generate(prompt_ids, sampling_params, request_id)
         return ret
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
@@ -718,8 +712,9 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 class CriticWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config):
         MegatronWorker.__init__(self)
-        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), ProfilerConfig)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
+        )
         self.config = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -854,7 +849,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         # create critic
-        from omegaconf import OmegaConf
 
         from verl.utils.torch_dtypes import PrecisionType
 
@@ -994,8 +988,9 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
 
     def __init__(self, config):
         MegatronWorker.__init__(self)
-        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), ProfilerConfig)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
+        )
         self.config = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -1103,7 +1098,6 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         # create critic
-        from omegaconf import OmegaConf
 
         from verl.utils.torch_dtypes import PrecisionType
 

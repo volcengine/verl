@@ -67,7 +67,9 @@ Data
 - ``data.truncation``: Truncate the input_ids or prompt length if they
   exceed max_prompt_length. Default is 'error', not allow exceed the
   max_prompt_length. The users should increase the max_prompt_length if
-  throwing the error. You can also set ``left`` and ``right``.
+  throwing the error. You can also set ``left``, ``right`` and ``middle``. 
+  When ``middle`` is selected, the logic splits the allowed max length roughly in half 
+  and keeps the head and tail of the sequence, effectively discarding the middle section.
 - ``data.image_key``: The field in the multi-modal dataset where the image is
   located. Default is 'images'.
 - ``data.trust_remote_code``: If the remote tokenizer has python file, we can use this field to allow 
@@ -217,6 +219,17 @@ Actor/Rollout/Reference Policy
   activation offloading for the actor
 - ``actor_rollout_ref.model.trust_remote_code``: Whether to enable loading
   a remote code model
+- ``actor_rollout_ref.model.use_fused_kernels``: Whether to use fused
+  kernels in the model. If set to True, the following parameters will be
+  used.
+  - ``actor_rollout_ref.model.fused_kernel_options.impl_backend``: The
+  implementation backend for fused kernels. Options: "triton" or
+  "torch". Default is "torch".
+  While in megatron, we only support "triton" as the
+  implementation backend, so there is no need for this option.
+- ``actor_rollout_ref.model.use_remove_padding``: Whether to use remove
+  padding in the model. If set to True, the model will remove padding
+  tokens in the input_ids and response_ids. This helps a lot in improving model running efficiency.
 
 **Actor model**
 
@@ -496,7 +509,7 @@ Algorithm
        horizon: 10000
        target_kl: 0.1
 
-- ``gemma``: discount factor
+- ``gamma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
 - ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``, ``reinforce_plus_plus_baseline``, ``rloo``
 - ``use_kl_in_reward``: Whether to enable in-reward kl penalty. Default is False.
@@ -525,7 +538,7 @@ Trainer
      val_before_train: True
      test_freq: 2
      critic_warmup: 0
-     default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name} # hdfs checkpoint path
+     default_hdfs_dir: null # hdfs checkpoint path
      default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name} # local checkpoint path
      resume_mode: auto # or disable or resume_path if resume_from_path is set
      resume_from_path: null
