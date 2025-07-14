@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import torch
+
 from verl.utils.device import (
     is_cuda_available,
     is_npu_available,
 )
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
+
 if is_cuda_available:
     from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 elif is_npu_available:
@@ -25,31 +27,106 @@ elif is_npu_available:
 
 class MicroBatchProcessor:
     def __init__(self):
+        """
+        Initialize the MicroBatchProcessor instance.
+
+        This method is intended to set up the initial state of the MicroBatchProcessor.
+        However, as it's a base class, the concrete implementation is left to the subclasses.
+        Any subclass of MicroBatchProcessor should override this method to provide
+        specific initialization logic.
+
+        Raises:
+            NotImplementedError: Always raised because this is an abstract initialization method.
+        """
         raise NotImplementedError
 
 
     def preprocess(self, batch):
+        """
+        Preprocess a micro-batch of data before passing it to the model.
+
+        This is an abstract method that should be implemented by subclasses.
+        The implementation should transform the input batch data into a format
+        suitable for the model.
+
+        Args:
+            batch: A micro-batch of data, typically a dictionary containing tensors
+                   and metadata. The exact structure depends on the specific use case.
+
+        Returns:
+            dict: A dictionary containing the preprocessed input data ready for the model.
+
+        Raises:
+            NotImplementedError: This base method does not provide an implementation.
+                                 Subclasses must override this method.
+        """
         raise NotImplementedError
 
 
     def postprocess(self, outputs):
+        """
+        Postprocess the raw outputs from the model.
+
+        This is an abstract method that should be implemented by subclasses.
+        The implementation should transform the raw model outputs into a more
+        usable format, such as extracting relevant information or performing
+        additional calculations.
+
+        Args:
+            outputs: The raw outputs from the model. The exact structure depends
+                     on the specific model and task.
+
+        Returns:
+            The post-processed outputs. The return type depends on the specific
+            implementation in subclasses.
+
+        Raises:
+            NotImplementedError: This base method does not provide an implementation.
+                                 Subclasses must override this method.
+        """
         raise NotImplementedError
 
 
 class CriticFSDPWithoutRmpadProcessor(MicroBatchProcessor):
     def __init__(self, config):
+        """
+        Initialize the CriticFSDPWithoutRmpadProcessor instance.
+
+        Args:
+            config: Configuration object containing necessary parameters for the processor.
+        """
         self.config = config
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
         self.engine_info = {}   # additional info required from the engine
         self.mb_ctx = {}        # context for the micro batch
 
     def mb_entry_guard(self):
+        """
+        Ensure that the necessary engine information is available before processing a micro-batch.
+        This method acts as a guard at the entry point of micro-batch processing.
+        It checks if the required key exists in the engine information dictionary and clears the 
+        micro-batch context to prepare for new processing.
+
+        Raises:
+            AssertionError: If the 'use_value_head_model' key is not found in the engine_info dictionary.
+        """
         # check required engine info
         assert "use_value_head_model" in self.engine_info.keys(), "use_value_head_model must be set in engine_info"
         self.mb_ctx = {} # clear the microbatch context
 
 
     def preprocess(self, batch):
+        """
+        Preprocess a micro-batch of data before passing it to the model.
+
+        Args:
+            batch (dict): A dictionary containing the input data for the micro-batch.
+                          Expected keys include 'responses', 'input_ids', 'attention_mask',
+                          'position_ids', and optionally 'multi_modal_inputs'.
+
+        Returns:
+            dict: A dictionary containing the preprocessed input data ready for the model.
+        """
         self.mb_entry_guard()
 
         self.mb_ctx["response_length"] = batch["responses"].size(-1)
@@ -67,7 +144,17 @@ class CriticFSDPWithoutRmpadProcessor(MicroBatchProcessor):
         return inputs
 
 
-    def postprocess(self, outputs):
+    def postprocess(self, outputs):        
+        """
+        Postprocess the model outputs to extract the relevant value predictions.
+
+        Args:
+            outputs: The raw outputs from the model. The structure depends on whether the model 
+                     uses a value head.
+
+        Returns:
+            torch.Tensor: The post-processed value predictions corresponding to the response sequence.
+        """
         response_length = self.mb_ctx["response_length"]
         use_value_head_model = self.engine_info["use_value_head_model"]
         if use_value_head_model:
@@ -82,6 +169,12 @@ class CriticFSDPWithoutRmpadProcessor(MicroBatchProcessor):
 
 class CriticFSDPWithRmpadProcessor(MicroBatchProcessor):
     def __init__(self, config):
+        """
+        Initialize the CriticFSDPWithRmpadProcessor instance.
+
+        Args:
+            config: Configuration object containing necessary parameters for the processor.
+        """
         self.config = config
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
         self.engine_info = {}   # additional info required from the engine
@@ -89,12 +182,35 @@ class CriticFSDPWithRmpadProcessor(MicroBatchProcessor):
 
 
     def mb_entry_guard(self):
+        """
+        Ensure that the necessary engine information is available before processing a micro-batch.
+        This method acts as a guard at the entry point of micro-batch processing.
+        It checks if the required key exists in the engine information dictionary and clears the 
+        micro-batch context to prepare for new processing.
+
+        Raises:
+            AssertionError: If the 'use_value_head_model' key is not found in the engine_info dictionary.
+        """
         # check required engine info
         assert "use_value_head_model" in self.engine_info.keys(), "use_value_head_model must be set in engine_info"
         self.mb_ctx = {} # clear the microbatch context
 
 
     def preprocess(self, batch):
+        """
+        Preprocess a micro-batch of data before passing it to the model. This method
+        ensures the necessary engine information is available, extracts relevant information
+        from the batch, unpads the input data, and pads and slices the inputs if sequence parallelism
+        is enabled.
+
+        Args:
+            batch (dict): A dictionary containing the input data for the micro-batch.
+                          Expected keys include 'responses', 'input_ids', 'attention_mask',
+                          'position_ids', and optionally 'multi_modal_inputs'.
+
+        Returns:
+            dict: A dictionary containing the preprocessed input data ready for the model.
+        """
         self.mb_entry_guard()
         self.mb_ctx["response_length"] = batch["responses"].size(-1)
 
@@ -144,6 +260,18 @@ class CriticFSDPWithRmpadProcessor(MicroBatchProcessor):
         return inputs
 
     def postprocess(self, outputs):
+        """
+        Postprocess the model outputs to extract and format the value predictions.
+        This method handles different types of model outputs based on whether the model
+        uses a value head and also manages sequence parallelism if enabled.
+
+        Args:
+            outputs: The raw outputs from the model. The structure depends on whether the model 
+                     uses a value head.
+
+        Returns:
+            torch.Tensor: The post-processed value predictions corresponding to the response sequence.
+        """
         use_value_head_model = self.engine_info["use_value_head_model"]
         response_length = self.mb_ctx["response_length"]
         if use_value_head_model:
@@ -160,7 +288,10 @@ class CriticFSDPWithRmpadProcessor(MicroBatchProcessor):
             )
 
         # pad it back
-        values = pad_input(values_rmpad, indices=self.mb_ctx["indices"], batch=self.mb_ctx["bs"], seqlen=self.mb_ctx["seqlen"]).squeeze(-1)
+        values = pad_input(values_rmpad, 
+                           indices=self.mb_ctx["indices"],
+                           batch=self.mb_ctx["bs"],
+                           seqlen=self.mb_ctx["seqlen"]).squeeze(-1)
         values = values[:, -response_length - 1 : -1]
         return values
 
@@ -168,6 +299,20 @@ class CriticFSDPWithRmpadProcessor(MicroBatchProcessor):
 
 
 def get_processor_cls(worker_name, config):
+    """
+    Retrieve the appropriate micro-batch processor class based on the worker name and configuration.
+
+    Args:
+        worker_name (str): The name of the worker, used to determine the type of processor needed.
+        config (object): A configuration object containing various settings, such as the strategy
+                         and model-specific parameters.
+
+    Returns:
+        class: The class of the micro-batch processor that matches the given worker name and configuration.
+
+    Raises:
+        NotImplementedError: If there is no matching processor class for the provided worker name and strategy.
+    """
     if worker_name == "critic" and config.strategy == "fsdp":
         use_remove_padding = config.model.get("use_remove_padding", False)
         if use_remove_padding:
