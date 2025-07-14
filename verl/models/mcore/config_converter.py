@@ -17,6 +17,8 @@
 # convert huggingface config to mcore transformer config
 
 
+import warnings
+
 import torch
 import torch.nn.functional as F
 from megatron.core import parallel_state as mpu
@@ -80,9 +82,30 @@ def _get_base_transformer_config(
         "sequence_parallel": mpu.get_tensor_model_parallel_world_size() > 1,
         # Common settings
         "variable_seq_lengths": True,
-        "masked_softmax_fusion": True,
         "moe_token_dispatcher_type": "alltoall",
+        # Common optimizations
+        # Operators Fusion
+        "masked_softmax_fusion": True,
+        "bias_activation_fusion": True,
+        "bias_dropout_fusion": True,
+        "apply_rope_fusion": True,
+        "gradient_accumulation_fusion": True,
+        # Extra
+        "deallocate_pipeline_outputs": True,
+        "persist_layer_norm": True,
     }
+
+    # Some megatron.core versions not support apply_rope_fusion with context parallel
+    try:
+        from megatron.core.extensions.transformer_engine import fused_apply_rotary_pos_emb_thd
+    except ImportError:
+        if mpu.get_context_parallel_world_size() > 1:
+            base_config["apply_rope_fusion"] = False
+            warnings.warn(
+                f"TE function{fused_apply_rotary_pos_emb_thd} not found, "
+                "Disabling apply_rope_fusion due to not supported context parallel. ",
+                stacklevel=2,
+            )
 
     # Update with any provided overrides
     # override_transformer_config_kwargs as kwargs shall never be none
