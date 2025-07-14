@@ -43,13 +43,14 @@ RUN pip install "tensordict<0.6" --no-deps && \
     peft \
     "pyarrow>=15.0.0" \
     pylatexenc \
-    "ray[data,train,tune,serve]>=2.45.0" \
+    "ray[data,train,tune,serve]==2.44.0" \
     torchdata \
     transformers \
     wandb \
     orjson \
     pybind11 && \
-    pip install -e . --no-deps
+    pip install -e . --no-deps && \
+    python setup.py bdist_wheel
 
 # Install torch_memory_saver
 RUN pip install git+https://github.com/ExtremeViscent/torch_memory_saver.git --no-deps
