@@ -3,11 +3,11 @@
 Python launcher for VERL math RL training.
 
 Usage:
-    python launch_math_rl.py --nodes=2 --batch_size=16 --epochs=10
-    python launch_math_rl.py --nodes=1 --batch_size=8 --epochs=5 --gsm8k  # Test on smaller data
+    python launch_math_rl.py 2 16 --epochs=10
+    python launch_math_rl.py 1 8 --epochs=5 --gsm8k=True  # Test on smaller data
+    python launch_math_rl.py 2 16 --perf_preset=optimized --local=True
 """
 
-import argparse
 import os
 import subprocess
 import tempfile
@@ -15,71 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-
-def apply_performance_presets(args):
-    """Apply performance presets based on the selected preset."""
-    if args.perf_preset == "baseline":
-        # Baseline configuration - no special optimizations
-        pass
-    elif args.perf_preset == "optimized":
-        # Enable optimizations 1, 2, 4, 6, 8 from the performance guide
-        args.use_remove_padding = True  # 2
-        args.use_dynamic_bsz = True    # 4
-        args.use_liger_kernel = True   # 6
-        args.entropy_from_logits_with_chunking = True  # 8
-        args.entropy_checkpointing = True  # 8
-        args.gpu_memory_utilization = 0.6  # 1 - increase from default 0.4
-        args.disable_log_stats = False  # 1 - enable log stats for tuning
-        args.enable_gradient_checkpointing = True
-        args.param_offload = True
-        args.optimizer_offload = True
-    elif args.perf_preset == "memory_opt":
-        # Memory optimization focused
-        args.use_remove_padding = True
-        args.entropy_from_logits_with_chunking = True
-        args.entropy_checkpointing = True
-        args.enable_gradient_checkpointing = True
-        args.enable_activation_offload = True
-        args.param_offload = True
-        args.optimizer_offload = True
-        args.gpu_memory_utilization = 0.5
-    elif args.perf_preset == "speed_opt":
-        # Speed optimization focused
-        args.use_remove_padding = True
-        args.use_dynamic_bsz = True
-        args.forward_prefetch = True
-        args.gpu_memory_utilization = 0.7
-        args.tensor_model_parallel_size = 1  # Prefer data parallelism
-        args.disable_log_stats = False
-
-
-def calculate_dynamic_batch_params(args):
-    """Calculate dynamic batch size parameters based on sequence lengths."""
-    if not args.use_dynamic_bsz:
-        return {}
-    
-    # Calculate recommended token lengths based on sequence lengths
-    base_token_len = args.max_prompt_length + args.max_response_length
-    
-    params = {}
-    
-    # Set default values if not provided
-    if args.ppo_max_token_len_per_gpu is None:
-        params['ppo_max_token_len_per_gpu'] = base_token_len * 2
-    
-    if args.ref_log_prob_max_token_len_per_gpu is None:
-        params['ref_log_prob_max_token_len_per_gpu'] = base_token_len * 3
-    
-    if args.rollout_log_prob_max_token_len_per_gpu is None:
-        params['rollout_log_prob_max_token_len_per_gpu'] = base_token_len * 3
-    
-    if args.critic_forward_max_token_len_per_gpu is None:
-        params['critic_forward_max_token_len_per_gpu'] = base_token_len * 4
-    
-    if args.critic_ppo_max_token_len_per_gpu is None:
-        params['critic_ppo_max_token_len_per_gpu'] = base_token_len * 4
-    
-    return params
+import fire
 
 
 def calculate_batch_sizes(nodes: int, batch_size: int):
@@ -158,14 +94,31 @@ def format_verl_command(
     max_prompt_length: int = 2048,
     max_response_length: int = 4096,
     project: str = "ssverl",
-    args=None,
+    # Performance parameters
+    max_num_batched_tokens_override: Optional[int] = None,
+    gpu_memory_utilization: float = 0.4,
+    tensor_model_parallel_size: int = 2,
+    use_remove_padding: bool = True,
+    enable_gradient_checkpointing: bool = False,
+    enable_activation_offload: bool = False,
+    param_offload: bool = False,
+    optimizer_offload: bool = False,
+    forward_prefetch: bool = False,
+    entropy_from_logits_with_chunking: bool = False,
+    entropy_checkpointing: bool = False,
+    use_dynamic_bsz: bool = False,
+    ref_log_prob_micro_batch_size_per_gpu: Optional[int] = None,
+    rollout_log_prob_micro_batch_size_per_gpu: Optional[int] = None,
+    critic_forward_micro_batch_size_per_gpu: Optional[int] = None,
+    critic_ppo_micro_batch_size_per_gpu: Optional[int] = None,
+    ulysses_sequence_parallel_size: int = 1,
     **kwargs
 ) -> str:
     """Format the VERL training command with all parameters."""
     
     # Calculate max_num_batched_tokens automatically or use override
-    if args and args.max_num_batched_tokens_override:
-        max_num_batched_tokens = args.max_num_batched_tokens_override
+    if max_num_batched_tokens_override:
+        max_num_batched_tokens = max_num_batched_tokens_override
     else:
         max_num_batched_tokens = calculate_max_batched_tokens(max_prompt_length, max_response_length)
     
@@ -182,8 +135,8 @@ def format_verl_command(
     actor_rollout_ref.model.path={model_path} \\
     actor_rollout_ref.actor.optim.lr=1e-6 \\
     actor_rollout_ref.actor.ppo_mini_batch_size={ppo_mini_batch_size} \\
-    actor_rollout_ref.actor.use_kl_loss=True \\
-    actor_rollout_ref.actor.kl_loss_coef=0.001 \\
+    actor_rollout_ref.actor.use_kl_loss=False \\
+    actor_rollout_ref.actor.kl_loss_coef=0.000 \\
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \\
     actor_rollout_ref.actor.entropy_coeff=0 \\
     actor_rollout_ref.actor.strategy=fsdp2 \\
@@ -207,112 +160,95 @@ def format_verl_command(
     trainer.total_epochs={total_epochs} \\
     trainer.val_before_train=True"""
     
-    # Add performance optimization parameters if args is provided
-    if args:
-        # GPU memory utilization
-        if hasattr(args, 'gpu_memory_utilization'):
-            command += f" \\\n    actor_rollout_ref.rollout.gpu_memory_utilization={args.gpu_memory_utilization}"
+    # Add performance optimization parameters
+    # GPU memory utilization
+    command += f" \\\n    actor_rollout_ref.rollout.gpu_memory_utilization={gpu_memory_utilization}"
+    
+    # Tensor model parallel size
+    command += f" \\\n    actor_rollout_ref.rollout.tensor_model_parallel_size={tensor_model_parallel_size}"
+    
+    # Remove padding (sequence packing)
+    if use_remove_padding:
+        command += f" \\\n    actor_rollout_ref.model.use_remove_padding=True"
+    
+    # Gradient checkpointing
+    if enable_gradient_checkpointing:
+        command += f" \\\n    actor_rollout_ref.model.enable_gradient_checkpointing=True"
+        command += f" \\\n    critic.model.enable_gradient_checkpointing=True"
+    
+    # Activation offloading
+    if enable_activation_offload:
+        command += f" \\\n    actor_rollout_ref.model.enable_activation_offload=True"
+        command += f" \\\n    critic.model.enable_activation_offload=True"
+    
+    # Parameter and optimizer offloading
+    if param_offload:
+        command += f" \\\n    actor_rollout_ref.actor.fsdp_config.param_offload=True"
+        command += f" \\\n    actor_rollout_ref.ref.fsdp_config.param_offload=True"
+        command += f" \\\n    critic.model.fsdp_config.param_offload=True"
+    
+    if optimizer_offload:
+        command += f" \\\n    actor_rollout_ref.actor.fsdp_config.optimizer_offload=True"
+        command += f" \\\n    critic.model.fsdp_config.optimizer_offload=True"
+    
+    # Forward prefetch
+    if forward_prefetch:
+        command += f" \\\n    actor_rollout_ref.actor.fsdp_config.forward_prefetch=True"
+    
+    # Entropy optimizations
+    if entropy_from_logits_with_chunking:
+        command += f" \\\n    actor_rollout_ref.ref.entropy_from_logits_with_chunking=True"
+    
+    if entropy_checkpointing:
+        command += f" \\\n    actor_rollout_ref.actor.entropy_checkpointing=True"
+    
+    # Dynamic batch size parameters
+    if use_dynamic_bsz:
+        command += f" \\\n    actor_rollout_ref.actor.use_dynamic_bsz=True"
+        command += f" \\\n    actor_rollout_ref.ref.log_prob_use_dynamic_bsz=True"
+        # Note: critic.use_dynamic_bsz might not be a valid parameter
+        # command += f" \\\n    critic.use_dynamic_bsz=True"
         
-        # Tensor model parallel size
-        if hasattr(args, 'tensor_model_parallel_size'):
-            command += f" \\\n    actor_rollout_ref.rollout.tensor_model_parallel_size={args.tensor_model_parallel_size}"
+        # Add dynamic batch size token limits
+        for key, value in kwargs.items():
+            if 'max_token_len_per_gpu' in key:
+                if key == 'ppo_max_token_len_per_gpu':
+                    command += f" \\\n    actor_rollout_ref.actor.ppo_max_token_len_per_gpu={value}"
+                    # command += f" \\\n    critic.ppo_max_token_len_per_gpu={value}"
+                elif key == 'ref_log_prob_max_token_len_per_gpu':
+                    command += f" \\\n    actor_rollout_ref.ref.log_prob_max_token_len_per_gpu={value}"
+                elif key == 'rollout_log_prob_max_token_len_per_gpu':
+                    command += f" \\\n    actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu={value}"
+                # elif key == 'critic_forward_max_token_len_per_gpu':
+                #     command += f" \\\n    critic.forward_max_token_len_per_gpu={value}"
+    else:
+        # Standard micro batch size parameters
+        command += f" \\\n    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu={ppo_micro_batch_size_per_gpu}"
         
-        # Remove padding (sequence packing)
-        if hasattr(args, 'use_remove_padding') and args.use_remove_padding:
-            command += f" \\\n    actor_rollout_ref.model.use_remove_padding=True"
-        
-        # Gradient checkpointing
-        if hasattr(args, 'enable_gradient_checkpointing') and args.enable_gradient_checkpointing:
-            command += f" \\\n    actor_rollout_ref.model.enable_gradient_checkpointing=True"
-            command += f" \\\n    critic.model.enable_gradient_checkpointing=True"
-        
-        # Activation offloading
-        if hasattr(args, 'enable_activation_offload') and args.enable_activation_offload:
-            command += f" \\\n    actor_rollout_ref.model.enable_activation_offload=True"
-            command += f" \\\n    critic.model.enable_activation_offload=True"
-        
-        # Parameter and optimizer offloading
-        if hasattr(args, 'param_offload') and args.param_offload:
-            command += f" \\\n    actor_rollout_ref.actor.fsdp_config.param_offload=True"
-            command += f" \\\n    actor_rollout_ref.ref.fsdp_config.param_offload=True"
-            command += f" \\\n    critic.model.fsdp_config.param_offload=True"
-        
-        if hasattr(args, 'optimizer_offload') and args.optimizer_offload:
-            command += f" \\\n    actor_rollout_ref.actor.fsdp_config.optimizer_offload=True"
-            command += f" \\\n    critic.model.fsdp_config.optimizer_offload=True"
-        
-        # Forward prefetch
-        if hasattr(args, 'forward_prefetch') and args.forward_prefetch:
-            command += f" \\\n    actor_rollout_ref.actor.fsdp_config.forward_prefetch=True"
-        
-        # Entropy optimizations
-        if hasattr(args, 'entropy_from_logits_with_chunking') and args.entropy_from_logits_with_chunking:
-            command += f" \\\n    actor_rollout_ref.ref.entropy_from_logits_with_chunking=True"
-        
-        if hasattr(args, 'entropy_checkpointing') and args.entropy_checkpointing:
-            command += f" \\\n    actor_rollout_ref.actor.entropy_checkpointing=True"
-        
-        # Dynamic batch size parameters
-        if hasattr(args, 'use_dynamic_bsz') and args.use_dynamic_bsz:
-            command += f" \\\n    actor_rollout_ref.actor.use_dynamic_bsz=True"
-            command += f" \\\n    actor_rollout_ref.ref.log_prob_use_dynamic_bsz=True"
-            # Note: critic.use_dynamic_bsz might not be a valid parameter
-            # command += f" \\\n    critic.use_dynamic_bsz=True"
-            
-            # Add dynamic batch size token limits
-            for key, value in kwargs.items():
-                if 'max_token_len_per_gpu' in key:
-                    if key == 'ppo_max_token_len_per_gpu':
-                        command += f" \\\n    actor_rollout_ref.actor.ppo_max_token_len_per_gpu={value}"
-                        # command += f" \\\n    critic.ppo_max_token_len_per_gpu={value}"
-                    elif key == 'ref_log_prob_max_token_len_per_gpu':
-                        command += f" \\\n    actor_rollout_ref.ref.log_prob_max_token_len_per_gpu={value}"
-                    elif key == 'rollout_log_prob_max_token_len_per_gpu':
-                        command += f" \\\n    actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu={value}"
-                    # elif key == 'critic_forward_max_token_len_per_gpu':
-                    #     command += f" \\\n    critic.forward_max_token_len_per_gpu={value}"
+        # Override micro batch sizes if provided
+        if ref_log_prob_micro_batch_size_per_gpu:
+            command += f" \\\n    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu={ref_log_prob_micro_batch_size_per_gpu}"
         else:
-            # Standard micro batch size parameters
-            command += f" \\\n    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu={ppo_micro_batch_size_per_gpu}"
-            
-            # Override micro batch sizes if provided
-            if hasattr(args, 'ref_log_prob_micro_batch_size_per_gpu') and args.ref_log_prob_micro_batch_size_per_gpu:
-                command += f" \\\n    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu={args.ref_log_prob_micro_batch_size_per_gpu}"
-            else:
-                command += f" \\\n    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu={ppo_micro_batch_size_per_gpu * 2}"
-            
-            if hasattr(args, 'rollout_log_prob_micro_batch_size_per_gpu') and args.rollout_log_prob_micro_batch_size_per_gpu:
-                command += f" \\\n    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu={args.rollout_log_prob_micro_batch_size_per_gpu}"
-            else:
-                command += f" \\\n    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu={ppo_micro_batch_size_per_gpu * 2}"
-            
-            if hasattr(args, 'critic_forward_micro_batch_size_per_gpu') and args.critic_forward_micro_batch_size_per_gpu:
-                command += f" \\\n    critic.forward_micro_batch_size_per_gpu={args.critic_forward_micro_batch_size_per_gpu}"
-            
-            if hasattr(args, 'critic_ppo_micro_batch_size_per_gpu') and args.critic_ppo_micro_batch_size_per_gpu:
-                command += f" \\\n    critic.ppo_micro_batch_size_per_gpu={args.critic_ppo_micro_batch_size_per_gpu}"
+            command += f" \\\n    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu={ppo_micro_batch_size_per_gpu * 2}"
         
-        # Ulysses sequence parallel
-        if hasattr(args, 'ulysses_sequence_parallel_size') and args.ulysses_sequence_parallel_size > 1:
-            command += f" \\\n    actor_rollout_ref.actor.ulysses_sequence_parallel_size={args.ulysses_sequence_parallel_size}"
-            command += f" \\\n    actor_rollout_ref.ref.ulysses_sequence_parallel_size={args.ulysses_sequence_parallel_size}"
-            command += f" \\\n    critic.ulysses_sequence_parallel_size={args.ulysses_sequence_parallel_size}"
-        
-        # Disable log stats
-        if hasattr(args, 'disable_log_stats') and args.disable_log_stats:
-            command += f" \\\n    actor_rollout_ref.rollout.disable_log_stats=True"
+        if rollout_log_prob_micro_batch_size_per_gpu:
+            command += f" \\\n    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu={rollout_log_prob_micro_batch_size_per_gpu}"
         else:
-            command += f" \\\n    actor_rollout_ref.rollout.disable_log_stats=False"
+            command += f" \\\n    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu={ppo_micro_batch_size_per_gpu * 2}"
         
-        # LigerKernel for SFT performance optimization
-        if hasattr(args, 'use_liger_kernel') and args.use_liger_kernel:
-            # Enable LigerKernel for linear layer fusion
-            command += f" \\\n    actor_rollout_ref.model.use_liger=True"
-            command += f" \\\n    critic.model.use_liger=True"
+        if critic_forward_micro_batch_size_per_gpu:
+            command += f" \\\n    critic.forward_micro_batch_size_per_gpu={critic_forward_micro_batch_size_per_gpu}"
         
-        # Max steps for performance testing
-        if hasattr(args, 'max_steps') and args.max_steps:
-            command += f" \\\n    trainer.total_training_steps={args.max_steps}"
+        if critic_ppo_micro_batch_size_per_gpu:
+            command += f" \\\n    critic.ppo_micro_batch_size_per_gpu={critic_ppo_micro_batch_size_per_gpu}"
+    
+    # Ulysses sequence parallel
+    if ulysses_sequence_parallel_size > 1:
+        command += f" \\\n    actor_rollout_ref.actor.ulysses_sequence_parallel_size={ulysses_sequence_parallel_size}"
+        command += f" \\\n    actor_rollout_ref.ref.ulysses_sequence_parallel_size={ulysses_sequence_parallel_size}"
+        command += f" \\\n    critic.ulysses_sequence_parallel_size={ulysses_sequence_parallel_size}"
+    
+
     
     return command
 
@@ -412,181 +348,239 @@ def run_local_command(command: str, experiment_name: str, log_dir: Path, conda_e
         return 1
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Launch VERL math RL training")
-    
+def main(
     # Required arguments
-    parser.add_argument("--nodes", type=int, required=True, help="Number of nodes")
-    parser.add_argument("--batch_size", type=int, required=True, help="Training batch size")
-    
+    nodes: int = 2,
+    batch_size: int = 64,
     # Optional arguments
-    parser.add_argument("--epochs", type=int, default=20, help="Number of training epochs")
-    parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", 
-                       help="Path to the model")
-    parser.add_argument("--data_path", type=str, default="$HOME/data", 
-                       help="Path to the data directory")
-    parser.add_argument("--experiment_name", type=str, 
-                       help="Custom experiment name (auto-generated if not provided)")
-    parser.add_argument("--project", type=str, default="ssverl",
-                       help="Project name for logging")
-    parser.add_argument("--max_prompt_length", type=int, default=2048,
-                       help="Maximum prompt length")
-    parser.add_argument("--max_response_length", type=int, default=4096,
-                       help="Maximum response length")
-    parser.add_argument("--gsm8k", action="store_true", 
-                       help="Use GSM8K dataset for testing (smaller dataset)")
-    parser.add_argument("--dry_run", action="store_true", 
-                       help="Generate script but don't submit job")
-    
+    epochs: int = 20,
+    model_path: str = "Qwen/Qwen2.5-3B-Instruct",
+    data_path: str = "$HOME/data",
+    experiment_name: Optional[str] = None,
+    project: str = "ssverl",
+    max_prompt_length: int = 2048,
+    max_response_length: int = 4096,
+    gsm8k: bool = False,
+    dry_run: bool = False,
     # Performance tuning arguments
-    parser.add_argument("--local", action="store_true",
-                       help="Run locally instead of submitting to slurm cluster")
-    parser.add_argument("--max_steps", type=int, default=None,
-                       help="Maximum number of training steps (for performance testing)")
-    parser.add_argument("--use_remove_padding", action="store_true",
-                       help="Enable sequence packing (remove padding)")
-    parser.add_argument("--use_dynamic_bsz", action="store_true",
-                       help="Enable dynamic batch size for higher throughput")
-    parser.add_argument("--use_liger_kernel", action="store_true",
-                       help="Enable LigerKernel for SFT performance optimization")
-    parser.add_argument("--entropy_from_logits_with_chunking", action="store_true",
-                       help="Enable chunked entropy calculation to reduce memory")
-    parser.add_argument("--entropy_checkpointing", action="store_true",
-                       help="Enable entropy checkpointing to reduce memory during training")
-    parser.add_argument("--enable_gradient_checkpointing", action="store_true",
-                       help="Enable gradient checkpointing for larger batch sizes")
-    parser.add_argument("--enable_activation_offload", action="store_true",
-                       help="Enable activation offloading to reduce memory")
-    parser.add_argument("--forward_prefetch", action="store_true",
-                       help="Enable forward prefetch in FSDP for better efficiency")
-    parser.add_argument("--gpu_memory_utilization", type=float, default=0.4,
-                       help="GPU memory utilization for vLLM rollout (default: 0.4)")
-    parser.add_argument("--tensor_model_parallel_size", type=int, default=2,
-                       help="Tensor model parallel size for rollout (default: 2)")
-    
+    local: bool = False,
+    use_remove_padding: bool = True,
+    use_dynamic_bsz: bool = False,
+    entropy_from_logits_with_chunking: bool = False,
+    entropy_checkpointing: bool = False,
+    enable_gradient_checkpointing: bool = False,
+    enable_activation_offload: bool = False,
+    forward_prefetch: bool = False,
+    gpu_memory_utilization: float = 0.4,
+    tensor_model_parallel_size: int = 2,
     # Batch size tuning arguments
-    parser.add_argument("--ppo_micro_batch_size_per_gpu", type=int, default=None,
-                       help="PPO micro batch size per GPU (overrides auto-calculation)")
-    parser.add_argument("--ref_log_prob_micro_batch_size_per_gpu", type=int, default=None,
-                       help="Reference log prob micro batch size per GPU")
-    parser.add_argument("--rollout_log_prob_micro_batch_size_per_gpu", type=int, default=None,
-                       help="Rollout log prob micro batch size per GPU")
-    parser.add_argument("--critic_forward_micro_batch_size_per_gpu", type=int, default=None,
-                       help="Critic forward micro batch size per GPU")
-    parser.add_argument("--critic_ppo_micro_batch_size_per_gpu", type=int, default=None,
-                       help="Critic PPO micro batch size per GPU")
-    
+    ppo_micro_batch_size_per_gpu: Optional[int] = None,
+    ref_log_prob_micro_batch_size_per_gpu: Optional[int] = None,
+    rollout_log_prob_micro_batch_size_per_gpu: Optional[int] = None,
+    critic_forward_micro_batch_size_per_gpu: Optional[int] = None,
+    critic_ppo_micro_batch_size_per_gpu: Optional[int] = None,
     # Dynamic batch size arguments
-    parser.add_argument("--ppo_max_token_len_per_gpu", type=int, default=None,
-                       help="Max token length per GPU for PPO (used with dynamic batch size)")
-    parser.add_argument("--ref_log_prob_max_token_len_per_gpu", type=int, default=None,
-                       help="Max token length per GPU for ref log prob (used with dynamic batch size)")
-    parser.add_argument("--rollout_log_prob_max_token_len_per_gpu", type=int, default=None,
-                       help="Max token length per GPU for rollout log prob (used with dynamic batch size)")
-    parser.add_argument("--critic_forward_max_token_len_per_gpu", type=int, default=None,
-                       help="Max token length per GPU for critic forward (used with dynamic batch size)")
-    parser.add_argument("--critic_ppo_max_token_len_per_gpu", type=int, default=None,
-                       help="Max token length per GPU for critic PPO (used with dynamic batch size)")
-    
+    ppo_max_token_len_per_gpu: Optional[int] = None,
+    ref_log_prob_max_token_len_per_gpu: Optional[int] = None,
+    rollout_log_prob_max_token_len_per_gpu: Optional[int] = None,
+    critic_forward_max_token_len_per_gpu: Optional[int] = None,
+    critic_ppo_max_token_len_per_gpu: Optional[int] = None,
     # Rollout tuning arguments
-    parser.add_argument("--max_num_batched_tokens_override", type=int, default=None,
-                       help="Override max_num_batched_tokens for rollout (default: auto-calculated)")
-    parser.add_argument("--disable_log_stats", action="store_true",
-                       help="Disable rollout log stats")
-    
+    max_num_batched_tokens_override: Optional[int] = None,
+    disable_log_stats: bool = False,
     # Ulysses sequence parallel
-    parser.add_argument("--ulysses_sequence_parallel_size", type=int, default=1,
-                       help="Ulysses sequence parallel size for long context training")
-    
+    ulysses_sequence_parallel_size: int = 1,
     # Offloading arguments
-    parser.add_argument("--param_offload", action="store_true",
-                       help="Enable parameter offloading in FSDP")
-    parser.add_argument("--optimizer_offload", action="store_true",
-                       help="Enable optimizer offloading in FSDP")
-    
+    param_offload: bool = False,
+    optimizer_offload: bool = False,
     # Performance preset arguments
-    parser.add_argument("--perf_preset", type=str, choices=["baseline", "optimized", "memory_opt", "speed_opt"], 
-                       default="baseline", help="Performance preset configuration")
-    
+    perf_preset: str = "baseline",
     # Conda environment
-    parser.add_argument("--conda_env", type=str, default="verl",
-                       help="Conda environment to use (default: verl)")
+    conda_env: str = "verl",
+):
+    """Launch VERL math RL training.
     
-    args = parser.parse_args()
+    Args:
+        nodes: Number of nodes
+        batch_size: Training batch size
+        epochs: Number of training epochs
+        model_path: Path to the model
+        data_path: Path to the data directory
+        experiment_name: Custom experiment name (auto-generated if not provided)
+        project: Project name for logging
+        max_prompt_length: Maximum prompt length
+        max_response_length: Maximum response length
+        gsm8k: Use GSM8K dataset for testing (smaller dataset)
+        dry_run: Generate script but don't submit job
+        local: Run locally instead of submitting to slurm cluster
+        max_steps: Maximum number of training steps (for performance testing)
+        use_remove_padding: Enable sequence packing (remove padding)
+        use_dynamic_bsz: Enable dynamic batch size for higher throughput
+        use_liger_kernel: Enable LigerKernel for SFT performance optimization
+        entropy_from_logits_with_chunking: Enable chunked entropy calculation to reduce memory
+        entropy_checkpointing: Enable entropy checkpointing to reduce memory during training
+        enable_gradient_checkpointing: Enable gradient checkpointing for larger batch sizes
+        enable_activation_offload: Enable activation offloading to reduce memory
+        forward_prefetch: Enable forward prefetch in FSDP for better efficiency
+        gpu_memory_utilization: GPU memory utilization for vLLM rollout (default: 0.4)
+        tensor_model_parallel_size: Tensor model parallel size for rollout (default: 2)
+        ppo_micro_batch_size_per_gpu: PPO micro batch size per GPU (overrides auto-calculation)
+        ref_log_prob_micro_batch_size_per_gpu: Reference log prob micro batch size per GPU
+        rollout_log_prob_micro_batch_size_per_gpu: Rollout log prob micro batch size per GPU
+        critic_forward_micro_batch_size_per_gpu: Critic forward micro batch size per GPU
+        critic_ppo_micro_batch_size_per_gpu: Critic PPO micro batch size per GPU
+        ppo_max_token_len_per_gpu: Max token length per GPU for PPO (used with dynamic batch size)
+        ref_log_prob_max_token_len_per_gpu: Max token length per GPU for ref log prob (used with dynamic batch size)
+        rollout_log_prob_max_token_len_per_gpu: Max token length per GPU for rollout log prob (used with dynamic batch size)
+        critic_forward_max_token_len_per_gpu: Max token length per GPU for critic forward (used with dynamic batch size)
+        critic_ppo_max_token_len_per_gpu: Max token length per GPU for critic PPO (used with dynamic batch size)
+        max_num_batched_tokens_override: Override max_num_batched_tokens for rollout (default: auto-calculated)
+        disable_log_stats: Disable rollout log stats
+        ulysses_sequence_parallel_size: Ulysses sequence parallel size for long context training
+        param_offload: Enable parameter offloading in FSDP
+        optimizer_offload: Enable optimizer offloading in FSDP
+        perf_preset: Performance preset configuration (baseline, optimized, memory_opt, speed_opt)
+        conda_env: Conda environment to use (default: verl)
+    """
+
     
     # Validate arguments
-    if args.nodes <= 0:
+    if nodes <= 0:
         raise ValueError("Number of nodes must be positive")
-    if args.batch_size <= 0:
+    if batch_size <= 0:
         raise ValueError("Batch size must be positive")
-    if args.epochs <= 0:
+    if epochs <= 0:
         raise ValueError("Number of epochs must be positive")
-    if args.max_prompt_length <= 0:
+    if max_prompt_length <= 0:
         raise ValueError("Max prompt length must be positive")
-    if args.max_response_length <= 0:
+    if max_response_length <= 0:
         raise ValueError("Max response length must be positive")
     
-    # Apply performance presets
-    apply_performance_presets(args)
+    # Apply performance presets (directly modify variables)
+    if perf_preset == "baseline":
+        # Baseline configuration - no special optimizations
+        pass
+    elif perf_preset == "optimized":
+        # Enable optimizations 1, 2, 4, 6, 8 from the performance guide
+        use_remove_padding = True  # 2
+        use_dynamic_bsz = True    # 4
+        use_liger_kernel = True   # 6
+        entropy_from_logits_with_chunking = True  # 8
+        entropy_checkpointing = True  # 8
+        gpu_memory_utilization = 0.6  # 1 - increase from default 0.4
+        disable_log_stats = False  # 1 - enable log stats for tuning
+        enable_gradient_checkpointing = True
+        param_offload = True
+        optimizer_offload = True
+    elif perf_preset == "memory_opt":
+        # Memory optimization focused
+        use_remove_padding = True
+        entropy_from_logits_with_chunking = True
+        entropy_checkpointing = True
+        enable_gradient_checkpointing = True
+        enable_activation_offload = True
+        param_offload = True
+        optimizer_offload = True
+        gpu_memory_utilization = 0.5
+    elif perf_preset == "speed_opt":
+        # Speed optimization focused
+        use_remove_padding = True
+        use_dynamic_bsz = True
+        forward_prefetch = True
+        gpu_memory_utilization = 0.7
+        tensor_model_parallel_size = 1  # Prefer data parallelism
+        disable_log_stats = False
     
     # Calculate dynamic batch size parameters
-    dynamic_batch_params = calculate_dynamic_batch_params(args)
-    
-    # Override epochs for testing if max_steps is specified
-    if args.max_steps:
-        # Use 1 epoch for testing since max_steps parameter may not be supported
-        args.epochs = 1
-        print(f"Using 1 epoch for testing (max_steps={args.max_steps} not directly supported)")
+    dynamic_batch_params = {}
+    if use_dynamic_bsz:
+        # Calculate recommended token lengths based on sequence lengths
+        base_token_len = max_prompt_length + max_response_length
+        
+        # Set default values if not provided
+        if ppo_max_token_len_per_gpu is None:
+            dynamic_batch_params['ppo_max_token_len_per_gpu'] = base_token_len * 2
+        
+        if ref_log_prob_max_token_len_per_gpu is None:
+            dynamic_batch_params['ref_log_prob_max_token_len_per_gpu'] = base_token_len * 3
+        
+        if rollout_log_prob_max_token_len_per_gpu is None:
+            dynamic_batch_params['rollout_log_prob_max_token_len_per_gpu'] = base_token_len * 3
+        
+        if critic_forward_max_token_len_per_gpu is None:
+            dynamic_batch_params['critic_forward_max_token_len_per_gpu'] = base_token_len * 4
+        
+        if critic_ppo_max_token_len_per_gpu is None:
+            dynamic_batch_params['critic_ppo_max_token_len_per_gpu'] = base_token_len * 4
+
     
     # Calculate batch sizes
     ppo_mini_batch_size, ppo_micro_batch_size_per_gpu = calculate_batch_sizes(
-        args.nodes, args.batch_size
+        nodes, batch_size
     )
     
     # Generate experiment name
     experiment_name = generate_experiment_name(
-        args.nodes, args.batch_size, args.epochs, args.model_path, 
-        args.gsm8k, args.experiment_name
+        nodes, batch_size, epochs, model_path, 
+        gsm8k, experiment_name
     )
     
     # Create log directory
     log_dir = create_log_directory(experiment_name)
     
     # Get data files
-    train_files, val_files = get_data_files(args.data_path, args.gsm8k)
+    train_files, val_files = get_data_files(data_path, gsm8k)
     
     # Format the VERL command
     verl_command = format_verl_command(
         experiment_name=experiment_name,
         train_files=train_files,
         val_files=val_files,
-        model_path=args.model_path,
-        train_batch_size=args.batch_size,
+        model_path=model_path,
+        train_batch_size=batch_size,
         ppo_mini_batch_size=ppo_mini_batch_size,
         ppo_micro_batch_size_per_gpu=ppo_micro_batch_size_per_gpu,
-        total_epochs=args.epochs,
-        nodes=args.nodes,
-        max_prompt_length=args.max_prompt_length,
-        max_response_length=args.max_response_length,
-        project=args.project,
-        args=args,
+        total_epochs=epochs,
+        nodes=nodes,
+        max_prompt_length=max_prompt_length,
+        max_response_length=max_response_length,
+        project=project,
+        max_num_batched_tokens_override=max_num_batched_tokens_override,
+        gpu_memory_utilization=gpu_memory_utilization,
+        tensor_model_parallel_size=tensor_model_parallel_size,
+        use_remove_padding=use_remove_padding,
+        enable_gradient_checkpointing=enable_gradient_checkpointing,
+        enable_activation_offload=enable_activation_offload,
+        param_offload=param_offload,
+        optimizer_offload=optimizer_offload,
+        forward_prefetch=forward_prefetch,
+        entropy_from_logits_with_chunking=entropy_from_logits_with_chunking,
+        entropy_checkpointing=entropy_checkpointing,
+        use_dynamic_bsz=use_dynamic_bsz,
+        ref_log_prob_micro_batch_size_per_gpu=ref_log_prob_micro_batch_size_per_gpu,
+        rollout_log_prob_micro_batch_size_per_gpu=rollout_log_prob_micro_batch_size_per_gpu,
+        critic_forward_micro_batch_size_per_gpu=critic_forward_micro_batch_size_per_gpu,
+        critic_ppo_micro_batch_size_per_gpu=critic_ppo_micro_batch_size_per_gpu,
+        ulysses_sequence_parallel_size=ulysses_sequence_parallel_size,
+        disable_log_stats=disable_log_stats,
+        use_liger_kernel=use_liger_kernel,
         **dynamic_batch_params
     )
     
     # Calculate max_num_batched_tokens for display
-    max_num_batched_tokens = calculate_max_batched_tokens(args.max_prompt_length, args.max_response_length)
+    max_num_batched_tokens = calculate_max_batched_tokens(max_prompt_length, max_response_length)
     
     # Prepare template variables
     template_vars = {
         "JOB_NAME": experiment_name,
-        "NUM_NODES": args.nodes,
+        "NUM_NODES": nodes,
         "LOGDIR": str(log_dir),
         "CODE_DIR": str(Path.home() / "verl"),
-        "DATA_PATH": args.data_path,
-        "MODEL_PATH": args.model_path,
+        "DATA_PATH": data_path,
+        "MODEL_PATH": model_path,
         "EXPERIMENT_NAME": experiment_name,
         "VERL_COMMAND": verl_command,
-        "CONDA_ENV": args.conda_env,
+        "CONDA_ENV": conda_env,
     }
     
     # Fill template
@@ -597,51 +591,51 @@ def main():
     sbatch_content = fill_template(template_path, **template_vars)
     
     # Print configuration
-    dataset_info = "GSM8K (test dataset)" if args.gsm8k else "Polaris (full dataset)"
+    dataset_info = "GSM8K (test dataset)" if gsm8k else "Polaris (full dataset)"
     print(f"Configuration:")
     print(f"  Experiment: {experiment_name}")
     print(f"  Dataset: {dataset_info}")
-    print(f"  Nodes: {args.nodes}")
-    print(f"  Total GPUs: {args.nodes * 8}")
-    print(f"  Batch size: {args.batch_size}")
+    print(f"  Nodes: {nodes}")
+    print(f"  Total GPUs: {nodes * 8}")
+    print(f"  Batch size: {batch_size}")
     print(f"  PPO mini batch size: {ppo_mini_batch_size}")
     print(f"  PPO micro batch size per GPU: {ppo_micro_batch_size_per_gpu}")
-    print(f"  Epochs: {args.epochs}")
-    print(f"  Model: {args.model_path}")
-    print(f"  Data path: {args.data_path}")
-    print(f"  Max prompt length: {args.max_prompt_length}")
-    print(f"  Max response length: {args.max_response_length}")
+    print(f"  Epochs: {epochs}")
+    print(f"  Model: {model_path}")
+    print(f"  Data path: {data_path}")
+    print(f"  Max prompt length: {max_prompt_length}")
+    print(f"  Max response length: {max_response_length}")
     print(f"  Max batched tokens: {max_num_batched_tokens}")
-    print(f"  Project: {args.project}")
+    print(f"  Project: {project}")
     print(f"  Log directory: {log_dir}")
-    print(f"  Performance preset: {args.perf_preset}")
-    print(f"  Execution mode: {'Local' if args.local else 'Slurm'}")
-    print(f"  Conda environment: {args.conda_env}")
+    print(f"  Performance preset: {perf_preset}")
+    print(f"  Execution mode: {'Local' if local else 'Slurm'}")
+    print(f"  Conda environment: {conda_env}")
     
     # Print enabled optimizations
     optimizations = []
-    if args.use_remove_padding:
+    if use_remove_padding:
         optimizations.append("Remove padding (sequence packing)")
-    if args.use_dynamic_bsz:
+    if use_dynamic_bsz:
         optimizations.append("Dynamic batch size")
-    if args.use_liger_kernel:
+    if use_liger_kernel:
         optimizations.append("LigerKernel")
-    if args.entropy_from_logits_with_chunking:
+    if entropy_from_logits_with_chunking:
         optimizations.append("Chunked entropy calculation")
-    if args.entropy_checkpointing:
+    if entropy_checkpointing:
         optimizations.append("Entropy checkpointing")
-    if args.enable_gradient_checkpointing:
+    if enable_gradient_checkpointing:
         optimizations.append("Gradient checkpointing")
-    if args.enable_activation_offload:
+    if enable_activation_offload:
         optimizations.append("Activation offloading")
-    if args.param_offload:
+    if param_offload:
         optimizations.append("Parameter offloading")
-    if args.optimizer_offload:
+    if optimizer_offload:
         optimizations.append("Optimizer offloading")
-    if args.forward_prefetch:
+    if forward_prefetch:
         optimizations.append("Forward prefetch")
-    if args.ulysses_sequence_parallel_size > 1:
-        optimizations.append(f"Ulysses sequence parallel (size={args.ulysses_sequence_parallel_size})")
+    if ulysses_sequence_parallel_size > 1:
+        optimizations.append(f"Ulysses sequence parallel (size={ulysses_sequence_parallel_size})")
     
     if optimizations:
         print(f"  Enabled optimizations: {', '.join(optimizations)}")
@@ -649,13 +643,13 @@ def main():
         print(f"  Enabled optimizations: None (baseline)")
     
     # Print performance-related parameters
-    print(f"  GPU memory utilization: {args.gpu_memory_utilization}")
-    print(f"  Tensor model parallel size: {args.tensor_model_parallel_size}")
-    if args.max_steps:
-        print(f"  Max steps (for testing): {args.max_steps}")
+    print(f"  GPU memory utilization: {gpu_memory_utilization}")
+    print(f"  Tensor model parallel size: {tensor_model_parallel_size}")
+    if max_steps:
+        print(f"  Max steps (for testing): {max_steps}")
     
     # Print dynamic batch size parameters if enabled
-    if args.use_dynamic_bsz:
+    if use_dynamic_bsz:
         print(f"  Dynamic batch size parameters:")
         for key, value in dynamic_batch_params.items():
             print(f"    {key}: {value}")
@@ -663,13 +657,13 @@ def main():
     print()
     
     # Handle local execution
-    if args.local:
+    if local:
         print("Running locally...")
-        exit_code = run_local_command(verl_command, experiment_name, log_dir, args.conda_env)
+        exit_code = run_local_command(verl_command, experiment_name, log_dir, conda_env)
         print(f"Local execution finished with exit code: {exit_code}")
         return
     
-    if args.dry_run:
+    if dry_run:
         print("Dry run mode - would submit the following sbatch script:")
         print("=" * 80)
         print(sbatch_content)
@@ -686,4 +680,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    fire.Fire(main)
