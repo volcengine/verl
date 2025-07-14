@@ -84,9 +84,19 @@ def validate_json_generation(generation_text):
     import json
     
     try:
-        parsed_json = json.loads(generation_text)
+        to_parse = ""
+        for line in generation_text.split("\n"):
+            
+            if line.strip() == "":
+                continue
+            if line.strip().startswith("{"):
+                to_parse = line
+                break
+        
+        parsed_json = json.loads(to_parse)
         return True, None, parsed_json
     except json.JSONDecodeError as json_err:
+        print(to_parse)
         return False, f"JSON decode error: {json_err}", None
     except Exception as parse_err:
         return False, f"Parsing error: {parse_err}", None
@@ -604,6 +614,7 @@ class FSDPSFTTrainer:
             # Initialize validation generations logger for proper media logging
             from verl.utils.tracking import ValidationGenerationsLogger
             val_generations_logger = ValidationGenerationsLogger()
+            print("\n\n\n", val_generations_logger, "\n\n\n")
         
         print("Generating initial samples before training starts...")
         initial_prompts = []
@@ -625,7 +636,7 @@ class FSDPSFTTrainer:
             for i in range(num_initial_samples_to_log):
                 prompt_text = initial_prompts[i]
                 generation_text = initial_generations[i]
-                initial_samples.append([prompt_text, generation_text, "N/A"])  # No score available
+                initial_samples.append([prompt_text, generation_text, "N/A", "N/A"])  # No score available
             
             val_generations_logger.log(tracking.logger.keys(), initial_samples, 0)  # Step 0 for initial samples
             
@@ -703,11 +714,20 @@ class FSDPSFTTrainer:
                         # script to check how many outputs parsed correctly 
                         json_valid_count = 0
                         total_generations = len(generations)
-                        
+                        tag_errors_count = 0
                         for i, generation in enumerate(generations):
-                            is_valid, error_msg, parsed_json = validate_json_generation(generation)
+                            json_valid, error_msg, parsed_json = validate_json_generation(generation)
+                            if (generation.count("<tool_call>") != 1 or generation.count("<tool_call>") != generation.count("</tool_call>")):
+                                tag_errors_count += 1
+                                print(f"✗ Generation {i+1} has a mismatched number of <tool_call> tags")
+                            if (generation.count("<think>") != generation.count("</think>")): 
+                                tag_errors_count += 1
+                                print(f"✗ Generation {i+1} has a mismatched number of think tags")
+                            if ("<inner_monologue>" in generation or "</inner_monologue>" in generation):
+                                tag_errors_count += 1
+                                print(f"✗ Generation {i+1} has an inner monologue")
                             
-                            if is_valid:
+                            if json_valid:
                                 json_valid_count += 1
                                 print(f"✓ Generation {i+1} parses as valid JSON")
                             else:
@@ -716,6 +736,8 @@ class FSDPSFTTrainer:
                         # Print summary statistics
                         json_valid_rate = (json_valid_count / total_generations * 100) if total_generations > 0 else 0
                         print(f"JSON Validation Summary: {json_valid_count}/{total_generations} ({json_valid_rate:.1f}%) valid JSON generations")
+
+                        
                             
                     except Exception as e:
                         print(f"Warning: Failed to generate samples during validation: {e}")
@@ -747,7 +769,7 @@ class FSDPSFTTrainer:
                 
                     val_samples = []
                     for prompt, generation in zip(all_prompts, all_generations):
-                        val_samples.append([prompt, generation, "N/A"])  # You can add a score or JSON validity if desired
+                        val_samples.append([prompt, generation,  f"{json_valid_count}/{total_generations}", f"{tag_errors_count}"])
                     val_generations_logger.log(tracking.logger.keys(), val_samples, global_step)
                 
                 tracking.log(data=metric, step=global_step)
