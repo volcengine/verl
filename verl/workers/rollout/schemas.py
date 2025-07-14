@@ -284,15 +284,8 @@ class AsyncRolloutRequest(BaseModel):
             model_inputs = processing_class(text=[raw_prompt], return_tensors="pt")
 
         elif isinstance(processing_class, ProcessorMixin):
-            raw_prompt = processing_class.apply_chat_template(
-                messages, tools=tools, add_generation_prompt=add_generation_prompt, tokenize=False
-            )
-
             if add_generation_prompt is False:
                 raw_prompt = force_chat_end_with_eos(raw_prompt, eos_token=processing_class.tokenizer.eos_token)
-
-            if not tokenize:
-                return raw_prompt
 
             # When we update multi_model_keys, we also need to update this logic
             images = images if len(images := multi_modal_data.get("image", [])) > 0 else None
