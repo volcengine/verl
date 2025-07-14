@@ -39,7 +39,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_grpo_example_geo3k' \
     trainer.experiment_name='minicpmo2_6_function_rm' \
     trainer.n_gpus_per_node=8 \

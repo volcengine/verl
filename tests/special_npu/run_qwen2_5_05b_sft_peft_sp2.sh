@@ -16,7 +16,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=8 \
     trainer.default_local_dir=./save_ckpts \
     trainer.project_name=gsm8k-sft \
     trainer.experiment_name=gsm8k-sft-qwen-2.5-0.5b-instruct \
-    trainer.logger=['console'] \
+    trainer.logger=console \
     trainer.total_epochs=1 \
     trainer.total_training_steps=1 $@ \
     model.lora_rank=32 \
