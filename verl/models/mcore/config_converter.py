@@ -98,11 +98,17 @@ def _get_base_transformer_config(
     # Some megatron.core versions not support apply_rope_fusion with context parallel
     try:
         from megatron.core.extensions.transformer_engine import fused_apply_rotary_pos_emb_thd
+
+        print(f"TE function {fused_apply_rotary_pos_emb_thd} is available, apply_rope_fusion will be enabled.")
     except ImportError:
         if mpu.get_context_parallel_world_size() > 1:
             base_config["apply_rope_fusion"] = False
             warnings.warn(
-                f"TE function{fused_apply_rotary_pos_emb_thd} not found, "
+                "TE function fused_apply_rotary_pos_emb_thd not found, "
+                "Please manually change megatron.core.extensions.transformer_engine\n"
+                "from transformer_engine.pytorch.attention import FusedRoPEFunc\n"
+                "to:\n"
+                "from transformer_engine.pytorch.attention.rope import FusedRoPEFunc\n"
                 "Disabling apply_rope_fusion due to not supported context parallel. ",
                 stacklevel=2,
             )
