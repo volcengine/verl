@@ -45,19 +45,10 @@ class DistGlobalInfo:
 class WorkerHelper:
     @staticmethod
     def _get_node_ip():
-        def get_node_ip_by_sdk():
-            if os.getenv("WG_BACKEND", None) == "ray":
-                return ray.util.get_node_ip_address()
-            else:
-                raise NotImplementedError("WG_BACKEND now just support ray mode.")
-
-        host_ipv4 = os.getenv("MY_HOST_IP", None)
-        host_ipv6 = os.getenv("MY_HOST_IPV6", None)
-        host_ip = host_ipv4 or host_ipv6
-        if host_ip is None:
-            host_ip = get_node_ip_by_sdk()
-
-        return host_ip
+        if os.getenv("WG_BACKEND", None) == "ray":
+            return ray.util.get_node_ip_address()
+        else:
+            raise NotImplementedError("WG_BACKEND now just support ray mode.")
 
     @staticmethod
     def _get_free_port():
