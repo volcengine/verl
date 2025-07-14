@@ -42,3 +42,44 @@ RUN pip3 install --no-deps --no-cache-dir --no-build-isolation git+https://githu
 
 # Install mbridge
 RUN pip3 install --no-cache-dir mbridge
+
+# Install DeepEP
+## the dependency of IBGDA
+RUN ln -s /usr/lib/x86_64-linux-gnu/libmlx5.so.1 /usr/lib/x86_64-linux-gnu/libmlx5.so
+
+## Clone and build deepep and deepep-nvshmem
+RUN git clone -b v2.3.1 https://github.com/NVIDIA/gdrcopy.git && \
+    git clone https://github.com/deepseek-ai/DeepEP.git  && \
+    cd DeepEP && git checkout a84a248
+
+# Prepare nvshmem
+RUN wget https://developer.nvidia.com/downloads/assets/secure/nvshmem/nvshmem_src_3.2.5-1.txz && \
+    tar -xvf nvshmem_src_3.2.5-1.txz && mv nvshmem_src deepep-nvshmem && \
+    cd deepep-nvshmem && git apply ../DeepEP/third-party/nvshmem.patch
+
+ENV CUDA_HOME=/usr/local/cuda
+### Set MPI environment variables. Having errors when not set.
+ENV CPATH=/usr/local/mpi/include:$CPATH
+ENV LD_LIBRARY_PATH=/usr/local/mpi/lib:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/usr/local/x86_64-linux-gnu:$LD_LIBRARY_PATH
+ENV GDRCOPY_HOME=/workspace/gdrcopy
+
+## Build deepep-nvshmem
+RUN cd deepep-nvshmem && \
+    NVSHMEM_SHMEM_SUPPORT=0 \
+    NVSHMEM_UCX_SUPPORT=0 \
+    NVSHMEM_USE_NCCL=0 \
+    NVSHMEM_MPI_SUPPORT=0 \
+    NVSHMEM_IBGDA_SUPPORT=1 \
+    NVSHMEM_PMIX_SUPPORT=0 \
+    NVSHMEM_TIMEOUT_DEVICE_POLLING=0 \
+    NVSHMEM_USE_GDRCOPY=1 \
+    cmake -G Ninja -S . -B build/ -DCMAKE_INSTALL_PREFIX=/workspace/deepep-nvshmem/install && cmake --build build/ --target install
+
+ENV NVSHMEM_DIR=/workspace/deepep-nvshmem/install
+ENV LD_LIBRARY_PATH=$NVSHMEM_DIR/lib:$LD_LIBRARY_PATH
+ENV PATH=$NVSHMEM_DIR/bin:$PATH
+
+## Build deepep
+RUN cd DeepEP && \
+    python setup.py install

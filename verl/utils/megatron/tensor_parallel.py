@@ -16,7 +16,7 @@
 Utilities for using tensor_parallel in megatron
 """
 
-from typing import TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING
 
 import torch
 import torch.distributed as dist
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from megatron.core import ModelParallelConfig
 
 
-def update_kwargs_with_config(dictionary: Dict, config: "ModelParallelConfig"):
+def update_kwargs_with_config(dictionary: dict, config: "ModelParallelConfig"):
     dictionary["config"] = config
     return dictionary
 

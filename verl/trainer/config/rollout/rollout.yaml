@@ -164,21 +164,6 @@ multi_turn:
 # support logging rollout prob for debugging purpose
 calculate_log_probs: False
 
-# profiler configs
-profiler:
-
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-  _target_: verl.utils.profiler.ProfilerConfig
-
-  # True for each task has its own database, False for all tasks in one training step share one database.
-  discrete: False
-
-  # Whether to profile all ranks.
-  all_ranks: False
-
-  # The ranks that will be profiled. [] or [0,1,...]
-  ranks: []
-
 # [Experimental] agent loop based rollout configs
 agent:
 

@@ -146,7 +146,9 @@ def test_flops_counter(config_type: str):
     test_config = CONFIG[config_type]
     config = Config(test_config["config"])
     flops_counter = FlopsCounter(config)
-    for batch_seqlens, expected_flops in zip(test_config["batch_seqlens_tuple"], test_config["expected_flops_tuple"]):
+    for batch_seqlens, expected_flops in zip(
+        test_config["batch_seqlens_tuple"], test_config["expected_flops_tuple"], strict=True
+    ):
         # set delta time to 1 to get the flops
         counted_flops, _ = flops_counter.estimate_flops(batch_seqlens, 1)
         print(f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}")
