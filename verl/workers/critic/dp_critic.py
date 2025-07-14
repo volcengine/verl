@@ -32,7 +32,7 @@ from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import masked_mean
-from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
+from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs
 from verl.workers.critic import BasePPOCritic
 
 if is_cuda_available:
@@ -114,7 +114,7 @@ class DataParallelPPOCritic(BasePPOCritic):
 
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
-                    values_rmpad = gather_outpus_and_unpad(
+                    values_rmpad = gather_outputs_and_unpad(
                         values_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size
                     )
 
