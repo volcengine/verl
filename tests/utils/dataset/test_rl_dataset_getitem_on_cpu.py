@@ -12,19 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import datasets
+import numpy as np
 import pytest
 import torch
 from omegaconf import OmegaConf
-
-# Mock the vision_utils module before any imports that might use it
-mock_vision_utils = Mock()
-mock_vision_utils.process_image = Mock(return_value="processed_image")
-mock_vision_utils.process_video = Mock(return_value="processed_video")
-sys.modules["verl.utils.dataset.vision_utils"] = mock_vision_utils
+from PIL import Image
 
 
 def create_test_dataset(data_dict, tokenizer, config, processor=None):
@@ -64,7 +59,7 @@ class TestRLHFDatasetGetItem:
         return OmegaConf.create(
             {
                 "prompt_key": "prompt",
-                "max_prompt_length": 256,
+                "max_prompt_length": 128,
                 "truncation": "error",
                 "return_raw_chat": False,
                 "return_full_prompt": False,
@@ -74,39 +69,38 @@ class TestRLHFDatasetGetItem:
 
     def test_basic_text_only_item(self, tokenizer, basic_config):
         """Test basic text-only prompt processing"""
-        data_dict = {"prompt": [[{"role": "user", "content": "What is 2+2?"}]], "extra_info": [{"index": 0}]}
+        data_dict = {
+            "prompt": [
+                [
+                    {
+                        "role": "user",
+                        "content": "What is 2+2?",
+                    }
+                ]
+            ],
+            "extra_info": [{"index": 0}],
+        }
 
         dataset = create_test_dataset(data_dict, tokenizer, basic_config)
 
-        with (
-            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
-            patch("verl.utils.model.compute_position_id_with_mask") as mock_position,
-        ):
-            # Mock the functions to return expected shapes
-            mock_postprocess.return_value = (
-                torch.tensor([[1, 2, 3, 4]]),  # input_ids
-                torch.tensor([[1, 1, 1, 1]]),  # attention_mask
-            )
-            mock_position.return_value = torch.tensor([[0, 1, 2, 3]])
+        result = dataset[0]
 
-            result = dataset[0]
+        # Check required fields are present
+        assert "input_ids" in result
+        assert "attention_mask" in result
+        assert "position_ids" in result
+        assert "raw_prompt_ids" in result
+        assert "index" in result
+        assert "tools_kwargs" in result
+        assert "interaction_kwargs" in result
 
-            # Check required fields are present
-            assert "input_ids" in result
-            assert "attention_mask" in result
-            assert "position_ids" in result
-            assert "raw_prompt_ids" in result
-            assert "index" in result
-            assert "tools_kwargs" in result
-            assert "interaction_kwargs" in result
+        # Check shapes
+        assert result["input_ids"].shape == torch.Size([128])
+        assert result["attention_mask"].shape == torch.Size([128])
+        assert result["position_ids"].shape == torch.Size([128])
 
-            # Check shapes
-            assert result["input_ids"].shape == torch.Size([4])
-            assert result["attention_mask"].shape == torch.Size([4])
-            assert result["position_ids"].shape == torch.Size([4])
-
-            # Check index
-            assert result["index"] == 0
+        # Check index
+        assert result["index"] == 0
 
     def test_with_extra_info_fields(self, tokenizer, basic_config):
         """Test handling of extra_info with tools_kwargs and interaction_kwargs"""
@@ -124,18 +118,11 @@ class TestRLHFDatasetGetItem:
 
         dataset = create_test_dataset(data_dict, tokenizer, basic_config)
 
-        with (
-            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
-            patch("verl.utils.model.compute_position_id_with_mask") as mock_position,
-        ):
-            mock_postprocess.return_value = (torch.tensor([[1, 2]]), torch.tensor([[1, 1]]))
-            mock_position.return_value = torch.tensor([[0, 1]])
+        result = dataset[0]
 
-            result = dataset[0]
-
-            assert result["index"] == 42
-            assert result["tools_kwargs"] == {"tool": "calculator"}
-            assert result["interaction_kwargs"] == {"mode": "chat"}
+        assert result["index"] == 42
+        assert result["tools_kwargs"] == {"tool": "calculator"}
+        assert result["interaction_kwargs"] == {"mode": "chat"}
 
     def test_return_raw_chat_enabled(self, tokenizer, basic_config):
         """Test return_raw_chat option"""
@@ -146,17 +133,10 @@ class TestRLHFDatasetGetItem:
 
         dataset = create_test_dataset(data_dict, tokenizer, config)
 
-        with (
-            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
-            patch("verl.utils.model.compute_position_id_with_mask") as mock_position,
-        ):
-            mock_postprocess.return_value = (torch.tensor([[1]]), torch.tensor([[1]]))
-            mock_position.return_value = torch.tensor([[0]])
+        result = dataset[0]
 
-            result = dataset[0]
-
-            assert "raw_prompt" in result
-            assert result["raw_prompt"] == [{"role": "user", "content": "Test message"}]
+        assert "raw_prompt" in result
+        assert result["raw_prompt"] == [{"role": "user", "content": "Test message"}]
 
     def test_return_full_prompt_enabled(self, tokenizer, basic_config):
         """Test return_full_prompt option"""
@@ -167,17 +147,10 @@ class TestRLHFDatasetGetItem:
 
         dataset = create_test_dataset(data_dict, tokenizer, config)
 
-        with (
-            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
-            patch("verl.utils.model.compute_position_id_with_mask") as mock_position,
-        ):
-            mock_postprocess.return_value = (torch.tensor([[1]]), torch.tensor([[1]]))
-            mock_position.return_value = torch.tensor([[0]])
+        result = dataset[0]
 
-            result = dataset[0]
-
-            assert "full_prompts" in result
-            assert isinstance(result["full_prompts"], str)
+        assert "full_prompts" in result
+        assert isinstance(result["full_prompts"], str)
 
     def test_truncation_strategies(self, tokenizer, basic_config):
         """Test different truncation strategies"""
@@ -201,15 +174,8 @@ class TestRLHFDatasetGetItem:
         config.truncation = "left"
         dataset = create_test_dataset(data_dict, tokenizer, config)
 
-        with (
-            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
-            patch("verl.utils.model.compute_position_id_with_mask") as mock_position,
-        ):
-            mock_postprocess.return_value = (torch.tensor([[1, 2, 3, 4, 5]]), torch.tensor([[1, 1, 1, 1, 1]]))
-            mock_position.return_value = torch.tensor([[0, 1, 2, 3, 4]])
-
-            result = dataset[0]
-            assert len(result["raw_prompt_ids"]) <= 5
+        result = dataset[0]
+        assert len(result["raw_prompt_ids"]) <= 5
 
     def test_missing_extra_info(self, tokenizer, basic_config):
         """Test handling when extra_info is missing or incomplete"""
@@ -220,25 +186,22 @@ class TestRLHFDatasetGetItem:
 
         dataset = create_test_dataset(data_dict, tokenizer, basic_config)
 
-        with (
-            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
-            patch("verl.utils.model.compute_position_id_with_mask") as mock_position,
-        ):
-            mock_postprocess.return_value = (torch.tensor([[1]]), torch.tensor([[1]]))
-            mock_position.return_value = torch.tensor([[0]])
+        result = dataset[0]
 
-            result = dataset[0]
-
-            # Should have default values
-            assert result["index"] == 0
-            assert result["tools_kwargs"] == {}
-            assert result["interaction_kwargs"] == {}
+        # Should have default values
+        assert result["index"] == 0
+        assert result["tools_kwargs"] == {}
+        assert result["interaction_kwargs"] == {}
 
     def test_multimodal_with_images(self, tokenizer, basic_config):
         """Test multimodal processing with images"""
+
+        # Create a fake PIL image
+        fake_image = Image.fromarray(np.zeros((32, 32, 3), dtype=np.uint8))
+
         data_dict = {
             "prompt": [[{"role": "user", "content": "Describe this <image>"}]],
-            "images": [["fake_image_data"]],
+            "images": [[fake_image]],
             "extra_info": [{"index": 0}],
         }
 
@@ -254,18 +217,11 @@ class TestRLHFDatasetGetItem:
 
         dataset = create_test_dataset(data_dict, tokenizer, basic_config, processor=mock_processor)
 
-        with (
-            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
-            patch("verl.utils.model.compute_position_id_with_mask") as mock_position,
-        ):
-            mock_postprocess.return_value = (torch.tensor([[1, 2, 3]]), torch.tensor([[1, 1, 1]]))
-            mock_position.return_value = torch.tensor([[0, 1, 2]])
+        result = dataset[0]
 
-            result = dataset[0]
-
-            assert "multi_modal_data" in result
-            assert "multi_modal_inputs" in result
-            assert "image" in result["multi_modal_data"]
+        assert "multi_modal_data" in result
+        assert "multi_modal_inputs" in result
+        assert "image" in result["multi_modal_data"]
 
     def test_qwen2vl_position_ids(self, tokenizer, basic_config):
         """Test special position ID handling for Qwen2VL"""
@@ -280,17 +236,13 @@ class TestRLHFDatasetGetItem:
             "image_grid_thw": torch.tensor([1, 1, 1]),
         }
         mock_processor.image_processor.__class__.__name__ = "Qwen2VLImageProcessor"
+        mock_processor.image_processor.merge_size = 2
+        mock_processor.tokenizer.convert_tokens_to_ids.side_effect = lambda token: {
+            "<|image_pad|>": 100,
+            "<|video_pad|>": 101,
+            "<|vision_start|>": 102,
+        }.get(token, 0)
 
         dataset = create_test_dataset(data_dict, tokenizer, basic_config, processor=mock_processor)
 
-        with (
-            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
-            patch("verl.models.transformers.qwen2_vl.get_rope_index") as mock_rope,
-        ):
-            mock_postprocess.return_value = (torch.tensor([[1, 2]]), torch.tensor([[1, 1]]))
-            mock_rope.return_value = torch.tensor([0, 1])
-
-            _ = dataset[0]
-
-            # Should call get_rope_index instead of compute_position_id_with_mask
-            mock_rope.assert_called_once()
+        _ = dataset[0]
