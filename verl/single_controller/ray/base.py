@@ -14,11 +14,9 @@
 
 import inspect
 import logging
-import os
 import time
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Tuple
-from unittest.mock import patch
+from typing import Any, Optional
 
 import ray
 from ray.experimental.state.api import get_actor
@@ -29,6 +27,7 @@ from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy, Place
 from verl.protocol import DataProto, _padding_size_key
 from verl.single_controller.base import ClassWithInitArgs, ResourcePool, Worker, WorkerGroup
 from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch
+from verl.utils.py_functional import temp_env_var
 
 __all__ = ["Worker"]
 
@@ -62,7 +61,7 @@ def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, block
     return type(method_name, (Functor,), {})()
 
 
-def sort_placement_group_by_node_ip(pgs: List[PlacementGroup]) -> List[PlacementGroup]:
+def sort_placement_group_by_node_ip(pgs: list[PlacementGroup]) -> list[PlacementGroup]:
     """
     Sort the placement groups by node ip, all bundles in a single placement group should be on the same node.
 
@@ -85,7 +84,7 @@ def sort_placement_group_by_node_ip(pgs: List[PlacementGroup]) -> List[Placement
 class RayResourcePool(ResourcePool):
     def __init__(
         self,
-        process_on_nodes: Optional[List[int]] = None,
+        process_on_nodes: Optional[list[int]] = None,
         use_gpu: bool = True,
         name_prefix: str = None,
         max_colocate_count: int = 10,
@@ -134,8 +133,8 @@ class RayResourcePool(ResourcePool):
 
 
 def extract_pg_from_exist(
-    resource_pools: Dict[str, RayResourcePool], src_role_names: List[str], resource_pool: RayResourcePool
-) -> List:
+    resource_pools: dict[str, RayResourcePool], src_role_names: list[str], resource_pool: RayResourcePool
+) -> list:
     src_pgs = [
         pg
         for role_name, resource_pool in resource_pools.items()
@@ -146,7 +145,7 @@ def extract_pg_from_exist(
     sorted_src_pgs = sorted(src_pgs, key=lambda pg: pg.bundle_count, reverse=True)
     sorted_process_on_nodes = sorted([(val, idx) for idx, val in enumerate(resource_pool.store)], reverse=True)
 
-    unsorted_pgs: List[Tuple[int, PlacementGroup]] = []
+    unsorted_pgs: list[tuple[int, PlacementGroup]] = []
     searching_idx = 0
     for request_process, original_idx in sorted_process_on_nodes:
         assert searching_idx < len(sorted_src_pgs), f"no enough nodes for request: searching {searching_idx} th node"
@@ -195,7 +194,7 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         """
         self._additional_resource = additional_resource
 
-    def update_options(self, options: Dict):
+    def update_options(self, options: dict):
         """Update the Ray actor creation options.
 
         Args:
@@ -269,7 +268,7 @@ class RayWorkerGroup(WorkerGroup):
         name_prefix: str = None,
         detached=False,
         worker_names=None,
-        worker_handles: List[ray.actor.ActorHandle] = None,
+        worker_handles: list[ray.actor.ActorHandle] = None,
         ray_wait_register_center_timeout: int = 300,
         device_name="cuda",
         **kwargs,
@@ -499,7 +498,6 @@ class RayWorkerGroup(WorkerGroup):
             prefix: str = actor_name + "_"
             for method_name in dir(worker_group):
                 if method_name.startswith(prefix):
-                    # only valid when Python >= 3.9
                     original_method_name = method_name.removeprefix(prefix)
                     method = getattr(worker_group, method_name)
                     setattr(worker_group, original_method_name, method)
@@ -740,7 +738,7 @@ def _unwrap_ray_remote(cls):
     return cls
 
 
-def _determine_fsdp_megatron_base_class(mros: List):
+def _determine_fsdp_megatron_base_class(mros: list):
     """
     - megatron: base class should be MegatronWorker
     - fsdp: base class should be Worker
@@ -783,7 +781,7 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
                 # directly instantiate the class without remote
                 # in worker class, e.g. <verl.single_controller.base.worker.Worker>
                 # when DISABLE_WORKER_INIT == 1 it will return immediately
-                with patch.dict(os.environ, {"DISABLE_WORKER_INIT": "1"}):
+                with temp_env_var("DISABLE_WORKER_INIT", "1"):
                     self.worker_dict[key] = user_defined_cls(
                         *init_args_dict[key].get("args", ()), **init_args_dict[key].get("kwargs", {})
                     )
@@ -836,9 +834,13 @@ def create_colocated_worker_raw_cls(class_dict: dict[str, RayClassWithInitArgs])
             self.init_kwargs_dict = init_kwargs_dict
 
             for cls_name, udc, ud_args, ud_kwargs in zip(
-                self.cls_names, self.raw_cls_dict.values(), self.init_args_dict.values(), self.init_kwargs_dict.values()
+                self.cls_names,
+                self.raw_cls_dict.values(),
+                self.init_args_dict.values(),
+                self.init_kwargs_dict.values(),
+                strict=True,
             ):
-                with patch.dict(os.environ, {"DISABLE_WORKER_INIT": "1"}):
+                with temp_env_var("DISABLE_WORKER_INIT", "1"):
                     udc._get_ray_actor_cls_name = lambda x, name_renamed=class_name_renamed: name_renamed
                     udc._get_ray_method_prefix = lambda x, name_prefixed=cls_name: f"{name_prefixed}_"
                     # cls_name = "actor", "critic", udc = ActorWorker, CriticWorker

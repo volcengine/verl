@@ -1,7 +1,7 @@
 在昇腾设备上基于FSDP后端进行数据采集
 ====================================
 
-Last updated: 07/08/2025.
+Last updated: 07/14/2025.
 
 这是一份在昇腾设备上基于FSDP后端使用GRPO或DAPO算法进行数据采集的教程。
 
@@ -19,19 +19,15 @@ Last updated: 07/08/2025.
 -  trainer.profile_steps：
    该参数可以设置为一个包含采集步数的列表，例如[2，
    4]， 意味着将会采集第二步和第四步。如果该参数为null，则代表不进行采集
--  actor_rollout_ref：
-   可以对actor、rollout和ref三种角色分别设置其profiler选项。由于actor和rollout在同一个worker中，在当前采集逻辑下，
-   actor与rollout应设置相同的参数，若参数不同，则rollout的参数生效。端到端模式下，ref建议设置成与actor/rollout相同的参数，
-   以便于生成完整的关键函数耗时信息，具体采集的rank由actor/rollout参数进行控制；
-   离散模式下，ref的参数和actor/rollout的参数分别控制两种worker采集的rank
+-  actor_rollout_ref.profiler：
+   控制采集的ranks和模式
 
    -  all_ranks：设为True代表对所有rank进行采集
    -  ranks：当all_ranks不为True时，
       通过ranks参数控制需要采集的rank，该参数设置为一个包含采集rank的列表， 例如[0，
       1]
    -  discrete：
-      控制采集的模式。当该参数设置为False，代表采集端到端的数据；当该参数设置为True，代表采用离散模式分训练阶段采集数据。
-      actor、rollout和ref三种角色应设置相同的discrete参数
+      控制采集的模式。当该参数设置为False，代表采集端到端的数据；当该参数设置为True，代表采用离散模式分训练阶段采集数据
 
 通过 npu_profile.yaml 中的参数控制具体采集行为：
 
@@ -71,18 +67,9 @@ Last updated: 07/08/2025.
        trainer:
            profile_steps: [1, 2, 5]
        actor_rollout_ref:
-           actor:
-               profiler:
-                   discrete: False
-                   all_ranks: True
-           rollout:
-               profiler:
-                   discrete: False
-                   all_ranks: True
-           ref:
-               profiler:
-                   discrete: False
-                   all_ranks: True
+            profiler:
+                discrete: False
+                all_ranks: True
 
 
 离散模式采集
@@ -93,21 +80,11 @@ Last updated: 07/08/2025.
        trainer:
            profile_steps: [1, 2, 5]
        actor_rollout_ref:
-           actor:
-               profiler:
-                   discrete: True
-                   all_ranks: False
-                   ranks: [0, 1]
-           rollout:
-               profiler:
-                   discrete: True
-                   all_ranks: False
-                   ranks: [0, 1]
-           ref:
-               profiler:
-                   discrete: True
-                   all_ranks: False
-                   ranks: [2, 3]
+            profiler:
+                discrete: True
+                all_ranks: False
+                ranks: [0, 1]
+
 
 可视化
 ------

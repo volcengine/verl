@@ -69,7 +69,7 @@ actor_rollout_ref:
     data_loader_seed: null
     shuffle: False
     policy_loss:   # policy loss config
-      loss_mode: "vanilla" # Loss function mode: vanilla / clip-cov / kl-cov / gpg from https://arxiv.org/abs/2505.22617, 
+      loss_mode: "vanilla" # Loss function mode: vanilla / clip-cov / kl-cov / gpg from https://arxiv.org/abs/2505.22617,
       clip_cov_ratio: 0.0002 # Ratio of tokens to be clipped for clip-cov loss
       clip_cov_lb: 1.0 # Lower bound for clip-cov loss
       clip_cov_ub: 5.0 # Upper bound for clip-cov loss
@@ -108,7 +108,7 @@ actor_rollout_ref:
       seed: 42
       override_transformer_config: {} # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
       use_mbridge: False
-    profile: # profile the actor model in `update_policy` 
+    profile: # profile the actor model in `update_policy`
       use_profile: False # open it when you want to profile the actor model
       profile_ranks: null # list, you can specify the ranks to profile
       step_start: -1 # start step in update_policy
@@ -122,13 +122,6 @@ actor_rollout_ref:
       save_contents: ['model', 'optimizer', 'extra']
       # For more flexibility, you can specify the contents to load from the checkpoint.
       load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
-    # Nsight system profiler configs
-    profiler:
-      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-      _target_: verl.utils.profiler.ProfilerConfig
-      discrete: False
-      all_ranks: False
-      ranks: []
   ref:
     strategy: ${actor_rollout_ref.actor.strategy}
     use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
@@ -158,13 +151,6 @@ actor_rollout_ref:
     log_prob_micro_batch_size_per_gpu: null
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
-    # Nsight system profiler configs
-    profiler:
-      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-      _target_: verl.utils.profiler.ProfilerConfig
-      discrete: False
-      all_ranks: False
-      ranks: []
   rollout:
     name: vllm
     mode: sync # sync: LLM, async: AsyncLLM
@@ -254,7 +240,7 @@ actor_rollout_ref:
       # - strict: enable strict tokenization sanity check (default)
       # - ignore_strippable: ignore strippable tokens when checking tokenization sanity
       tokenization_sanity_check_mode: strict
-  
+
       # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
       format: hermes
 
@@ -271,12 +257,12 @@ actor_rollout_ref:
     # support logging rollout prob for debugging purpose
     calculate_log_probs: False
     # Nsight system profiler configs
-    profiler:
-      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-      _target_: verl.utils.profiler.ProfilerConfig
-      discrete: False
-      all_ranks: False
-      ranks: []
+  profiler:
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    _target_: verl.utils.profiler.ProfilerConfig
+    discrete: False
+    all_ranks: False
+    ranks: []
 
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
@@ -442,7 +428,7 @@ trainer:
   n_gpus_per_node: 8
   save_freq: -1
   esi_redundant_time: 0
-  
+
   # auto: find the last ckpt to resume. If can't find, start from scratch
   resume_mode: auto # or disable or resume_path if resume_from_path is set
   resume_from_path: null

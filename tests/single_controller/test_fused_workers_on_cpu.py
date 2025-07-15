@@ -80,7 +80,7 @@ def test_fused_workers():
     print(y)
     z = fused_wg.foo(0.1)
     print(z)
-    for i, j in zip(y, z):
+    for i, j in zip(y, z, strict=True):
         assert i == j
 
     ray.shutdown()

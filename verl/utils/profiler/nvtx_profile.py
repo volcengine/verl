@@ -15,7 +15,7 @@
 
 import functools
 from contextlib import contextmanager
-from typing import Callable, Dict, Optional
+from typing import Callable, Optional
 
 import nvtx
 import torch
@@ -83,7 +83,7 @@ def mark_annotate(
 @contextmanager
 def marked_timer(
     name: str,
-    timing_raw: Dict[str, float],
+    timing_raw: dict[str, float],
     color: str = None,
     domain: Optional[str] = None,
     category: Optional[str] = None,

@@ -27,7 +27,7 @@ from verl.protocol import DataProto
 from verl.utils.distributed import initialize_global_process_group
 from verl.utils.model import compute_position_id_with_mask, create_random_mask
 from verl.utils.ulysses import (
-    gather_outpus_and_unpad,
+    gather_outputs_and_unpad,
     get_ulysses_sequence_parallel_world_size,
     set_ulysses_sequence_parallel_group,
     ulysses_pad_and_slice_inputs,
@@ -155,7 +155,7 @@ def _hf_casual_fwd(config, sp_size, dp_size):
         ).logits  # (1, total_nnz/n, vocab_size)
 
         # all_gather output
-        logits_full = gather_outpus_and_unpad(logits_split_in_seq, gather_dim=1, unpad_dim=1, padding_size=pad_size)
+        logits_full = gather_outputs_and_unpad(logits_split_in_seq, gather_dim=1, unpad_dim=1, padding_size=pad_size)
 
     # 2. perform normal forward
     set_ulysses_sequence_parallel_group(None)
@@ -234,7 +234,7 @@ def _hf_casual_fwd_bwd(config, sp_size, dp_size):
         ).logits  # (1, total_nnz/n, vocab_size)
 
         # all_gather output
-        logits_full = gather_outpus_and_unpad(logits_split_in_seq, gather_dim=1, unpad_dim=1, padding_size=pad_size)
+        logits_full = gather_outputs_and_unpad(logits_split_in_seq, gather_dim=1, unpad_dim=1, padding_size=pad_size)
 
     # 2. perform normal forward
     set_ulysses_sequence_parallel_group(None)
