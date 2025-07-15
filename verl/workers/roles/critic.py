@@ -61,13 +61,13 @@ class CriticWorker(Worker, DistProfilerExtension):
         self.engine.init_model()
 
 
-    def loss_fn(self, batch: DataProto, vpreds: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    def loss_fn(self, batch: DataProto, vpreds: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         values = batch["values"]
         returns = batch["returns"]
         response_mask = batch["response_mask"]
         micro_batch_metrics = {}
         vf_loss, vf_clipfrac = core_algos.compute_value_loss(
-            vpreds=vpreds,
+            vpreds=vpreds["values"],
             values=values,
             returns=returns,
             response_mask=response_mask,
@@ -84,7 +84,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         micro_batch_metrics = {
             "critic/vf_loss": vf_loss.detach().item(),
             "critic/vf_clipfrac": vf_clipfrac.detach().item(),
-            "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
+            "critic/vpred_mean": masked_mean(vpreds["values"], response_mask).detach().item(),
         }
 
         return loss, micro_batch_metrics
@@ -99,15 +99,15 @@ class CriticWorker(Worker, DistProfilerExtension):
         data.meta_info["micro_batch_size"] = micro_batch_size
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
-        response_mask = data.batch["response_mask"]
         processor = get_processor_cls("critic", self.config)(self.config)
 
         with self.engine.eval_mode():
             data = self.engine.shard_data(data=data)
             output = self.engine.infer_batch(
                 data, processor=processor
-            )     
-            values = output * response_mask  # Only action tokens have values
+            )
+            response_mask = data.batch["response_mask"]
+            values = output["values"] * response_mask  # Only action tokens have values
             output = DataProto.from_dict(tensors={"values": values})
 
             output = self.engine.unshard_data(data=output)

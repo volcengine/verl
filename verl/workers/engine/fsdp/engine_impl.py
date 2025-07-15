@@ -394,7 +394,9 @@ class FSDPEngine(BaseEngine):
         }
         return ctx
 
-    def infer_batch(self, data, processor=None):
+    def infer_batch(self,
+                    data: DataProto,
+                    processor: MicroBatchProcessor = None) -> Dict[str, torch.Tensor]:
         """
         Perform inference on a mini batch of data using the FSDP-wrapped module.
 
@@ -423,7 +425,7 @@ class FSDPEngine(BaseEngine):
         else:
             micro_batches = batch.split(micro_batch_size)
 
-        mb_preds_list = []
+        preds_list = {}
         processor.engine_info["use_value_head_model"] = hasattr(self.module, "v_head")
         for micro_batch in micro_batches:
             if isinstance(micro_batch, DataProto):
@@ -438,28 +440,40 @@ class FSDPEngine(BaseEngine):
 
                 # forward execution
                 inputs["use_cache"] = False
+                # outputs would be <class 'transformers.modeling_outputs.TokenClassifierOutput'>
                 outputs = self.module(**inputs)
 
                 # optional microbatch postprocess
+                # preds would be a Dict[str, torch.Tensor]
                 if processor is not None:
-                    preds = processor.postprocess(outputs)
+                    micro_batch_preds = processor.postprocess(outputs)
                 else:
-                    preds = outputs
+                    micro_batch_preds = outputs
 
-            mb_preds_list.append(preds)
-        mb_preds = torch.concat(mb_preds_list, dim=0)
+            # append micro batch preds to Dict[str, List[torch.Tensor]]
+            append_to_dict(preds_list, micro_batch_preds)
 
-        if use_dynamic_bsz:
-            indices = list(itertools.chain.from_iterable(indices))
-            assert len(indices) == mb_preds.size(0), f"{len(indices)} vs. {mb_preds.size()}"
-            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-            mb_preds = mb_preds[revert_indices]
-        return mb_preds
+        # reorganize mini batch preds from Dict[str, List[torch.Tensor]] 
+        # to Dict[str, torch.Tensor]
+        mini_batch_preds = {}
+        for key, t_list in preds_list.items():
+            t_concat = torch.concat(t_list, dim=0)
+
+            if use_dynamic_bsz:
+                indices = list(itertools.chain.from_iterable(indices))
+                assert len(indices) == t_concat.size(0), f"{len(indices)} vs. {t_concat.size()}"
+                revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+                t_concat = t_concat[revert_indices]
+
+            mini_batch_preds[key] = t_concat
+
+        return mini_batch_preds
+
 
     def train_batch(self,
                     data: DataProto,
                     loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
-                    processor : MicroBatchProcessor = None) -> Dict[str, torch.Tensor]:
+                    processor: MicroBatchProcessor = None) -> Dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
 

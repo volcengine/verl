@@ -125,7 +125,9 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def infer_batch(self, data, processor=None):
+    def infer_batch(self,
+                    data: DataProto,
+                    processor: MicroBatchProcessor = None) -> Dict[str, torch.Tensor]:
         """
         Perform inference on a mini batch of data using the FSDP-wrapped module.
 

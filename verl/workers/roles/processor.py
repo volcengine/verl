@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import torch
+from typing import Callable, Tuple, Dict
 
 from verl.utils.device import (
     is_cuda_available,
@@ -38,7 +39,7 @@ class CriticFSDPWithoutRmpadProcessor(MicroBatchProcessor):
         self.config = config
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
         self.engine_info = {}   # additional info required from the engine
-        self.mb_ctx = {}        # context for the micro batch
+        self.micro_batch_ctx = {}        # context for the micro batch
 
     def mb_entry_guard(self):
         """
@@ -52,7 +53,7 @@ class CriticFSDPWithoutRmpadProcessor(MicroBatchProcessor):
         """
         # check required engine info
         assert "use_value_head_model" in self.engine_info.keys(), "use_value_head_model must be set in engine_info"
-        self.mb_ctx = {} # clear the microbatch context
+        self.micro_batch_ctx = {} # clear the microbatch context
 
 
     def preprocess(self, batch):
@@ -69,7 +70,7 @@ class CriticFSDPWithoutRmpadProcessor(MicroBatchProcessor):
         """
         self.mb_entry_guard()
 
-        self.mb_ctx["response_length"] = batch["responses"].size(-1)
+        self.micro_batch_ctx["response_length"] = batch["responses"].size(-1)
         inputs = {}
         if "multi_modal_inputs" in batch.keys():
             for key in batch["multi_modal_inputs"][0].keys():
@@ -95,7 +96,7 @@ class CriticFSDPWithoutRmpadProcessor(MicroBatchProcessor):
         Returns:
             torch.Tensor: The post-processed value predictions corresponding to the response sequence.
         """
-        response_length = self.mb_ctx["response_length"]
+        response_length = self.micro_batch_ctx["response_length"]
         use_value_head_model = self.engine_info["use_value_head_model"]
         if use_value_head_model:
             # For trl.AutoModelForCausalLMWithValueHead
@@ -103,7 +104,7 @@ class CriticFSDPWithoutRmpadProcessor(MicroBatchProcessor):
         else:
             values = outputs.logits
         values = values[:, -response_length - 1 : -1].squeeze(-1)
-        return values
+        return {"values": values}
 
 
 
@@ -118,7 +119,7 @@ class CriticFSDPWithRmpadProcessor(MicroBatchProcessor):
         self.config = config
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
         self.engine_info = {}   # additional info required from the engine
-        self.mb_ctx = {}        # context for the micro batch
+        self.micro_batch_ctx = {}        # context for the micro batch
 
 
     def mb_entry_guard(self):
@@ -133,7 +134,7 @@ class CriticFSDPWithRmpadProcessor(MicroBatchProcessor):
         """
         # check required engine info
         assert "use_value_head_model" in self.engine_info.keys(), "use_value_head_model must be set in engine_info"
-        self.mb_ctx = {} # clear the microbatch context
+        self.micro_batch_ctx = {} # clear the microbatch context
 
 
     def preprocess(self, batch):
@@ -152,7 +153,7 @@ class CriticFSDPWithRmpadProcessor(MicroBatchProcessor):
             dict: A dictionary containing the preprocessed input data ready for the model.
         """
         self.mb_entry_guard()
-        self.mb_ctx["response_length"] = batch["responses"].size(-1)
+        self.micro_batch_ctx["response_length"] = batch["responses"].size(-1)
 
         inputs = {}
         if "multi_modal_inputs" in batch.keys():
@@ -194,12 +195,12 @@ class CriticFSDPWithRmpadProcessor(MicroBatchProcessor):
         inputs["attention_mask"] = None
         inputs["position_ids"] = position_ids_rmpad
 
-        self.mb_ctx["indices"] = indices
-        self.mb_ctx["seqlen"] = seqlen
-        self.mb_ctx["bs"] = bs
+        self.micro_batch_ctx["indices"] = indices
+        self.micro_batch_ctx["seqlen"] = seqlen
+        self.micro_batch_ctx["bs"] = bs
         return inputs
 
-    def postprocess(self, outputs):
+    def postprocess(self, outputs) -> Dict[str, torch.Tensor]:
         """
         Postprocess the model outputs to extract and format the value predictions.
         This method handles different types of model outputs based on whether the model
@@ -213,7 +214,7 @@ class CriticFSDPWithRmpadProcessor(MicroBatchProcessor):
             torch.Tensor: The post-processed value predictions corresponding to the response sequence.
         """
         use_value_head_model = self.engine_info["use_value_head_model"]
-        response_length = self.mb_ctx["response_length"]
+        response_length = self.micro_batch_ctx["response_length"]
         if use_value_head_model:
             # For trl.AutoModelForCausalLMWithValueHead
             values_rmpad = outputs[2].squeeze(0).unsqueeze(-1)
@@ -224,16 +225,16 @@ class CriticFSDPWithRmpadProcessor(MicroBatchProcessor):
         # gather output if sp > 1
         if self.ulysses_sequence_parallel_size > 1:
             values_rmpad = gather_outpus_and_unpad(
-                values_rmpad, gather_dim=0, unpad_dim=0, padding_size=self.mb_ctx["pad_size"]
+                values_rmpad, gather_dim=0, unpad_dim=0, padding_size=self.micro_batch_ctx["pad_size"]
             )
 
         # pad it back
         values = pad_input(values_rmpad, 
-                           indices=self.mb_ctx["indices"],
-                           batch=self.mb_ctx["bs"],
-                           seqlen=self.mb_ctx["seqlen"]).squeeze(-1)
+                           indices=self.micro_batch_ctx["indices"],
+                           batch=self.micro_batch_ctx["bs"],
+                           seqlen=self.micro_batch_ctx["seqlen"]).squeeze(-1)
         values = values[:, -response_length - 1 : -1]
-        return values
+        return {"values": values}
 
 
 
