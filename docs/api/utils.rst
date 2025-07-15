@@ -60,7 +60,7 @@ Ulysses Utilities
 --------------------
 
 .. automodule:: verl.utils.ulysses
-   :members: gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
+   :members: gather_outputs_and_unpad, ulysses_pad_and_slice_inputs
 
 FSDP Utilities
 ------------------
