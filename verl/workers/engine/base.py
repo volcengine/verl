@@ -14,6 +14,71 @@
 """
 The abstract base class defining the interface for model training engines.
 """
+from typing import Callable, Tuple, Dict
+import torch
+from verl import DataProto
+
+
+class MicroBatchProcessor:
+    def __init__(self):
+        """
+        Initialize the MicroBatchProcessor instance.
+
+        This method is intended to set up the initial state of the MicroBatchProcessor.
+        However, as it's a base class, the concrete implementation is left to the subclasses.
+        Any subclass of MicroBatchProcessor should override this method to provide
+        specific initialization logic.
+
+        Raises:
+            NotImplementedError: Always raised because this is an abstract initialization method.
+        """
+        raise NotImplementedError
+
+
+    def preprocess(self, batch):
+        """
+        Preprocess a micro-batch of data before passing it to the model.
+
+        This is an abstract method that should be implemented by subclasses.
+        The implementation should transform the input batch data into a format
+        suitable for the model.
+
+        Args:
+            batch: A micro-batch of data, typically a dictionary containing tensors
+                   and metadata. The exact structure depends on the specific use case.
+
+        Returns:
+            dict: A dictionary containing the preprocessed input data ready for the model.
+
+        Raises:
+            NotImplementedError: This base method does not provide an implementation.
+                                 Subclasses must override this method.
+        """
+        raise NotImplementedError
+
+
+    def postprocess(self, outputs):
+        """
+        Postprocess the raw outputs from the model.
+
+        This is an abstract method that should be implemented by subclasses.
+        The implementation should transform the raw model outputs into a more
+        usable format, such as extracting relevant information or performing
+        additional calculations.
+
+        Args:
+            outputs: The raw outputs from the model. The exact structure depends
+                     on the specific model and task.
+
+        Returns:
+            The post-processed outputs. The return type depends on the specific
+            implementation in subclasses.
+
+        Raises:
+            NotImplementedError: This base method does not provide an implementation.
+                                 Subclasses must override this method.
+        """
+        raise NotImplementedError
 
 
 class BaseEngine:
@@ -73,17 +138,19 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def train_batch(self, data, metrics, processor=None):
+    def train_batch(self,
+                    data: DataProto,
+                    loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
+                    processor : MicroBatchProcessor = None) -> Dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
 
         Args:
             data: The input data for training, typically containing tensors and metadata.
-            metrics: A dictionary to store training metrics.
             processor (optional): An optional processor object for preprocessing and postprocessing.
 
         Returns:
-            tuple: A tuple containing lists of value predictions, losses, and updated metrics.
+            metrics.
         """
         raise NotImplementedError
 
@@ -135,14 +202,6 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def set_loss_fn(self, loss_fn):
-        """
-        Register custom loss function for training.
-
-        Args:
-            loss_fn: Callable(batch, vpreds, metrics) -> (loss_tensor, updated_metrics)
-        """
-        raise NotImplementedError
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
         """

@@ -54,7 +54,10 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-    def train_batch(self, data, metrics, processor=None):
+    def train_batch(self,
+                    data: DataProto,
+                    loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
+                    processor : MicroBatchProcessor = None) -> Dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
 
@@ -116,14 +119,6 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-    def set_loss_fn(self, loss_fn):
-        """
-        Set the loss function to be used during training.
-
-        Args:
-            loss_fn: Callable(data, predictions, ctx) -> (loss_tensor, new_ctx)
-        """
-        raise NotImplementedError
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
         """

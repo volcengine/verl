@@ -20,6 +20,7 @@ import itertools
 import logging
 import os
 import warnings
+from typing import Callable, Tuple, Dict
 
 import torch
 import torch.distributed
@@ -59,8 +60,9 @@ from verl.utils.import_utils import import_external_libs
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from verl.utils.py_functional import append_to_dict
 
-from ..base import BaseEngine
+from ..base import BaseEngine, MicroBatchProcessor
 from .utils import create_device_mesh, get_sharding_strategy
 
 logger = logging.getLogger(__file__)
@@ -454,7 +456,10 @@ class FSDPEngine(BaseEngine):
             mb_preds = mb_preds[revert_indices]
         return mb_preds
 
-    def train_batch(self, data, metrics, processor=None):
+    def train_batch(self,
+                    data: DataProto,
+                    loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
+                    processor : MicroBatchProcessor = None) -> Dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
 
@@ -484,6 +489,7 @@ class FSDPEngine(BaseEngine):
 
         vpreds_list = []
         losses = []
+        mini_batch_metrics = {}
         processor.engine_info["use_value_head_model"] = hasattr(self.module, "v_head")
         for micro_batch in micro_batches:
             # Support all devices
@@ -508,12 +514,11 @@ class FSDPEngine(BaseEngine):
             else:
                 preds = outputs
 
-            loss, metrics = self.loss_fn(micro_batch, preds, metrics)
+            loss, micro_batch_metrics = loss_fn(micro_batch, preds)
+            append_to_dict(mini_batch_metrics, micro_batch_metrics)
             loss.backward()
 
-            vpreds_list.append(preds)
-            losses.append(loss)
-        return vpreds_list, losses, metrics
+        return mini_batch_metrics
 
     def optimizer_zero_grad(self):
         """
@@ -553,14 +558,6 @@ class FSDPEngine(BaseEngine):
         lr = self.lr_scheduler.get_last_lr()
         return lr
 
-    def set_loss_fn(self, loss_fn):
-        """
-        Register custom loss function for training.
-
-        Args:
-            loss_fn: Callable(batch, vpreds, metrics) -> (loss_tensor, updated_metrics)
-        """
-        self.loss_fn = loss_fn
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
         """

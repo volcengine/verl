@@ -17,9 +17,11 @@ The main entry point to run the PPO algorithm
 
 import logging
 import os
+from typing import Callable, Tuple, Dict
 
 from codetiming import Timer
 
+import torch
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
@@ -52,12 +54,40 @@ class CriticWorker(Worker, DistProfilerExtension):
         self.config = config
         engine_cls = get_training_engine(self.config.strategy)
         self.engine = engine_cls(self.config)
-        self.engine.set_loss_fn(self.loss_fn)
 
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         self.engine.init_model()
+
+
+    def loss_fn(self, batch: DataProto, vpreds: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        values = batch["values"]
+        returns = batch["returns"]
+        response_mask = batch["response_mask"]
+        micro_batch_metrics = {}
+        vf_loss, vf_clipfrac = core_algos.compute_value_loss(
+            vpreds=vpreds,
+            values=values,
+            returns=returns,
+            response_mask=response_mask,
+            cliprange_value=self.config.cliprange_value,
+            loss_agg_mode=self.config.loss_agg_mode,
+        )
+        if self.config.use_dynamic_bsz:
+            # relative to the dynamic bsz
+            loss = vf_loss * (len(batch) / self.config.ppo_mini_batch_size)
+        else:
+            gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+            loss = vf_loss / gradient_accumulation
+
+        micro_batch_metrics = {
+            "critic/vf_loss": vf_loss.detach().item(),
+            "critic/vf_clipfrac": vf_clipfrac.detach().item(),
+            "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
+        }
+
+        return loss, micro_batch_metrics
 
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -77,11 +107,10 @@ class CriticWorker(Worker, DistProfilerExtension):
             output = self.engine.infer_batch(
                 data, processor=processor
             )     
-        
-        values = output * response_mask  # Only action tokens have values
-        output = DataProto.from_dict(tensors={"values": values})
+            values = output * response_mask  # Only action tokens have values
+            output = DataProto.from_dict(tensors={"values": values})
 
-        output = self.engine.unshard_data(data=output)
+            output = self.engine.unshard_data(data=output)
         output = output.to("cpu")
         return output
 
@@ -89,6 +118,7 @@ class CriticWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="pink")
     def update_critic(self, data: DataProto):
+        metrics = {}
         # Support all hardwares
         data = data.to(get_device_id())
         # perform forward computation
@@ -117,16 +147,17 @@ class CriticWorker(Worker, DistProfilerExtension):
                 else:
                     dataloader = batch.split(self.config.ppo_mini_batch_size)
 
-                metrics = {}
                 processor = get_processor_cls("critic", self.config)(self.config)
                 for epoch in range(self.config.ppo_epochs):
                     for batch_idx, mini_batch in enumerate(dataloader):
                         self.engine.optimizer_zero_grad()
-                        vpreds_list, losses, metrics = self.engine.train_batch(
-                            mini_batch, metrics=metrics, processor=processor
+                        mini_batch_metrics = self.engine.train_batch(
+                            mini_batch, 
+                            self.loss_fn,
+                            processor=processor
                         )
                         grad_norm = self.engine.optimizer_step()
-                        mini_batch_metrics = {"critic/grad_norm": grad_norm.detach().item()}
+                        mini_batch_metrics["critic/grad_norm"] = grad_norm.detach().item()
                         append_to_dict(metrics, mini_batch_metrics)
                 self.engine.optimizer_zero_grad()
             delta_time = timer.last
@@ -143,35 +174,6 @@ class CriticWorker(Worker, DistProfilerExtension):
         output = output.to("cpu")
         return output
 
-
-    def loss_fn(self, batch, vpreds, metrics):
-        values = batch["values"]
-        returns = batch["returns"]
-        response_mask = batch["response_mask"]
-        micro_batch_metrics = {}
-        vf_loss, vf_clipfrac = core_algos.compute_value_loss(
-            vpreds=vpreds,
-            values=values,
-            returns=returns,
-            response_mask=response_mask,
-            cliprange_value=self.config.cliprange_value,
-            loss_agg_mode=self.config.loss_agg_mode,
-        )
-        if self.config.use_dynamic_bsz:
-            # relative to the dynamic bsz
-            loss = vf_loss * (len(batch) / self.config.ppo_mini_batch_size)
-        else:
-            gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
-            loss = vf_loss / gradient_accumulation
-
-        micro_batch_metrics = {
-            "critic/vf_loss": vf_loss.detach().item(),
-            "critic/vf_clipfrac": vf_clipfrac.detach().item(),
-            "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
-        }
-
-        append_to_dict(metrics, micro_batch_metrics)
-        return loss, metrics
 
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
