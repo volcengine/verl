@@ -101,7 +101,9 @@ class DataParallelPRIMERewardModel:
                 )
 
             if self.ulysses_sequence_parallel_size > 1:
-                rm_log_labels = gather_outputs_and_unpad(rm_log_labels, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+                rm_log_labels = gather_outputs_and_unpad(
+                    rm_log_labels, gather_dim=0, unpad_dim=0, padding_size=pad_size
+                )
             rm_log_labels = pad_input(
                 hidden_states=rm_log_labels.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
             ).squeeze(-1)[:, -num_actions - 1 : -1]
