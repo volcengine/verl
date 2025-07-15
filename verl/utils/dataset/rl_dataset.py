@@ -350,7 +350,8 @@ class RLHFDataset(Dataset):
                 images_data = context.raw_row.pop(self.image_key, None)  # type: ignore[misc]
                 if images_data is not None:
                     images = [process_image(image) for image in images_data]
-                    # Use "image" key for vllm compatibility
+                    # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
+                    # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                     multi_modal_data["image"] = images
 
             # Process videos
@@ -358,7 +359,8 @@ class RLHFDataset(Dataset):
                 videos_data = context.raw_row.pop(self.video_key, None)  # type: ignore[misc]
                 if videos_data is not None:
                     videos = [process_video(video) for video in videos_data]
-                    # Use "video" key for vllm compatibility
+                    # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
+                    # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                     multi_modal_data["video"] = [video.numpy() for video in videos]
 
             context.model_inputs = self.processor(
@@ -478,14 +480,14 @@ class RLHFDataset(Dataset):
         if context.multi_modal_data is not None:
             optional.multi_modal_data = context.multi_modal_data
 
+            # We will do batch.union() in the trainer,
+            # so we cannot have "multi_modal_inputs" in row_dict if rollout generates new multi_modal_inputs
             if self.return_multi_modal_inputs:
-                # Create clean dict without training-irrelevant fields
                 multi_modal_inputs = dict(context.model_inputs)
-                multi_modal_inputs.pop("input_ids", None)
-                multi_modal_inputs.pop("attention_mask", None)
-                multi_modal_inputs.pop("position_ids", None)
-                multi_modal_inputs.pop("raw_prompt_ids", None)
+
+                # second_per_grid_ts isn't used for training, just for mrope
                 multi_modal_inputs.pop("second_per_grid_ts", None)
+
                 optional.multi_modal_inputs = multi_modal_inputs
 
         # Validate tools_kwargs if needed
