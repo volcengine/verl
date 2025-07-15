@@ -440,7 +440,7 @@ class vLLMAsyncRollout:
         return address
 
     def _get_free_port(self):
-        ip = ray._private.services.get_node_ip_address()
+        ip = ray.util.get_node_ip_address()
         with socket.socket() as sock:
             sock.bind(("", 0))
             port = sock.getsockname()[1]
