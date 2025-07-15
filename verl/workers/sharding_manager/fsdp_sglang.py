@@ -44,7 +44,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-def preprocess_tensor_for_update_weights(tensor: torch.Tensor):
+def _preprocess_tensor_for_update_weights(tensor: torch.Tensor):
     if isinstance(tensor, DTensor):
         return tensor.full_tensor()
     return tensor
@@ -121,7 +121,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             # named_tensors_batch will be a list like:
             # [(name0, serialized_tensor0_tp0), (name1, serialized_tensor1_tp0), ...]
             named_tensors_batch = [
-                (name, MultiprocessingSerializer.serialize(preprocess_tensor_for_update_weights(tensor)))
+                (name, MultiprocessingSerializer.serialize(_preprocess_tensor_for_update_weights(tensor)))
                 for name, tensor in batch
             ]
 
