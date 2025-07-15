@@ -1,4 +1,4 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Amazon.com Inc and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -78,9 +78,10 @@ class TestRLHFDatasetGetItem:
 
         dataset = create_test_dataset(data_dict, tokenizer, basic_config)
 
-        with patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess, patch(
-            "verl.utils.model.compute_position_id_with_mask"
-        ) as mock_position:
+        with (
+            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
+            patch("verl.utils.model.compute_position_id_with_mask") as mock_position,
+        ):
             # Mock the functions to return expected shapes
             mock_postprocess.return_value = (
                 torch.tensor([[1, 2, 3, 4]]),  # input_ids
@@ -123,9 +124,10 @@ class TestRLHFDatasetGetItem:
 
         dataset = create_test_dataset(data_dict, tokenizer, basic_config)
 
-        with patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess, patch(
-            "verl.utils.model.compute_position_id_with_mask"
-        ) as mock_position:
+        with (
+            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
+            patch("verl.utils.model.compute_position_id_with_mask") as mock_position,
+        ):
             mock_postprocess.return_value = (torch.tensor([[1, 2]]), torch.tensor([[1, 1]]))
             mock_position.return_value = torch.tensor([[0, 1]])
 
@@ -144,9 +146,10 @@ class TestRLHFDatasetGetItem:
 
         dataset = create_test_dataset(data_dict, tokenizer, config)
 
-        with patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess, patch(
-            "verl.utils.model.compute_position_id_with_mask"
-        ) as mock_position:
+        with (
+            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
+            patch("verl.utils.model.compute_position_id_with_mask") as mock_position,
+        ):
             mock_postprocess.return_value = (torch.tensor([[1]]), torch.tensor([[1]]))
             mock_position.return_value = torch.tensor([[0]])
 
@@ -164,9 +167,10 @@ class TestRLHFDatasetGetItem:
 
         dataset = create_test_dataset(data_dict, tokenizer, config)
 
-        with patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess, patch(
-            "verl.utils.model.compute_position_id_with_mask"
-        ) as mock_position:
+        with (
+            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
+            patch("verl.utils.model.compute_position_id_with_mask") as mock_position,
+        ):
             mock_postprocess.return_value = (torch.tensor([[1]]), torch.tensor([[1]]))
             mock_position.return_value = torch.tensor([[0]])
 
@@ -197,9 +201,10 @@ class TestRLHFDatasetGetItem:
         config.truncation = "left"
         dataset = create_test_dataset(data_dict, tokenizer, config)
 
-        with patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess, patch(
-            "verl.utils.model.compute_position_id_with_mask"
-        ) as mock_position:
+        with (
+            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
+            patch("verl.utils.model.compute_position_id_with_mask") as mock_position,
+        ):
             mock_postprocess.return_value = (torch.tensor([[1, 2, 3, 4, 5]]), torch.tensor([[1, 1, 1, 1, 1]]))
             mock_position.return_value = torch.tensor([[0, 1, 2, 3, 4]])
 
@@ -215,9 +220,10 @@ class TestRLHFDatasetGetItem:
 
         dataset = create_test_dataset(data_dict, tokenizer, basic_config)
 
-        with patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess, patch(
-            "verl.utils.model.compute_position_id_with_mask"
-        ) as mock_position:
+        with (
+            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
+            patch("verl.utils.model.compute_position_id_with_mask") as mock_position,
+        ):
             mock_postprocess.return_value = (torch.tensor([[1]]), torch.tensor([[1]]))
             mock_position.return_value = torch.tensor([[0]])
 
@@ -248,9 +254,10 @@ class TestRLHFDatasetGetItem:
 
         dataset = create_test_dataset(data_dict, tokenizer, basic_config, processor=mock_processor)
 
-        with patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess, patch(
-            "verl.utils.model.compute_position_id_with_mask"
-        ) as mock_position:
+        with (
+            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
+            patch("verl.utils.model.compute_position_id_with_mask") as mock_position,
+        ):
             mock_postprocess.return_value = (torch.tensor([[1, 2, 3]]), torch.tensor([[1, 1, 1]]))
             mock_position.return_value = torch.tensor([[0, 1, 2]])
 
@@ -276,9 +283,10 @@ class TestRLHFDatasetGetItem:
 
         dataset = create_test_dataset(data_dict, tokenizer, basic_config, processor=mock_processor)
 
-        with patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess, patch(
-            "verl.models.transformers.qwen2_vl.get_rope_index"
-        ) as mock_rope:
+        with (
+            patch("verl.utils.torch_functional.postprocess_data") as mock_postprocess,
+            patch("verl.models.transformers.qwen2_vl.get_rope_index") as mock_rope,
+        ):
             mock_postprocess.return_value = (torch.tensor([[1, 2]]), torch.tensor([[1, 1]]))
             mock_rope.return_value = torch.tensor([0, 1])
 
