@@ -43,7 +43,7 @@ class AsyncServerBase(ABC):
     """Base class for AsyncServer."""
 
     def __init__(self):
-        self.address = ray._private.services.get_node_ip_address()
+        self.address = ray.util.get_node_ip_address()
         self.port = None
         self.server_ready = asyncio.Event()
         asyncio.create_task(self._start_fastapi_server())
