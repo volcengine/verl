@@ -736,11 +736,7 @@ class DataProto:
         Returns:
             List[DataProto]: a list of DataProto after splitting
         """
-        assert len(self) % split_size == 0, (
-            f"only support equal split. Got size of DataProto {len(self)} and chunk {split_size}."
-        )
-        chunks = len(self) // split_size
-        return self.chunk(chunks)
+        return [self[i : i + split_size] for i in range(0, len(self), split_size)]
 
     @staticmethod
     def concat(data: list["DataProto"]) -> "DataProto":
