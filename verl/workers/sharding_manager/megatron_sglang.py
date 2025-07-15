@@ -148,7 +148,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         named_tensors = params
         load_format = None
 
-        update_weights_bucket_bytes = self.rollout_config.update_weights_bucket_bytes
+        update_weights_bucket_bytes = int(self.rollout_config.update_weights_bucket_megabytes) << 20
         for batch in get_named_tensor_buckets(named_tensors, update_weights_bucket_bytes):
             # On each rank, serialize a batch of (name, tensor) tuples.
             # named_tensors_batch will be a list like:

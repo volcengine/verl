@@ -179,7 +179,7 @@ agent:
     # Class name of the custom async server class (e.g. AsyncvLLMServer)
     name: null
 
-# Specifies the tensor bucket size (in bytes) for batch weight updates during rollout operations.
+# Specifies the tensor bucket size (in megabytes) for batch weight updates during rollout operations.
 # This parameter controls the maximum payload size for a single weight update request.
 #
 # https://github.com/volcengine/verl/pull/2281
@@ -192,7 +192,7 @@ agent:
 #   1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`.
 #   2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
 #   when using Tensor Parallelism (TP) >= 8.
-update_weights_bucket_bytes: 2147483648
+update_weights_bucket_megabytes: 2048
 
 # trace rollout data
 trace:
