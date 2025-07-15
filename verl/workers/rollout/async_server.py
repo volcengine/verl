@@ -12,31 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
-import heapq
-import importlib
 import logging
 import os
 import socket
 import threading
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
-from typing import Any, Callable, Dict, List, Tuple, Type
-from uuid import uuid4
+from typing import Any, Optional
 
-import aiohttp
 import fastapi
 import ray
 import uvicorn
-from cachetools import LRUCache
 from omegaconf import DictConfig
-from openai import AsyncOpenAI
-from openai.types.chat.chat_completion import ChatCompletion
 from starlette.requests import Request
 
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
-from verl.utils import hf_tokenizer
-from verl.utils.fs import copy_to_local
+from verl.workers.rollout.chat_scheduler import ChatCompletionScheduler
 
 logger = logging.getLogger(__file__)
 
@@ -51,7 +43,7 @@ class AsyncServerBase(ABC):
     """Base class for AsyncServer."""
 
     def __init__(self):
-        self.address = ray._private.services.get_node_ip_address()
+        self.address = ray.util.get_node_ip_address()
         self.port = None
         self.server_ready = asyncio.Event()
         asyncio.create_task(self._start_fastapi_server())
@@ -59,7 +51,7 @@ class AsyncServerBase(ABC):
     async def _start_fastapi_server(self):
         @asynccontextmanager
         async def lifespan(app: fastapi.FastAPI):
-            print("FastAPI startup")
+            print(f"FastAPI listen on {self.address}:{self.port}")
             self.server_ready.set()
             yield
 
@@ -76,7 +68,7 @@ class AsyncServerBase(ABC):
         server = uvicorn.Server(config)
         await server.serve()
 
-    async def get_server_address(self) -> Tuple[str, int]:
+    async def get_server_address(self) -> tuple[str, int]:
         """Get FastAPI server address."""
         await self.server_ready.wait()
         return f"{self.address}:{self.port}"
@@ -86,6 +78,20 @@ class AsyncServerBase(ABC):
         """OpenAI chat completion API.
 
         API reference: https://platform.openai.com/docs/api-reference/chat/create
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
+        """Generate response ids given prompt ids.
+
+        Args:
+            prompt_ids (List[int]): prompt ids
+            sampling_params (Dict[str, Any]): sampling params
+            request_id (str): request id
+
+        Returns:
+            List[int]: response ids
         """
         raise NotImplementedError
 
@@ -105,131 +111,19 @@ class AsyncServerBase(ABC):
         raise NotImplementedError
 
 
-class ChatCompletionScheduler:
-    def __init__(
-        self,
-        config: DictConfig,
-        model_path: str,
-        server_addresses: List[str],
-        max_cache_size: int = 10000,
-    ):
-        """
-        Args:
-            config: DictConfig, rollout config.
-            model_path: str, model path.
-            server_addresses: List[str], server addresses.
-            max_cache_size: int, max cache size of request_id to address mapping.
-        """
-        self.config = config
-        self.model_name = "/".join(model_path.split("/")[-2:])
-        local_path = copy_to_local(model_path)
-        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
-
-        # Least requests load balancing
-        self.weighted_addresses = [[0, address] for address in server_addresses]
-        heapq.heapify(self.weighted_addresses)
-
-        # LRU cache to map request_id to address
-        self.request_id_to_address = LRUCache(maxsize=max_cache_size)
-
-    async def submit_chat_completions(
-        self,
-        callback: Callable[[ChatCompletion, Dict[str, Any], Exception], None],
-        callback_additional_info: Dict[str, Any],
-        **chat_complete_request,
-    ):
-        """
-        Submit a chat completion request to the server with the least number of requests.
-
-        Args:
-            callback: Callable[[ChatCompletion, Dict[str, Any], Exception], None], async callback function
-                to handle the response. The callback function should have the following signature:
-
-                ```python
-                async def callback(completions: ChatCompletion, info: Dict[str, Any], exception: Exception):
-                    ...
-                ```
-                - completions: chat completion response from server.
-                - info: user provided `callback_additional_info`.
-                - exception: exception raise from OpenAI client if request failed, otherwise None.
-
-                **CAUTION**: the callback function must be async and non-blocking, if you have any blocking operation,
-                please move to seperate thread or process pool to avoid blocking the event loop.
-
-            callback_additional_info: Dict[str, Any], additional info to pass to the callback function.
-
-            **chat_complete_request: dict, request parameters same as OpenAI AsyncCompletions.create.
-                OpenAI API reference: https://platform.openai.com/docs/api-reference/chat/create
-        """
-        if "extra_headers" not in chat_complete_request:
-            chat_complete_request["extra_headers"] = {}
-
-        extra_headers = chat_complete_request["extra_headers"]
-        request_id = extra_headers.get("x-request-id", None)
-        if request_id:
-            if request_id.startswith("chatcmpl-"):
-                request_id = request_id[len("chatcmpl-") :]
-                extra_headers["x-request-id"] = request_id
-
-            address = self.request_id_to_address.pop(request_id)
-        else:
-            address = self.weighted_addresses[0][1]
-            self.weighted_addresses[0][0] += 1
-            heapq.heapreplace(self.weighted_addresses, self.weighted_addresses[0])
-
-        # use new request_id to avoid duplicate request_id problem
-        request_id = uuid4().hex
-        self.request_id_to_address[request_id] = address
-        chat_complete_request["extra_headers"]["x-request-id"] = request_id
-
-        completions, exception = None, None
-        try:
-            # TODO: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
-            completions = await self._chat_completions_openai(address, **chat_complete_request)
-        except Exception as e:
-            # Let user handle the exception
-            exception = e
-
-        await callback(completions, callback_additional_info, exception)
-
-    async def _chat_completions_openai(self, address: str, **chat_complete_request) -> ChatCompletion:
-        client = AsyncOpenAI(
-            base_url=f"http://{address}/v1",
-            api_key="token-abc123",
-        )
-        return await client.chat.completions.create(**chat_complete_request)
-
-    async def _chat_completions_aiohttp(self, address: str, **chat_complete_request) -> ChatCompletion:
-        try:
-            session = aiohttp.ClientSession()
-            async with session.post(
-                url=f"http://{address}/v1/chat/completions",
-                headers={"Authorization": "Bearer token-abc123"},
-                json=chat_complete_request,
-            ) as resp:
-                data = await resp.json()
-                return ChatCompletion(**data)
-        finally:
-            await session.close()
-
-    async def generate_sequences(self, prompts: DataProto, **sampling_params) -> DataProto:
-        raise NotImplementedError
-
-
 class AsyncLLMServerManager:
     """AsyncLLMServerManager manage a group of vllm instances, i.e AsyncvLLMServer."""
 
-    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup, *, scheduler_kwargs: Dict[str, Any] = None):
+    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup):
         """Initialize AsyncLLMServerManager.
 
         Args:
             config: DictConfig, actor_rollout_ref config.
             worker_group: RayWorkerGroup, worker group of AsyncActorRolloutRefWorker.
-            scheduler_kwargs: Dict[str, Any], kwargs for chat scheduler.
         """
-        self.config = config
+        self.full_config = config
+        self.config = config.actor_rollout_ref
         self.worker_group = worker_group
-        self.scheduler_kwargs = scheduler_kwargs if scheduler_kwargs else {}
 
         self.rollout_tp_size = self.config.rollout.tensor_model_parallel_size
         self.rollout_dp_size = self.worker_group.world_size // self.rollout_tp_size
@@ -241,9 +135,14 @@ class AsyncLLMServerManager:
         self.async_llm_servers = [None] * self.rollout_dp_size
         self.server_addresses = [None] * self.rollout_dp_size
 
-        server_class = async_server_class(
-            rollout_backend=self.config.rollout.name,
-        )
+        if self.config.rollout.agent.custom_async_server:
+            server_class = async_server_class(
+                rollout_backend=self.config.rollout.name,
+                rollout_backend_module=self.config.rollout.agent.custom_async_server.path,
+                rollout_backend_class=self.config.rollout.agent.custom_async_server.name,
+            )
+        else:
+            server_class = async_server_class(rollout_backend=self.config.rollout.name)
 
         # Start all server instances, restart if address already in use.
         unready_dp_ranks = set(range(self.rollout_dp_size))
@@ -275,6 +174,7 @@ class AsyncLLMServerManager:
 
         # Init user provided chat scheduler in sperate thread.
         self.chat_scheduler: ChatCompletionScheduler = None
+        self.chat_scheduler_exception: Exception = None
         self.chat_scheduler_loop = None
         self.chat_scheduler_ready = threading.Event()
         self.chat_scheduler_thread = threading.Thread(target=self._init_chat_scheduler, daemon=True)
@@ -285,32 +185,32 @@ class AsyncLLMServerManager:
         self.chat_scheduler_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.chat_scheduler_loop)
 
-        module_path, class_name = self.config.rollout.chat_scheduler.rsplit(".", 1)
-        module = importlib.import_module(module_path)
-        scheduler_cls = getattr(module, class_name)
-        self.chat_scheduler = scheduler_cls(
-            config=self.config.rollout,
-            model_path=self.config.model.path,
-            server_addresses=self.server_addresses,
-            **self.scheduler_kwargs,
-        )
-
-        self.chat_scheduler_ready.set()
+        try:
+            self.chat_scheduler = ChatCompletionScheduler(
+                config=self.full_config,
+                server_addresses=self.server_addresses,
+            )
+        except Exception as e:
+            logger.exception(f"chat_scheduler init error: {e}")
+            self.chat_scheduler_exception = e
+        finally:
+            self.chat_scheduler_ready.set()
         self.chat_scheduler_loop.run_forever()
 
     def wake_up(self):
         """Wake up all vllm instances."""
-        ray.get([server.wake_up.remote() for server in self.async_llm_servers])
+        if self.config.rollout.free_cache_engine:
+            ray.get([server.wake_up.remote() for server in self.async_llm_servers])
 
     def sleep(self):
         """Sleep all vllm instances."""
-        ray.get([server.sleep.remote() for server in self.async_llm_servers])
+        if self.config.rollout.free_cache_engine:
+            ray.get([server.sleep.remote() for server in self.async_llm_servers])
 
     def submit_chat_completions(
         self,
-        callback: Callable[[ChatCompletion, Dict[str, Any], Exception], None],
-        callback_additional_info: Dict[str, Any],
-        **chat_complete_request,
+        messages: list[dict[str, str]],
+        sampling_params: dict[str, Any],
     ):
         """Submit a chat completion request to chat scheduler and wait until it is done.
         To submit multiple requests in parallel, please use `generate_sequences` instead.
@@ -319,10 +219,10 @@ class AsyncLLMServerManager:
         """
         assert self.chat_scheduler is not None, "chat scheduler is not initialized."
         future = asyncio.run_coroutine_threadsafe(
-            self.chat_scheduler.submit_chat_completions(
-                callback=callback,
-                callback_additional_info=callback_additional_info,
-                **chat_complete_request,
+            self.chat_scheduler._submit_chat_completions_semaphore(
+                messages=messages,
+                request_id=None,
+                sampling_params=sampling_params,
             ),
             self.chat_scheduler_loop,
         )
@@ -332,24 +232,44 @@ class AsyncLLMServerManager:
         """Generate multiple sequences in parallel via chat scheduler."""
         assert self.chat_scheduler is not None, "chat scheduler is not initialized."
 
-        future = asyncio.run_coroutine_threadsafe(self.chat_scheduler.generate_sequences(prompts, **sampling_params), self.chat_scheduler_loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self.chat_scheduler.generate_sequences(prompts, **sampling_params), self.chat_scheduler_loop
+        )
         return future.result()
 
 
-def async_server_class(rollout_backend: str) -> Type[AsyncServerBase]:
+def async_server_class(
+    rollout_backend: str, rollout_backend_module: Optional[str] = None, rollout_backend_class: Optional[str] = None
+) -> type[AsyncServerBase]:
     """Get async server class.
 
     Args:
-        rollout_backend: str, rollout backend, should be "vllm" or "sglang".
+        rollout_backend: str, rollout backend type (alias), should be "vllm" or "sglang".
+        rollout_backend_module: Optional[str], import path of the rollout backend.
+        rollout_backend_class: Optional[str], class name of the rollout backend.
 
     Returns:
         Type[AsyncServerBase]: async server class.
     """
-    if rollout_backend == "vllm":
-        from verl.workers.rollout.vllm_rollout.vllm_async_server import AsyncvLLMServer
+    if rollout_backend_class is None and rollout_backend_module is None:
+        # If both are None, use the default backend class
+        # Do not change the original import behavior
+        # importlib.import_module and from ... import ... have subtle differences in ray
 
-        return AsyncvLLMServer
-    elif rollout_backend == "sglang":
-        raise NotImplementedError
-    else:
-        raise NotImplementedError
+        if rollout_backend == "vllm":
+            from verl.workers.rollout.vllm_rollout.vllm_async_server import AsyncvLLMServer
+
+            return AsyncvLLMServer
+        elif rollout_backend == "sglang":
+            from verl.workers.rollout.sglang_rollout.async_sglang_server import AsyncSglangServer
+
+            return AsyncSglangServer
+        else:
+            raise NotImplementedError(f"rollout backend {rollout_backend} is not supported")
+
+    if rollout_backend_module is None or rollout_backend_class is None:
+        raise ValueError("rollout_backend_module and rollout_backend_class must be both provided for customization")
+
+    from verl.utils.import_utils import load_extern_type
+
+    return load_extern_type(rollout_backend_module, rollout_backend_class)

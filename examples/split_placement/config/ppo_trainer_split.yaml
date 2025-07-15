@@ -1,3 +1,13 @@
+# the ppo trainer split config will override default ppo_trainer.yaml
+
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
 data:
   tokenizer: null
   train_files: ~/data/rlhf/gsm8k/train.parquet
@@ -9,6 +19,7 @@ data:
   val_batch_size: null # DEPRECATED: Validation datasets are sent to inference engines as a whole batch, which will schedule the memory themselves
   return_raw_input_ids: False  # This should be set to true when the tokenizer between policy and rm differs
   return_raw_chat: False
+  return_full_prompt: False
   shuffle: True
 
 actor_rollout_ref:
@@ -28,7 +39,7 @@ actor_rollout_ref:
     ppo_max_token_len_per_gpu: 16384 # n * ${data.max_prompt_length} + ${data.max_response_length}
     grad_clip: 1.0
     clip_ratio: 0.2
-    entropy_coeff: 0.001
+    entropy_coeff: 0.0
     use_kl_loss: False # True for GRPO
     kl_loss_coef: 0.001 # for grpo
     kl_loss_type: low_var_kl # for grpo

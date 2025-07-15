@@ -20,12 +20,12 @@ def extract_solution(solution_str, method="strict"):
 
     if method == "strict":
         # this also tests the formatting of the model
-        solution = re.search("#### (\\-?[0-9\\.\\,]+)", solution_str)
-        if solution is None:
+        solutions = re.findall("#### (\\-?[0-9\\.\\,]+)", solution_str)
+        if len(solutions) == 0:
             final_answer = None
         else:
-            final_answer = solution.group(0)
-            final_answer = final_answer.split("#### ")[1].replace(",", "").replace("$", "")
+            # take the last solution
+            final_answer = solutions[-1].replace(",", "").replace("$", "")
     elif method == "flexible":
         answer = re.findall("(\\-?[0-9\\.\\,]+)", solution_str)
         final_answer = None
@@ -44,7 +44,8 @@ def extract_solution(solution_str, method="strict"):
 def compute_score(solution_str, ground_truth, method="strict", format_score=0.0, score=1.0):
     """The scoring function for GSM8k.
 
-    Reference: Trung, Luong, et al. "Reft: Reasoning with reinforced fine-tuning." Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers). 2024.
+    Reference: Trung, Luong, et al. "Reft: Reasoning with reinforced fine-tuning." Proceedings of the 62nd Annual
+    Meeting of the Association for Computational Linguistics (Volume 1: Long Papers). 2024.
 
     Args:
         solution_str: the solution text

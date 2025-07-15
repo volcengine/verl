@@ -1,8 +1,10 @@
 # Upgrading to vllm >= 0.7
 
+Note: verl+vllm 0.8.3 is now stable. Please see ``docs/README_vllm0.8.md`` for upgrade guide.
+
 ## Installation
 
-Note: This version of verl+vllm 0.7+ supports **FSDP** for training and **vLLM** for rollout.
+Note: At time of writing, verl+vllm 0.7.x supports **FSDP** for training and **vLLM** for rollout.
 
 ```
 # Create the conda environment
@@ -47,11 +49,11 @@ After installation, examples using FSDP as training backends can be used. By def
 
 ```
 actor_rollout_ref.rollout.enforce_eager=False \
-actor_rollout_ref.rollout.free_cache_engine=False \
+actor_rollout_ref.rollout.free_cache_engine=True \
 
 ```
 
-For a typical job like examples/ppo_trainer/run_qwen2-7b_seq_balance.sh, the rollout generation time is 115 seconds with vLLM0.6.3, while it is 85 seconds with vLLM0.7.0. By enabling the cudagraph, the generation duration is further reduced to 62 seconds.
+For a typical job like examples/ppo_trainer/run_qwen2-7b_seq_balance.sh, the rollout generation time is 85 seconds with vLLM0.7.0. By enabling the cudagraph, the generation duration is further reduced to 62 seconds.
 
 **Note:** Currently, if the `n` is greater than 1 in `SamplingParams` in vLLM>=0.7, there is a potential performance issue on the stability of rollout generation time (Some iterations would see generation time bursts) using vLLM's V0 Engine.
 
@@ -68,4 +70,4 @@ VLLM_USE_PRECOMPILED=1 pip install --editable .
 ```
 
 Then you can enable the V1 engine by setting `export VLLM_USE_V1=1`. In some benchmark tests, the V1 engine demonstrates a 1.5x speed improvement over the vLLM V0 engine.
-The stable support of the vLLM V1 engine will come soon.
+The stable support of the vLLM V1 engine is available on verl main.

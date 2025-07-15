@@ -17,9 +17,11 @@ from collections import defaultdict
 import torch
 
 from verl import DataProto
-from verl.utils.reward_score import _default_compute_score
+from verl.utils.reward_score import default_compute_score
+from verl.workers.reward_manager import register
 
 
+@register("dapo")
 class DAPORewardManager:
     """The reward manager."""
 
@@ -34,13 +36,18 @@ class DAPORewardManager:
     ) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
-        self.compute_score = compute_score or _default_compute_score
+        self.compute_score = compute_score or default_compute_score
         self.reward_fn_key = reward_fn_key
         self.overlong_buffer_cfg = overlong_buffer_cfg
         self.max_resp_len = max_resp_len
 
         if self.overlong_buffer_cfg is not None:
-            assert self.max_resp_len is not None, f"max_resp_len must be provided if {overlong_buffer_cfg=}, but got None"
+            assert self.max_resp_len is not None, (
+                f"max_resp_len must be provided if {overlong_buffer_cfg=}, but got None"
+            )
+            assert self.max_resp_len >= self.overlong_buffer_cfg.len, (
+                "max_resp_len must be larger than overlong_buffer.len"
+            )
 
     def __call__(self, data: DataProto, return_dict: bool = False):
         """We will expand this function gradually based on the available datasets"""
@@ -99,6 +106,7 @@ class DAPORewardManager:
                     reward_extra_info[key].append(value)
             else:
                 score = result
+                reward_extra_info["acc"].append(score)
 
             reward = score
 

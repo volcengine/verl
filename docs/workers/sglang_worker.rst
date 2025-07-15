@@ -1,5 +1,8 @@
 SGLang Backend
 ==============
+
+Last updated: 05/31/2025.
+
 **Authored By SGLang RL Team and listed alphabetically by last name**
 
 `Jingyi Chen <https://github.com/fzyzcjy>`_, `Yitong Guan <https://github.com/minleminzui>`_, `Zhuobin Huang <https://zobinhuang.github.io/sec_about/>`_, `Jiajun Li <https://github.com/guapisolo>`_, `Ji Li <https://github.com/GeLee-Q>`_, `Shenggui Li <https://franklee.xyz/about>`_, `Junrong Lin <https://github.com/ocss884>`_, `Xiang Long <https://github.com/SwordFaith>`_, `Rui Lu <https://scholar.google.com/citations?user=-MGuqDcAAAAJ>`_, `Jin Pan <https://jhinpan.github.io/>`_, `Shuai Shi <https://github.com/shuaills>`_, `Yushen Su <https://yushengsu-thu.github.io/>`_, `Xinyuan Tong <https://github.com/JustinTong0323>`_, `Chendong Wang <https://github.com/cedricbeta>`_, `Hanchen Zhang <https://scholar.google.com/citations?user=pGcJcagAAAAJ>`_, `Haoran Wang <https://ubecc.github.io/about/>`_, `Yongan Xiang <https://github.com/BearBiscuit05>`_, `Chengxing Xie <https://yitianlian.github.io/>`_, `Yuhao Yang <https://github.com/yhyang201>`_, `Jinwei Yao <https://kivi-yao.github.io/>`_, `Qiaolin Yu <https://github.com/Qiaolin-Yu>`_, `Yuzhen Zhou <https://github.com/zyzshishui>`_, `Chenyang Zhao <https://github.com/zhaochenyang20>`_
@@ -19,9 +22,20 @@ Installation
 Please always follow the following command to install SGLang with verl. 
 
 .. code-block:: bash
+    
     pip install --upgrade pip
-    # Currently 0.4.6.post1, subject to updates at any time, please refer to the latest version specified in `setup.py`
+    # Currently 0.4.6.post5, subject to updates at any time, please refer to the latest version specified in `setup.py`
     pip install -e ".[sglang]"
+
+You can check the following dependencies are in your environment:
+
+.. note::
+
+    - **PyTorch**: 2.6.0+cu124
+    - **CUDA**: 12.4
+    - **flashinfer-python**: 0.2.5+cu124torch2.6
+    - **sgLang**: 0.4.6.post5
+    - **sgl-kernel**: 0.1.4
 
 Using SGLang as the Inference Backend for PPO Training on a Single Machine
 -------------------------------------------------------------------------
@@ -62,9 +76,8 @@ We use Qwen/Qwen2-7B-Instruct on the gsm8k dataset for a simple test.
         critic.model.fsdp_config.param_offload=True \
         critic.model.fsdp_config.optimizer_offload=True \
         algorithm.kl_ctrl.kl_coef=0.001 \
-        trainer.logger=['console'] \
+        trainer.logger=console \
         trainer.val_before_train=False \
-        trainer.default_hdfs_dir=null \
         trainer.n_gpus_per_node=4 \
         trainer.nnodes=1 \
         trainer.save_freq=-1 \
@@ -76,7 +89,7 @@ Why export SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK?
 
 1. ``verl`` initializes a ``SGLangRollout`` module during rollout, which is used to evaluate/generate samples.
 
-2. ``SGLangRollout`` will initialize ``VerlEngine``, and further initialize a ``torch.distributed.DeviceMesh``, used to support Tensor Parallel (TP).
+2. ``SGLangRollout`` will initialize ``Engine``, and further initialize a ``torch.distributed.DeviceMesh``, used to support Tensor Parallel (TP).
 
 3. ``DeviceMesh.init()`` internally checks the free GPU memory of all participating devices. If the difference is too large (more than ~10%), it directly reports an error to avoid initialization failures or deadlocks.
 
@@ -100,7 +113,7 @@ Early workers already use up GPU memory → late workers still have empty memory
 
 **3. SGLang's TP init uses "all-device broadcast", but there's no uniform release timing**
 
-Although ``SGLangRollout`` may only involve subset of GPUs, its ``VerlEngine`` initialization calls ``torch.distributed.init_process_group()`` and broadcasts weights, so:
+Although ``SGLangRollout`` may only involve subset of GPUs, its ``Engine`` initialization calls ``torch.distributed.init_process_group()`` and broadcasts weights, so:
 
 - Non-rollout GPUs also join the communication.
 - Later on, ``DeviceMesh`` init will fail due to "inconsistent memory".
@@ -215,9 +228,8 @@ You can see that the cluster has two nodes with 16 GPUs:
         critic.model.fsdp_config.optimizer_offload=True \
         algorithm.kl_ctrl.kl_coef=0.001 \
         trainer.critic_warmup=0 \
-        trainer.logger=['console'] \
+        trainer.logger=console \
         trainer.val_before_train=True \
-        trainer.default_hdfs_dir=null \
         trainer.n_gpus_per_node=8 \
         trainer.nnodes=2 \
         trainer.save_freq=-1 \

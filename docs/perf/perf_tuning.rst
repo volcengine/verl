@@ -1,7 +1,9 @@
 Performance Tuning Guide
 ==============================
 
-Author: `Guangming Sheng <https://github.com/PeterSH6>`_
+Last updated: 06/23/2025.
+
+Author: `Guangming Sheng <https://github.com/PeterSH6>`_, `Jiali Zheng <https://github.com/CurryRice233>`_
 
 In this section, we will discuss how to tune the performance of all the stages in verl, including:
 
@@ -17,6 +19,10 @@ In this section, we will discuss how to tune the performance of all the stages i
 
 6. LigerKernel for SFT performance optimization
 
+7. Forward prefetch in FSDP training backend
+
+8. Memory optimization for entropy calculation from logits
+
 Rollout Generation Tuning
 --------------------------
 
@@ -24,9 +30,15 @@ verl currently supports two rollout backends: vLLM and TGI (with SGLang support 
 
 Below are key factors for tuning vLLM-based rollout. Before tuning, we recommend setting ``actor_rollout_ref.rollout.disable_log_stats=False`` so that rollout statistics are logged.
 
-- Increase ``gpu_memory_utilization``. The vLLM pre-allocates GPU KVCache by using gpu_memory_utilization% of the remaining memory. 
+- Increase ``gpu_memory_utilization``.
+
+  - For vLLM v0.7.0 and later, the vLLM instance will only use gpu_memory_utilization of the **total** memory.
+  - For SGLang, it's the fraction of the free GPU memory used for **static** memory like model weights and KV cache. However, the remaining (1-gpu_memory_utilization) will also be used during inference.
+
   However, if model parameters and optimizer states are not offloaded, using too high a fraction can lead to OOM. 
   A value between 0.5 and 0.7 often strikes a good balance between high throughput and avoiding OOM.
+
+  Note: since the definition of ``gpu_memory_utilization`` varies across inference engines, a value that works well for one engine may cause OOM for another.
 
 - Adjust ``max_num_seqs`` or ``max_num_batched_tokens``.
   If the GPU cache utilization is relatively low in the log, increase ``max_num_seqs`` or ``max_num_batched_tokens`` 
@@ -42,7 +54,7 @@ Below are key factors for tuning vLLM-based rollout. Before tuning, we recommend
 More tuning details such as dealing with Preemption and Chunked-prefill
 can be found in `vLLM official tuning guide <https://docs.vllm.ai/en/latest/performance/optimization.html>`_ 
 
-The performance of vllm can be further increased if upgrading from v0.6.3 to v0.7. See https://github.com/volcengine/verl/blob/main/docs/README_vllm0.7.md for details on how to upgrade.
+For optimal performance, we recommend using vLLM v0.8.3 or later. See https://github.com/volcengine/verl/blob/main/docs/README_vllm0.8.md for details.
 
 Enable remove padding (sequence packing)
 -----------------------------------------
@@ -51,12 +63,12 @@ Currently, for llama, mistral, gemma1 and qwen based models, users can enable `u
 sequence packing implementation provided by transformers library.
 
 For other models, transformers library may also support it but we haven't tested it yet.
-Users can add the desired model config to the  `test_transformer.py <https://github.com/volcengine/verl/blob/main/tests/model/test_transformer.py#L24>`_ file.
+Users can add the desired model config to the  `test_transformer.py <https://github.com/volcengine/verl/blob/main/tests/models/test_transformer.py#L24>`_ file.
 And test its functionaility by running the following command:
 
 .. code-block:: bash
 
-  pytest -s tests/model/test_transformer.py
+  pytest -s tests/models/test_transformer.py
 
 If the test passes, you can add your desired model into the model `registry.py <https://github.com/volcengine/verl/blob/main/verl/models/registry.py#L24>`_ file.
 Then, you can enjoy the performance boost of sequence packing
@@ -99,6 +111,9 @@ Therefore, users may need to tune the ``*micro_batch_size_per_gpu`` to accelerat
 4. **Allow larger micro-batch sizes for Critic and Reward models**:
    micro batch size of Critic and Reward model could be larger than Actor model. This is because the actor model has much larger vocab size in the final layer.
 
+5. **Enable activation offloading**:
+   Set ``actor_rollout_ref.model.enable_activation_offload=True`` and ``critic.model.enable_activation_offload=True``.
+   This often works together with gradient checkpointing to get larger micro-batch sizes and it's only available in FSDP backend now.
 
 Tuning for Dynamic Batch Size
 -----------------------------
@@ -162,3 +177,23 @@ LigerKernel is a high-performance kernel for Supervised Fine-Tuning (SFT) that c
 
 3. LigerKernel is particularly useful for improving training performance in SFT scenarios.
 
+Forward prefetch in FSDP training backend
+----------------------
+
+During the training phase, users can enable forward prefetching in FSDP by setting ``fsdp_config.forward_prefetch=True``. For example, ``actor_rollout_ref.actor.fsdp_config.forward_prefetch=True``. This configuration prefetches the next forward-pass all-gather operation before completing the current forward computation, overlapping communication with computation and improving efficiency. For further details, refer to the `FSDP forward_pefetch <https://docs.pytorch.org/docs/stable/fsdp.html#module-torch.distributed.fsdp>`_ documentation.
+
+.. note::
+    Backward prefetch is unsupported because the ``BACKWARD_POST`` policy may prefetch incorrectly in nested-module cases. For details, see the `FSDP documentation <https://github.com/pytorch/torchtitan/blob/main/docs/fsdp.md?plain=1#L70>`_
+
+Memory optimization for entropy calculation from logits
+----------------------
+
+The ``logits`` tensor (typically of shape ``[bsz*seq_len, voc]``) can consume significant memory. When using ``compute_entropy_from_logits``, memory usage reaches approximately ``[bsz*seq_len, voc] × (4 bytes (float32) + 2 bytes (autocast for softmax+logsumexp) + 1 byte (softmax output))``.
+
+To reduce this memory peak, enable chunked computation by setting:
+``actor_rollout_ref.ref.entropy_from_logits_with_chunking = True``
+This processes the tensor in chunks of shape ``[chunk_size, voc]`` (e.g., 2048) rather than the full sequence length, exclusively during the model's forward pass.
+
+Additionally, during training, standard gradient checkpointing (``enable_gradient_checkpointing=True``) does not apply to entropy calculations. To reduce memory peaks in this context, set:
+``actor_rollout_ref.actor.entropy_checkpointing = True``
+This enables entropy recomputation specifically for the entropy calculation, lowering memory usage during training.

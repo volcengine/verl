@@ -2,6 +2,8 @@
 HybridFlow Programming Guide
 =========================================================
 
+Last updated: 06/02/2025.
+
 .. _vermouth: https://github.com/vermouth1992
 
 Author: `Chi Zhang <https://github.com/vermouth1992>`_
@@ -79,7 +81,7 @@ In verl, the latter strategy with separate control flow and computation flow is 
 Overall Execution Diagram
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Below is a simplified diagram denoting the execution of a reinforcement learning job. In the diagram, the controller runs on a single process, while the generator/actor workers, critic workers run on multiple processes, placed with specific resource groups. For rollout, the controller passes the data to the generator to perform sample generation. When the rollout is done, the data is passed back to controller for the next step of the algorithm. Similar execution is done for other workers. With the hybrid controller design, the data flow and computation is decoupled to provide both efficiency in computation and flexiblity in defining algorithm training loops.
+Below is a simplified diagram denoting the execution of a reinforcement learning job. In the diagram, the controller runs on a single process, while the generator/actor workers, critic workers run on multiple processes, placed with specific resource groups. For rollout, the controller passes the data to the generator to perform sample generation. When the rollout is done, the data is passed back to controller for the next step of the algorithm. Similar execution is done for other workers. With the hybrid controller design, the data flow and computation is decoupled to provide both efficiency in computation and flexibility in defining algorithm training loops.
 
 .. figure:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/driver_worker.png?raw=true
    :alt: The execution diagram
@@ -110,12 +112,12 @@ Note that, the fit function of RayPPOTrainer **runs as a single process**.
 Worker and WorkerGroup construction
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Each workerGroup manages a list of workers that runs remotely. Note that the worker group runs in the process of its construtor.
+Each workerGroup manages a list of workers that runs remotely. Note that the worker group runs in the process of its constructor.
 Each worker inside the WorkerGroup runs on a GPU. The worker group serves as a proxy for the controller process to interact with a list of workers, in order to perform certain computations. **In order to do so, we have to bind the methods of the worker into the method of the WorkerGroup and define the data dispatch and data collection**. This is done via simple decoration that will be introduced in the Worker definition section.
 
 For example, in PPO, we define 3 worker groups:
 
-- ActorRolloutRef: manages actor, rollout and reference policy. ActorRolloutRefWorker can be instantiated as a single actor, a single rollout, a single reference policy, a combined actor/rollout or a combined actor/rollout/ref. This design is aimed for the maximum code reuse in various scenarios. The reason for colocating actor and rollout is for fast weight transfer using nccl. The reason for coloating actor and reference is to implement an efficient lora PPO as the reference policy is simply the base model of PPO in lora.
+- ActorRolloutRef: manages actor, rollout and reference policy. ActorRolloutRefWorker can be instantiated as a single actor, a single rollout, a single reference policy, a combined actor/rollout or a combined actor/rollout/ref. This design is aimed for the maximum code reuse in various scenarios. The reason for colocating actor and rollout is for fast weight transfer using nccl. The reason for coloating actor and reference is to implement an efficient lora PPO as the reference policy is simply the base model of PPO in lora. The colocation is done via ``verl.single_controller.ray.base.create_colocated_worker_cls``, where it creates a single ray remote class exposing all class methods from these roles.
 - Critic: manages the critic model
 - Reward: manages the reward model
 
@@ -155,7 +157,7 @@ If the controller process wants to generate sequences, it has to call
        output_dp_lst.append(output_future)
    output = torch.cat(ray.get(output_dp_lst), dim=0)
 
-We observe that controll process calling worker group methods in general can be divided into 3 parts:
+We observe that controller process calling worker group methods in general can be divided into 3 parts:
 
 - Split the data into data parallel sizes
 - Dispatch the corresponding data into each worker
@@ -252,12 +254,7 @@ Important code files in the repository are organized as below:
        weight_loader_registery.py  # registry of weight loaders for loading hf ckpt into Megatron
      third_party
        vllm  # adaptor for vllm's usage in RL
-         vllm_v_0_6_3  # vllm v0.6.3 adaptor
-           llm.py  # entrypoints for generate, sync_model_weight, offload_model_weights
-           parallel_state.py  # vllm related device mesh and process groups
-           dtensor_weight_loaders.py  # weight loader for huggingface models with FSDP
-           megatron_weight_loaders.py  # weight loader for Megatron models
-         vllm_spmd  # vllm >= v0.7 adaptor (coming soon)
+         vllm_spmd  # vllm >= v0.7 adaptor
    examples  # example scripts
    tests  # integration and unit tests
    .github  # the configuration of continuous integration tests

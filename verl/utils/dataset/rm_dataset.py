@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-from typing import List, Union
 
 import pandas as pd
 import torch
@@ -39,7 +38,7 @@ def download_files_distributed(download_fn):
 class RMDataset(Dataset):
     def __init__(
         self,
-        parquet_files: Union[str, List[str]],
+        parquet_files: str | list[str],
         tokenizer,
         prompt_key="prompt",
         chosen_key="chosen",
@@ -48,7 +47,7 @@ class RMDataset(Dataset):
         add_eos=True,
         cache_dir="~/.cache/verl/rm",
     ):
-        if not isinstance(parquet_files, List):
+        if not isinstance(parquet_files, list):
             parquet_files = [parquet_files]
 
         self.parquet_files = parquet_files
@@ -100,8 +99,12 @@ class RMDataset(Dataset):
         curr_length = input_ids.shape[-1]
 
         if curr_length < self.max_length:
-            input_ids = torch.cat((input_ids, torch.zeros(size=(self.max_length - curr_length,), dtype=input_ids.dtype)), dim=-1)
-            attention_mask = torch.cat((attention_mask, torch.zeros(size=(self.max_length - curr_length,), dtype=attention_mask.dtype)), dim=-1)
+            input_ids = torch.cat(
+                (input_ids, torch.zeros(size=(self.max_length - curr_length,), dtype=input_ids.dtype)), dim=-1
+            )
+            attention_mask = torch.cat(
+                (attention_mask, torch.zeros(size=(self.max_length - curr_length,), dtype=attention_mask.dtype)), dim=-1
+            )
         elif curr_length > self.max_length:
             input_ids = input_ids[: self.max_length]
             attention_mask = attention_mask[: self.max_length]
@@ -119,7 +122,9 @@ class RMDataset(Dataset):
 
         if self.add_eos:
             chosen_response_ids = torch.cat((chosen_response_ids, torch.tensor([self.tokenizer.eos_token_id])), dim=-1)
-            rejected_response_ids = torch.cat((rejected_response_ids, torch.tensor([self.tokenizer.eos_token_id])), dim=-1)
+            rejected_response_ids = torch.cat(
+                (rejected_response_ids, torch.tensor([self.tokenizer.eos_token_id])), dim=-1
+            )
 
         chosen_input_ids = torch.cat((prompt_ids, chosen_response_ids), dim=-1)
         chosen_attention_mask = torch.ones_like(chosen_input_ids)
@@ -131,7 +136,7 @@ class RMDataset(Dataset):
         rejected_input_ids, rejected_attention_mask = self._pad_to_length(rejected_input_ids, rejected_attention_mask)
 
         input_ids = torch.stack((chosen_input_ids, rejected_input_ids), dim=0)
-        attention_mask = torch.stack((rejected_input_ids, rejected_attention_mask), dim=0)
+        attention_mask = torch.stack((chosen_attention_mask, rejected_attention_mask), dim=0)
 
         return {
             "input_ids": input_ids,

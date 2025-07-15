@@ -15,7 +15,6 @@ math_test_path=$HOME/data/math/test.parquet
 train_files="['$gsm8k_train_path', '$math_train_path']"
 test_files="['$gsm8k_test_path', '$math_test_path']"
 
-export VLLM_ATTENTION_BACKEND=XFORMERS # vllm + qwen2-7b with flash_attn has some issues
 
 # prepare model ckpt
 huggingface-cli download Qwen/Qwen2-7B-Instruct --local-dir $HOME/models/Qwen2-7B-Instruct &
@@ -61,7 +60,7 @@ python3 -m verl.trainer.main_ppo \
     reward_model.micro_batch_size_per_gpu=32 \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_example' \
     trainer.val_before_train=False \
     trainer.experiment_name='Qwen2-7B-Instruct_hybrid_rm' \

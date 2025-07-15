@@ -17,7 +17,7 @@ DeepSpeed Ulysses Paper: https://arxiv.org/abs/2309.14509
 Inspired from: https://github.com/deepspeedai/DeepSpeed/blob/master/deepspeed/sequence/layer.py
 """
 
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 import torch
 import torch.distributed as dist
@@ -179,7 +179,7 @@ class SeqAllToAll(torch.autograd.Function):
         return all_to_all_tensor(local_input, scatter_dim, gather_dim, group, async_op)
 
     @staticmethod
-    def backward(ctx: Any, *grad_output: Tensor) -> Tuple[None, Tensor, None, None]:
+    def backward(ctx: Any, *grad_output: Tensor) -> tuple[None, Tensor, None, None]:
         input_t = torch.cat(grad_output[1:], dim=ctx.gather_dim).contiguous() if ctx.async_op else grad_output[0]
         return (
             None,
@@ -234,7 +234,13 @@ class Gather(torch.autograd.Function):
         )
 
 
-def gather_outpus_and_unpad(
+def gather_outpus_and_unpad(*args, **kwargs):
+    raise RuntimeError(
+        "please use verl.utils.ulysses.gather_outputs_and_unpad instead of verl.utils.ulysses.gather_outpus_and_unpad"
+    )
+
+
+def gather_outputs_and_unpad(
     x: Tensor,
     gather_dim: int,
     unpad_dim: int = None,
@@ -242,6 +248,21 @@ def gather_outpus_and_unpad(
     grad_scaler: bool = True,
     group: Optional[dist.ProcessGroup] = None,
 ):
+    """
+    Gather a tensor across a process group and optionally unpad its padded elements.
+
+    Args:
+        x (Tensor): Input tensor to gather.
+        gather_dim (int): Dimension along which to gather across ranks.
+        unpad_dim (int, optional): Dimension from which to remove padding. If None, no unpadding.
+        padding_size (int): Number of padding elements to remove on `unpad_dim`. Defaults to 0.
+        grad_scaler (bool): Whether to apply gradient scaling during gather. Defaults to True.
+        group (ProcessGroup, optional): Process group for gathering. If None, uses
+            `get_ulysses_sequence_parallel_group()`. If still None, returns `x` unchanged.
+
+    Returns:
+        Tensor: The gathered tensor, with padding removed if requested.
+    """
     group = get_ulysses_sequence_parallel_group() if group is None else group
     if group is None:
         return x
@@ -254,7 +275,27 @@ def gather_outpus_and_unpad(
     return x
 
 
-def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor] = None, sp_size: int = 1):
+def ulysses_pad(input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor] = None, sp_size: int = 1):
+    if position_ids_rmpad is not None:
+        assert position_ids_rmpad.size(-2) == 1
+        assert input_ids_rmpad.size(-1) == position_ids_rmpad.size(-1)
+    if sp_size <= 1:
+        return input_ids_rmpad, position_ids_rmpad, 0
+    _, total_seq_len = input_ids_rmpad.shape
+    pad_size = (sp_size - total_seq_len % sp_size) % sp_size
+    if pad_size > 0:
+        input_ids_rmpad = torch.nn.functional.pad(input_ids_rmpad, (0, pad_size), value=0)
+        if position_ids_rmpad is not None:
+            pad_pos_ids = torch.arange(pad_size, device=position_ids_rmpad.device).unsqueeze(0)
+            if position_ids_rmpad.dim() == 3:
+                pad_pos_ids = pad_pos_ids.unsqueeze(0).repeat(3, 1, 1)
+            position_ids_rmpad = torch.cat((position_ids_rmpad, pad_pos_ids), dim=-1)
+    return input_ids_rmpad, position_ids_rmpad, pad_size
+
+
+def ulysses_pad_and_slice_inputs(
+    input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor] = None, sp_size: int = 1
+):
     """
     Pad and slice input_ids to be divisible by sp_size
     Pad position_ids to be divisible by sp_size.
@@ -273,18 +314,7 @@ def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor, position_ids_rmp
         torch.Tensor: padded and sliced position_ids
         int: pad size
     """
-    if position_ids_rmpad is not None:
-        assert position_ids_rmpad.size(0) == 1
-        assert input_ids_rmpad.size(1) == position_ids_rmpad.size(1)
-    if sp_size <= 1:
-        return input_ids_rmpad, position_ids_rmpad, 0
-    _, total_seq_len = input_ids_rmpad.shape
-    pad_size = (sp_size - total_seq_len % sp_size) % sp_size
-    if pad_size > 0:
-        input_ids_rmpad = torch.nn.functional.pad(input_ids_rmpad, (0, pad_size), value=0)
-        if position_ids_rmpad is not None:
-            pad_pos_ids = torch.arange(pad_size, device=position_ids_rmpad.device).unsqueeze(0)
-            position_ids_rmpad = torch.cat((position_ids_rmpad, pad_pos_ids), dim=-1)
+    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(input_ids_rmpad, position_ids_rmpad, sp_size)
     input_ids_rmpad = slice_input_tensor(input_ids_rmpad, dim=1, padding=False)
     if position_ids_rmpad is not None:
         position_ids_rmpad = slice_input_tensor(position_ids_rmpad, dim=1, padding=False)
@@ -293,4 +323,6 @@ def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor, position_ids_rmp
 
 def validate_ulysses_config(num_heads, ulysses_sequence_size):
     if ulysses_sequence_size > 1:
-        assert num_heads % ulysses_sequence_size == 0, f"num_heads ({num_heads}) must be divisible by ulysses sequence size({ulysses_sequence_size})"
+        assert num_heads % ulysses_sequence_size == 0, (
+            f"num_heads ({num_heads}) must be divisible by ulysses sequence size({ulysses_sequence_size})"
+        )
