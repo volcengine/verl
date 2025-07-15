@@ -57,7 +57,7 @@ def test_memory_buffers():
     change_ratio = (a - a_before) / a_before
     assert change_ratio < 0.01, f"make sure the allocated change is less than 1%, Got {change_ratio}"
 
-    for (name1, param1), (name2, param2) in zip(model.named_parameters(), model_copy.named_parameters()):
+    for (name1, param1), (name2, param2) in zip(model.named_parameters(), model_copy.named_parameters(), strict=True):
         assert name1 == name2
         assert torch.eq(param1.data, param2.data).all(), f"{param1.data}, {param2.data}, {name1}"
 

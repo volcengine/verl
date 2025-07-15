@@ -19,7 +19,7 @@ import datetime
 import logging
 import os
 import time
-from typing import Any, Dict, List, Union
+from typing import Any
 
 import psutil
 import torch
@@ -203,10 +203,14 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                     parallel_model.to(get_device_name())
                     return parallel_model
 
+                override_ddp_config = OmegaConf.to_container(
+                    self.config.actor.megatron.get("override_ddp_config", OmegaConf.create()), resolve=True
+                )
                 return get_model(
                     megatron_actor_model_provider,
                     wrap_with_ddp=wrap_with_ddp,
                     use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
+                    override_ddp_config=override_ddp_config,
                 )
 
         if self._is_actor and self._is_rollout:
@@ -669,7 +673,7 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     # ============================ vLLM related ============================
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
+    def execute_method(self, method: str | bytes, *args, **kwargs):
         """Called by ExternalRayDistributedExecutor collective_rpc."""
         if self.vllm_tp_rank == 0 and method != "execute_model":
             print(
@@ -690,7 +694,7 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         return ret
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
-    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id)
         return ret
 
@@ -806,12 +810,16 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
                 parallel_model.to(get_device_name())
                 return parallel_model
 
+            override_ddp_config = OmegaConf.to_container(
+                self.config.megatron.get("override_ddp_config", OmegaConf.create()), resolve=True
+            )
             # Step 3: initialize the megatron model
             critic_module = get_model(
                 model_provider_func=megatron_critic_model_provider,
                 model_type=ModelType.encoder_or_decoder,
                 wrap_with_ddp=True,
                 use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
+                override_ddp_config=override_ddp_config,
             )
         # note that here critic_module will be a list to be compatible with the construction of interleaved pp (vpp).
         # but here, we do not use pp (vpp) yet. For simplicity, we remove the list

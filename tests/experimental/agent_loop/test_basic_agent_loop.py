@@ -13,7 +13,7 @@
 # limitations under the License.
 import json
 import os
-from typing import Any, Tuple
+from typing import Any
 
 import numpy as np
 import pytest
@@ -119,7 +119,7 @@ class WeatherTool(BaseTool):
         schema = get_json_schema(self.get_current_temperature)
         return OpenAIFunctionToolSchema(**schema)
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         try:
             result = self.get_current_temperature(**parameters)
             return json.dumps(result), 0, {}
@@ -150,7 +150,7 @@ class WeatherToolWithData(BaseTool):
             "unit": unit,
         }
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         try:
             result = self.get_temperature_date(**parameters)
             return json.dumps(result), 0, {}
@@ -259,12 +259,12 @@ async def test_get_trajectory_info():
     step = 10
     index = [1, 1, 3, 3]
     expected_info = [
-        {"step": step, "sample_index": 1, "rollout_n": 0},
-        {"step": step, "sample_index": 1, "rollout_n": 1},
-        {"step": step, "sample_index": 3, "rollout_n": 0},
-        {"step": step, "sample_index": 3, "rollout_n": 1},
+        {"step": step, "sample_index": 1, "rollout_n": 0, "validate": False},
+        {"step": step, "sample_index": 1, "rollout_n": 1, "validate": False},
+        {"step": step, "sample_index": 3, "rollout_n": 0, "validate": False},
+        {"step": step, "sample_index": 3, "rollout_n": 1, "validate": False},
     ]
 
-    trajectory_info = await get_trajectory_info(step, index)
+    trajectory_info = await get_trajectory_info(step, index, validate=False)
 
     assert trajectory_info == expected_info

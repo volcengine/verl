@@ -21,7 +21,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional
 
 import datasets  # type: ignore
 import numpy as np
@@ -48,9 +48,9 @@ class ProcessingContext:
     raw_row: dict
     messages: list[dict]
     raw_prompt: str
-    model_inputs: Dict[str, Any]
-    multi_modal_data: Optional[Dict[str, Any]] = None
-    extra_info: Dict[str, Any] = field(default_factory=dict)
+    model_inputs: dict[str, Any]
+    multi_modal_data: Optional[dict[str, Any]] = None
+    extra_info: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -58,22 +58,22 @@ class CoreTensors:
     input_ids: torch.Tensor
     attention_mask: torch.Tensor
     position_ids: torch.Tensor
-    raw_prompt_ids: List[int]
+    raw_prompt_ids: list[int]
 
 
 @dataclass
 class ItemMetadata:
     index: int = 0
-    tools_kwargs: Dict[str, Any] = field(default_factory=dict)
-    interaction_kwargs: Dict[str, Any] = field(default_factory=dict)
+    tools_kwargs: dict[str, Any] = field(default_factory=dict)
+    interaction_kwargs: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class OptionalOutputs:
     raw_prompt: Optional[list[dict]] = None
     full_prompts: Optional[str] = None
-    multi_modal_data: Optional[Dict[str, Any]] = None
-    multi_modal_inputs: Optional[Dict[str, Any]] = None
+    multi_modal_data: Optional[dict[str, Any]] = None
+    multi_modal_inputs: Optional[dict[str, Any]] = None
 
 
 @dataclass
@@ -82,7 +82,7 @@ class ProcessedDataItem:
     metadata: ItemMetadata
     optional: OptionalOutputs
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to the dict format expected by the rest of the system."""
         result = {
             "input_ids": self.core.input_ids,
@@ -157,12 +157,12 @@ class RLHFDataset(Dataset):
 
     def __init__(
         self,
-        data_files: Union[str, List[str]],
+        data_files: str | list[str],
         tokenizer: PreTrainedTokenizer,
         config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
     ):
-        if not isinstance(data_files, (List, ListConfig)):
+        if not isinstance(data_files, list | ListConfig):
             data_files = [data_files]
 
         self.data_files = copy.deepcopy(data_files)
@@ -284,7 +284,7 @@ class RLHFDataset(Dataset):
 
         return messages
 
-    def __getitem__(self, item: int) -> Dict[str, Any]:
+    def __getitem__(self, item: int) -> dict[str, Any]:
         """
         Note: We return raw_input_ids so it can be combined with other chat templates.
         """
@@ -319,7 +319,7 @@ class RLHFDataset(Dataset):
             extra_info=extra_info,
         )
 
-    def _extract_extra_info(self, raw_row: dict) -> Dict[str, Any]:
+    def _extract_extra_info(self, raw_row: dict) -> dict[str, Any]:
         """Safely extract extra_info with defaults."""
         extra_info_raw = raw_row.get("extra_info")
         if extra_info_raw is None:
@@ -429,7 +429,7 @@ class RLHFDataset(Dataset):
 
         context.model_inputs["raw_prompt_ids"] = raw_prompt_ids
 
-    def _apply_truncation(self, raw_prompt_ids: List[int], strategy: TruncationStrategy) -> List[int]:
+    def _apply_truncation(self, raw_prompt_ids: list[int], strategy: TruncationStrategy) -> list[int]:
         """Apply truncation strategy to prompt IDs."""
         max_length = self.max_prompt_length
         if max_length is None:

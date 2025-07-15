@@ -73,8 +73,8 @@ class TaskRunner:
         processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
 
         # define worker classes
-        if config.actor_rollout_ref.actor.strategy == "fsdp":
-            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+        if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
+            assert config.critic.strategy in {"fsdp", "fsdp2"}
             from verl.single_controller.ray import RayWorkerGroup
 
             from .sppo_worker import SPPOActorRolloutRefWorker  # , CriticWorker
@@ -115,7 +115,7 @@ class TaskRunner:
         # - finally, we combine all the rewards together
         # - The reward type depends on the tag of the data
         if config.reward_model.enable:
-            if config.reward_model.strategy == "fsdp":
+            if config.reward_model.strategy in {"fsdp", "fsdp2"}:
                 from verl.workers.fsdp_workers import RewardModelWorker
             elif config.reward_model.strategy == "megatron":
                 from verl.workers.megatron_workers import RewardModelWorker

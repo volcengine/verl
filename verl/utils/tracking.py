@@ -20,7 +20,7 @@ import os
 from enum import Enum
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any
 
 
 class Tracking:
@@ -36,7 +36,7 @@ class Tracking:
 
     supported_backend = ["wandb", "mlflow", "swanlab", "vemlp_wandb", "tensorboard", "console", "clearml"]
 
-    def __init__(self, project_name, experiment_name, default_backend: Union[str, List[str]] = "console", config=None):
+    def __init__(self, project_name, experiment_name, default_backend: str | list[str] = "console", config=None):
         if isinstance(default_backend, str):
             default_backend = [default_backend]
         for backend in default_backend:
@@ -63,9 +63,8 @@ class Tracking:
 
             import mlflow
 
-            MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", None)
-            if MLFLOW_TRACKING_URI:
-                mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+            MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:////tmp/mlruns.db")
+            mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
             # Project_name is actually experiment_name in MLFlow
             # If experiment does not exist, will create a new experiment
@@ -175,7 +174,7 @@ class ClearMLLogger:
         for k, v in data.items():
             title, series = k.split("/", 1)
 
-            if isinstance(v, (int, float, np.floating, np.integer)):
+            if isinstance(v, int | float | np.floating | np.integer):
                 logger.report_scalar(
                     title=title,
                     series=series,
@@ -226,7 +225,7 @@ class _MlflowLoggingAdapter:
         mlflow.log_metrics(metrics=results, step=step)
 
 
-def _compute_mlflow_params_from_objects(params) -> Dict[str, Any]:
+def _compute_mlflow_params_from_objects(params) -> dict[str, Any]:
     if params is None:
         return {}
 
@@ -253,7 +252,7 @@ def _transform_params_to_json_serializable(x, convert_list_to_dict: bool):
     return x
 
 
-def _flatten_dict(raw: Dict[str, Any], *, sep: str) -> Dict[str, Any]:
+def _flatten_dict(raw: dict[str, Any], *, sep: str) -> dict[str, Any]:
     import pandas as pd
 
     ans = pd.json_normalize(raw, sep=sep).to_dict(orient="records")[0]
