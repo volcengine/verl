@@ -149,7 +149,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
                 # This groups the serialized parts for each individual tensor across all TP ranks.
                 # Example: from [[(n0, t0_tp0), (n1, t1_tp0)], [(n0, t0_tp1), (n1, t1_tp1)]]
                 # to [ ( (n0, t0_tp0), (n0, t0_tp1) ), ( (n1, t1_tp0), (n1, t1_tp1) ) ]
-                logical_tensors = zip(*gathered_serialized_batches, strict=False)
+                logical_tensors = zip(*gathered_serialized_batches, strict=True)
 
                 await self.inference_engine.update_weights_from_tensor(
                     named_tensors=[
