@@ -130,6 +130,9 @@ actor_rollout_ref:
       custom_async_server:
         path: null
         name: null
+    trace:
+      backend: null
+      token2text: false
     enable_chunked_prefill: true
     load_format: dummy_dtensor
     layered_summon: false
