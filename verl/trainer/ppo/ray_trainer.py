@@ -1049,6 +1049,28 @@ class RayPPOTrainer:
         else:
             print(f"Warning: No dataloader state found at {dataloader_local_path}, will start from scratch")
 
+    def _start_profiling(self, do_profile: bool) -> None:
+        """Start profiling for all worker groups if profiling is enabled."""
+        if do_profile:
+            self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
+            if self.use_reference_policy:
+                self.ref_policy_wg.start_profile()
+            if self.use_critic:
+                self.critic_wg.start_profile()
+            if self.use_rm:
+                self.rm_wg.start_profile()
+
+    def _stop_profiling(self, do_profile: bool) -> None:
+        """Stop profiling for all worker groups if profiling is enabled."""
+        if do_profile:
+            self.actor_rollout_wg.stop_profile()
+            if self.use_reference_policy:
+                self.ref_policy_wg.stop_profile()
+            if self.use_critic:
+                self.critic_wg.stop_profile()
+            if self.use_rm:
+                self.rm_wg.stop_profile()
+
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen"):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
         attention_mask = batch.batch["attention_mask"]
@@ -1118,14 +1140,7 @@ class RayPPOTrainer:
                     else False
                 )
                 with marked_timer("start_profile", timing_raw):
-                    if do_profile:
-                        self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
-                        if self.use_reference_policy:
-                            self.ref_policy_wg.start_profile()
-                        if self.use_critic:
-                            self.critic_wg.start_profile()
-                        if self.use_rm:
-                            self.rm_wg.start_profile()
+                    self._start_profiling(do_profile)
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
@@ -1365,14 +1380,7 @@ class RayPPOTrainer:
                             self._save_checkpoint()
 
                 with marked_timer("stop_profile", timing_raw):
-                    if do_profile:
-                        self.actor_rollout_wg.stop_profile()
-                        if self.use_reference_policy:
-                            self.ref_policy_wg.stop_profile()
-                        if self.use_critic:
-                            self.critic_wg.stop_profile()
-                        if self.use_rm:
-                            self.rm_wg.stop_profile()
+                    self._stop_profiling(do_profile)
 
                 steps_duration = timing_raw["step"]
                 self.max_steps_duration = max(self.max_steps_duration, steps_duration)
