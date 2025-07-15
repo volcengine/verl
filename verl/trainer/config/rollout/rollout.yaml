@@ -178,6 +178,9 @@ agent:
 
     # Class name of the custom async server class (e.g. AsyncvLLMServer)
     name: null
+  
+  # custom agent loop config (e.g. my_pkg.MyCustomAgentLoop)
+  custom_agent_loop: null
 
 # trace rollout data
 trace:
