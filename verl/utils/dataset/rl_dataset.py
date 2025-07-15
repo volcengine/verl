@@ -16,6 +16,7 @@
 
 import copy
 import logging
+import multiprocessing
 import os
 import re
 from collections import defaultdict
@@ -170,9 +171,15 @@ class RLHFDataset(Dataset):
                 def doc2len(doc) -> int:
                     return len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True))
 
+            # Check if we're in a daemon process (multiprocessing worker)
+            # If so, disable multiprocessing to avoid "daemonic processes are not allowed to have children" error
+            current_process = multiprocessing.current_process()
+            is_daemon = getattr(current_process, "daemon", False)
+            num_proc = 1 if is_daemon else self.num_workers
+
             dataframe = dataframe.filter(
                 lambda doc: doc2len(doc) <= self.max_prompt_length,
-                num_proc=self.num_workers,
+                num_proc=num_proc,
                 desc=f"Filtering prompts longer than {self.max_prompt_length} tokens",
             )
 
@@ -340,3 +347,12 @@ class RLHFDataset(Dataset):
             return state
 
         return self.__dict__.copy()
+
+    def __setstate__(self, state):
+        """Restore dataset state, reconstructing dataframe when serialize_dataset=False."""
+        self.__dict__.update(state)
+
+        # If dataframe was not serialized, reconstruct it
+        if not hasattr(self, "dataframe") and hasattr(self, "original_data_files"):
+            self._download(use_origin_parquet=True)
+            self._read_files_and_tokenize()
