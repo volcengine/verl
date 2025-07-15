@@ -84,7 +84,7 @@ python3 -m recipe.dapo.main_dapo \
     actor_rollout_ref.ref.entropy_checkpointing=True \
     actor_rollout_ref.actor.entropy_from_logits_with_chunking=True \
     actor_rollout_ref.ref.entropy_from_logits_with_chunking=True \
-    trainer.logger=['console'] \
+    trainer.logger=console \
     trainer.project_name='verl-test' \
     trainer.experiment_name="${exp_name}" \
     trainer.n_gpus_per_node=${NUM_GPUS} \

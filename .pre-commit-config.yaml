@@ -6,3 +6,27 @@ repos:
         args: ["--fix", "--show-fixes", "--output-format=full"]
         exclude: ^.*\.(ipynb)$
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: autogen-trainer-cfg
+        name: Generate and verify verl/trainer/config/_generated_*.yaml
+        entry: scripts/generate_trainer_config.sh
+        language: script
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: check-docstrings
+        name: Check doc string coverage
+        entry: python3 tests/special_sanity/check_docstrings.py
+        language: python
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: check-license
+        name: Check license
+        entry: python3 tests/special_sanity/check_license.py --directory .
+        language: python
+        pass_filenames: false

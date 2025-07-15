@@ -43,7 +43,7 @@ python3 -m recipe.sppo.main_sppo \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='sppo-sglang' \
     trainer.val_before_train=True \
     trainer.experiment_name='Qwen2-7B-Instruct_hybrid_rm' \
