@@ -130,7 +130,7 @@ actor_rollout_ref:
       custom_async_server:
         path: null
         name: null
-    update_weights_bucket_megabytes: 2048
+    update_weights_bucket_megabytes: 512
     trace:
       backend: null
       token2text: false
