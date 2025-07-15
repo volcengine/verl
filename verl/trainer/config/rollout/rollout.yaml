@@ -1,4 +1,4 @@
-# actor_rollout_ref.rollout.name: hf/vllm/sglang.
+# actor_rollout_ref.rollout.name: hf/vllm/sglang. The default value will be removed in the future
 name: vllm
 
 # sync: LLM, async: AsyncLLM
@@ -178,3 +178,27 @@ agent:
 
     # Class name of the custom async server class (e.g. AsyncvLLMServer)
     name: null
+
+# Specifies the tensor bucket size (in megabytes) for batch weight updates during rollout operations.
+# This parameter controls the maximum payload size for a single weight update request.
+#
+# https://github.com/volcengine/verl/pull/2281
+#
+# Note:
+# - Currently only supported in SGLang rollout implementations
+# - Larger values may improve throughput but increase memory overhead
+# - Default value (2GB) is optimized for typical GPU memory configurations
+# - For the best performance of `rebuild_cuda_tensor`, it is recommended to:
+#   1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`.
+#   2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
+#   when using Tensor Parallelism (TP) >= 8.
+update_weights_bucket_megabytes: 2048
+
+# trace rollout data
+trace:
+  
+  # trace backend, support mlflow, weave
+  backend: null
+
+  # whether translate token id to text in output
+  token2text: False
