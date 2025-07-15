@@ -18,7 +18,7 @@ from typing import Optional
 from verl.base_config import BaseConfig
 
 
-@dataclass(frozen=True)
+@dataclass
 class KLControlConfig(BaseConfig):
     """Configuration for KL control.
 
@@ -31,13 +31,14 @@ class KLControlConfig(BaseConfig):
         target_kl (float): Target KL divergence for adaptive controller.
     """
 
+    _frozen_fields = ["type", "kl_coef", "horizon", "target_kl"]
     type: str = "fixed"
     kl_coef: float = 0.001
     horizon: int = 10000
     target_kl: float = 0.1
 
 
-@dataclass(frozen=True)
+@dataclass
 class PFPPOConfig(BaseConfig):
     """Configuration for preference feedback PPO.
 
@@ -48,11 +49,12 @@ class PFPPOConfig(BaseConfig):
         weight_pow (float): Power used for weight scaling in "pow" method.
     """
 
+    _frozen_fields = ["reweight_method", "weight_pow"]
     reweight_method: str = "pow"
     weight_pow: float = 2.0
 
 
-@dataclass(frozen=True)
+@dataclass
 class FilterGroupsConfig(BaseConfig):
     """Configuration for filter groups (used in DAPO and Entropy).
 
@@ -64,12 +66,14 @@ class FilterGroupsConfig(BaseConfig):
         max_num_gen_batches (int): Non-positive values mean no upper limit.
     """
 
+    _frozen_fields = ["enable", "metric", "max_num_gen_batches"]
+
     enable: bool = False
     metric: Optional[str] = None
     max_num_gen_batches: int = 0
 
 
-@dataclass(frozen=True)
+@dataclass
 class AlgoConfig(BaseConfig):
     """Configuration for the algorithm.
 
@@ -87,6 +91,16 @@ class AlgoConfig(BaseConfig):
         pf_ppo (Optional[PFPPOConfig]): Preference feedback PPO settings.
         filter_groups (Optional[FilterGroupsConfig]): Filter groups configuration, used in DAPO and Entropy
     """
+
+    _frozen_fields = [
+        "gamma",
+        "lam",
+        "adv_estimator",
+        "norm_adv_by_std_in_grpo",
+        "use_kl_in_reward",
+        "kl_penalty",
+        "use_pf_ppo",
+    ]
 
     gamma: float = 1.0
     lam: float = 1.0

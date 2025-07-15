@@ -35,7 +35,7 @@ from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_
 from verl.utils.model import convert_weight_keys
 from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.torch_functional import check_device_is_available
-from verl.workers.rollout.sglang_rollout.utils import batched
+from verl.workers.rollout.sglang_rollout.utils import get_named_tensor_buckets
 
 from .base import BaseShardingManager
 
@@ -114,8 +114,9 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
         named_tensors = [(k, v) for k, v in params.items()]
         load_format = None
-        update_weights_batch_size = self.rollout_config.get("update_weights_batch_size", 16)
-        for batch in batched(named_tensors, update_weights_batch_size):
+        # convert megabytes to bytes
+        update_weights_bucket_bytes = int(self.rollout_config.update_weights_bucket_megabytes) << 20
+        for batch in get_named_tensor_buckets(named_tensors, update_weights_bucket_bytes):
             # On each rank, serialize a batch of (name, tensor) tuples.
             # named_tensors_batch will be a list like:
             # [(name0, serialized_tensor0_tp0), (name1, serialized_tensor1_tp0), ...]
@@ -148,7 +149,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
                 # This groups the serialized parts for each individual tensor across all TP ranks.
                 # Example: from [[(n0, t0_tp0), (n1, t1_tp0)], [(n0, t0_tp1), (n1, t1_tp1)]]
                 # to [ ( (n0, t0_tp0), (n0, t0_tp1) ), ( (n1, t1_tp0), (n1, t1_tp1) ) ]
-                logical_tensors = zip(*gathered_serialized_batches)
+                logical_tensors = zip(*gathered_serialized_batches, strict=False)
 
                 await self.inference_engine.update_weights_from_tensor(
                     named_tensors=[

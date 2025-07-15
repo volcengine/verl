@@ -234,7 +234,13 @@ class Gather(torch.autograd.Function):
         )
 
 
-def gather_outpus_and_unpad(
+def gather_outpus_and_unpad(*args, **kwargs):
+    raise RuntimeError(
+        "please use verl.utils.ulysses.gather_outputs_and_unpad instead of verl.utils.ulysses.gather_outpus_and_unpad"
+    )
+
+
+def gather_outputs_and_unpad(
     x: Tensor,
     gather_dim: int,
     unpad_dim: int = None,

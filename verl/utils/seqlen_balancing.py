@@ -14,10 +14,12 @@
 
 import copy
 import heapq
+from itertools import chain
 
 import torch
 from torch import distributed as dist
 
+from verl.protocol import DataProto
 from verl.utils.device import get_device_name
 
 
@@ -252,6 +254,7 @@ def rearrange_micro_batches(
     num_batches_divided_by=None,
     same_micro_num_in_dp=True,
     min_num_micro_batch=None,
+    use_dynamic_bsz_balance=True,
 ):
     """
     Split a batch into micro-batches by total token count, with optional DP sync and padding.
@@ -263,6 +266,7 @@ def rearrange_micro_batches(
         num_batches_divided_by (optional): virtual pipeline parallel size, for megatron.
         same_micro_num_in_dp (bool): if True and dp_group set, pad all ranks to the same count.
         min_num_micro_batch (int, optional): force at least this many splits (pads empty ones).
+        use_dynamic_bsz_balance (bool, optional): balance the computational workload between micro-batches
 
     Returns:
         List[TensorDict]: the micro-batches.
@@ -291,6 +295,16 @@ def rearrange_micro_batches(
     assert num_micro_batches <= len(seq_len_effective)
 
     micro_bsz_idx = get_seqlen_balanced_partitions(seq_len_effective, num_micro_batches, equal_size=False)
+
+    if use_dynamic_bsz_balance:
+        # Use the sum of squared sequence lengths to approximate attention computation workload
+        micro_bsz_idx.sort(
+            key=lambda partition: (
+                sum(seq_len_effective[idx] ** 2 for idx in partition),
+                min(partition) if partition else 0,
+            ),
+            reverse=True,
+        )
 
     micro_batches = []
 
@@ -321,3 +335,41 @@ def get_reverse_idx(idx_map):
         reverse_idx_map[idx] = i
 
     return reverse_idx_map
+
+
+def prepare_dynamic_batch(data: DataProto, max_token_len: int) -> tuple[list[DataProto], list[list[int]]]:
+    """
+    Prepare a batch for dynamic batching.
+
+    Args:
+        data (DataProto): The input data.
+        max_token_len (int): The maximum token length for dynamic batching.
+
+    Returns:
+        Tuple[List[DataProto], List[List[int]]]: A tuple containing a list of DataProto objects
+        and a list of index lists.
+    """
+    batch, batch_idx_list = rearrange_micro_batches(data.batch, max_token_len=max_token_len)
+    micro_batches = []
+    for i, batch_idx in enumerate(batch_idx_list):
+        tensors = dict(batch[i])
+        non_tensors = {key: value[batch_idx] for key, value in data.non_tensor_batch.items()}
+        micro_batches.append(DataProto.from_dict(tensors, non_tensors))
+
+    return micro_batches, batch_idx_list
+
+
+def restore_dynamic_batch(data: torch.Tensor, batch_idx_list: list[list[int]]) -> torch.Tensor:
+    """
+    Restore a batch from dynamic batching.
+
+    Args:
+        data (torch.Tensor): The input data.
+        batch_idx_list (List[List[int]]): The list of index lists.
+
+    Returns:
+        torch.Tensor: The restored data.
+    """
+    indices = list(chain.from_iterable(batch_idx_list))
+    revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+    return data[revert_indices]

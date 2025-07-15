@@ -67,5 +67,29 @@ class TestConfigOnCPU(unittest.TestCase):
         assert isinstance(cfg.model, TestDataclass)
 
 
+class TestPrintCfgCommand(unittest.TestCase):
+    """Test suite for the print_cfg.py command-line tool."""
+
+    def test_command_with_override(self):
+        """Test that the command runs without error when overriding config values."""
+        import subprocess
+
+        # Run the command
+        result = subprocess.run(
+            ["python3", "scripts/print_cfg.py", "critic.profiler.discrete=True", "+critic.profiler.extra.any_key=val"],
+            capture_output=True,
+            text=True,
+        )
+
+        # Verify the command exited successfully
+        self.assertEqual(result.returncode, 0, f"Command failed with stderr: {result.stderr}")
+
+        # Verify the output contains expected config information
+        self.assertIn("critic", result.stdout)
+        self.assertIn("profiler", result.stdout)
+        self.assertIn("discrete=True", result.stdout)
+        self.assertIn("extra={'any_key': 'val'}", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

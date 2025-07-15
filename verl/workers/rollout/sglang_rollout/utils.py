@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import pickle
-from typing import Any, Iterable, Iterator, List, Optional
+from typing import Any, Iterator, Optional
 
 import numpy as np
 import torch
@@ -68,36 +68,41 @@ def broadcast_pyobj(
         return data
 
 
-def batched(iterable: Iterable, n: int) -> Iterator[List]:
+def get_named_tensor_buckets(
+    iterable: Iterator[tuple[str, torch.Tensor]], bucket_bytes: int
+) -> Iterator[list[tuple[str, torch.Tensor]]]:
     """
-    Split an iterable into batches of size n.
+    Group tensors into buckets based on a specified size in megabytes.
 
     Args:
-        iterable: The input iterable to be batched
-        n: The size of each batch
+        iterable: An iterator of tuples containing tensor names and tensors.
+        bucket_bytes: The maximum size of each bucket in bytes.
 
     Yields:
-        Batches of size n from the input iterable
+        Lists of tuples, where each tuple contains a tensor name and its corresponding tensor.
 
     Example:
-        >>> list(batched([1, 2, 3, 4, 5], 2))
-        [[1, 2], [3, 4], [5]]
+        >>> tensors = [('tensor1', torch.randn(1000, 1000)), ('tensor2', torch.randn(2000, 2000))]
+        >>> for bucket in get_named_tensor_buckets(tensors, bucket_size_mb=10):
+        ...     print(bucket)
+        [('tensor1', tensor(...)), ('tensor2', tensor(...))]
+
     """
-    try:
-        # Try to use the built-in batched function from Python 3.13+
-        from itertools import batched as _batched
+    if bucket_bytes <= 0:
+        raise ValueError(f"bucket_bytes must be greater than 0, got {bucket_bytes}")
 
-        return _batched(iterable, n)
-    except ImportError:
-        # Fallback implementation for Python 3.12 and earlier
-        import itertools
+    current_bucket = []
+    current_size = 0
+    for name, tensor in iterable:
+        tensor_size = tensor.element_size() * tensor.numel()
+        if current_size + tensor_size > bucket_bytes:
+            if current_bucket:
+                yield current_bucket
+            current_bucket = [(name, tensor)]
+            current_size = tensor_size
+        else:
+            current_bucket.append((name, tensor))
+            current_size += tensor_size
 
-        if n < 1:
-            raise ValueError("batch size must be at least one") from None
-
-        it = iter(iterable)
-        while True:
-            chunk = list(itertools.islice(it, n))
-            if not chunk:
-                return
-            yield chunk
+    if current_bucket:
+        yield current_bucket
