@@ -24,5 +24,4 @@ uvicorn
 fastapi
 latex2sympy2_extended
 math_verify
-rocksdb-py
-pympler
+
