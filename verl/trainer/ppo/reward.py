@@ -166,6 +166,9 @@ def compute_reward_async(data: DataProto, config=None, tokenizer=None, reward_fn
     This is meant to be run in a separate Ray worker.
     """
     if reward_fn is None:
+        assert config is not None and tokenizer is not None, (
+            "config and tokenizer must not be None when reward_fn is None"
+        )
         reward_fn = load_reward_manager(config, tokenizer, num_examine=1)
-    
+
     return compute_reward(data, reward_fn)
