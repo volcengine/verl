@@ -57,6 +57,7 @@ SGLANG_REQUIRES = [
 ]
 TRL_REQUIRES = ["trl<=0.9.6"]
 MCORE_REQUIRES = ["mbridge"]
+REPLAY_BUFFER_REQUIRES = ["rocksdb-py", "pympler"]
 
 extras_require = {
     "test": TEST_REQUIRES,
@@ -68,6 +69,7 @@ extras_require = {
     "sglang": SGLANG_REQUIRES,
     "trl": TRL_REQUIRES,
     "mcore": MCORE_REQUIRES,
+    "replay_buffer": REPLAY_BUFFER_REQUIRES,
 }
 
 
