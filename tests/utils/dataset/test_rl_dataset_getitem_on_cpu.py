@@ -246,3 +246,57 @@ class TestRLHFDatasetGetItem:
         dataset = create_test_dataset(data_dict, tokenizer, basic_config, processor=mock_processor)
 
         _ = dataset[0]
+
+    def test_multi_modal_inputs_only_pops_second_per_grid_ts(self, tokenizer, basic_config):
+        """Test that only 'second_per_grid_ts' is popped from multi_modal_inputs when return_multi_modal_inputs is True"""
+
+        # Enable return_multi_modal_inputs
+        config = basic_config.copy()
+        config.return_multi_modal_inputs = True
+
+        # Create a fake PIL image
+        fake_image = Image.fromarray(np.zeros((32, 32, 3), dtype=np.uint8))
+
+        data_dict = {
+            "prompt": [[{"role": "user", "content": "Describe this <image>"}]],
+            "images": [[fake_image]],
+            "extra_info": [{"index": 0}],
+        }
+
+        # Mock processor that returns multi_modal_inputs with various keys including second_per_grid_ts
+        mock_processor = Mock()
+        mock_processor.apply_chat_template.return_value = "Describe this image"
+
+        # Create mock multi_modal_inputs with multiple keys including second_per_grid_ts
+        mock_multi_modal_inputs = {
+            "input_ids": torch.tensor([[1, 2, 3]]),
+            "attention_mask": torch.tensor([[1, 1, 1]]),
+            "pixel_values": torch.tensor([[[1.0]]]),
+            "second_per_grid_ts": torch.tensor([1.0, 2.0]),  # This should be popped
+            "other_key": torch.tensor([5.0]),  # This should remain
+            "another_key": "some_value",  # This should remain
+        }
+
+        mock_processor.return_value = mock_multi_modal_inputs
+        mock_processor.image_processor.__class__.__name__ = "SomeImageProcessor"
+
+        dataset = create_test_dataset(data_dict, tokenizer, config, processor=mock_processor)
+
+        result = dataset[0]
+
+        # Check that multi_modal_inputs is present in result
+        assert "multi_modal_inputs" in result
+
+        # Check that second_per_grid_ts was popped (not present in result)
+        assert "second_per_grid_ts" not in result["multi_modal_inputs"]
+
+        # Check that all other keys remain in multi_modal_inputs
+        assert "input_ids" in result["multi_modal_inputs"]
+        assert "attention_mask" in result["multi_modal_inputs"]
+        assert "pixel_values" in result["multi_modal_inputs"]
+        assert "other_key" in result["multi_modal_inputs"]
+        assert "another_key" in result["multi_modal_inputs"]
+
+        # Verify the values are correct for remaining keys
+        assert torch.equal(result["multi_modal_inputs"]["other_key"], torch.tensor([5.0]))
+        assert result["multi_modal_inputs"]["another_key"] == "some_value"
