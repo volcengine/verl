@@ -13,11 +13,12 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from verl.base_config import BaseConfig
 
 
-@dataclass(frozen=True)
+@dataclass
 class ProfilerConfig(BaseConfig):
     """Worker profiler config. Currently only support Nsight system profiler.
 
@@ -29,6 +30,9 @@ class ProfilerConfig(BaseConfig):
         all_ranks (bool): Whether to profile all ranks.
         ranks (list[int]): The ranks that will be profiled. Defaults to [].
     """
+
+    # the fields expected to be frozen
+    _frozen_fields: ClassVar[set[str]] = {"discrete", "all_ranks", "ranks"}
 
     discrete: bool = False
 

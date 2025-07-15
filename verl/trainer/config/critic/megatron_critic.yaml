@@ -113,6 +113,9 @@ megatron:
   # Random seed for Megatron
   seed: ${actor_rollout_ref.actor.megatron.seed}
 
+  # Allow to override Distributed Data Parallel (DDP) config
+  override_ddp_config: ${actor_rollout_ref.actor.megatron.override_ddp_config}
+
   # Transformer config overrides for Megatron
   override_transformer_config: ${actor_rollout_ref.actor.megatron.override_transformer_config}
 

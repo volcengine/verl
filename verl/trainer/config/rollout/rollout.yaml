@@ -1,4 +1,4 @@
-# actor_rollout_ref.rollout.name: hf/vllm/sglang.
+# actor_rollout_ref.rollout.name: hf/vllm/sglang. The default value will be removed in the future
 name: vllm
 
 # sync: LLM, async: AsyncLLM
@@ -178,3 +178,12 @@ agent:
 
     # Class name of the custom async server class (e.g. AsyncvLLMServer)
     name: null
+
+# trace rollout data
+trace:
+  
+  # trace backend, support mlflow, weave
+  backend: null
+
+  # whether translate token id to text in output
+  token2text: False
