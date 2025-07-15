@@ -57,7 +57,7 @@ class WorkerHelper:
             return sock.getsockname()[1]
 
     def get_availale_master_addr_port(self):
-        return self._get_node_ip(), str(self._get_free_port())
+        return self._get_node_ip().strip("[]"), str(self._get_free_port())
 
 
 # we assume that in each WorkerGroup, there is a Master Worker
