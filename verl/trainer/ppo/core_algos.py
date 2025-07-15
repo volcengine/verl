@@ -1003,7 +1003,7 @@ def compute_policy_loss_cispo(
         tuple: (pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower)
     """
     # setup cispo configs
-    assert config.loss_mode == 'cispo'
+    assert config.loss_mode == "cispo"
     cliprange = config.clip_ratio
     cliprange_low = config.clip_ratio_low if config.clip_ratio_low is not None else cliprange
     cliprange_high = config.clip_ratio_high if config.clip_ratio_high is not None else cliprange
@@ -1045,21 +1045,13 @@ def compute_policy_loss_cispo(
     pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
 
     # cispo specific loss
-    if config.loss_mode == 'cispo':
+    if config.loss_mode == "cispo":
         ratio = ratio.detach()
-        importance_sampling_weight = torch.clamp(
-            ratio,
-            max = 1 + clip_ratio_is_high,
-            min = 1 - clip_ratio_is_low
-        )
-        pos_adv_mask = (advantages > 0) & (
-            ratio > 1 + cliprange_high
-        )
-        neg_adv_mask = (advantages < 0) & (
-            ratio < 1 - cliprange_low
-        )
+        importance_sampling_weight = torch.clamp(ratio, max=1 + clip_ratio_is_high, min=1 - clip_ratio_is_low)
+        pos_adv_mask = (advantages > 0) & (ratio > 1 + cliprange_high)
+        neg_adv_mask = (advantages < 0) & (ratio < 1 - cliprange_low)
         adv_mask = ~(pos_adv_mask | neg_adv_mask)
-        pg_losses = - advantages * log_prob * importance_sampling_weight * adv_mask
+        pg_losses = -advantages * log_prob * importance_sampling_weight * adv_mask
 
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
