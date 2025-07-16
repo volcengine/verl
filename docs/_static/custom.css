@@ -149,8 +149,8 @@ html {
     scroll-margin-top: 60px;
 }
 
-/* Fix anchor scroll offset for any element with an ID */
-.rst-content *[id] {
+/* Fix anchor scroll offset for specific scroll targets */
+.rst-content .headerlink {
     scroll-margin-top: 60px;
 }
 

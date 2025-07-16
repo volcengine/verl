@@ -118,11 +118,8 @@ document.addEventListener('DOMContentLoaded', function() {
         saveWidth(currentWidth);
     });
     
-    // Handle window resize
-    window.addEventListener('resize', () => {
-        const currentWidth = parseInt(window.getComputedStyle(sidebar).width, 10);
-        applyWidth(currentWidth);
-    });
+    // Handle window resize - removed to prevent infinite loop
+    // The sidebar width is fixed and managed by drag functionality, no need to recalculate on window resize
     
     // Double-click to reset to default width
     resizeHandle.addEventListener('dblclick', () => {
@@ -132,14 +129,20 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Fix navigation issues - More aggressive approach
+// Fix navigation issues - Using MutationObserver for reliable initialization
 document.addEventListener('DOMContentLoaded', function() {
-    // First, let's try to prevent the problematic behavior immediately
-    setTimeout(function() {
-        console.log('Setting up navigation fix...');
+    let navigationFixed = false;
+    
+    function setupNavigationFix() {
+        if (navigationFixed) return;
         
         // Find all links in the sidebar
         const sidebarLinks = document.querySelectorAll('.wy-menu-vertical a');
+        
+        // Only proceed if we have sidebar links
+        if (sidebarLinks.length === 0) return;
+        
+        console.log('Setting up navigation fix...');
         
         sidebarLinks.forEach(function(link) {
             const href = link.getAttribute('href');
@@ -189,9 +192,12 @@ document.addEventListener('DOMContentLoaded', function() {
             link.parentNode.replaceChild(newLink, link);
         });
         
+        navigationFixed = true;
+        
         // Handle initial page load with hash
         if (window.location.hash) {
-            setTimeout(() => {
+            // Use requestAnimationFrame for better timing
+            requestAnimationFrame(() => {
                 const targetId = window.location.hash.substring(1);
                 const targetElement = document.getElementById(targetId);
                 if (targetElement) {
@@ -204,7 +210,42 @@ document.addEventListener('DOMContentLoaded', function() {
                         behavior: 'smooth'
                     });
                 }
-            }, 200);
+            });
         }
-    }, 1000); // Wait longer to ensure all other scripts are loaded
+    }
+    
+    // Try to set up navigation fix immediately
+    setupNavigationFix();
+    
+    // If it didn't work, use MutationObserver to watch for when sidebar links are added
+    if (!navigationFixed) {
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                    // Check if sidebar links were added
+                    const sidebarLinks = document.querySelectorAll('.wy-menu-vertical a');
+                    if (sidebarLinks.length > 0) {
+                        setupNavigationFix();
+                        if (navigationFixed) {
+                            observer.disconnect();
+                        }
+                    }
+                }
+            });
+        });
+        
+        // Start observing the document for changes
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+        
+        // Fallback timeout in case MutationObserver doesn't work
+        setTimeout(function() {
+            if (!navigationFixed) {
+                setupNavigationFix();
+            }
+            observer.disconnect();
+        }, 5000);
+    }
 });
