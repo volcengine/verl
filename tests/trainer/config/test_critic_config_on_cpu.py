@@ -37,19 +37,7 @@ class TestCriticConfig:
         yaml_path = config_dir / "critic.yaml"
         assert yaml_path.exists(), f"Config file not found: {yaml_path}"
 
-        config_data = OmegaConf.load(yaml_path)
-        
-        test_config = OmegaConf.create({
-            "_target_": config_data._target_,
-            "strategy": "fsdp",
-            "rollout_n": 4,
-            "optim": {"lr": 0.001},
-            "model": {"path": "~/models/test-model"},
-            "ppo_mini_batch_size": 2,
-            "ppo_max_token_len_per_gpu": 32768,
-            "cliprange_value": 0.5
-        })
-        
+        test_config = OmegaConf.load(yaml_path)
         critic_config = omega_conf_to_dataclass(test_config)
 
         assert isinstance(critic_config, CriticConfig)
@@ -70,23 +58,7 @@ class TestCriticConfig:
         yaml_path = config_dir / "megatron_critic.yaml"
         assert yaml_path.exists(), f"Config file not found: {yaml_path}"
 
-        config_data = OmegaConf.load(yaml_path)
-        
-        test_config = OmegaConf.create({
-            "_target_": config_data._target_,
-            "strategy": "megatron",
-            "rollout_n": 4,
-            "optim": {"lr": 0.001},
-            "model": {"path": "~/models/test-model"},
-            "ppo_mini_batch_size": 2,
-            "ppo_max_token_len_per_gpu": 32768,
-            "cliprange_value": 0.5,
-            "nccl_timeout": 600,
-            "megatron": {"seed": 42},
-            "load_weight": True,
-            "kl_ctrl": {}
-        })
-        
+        test_config = OmegaConf.load(yaml_path)
         megatron_config_obj = omega_conf_to_dataclass(test_config)
 
         assert isinstance(megatron_config_obj, MegatronCriticConfig)
@@ -105,23 +77,7 @@ class TestCriticConfig:
         yaml_path = config_dir / "dp_critic.yaml"
         assert yaml_path.exists(), f"Config file not found: {yaml_path}"
 
-        config_data = OmegaConf.load(yaml_path)
-        
-        test_config = OmegaConf.create({
-            "_target_": config_data._target_,
-            "strategy": "fsdp",
-            "rollout_n": 4,
-            "optim": {"lr": 0.001},
-            "model": {"path": "~/models/test-model"},
-            "ppo_mini_batch_size": 2,
-            "ppo_max_token_len_per_gpu": 32768,
-            "cliprange_value": 0.5,
-            "forward_micro_batch_size": 1,
-            "forward_micro_batch_size_per_gpu": 1,
-            "ulysses_sequence_parallel_size": 1,
-            "grad_clip": 1.0
-        })
-        
+        test_config = OmegaConf.load(yaml_path)
         fsdp_config_obj = omega_conf_to_dataclass(test_config)
 
         assert isinstance(fsdp_config_obj, FSDPCriticConfig)
