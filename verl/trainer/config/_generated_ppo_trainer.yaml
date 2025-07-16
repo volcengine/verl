@@ -300,6 +300,7 @@ critic:
     discrete: false
     all_ranks: false
     ranks: []
+  _target_: verl.trainer.config.config.FSDPCriticConfig
   forward_micro_batch_size: ${critic.ppo_micro_batch_size}
   forward_micro_batch_size_per_gpu: ${critic.ppo_micro_batch_size_per_gpu}
   ulysses_sequence_parallel_size: 1

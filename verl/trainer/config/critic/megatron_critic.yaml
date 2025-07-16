@@ -136,3 +136,6 @@ kl_ctrl:
 # Asynchronous checkpoint saving
 checkpoint:
   async_save: False
+
+# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+_target_: verl.trainer.config.config.MegatronCriticConfig
