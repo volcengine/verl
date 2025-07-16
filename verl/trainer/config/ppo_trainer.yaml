@@ -323,7 +323,11 @@ trainer:
   device: cuda
 
   # whether to use legacy role implementation
-  use_legacy_worker_impl: True
+  # mode: "auto", "enable", or "disable"
+  # "auto": at current development stage will enable legacy worker implemetation
+  # "enable": enable legacy worker implemetation
+  # "disable": disable legacy worker implemetation
+  use_legacy_worker_impl: auto
 
 # configs related to ray initialization
 ray_init:
