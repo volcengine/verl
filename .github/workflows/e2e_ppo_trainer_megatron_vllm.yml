@@ -139,6 +139,10 @@ jobs:
           exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"
           python -m verl.model_merger test --backend megatron --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
           python -m verl.model_merger test --backend megatron --is-value-model --local_dir checkpoints/verl-test/${exp_name}/global_step_1/critic --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/critic/huggingface
+      - name: Test Megatron distributed checkpoints merging function (DeepSeek)
+        run: |
+          exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"
+          torchrun --nproc_per_node 4 --nnodes 1  -m verl.model_merger merge --backend megatron --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --target_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/hf_model
       - name: Running GRPO GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Deepseek)
         run: |
           ray stop --force
