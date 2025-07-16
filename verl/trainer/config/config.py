@@ -87,7 +87,6 @@ class MegatronCriticConfig(CriticConfig):
         megatron (Dict[str, Any]): Megatron-specific parallelism settings.
         load_weight (bool): Whether to load initial weights.
         data_loader_seed (Optional[int]): Seed for data loader.
-        kl_ctrl (Dict[str, Any]): KL control settings.
     """
 
     _frozen_fields = CriticConfig._frozen_fields + [
@@ -101,7 +100,6 @@ class MegatronCriticConfig(CriticConfig):
     megatron: dict[str, Any] = field(default_factory=dict)
     load_weight: bool = True
     data_loader_seed: Optional[int] = None
-    kl_ctrl: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
