@@ -124,6 +124,60 @@ def _worker(rank, world_size, init_method, max_token_len, use_same_dp, min_mb):
     dist.destroy_process_group()
 
 
+def test_dataproto_split_uneven():
+    """Test DataProto.split with uneven splits"""
+    # Create test data with 10 items
+    input_ids = torch.randint(low=0, high=10, size=(10, 5))
+    attention_mask = torch.ones(10, 5)
+    data = {"input_ids": input_ids, "attention_mask": attention_mask}
+    dataproto = DataProto.from_single_dict(data)
+
+    # Test split with size 3 (should create chunks of [3, 3, 3, 1])
+    splits = dataproto.split(3)
+    assert len(splits) == 4
+    assert len(splits[0]) == 3
+    assert len(splits[1]) == 3
+    assert len(splits[2]) == 3
+    assert len(splits[3]) == 1
+
+    reconstructed = DataProto.concat(splits)
+    torch.testing.assert_close(reconstructed.batch["input_ids"], dataproto.batch["input_ids"])
+    torch.testing.assert_close(reconstructed.batch["attention_mask"], dataproto.batch["attention_mask"])
+
+    # Test split with size equal to length (should create one chunk)
+    splits = dataproto.split(10)
+    assert len(splits) == 1
+    assert len(splits[0]) == 10
+
+    # Test split with size larger than length (should create one chunk with all data)
+    splits = dataproto.split(15)
+    assert len(splits) == 1
+    assert len(splits[0]) == 10
+
+    # Test with non-tensor batch data
+    import numpy as np
+
+    data_with_non_tensor = {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "labels": np.array([f"label_{i}" for i in range(10)], dtype=object),
+    }
+    dataproto_with_non_tensor = DataProto.from_single_dict(data_with_non_tensor)
+
+    splits = dataproto_with_non_tensor.split(3)
+    assert len(splits) == 4
+    assert len(splits[0]) == 3
+    assert len(splits[1]) == 3
+    assert len(splits[2]) == 3
+    assert len(splits[3]) == 1
+
+    # Verify non-tensor data integrity
+    reconstructed = DataProto.concat(splits)
+    np.testing.assert_array_equal(
+        reconstructed.non_tensor_batch["labels"], dataproto_with_non_tensor.non_tensor_batch["labels"]
+    )
+
+
 def test_seqlen_balancing_distributed_params(tmp_path):
     world_size = 2
     init_file = tmp_path / "dist_init"
