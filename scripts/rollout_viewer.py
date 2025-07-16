@@ -51,11 +51,12 @@ def check_textual_version():
 check_textual_version()
 
 
-def get_jsonl_file_num(dir: Path) -> int:
-    return sum(1 for _ in dir.glob(f"*{FILE_SUFFIX}"))
+def load_first_step(path: Path, data: dict) -> tuple[int, dict]:
+    paths = list(path.glob(f"*{FILE_SUFFIX}"))
+    paths = sorted(paths, key=lambda x: int(x.stem))
 
 
-async def load_path(p: Path, data: dict, mask_strs: str, idx: int, pbar, event):
+async def load_path(p: Path, data: dict, mask_strs: str, idx: int, pbar):
     samples = []
     async with aiofiles.open(p, encoding="utf-8") as f:
         async for line in f:
@@ -72,17 +73,14 @@ async def load_path(p: Path, data: dict, mask_strs: str, idx: int, pbar, event):
         data[idx] = {"samples": samples}
 
     print(f"path {p} loaded")
-    event.set()
     pbar.advance(1)
 
 
-async def load_dir(path: Path, data: dict[int, dict], event, pbar, mask_strs: str = ""):
+async def load_dir(path: Path, data: dict[int, dict], pbar, mask_strs: str = ""):
     paths = list(path.glob(f"*{FILE_SUFFIX}"))
     paths = sorted(paths, key=lambda x: int(x.stem))
-    if not paths:
-        raise ValueError(f"no available reward dump files under f{path}")
 
-    tasks = [load_path(p, data, mask_strs, i, pbar, event) for i, p in enumerate(paths)]
+    tasks = [load_path(p, data, mask_strs, i, pbar) for i, p in enumerate(paths)]
 
     await asyncio.gather(*tasks)
 
@@ -179,6 +177,7 @@ class JsonLineViewer(App):
     def __init__(self, step_num: int, data: dict[int, dict], pbar):
         super().__init__()
         self.step_num = step_num
+
         self.data = data
         self.render_table = False
         self.selected_step_index = 0
@@ -306,7 +305,7 @@ class JsonLineViewer(App):
                     s = center_word_with_equals_exactly(k, 64) + f"\n{v}\n"
                     text.append(highlight_keyword(s, search_keyword))
                 content = self.highlighter(text)
-        except IndexError:
+        except KeyError:
             content = f"Loading data asynchronously, progress: {len(self.data)}/{self.step_num} step"
 
         except Exception:
@@ -456,16 +455,20 @@ class JsonLineViewer(App):
 
 async def _run(path: Path, mask_str: str):
     assert path.exists(), f"{path} not exist"
-    file_num = get_jsonl_file_num(path)
-    print(f"get json file nums: {file_num}")
-    pbar = ProgressBar(total=file_num, name="data load progress")
-    data = {}
 
-    data_ready_event = asyncio.Event()
-    await load_dir(path, data, data_ready_event, pbar, mask_str)
-    await data_ready_event.wait()
-    app = JsonLineViewer(step_num=file_num, data=data, pbar=pbar)
-    await app.run_async()
+    paths = list(path.glob(f"*{FILE_SUFFIX}"))
+    paths = sorted(paths, key=lambda x: int(x.stem))
+
+    if not paths:
+        raise ValueError(f"no available reward dump files under f{path}")
+
+    print(f"get jsonl file nums: {len(paths)}")
+
+    pbar = ProgressBar(total=len(paths), name="data load progress")
+    data = {}
+    await load_path(paths[0], data, mask_str, 0, pbar)
+    app = JsonLineViewer(step_num=len(paths), data=data, pbar=pbar)
+    await asyncio.gather(load_dir(path, data, pbar, mask_str), app.run_async())
 
 
 app = typer.Typer()
@@ -474,7 +477,7 @@ app = typer.Typer()
 @app.command(help="launch TUI APP")
 def run(
     rollout_data_dir: Path,
-    mask_str: Annotated[str, typer.Option(help="string that will be masked")] = "<\|image_pad\|>|<\|imgpad\|>",
+    mask_str: Annotated[str, typer.Option(help="string that will be masked to *")] = "<\|image_pad\|>|<\|imgpad\|>",
 ):
     loop = asyncio.get_event_loop()
     loop.run_until_complete(_run(rollout_data_dir, mask_str))
