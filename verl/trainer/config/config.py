@@ -43,6 +43,8 @@ class CriticConfig(BaseConfig):
         profiler (Dict[str, Any]): Profiler configuration.
     """
 
+    # For legacy reason configs related to batch_size are mutated in each role
+    # In the future they will be added to frozen fields instead
     _frozen_fields = [
         "rollout_n",
         "strategy",
