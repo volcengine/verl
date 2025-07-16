@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from pathlib import Path
 
 import pytest
+from hydra import compose, initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
 from verl.trainer.config.config import CriticConfig, FSDPCriticConfig, MegatronCriticConfig
@@ -27,27 +30,27 @@ class TestCriticConfig:
     @pytest.fixture
     def config_dir(self):
         """Get the path to the config directory."""
-        return Path(__file__).parent.parent.parent / "verl" / "trainer" / "config" / "critic"
+        return Path(__file__).parent.parent.parent.parent / "verl" / "trainer" / "config" / "critic"
 
     def test_critic_config_instantiation_from_yaml(self, config_dir):
-        """Test that CriticConfig can be instantiated using _target_ field."""
+        """Test that CriticConfig can be instantiated from critic.yaml."""
         yaml_path = config_dir / "critic.yaml"
         assert yaml_path.exists(), f"Config file not found: {yaml_path}"
 
-        config = OmegaConf.create(
-            {
-                "_target_": "verl.trainer.config.config.CriticConfig",
-                "strategy": "fsdp",
-                "rollout_n": 4,
-                "optim": {"lr": 0.001},
-                "model": {"path": "~/models/test-model"},
-                "ppo_mini_batch_size": 2,
-                "ppo_max_token_len_per_gpu": 32768,
-                "cliprange_value": 0.5,
-            }
-        )
-
-        critic_config = omega_conf_to_dataclass(config)
+        config_data = OmegaConf.load(yaml_path)
+        
+        test_config = OmegaConf.create({
+            "_target_": config_data._target_,
+            "strategy": "fsdp",
+            "rollout_n": 4,
+            "optim": {"lr": 0.001},
+            "model": {"path": "~/models/test-model"},
+            "ppo_mini_batch_size": 2,
+            "ppo_max_token_len_per_gpu": 32768,
+            "cliprange_value": 0.5
+        })
+        
+        critic_config = omega_conf_to_dataclass(test_config)
 
         assert isinstance(critic_config, CriticConfig)
 
@@ -63,28 +66,28 @@ class TestCriticConfig:
         assert callable(critic_config.get)
 
     def test_megatron_critic_config_instantiation_from_yaml(self, config_dir):
-        """Test that MegatronCriticConfig can be instantiated using _target_ field."""
+        """Test that MegatronCriticConfig can be instantiated from megatron_critic.yaml."""
         yaml_path = config_dir / "megatron_critic.yaml"
         assert yaml_path.exists(), f"Config file not found: {yaml_path}"
 
-        config = OmegaConf.create(
-            {
-                "_target_": "verl.trainer.config.config.MegatronCriticConfig",
-                "strategy": "megatron",
-                "rollout_n": 4,
-                "optim": {"lr": 0.001},
-                "model": {"path": "~/models/test-model"},
-                "ppo_mini_batch_size": 2,
-                "ppo_max_token_len_per_gpu": 32768,
-                "cliprange_value": 0.5,
-                "nccl_timeout": 600,
-                "megatron": {"seed": 42},
-                "load_weight": True,
-                "kl_ctrl": {},
-            }
-        )
-
-        megatron_config_obj = omega_conf_to_dataclass(config)
+        config_data = OmegaConf.load(yaml_path)
+        
+        test_config = OmegaConf.create({
+            "_target_": config_data._target_,
+            "strategy": "megatron",
+            "rollout_n": 4,
+            "optim": {"lr": 0.001},
+            "model": {"path": "~/models/test-model"},
+            "ppo_mini_batch_size": 2,
+            "ppo_max_token_len_per_gpu": 32768,
+            "cliprange_value": 0.5,
+            "nccl_timeout": 600,
+            "megatron": {"seed": 42},
+            "load_weight": True,
+            "kl_ctrl": {}
+        })
+        
+        megatron_config_obj = omega_conf_to_dataclass(test_config)
 
         assert isinstance(megatron_config_obj, MegatronCriticConfig)
 
@@ -98,28 +101,28 @@ class TestCriticConfig:
         assert megatron_config_obj.strategy == "megatron"
 
     def test_fsdp_critic_config_instantiation_from_yaml(self, config_dir):
-        """Test that FSDPCriticConfig can be instantiated using _target_ field."""
+        """Test that FSDPCriticConfig can be instantiated from dp_critic.yaml."""
         yaml_path = config_dir / "dp_critic.yaml"
         assert yaml_path.exists(), f"Config file not found: {yaml_path}"
 
-        config = OmegaConf.create(
-            {
-                "_target_": "verl.trainer.config.config.FSDPCriticConfig",
-                "strategy": "fsdp",
-                "rollout_n": 4,
-                "optim": {"lr": 0.001},
-                "model": {"path": "~/models/test-model"},
-                "ppo_mini_batch_size": 2,
-                "ppo_max_token_len_per_gpu": 32768,
-                "cliprange_value": 0.5,
-                "forward_micro_batch_size": 1,
-                "forward_micro_batch_size_per_gpu": 1,
-                "ulysses_sequence_parallel_size": 1,
-                "grad_clip": 1.0,
-            }
-        )
-
-        fsdp_config_obj = omega_conf_to_dataclass(config)
+        config_data = OmegaConf.load(yaml_path)
+        
+        test_config = OmegaConf.create({
+            "_target_": config_data._target_,
+            "strategy": "fsdp",
+            "rollout_n": 4,
+            "optim": {"lr": 0.001},
+            "model": {"path": "~/models/test-model"},
+            "ppo_mini_batch_size": 2,
+            "ppo_max_token_len_per_gpu": 32768,
+            "cliprange_value": 0.5,
+            "forward_micro_batch_size": 1,
+            "forward_micro_batch_size_per_gpu": 1,
+            "ulysses_sequence_parallel_size": 1,
+            "grad_clip": 1.0
+        })
+        
+        fsdp_config_obj = omega_conf_to_dataclass(test_config)
 
         assert isinstance(fsdp_config_obj, FSDPCriticConfig)
 
