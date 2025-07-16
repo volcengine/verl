@@ -132,7 +132,7 @@ class TaskRunner:
             if config.trainer.use_legacy_worker_impl:
                 # import warnings
                 # warnings.warn(f"Legacy worker impl is going to be deprecated, will be removed in the future. \
-                #               Please use the new worker impl supported for PPO trainer.")
+                #   Please set trainer.use_legacy_worker_impl = false to switch to the new worker implementation.")
                 from verl.workers.fsdp_workers import CriticWorker
             else:
                 from verl.workers.roles import CriticWorker

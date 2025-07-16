@@ -59,7 +59,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         self.engine.init_model()
 
 
-    def post_fn_values(self, micro_batch, preds):
+    def _post_fn_values(self, micro_batch, preds):
         response_length = micro_batch["responses"].size(-1)
         values = preds[:, -response_length - 1 : -1]
         
@@ -83,7 +83,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         with self.engine.eval_mode():
             data = self.engine.shard_data(data=data)
             output = self.engine.infer_batch(
-                data, post_fn=self.post_fn_values
+                data, post_fn=self._post_fn_values
             )
             response_mask = data.batch["response_mask"]
             values = output["values"] * response_mask  # Only action tokens have values
