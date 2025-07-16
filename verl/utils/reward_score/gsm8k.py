@@ -18,6 +18,12 @@ import re
 def extract_solution(solution_str, method="strict"):
     assert method in ["strict", "flexible"]
 
+    # Optimization: Regular expression matching on very long strings can be slow.
+    # For math problems, the final answer is usually at the end.
+    # We only match on the last 300 characters, which is a safe approximation for 300 tokens.
+    if len(solution_str) > 300:
+        solution_str = solution_str[-300:]
+
     if method == "strict":
         # this also tests the formatting of the model
         solutions = re.findall("#### (\\-?[0-9\\.\\,]+)", solution_str)
