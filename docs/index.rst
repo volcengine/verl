@@ -33,6 +33,7 @@ verl is fast with:
    start/multinode
    start/ray_debug_tutorial
    start/more_resources
+   start/agentic_rl
 
 .. toctree::
    :maxdepth: 2

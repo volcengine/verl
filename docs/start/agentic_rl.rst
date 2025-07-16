@@ -120,4 +120,4 @@ System Components
 +--------------------------+-----------------------------------------------------------------------------------------------+
 
 
-Follow :doc:`recipe/langgraph_agent/example/README.md`
+Follow doc "recipe/langgraph_agent/example/README.md" for more details.
