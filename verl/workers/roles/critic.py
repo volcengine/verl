@@ -35,7 +35,6 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 from verl.workers.engine import get_training_engine
-from verl.workers.roles.processor import get_processor_cls
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -61,14 +60,52 @@ class CriticWorker(Worker, DistProfilerExtension):
         self.engine.init_model()
 
 
+    def post_fn_values(self, micro_batch, preds):
+        response_length = micro_batch["responses"].size(-1)
+        values = preds[:, -response_length - 1 : -1]
+        
+        use_remove_padding = self.config.model.get("use_remove_padding", False)
+        if not use_remove_padding:
+            values = values.squeeze(-1)
+
+        return values, {"values": values.clone().detach()}
+
+
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @DistProfiler.annotate(color="cyan")
+    def compute_values(self, data: DataProto):
+        # Support all hardwares
+        data = data.to(get_device_id())
+        micro_batch_size = self.config.forward_micro_batch_size_per_gpu
+        data.meta_info["micro_batch_size"] = micro_batch_size
+        data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
+        data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
+
+        with self.engine.eval_mode():
+            data = self.engine.shard_data(data=data)
+            output = self.engine.infer_batch(
+                data, post_fn=self.post_fn_values
+            )
+            response_mask = data.batch["response_mask"]
+            values = output["values"] * response_mask  # Only action tokens have values
+            output = DataProto.from_dict(tensors={"values": values})
+
+            output = self.engine.unshard_data(data=output)
+        output = output.to("cpu")
+        return output
+
+
     def loss_fn(self, batch: DataProto, vpreds: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-        values = batch["values"]
+        old_values = batch["values"]
         returns = batch["returns"]
         response_mask = batch["response_mask"]
         micro_batch_metrics = {}
+
+        values, _ = self.post_fn_values(batch, vpreds)
+
         vf_loss, vf_clipfrac = core_algos.compute_value_loss(
-            vpreds=vpreds["values"],
-            values=values,
+            vpreds=values,
+            values=old_values,
             returns=returns,
             response_mask=response_mask,
             cliprange_value=self.config.cliprange_value,
@@ -84,35 +121,10 @@ class CriticWorker(Worker, DistProfilerExtension):
         micro_batch_metrics = {
             "critic/vf_loss": vf_loss.detach().item(),
             "critic/vf_clipfrac": vf_clipfrac.detach().item(),
-            "critic/vpred_mean": masked_mean(vpreds["values"], response_mask).detach().item(),
+            "critic/vpred_mean": masked_mean(values, response_mask).detach().item(),
         }
 
         return loss, micro_batch_metrics
-
-
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @DistProfiler.annotate(color="cyan")
-    def compute_values(self, data: DataProto):
-        # Support all hardwares
-        data = data.to(get_device_id())
-        micro_batch_size = self.config.forward_micro_batch_size_per_gpu
-        data.meta_info["micro_batch_size"] = micro_batch_size
-        data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
-        data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
-        processor = get_processor_cls("critic", self.config)(self.config)
-
-        with self.engine.eval_mode():
-            data = self.engine.shard_data(data=data)
-            output = self.engine.infer_batch(
-                data, processor=processor
-            )
-            response_mask = data.batch["response_mask"]
-            values = output["values"] * response_mask  # Only action tokens have values
-            output = DataProto.from_dict(tensors={"values": values})
-
-            output = self.engine.unshard_data(data=output)
-        output = output.to("cpu")
-        return output
 
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -147,14 +159,12 @@ class CriticWorker(Worker, DistProfilerExtension):
                 else:
                     dataloader = batch.split(self.config.ppo_mini_batch_size)
 
-                processor = get_processor_cls("critic", self.config)(self.config)
                 for epoch in range(self.config.ppo_epochs):
                     for batch_idx, mini_batch in enumerate(dataloader):
                         self.engine.optimizer_zero_grad()
                         mini_batch_metrics = self.engine.train_batch(
                             mini_batch, 
-                            self.loss_fn,
-                            processor=processor
+                            self.loss_fn
                         )
                         grad_norm = self.engine.optimizer_step()
                         mini_batch_metrics["critic/grad_norm"] = grad_norm.detach().item()

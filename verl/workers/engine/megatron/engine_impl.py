@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from ..base import BaseEngine
+from typing import Callable, Tuple, Dict
+import torch
 
 
 class MegatronEngine(BaseEngine):
@@ -41,33 +43,38 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-    def infer_batch(self, data, processor=None):
+
+    def infer_batch(self,
+                    data: DataProto,
+                    post_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]]
+                    ) -> Dict[str, torch.Tensor]:
         """
-        Perform inference on a mini batch of data using the FSDP-wrapped module.
+        Perform inference on a mini batch of data.
 
         Args:
             data: The input data for inference, typically containing tensors and metadata.
-            processor (optional): An optional processor object for preprocessing and postprocessing.
+            post_fn: A post-processing function that takes a micro-batch and predictions as input,
+                     and returns a tuple containing processed predictions and a dictionary of outputs.
 
         Returns:
-            torch.Tensor: The concatenated predictions from all micro-batches.
+            Dict[str, torch.Tensor]: A dictionary containing the predictions for the entire batch.
         """
         raise NotImplementedError
 
+
     def train_batch(self,
                     data: DataProto,
-                    loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
-                    processor : MicroBatchProcessor = None) -> Dict[str, torch.Tensor]:
+                    loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]]
+                    ) -> Dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
 
         Args:
-            data: The input data for training, typically containing tensors and metadata.
-            metrics: A dictionary to store training metrics.
-            processor (optional): An optional processor object for preprocessing and postprocessing.
+            data (DataProto): The input data for training, typically containing tensors and metadata.
+            loss_fn (Callable): A function that computes the loss and metrics given a micro-batch and predictions.
 
         Returns:
-            tuple: A tuple containing lists of value predictions, losses, and updated metrics.
+            Dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
         """
         raise NotImplementedError
 

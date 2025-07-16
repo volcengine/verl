@@ -61,8 +61,18 @@ from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 from verl.utils.py_functional import append_to_dict
+from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 
-from ..base import BaseEngine, MicroBatchProcessor
+from verl.utils.device import (
+    is_cuda_available,
+    is_npu_available,
+)
+if is_cuda_available:
+    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
+elif is_npu_available:
+    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
+
+from ..base import BaseEngine
 from .utils import create_device_mesh, get_sharding_strategy
 
 logger = logging.getLogger(__file__)
@@ -96,6 +106,7 @@ class FSDPEngine(BaseEngine):
 
         fsdp_size = self.config.model.fsdp_config.fsdp_size
         self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=fsdp_size)
+        self.use_remove_padding = config.model.get("use_remove_padding", False)
 
         self.ulysses_device_mesh = None
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
@@ -228,11 +239,9 @@ class FSDPEngine(BaseEngine):
                 config.model.get("trust_remote_code", False),
             )
 
-            use_remove_padding = config.model.get("use_remove_padding", False)
-
             apply_monkey_patch(
                 model=module,
-                use_remove_padding=use_remove_padding,
+                use_remove_padding=self.use_remove_padding,
                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
             )
 
@@ -394,18 +403,101 @@ class FSDPEngine(BaseEngine):
         }
         return ctx
 
+
+    def _forward_micro_batch(self, micro_batch):
+        multi_modal_inputs = {}
+        if "multi_modal_inputs" in micro_batch.keys():
+            for key in micro_batch["multi_modal_inputs"][0].keys():
+                multi_modal_inputs[key] = torch.cat(
+                    [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
+                )
+
+        with torch.autocast(device_type=device_name, dtype=torch.bfloat16):
+            input_ids = micro_batch["input_ids"]
+            batch, seqlen = input_ids.shape
+            attention_mask = micro_batch["attention_mask"]
+            position_ids = micro_batch["position_ids"]
+            if position_ids.dim() == 3:  # qwen2vl mrope
+                position_ids = position_ids.transpose(0, 1)
+
+            if self.use_remove_padding:
+                input_ids_rmpad, indices, *_ = unpad_input(
+                    input_ids.unsqueeze(-1), attention_mask
+                )  # input_ids_rmpad (total_nnz, ...)
+                input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
+
+                # unpad the position_ids to align the rotary
+                if position_ids.dim() == 3:
+                    position_ids_rmpad = (
+                        index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
+                        .transpose(0, 1)
+                        .unsqueeze(1)
+                    )  # (3, bsz, seqlen) -> (3, 1, bsz * seqlen)
+                else:
+                    position_ids_rmpad = index_first_axis(
+                        rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
+                    ).transpose(0, 1)
+
+                # pad and slice the inputs if sp > 1
+                if self.ulysses_sequence_parallel_size > 1:
+                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
+                        input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size
+                    )
+
+                # only pass input_ids and position_ids to enable flash_attn_varlen
+                preds = self.module(
+                    input_ids=input_ids_rmpad,
+                    attention_mask=None,
+                    position_ids=position_ids_rmpad,
+                    **multi_modal_inputs,
+                    use_cache=False,
+                )  # prevent model thinks we are generating
+
+                if hasattr(self.module, "v_head"):
+                    # For trl.AutoModelForCausalLMWithValueHead
+                    preds_rmpad = preds[2].squeeze(0).unsqueeze(-1)
+                else:
+                    preds_rmpad = preds.logits
+                    preds_rmpad = preds_rmpad.squeeze(0)  # (total_nnz)
+
+                # gather output if sp > 1
+                if self.ulysses_sequence_parallel_size > 1:
+                    preds_rmpad = gather_outpus_and_unpad(
+                        preds_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size
+                    )
+
+                # pad it back
+                preds = pad_input(preds_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
+            else:
+                preds = self.module(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    **multi_modal_inputs,
+                    use_cache=False,
+                )  # prevent model thinks we are generating
+                if hasattr(self.module, "v_head"):
+                    # For trl.AutoModelForCausalLMWithValueHead
+                    preds = preds[2]
+                else:
+                    preds = preds.logits
+
+            return preds
+
     def infer_batch(self,
                     data: DataProto,
-                    processor: MicroBatchProcessor = None) -> Dict[str, torch.Tensor]:
+                    post_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]]
+                    ) -> Dict[str, torch.Tensor]:
         """
-        Perform inference on a mini batch of data using the FSDP-wrapped module.
+        Perform inference on a mini batch of data.
 
         Args:
             data: The input data for inference, typically containing tensors and metadata.
-            processor (optional): An optional processor object for preprocessing and postprocessing.
+            post_fn: A post-processing function that takes a micro-batch and predictions as input,
+                     and returns a tuple containing processed predictions and a dictionary of outputs.
 
         Returns:
-            torch.Tensor: The concatenated predictions from all micro-batches.
+            Dict[str, torch.Tensor]: A dictionary containing the predictions for the entire batch.
         """
         assert self.mode == "eval"
         micro_batch_size = data.meta_info["micro_batch_size"]
@@ -426,35 +518,21 @@ class FSDPEngine(BaseEngine):
             micro_batches = batch.split(micro_batch_size)
 
         preds_list = {}
-        processor.engine_info["use_value_head_model"] = hasattr(self.module, "v_head")
         for micro_batch in micro_batches:
             if isinstance(micro_batch, DataProto):
                 micro_batch = {**micro_batch.batch, **micro_batch.non_tensor_batch}
 
             with torch.no_grad():
-                # optional microbatch preprocess
-                if processor is not None:
-                    inputs = processor.preprocess(micro_batch)
-                else:
-                    inputs = batch
-
-                # forward execution
-                inputs["use_cache"] = False
-                # outputs would be <class 'transformers.modeling_outputs.TokenClassifierOutput'>
-                outputs = self.module(**inputs)
-
-                # optional microbatch postprocess
-                # preds would be a Dict[str, torch.Tensor]
-                if processor is not None:
-                    micro_batch_preds = processor.postprocess(outputs)
-                else:
-                    micro_batch_preds = outputs
+                # micro_batch_preds would be a Dict[str, torch.Tensor]
+                preds = self._forward_micro_batch(micro_batch)
+                _, outputs = post_fn(micro_batch, preds)
+                assert isinstance(outputs, dict)
 
             # append micro batch preds to Dict[str, List[torch.Tensor]]
-            append_to_dict(preds_list, micro_batch_preds)
+            append_to_dict(preds_list, outputs)
 
-        # reorganize mini batch preds from Dict[str, List[torch.Tensor]] 
-        # to Dict[str, torch.Tensor]
+        # reorganize mini batch preds from 
+        # Dict[str, List[torch.Tensor]] to Dict[str, torch.Tensor]
         mini_batch_preds = {}
         for key, t_list in preds_list.items():
             t_concat = torch.concat(t_list, dim=0)
@@ -472,18 +550,17 @@ class FSDPEngine(BaseEngine):
 
     def train_batch(self,
                     data: DataProto,
-                    loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
-                    processor: MicroBatchProcessor = None) -> Dict[str, torch.Tensor]:
+                    loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]]
+                    ) -> Dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
 
         Args:
-            data: The input data for training, typically containing tensors and metadata.
-            metrics: A dictionary to store training metrics.
-            processor (optional): An optional processor object for preprocessing and postprocessing.
+            data (DataProto): The input data for training, typically containing tensors and metadata.
+            loss_fn (Callable): A function that computes the loss and metrics given a micro-batch and predictions.
 
         Returns:
-            tuple: A tuple containing lists of value predictions, losses, and updated metrics.
+            Dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
         """
         assert self.mode == "train"
         # split batch into micro_batches
@@ -501,10 +578,7 @@ class FSDPEngine(BaseEngine):
             micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
             self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
 
-        vpreds_list = []
-        losses = []
         mini_batch_metrics = {}
-        processor.engine_info["use_value_head_model"] = hasattr(self.module, "v_head")
         for micro_batch in micro_batches:
             # Support all devices
             if isinstance(micro_batch, DataProto):
@@ -512,22 +586,7 @@ class FSDPEngine(BaseEngine):
             else:
                 micro_batch = micro_batch.to(get_device_id())  # critic device is cpu when using offload
 
-            # optional microbatch preprocess
-            if processor is not None:
-                inputs = processor.preprocess(micro_batch)
-            else:
-                inputs = micro_batch
-
-            # forward execution
-            inputs["use_cache"] = False
-            outputs = self.module(**inputs)
-
-            # optional microbatch postprocess
-            if processor is not None:
-                preds = processor.postprocess(outputs)
-            else:
-                preds = outputs
-
+            preds = self._forward_micro_batch(micro_batch)
             loss, micro_batch_metrics = loss_fn(micro_batch, preds)
             append_to_dict(mini_batch_metrics, micro_batch_metrics)
             loss.backward()

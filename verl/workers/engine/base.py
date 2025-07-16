@@ -19,68 +19,6 @@ import torch
 from verl import DataProto
 
 
-class MicroBatchProcessor:
-    def __init__(self):
-        """
-        Initialize the MicroBatchProcessor instance.
-
-        This method is intended to set up the initial state of the MicroBatchProcessor.
-        However, as it's a base class, the concrete implementation is left to the subclasses.
-        Any subclass of MicroBatchProcessor should override this method to provide
-        specific initialization logic.
-
-        Raises:
-            NotImplementedError: Always raised because this is an abstract initialization method.
-        """
-        raise NotImplementedError
-
-
-    def preprocess(self, batch):
-        """
-        Preprocess a micro-batch of data before passing it to the model.
-
-        This is an abstract method that should be implemented by subclasses.
-        The implementation should transform the input batch data into a format
-        suitable for the model.
-
-        Args:
-            batch: A micro-batch of data, typically a dictionary containing tensors
-                   and metadata. The exact structure depends on the specific use case.
-
-        Returns:
-            dict: A dictionary containing the preprocessed input data ready for the model.
-
-        Raises:
-            NotImplementedError: This base method does not provide an implementation.
-                                 Subclasses must override this method.
-        """
-        raise NotImplementedError
-
-
-    def postprocess(self, outputs):
-        """
-        Postprocess the raw outputs from the model.
-
-        This is an abstract method that should be implemented by subclasses.
-        The implementation should transform the raw model outputs into a more
-        usable format, such as extracting relevant information or performing
-        additional calculations.
-
-        Args:
-            outputs: The raw outputs from the model. The exact structure depends
-                     on the specific model and task.
-
-        Returns:
-            The post-processed outputs. The return type depends on the specific
-            implementation in subclasses.
-
-        Raises:
-            NotImplementedError: This base method does not provide an implementation.
-                                 Subclasses must override this method.
-        """
-        raise NotImplementedError
-
-
 class BaseEngine:
     """
     Abstract base class defining the interface for model training engines.
@@ -127,32 +65,34 @@ class BaseEngine:
 
     def infer_batch(self,
                     data: DataProto,
-                    processor: MicroBatchProcessor = None) -> Dict[str, torch.Tensor]:
+                    post_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]]
+                    ) -> Dict[str, torch.Tensor]:
         """
-        Perform inference on a mini batch of data using the FSDP-wrapped module.
+        Perform inference on a mini batch of data.
 
         Args:
             data: The input data for inference, typically containing tensors and metadata.
-            processor (optional): An optional processor object for preprocessing and postprocessing.
+            post_fn: A post-processing function that takes a micro-batch and predictions as input,
+                     and returns a tuple containing processed predictions and a dictionary of outputs.
 
         Returns:
-            torch.Tensor: The concatenated predictions from all micro-batches.
+            Dict[str, torch.Tensor]: A dictionary containing the predictions for the entire batch.
         """
         raise NotImplementedError
 
     def train_batch(self,
                     data: DataProto,
-                    loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
-                    processor : MicroBatchProcessor = None) -> Dict[str, torch.Tensor]:
+                    loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]]
+                    ) -> Dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
 
         Args:
-            data: The input data for training, typically containing tensors and metadata.
-            processor (optional): An optional processor object for preprocessing and postprocessing.
+            data (DataProto): The input data for training, typically containing tensors and metadata.
+            loss_fn (Callable): A function that computes the loss and metrics given a micro-batch and predictions.
 
         Returns:
-            metrics.
+            Dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
         """
         raise NotImplementedError
 
