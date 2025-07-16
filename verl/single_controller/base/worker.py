@@ -18,11 +18,10 @@ the class for Worker
 import os
 import socket
 from dataclasses import dataclass
-from typing import Dict
 
 import ray
 
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_torch_device, get_visible_devices_keyword
 
 from .decorator import Dispatch, Execute, register
 
@@ -44,33 +43,21 @@ class DistGlobalInfo:
 
 
 class WorkerHelper:
-    def _get_node_ip(self):
-        def get_node_ip_by_sdk():
-            if os.getenv("WG_BACKEND", None) == "ray":
-                import ray
+    @staticmethod
+    def _get_node_ip():
+        if os.getenv("WG_BACKEND", None) == "ray":
+            return ray.util.get_node_ip_address()
+        else:
+            raise NotImplementedError("WG_BACKEND now just support ray mode.")
 
-                return ray._private.services.get_node_ip_address()
-            else:
-                raise NotImplementedError("WG_BACKEND now just support ray mode.")
-
-        host_ipv4 = os.getenv("MY_HOST_IP", None)
-        host_ipv6 = os.getenv("MY_HOST_IPV6", None)
-        host_ip_by_env = host_ipv4 or host_ipv6
-        host_ip_by_sdk = get_node_ip_by_sdk()
-
-        host_ip = host_ip_by_env or host_ip_by_sdk
-        return host_ip
-
-    def _get_free_port(self):
+    @staticmethod
+    def _get_free_port():
         with socket.socket() as sock:
             sock.bind(("", 0))
             return sock.getsockname()[1]
 
     def get_availale_master_addr_port(self):
-        return self._get_node_ip(), str(self._get_free_port())
-
-    def _get_pid(self):
-        return os.getpid()
+        return self._get_node_ip().strip("[]"), str(self._get_free_port())
 
 
 # we assume that in each WorkerGroup, there is a Master Worker
@@ -144,7 +131,7 @@ class Worker(WorkerHelper):
             "LOCAL_RANK",
             "MASTER_ADDR",
             "MASTER_PORT",
-            "CUDA_VISIBLE_DEVICES",
+            get_visible_devices_keyword().upper(),
         ]
 
     def __init__(self, cuda_visible_devices=None) -> None:
@@ -180,7 +167,7 @@ class Worker(WorkerHelper):
             "_master_port": master_port,
         }
         if cuda_visible_devices is not None:
-            store["_cuda_visible_devices"] = cuda_visible_devices
+            store[f"_{get_visible_devices_keyword()}".lower()] = cuda_visible_devices
 
         self._configure_with_store(store=store)
 
@@ -218,6 +205,7 @@ class Worker(WorkerHelper):
             else:
                 cuda_val = val
                 os.environ["CUDA_VISIBLE_DEVICES"] = val
+                # os.environ["HIP_VISIBLE_DEVICES"] = val
 
         if rocr_val:
             # You must take care if both HIP/CUDA and ROCR env vars are set as they have
@@ -245,7 +233,7 @@ class Worker(WorkerHelper):
             os.environ["LOCAL_RANK"] = local_rank
             get_torch_device().set_device(int(local_rank))
 
-    def _configure_with_store(self, store: Dict):
+    def _configure_with_store(self, store: dict):
         """
         This function should only be called inside by WorkerGroup
         """
@@ -269,8 +257,8 @@ class Worker(WorkerHelper):
         """Get the CUDA visible devices configuration."""
         import os
 
-        cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "not set")
-        return cuda_visible_devices
+        visible_devices = os.environ.get(get_visible_devices_keyword().upper(), "not set")
+        return visible_devices
 
     @property
     def world_size(self):

@@ -175,7 +175,6 @@ Now you can submit the training job to the Ray cluster which is available at ``l
         trainer.project_name=ppo_training \
         trainer.experiment_name=qwen-2.5-7B \
         trainer.val_before_train=False \
-        trainer.default_hdfs_dir=null \
         trainer.n_gpus_per_node=8 \
         trainer.nnodes=2 \
         trainer.default_local_dir=/checkpoints \
@@ -571,7 +570,7 @@ slurm_script.sh
         critic.model.fsdp_config.optimizer_offload=False \
         algorithm.kl_ctrl.kl_coef=0.0001 \
         trainer.critic_warmup=0 \
-        trainer.logger=['console','wandb'] \
+        trainer.logger='["console","wandb"]' \
         trainer.project_name='verl_example' \
         trainer.experiment_name='Qwen2.5-32B-Instruct_function_rm' \
         trainer.n_gpus_per_node=${SLURM_GPUS_PER_NODE} \

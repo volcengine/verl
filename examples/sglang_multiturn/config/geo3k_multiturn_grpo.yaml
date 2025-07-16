@@ -11,6 +11,7 @@ data:
   max_response_length: 2048
   train_batch_size: 256
   return_raw_chat: True
+  return_multi_modal_inputs: False
 
 actor_rollout_ref:
   hybrid_engine: True
@@ -20,5 +21,5 @@ actor_rollout_ref:
     name: sglang
     multi_turn:
       enable: True
-      max_turns: 5
+      max_assistant_turns: 5
       # tool_config_path: "./config/tool_config/gsm8k_tool_config.yaml"

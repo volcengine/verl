@@ -74,6 +74,7 @@ verl is fast with:
    algo/entropy.md
    algo/opo.md
    algo/baseline.md
+   algo/gpg.md
 
 .. toctree::
    :maxdepth: 1
@@ -113,6 +114,7 @@ verl is fast with:
    advance/placement
    advance/dpo_extension
    examples/sandbox_fusion_example
+   advance/rollout_trace.rst
 
 .. toctree::
    :maxdepth: 1
@@ -121,6 +123,8 @@ verl is fast with:
    amd_tutorial/amd_build_dockerfile_page.rst
    amd_tutorial/amd_vllm_page.rst
    ascend_tutorial/ascend_quick_start.rst
+   ascend_tutorial/ascend_profiling.rst
+   ascend_tutorial/ascend_profiling_en.rst
 
 .. toctree::
    :maxdepth: 1

@@ -17,15 +17,14 @@ import os
 import threading
 from contextlib import ExitStack
 from enum import Enum
-from typing import Any, Callable, Optional, Tuple, TypeVar
+from typing import Any, Callable, Optional, TypeVar
 from uuid import uuid4
 
 import ray
-import ray.actor
-import ray.util.multiprocessing
 
 from verl.tools.base_tool import BaseTool
 from verl.utils.reward_score.sandbox_fusion.utils import _process_single_case
+from verl.utils.rollout_trace import rollout_trace_op
 
 from .schemas import OpenAIFunctionToolSchema
 
@@ -163,7 +162,8 @@ class SandboxFusionTool(BaseTool):
         }
         return instance_id
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    @rollout_trace_op
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         code = parameters.get("code", "")
         timeout = parameters.get("timeout", self.default_timeout)
         language = parameters.get("language", self.default_language)
@@ -171,8 +171,8 @@ class SandboxFusionTool(BaseTool):
             code = str(code)
 
         result = await self.execution_pool.execute.remote(self.execute_code, instance_id, code, timeout, language)
-
-        return result, result, result.strip()
+        # sandbox has no score or metrics, use Nones
+        return result, None, None
 
     def execute_code(self, instance_id, code, timeout=30, language="python"):
         result_status, metadata = _process_single_case(
@@ -180,7 +180,7 @@ class SandboxFusionTool(BaseTool):
         )
         # we should always expect this since we don't have correct answer
         if metadata["run_status"] == "Finished":
-            actual_output = metadata["stdout"] if metadata["stdout"] is not None else ""
+            actual_output = metadata["stdout"] + metadata["stderr"]
             logger.debug(f"actual_output from sandbox fusion: {actual_output},{instance_id}")
             return actual_output
         else:

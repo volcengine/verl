@@ -58,16 +58,29 @@ def validate_yaml_format(yaml_lines):
 
 
 def test_trainer_config_doc():
-    yaml_path = Path("verl/trainer/config/ppo_trainer.yaml")  # path to your YAML file
-    with open(yaml_path) as f:
-        lines = f.readlines()
+    yamls_to_inspect = [
+        "verl/trainer/config/ppo_trainer.yaml",
+        "verl/trainer/config/actor/actor.yaml",
+        "verl/trainer/config/actor/dp_actor.yaml",
+        "verl/trainer/config/ref/ref.yaml",
+        "verl/trainer/config/ref/dp_ref.yaml",
+        "verl/trainer/config/rollout/rollout.yaml",
+    ]
+    success = True
+    for yaml_to_inspect in yamls_to_inspect:
+        yaml_path = Path(yaml_to_inspect)  # path to your YAML file
+        with open(yaml_path) as f:
+            lines = f.readlines()
 
-    validation_errors = validate_yaml_format(lines)
-    if validation_errors:
-        print("YAML documentation format check failed:")
-        print("Please read the top block of `verl/trainer/config/ppo_trainer.yaml` to see format rules:\n")
-        for err in validation_errors:
-            print(" -", err)
+        validation_errors = validate_yaml_format(lines)
+        if validation_errors:
+            success = False
+            print("YAML documentation format check failed:")
+            print(f"Please read the top block of {yaml_to_inspect} to see format rules:\n")
+            for err in validation_errors:
+                print(" -", err)
+
+    if not success:
         raise Exception("Please fix documentation format.")
     else:
         print("YAML format check passed ✅")

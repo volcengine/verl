@@ -18,7 +18,8 @@ Utilities to create common models from huggingface
 import os
 import re
 import warnings
-from typing import Dict, Optional, Type
+from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 import torch
@@ -31,6 +32,7 @@ from transformers import (
     PretrainedConfig,
     PreTrainedModel,
 )
+from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from verl.models.registry import ModelRegistry
 from verl.utils.import_utils import is_trl_available
@@ -62,10 +64,10 @@ def update_model_config(module_config, override_config_kwargs):
             setattr(module_config, key, val)
 
 
-def get_huggingface_actor_config(model_name: str, override_config_kwargs=None, trust_remote_code=False) -> Dict:
+def get_huggingface_actor_config(model_name: str, override_config_kwargs=None, trust_remote_code=False) -> dict:
     if override_config_kwargs is None:
         override_config_kwargs = {}
-    assert isinstance(override_config_kwargs, Dict), (
+    assert isinstance(override_config_kwargs, dict), (
         f"override_config_kwargs must be a dict, got {type(override_config_kwargs)}"
     )
     module_config = AutoConfig.from_pretrained(model_name, trust_remote_code=trust_remote_code)
@@ -105,7 +107,7 @@ def create_huggingface_actor(model_name: str, override_config_kwargs=None, autom
         override_config_kwargs = {}
     if automodel_kwargs is None:
         automodel_kwargs = {}
-    assert isinstance(override_config_kwargs, Dict), (
+    assert isinstance(override_config_kwargs, dict), (
         f"override_config_kwargs must be a dict, got {type(override_config_kwargs)}"
     )
     module_config = get_huggingface_actor_config(
@@ -218,7 +220,7 @@ def compute_position_id_with_mask(mask):
     return torch.clip(torch.cumsum(mask, dim=-1) - 1, min=0, max=None)
 
 
-def convert_weight_keys(state_dict: Dict[str, torch.Tensor], model: PreTrainedModel):
+def convert_weight_keys(state_dict: dict[str, torch.Tensor], model: PreTrainedModel):
     # convert state dict keys: https://github.com/huggingface/transformers/pull/38385
     if not hasattr(model, "_checkpoint_conversion_mapping"):
         return state_dict
@@ -376,7 +378,7 @@ def get_parallel_model_from_config(
     return model
 
 
-def _get_parallel_model_architecture_from_config(config: PretrainedConfig, value=False) -> Type[nn.Module]:
+def _get_parallel_model_architecture_from_config(config: PretrainedConfig, value=False) -> type[nn.Module]:
     architectures = getattr(config, "architectures", [])
     for arch in architectures:
         model_cls = ModelRegistry.load_model_cls(arch, value)
@@ -441,6 +443,19 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
             state_dict = model.state_dict()
 
     return architectures, model, state_dict, is_value_model
+
+
+def get_hf_model_path(config, local_cache_path="~/.cache/verl/rlhf"):
+    local_cache_path = os.path.expanduser(local_cache_path)
+    if config.model.path.startswith("hdfs:"):
+        from verl.utils.fs import copy_to_local
+
+        local_model_path = copy_to_local(
+            src=config.model.path, cache_dir=local_cache_path, use_shm=config.model.get("use_shm", False)
+        )
+    else:
+        local_model_path = config.model.path
+    return local_model_path
 
 
 def load_megatron_model_weights(
@@ -641,3 +656,9 @@ def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_cod
     model = AutoModelForCausalLMWithValueHead.from_pretrained(ori_model)
     patch_valuehead_model(model)
     return model
+
+
+@dataclass
+class CausalLMOutputForPPO(CausalLMOutputWithPast):
+    log_probs: Optional[torch.FloatTensor] = None
+    entropy: Optional[torch.FloatTensor] = None

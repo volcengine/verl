@@ -22,17 +22,33 @@ import hydra
 import ray
 from omegaconf import OmegaConf
 
+from verl.experimental.dataset.sampler import AbstractSampler
+from verl.trainer.constants_ppo import PPO_RAY_RUNTIME_ENV
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
+from verl.utils.device import is_cuda_available
+from verl.utils.import_utils import load_extern_type
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
 def main(config):
+    """Main entry point for PPO training with Hydra configuration management.
+
+    Args:
+        config_dict: Hydra configuration dictionary containing training parameters.
+    """
     run_ppo(config)
 
 
 # Define a function to run the PPO-like training process
 def run_ppo(config) -> None:
+    """Initialize Ray cluster and run distributed PPO training process.
+
+    Args:
+        config: Training configuration object containing all necessary parameters
+                for distributed PPO training including Ray initialization settings,
+                model paths, and training hyperparameters.
+    """
     # Check if Ray is not initialized
     if not ray.is_initialized():
         # Initialize Ray with a local cluster configuration
@@ -40,22 +56,16 @@ def run_ppo(config) -> None:
         # NCCL debug level, VLLM logging level, and allow runtime LoRA updating
         # `num_cpus` specifies the number of CPU cores Ray can use, obtained from the configuration
         ray.init(
-            runtime_env={
-                "env_vars": {
-                    "TOKENIZERS_PARALLELISM": "true",
-                    "NCCL_DEBUG": "WARN",
-                    "VLLM_LOGGING_LEVEL": "WARN",
-                    "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "true",
-                }
-            },
+            runtime_env=PPO_RAY_RUNTIME_ENV,
             num_cpus=config.ray_init.num_cpus,
         )
 
     # Create a remote instance of the TaskRunner class, and
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
     if (
-        OmegaConf.select(config.trainer, "profile_steps") is not None
-        and len(OmegaConf.select(config.trainer, "profile_steps")) > 0
+        is_cuda_available
+        and config.trainer.get("profile_steps") is not None
+        and len(config.trainer.get("profile_steps", [])) > 0
     ):
         nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
@@ -72,7 +82,22 @@ def run_ppo(config) -> None:
 
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
 class TaskRunner:
+    """Ray remote class for executing distributed PPO training tasks.
+
+    This class encapsulates the main training logic and runs as a Ray remote actor
+    to enable distributed execution across multiple nodes and GPUs.
+    """
+
     def run(self, config):
+        """Execute the main PPO training workflow.
+
+        This method sets up the distributed training environment, initializes
+        workers, datasets, and reward functions, then starts the training process.
+
+        Args:
+            config: Training configuration object containing all parameters needed
+                   for setting up and running the PPO training process.
+        """
         # Print the initial configuration. `resolve=True` will evaluate symbolic values.
         from pprint import pprint
 
@@ -81,9 +106,7 @@ class TaskRunner:
         from verl.utils.fs import copy_to_local
 
         print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
-
         pprint(OmegaConf.to_container(config, resolve=True))
-
         OmegaConf.resolve(config)
 
         # Download the checkpoint from HDFS to the local machine.
@@ -100,17 +123,9 @@ class TaskRunner:
         # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
-        # Version validation for vllm.
-        if config.actor_rollout_ref.rollout.name in ["vllm"]:
-            from verl.utils.vllm_utils import is_version_ge
-
-            if config.actor_rollout_ref.model.get("lora_rank", 0) > 0:
-                if not is_version_ge(pkg="vllm", minver="0.7.3"):
-                    raise NotImplementedError("PPO LoRA is not supported before vllm 0.7.3")
-
         # Define worker classes based on the actor strategy.
-        if config.actor_rollout_ref.actor.strategy in ["fsdp", "fsdp2"]:
-            assert config.critic.strategy in ["fsdp", "fsdp2"]
+        if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
+            assert config.critic.strategy in {"fsdp", "fsdp2"}
             from verl.single_controller.ray import RayWorkerGroup
             from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
@@ -162,7 +177,7 @@ class TaskRunner:
         # finally, we combine all the rewards together
         # The reward type depends on the tag of the data
         if config.reward_model.enable:
-            if config.reward_model.strategy in ["fsdp", "fsdp2"]:
+            if config.reward_model.strategy in {"fsdp", "fsdp2"}:
                 from verl.workers.fsdp_workers import RewardModelWorker
             elif config.reward_model.strategy == "megatron":
                 from verl.workers.megatron_workers import RewardModelWorker
@@ -188,8 +203,8 @@ class TaskRunner:
         from verl.utils.dataset.rl_dataset import collate_fn
 
         # Create training and validation datasets.
-        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor)
-        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor)
+        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor, is_train=True)
+        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor, is_train=False)
         train_sampler = create_rl_sampler(config.data, train_dataset)
 
         # Initialize the PPO trainer.
@@ -214,7 +229,7 @@ class TaskRunner:
         trainer.fit()
 
 
-def create_rl_dataset(data_paths, data_config, tokenizer, processor):
+def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=True):
     """Create a dataset.
 
     Arguments:
@@ -233,8 +248,6 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
     # Check if a custom dataset class is specified in the data configuration
     # and if the path to the custom class is provided
     if "custom_cls" in data_config and data_config.custom_cls.get("path", None) is not None:
-        from verl.utils.import_utils import load_extern_type
-
         # Dynamically load the custom dataset class
         dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
         # Verify that the custom dataset class inherits from torch.utils.data.Dataset
@@ -243,6 +256,13 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
                 f"The custom dataset class '{data_config.custom_cls.name}' from "
                 f"'{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset"
             )
+    elif "datagen" in data_config and data_config.datagen.get("path", None) is not None and is_train:
+        # If a data generation strategy is specified, use the DynamicGenDataset class
+        from verl.utils.dataset.dynamicgen_dataset import DynamicGenDataset
+
+        dataset_cls = DynamicGenDataset
+        print("Using DynamicGenDataset for data generation.")
+
     else:
         # Use the default RLHFDataset class if no custom class is specified
         dataset_cls = RLHFDataset
@@ -272,9 +292,25 @@ def create_rl_sampler(data_config, dataset):
     import torch
     from torch.utils.data import RandomSampler, SequentialSampler
 
+    if data_config.sampler is not None and data_config.sampler.get("class_path", None) is not None:
+        curriculum_class = load_extern_type(
+            data_config.sampler.class_path,
+            data_config.sampler.class_name,
+        )
+        sampler = curriculum_class(
+            data_source=dataset,
+            data_config=data_config,
+        )
+        assert isinstance(sampler, AbstractSampler)
+        assert data_config.get("dataloader_num_workers", 8) == 0, (
+            "If using curriculum, num_workers must be 0 to prevent data caching. "
+            "If the dataloader caches data before the batch is done the "
+            "curriculum sampler won't have the opportunity to reorder it. "
+        )
+
     # Use a sampler to facilitate checkpoint resumption.
     # If shuffling is enabled in the data configuration, create a random sampler.
-    if data_config.shuffle:
+    elif data_config.shuffle:
         train_dataloader_generator = torch.Generator()
         train_dataloader_generator.manual_seed(data_config.get("seed", 1))
         sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
