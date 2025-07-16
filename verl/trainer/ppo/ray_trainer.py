@@ -334,6 +334,7 @@ class RayPPOTrainer:
             val_dataset (Optional[Dataset], optional): Validation dataset. Defaults to None.
             collate_fn: Function to collate data samples into batches.
             train_sampler (Optional[Sampler], optional): Sampler for the training dataset. Defaults to None.
+            device_name (str, optional): Device name for training (e.g., "cuda", "cpu"). Defaults to None.
         """
 
         # Store the tokenizer for text processing
