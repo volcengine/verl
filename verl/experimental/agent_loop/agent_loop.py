@@ -22,11 +22,8 @@ from typing import Any
 import hydra
 import numpy as np
 import ray
-import torch
 from cachetools import LRUCache
 from omegaconf import DictConfig, OmegaConf
-from pydantic import BaseModel
-from tensordict import TensorDict
 from transformers import AutoTokenizer
 
 from verl.experimental.agent_loop.utils import AgentLoopOutput, agent_loop_perf, agent_loop_postprocess
@@ -103,6 +100,12 @@ class AsyncLLMServerManager:
             sampling_params=sampling_params,
         )
         return output
+
+
+# make hydra.utils.instantiate happy
+class _DummyConfig:
+    def __init__(self, config: DictConfig) -> None:
+        self.config = config
 
 
 class AgentLoopBase(ABC):
