@@ -20,7 +20,7 @@ import itertools
 import logging
 import os
 import warnings
-from typing import Callable, Tuple, Dict
+from typing import Callable, Dict, Tuple
 
 import torch
 import torch.distributed
@@ -38,6 +38,8 @@ from verl.utils.device import (
     get_device_id,
     get_device_name,
     get_torch_device,
+    is_cuda_available,
+    is_npu_available,
 )
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
@@ -57,16 +59,11 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_optimizer,
 )
 from verl.utils.import_utils import import_external_libs
-from verl.utils.py_functional import convert_to_regular_types
+from verl.utils.py_functional import append_to_dict, convert_to_regular_types
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
-from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-from verl.utils.py_functional import append_to_dict
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
+from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
-from verl.utils.device import (
-    is_cuda_available,
-    is_npu_available,
-)
 if is_cuda_available:
     from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 elif is_npu_available:

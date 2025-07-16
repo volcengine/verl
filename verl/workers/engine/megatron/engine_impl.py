@@ -11,9 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from ..base import BaseEngine
-from typing import Callable, Tuple, Dict
+from typing import Callable, Dict, Tuple
+
 import torch
+
+from verl import DataProto
+
+from ..base import BaseEngine
 
 
 class MegatronEngine(BaseEngine):

@@ -17,11 +17,11 @@ The main entry point to run the PPO algorithm
 
 import logging
 import os
-from typing import Callable, Tuple, Dict
-
-from codetiming import Timer
+from typing import Dict, Tuple
 
 import torch
+from codetiming import Timer
+
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
@@ -95,7 +95,10 @@ class CriticWorker(Worker, DistProfilerExtension):
         return output
 
 
-    def loss_fn(self, batch: DataProto, vpreds: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    def loss_fn(self,
+                batch: DataProto,
+                vpreds: Dict[str, torch.Tensor]
+                ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         old_values = batch["values"]
         returns = batch["returns"]
         response_mask = batch["response_mask"]
