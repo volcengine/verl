@@ -29,6 +29,7 @@ from pydantic import BaseModel
 from tensordict import TensorDict
 from transformers import AutoTokenizer
 
+from verl.experimental.agent_loop.utils import AgentLoopOutput, agent_loop_perf, agent_loop_postprocess
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils import hf_tokenizer
@@ -102,29 +103,6 @@ class AsyncLLMServerManager:
             sampling_params=sampling_params,
         )
         return output
-
-
-class AgentLoopMetrics(BaseModel):
-    """Agent loop performance metrics."""
-
-    generate_sequences: float = 0.0
-    tool_calls: float = 0.0
-
-
-class AgentLoopOutput(BaseModel):
-    """Agent loop output."""
-
-    prompt_ids: list[int]
-    response_ids: list[int]
-    response_mask: list[int]
-    num_turns: int = 0
-    metrics: AgentLoopMetrics
-
-
-# make hydra.utils.instantiate happy
-class _DummyConfig:
-    def __init__(self, config: DictConfig) -> None:
-        self.config = config
 
 
 class AgentLoopBase(ABC):
@@ -283,8 +261,12 @@ class AgentLoopWorker:
                 asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory))
             )
         outputs = await asyncio.gather(*tasks)
-
-        output = self._postprocess(outputs)
+        output = agent_loop_postprocess(
+            tokenizer=self.tokenizer,
+            inputs=outputs,
+            max_prompt_length=self.config.actor_rollout_ref.rollout.prompt_length,
+            max_response_length=self.config.actor_rollout_ref.rollout.response_length,
+        )
         return output
 
     async def _run_agent_loop(
@@ -315,69 +297,30 @@ class AgentLoopWorker:
             output = await agent_loop.run(messages, sampling_params)
             return output
 
-    def _postprocess(self, inputs: list[AgentLoopOutput]) -> DataProto:
-        # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
-        # prompts: left pad
-        # responses: right pad
-        # input_ids: prompt + response
-        # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
-        # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
+    def get_agent_loop_class(self, agent_name: str) -> type[AgentLoopBase]:
+        """Get the appropriate agent loop class based on agent name.
 
-        # prompts
-        self.tokenizer.padding_side = "left"
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.prompt_ids} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.prompt_length,
-            return_tensors="pt",
-            return_attention_mask=True,
-        )
-        prompt_ids, prompt_attention_mask = outputs["input_ids"], outputs["attention_mask"]
+        Factory method that returns the correct agent loop class implementation
+        for the specified agent type.
 
-        # responses
-        self.tokenizer.padding_side = "right"
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.response_ids} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.response_length,
-            return_tensors="pt",
-            return_attention_mask=True,
-        )
-        response_ids, response_attention_mask = outputs["input_ids"], outputs["attention_mask"]
+        Args:
+            agent_name (str): Name of the agent type ('single_turn_agent' or 'tool_agent').
 
-        # response_mask
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.response_mask} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.response_length,
-            return_tensors="pt",
-            return_attention_mask=False,
-        )
-        response_mask = outputs["input_ids"]
-        assert response_ids.shape == response_mask.shape, (
-            f"mismatch in response_ids and response_mask shape: {response_ids.shape} vs {response_mask.shape}"
-        )
-        response_mask = response_mask * response_attention_mask
+        Returns:
+            Type[AgentLoopBase]: Agent loop class corresponding to the agent name.
 
-        input_ids = torch.cat([prompt_ids, response_ids], dim=1)
-        attention_mask = torch.cat([prompt_attention_mask, response_attention_mask], dim=1)
-        position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
+        Raises:
+            ValueError: If the agent_name is not recognized.
+        """
+        # TODO: add tool agent registrary
+        from verl.experimental.agent_loop.single_turn_agent_loop import SingleTurnAgentLoop
+        from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop
 
-        batch = TensorDict(
-            {
-                "prompts": prompt_ids,  # [bsz, prompt_length]
-                "responses": response_ids,  # [bsz, response_length]
-                "response_mask": response_mask,  # [bsz, response_length]
-                "input_ids": input_ids,  # [bsz, prompt_length + response_length]
-                "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
-                "position_ids": position_ids,  # [bsz, prompt_length + response_length]
-            },
-            batch_size=len(input_ids),
-        )
-
-        num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
-        metrics = [input.metrics.model_dump() for input in inputs]
-        return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
+        if agent_name == "single_turn_agent":
+            return SingleTurnAgentLoop
+        elif agent_name == "tool_agent":
+            return ToolAgentLoop
+        raise ValueError(f"Unknown agent_name: {agent_name}")
 
 
 async def get_trajectory_info(step, index, validate):
@@ -502,32 +445,10 @@ class AgentLoopManager:
 
         # calculate performance metrics
         metrics = [output.meta_info["metrics"] for output in outputs]  # List[List[Dict[str, str]]]
-        timing = self._performance_metrics(metrics, output)
+        timing = agent_loop_perf(metrics, output)
 
         output.meta_info = {"timing": timing}
         return output
-
-    def _performance_metrics(self, metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:
-        timing = {}
-        t_generate_sequences = np.array([metric["generate_sequences"] for chunk in metrics for metric in chunk])
-        t_tool_calls = np.array([metric["tool_calls"] for chunk in metrics for metric in chunk])
-        timing["agent_loop/generate_sequences/min"] = t_generate_sequences.min()
-        timing["agent_loop/generate_sequences/max"] = t_generate_sequences.max()
-        timing["agent_loop/generate_sequences/mean"] = t_generate_sequences.mean()
-        timing["agent_loop/tool_calls/min"] = t_tool_calls.min()
-        timing["agent_loop/tool_calls/max"] = t_tool_calls.max()
-        timing["agent_loop/tool_calls/mean"] = t_tool_calls.mean()
-
-        # batch sequence generation is bounded by the slowest sample
-        slowest = np.argmax(t_generate_sequences + t_tool_calls)
-        attention_mask = output.batch["attention_mask"][slowest]
-        prompt_length = output.batch["prompts"].shape[1]
-        timing["agent_loop/slowest/generate_sequences"] = t_generate_sequences[slowest]
-        timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
-        timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
-        timing["agent_loop/slowest/response_length"] = attention_mask[prompt_length:].sum().item()
-
-        return timing
 
     def wake_up(self):
         """Wake up all rollout server instances."""
