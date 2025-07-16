@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from verl.base_config import BaseConfig
 
@@ -45,7 +45,7 @@ class CriticConfig(BaseConfig):
 
     _frozen_fields = [
         "rollout_n",
-        "strategy", 
+        "strategy",
         "ppo_mini_batch_size",
         "ppo_micro_batch_size",
         "ppo_micro_batch_size_per_gpu",
@@ -60,8 +60,8 @@ class CriticConfig(BaseConfig):
 
     rollout_n: int = 1
     strategy: str = "fsdp"
-    optim: Dict[str, Any] = field(default_factory=dict)
-    model: Dict[str, Any] = field(default_factory=dict)
+    optim: dict[str, Any] = field(default_factory=dict)
+    model: dict[str, Any] = field(default_factory=dict)
     ppo_mini_batch_size: int = 1
     ppo_micro_batch_size: Optional[int] = None
     ppo_micro_batch_size_per_gpu: Optional[int] = None
@@ -72,8 +72,8 @@ class CriticConfig(BaseConfig):
     shuffle: bool = True
     cliprange_value: float = 0.5
     loss_agg_mode: str = "token-mean"
-    checkpoint: Dict[str, Any] = field(default_factory=dict)
-    profiler: Dict[str, Any] = field(default_factory=dict)
+    checkpoint: dict[str, Any] = field(default_factory=dict)
+    profiler: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -98,10 +98,10 @@ class MegatronCriticConfig(CriticConfig):
 
     strategy: str = "megatron"
     nccl_timeout: int = 600
-    megatron: Dict[str, Any] = field(default_factory=dict)
+    megatron: dict[str, Any] = field(default_factory=dict)
     load_weight: bool = True
     data_loader_seed: Optional[int] = None
-    kl_ctrl: Dict[str, Any] = field(default_factory=dict)
+    kl_ctrl: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -119,7 +119,7 @@ class FSDPCriticConfig(CriticConfig):
 
     _frozen_fields = CriticConfig._frozen_fields + [
         "forward_micro_batch_size",
-        "forward_micro_batch_size_per_gpu", 
+        "forward_micro_batch_size_per_gpu",
         "ulysses_sequence_parallel_size",
         "grad_clip",
     ]
