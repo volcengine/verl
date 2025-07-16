@@ -91,9 +91,11 @@ class ModelMergerConfig:
         hf_upload_path (Optional[str]): Hugging Face repository ID to upload the model. Defaults to None.
         private (bool): Whether to upload the model to a private Hugging Face repository. Defaults to False.
         test_hf_dir (Optional[str]): Path to the reference Hugging Face model directory for testing. Defaults to None.
-        tie_word_embedding (bool): Whether to tie word embedding weights (currently only Megatron supported). Defaults to False.
+        tie_word_embedding (bool): Whether to tie word embedding weights (currently only Megatron
+            supported). Defaults to False.
         trust_remote_code (bool): Whether to trust remote code. Defaults to False.
-        is_value_model (bool): Whether the model is a value model (currently only Megatron supported). Defaults to False.
+        is_value_model (bool): Whether the model is a value model (currently only Megatron
+            supported). Defaults to False.
         local_dir (Optional[str]): Path to the saved model checkpoints. Defaults to None.
         hf_model_config_path (Optional[str]): Path to HuggingFace model configuration files. Defaults to None.
         hf_upload (bool): Whether to upload to HuggingFace (computed automatically). Not for initialization.
