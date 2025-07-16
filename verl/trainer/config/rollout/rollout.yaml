@@ -170,6 +170,18 @@ agent:
   # Number of agent loop workers
   num_workers: 8
 
+  # custom agent loop config path, which should contain list of configs to intialize AgentLoop instances.
+  # https://hydra.cc/docs/advanced/instantiate_objects/overview/
+  #
+  # - name: react_agent
+  #   _target_: recipe.langgraph_agent.react_agent_loop.ReactAgentLoop
+  #   tools: ["get_current_temperature"]
+  # - name: math_expression
+  #   _target_: recipe.langgraph_agent.example.math_expression.MathExpressionReactAgentLoop
+  #   min_terms: 2
+  #   max_terms: 6
+  agent_loop_config_path: null
+
   # custom async server configs
   custom_async_server:
 
@@ -178,6 +190,20 @@ agent:
 
     # Class name of the custom async server class (e.g. AsyncvLLMServer)
     name: null
+
+# Specifies the tensor bucket size (in megabytes) for batch weight updates during rollout operations.
+# This parameter controls the maximum payload size for a single weight update request.
+# Reference: https://github.com/volcengine/verl/pull/2418
+# Currently only supported in SGLang rollout implementations
+# Larger values may improve throughput but increase memory overhead
+# Detailed performance comparison:
+# https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/issues/169#issuecomment-3070686720
+# Default value (512MB) is optimized for typical GPU memory configurations
+# For the best performance of `rebuild_cuda_tensor`, it is recommended to:
+# 1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`
+# 2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
+# when using Tensor Parallelism (TP) >= 8.
+update_weights_bucket_megabytes: 512
 
 # trace rollout data
 trace:
