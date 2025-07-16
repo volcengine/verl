@@ -27,7 +27,7 @@ class TestCriticConfig:
     @pytest.fixture
     def config_dir(self):
         """Get the path to the config directory."""
-        return Path(__file__).parent.parent / "verl" / "trainer" / "config" / "critic"
+        return Path(__file__).parent.parent.parent / "verl" / "trainer" / "config" / "critic"
 
     def test_critic_config_instantiation_from_yaml(self, config_dir):
         """Test that CriticConfig can be instantiated using _target_ field."""
