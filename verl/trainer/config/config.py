@@ -46,9 +46,6 @@ class CriticConfig(BaseConfig):
     _frozen_fields = [
         "rollout_n",
         "strategy",
-        "ppo_mini_batch_size",
-        "ppo_micro_batch_size",
-        "ppo_micro_batch_size_per_gpu",
         "use_dynamic_bsz",
         "ppo_max_token_len_per_gpu",
         "forward_max_token_len_per_gpu",
@@ -116,8 +113,6 @@ class FSDPCriticConfig(CriticConfig):
     """
 
     _frozen_fields = CriticConfig._frozen_fields + [
-        "forward_micro_batch_size",
-        "forward_micro_batch_size_per_gpu",
         "ulysses_sequence_parallel_size",
         "grad_clip",
     ]

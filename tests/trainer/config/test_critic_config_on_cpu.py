@@ -129,7 +129,7 @@ class TestCriticConfig:
     def test_frozen_fields_immutability(self):
         """Test that frozen fields raise exceptions when modified after creation."""
         critic_config = CriticConfig()
-        frozen_fields = ["rollout_n", "strategy", "ppo_mini_batch_size", "cliprange_value"]
+        frozen_fields = ["rollout_n", "strategy", "cliprange_value"]
 
         for field_name in frozen_fields:
             with pytest.raises((AttributeError, TypeError, ValueError)):
@@ -143,8 +143,28 @@ class TestCriticConfig:
                 setattr(megatron_config, field_name, "modified_value")
 
         fsdp_config = FSDPCriticConfig()
-        fsdp_frozen_fields = ["forward_micro_batch_size", "ulysses_sequence_parallel_size", "grad_clip"]
+        fsdp_frozen_fields = ["ulysses_sequence_parallel_size", "grad_clip"]
 
         for field_name in fsdp_frozen_fields:
             with pytest.raises((AttributeError, TypeError, ValueError)):
                 setattr(fsdp_config, field_name, "modified_value")
+
+    def test_batch_size_fields_modifiable(self):
+        """Test that batch size fields can be modified after creation."""
+        critic_config = CriticConfig()
+
+        critic_config.ppo_mini_batch_size = 8
+        critic_config.ppo_micro_batch_size = 4
+        critic_config.ppo_micro_batch_size_per_gpu = 2
+
+        assert critic_config.ppo_mini_batch_size == 8
+        assert critic_config.ppo_micro_batch_size == 4
+        assert critic_config.ppo_micro_batch_size_per_gpu == 2
+
+        fsdp_config = FSDPCriticConfig()
+
+        fsdp_config.forward_micro_batch_size = 16
+        fsdp_config.forward_micro_batch_size_per_gpu = 8
+
+        assert fsdp_config.forward_micro_batch_size == 16
+        assert fsdp_config.forward_micro_batch_size_per_gpu == 8
