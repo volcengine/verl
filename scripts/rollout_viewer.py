@@ -51,11 +51,6 @@ def check_textual_version():
 check_textual_version()
 
 
-def load_first_step(path: Path, data: dict) -> tuple[int, dict]:
-    paths = list(path.glob(f"*{FILE_SUFFIX}"))
-    paths = sorted(paths, key=lambda x: int(x.stem))
-
-
 async def load_path(p: Path, data: dict, mask_strs: str, idx: int, pbar):
     samples = []
     async with aiofiles.open(p, encoding="utf-8") as f:
