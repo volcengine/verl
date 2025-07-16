@@ -13,15 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import threading
-import time
+import asyncio
+import re
 import traceback
-from functools import partial
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
 
+import aiofiles
+
+try:
+    import ujson as json
+except ImportError:
+    import json
 import typer
-import ujson as json
 from rich.highlighter import ReprHighlighter
 from rich.markdown import Markdown
 from rich.table import Table
@@ -31,9 +35,12 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Input, ProgressBar, Select, SelectionList, Static
 
+INDEX_KEY = "__IDX"
+FILE_SUFFIX = ".jsonl"
+
 
 def check_textual_version():
-    # check textual version is equal to 0.52.1
+    # check if textual version is equal to 0.52.1
     import textual
     from packaging.version import Version
 
@@ -44,36 +51,47 @@ def check_textual_version():
 check_textual_version()
 
 
+def get_jsonl_file_num(dir: Path) -> int:
+    return sum(1 for _ in dir.glob(f"*{FILE_SUFFIX}"))
+
+
+async def load_path(p: Path, data: dict, mask_strs: str, idx: int, pbar, event):
+    samples = []
+    async with aiofiles.open(p, encoding="utf-8") as f:
+        async for line in f:
+            d = json.loads(line)
+            for k in d:
+                if isinstance(d[k], str):
+                    if mask_strs:
+                        d[k] = re.sub(rf"{mask_strs}", "*", d[k])
+                else:
+                    d[k] = json.dumps(d[k], ensure_ascii=False, indent=4)
+
+            d[INDEX_KEY] = len(samples)
+            samples.append(d)
+        data[idx] = {"samples": samples}
+
+    print(f"path {p} loaded")
+    event.set()
+    pbar.advance(1)
+
+
+async def load_dir(path: Path, data: dict[int, dict], event, pbar, mask_strs: str = ""):
+    paths = list(path.glob(f"*{FILE_SUFFIX}"))
+    paths = sorted(paths, key=lambda x: int(x.stem))
+    if not paths:
+        raise ValueError(f"no available reward dump files under f{path}")
+
+    tasks = [load_path(p, data, mask_strs, i, pbar, event) for i, p in enumerate(paths)]
+
+    await asyncio.gather(*tasks)
+
+
 class Highlighter(ReprHighlighter):
     highlights = ReprHighlighter.highlights + [
         r"(?P<tag_name>[][\<\>{}()\|（）【】\[\]=`])",
         r"\<\|(?P<tag_name>[\w\W]*?)\|\>",
     ]
-
-
-def get_jsonl_file_num(dir: Path, suffix: str = ".jsonl") -> int:
-    return sum(1 for _ in dir.glob(f"*{suffix}"))
-
-
-INDEX_KEY = "__IDX"
-
-
-def load_data(path: Path, data, pbar, suffix=".jsonl"):
-    paths = list(path.glob(f"*{suffix}"))
-    paths = sorted(paths, key=lambda x: int(x.stem))
-
-    for p in paths:
-        tmp = []
-        i = 0
-        with open(p, encoding="utf-8") as f:
-            for line in f:
-                d = json.loads(line)
-                d[INDEX_KEY] = i
-                tmp.append(d)
-                i += 1
-        data.append({"results": tmp})
-        pbar.advance(1)
-    return data
 
 
 def center_word_with_equals_exactly(word: str, total_length: int, char: str = "=") -> str:
@@ -106,8 +124,8 @@ help_doc = """
 - `tab/←/→`: change focus
 - `j/k`: page down/up
 - `g/G`: scroll home/end
-- `n/N`: next example/step
-- `p/P`: previous example/step
+- `n/N`: next sample/step
+- `p/P`: previous sample/step
 - `s`: switch display mode
   - plain text
   - rich table
@@ -158,14 +176,13 @@ class JsonLineViewer(App):
     }
     """
 
-    def __init__(self, row_num: int, data: list, pbar):
+    def __init__(self, step_num: int, data: dict[int, dict], pbar):
         super().__init__()
-        self.row_num = row_num  # step num
-        self.result_num: Optional[int] = None
+        self.step_num = step_num
         self.data = data
         self.render_table = False
-        self.selected_row_index = 0
-        self.selected_result_index = 0
+        self.selected_step_index = 0
+        self.selected_sample_index = 0
         self.pbar = pbar
 
         self.matches = []
@@ -173,7 +190,9 @@ class JsonLineViewer(App):
 
         self.highlighter = Highlighter()
 
-        self.filter_fields = [(f, f, True) for f in data[0]["results"][0].keys()]
+        first_samples = data[list(data.keys())[0]]["samples"]
+        self.filter_fields = [(f, f, True) for f in first_samples[0].keys()]
+        self.sample_num = len(first_samples)
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="search-container"):
@@ -193,21 +212,21 @@ class JsonLineViewer(App):
                 )
                 yield Static("\n")
                 yield Select(
-                    id="row-select",
+                    id="step-select",
                     value=0,
                     prompt="select step",
-                    options=[("step: 0", 0)],
+                    options=[("step: 1", 0)],
                     allow_blank=False,
                 )
                 yield Select(
-                    id="result-select",
+                    id="sample-select",
                     value=0,
                     prompt="select sample",
-                    options=[("sample: 0", 0)],
+                    options=[("sample: 1", 0)],
                     allow_blank=False,
                 )
                 yield Select(
-                    id="result-sort",
+                    id="sample-sort",
                     value=0,
                     prompt="排序",
                     options=[
@@ -224,10 +243,10 @@ class JsonLineViewer(App):
             with VerticalScroll(id="scroll-view"):
                 yield Static(id="content", markup=False)
 
-    def on_mount(self) -> None:
-        self.row_select = self.query_one("#row-select", Select)
-        self.result_select = self.query_one("#result-select", Select)
-        self.result_sort = self.query_one("#result-sort", Select)
+    async def on_mount(self) -> None:
+        self.step_select = self.query_one("#step-select", Select)
+        self.sample_select = self.query_one("#sample-select", Select)
+        self.sample_sort = self.query_one("#sample-sort", Select)
         self.content_display = self.query_one("#content", Static)
         self.search_box = self.query_one("#search-box", Input)
         self.scroll_view = self.query_one("#scroll-view", VerticalScroll)
@@ -236,40 +255,46 @@ class JsonLineViewer(App):
         self.fields_select.border_title = "field filter"
 
         if self.data:
-            self.row_select.set_options([(f"step: {i}", i) for i in range(self.row_num)])
-            # self.row_select.value = self.selected_row_index
-            self.update_result_options()
-            self.update_content()
-            self.row_select.focus()
+            self.step_select.set_options([(f"step: {i + 1}", i) for i in range(self.step_num)])
+            self.sample_select.set_options([(f"sample: {i + 1}", i) for i in range(self.sample_num)])
+            self.step_select.focus()
+            await self.update_content()
 
     def update_result_options(self, offset: int = 0, sort_desc: Optional[bool] = None):
         options = []
-        if isinstance(self.selected_row_index, int) and self.selected_row_index < len(self.data):
-            if self.result_num is None or sort_desc is not None:
-                results = self.data[self.selected_row_index].get("results", [])
+        if isinstance(self.selected_step_index, int) and self.selected_step_index < len(self.data):
+            if self.sample_num is None or sort_desc is not None:
+                samples = self.data[self.selected_step_index].get("samples", [])
+                if not samples:
+                    self.selected_sample_index = offset
+                    return
                 if sort_desc is not None:
-                    results = sorted(results, key=lambda x: x.get("score", x.get("score_1", 0)), reverse=sort_desc)
+                    samples = sorted(
+                        samples,
+                        key=lambda x: x.get("score", x.get("score_1", 0)),
+                        reverse=sort_desc,
+                    )
 
-                options = [(f"sample: {r[INDEX_KEY]}", r[INDEX_KEY]) for r in results]
-                self.result_select.set_options(options)
-                self.result_num = len(results)
+                options = [(f"sample: {r[INDEX_KEY] + 1}", r[INDEX_KEY]) for r in samples]
+                self.sample_select.set_options(options)
+                self.sample_num = len(samples)
 
             if sort_desc is not None and options:
-                self.selected_result_index = options[0][1]
+                self.selected_sample_index = options[0][1]
             else:
-                self.selected_result_index = offset
+                self.selected_sample_index = offset
 
-    def update_content(self, search_keyword: Optional[str] = None):
+    async def update_content(self, search_keyword: Optional[str] = None):
         content = ""
         try:
-            results = self.data[self.selected_row_index].get("results", [])
-            content_dict = results[self.selected_result_index]
+            samples = self.data[self.selected_step_index].get("samples", [])
+            content_dict = samples[self.selected_sample_index]
             content_dict = {k: v for k, v in content_dict.items() if k in self.fields_select.selected}
             if self.render_table:
                 content = Table("key", "value", show_lines=True)
                 for k in content_dict:
                     v = content_dict[k]
-                    v = json.dumps(v, ensure_ascii=False, indent=4) if not isinstance(v, str) else v
+                    v = f"{v}"
                     content.add_row(
                         k,
                         self.highlighter(highlight_keyword(v, search_keyword)),
@@ -278,44 +303,41 @@ class JsonLineViewer(App):
                 text = Text()
                 for k in content_dict:
                     v = content_dict[k]
-                    v = json.dumps(v, ensure_ascii=False, indent=4) if not isinstance(v, str) else v
-
-                    s = center_word_with_equals_exactly(k, 64) + "\n"
-                    s += v
-                    s += "\n"
+                    s = center_word_with_equals_exactly(k, 64) + f"\n{v}\n"
                     text.append(highlight_keyword(s, search_keyword))
                 content = self.highlighter(text)
         except IndexError:
-            content = f"Loading data async，progress: {len(self.data)}/{self.row_num} step"
+            content = f"Loading data asynchronously, progress: {len(self.data)}/{self.step_num} step"
+
         except Exception:
             content = self.highlighter(traceback.format_exc())
 
         self.content_display.update(content)
 
-    @on(Select.Changed, "#row-select")
-    def row_changed(self, event):
-        self.selected_row_index = event.value
+    @on(Select.Changed, "#step-select")
+    async def step_changed(self, event):
+        self.selected_step_index = event.value
         self.update_result_options()
-        self.update_content()
+        await self.update_content()
 
-    @on(Select.Changed, "#result-select")
-    def result_changed(self, event):
-        self.selected_result_index = event.value
-        self._clear_search()
-        self.update_content()
+    @on(Select.Changed, "#sample-select")
+    async def sample_changed(self, event):
+        self.selected_sample_index = event.value
+        await self._clear_search()
+        await self.update_content()
 
-    @on(Select.Changed, "#result-sort")
-    def sort_changed(self, event):
+    @on(Select.Changed, "#sample-sort")
+    async def sort_changed(self, event):
         v = event.value
         self.update_result_options(sort_desc=None if v == 0 else False if v == 1 else True)
-        self.update_content()
+        await self.update_content()
 
     @on(SelectionList.SelectedChanged, "#fields-select")
-    def fields_changed(self, event):
-        self.update_content()
+    async def fields_changed(self, event):
+        await self.update_content()
 
     @on(SelectionList.SelectedChanged, "#fields-select-all")
-    def fields_all_changed(self, event):
+    async def fields_all_changed(self, event):
         s = self.query_one("#fields-select-all", SelectionList)
         if s.selected:
             self.fields_select.select_all()
@@ -328,66 +350,66 @@ class JsonLineViewer(App):
     def action_focus_next(self):
         self.screen.focus_next()
 
-    def action_next_step(self) -> None:
-        self.selected_row_index += 1
-        if self.selected_row_index >= self.row_num:
-            self.selected_row_index = 0
-        self.row_select.value = self.selected_row_index
+    async def action_next_step(self) -> None:
+        self.selected_step_index += 1
+        if self.selected_step_index >= self.step_num:
+            self.selected_step_index = 0
+        self.step_select.value = self.selected_step_index
         self.update_result_options()
-        self.update_content()
+        await self.update_content()
 
-    def action_next_sample(self) -> None:
-        self.selected_result_index += 1
-        if not self.result_num or self.selected_result_index >= self.result_num:
-            self.selected_result_index = 0
-        self.result_select.value = self.selected_result_index
-        self._clear_search()
-        self.update_content()
+    async def action_next_sample(self) -> None:
+        self.selected_sample_index += 1
+        if not self.sample_num or self.selected_sample_index >= self.sample_num:
+            self.selected_sample_index = 0
+        self.sample_select.value = self.selected_sample_index
+        await self._clear_search()
+        await self.update_content()
 
-    def action_previous_step(self) -> None:
-        self.selected_row_index -= 1
-        if self.selected_row_index < 0:
-            self.selected_row_index = self.row_num - 1
-        self.row_select.value = self.selected_row_index
+    async def action_previous_step(self) -> None:
+        self.selected_step_index -= 1
+        if self.selected_step_index < 0:
+            self.selected_step_index = self.step_num - 1
+        self.step_select.value = self.selected_step_index
         self.update_result_options()
-        self.update_content()
+        await self.update_content()
 
-    def action_previous_sample(self) -> None:
-        self.selected_result_index -= 1
-        if self.selected_result_index < 0:
-            self.selected_result_index = self.result_num - 1
-        self.result_select.value = self.selected_result_index
-        self._clear_search()
-        self.update_content()
+    async def action_previous_sample(self) -> None:
+        self.selected_sample_index -= 1
+        if self.selected_sample_index < 0:
+            self.selected_sample_index = self.sample_num - 1
+        self.sample_select.value = self.selected_sample_index
+        await self._clear_search()
+        await self.update_content()
 
-    def action_swith_render(self):
+    async def action_swith_render(self):
         self.render_table = not self.render_table
-        self.update_content()
+        await self.update_content()
 
     def action_toggle_search(self) -> None:
         self.search_box.focus()
 
-    def action_cancel_search(self) -> None:
+    async def action_cancel_search(self) -> None:
         self.search_box.value = ""
-        self._clear_search()
-        self.update_content()
+        await self._clear_search()
+        await self.update_content()
 
-    def _clear_search(self):
+    async def _clear_search(self):
         self.matches = []
         self.search_status.update("")
         self.current_match_index = 0
 
     @on(Input.Submitted, "#search-box")
-    def on_search_submitted(self, event: Input.Submitted) -> None:
+    async def on_search_submitted(self, event: Input.Submitted) -> None:
         self.matches = []
         self.current_match_index = 0
         if event.value:
-            self.update_content(event.value)
+            await self.update_content(event.value)
             renderable = self.content_display.render()
             if isinstance(renderable, Table):
                 return
 
-            assert isinstance(renderable, Text), f"Expected Text, got {type(renderable)}"
+            assert isinstance(renderable, Text)
             console = self.content_display._console
             lines = renderable.wrap(console, self.scroll_view.container_size.width)
             line_idx_recorded = set()
@@ -403,9 +425,9 @@ class JsonLineViewer(App):
                     )
                     line_idx_recorded.add(line_idx)
             self.scroll_view.focus()
-            self.action_next_search()
+            await self.action_next_search()
 
-    def action_next_search(self) -> None:
+    async def action_next_search(self) -> None:
         if not self.matches or self.current_match_index >= len(self.matches):
             return
 
@@ -432,23 +454,30 @@ class JsonLineViewer(App):
         self.scroll_view.scroll_end(animate=False)
 
 
+async def _run(path: Path, mask_str: str):
+    assert path.exists(), f"{path} not exist"
+    file_num = get_jsonl_file_num(path)
+    print(f"get json file nums: {file_num}")
+    pbar = ProgressBar(total=file_num, name="data load progress")
+    data = {}
+
+    data_ready_event = asyncio.Event()
+    await load_dir(path, data, data_ready_event, pbar, mask_str)
+    await data_ready_event.wait()
+    app = JsonLineViewer(step_num=file_num, data=data, pbar=pbar)
+    await app.run_async()
+
+
 app = typer.Typer()
 
 
-@app.command()
-def run(path: Path):
-    path = Path(path)
-    assert path.exists(), f"{path} does not exist"
-    file_num = get_jsonl_file_num(path)
-    pbar = ProgressBar(total=file_num, name="data loading")
-    data = []
-    load_data_partial = partial(load_data, path, data, pbar)
-    t = threading.Thread(target=load_data_partial, daemon=True)
-    t.start()
-    while not data:
-        time.sleep(1)
-    app = JsonLineViewer(row_num=file_num, data=data, pbar=pbar)
-    app.run()
+@app.command(help="launch TUI APP")
+def run(
+    rollout_data_dir: Path,
+    mask_str: Annotated[str, typer.Option(help="string that will be masked")] = "<\|image_pad\|>|<\|imgpad\|>",
+):
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(_run(rollout_data_dir, mask_str))
 
 
 if __name__ == "__main__":
