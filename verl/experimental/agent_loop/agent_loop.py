@@ -19,11 +19,12 @@ import random
 from abc import ABC, abstractmethod
 from typing import Any
 
+import hydra
 import numpy as np
 import ray
 import torch
 from cachetools import LRUCache
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel
 from tensordict import TensorDict
 from transformers import AutoTokenizer
@@ -120,29 +121,43 @@ class AgentLoopOutput(BaseModel):
     metrics: AgentLoopMetrics
 
 
+# make hydra.utils.instantiate happy
+class _DummyConfig:
+    def __init__(self, config: DictConfig) -> None:
+        self.config = config
+
+
 class AgentLoopBase(ABC):
     """An agent loop takes a input message, chat with OpenAI compatible LLM server and interact with various
     environments."""
 
     _class_initialized = False
 
-    def __init__(self, config: DictConfig, server_manager: AsyncLLMServerManager, tokenizer: AutoTokenizer):
-        """Initialize agent loop.
+    def __init__(
+        self, trainer_config: _DummyConfig, server_manager: AsyncLLMServerManager, tokenizer: AutoTokenizer, **kwargs
+    ):
+        """Initialize agent loop, each sample will have its own loop instance.
 
         Args:
-            config (DictConfig): YAML config.
+            trainer_config (_DummyConfig): trainer config.
             server_manager (AsyncLLMServerManager): OpenAI compatible LLM server manager.
             tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
         """
-        self.config = config
+        self.init_class(trainer_config.config, tokenizer, **kwargs)
+        self.config = trainer_config.config
         self.server_manager = server_manager
         self.tokenizer = tokenizer
         self.loop = asyncio.get_running_loop()
-        self.init_class(config, tokenizer)
 
     @classmethod
-    def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer):
-        """Initialize class state shared across all instances."""
+    def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer, **kwargs):
+        """This is used to do heavy initialization work that should shared across all instances. It's only called once.
+
+        Args:
+            config (DictConfig): trainer config.
+            tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
+            **kwargs: extra kwargs from config file passed in by `hydra.utils.instantiate`.
+        """
         if cls._class_initialized:
             return
         cls._class_initialized = True
@@ -159,6 +174,25 @@ class AgentLoopBase(ABC):
             AgentLoopOutput: Agent loop output.
         """
         raise NotImplementedError
+
+
+"""Agent loop registry: key is agent_name, value is a dict of agent loop config
+used by hydra.utils.instantiate to initialize agent loop instance.
+
+https://hydra.cc/docs/advanced/instantiate_objects/overview/
+"""
+_agent_loop_registry: dict[str, dict] = {}
+
+
+def register(agent_name: str):
+    """Register agent loop class."""
+
+    def decorator(subclass: type[AgentLoopBase]) -> type[AgentLoopBase]:
+        fqdn = f"{subclass.__module__}.{subclass.__qualname__}"
+        _agent_loop_registry[agent_name] = {"_target_": fqdn}
+        return subclass
+
+    return decorator
 
 
 @ray.remote
@@ -180,6 +214,13 @@ class AgentLoopWorker:
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
 
+        agent_loop_config_path = config.actor_rollout_ref.rollout.agent.agent_loop_config_path
+        if agent_loop_config_path:
+            agent_loop_configs = OmegaConf.load(agent_loop_config_path)
+            for agent_loop_config in agent_loop_configs:
+                _agent_loop_registry[agent_loop_config.name] = agent_loop_config
+
+        trace_config = config.trainer.get("rollout_trace", {})
         trace_config = self.config.actor_rollout_ref.rollout.get("trace", {})
         RolloutTraceConfig.init(
             self.config.trainer.project_name,
@@ -260,35 +301,19 @@ class AgentLoopWorker:
             validate=trajectory["validate"],
             name="agent_loop",
         ):
-            agent_loop_class = self.get_agent_loop_class(agent_name)
-            agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer)
+            assert agent_name in _agent_loop_registry, (
+                f"Agent loop {agent_name} not registered, registered agent loops: {_agent_loop_registry.keys()}"
+            )
+
+            agent_loop_config = _agent_loop_registry[agent_name]
+            agent_loop = hydra.utils.instantiate(
+                config=agent_loop_config,
+                trainer_config=_DummyConfig(config=self.config),
+                server_manager=self.server_manager,
+                tokenizer=self.tokenizer,
+            )
             output = await agent_loop.run(messages, sampling_params)
             return output
-
-    def get_agent_loop_class(self, agent_name: str) -> type[AgentLoopBase]:
-        """Get the appropriate agent loop class based on agent name.
-
-        Factory method that returns the correct agent loop class implementation
-        for the specified agent type.
-
-        Args:
-            agent_name (str): Name of the agent type ('single_turn_agent' or 'tool_agent').
-
-        Returns:
-            Type[AgentLoopBase]: Agent loop class corresponding to the agent name.
-
-        Raises:
-            ValueError: If the agent_name is not recognized.
-        """
-        # TODO: add tool agent registrary
-        from verl.experimental.agent_loop.single_turn_agent_loop import SingleTurnAgentLoop
-        from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop
-
-        if agent_name == "single_turn_agent":
-            return SingleTurnAgentLoop
-        elif agent_name == "tool_agent":
-            return ToolAgentLoop
-        raise ValueError(f"Unknown agent_name: {agent_name}")
 
     def _postprocess(self, inputs: list[AgentLoopOutput]) -> DataProto:
         # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
