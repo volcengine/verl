@@ -38,7 +38,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     critic.ppo_micro_batch_size_per_gpu=4 \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_ppo_gsm8k_math_examples' \
     trainer.experiment_name='qwen2_7b_megatron' \
     trainer.n_gpus_per_node=8 \

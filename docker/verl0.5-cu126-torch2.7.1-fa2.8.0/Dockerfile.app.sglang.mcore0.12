@@ -1,6 +1,6 @@
 # Start from the verl base image
 # Dockerfile.base
-FROM verlai/verl:base-verl0.5-cu126-cudnn9.8-torch2.7.1-fa2.8.0-fi0.2.6
+FROM verlai/verl:base-verl0.5-cu126-cudnn9.8-torch2.7.1-fa2.8.0
 
 # Define environments
 ENV MAX_JOBS=8
@@ -12,6 +12,7 @@ ENV HF_HUB_ENABLE_HF_TRANSFER="1"
 
 # Install sglang-0.4.8 and torch-memory-saver
 # Install FlashInfer Python package
+RUN pip install --upgrade pip setuptools packaging
 RUN pip install --resume-retries 999 --no-cache-dir --no-build-isolation flashinfer-python==0.2.6.post1
 RUN pip install --resume-retries 999  --no-cache-dir "sglang[all]==0.4.8" && pip install torch-memory-saver --no-cache-dir
 

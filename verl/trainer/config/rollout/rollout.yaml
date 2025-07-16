@@ -1,4 +1,4 @@
-# actor_rollout_ref.rollout.name: hf/vllm/sglang.
+# actor_rollout_ref.rollout.name: hf/vllm/sglang. The default value will be removed in the future
 name: vllm
 
 # sync: LLM, async: AsyncLLM
@@ -164,21 +164,6 @@ multi_turn:
 # support logging rollout prob for debugging purpose
 calculate_log_probs: False
 
-# profiler configs
-profiler:
-
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-  _target_: verl.utils.profiler.ProfilerConfig
-
-  # True for each task has its own database, False for all tasks in one training step share one database.
-  discrete: False
-
-  # Whether to profile all ranks.
-  all_ranks: False
-
-  # The ranks that will be profiled. [] or [0,1,...]
-  ranks: []
-
 # [Experimental] agent loop based rollout configs
 agent:
 
@@ -193,3 +178,26 @@ agent:
 
     # Class name of the custom async server class (e.g. AsyncvLLMServer)
     name: null
+
+# Specifies the tensor bucket size (in megabytes) for batch weight updates during rollout operations.
+# This parameter controls the maximum payload size for a single weight update request.
+# Reference: https://github.com/volcengine/verl/pull/2418
+# Currently only supported in SGLang rollout implementations
+# Larger values may improve throughput but increase memory overhead
+# Detailed performance comparison:
+# https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/issues/169#issuecomment-3070686720
+# Default value (512MB) is optimized for typical GPU memory configurations
+# For the best performance of `rebuild_cuda_tensor`, it is recommended to:
+# 1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`
+# 2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
+# when using Tensor Parallelism (TP) >= 8.
+update_weights_bucket_megabytes: 512
+
+# trace rollout data
+trace:
+  
+  # trace backend, support mlflow, weave
+  backend: null
+
+  # whether translate token id to text in output
+  token2text: False

@@ -103,7 +103,7 @@ def convert_checkpoint_from_transformers_to_megatron(hf_model, model, hf_config)
     has_share_expert = getattr(hf_config, "shared_expert_intermediate_size", None)
     with torch.no_grad():
         model.embedding.word_embeddings.weight.copy_(hf_model.model.embed_tokens.weight)
-        for layer, hf_layer in zip(model.decoder.layers, hf_model.model.layers):
+        for layer, hf_layer in zip(model.decoder.layers, hf_model.model.layers, strict=True):
             layer.self_attention.linear_qkv.layer_norm_weight.copy_(hf_layer.input_layernorm.weight)
 
             q = hf_layer.self_attn.q_proj.weight.view(
@@ -178,7 +178,7 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
     copied_numel = 0
     safe_copy(hfvision.rotary_pos_emb.inv_freq, mgvision.rotary_pos_emb.inv_freq)
     copied_numel += safe_copy(hfvision.patch_embed.proj.weight, mgvision.patch_embed.proj.weight)
-    for hfblock, mgblock in zip(hfvision.blocks, mgvision.decoder.layers):
+    for hfblock, mgblock in zip(hfvision.blocks, mgvision.decoder.layers, strict=True):
         # norm1 --> linear_qkv.norm
         copied_numel += safe_copy(hfblock.norm1.weight, mgblock.self_attention.linear_qkv.layer_norm_weight)
         # norm2 --> mlp.linear_fc1.norm
@@ -227,7 +227,7 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
     mgllm = mgmodel.language_model
     copied_numel = 0
     copied_numel += safe_copy(hfllm.embed_tokens.weight, mgllm.embedding.word_embeddings.weight)
-    for mglayer, hflayer in zip(mgllm.decoder.layers, hfllm.layers):
+    for mglayer, hflayer in zip(mgllm.decoder.layers, hfllm.layers, strict=True):
         copied_numel += safe_copy(hflayer.input_layernorm.weight, mglayer.self_attention.linear_qkv.layer_norm_weight)
 
         q_proj_weight = hflayer.self_attn.q_proj.weight.view(num_query_groups, -1, head_dim, hidden_size)
@@ -264,7 +264,7 @@ def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_
     numel: int = 0
     numel += safe_copy(hf_model.model.embed_tokens.weight, model.embedding.word_embeddings.weight)
     print(f"{numel=}")
-    for layer_idx, (layer, hf_layer) in enumerate(zip(model.decoder.layers, hf_model.model.layers)):
+    for layer_idx, (layer, hf_layer) in enumerate(zip(model.decoder.layers, hf_model.model.layers, strict=True)):
         numel_cur: int = numel
         numel += safe_copy(hf_layer.input_layernorm.weight, layer.input_layernorm.weight)
 

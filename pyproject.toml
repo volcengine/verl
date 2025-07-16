@@ -21,7 +21,7 @@ dynamic = ["version", "dependencies", "optional-dependencies", "authors", "urls"
 description = "verl: Volcano Engine Reinforcement Learning for LLM"
 license = {text = "Apache-2.0"}  # Changed from file to text format
 readme = {file = "README.md", content-type = "text/markdown"}
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 
 # -------------------------------
 # tool.ruff - Linting configuration
@@ -57,10 +57,12 @@ ignore = [
     "B007",
     # f-string format
     "UP032",
-    # Can remove once 3.10+ is the minimum Python version
-    "UP007",
     # `.log()` statement uses f-string
     "G004",
+    # X | None for type annotations
+    "UP045",
+    # deprecated import
+    "UP035",
 ]
 
 # -------------------------------
@@ -84,5 +86,6 @@ version = {file = "verl/version/version"}
 [tool.setuptools.package-data]
 verl = [
   "version/*",
-  "trainer/config/*.yaml"
+  "trainer/config/*.yaml",
+  "trainer/config/*/*.yaml",
 ]

@@ -1,7 +1,7 @@
 Data collection based on FSDP (Fully Sharded Data Parallel) backend on Ascend devices(NPU)
 ==========================================================================================
 
-Last updated: 07/08/2025.
+Last updated: 07/14/2025.
 
 This is a tutorial for data collection using the GRPO or DAPO algorithm
 based on FSDP on Ascend devices.
@@ -23,23 +23,14 @@ and steps.
 -  trainer.profile_steps: This parameter can be set as a list that has
    collection steps, such as [2, 4], which means it will collect steps 2
    and 4. If set to null, no collection occurs.
--  actor_rollout_ref: Profiler options can be configured separately for
-   actor, rollout, and ref roles. Since the actor and rollout reside in 
-   the same worker, under the current data collection logic, they should 
-   be configured with the same parameters. If there is a discrepancy, 
-   the parameters of the rollout will take precedence. In end-to-end mode,
-   set ref to match actor/rollout parameters for full key-function timing
-   collection, the profiling rank is determined by actor/rollout.
-   In discrete mode, ref and actor/rollout parameters separately control
-   the profiling ranks of their respective worker types.
+-  actor_rollout_ref.profiler: Control the ranks and mode of profiling
 
    -  all_ranks: Collects data from all ranks when set to true.
    -  ranks: This parameter specifies which ranks to collect (e.g., [0,
       1]) when all_ranks is False.
    -  discrete: Controls the collection mode. If False, end-to-end data
       is collected; if True, data is collected in discrete phases during
-      training. It is recommended to set the discrete parameter consistently
-      across the actor, rollout, and ref roles.
+      training.
 
 Use parameters in npu_profile.yaml to control collection behavior:
 
@@ -84,18 +75,9 @@ End-to-End collection
        trainer:
            profile_steps: [1, 2, 5]
        actor_rollout_ref:
-           actor:
-               profiler:
-                   discrete: False
-                   all_ranks: True
-           rollout:
-               profiler:
-                   discrete: False
-                   all_ranks: True
-           ref:
-               profiler:
-                   discrete: False
-                   all_ranks: True
+            profiler:
+                discrete: False
+                all_ranks: True
 
 
 Discrete Mode Collection
@@ -106,21 +88,11 @@ Discrete Mode Collection
        trainer:
            profile_steps: [1, 2, 5]
        actor_rollout_ref:
-           actor:
-               profiler:
-                   discrete: True
-                   all_ranks: False
-                   ranks: [0, 1]
-           rollout:
-               profiler:
-                   discrete: True
-                   all_ranks: False
-                   ranks: [0, 1]
-           ref:
-               profiler:
-                   discrete: True
-                   all_ranks: False
-                   ranks: [2, 3]
+            profiler:
+                discrete: True
+                all_ranks: False
+                ranks: [0, 1]
+
 
 Visualization
 -------------
