@@ -103,7 +103,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         response_mask = batch["response_mask"]
         micro_batch_metrics = {}
 
-        values, _ = self.post_fn_values(batch, vpreds)
+        values, _ = self._post_fn_values(batch, vpreds)
 
         vf_loss, vf_clipfrac = core_algos.compute_value_loss(
             vpreds=values,
