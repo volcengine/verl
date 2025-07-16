@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from pathlib import Path
 
 import pytest
+from hydra import compose, initialize_config_dir
 
 from verl.trainer.config.config import CriticConfig, FSDPCriticConfig, MegatronCriticConfig
 from verl.utils.config import omega_conf_to_dataclass
@@ -33,34 +35,31 @@ class TestCriticConfig:
         yaml_path = config_dir / "megatron_critic.yaml"
         assert yaml_path.exists(), f"Config file not found: {yaml_path}"
 
-        import os
-
-        from hydra import compose, initialize_config_dir
-
         with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config/critic")):
             test_config = compose(config_name="megatron_critic")
 
         megatron_config_obj = omega_conf_to_dataclass(test_config)
 
         assert isinstance(megatron_config_obj, MegatronCriticConfig)
-
         assert isinstance(megatron_config_obj, CriticConfig)
 
-        assert hasattr(megatron_config_obj, "strategy")
-        assert hasattr(megatron_config_obj, "rollout_n")
-        assert hasattr(megatron_config_obj, "optim")
-        assert hasattr(megatron_config_obj, "model")
-        assert hasattr(megatron_config_obj, "ppo_mini_batch_size")
-        assert hasattr(megatron_config_obj, "ppo_max_token_len_per_gpu")
-        assert hasattr(megatron_config_obj, "cliprange_value")
+        expected_attrs = [
+            "strategy",
+            "rollout_n",
+            "optim",
+            "model",
+            "ppo_mini_batch_size",
+            "ppo_max_token_len_per_gpu",
+            "cliprange_value",
+            "get",
+            "nccl_timeout",
+            "megatron",
+            "load_weight",
+        ]
+        for attr in expected_attrs:
+            assert hasattr(megatron_config_obj, attr), f"Missing attribute: {attr}"
 
-        assert hasattr(megatron_config_obj, "get")
         assert callable(megatron_config_obj.get)
-
-        assert hasattr(megatron_config_obj, "nccl_timeout")
-        assert hasattr(megatron_config_obj, "megatron")
-        assert hasattr(megatron_config_obj, "load_weight")
-
         assert megatron_config_obj.strategy == "megatron"
 
     def test_fsdp_critic_config_instantiation_from_yaml(self, config_dir):
@@ -68,35 +67,32 @@ class TestCriticConfig:
         yaml_path = config_dir / "dp_critic.yaml"
         assert yaml_path.exists(), f"Config file not found: {yaml_path}"
 
-        import os
-
-        from hydra import compose, initialize_config_dir
-
         with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config/critic")):
             test_config = compose(config_name="dp_critic")
 
         fsdp_config_obj = omega_conf_to_dataclass(test_config)
 
         assert isinstance(fsdp_config_obj, FSDPCriticConfig)
-
         assert isinstance(fsdp_config_obj, CriticConfig)
 
-        assert hasattr(fsdp_config_obj, "strategy")
-        assert hasattr(fsdp_config_obj, "rollout_n")
-        assert hasattr(fsdp_config_obj, "optim")
-        assert hasattr(fsdp_config_obj, "model")
-        assert hasattr(fsdp_config_obj, "ppo_mini_batch_size")
-        assert hasattr(fsdp_config_obj, "ppo_max_token_len_per_gpu")
-        assert hasattr(fsdp_config_obj, "cliprange_value")
+        expected_attrs = [
+            "strategy",
+            "rollout_n",
+            "optim",
+            "model",
+            "ppo_mini_batch_size",
+            "ppo_max_token_len_per_gpu",
+            "cliprange_value",
+            "get",
+            "forward_micro_batch_size",
+            "forward_micro_batch_size_per_gpu",
+            "ulysses_sequence_parallel_size",
+            "grad_clip",
+        ]
+        for attr in expected_attrs:
+            assert hasattr(fsdp_config_obj, attr), f"Missing attribute: {attr}"
 
-        assert hasattr(fsdp_config_obj, "get")
         assert callable(fsdp_config_obj.get)
-
-        assert hasattr(fsdp_config_obj, "forward_micro_batch_size")
-        assert hasattr(fsdp_config_obj, "forward_micro_batch_size_per_gpu")
-        assert hasattr(fsdp_config_obj, "ulysses_sequence_parallel_size")
-        assert hasattr(fsdp_config_obj, "grad_clip")
-
         assert fsdp_config_obj.strategy == "fsdp"
 
     def test_config_inheritance_hierarchy(self):
@@ -129,3 +125,26 @@ class TestCriticConfig:
         assert "rollout_n" in keys
 
         assert len(config) > 0
+
+    def test_frozen_fields_immutability(self):
+        """Test that frozen fields raise exceptions when modified after creation."""
+        critic_config = CriticConfig()
+        frozen_fields = ["rollout_n", "strategy", "ppo_mini_batch_size", "cliprange_value"]
+
+        for field_name in frozen_fields:
+            with pytest.raises((AttributeError, TypeError, ValueError)):
+                setattr(critic_config, field_name, "modified_value")
+
+        megatron_config = MegatronCriticConfig()
+        megatron_frozen_fields = ["nccl_timeout", "load_weight", "data_loader_seed"]
+
+        for field_name in megatron_frozen_fields:
+            with pytest.raises((AttributeError, TypeError, ValueError)):
+                setattr(megatron_config, field_name, "modified_value")
+
+        fsdp_config = FSDPCriticConfig()
+        fsdp_frozen_fields = ["forward_micro_batch_size", "ulysses_sequence_parallel_size", "grad_clip"]
+
+        for field_name in fsdp_frozen_fields:
+            with pytest.raises((AttributeError, TypeError, ValueError)):
+                setattr(fsdp_config, field_name, "modified_value")
