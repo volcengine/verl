@@ -61,7 +61,7 @@ def mark_annotate(message: Optional[str] = None) -> Callable:
 
 
 @contextmanager
-def marked_timer(name: str, timing_raw: dict[str, float], **kwargs):
+def marked_timer(name: str, timing_raw: dict[str, float], *args, **kwargs):
     """Context manager for timing with MSTX markers.
 
     This utility function measures the execution time of code within its context,
