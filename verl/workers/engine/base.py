@@ -180,3 +180,34 @@ class BaseEngine:
             del_local_after_load: Whether to delete local copy after loading.
         """
         raise NotImplementedError
+
+
+class EngineRegistry:
+    _engines = {}
+
+    @classmethod
+    def register(cls, key):
+        def decorator(engine_class):
+            print(engine_class)
+            assert issubclass(engine_class, BaseEngine)
+            cls._engines[key] = engine_class
+            return engine_class
+        return decorator
+
+    @classmethod
+    def new(cls, key, *args, **kwargs):
+        """
+        Function to create a new training engine instance based on the provided config.
+        Args:
+            key: A configuration object containing the engine key and other settings.
+            *args: Variable length argument list.
+            **kwargs: Arbitrary keyword arguments.
+        Returns:
+            engine: An instance of the training engine corresponding to the config.
+        Raises:
+            NotImplementedError: If the engine key in the config does not match any known engines.
+        """
+        if key in cls._engines:
+            return cls._engines[key](*args, **kwargs)
+        else:
+            raise NotImplementedError(f"Unknown engine: {key}")

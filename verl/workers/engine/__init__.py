@@ -12,16 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from . import fsdp, megatron
-from .base import BaseEngine
+from .base import BaseEngine, EngineRegistry
 
 
-def get_training_engine(key):
-    if key == "fsdp":
-        return fsdp.FSDPEngine
-    elif key == "megatron":
-        raise megatron.MegatronEngine
-    else:
-        raise NotImplementedError(f"Unknown engine: {key}")
 
-
-__all__ = ["BaseEngine", "get_training_engine"]
+__all__ = ["BaseEngine", "EngineRegistry"]

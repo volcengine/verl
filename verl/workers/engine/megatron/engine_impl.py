@@ -17,9 +17,10 @@ import torch
 
 from verl import DataProto
 
-from ..base import BaseEngine
+from ..base import BaseEngine, EngineRegistry
 
 
+@EngineRegistry.register("megatron")
 class MegatronEngine(BaseEngine):
     def __init__(self, config):
         raise NotImplementedError
