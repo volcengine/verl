@@ -15,7 +15,6 @@
 from pathlib import Path
 
 import pytest
-from omegaconf import OmegaConf
 
 from verl.trainer.config.config import CriticConfig, FSDPCriticConfig, MegatronCriticConfig
 from verl.utils.config import omega_conf_to_dataclass
@@ -34,8 +33,10 @@ class TestCriticConfig:
         yaml_path = config_dir / "megatron_critic.yaml"
         assert yaml_path.exists(), f"Config file not found: {yaml_path}"
 
-        from hydra import compose, initialize_config_dir
         import os
+
+        from hydra import compose, initialize_config_dir
+
         with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config/critic")):
             test_config = compose(config_name="megatron_critic")
 
@@ -60,7 +61,6 @@ class TestCriticConfig:
         assert hasattr(megatron_config_obj, "megatron")
         assert hasattr(megatron_config_obj, "load_weight")
 
-
         assert megatron_config_obj.strategy == "megatron"
 
     def test_fsdp_critic_config_instantiation_from_yaml(self, config_dir):
@@ -68,8 +68,10 @@ class TestCriticConfig:
         yaml_path = config_dir / "dp_critic.yaml"
         assert yaml_path.exists(), f"Config file not found: {yaml_path}"
 
-        from hydra import compose, initialize_config_dir
         import os
+
+        from hydra import compose, initialize_config_dir
+
         with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config/critic")):
             test_config = compose(config_name="dp_critic")
 
