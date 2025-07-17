@@ -531,6 +531,11 @@ class MegatronPPOActor(BasePPOActor):
                     ret = {}
                     if calculate_entropy:
                         logits_bak = logits.clone()
+                        logger.warning_once(
+                            "For memory-efficient computation, enable fused kernels via "
+                            "`actor_rollout_ref.model.use_fused_kernels=True`. "
+                            "The current `clone()` operation ensures correctness but increases memory usage."
+                        )
                         entropy = vocab_parallel_entropy(logits)
                         ret["entropy"] = entropy
                     else:
