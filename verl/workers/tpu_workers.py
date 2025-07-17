@@ -198,7 +198,6 @@ class ActorRolloutRefWorker(Worker):
             trust_remote_code=trust_remote_code,
         )
 
-        # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
         actor_module.to(torch_dtype)
 
         if self.rank == 0:
@@ -530,6 +529,7 @@ class ActorRolloutRefWorker(Worker):
 
 class CriticWorker(Worker):
     def __init__(self, config):
+        #TODO (Issue https://github.com/Chrisytz/verl/issues/7): Remove return statement when implementing critic training
         return
         super().__init__()
         import torch.distributed
@@ -543,8 +543,6 @@ class CriticWorker(Worker):
         world_size = torch.distributed.get_world_size()
         fsdp_size = self.config.model.fsdp_config.fsdp_size
         self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=fsdp_size)
-
-        dp = world_size 
 
         # set FSDP offload params
         self._is_offload_param = self.config.model.fsdp_config.param_offload
@@ -716,6 +714,7 @@ class CriticWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
+        #TODO (Issue https://github.com/Chrisytz/verl/issues/7): Remove return statement when implementing critic training
         return
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
