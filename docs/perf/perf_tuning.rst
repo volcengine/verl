@@ -49,7 +49,7 @@ Below are key factors for tuning vLLM-based rollout. Before tuning, we recommend
   When GPU resources allow, a smaller tensor parallel size spawns more vLLM replicas. 
   Data parallelism (DP) can yield higher throughput than tensor parallelism (TP), but also increases KVCache consumption. 
   Carefully balance the trade-off between more replicas and higher memory usage.
-  Our experient in Sec. 8.4 of `HybridFlow paper <https://arxiv.org/pdf/2409.19256v2>`_ evaluate this trade-off.
+  Our experiment in Sec. 8.4 of `HybridFlow paper <https://arxiv.org/pdf/2409.19256v2>`_ evaluate this trade-off.
 
 More tuning details such as dealing with Preemption and Chunked-prefill
 can be found in `vLLM official tuning guide <https://docs.vllm.ai/en/latest/performance/optimization.html>`_ 
@@ -64,7 +64,7 @@ sequence packing implementation provided by transformers library.
 
 For other models, transformers library may also support it but we haven't tested it yet.
 Users can add the desired model config to the  `test_transformer.py <https://github.com/volcengine/verl/blob/main/tests/models/test_transformer.py#L24>`_ file.
-And test its functionaility by running the following command:
+And test its functionality by running the following command:
 
 .. code-block:: bash
 
@@ -129,7 +129,7 @@ Instead, users should tune the following parameters:
   The maximum number of tokens to be processed in fwd and bwd of ``update_policy`` and ``update_critic``.
 
 - ``actor_rollout_ref.ref.log_prob_max_token_len_per_gpu`` and ``actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu``: 
-  The maximum number of tokens to be processed in a the fwd computation of ``compute_log_prob`` and ``comptue_ref_log_prob``.
+  The maximum number of tokens to be processed in a the fwd computation of ``compute_log_prob`` and ``compute_ref_log_prob``.
 
 - ``critic.forward_micro_batch_size_per_gpu``, ``reward_model.forward_micro_batch_size_per_gpu``: 
   The maximum number of tokens to be processed in a the fwd computation of ``compute_values``, ``compute_rm_score``.
@@ -180,7 +180,7 @@ LigerKernel is a high-performance kernel for Supervised Fine-Tuning (SFT) that c
 Forward prefetch in FSDP training backend
 ----------------------
 
-During the training phase, users can enable forward prefetching in FSDP by setting ``fsdp_config.forward_prefetch=True``. For example, ``actor_rollout_ref.actor.fsdp_config.forward_prefetch=True``. This configuration prefetches the next forward-pass all-gather operation before completing the current forward computation, overlapping communication with computation and improving efficiency. For further details, refer to the `FSDP forward_pefetch <https://docs.pytorch.org/docs/stable/fsdp.html#module-torch.distributed.fsdp>`_ documentation.
+During the training phase, users can enable forward prefetching in FSDP by setting ``fsdp_config.forward_prefetch=True``. For example, ``actor_rollout_ref.actor.fsdp_config.forward_prefetch=True``. This configuration prefetches the next forward-pass all-gather operation before completing the current forward computation, overlapping communication with computation and improving efficiency. For further details, refer to the `FSDP forward_prefetch <https://docs.pytorch.org/docs/stable/fsdp.html#module-torch.distributed.fsdp>`_ documentation.
 
 .. note::
     Backward prefetch is unsupported because the ``BACKWARD_POST`` policy may prefetch incorrectly in nested-module cases. For details, see the `FSDP documentation <https://github.com/pytorch/torchtitan/blob/main/docs/fsdp.md?plain=1#L70>`_
