@@ -28,6 +28,8 @@ System Architecture
 
 .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/agent_loop.png?raw=true
 
+For more detail on internal design, please refer to :doc:`Agent Loop<../advance/agent_loop>`.
+
 System Components
 ~~~~~~~~~~~~~~~~~
 
