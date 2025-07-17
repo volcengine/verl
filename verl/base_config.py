@@ -22,7 +22,7 @@ from typing import Any
 
 
 # BaseConfig class inherits from collections.abc.Mapping, which means it can act like a dictionary
-@dataclass
+@dataclass(kw_only=True)
 class BaseConfig(collections.abc.Mapping):
     """The BaseConfig provides omegaconf DictConfig-like interface for a dataclass config.
 

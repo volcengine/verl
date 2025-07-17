@@ -1,8 +1,13 @@
+# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+_target_: verl.trainer.config.CriticConfig
+
 # Number of rollouts per update (mirrors actor rollout_n)
 rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
 
 # fsdp or fsdp2 strategy used for critic model training
 strategy: ???
+
+enable: null
 
 # optimizer configs
 optim:
@@ -92,6 +97,3 @@ profiler:
 
   # The ranks that will be profiled. [] or [0,1,...]
   ranks: []
-
-# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-_target_: verl.trainer.config.CriticConfig

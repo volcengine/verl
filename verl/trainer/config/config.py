@@ -19,108 +19,133 @@ from verl.base_config import BaseConfig
 
 
 @dataclass
-class CriticConfig(BaseConfig):
-    """Configuration for critic model training.
+class CheckpointConfig(BaseConfig):
+    """Configuration for model checkpointing.
 
     The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
 
     Args:
-        rollout_n (int): Number of rollouts per update (mirrors actor rollout_n).
-        strategy (str): Strategy used for critic model training (fsdp, fsdp2, megatron).
-        optim (Dict[str, Any]): Optimizer configuration including lr, weight_decay, etc.
-        model (Dict[str, Any]): Model configuration including path, tokenizer_path, etc.
-        ppo_mini_batch_size (int): PPO mini-batch size per update.
-        ppo_micro_batch_size (Optional[int]): Global micro batch size (deprecated).
-        ppo_micro_batch_size_per_gpu (Optional[int]): Local per-GPU micro batch size.
-        use_dynamic_bsz (bool): Whether to automatically adjust batch size at runtime.
-        ppo_max_token_len_per_gpu (int): Max tokens per GPU in one PPO batch.
-        forward_max_token_len_per_gpu (int): Max token length per GPU in forward pass.
-        ppo_epochs (int): Number of PPO epochs per batch.
-        shuffle (bool): Shuffle training data across PPO epochs.
-        cliprange_value (float): PPO value function clipping range.
-        loss_agg_mode (str): Loss aggregation mode.
-        checkpoint (Dict[str, Any]): Checkpoint configuration.
-        profiler (Dict[str, Any]): Profiler configuration.
+        save_contents (list[str]): What to include in saved checkpoints.
+            Options: 'model', 'optimizer', 'extra', 'hf_model'.
+        load_contents (list[str]): Contents to load from checkpoint. Defaults to same as save_contents.
+        async_save (bool): Whether to save checkpoints asynchronously.
     """
 
-    # For legacy reason configs related to batch_size are mutated in each role
-    # In the future they will be added to frozen fields instead
+    _frozen_fields = ["save_contents", "load_contents", "async_save"]
+
+    save_contents: list[str] = field(default_factory=lambda: ["model", "optimizer", "extra"])
+    load_contents: list[str] = field(default_factory=lambda: ["model", "optimizer", "extra"])
+    async_save: bool = False
+
+
+@dataclass
+class MegatronEngineConfig(BaseConfig):
+    """Configuration for Megatron parallelism.
+
+    The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
+
+    Args:
+        param_offload (bool): Whether to offload parameters to CPU.
+        grad_offload (bool): Whether to offload gradients to CPU.
+        optimizer_offload (bool): Whether to offload optimizer states to CPU.
+        tensor_model_parallel_size (int): Tensor model parallel size.
+        expert_model_parallel_size (int): Expert model parallel size for MoE models.
+        expert_tensor_parallel_size (Optional[int]): Expert tensor parallel size for MoE models.
+        pipeline_model_parallel_size (int): Pipeline model parallel size.
+        virtual_pipeline_model_parallel_size (Optional[int]): Virtual pipeline model parallel size
+            for interleaved scheduling.
+        context_parallel_size (int): Context parallel size for long sequences.
+        sequence_parallel (bool): Whether to enable sequence parallelism.
+        use_distributed_optimizer (bool): Whether to use distributed optimizer.
+        use_dist_checkpointing (bool): Whether to use distributed checkpointing.
+        dist_checkpointing_path (Optional[str]): Path for distributed checkpointing.
+        seed (int): Random seed for reproducibility.
+        override_ddp_config (dict[str, Any]): Override configuration for DDP.
+        override_transformer_config (dict[str, Any]): Override configuration for transformer.
+        use_mbridge (bool): Whether to use MBridge for communication.
+    """
+
     _frozen_fields = [
-        "rollout_n",
-        "strategy",
-        "use_dynamic_bsz",
-        "ppo_max_token_len_per_gpu",
-        "forward_max_token_len_per_gpu",
-        "ppo_epochs",
-        "shuffle",
-        "cliprange_value",
-        "loss_agg_mode",
+        "param_offload",
+        "grad_offload",
+        "optimizer_offload",
+        "tensor_model_parallel_size",
+        "expert_model_parallel_size",
+        "expert_tensor_parallel_size",
+        "pipeline_model_parallel_size",
+        "virtual_pipeline_model_parallel_size",
+        "context_parallel_size",
+        "sequence_parallel",
+        "use_distributed_optimizer",
+        "use_dist_checkpointing",
+        "dist_checkpointing_path",
+        "seed",
+        "override_ddp_config",
+        "override_transformer_config",
+        "use_mbridge",
     ]
 
-    rollout_n: int = 1
-    strategy: str = "fsdp"
-    optim: dict[str, Any] = field(default_factory=dict)
-    model: dict[str, Any] = field(default_factory=dict)
-    ppo_mini_batch_size: int = 1
-    ppo_micro_batch_size: Optional[int] = None
-    ppo_micro_batch_size_per_gpu: Optional[int] = None
-    use_dynamic_bsz: bool = False
-    ppo_max_token_len_per_gpu: int = 32768
-    forward_max_token_len_per_gpu: int = 32768
-    ppo_epochs: int = 1
-    shuffle: bool = True
-    cliprange_value: float = 0.5
-    loss_agg_mode: str = "token-mean"
-    checkpoint: dict[str, Any] = field(default_factory=dict)
-    profiler: dict[str, Any] = field(default_factory=dict)
+    param_offload: bool = False
+    grad_offload: bool = False
+    optimizer_offload: bool = False
+    tensor_model_parallel_size: int = 1
+    expert_model_parallel_size: int = 1
+    expert_tensor_parallel_size: Optional[int] = None
+    pipeline_model_parallel_size: int = 1
+    virtual_pipeline_model_parallel_size: Optional[int] = None
+    context_parallel_size: int = 1
+    sequence_parallel: bool = True
+    use_distributed_optimizer: bool = True
+    use_dist_checkpointing: bool = False
+    dist_checkpointing_path: Optional[str] = None
+    seed: int = 42
+    override_ddp_config: dict[str, Any] = field(default_factory=dict)
+    override_transformer_config: dict[str, Any] = field(default_factory=dict)
+    use_mbridge: bool = False
 
 
 @dataclass
-class MegatronCriticConfig(CriticConfig):
-    """Configuration for Megatron-based critic model training.
+class ProfileConfig(BaseConfig):
+    """Configuration for profiling.
 
-    The inheritance from CriticConfig provides all base critic configuration plus Megatron-specific settings.
+    The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
 
     Args:
-        nccl_timeout (int): NCCL timeout in seconds for distributed operations.
-        megatron (Dict[str, Any]): Megatron-specific parallelism settings.
-        load_weight (bool): Whether to load initial weights.
-        data_loader_seed (Optional[int]): Seed for data loader.
+        use_profile (bool): Whether to enable profiling.
+        profile_ranks (Optional[list[int]]): List of ranks to profile. None means all ranks.
+        step_start (int): Starting step for profiling.
+        step_end (int): Ending step for profiling.
+        save_path (Optional[str]): Path to save profiling results.
     """
 
-    _frozen_fields = CriticConfig._frozen_fields + [
-        "nccl_timeout",
-        "load_weight",
-        "data_loader_seed",
-    ]
-
-    strategy: str = "megatron"
-    nccl_timeout: int = 600
-    megatron: dict[str, Any] = field(default_factory=dict)
-    load_weight: bool = True
-    data_loader_seed: Optional[int] = None
+    use_profile: bool = False
+    profile_ranks: Optional[list[int]] = None
+    step_start: int = -1
+    step_end: int = -1
+    save_path: Optional[str] = None
 
 
 @dataclass
-class FSDPCriticConfig(CriticConfig):
-    """Configuration for FSDP-based critic model training.
+class FSDPEngineConfig(BaseConfig):
+    """Configuration for FSDP (Fully Sharded Data Parallel).
 
-    The inheritance from CriticConfig provides all base critic configuration plus FSDP-specific settings.
+    The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
 
     Args:
-        forward_micro_batch_size (int): Forward-only batch size during inference (global).
-        forward_micro_batch_size_per_gpu (int): Forward-only batch size during inference (per GPU).
-        ulysses_sequence_parallel_size (int): Sequence parallelism size for Ulysses-style model parallelism.
-        grad_clip (float): Gradient clipping for critic updates.
+        wrap_policy (Dict[str, Any]): Configuration for FSDP wrap policy.
+        param_offload (bool): Whether to offload parameters to CPU.
+        optimizer_offload (bool): Whether to offload optimizer states to CPU.
+        offload_policy (bool): Whether to offload policy model parameters.
+        reshard_after_forward (bool): Whether to reshard parameters after forward pass.
+        fsdp_size (int): FSDP group size. -1 means use all available GPUs.
+        forward_prefetch (bool): Whether to prefetch parameters for next forward pass.
     """
 
-    _frozen_fields = CriticConfig._frozen_fields + [
-        "ulysses_sequence_parallel_size",
-        "grad_clip",
-    ]
+    wrap_policy: dict[str, Any] = field(default_factory=dict)
 
-    strategy: str = "fsdp"
-    forward_micro_batch_size: int = 1
-    forward_micro_batch_size_per_gpu: int = 1
-    ulysses_sequence_parallel_size: int = 1
-    grad_clip: float = 1.0
+    param_offload: bool = False
+    optimizer_offload: bool = False
+    offload_policy: bool = False
+    reshard_after_forward: bool = True
+    fsdp_size: int = -1
+    forward_prefetch: bool = False
