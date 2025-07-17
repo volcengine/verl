@@ -1,8 +1,8 @@
 # Recipe: One Step Off Policy Async Trainer
 
-**Author:**  `https://github.com/meituan-search>`
+**Author:**  `https://github.com/meituan-search`
 
-Last updated: 07/16/2025.
+Last updated: 07/17/2025.
 
 ## Introduction
 
@@ -66,8 +66,8 @@ Our core contributions include:
 | colocate sync          | VLLM+Megatron | 699  | 207 | -             | 162                | 119          | 344          | 18h21m        | 0.605            | 0.4217          |
 | one-step-overlap async | VLLM+Megatron | 566  | -   | 59            | 501                | 120          | 347          | 13h06m (+40%) | 0.6569           | 0.4038          |
 
-* colocate sync: step = gen + old_log_prob + update_actor
-* one-step-overlap async: step = max(wait_prev_gen + generate_sequences, old_log_prob + update_actor)
+* colocate sync: step ≈ gen + old_log_prob + update_actor
+* one-step-overlap async: step ≈ wait_prev_gen + old_log_prob + update_actor
 
 ![One Step Off Megatron Performance](
 https://raw.githubusercontent.com/eric-haibin-lin/verl-community/refs/heads/main/docs/one_step_off_megatron.png)
@@ -135,7 +135,6 @@ while batch_data_future is not None:
 
 The exciting point is that our nccl based weights updating for rollout model has great performance.
 At most of time, the latency is under 300ms, which is negligible for RLHF.
-Although it is only implemented with fsdp and vllm now, we think it is not complex to extend it to the other backend.
 
 > **sync_rollout_weights**：The time for synchronizing parameters from actor to rollout is extremely fast and can almost
 > be ignored because it is implemented with nccl.
