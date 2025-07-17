@@ -115,10 +115,15 @@ class AgentLoopOutput(BaseModel):
     """Agent loop output."""
 
     prompt_ids: list[int]
+    """Prompt token ids."""
     response_ids: list[int]
+    """Response token ids including LLM generated token, tool response token."""
     response_mask: list[int]
+    """Response mask, 1 for LLM generated token, 0 for tool response token."""
     num_turns: int = 0
+    """Number of chat turns, including user, assistant, tool."""
     metrics: AgentLoopMetrics
+    """Auxiliary performance metrics"""
 
 
 # make hydra.utils.instantiate happy
