@@ -20,7 +20,7 @@ import itertools
 import logging
 import os
 import warnings
-from typing import Callable, Dict, Tuple
+from typing import Callable
 
 import torch
 import torch.distributed
@@ -482,8 +482,8 @@ class FSDPEngine(BaseEngine):
     def infer_batch(
         self,
         data: DataProto,
-        post_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
-    ) -> Dict[str, torch.Tensor]:
+        post_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
+    ) -> dict[str, torch.Tensor]:
         """
         Perform inference on a mini batch of data.
 
@@ -493,7 +493,7 @@ class FSDPEngine(BaseEngine):
                      and returns a tuple containing processed predictions and a dictionary of outputs.
 
         Returns:
-            Dict[str, torch.Tensor]: A dictionary containing the predictions for the entire batch.
+            dict[str, torch.Tensor]: A dictionary containing the predictions for the entire batch.
         """
         assert self.mode == "eval"
         micro_batch_size = data.meta_info["micro_batch_size"]
@@ -519,16 +519,16 @@ class FSDPEngine(BaseEngine):
                 micro_batch = {**micro_batch.batch, **micro_batch.non_tensor_batch}
 
             with torch.no_grad():
-                # micro_batch_preds would be a Dict[str, torch.Tensor]
+                # micro_batch_preds would be a dict[str, torch.Tensor]
                 preds = self._forward_micro_batch(micro_batch)
                 _, outputs = post_fn(micro_batch, preds)
                 assert isinstance(outputs, dict)
 
-            # append micro batch preds to Dict[str, List[torch.Tensor]]
+            # append micro batch preds to dict[str, List[torch.Tensor]]
             append_to_dict(preds_list, outputs)
 
         # reorganize mini batch preds from
-        # Dict[str, List[torch.Tensor]] to Dict[str, torch.Tensor]
+        # dict[str, List[torch.Tensor]] to dict[str, torch.Tensor]
         mini_batch_preds = {}
         for key, t_list in preds_list.items():
             t_concat = torch.concat(t_list, dim=0)
@@ -546,8 +546,8 @@ class FSDPEngine(BaseEngine):
     def train_batch(
         self,
         data: DataProto,
-        loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
-    ) -> Dict[str, torch.Tensor]:
+        loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
+    ) -> dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
 
@@ -556,7 +556,7 @@ class FSDPEngine(BaseEngine):
             loss_fn (Callable): A function that computes the loss and metrics given a micro-batch and predictions.
 
         Returns:
-            Dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
+            dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
         """
         assert self.mode == "train"
         # split batch into micro_batches

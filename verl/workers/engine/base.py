@@ -15,7 +15,7 @@
 The abstract base class defining the interface for model training engines.
 """
 
-from typing import Callable, Dict, Tuple
+from typing import Callable
 
 import torch
 
@@ -69,8 +69,8 @@ class BaseEngine:
     def infer_batch(
         self,
         data: DataProto,
-        post_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
-    ) -> Dict[str, torch.Tensor]:
+        post_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
+    ) -> dict[str, torch.Tensor]:
         """
         Perform inference on a mini batch of data.
 
@@ -80,15 +80,15 @@ class BaseEngine:
                      and returns a tuple containing processed predictions and a dictionary of outputs.
 
         Returns:
-            Dict[str, torch.Tensor]: A dictionary containing the predictions for the entire batch.
+            dict[str, torch.Tensor]: A dictionary containing the predictions for the entire batch.
         """
         raise NotImplementedError
 
     def train_batch(
         self,
         data: DataProto,
-        loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
-    ) -> Dict[str, torch.Tensor]:
+        loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
+    ) -> dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
 
@@ -97,7 +97,7 @@ class BaseEngine:
             loss_fn (Callable): A function that computes the loss and metrics given a micro-batch and predictions.
 
         Returns:
-            Dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
+            dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
         """
         raise NotImplementedError
 
@@ -185,12 +185,29 @@ class BaseEngine:
 
 
 class EngineRegistry:
+    """
+    A registry for managing and instantiating different types of training engines.
+
+    This class uses a dictionary to store engine classes, mapping a string key to each class.
+    It provides a decorator `register` to add new engines to the registry and a `new` method
+    to create an instance of a registered engine.
+    """
     _engines = {}
 
     @classmethod
     def register(cls, key):
+        """
+        A class method decorator that registers an engine class with a given key.
+
+        This allows for dynamic instantiation of engine classes by their registered key.
+
+        Args:
+            key (str): The identifier to associate with the engine class.
+
+        Returns:
+            A decorator function that takes an engine class and registers it.
+        """
         def decorator(engine_class):
-            print(engine_class)
             assert issubclass(engine_class, BaseEngine)
             cls._engines[key] = engine_class
             return engine_class

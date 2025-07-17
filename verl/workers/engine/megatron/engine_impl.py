@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Callable, Dict, Tuple
+from typing import Callable
 
 import torch
 
@@ -51,8 +51,8 @@ class MegatronEngine(BaseEngine):
     def infer_batch(
         self,
         data: DataProto,
-        post_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
-    ) -> Dict[str, torch.Tensor]:
+        post_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
+    ) -> dict[str, torch.Tensor]:
         """
         Perform inference on a mini batch of data.
 
@@ -62,15 +62,15 @@ class MegatronEngine(BaseEngine):
                      and returns a tuple containing processed predictions and a dictionary of outputs.
 
         Returns:
-            Dict[str, torch.Tensor]: A dictionary containing the predictions for the entire batch.
+            dict[str, torch.Tensor]: A dictionary containing the predictions for the entire batch.
         """
         raise NotImplementedError
 
     def train_batch(
         self,
         data: DataProto,
-        loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
-    ) -> Dict[str, torch.Tensor]:
+        loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
+    ) -> dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
 
@@ -79,7 +79,7 @@ class MegatronEngine(BaseEngine):
             loss_fn (Callable): A function that computes the loss and metrics given a micro-batch and predictions.
 
         Returns:
-            Dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
+            dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
         """
         raise NotImplementedError
 

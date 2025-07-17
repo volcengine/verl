@@ -137,7 +137,7 @@ class TaskRunner:
                 from verl.workers.fsdp_workers import CriticWorker
             elif use_legacy_worker_impl == "disable":
                 from verl.workers.roles import CriticWorker
-                print(f"Using new worker implementation")
+                print("Using new worker implementation")
             else:
                 raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
 
