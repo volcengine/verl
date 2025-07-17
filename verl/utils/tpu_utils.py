@@ -1,3 +1,4 @@
+import torch
 
 class Tpu:
     """This is to simulate torch.tpu backend. 
@@ -49,5 +50,3 @@ class Tpu:
 
     def manual_seed(self, seed):
         self.torch_xla.manual_seed(seed)
-
-

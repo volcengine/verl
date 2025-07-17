@@ -954,6 +954,8 @@ class RayPPOTrainer:
                             self.async_rollout_manager.sleep()
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
+                    # TODO (Issue https://github.com/Chrisytz/verl/issues/5): Remove continue when implementing actor and critic update
+                    continue
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer("gen_max", timing_raw):

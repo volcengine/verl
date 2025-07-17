@@ -56,12 +56,13 @@ class DataParallelPPOActor(BasePPOActor):
         super().__init__(config)
         self.actor_module = actor_module
         self.actor_optimizer = actor_optimizer
+        self.device_name = get_device_name()
 
         self.use_remove_padding = self.config.get("use_remove_padding", False)
-        if torch.distributed.get_rank() == 0:
+        if self.device_name != "xla" and torch.distributed.get_rank() == 0:
             print(f"Actor use_remove_padding={self.use_remove_padding}")
         self.use_fused_kernels = self.config.get("use_fused_kernels", False)
-        if torch.distributed.get_rank() == 0:
+        if self.device_name != "xla" and torch.distributed.get_rank() == 0:
             print(f"Actor use_fused_kernels={self.use_fused_kernels}")
 
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
@@ -77,7 +78,6 @@ class DataParallelPPOActor(BasePPOActor):
             if self.config.get("use_torch_compile", True)  #  use torch compile by default
             else entropy_from_logits
         )
-        self.device_name = get_device_name()
 
     def _forward_micro_batch(self, micro_batch, temperature, calculate_entropy=False) -> Tuple[torch.Tensor, torch.Tensor]:
         """

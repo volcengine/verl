@@ -101,7 +101,13 @@ class TaskRunner:
 
             actor_rollout_cls = AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
             ray_worker_group_cls = NVMegatronRayWorkerGroup
+        elif config.actor_rollout_ref.actor.strategy == "xla":
+            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+            from verl.single_controller.ray import RayWorkerGroup
+            from verl.workers.tpu_workers import ActorRolloutRefWorker, CriticWorker
 
+            actor_rollout_cls = ActorRolloutRefWorker
+            ray_worker_group_cls = RayWorkerGroup        
         else:
             raise NotImplementedError
 
@@ -176,7 +182,7 @@ class TaskRunner:
         # Initialize the workers of the trainer.
         trainer.init_workers()
         # Start the training process.
-        # trainer.fit()
+        trainer.fit()
 
 
 def create_rl_dataset(data_paths, data_config, tokenizer, processor):

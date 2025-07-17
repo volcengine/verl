@@ -75,7 +75,7 @@ def _repeat_interleave(value: Union[torch.Tensor, np.ndarray], repeats: int) -> 
 
 
 class vLLMRollout(BaseRollout):
-    def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
+    def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, device_name="cuda", **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
 
         Args:
@@ -90,7 +90,8 @@ class vLLMRollout(BaseRollout):
         assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
-        assert tensor_parallel_size <= torch.distributed.get_world_size(), "tensor parallel size should be less than or equal to the world size"
+        if device_name != "xla":
+            assert tensor_parallel_size <= torch.distributed.get_world_size(), "tensor parallel size should be less than or equal to the world size"
         max_num_batched_tokens = self.config.get("max_num_batched_tokens", 8192)
 
         if kwargs.get("train_tp") is not None:
@@ -148,14 +149,14 @@ class vLLMRollout(BaseRollout):
 
         self.inference_engine = LLM(
             model=model_path,
-            enable_sleep_mode=True,
+            enable_sleep_mode=config.enable_sleep_mode,
             tensor_parallel_size=tensor_parallel_size,
             distributed_executor_backend="external_launcher",
             dtype=config.dtype,
             enforce_eager=config.enforce_eager,
             gpu_memory_utilization=config.gpu_memory_utilization,
             disable_custom_all_reduce=True,
-            disable_mm_preprocessor_cache=True,
+            disable_mm_preprocessor_cache=config.disable_mm_preprocessor_cache,
             skip_tokenizer_init=False,
             max_model_len=max_model_len,
             load_format=load_format,
@@ -170,7 +171,8 @@ class vLLMRollout(BaseRollout):
         )
 
         # Offload vllm model to reduce peak memory usage
-        self.inference_engine.sleep(level=1)
+        if config.enable_sleep_mode:
+            self.inference_engine.sleep(level=1)
 
         kwargs = dict(
             n=1,
