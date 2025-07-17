@@ -74,3 +74,6 @@ fsdp_config:
   # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
   # before the current forward computation.
   forward_prefetch: False
+
+# Whether to remove padding tokens in inputs during training
+use_remove_padding: ${oc.select:actor_rollout_ref.model.use_remove_padding,false}

@@ -46,6 +46,7 @@ actor_rollout_ref:
       min_lr_ratio: 0.0
       num_cycles: 0.5
       warmup_style: constant
+    use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
     grad_clip: 1.0
     ulysses_sequence_parallel_size: 1
     entropy_from_logits_with_chunking: false
@@ -59,6 +60,7 @@ actor_rollout_ref:
       reshard_after_forward: true
       fsdp_size: -1
       forward_prefetch: false
+    use_remove_padding: ${oc.select:actor_rollout_ref.model.use_remove_padding,false}
   ref:
     strategy: ${actor_rollout_ref.actor.strategy}
     use_torch_compile: ${oc.select:actor_rollout_ref.actor.use_torch_compile,true}

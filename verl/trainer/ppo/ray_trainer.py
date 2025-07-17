@@ -428,8 +428,6 @@ class RayPPOTrainer:
                 ValueError: If both parameters are set or neither is set.
             """
             settings = {
-                "actor_rollout_ref.actor": "micro_batch_size",
-                "critic": "micro_batch_size",
                 "reward_model": "micro_batch_size",
                 "actor_rollout_ref.ref": "log_prob_micro_batch_size",
                 "actor_rollout_ref.rollout": "log_prob_micro_batch_size",

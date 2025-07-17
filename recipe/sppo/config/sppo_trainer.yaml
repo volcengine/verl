@@ -10,8 +10,8 @@ defaults:
 
 actor_rollout_ref:
   actor:
-    extra:
-      sppo_eta: 1.0
+    _target_: recipe.sppo.config.SPPOActorConfig
+    sppo_eta: 1.0
     optim:
       lr_warmup_steps: 15
   rollout:

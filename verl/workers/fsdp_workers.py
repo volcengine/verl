@@ -614,12 +614,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 log_gpu_memory_usage("After offload actor optimizer during init", logger=logger)
 
         if self._is_actor:
-            OmegaConf.set_struct(self.config.actor, True)
-            with open_dict(self.config.actor):
-                self.config.actor.use_remove_padding = use_remove_padding
-                self.config.actor.use_fused_kernels = use_fused_kernels
+            actor_cfg = omega_conf_to_dataclass(self.config.actor)
             self.actor = DataParallelPPOActor(
-                config=self.config.actor, actor_module=self.actor_module_fsdp, actor_optimizer=self.actor_optimizer
+                config=actor_cfg, actor_module=self.actor_module_fsdp, actor_optimizer=self.actor_optimizer
             )
 
         if self._is_rollout:

@@ -72,6 +72,7 @@ class ActorConfig(BaseConfig):
         shuffle (bool): Whether to shuffle data during training.
         checkpoint (dict[str, Any]): Configuration for checkpointing.
         optim (Dict[str, Any]): Configuration for optimizer.
+        use_fused_kernels (bool): Whether to use custom fused kernels (e.g., FlashAttention, fused MLP).
     """
 
     _frozen_fields = [
@@ -111,6 +112,7 @@ class ActorConfig(BaseConfig):
     shuffle: bool = False
     checkpoint: dict[str, Any] = field(default_factory=dict)
     optim: dict[str, Any] = field(default_factory=dict)
+    use_fused_kernels: bool = False
 
     def __post_init__(self):
         """Validate actor configuration parameters."""
@@ -206,6 +208,7 @@ class FSDPActorConfig(ActorConfig):
             with chunking for memory efficiency.
         entropy_checkpointing (bool): Whether to use gradient checkpointing for entropy computation.
         fsdp_config (dict[str, Any]): Configuration for FSDP settings.
+        use_remove_padding (bool): Whether to remove padding tokens in inputs during training
     """
 
     _frozen_fields = ActorConfig._frozen_fields + [
@@ -221,6 +224,7 @@ class FSDPActorConfig(ActorConfig):
     entropy_from_logits_with_chunking: bool = False
     entropy_checkpointing: bool = False
     fsdp_config: dict[str, Any] = field(default_factory=dict)
+    use_remove_padding: bool = False
 
     def __post_init__(self):
         """Validate FSDP actor configuration parameters."""
