@@ -136,7 +136,7 @@ class MegatronEngine(BaseEngine):
         Move model parameters, optimizer states, or both to the specified device.
 
         Args:
-            device: Target device identifier (e.g., "cuda" or "cpu").
+            device: Target device identifier.
             model: If True, move the model.
             optimizer: If True, move the optimizer states.
         """

@@ -28,7 +28,7 @@ from verl.trainer.ppo import core_algos
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import (
     get_device_id,
-    is_cuda_available,
+    get_nccl_backend,
 )
 from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
@@ -48,7 +48,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         import torch.distributed
 
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend="nccl" if is_cuda_available else "hccl")
+            torch.distributed.init_process_group(backend=get_nccl_backend())
         self.config = config
         self.engine = EngineRegistry.new(self.config.strategy, self.config)
 
