@@ -24,7 +24,7 @@ Agent Loop is designed as general interface for multi-turn rollout and agentic r
 In high level overview, agent loop is given a prompt, run user defined loop: call LLM generate api, call tools, ...
 and return the final output. The final output is then calculated reward and used as trajectory for RL training.
 
-.. image:: https://github.com/wuxibin89/verl-community/blob/wuxibin/agent_loop/docs/agent_loop_overview.svg?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/agent_loop_overview.svg?raw=true
 
 
 API Design
@@ -71,14 +71,14 @@ response token ids, and response mask.
        response_mask: list[int]
        """Response mask, 1 for LLM generated token, 0 for tool response token."""
 
-.. image:: https://github.com/wuxibin89/verl-community/blob/wuxibin/agent_loop/docs/agent_loop_output.svg?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/agent_loop_output.svg?raw=true
 
 .. note:: AgentLoopOutput only output one trajectory for a given prompt, multiple trajectories output is still under discussion.
 
 Architecture Design
 -------------------
 
-.. image:: https://github.com/wuxibin89/verl-community/blob/wuxibin/agent_loop/docs/agent_loop_architecture.png?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/agent_loop_architecture.png?raw=true
 
 A single PPO step contain two phase: rollout and train. In rollout phase:
 
@@ -155,7 +155,7 @@ keep chat history as messages. So user may expect that we should use the chat co
 But based on our recent experience on single-turn training on DAPO and multi-turn training on `retool <https://github.com/volcengine/verl/tree/main/recipe/retool>`_,
 we found the token_ids from apply the final messages may not equal to the token_ids by concat prompt_ids and response_ids in each turn.
 
-.. image:: https://github.com/wuxibin89/verl-community/blob/wuxibin/agent_loop/docs/multi_turn.png?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/multi_turn.png?raw=true
 
 **Where does this inconsistency happened?**
 
@@ -184,7 +184,7 @@ to the final chat history messages make PPO training not even converged in singl
 vLLM
 ^^^^
 
-.. image:: https://github.com/wuxibin89/verl-community/blob/wuxibin/agent_loop/docs/async_vllm.png?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/async_vllm.png?raw=true
 
 For vLLM, the Async LLM Engine is running in same process as the server, and ModelRunner is running in same process as FSDP/Megatron-LM workers.
 Async LLM Engine communicate with ModelRunner through ZeroMQ. When server receive a request, it directly call engine to generate response_ids.
@@ -192,7 +192,7 @@ Async LLM Engine communicate with ModelRunner through ZeroMQ. When server receiv
 SGLang
 ^^^^^^
 
-.. image:: https://github.com/wuxibin89/verl-community/blob/wuxibin/agent_loop/docs/async_sglang.png?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/async_sglang.png?raw=true
 
 For SGLang, the Async LLM Engine is running in same process as FSDP/Megatron-LM worker-0, and it spawn multiple subprocesses as ModelRunner.
 Also, Async LLM Engine communicate with ModelRunner through ZeroMQ. When server receive a request, it remote call the worker-0 and get response_ids.
