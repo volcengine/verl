@@ -1,11 +1,11 @@
 # This reference configration yaml is automatically generated via 'scripts/generate_trainer_config.sh'
-# in which it invokes 'python3 scripts/print_cfg.py --cfg job ' to flatten the 'verl/trainer/config/ppo_trainer.yaml' config fields into a single file.
+# in which it invokes 'python3 scripts/print_cfg.py --cfg job --config-name=ppo_megatron_trainer.yaml' to flatten the 'verl/trainer/config/ppo_megatron_trainer.yaml' config fields into a single file.
 # Do not modify this file directly.
 # The file is usually only for reference and never used.
 
 actor_rollout_ref:
   actor:
-    strategy: fsdp
+    strategy: megatron
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null
     ppo_micro_batch_size_per_gpu: null
@@ -36,44 +36,78 @@ actor_rollout_ref:
       - optimizer
       - extra
       load_contents: ${.save_contents}
+      async_save: false
     optim:
       lr: 1.0e-06
       lr_warmup_steps_ratio: 0.0
       total_training_steps: -1
       weight_decay: 0.01
-      lr_warmup_steps: -1
-      min_lr_ratio: 0.0
-      num_cycles: 0.5
-      warmup_style: constant
-    grad_clip: 1.0
-    ulysses_sequence_parallel_size: 1
-    entropy_from_logits_with_chunking: false
-    entropy_checkpointing: false
-    fsdp_config:
-      wrap_policy:
-        min_num_params: 0
+      optimizer: adam
+      clip_grad: 1.0
+      lr_warmup_init: 0.0
+      lr_warmup_steps: null
+      lr_decay_steps: null
+      lr_decay_style: constant
+      min_lr: 0.0
+      weight_decay_incr_style: constant
+      lr_wsd_decay_style: exponential
+      lr_wsd_decay_steps: null
+      use_checkpoint_opt_param_scheduler: false
+    data_loader_seed: null
+    load_weight: true
+    megatron:
       param_offload: false
+      grad_offload: false
       optimizer_offload: false
-      offload_policy: false
-      reshard_after_forward: true
-      fsdp_size: -1
-      forward_prefetch: false
+      tensor_model_parallel_size: 1
+      expert_model_parallel_size: 1
+      expert_tensor_parallel_size: null
+      pipeline_model_parallel_size: 1
+      virtual_pipeline_model_parallel_size: null
+      context_parallel_size: 1
+      sequence_parallel: true
+      use_distributed_optimizer: true
+      use_dist_checkpointing: false
+      dist_checkpointing_path: null
+      seed: 42
+      override_ddp_config: {}
+      override_transformer_config: {}
+      use_mbridge: false
+    profile:
+      use_profile: false
+      profile_ranks: null
+      step_start: -1
+      step_end: -1
+      save_path: null
   ref:
-    strategy: ${actor_rollout_ref.actor.strategy}
+    strategy: megatron
     use_torch_compile: ${oc.select:actor_rollout_ref.actor.use_torch_compile,true}
     log_prob_micro_batch_size: null
     log_prob_micro_batch_size_per_gpu: null
     log_prob_use_dynamic_bsz: ${oc.select:actor_rollout_ref.actor.use_dynamic_bsz,false}
     log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_token_len_per_gpu,16384}
-    fsdp_config:
+    megatron:
       param_offload: false
-      reshard_after_forward: true
-      forward_prefetch: false
-      wrap_policy:
-        min_num_params: 0
-    ulysses_sequence_parallel_size: ${oc.select:actor_rollout_ref.actor.ulysses_sequence_parallel_size,1}
-    entropy_from_logits_with_chunking: false
-    entropy_checkpointing: false
+      tensor_model_parallel_size: 1
+      expert_model_parallel_size: 1
+      expert_tensor_parallel_size: None
+      pipeline_model_parallel_size: 1
+      virtual_pipeline_model_parallel_size: null
+      context_parallel_size: 1
+      sequence_parallel: true
+      use_distributed_optimizer: false
+      use_dist_checkpointing: false
+      dist_checkpointing_path: null
+      seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
+      override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
+      use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+    profile:
+      use_profile: false
+      profile_ranks: null
+      step_start: -1
+      step_end: -1
+      save_path: null
+    load_weight: true
   rollout:
     name: vllm
     mode: sync
@@ -87,7 +121,7 @@ actor_rollout_ref:
     ignore_eos: false
     enforce_eager: true
     free_cache_engine: true
-    tensor_model_parallel_size: 2
+    tensor_model_parallel_size: 1
     max_num_batched_tokens: 8192
     max_model_len: null
     max_num_seqs: 1024
@@ -135,27 +169,27 @@ actor_rollout_ref:
     trace:
       backend: null
       token2text: false
-    enable_chunked_prefill: true
-    load_format: dummy_dtensor
-    layered_summon: false
+    enable_chunked_prefill: false
+    load_format: dummy_megatron
+    layer_name_map:
+      qkv_layer_name: qkv
+      gate_proj_layer_name: gate_up
   hybrid_engine: true
+  nccl_timeout: 600
   model:
     path: ~/models/deepseek-llm-7b-chat
     custom_chat_template: null
-    use_shm: false
     external_lib: null
-    override_config: {}
-    enable_gradient_checkpointing: true
-    enable_activation_offload: false
-    use_remove_padding: false
-    lora_rank: 0
-    lora_alpha: 16
-    target_modules: all-linear
-    exclude_modules: null
-    use_liger: false
+    override_config:
+      model_config: {}
+      moe_config:
+        freeze_moe_router: false
+    enable_gradient_checkpointing: false
+    gradient_checkpointing_kwargs:
+      activations_checkpoint_method: null
+      activations_checkpoint_granularity: null
+      activations_checkpoint_num_layers: null
     use_fused_kernels: false
-    fused_kernel_options:
-      impl_backend: torch
     trust_remote_code: false
   profiler:
     _target_: verl.utils.profiler.ProfilerConfig
@@ -178,6 +212,28 @@ trainer:
   total_epochs: 30
   total_training_steps: null
   profile_steps: null
+  project_name: verl_examples
+  experiment_name: gsm8k
+  logger:
+  - console
+  - wandb
+  log_val_generations: 0
+  nnodes: 1
+  n_gpus_per_node: 8
+  save_freq: -1
+  esi_redundant_time: 0
+  resume_mode: auto
+  resume_from_path: null
+  del_local_ckpt_after_load: false
+  val_before_train: true
+  test_freq: -1
+  critic_warmup: 0
+  default_hdfs_dir: null
+  default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
+  max_actor_ckpt_to_keep: null
+  max_critic_ckpt_to_keep: null
+  ray_wait_register_center_timeout: 300
+  device: cuda
   controller_nsight_options:
     trace: cuda,nvtx,cublas,ucx
     cuda-memory-usage: 'true'
@@ -189,31 +245,6 @@ trainer:
     capture-range: cudaProfilerApi
     capture-range-end: null
     kill: none
-  project_name: verl_examples
-  experiment_name: gsm8k
-  logger:
-  - console
-  - wandb
-  log_val_generations: 0
-  rollout_data_dir: null
-  validation_data_dir: null
-  nnodes: 1
-  n_gpus_per_node: 8
-  save_freq: -1
-  esi_redundant_time: 0
-  resume_mode: auto
-  resume_from_path: null
-  val_before_train: true
-  val_only: false
-  test_freq: -1
-  critic_warmup: 0
-  default_hdfs_dir: null
-  del_local_ckpt_after_load: false
-  default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
-  max_actor_ckpt_to_keep: null
-  max_critic_ckpt_to_keep: null
-  ray_wait_register_center_timeout: 300
-  device: cuda
 data:
   tokenizer: null
   use_shm: false
@@ -249,36 +280,37 @@ data:
     name: null
 critic:
   rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
-  strategy: fsdp
+  strategy: megatron
   optim:
     lr_warmup_steps_ratio: 0.0
     total_training_steps: -1
     weight_decay: 0.01
-    lr: 1.0e-05
-    min_lr_ratio: null
-    warmup_style: constant
+    optimizer: adam
+    lr: 1.0e-06
+    clip_grad: 1.0
+    lr_warmup_init: 0.0
+    lr_warmup_steps: null
+    lr_decay_steps: null
+    lr_decay_style: linear
+    min_lr: 0.0
+    weight_decay_incr_style: constant
+    lr_wsd_decay_style: exponential
+    lr_wsd_decay_steps: null
+    use_checkpoint_opt_param_scheduler: false
   model:
     path: ~/models/deepseek-llm-7b-chat
     tokenizer_path: ${oc.select:actor_rollout_ref.model.path,"~/models/deepseek-llm-7b-chat"}
-    override_config: {}
+    override_config:
+      model_config: {}
+      moe_config:
+        freeze_moe_router: false
     external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
-    enable_gradient_checkpointing: true
+    enable_gradient_checkpointing: false
     trust_remote_code: ${oc.select:actor_rollout_ref.model.trust_remote_code,false}
-    use_shm: false
-    enable_activation_offload: false
-    use_remove_padding: false
-    fsdp_config:
-      param_offload: false
-      optimizer_offload: false
-      offload_policy: false
-      reshard_after_forward: true
-      wrap_policy:
-        min_num_params: 0
-      fsdp_size: -1
-      forward_prefetch: false
-    lora_rank: 0
-    lora_alpha: 16
-    target_modules: all-linear
+    gradient_checkpointing_kwargs:
+      activations_checkpoint_method: null
+      activations_checkpoint_granularity: null
+      activations_checkpoint_num_layers: null
   ppo_mini_batch_size: ${oc.select:actor_rollout_ref.actor.ppo_mini_batch_size,256}
   ppo_micro_batch_size: null
   ppo_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size,null}
@@ -295,34 +327,42 @@ critic:
     - optimizer
     - extra
     load_contents: ${.save_contents}
+    async_save: false
   profiler:
     _target_: verl.utils.profiler.ProfilerConfig
     discrete: false
     all_ranks: false
     ranks: []
-  _target_: verl.trainer.config.FSDPCriticConfig
-  forward_micro_batch_size: ${oc.select:.ppo_micro_batch_size,null}
-  forward_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size_per_gpu,null}
-  ulysses_sequence_parallel_size: 1
-  grad_clip: 1.0
+  _target_: verl.trainer.config.MegatronCriticConfig
+  nccl_timeout: 600
+  megatron:
+    param_offload: false
+    grad_offload: false
+    optimizer_offload: false
+    tensor_model_parallel_size: 1
+    expert_model_parallel_size: 1
+    expert_tensor_parallel_size: null
+    pipeline_model_parallel_size: 1
+    virtual_pipeline_model_parallel_size: null
+    context_parallel_size: 1
+    sequence_parallel: true
+    use_distributed_optimizer: true
+    use_dist_checkpointing: false
+    dist_checkpointing_path: null
+    seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
+    override_ddp_config: ${oc.select:actor_rollout_ref.actor.megatron.override_ddp_config,{}}
+    override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
+    use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+  load_weight: true
+  data_loader_seed: ${oc.select:actor_rollout_ref.actor.data_loader_seed,null}
 reward_model:
   enable: false
-  strategy: fsdp
+  strategy: megatron
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
     trust_remote_code: false
-    use_shm: false
-    use_remove_padding: false
-    use_fused_kernels: ${actor_rollout_ref.model.use_fused_kernels}
-    fsdp_config:
-      wrap_policy:
-        min_num_params: 0
-      param_offload: false
-      reshard_after_forward: true
-      fsdp_size: -1
-      forward_prefetch: false
   micro_batch_size: null
   micro_batch_size_per_gpu: null
   max_length: null
@@ -339,7 +379,23 @@ reward_model:
     discrete: false
     all_ranks: false
     ranks: []
-  ulysses_sequence_parallel_size: 1
+  nccl_timeout: 600
+  megatron:
+    param_offload: false
+    tensor_model_parallel_size: 1
+    expert_model_parallel_size: 1
+    expert_tensor_parallel_size: null
+    pipeline_model_parallel_size: 1
+    virtual_pipeline_model_parallel_size: null
+    context_parallel_size: 1
+    sequence_parallel: true
+    use_distributed_optimizer: false
+    use_dist_checkpointing: false
+    dist_checkpointing_path: null
+    seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
+    override_transformer_config: {}
+    use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+  load_weight: true
 custom_reward_function:
   path: null
   name: compute_score
