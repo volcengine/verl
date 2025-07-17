@@ -6,6 +6,7 @@ repos:
         args: ["--fix", "--show-fixes", "--output-format=full"]
         exclude: ^.*\.(ipynb)$
       - id: ruff-format
+        exclude: ^.*\.(ipynb)$
 
   - repo: local
     hooks:

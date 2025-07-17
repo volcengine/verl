@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euox pipefail
 
+# Check if hydra-core is installed, install if not
+python3 -c "import hydra" || pip install hydra-core
+
 # 1. Dump the full config to a temp file
 target_cfg=verl/trainer/config/_generated_ppo_trainer.yaml
 tmp_header=$(mktemp)
