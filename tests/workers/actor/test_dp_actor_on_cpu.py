@@ -65,6 +65,8 @@ class TestDataParallelPPOActor(unittest.TestCase):
         self.mock_memory_info = self.mock_memory_info_patcher.start()
         self.mock_memory_info.return_value = ("0.00", "0.00", "0.00", "0.00")
         
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
         self.config = FSDPActorConfig(
             strategy="fsdp",
             ppo_mini_batch_size=4,
@@ -78,7 +80,7 @@ class TestDataParallelPPOActor(unittest.TestCase):
             ulysses_sequence_parallel_size=1
         )
         
-        self.mock_model = MockTransformerModel(vocab_size=1000, hidden_size=64)
+        self.mock_model = MockTransformerModel(vocab_size=1000, hidden_size=64).to(self.device)
         self.mock_optimizer = torch.optim.Adam(self.mock_model.parameters(), lr=1e-4)
         
         self.actor = DataParallelPPOActor(
@@ -100,9 +102,9 @@ class TestDataParallelPPOActor(unittest.TestCase):
         total_length = prompt_length + response_length
         vocab_size = 1000
         
-        input_ids = torch.randint(0, vocab_size, (batch_size, total_length))
-        attention_mask = torch.ones(batch_size, total_length)
-        position_ids = torch.arange(total_length).unsqueeze(0).expand(batch_size, -1)
+        input_ids = torch.randint(0, vocab_size, (batch_size, total_length)).to(self.device)
+        attention_mask = torch.ones(batch_size, total_length).to(self.device)
+        position_ids = torch.arange(total_length).unsqueeze(0).expand(batch_size, -1).to(self.device)
         responses = input_ids[:, -response_length:]  # Last part is the response
         
         tensor_dict = TensorDict({
@@ -128,13 +130,13 @@ class TestDataParallelPPOActor(unittest.TestCase):
         total_length = prompt_length + response_length
         vocab_size = 1000
         
-        input_ids = torch.randint(0, vocab_size, (batch_size, total_length))
-        attention_mask = torch.ones(batch_size, total_length)
-        position_ids = torch.arange(total_length).unsqueeze(0).expand(batch_size, -1)
+        input_ids = torch.randint(0, vocab_size, (batch_size, total_length)).to(self.device)
+        attention_mask = torch.ones(batch_size, total_length).to(self.device)
+        position_ids = torch.arange(total_length).unsqueeze(0).expand(batch_size, -1).to(self.device)
         responses = input_ids[:, -response_length:]
-        response_mask = torch.ones(batch_size, response_length)
-        old_log_probs = torch.randn(batch_size, response_length) * 0.1  # Small values
-        advantages = torch.randn(batch_size, response_length) * 0.5
+        response_mask = torch.ones(batch_size, response_length).to(self.device)
+        old_log_probs = torch.randn(batch_size, response_length).to(self.device) * 0.1  # Small values
+        advantages = torch.randn(batch_size, response_length).to(self.device) * 0.5
         
         tensor_dict = TensorDict({
             "input_ids": input_ids,
@@ -233,11 +235,11 @@ class TestDataParallelPPOActor(unittest.TestCase):
             use_cache=False
         )
         
-        with torch.device("cpu"):
+        with torch.device(self.device):
             qwen_model = AutoModelForCausalLM.from_config(
                 config=qwen_config, 
                 torch_dtype=torch.float32
-            )
+            ).to(self.device)
         
         qwen_optimizer = torch.optim.Adam(qwen_model.parameters(), lr=1e-4)
         
