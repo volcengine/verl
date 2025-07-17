@@ -315,7 +315,7 @@ class RayPPOTrainer:
         val_dataset: Optional[Dataset] = None,
         collate_fn=None,
         train_sampler: Optional[Sampler] = None,
-        device_name="cuda",
+        device_name=None,
     ):
         """
         Initialize distributed PPO trainer with Ray backend.
@@ -334,7 +334,7 @@ class RayPPOTrainer:
             val_dataset (Optional[Dataset], optional): Validation dataset. Defaults to None.
             collate_fn: Function to collate data samples into batches.
             train_sampler (Optional[Sampler], optional): Sampler for the training dataset. Defaults to None.
-            device_name (str, optional): Device name for training (e.g., "cuda", "cpu"). Defaults to "cuda".
+            device_name (str, optional): Device name for training (e.g., "cuda", "cpu"). Defaults to None.
         """
 
         # Store the tokenizer for text processing
@@ -355,7 +355,7 @@ class RayPPOTrainer:
         self.use_reference_policy = Role.RefPolicy in role_worker_mapping
         self.use_rm = Role.RewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
-        self.device_name = device_name
+        self.device_name = device_name if device_name else self.config.trainer.device
         self.validation_generations_logger = ValidationGenerationsLogger()
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied
@@ -885,13 +885,13 @@ class RayPPOTrainer:
             wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
                 OmegaConf.select(self.config.trainer, "worker_nsight_options")
             )
+        wg_kwargs["device_name"] = self.device_name
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
             wg_dict = self.ray_worker_group_cls(
                 resource_pool=resource_pool,
                 ray_cls_with_init=worker_dict_cls,
-                device_name=self.device_name,
                 **wg_kwargs,
             )
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())

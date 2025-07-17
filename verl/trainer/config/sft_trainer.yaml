@@ -65,3 +65,4 @@ trainer:
   nnodes: 1
   n_gpus_per_node: 8
   max_ckpt_to_keep: null # TODO
+  device: cuda
