@@ -20,7 +20,7 @@ from importlib.metadata import version as get_version
 
 from packaging.version import parse as parse_version
 
-from .protocol import DataProto
+from .protocol import DataProto, DataProtoV2
 from .utils.device import is_npu_available
 from .utils.logging_utils import set_basic_config
 
@@ -33,7 +33,7 @@ with open(os.path.join(version_folder, "version/version")) as f:
 set_basic_config(level=logging.WARNING)
 
 
-__all__ = ["DataProto", "__version__"]
+__all__ = ["DataProto", "DataProtoV2", "__version__"]
 
 if os.getenv("VERL_USE_MODELSCOPE", "False").lower() == "true":
     if importlib.util.find_spec("modelscope") is None:

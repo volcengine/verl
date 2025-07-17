@@ -38,6 +38,8 @@ from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.py_functional import union_two_dict
 from verl.utils.torch_functional import allgather_dict_tensors
 
+tensordict.set_list_to_stack(True).set()
+
 __all__ = ["DataProto", "union_tensor_dict"]
 
 with contextlib.suppress(Exception):
@@ -948,6 +950,28 @@ class DataProtoFuture:
         if self.dispatch_fn is not None:
             output = self.dispatch_fn(output)  # split in batch dim, select using dp
         return output
+
+
+@dataclass
+class DataProtoV2:
+    batch: TensorDict = None
+    meta_info: dict = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, torch.Tensor | list], meta_info=None):
+        """Create a DataProto from a dict of tensors and non_tensors"""
+
+        # check sanity. We only allow the first dim to be batched.
+        batch_size = None
+
+        for key, val in data.items():
+            if batch_size is None:
+                batch_size = len(val)
+            else:
+                assert len(val) == batch_size, f"The batch size of key {key} is not consistent"
+
+        batch = TensorDict(source=data, batch_size=[batch_size])
+        return DataProtoV2(batch=batch, meta_info=meta_info)
 
 
 def all_gather_data_proto(data: DataProto, process_group):
