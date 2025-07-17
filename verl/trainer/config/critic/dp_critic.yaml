@@ -77,13 +77,16 @@ model:
   target_modules: all-linear
 
 # Forward-only batch size during inference (global)
-forward_micro_batch_size: ${critic.ppo_micro_batch_size}
+forward_micro_batch_size: ${oc.select:.ppo_micro_batch_size,null}
 
 # Forward-only batch size during inference (per GPU)
-forward_micro_batch_size_per_gpu: ${critic.ppo_micro_batch_size_per_gpu}
+forward_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size_per_gpu,null}
 
 # Sequence parallelism size for Ulysses-style model parallelism
 ulysses_sequence_parallel_size: 1
 
 # Gradient clipping for critic updates
 grad_clip: 1.0
+
+# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+_target_: verl.trainer.config.FSDPCriticConfig
