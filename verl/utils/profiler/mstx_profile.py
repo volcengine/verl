@@ -17,7 +17,7 @@ import functools
 import logging
 import os
 from contextlib import contextmanager
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import torch_npu
 from omegaconf import DictConfig
@@ -62,7 +62,7 @@ def mark_annotate(message: Optional[str] = None) -> Callable:
 
 
 @contextmanager
-def marked_timer(name: str, timing_raw: dict[str, float], *args, **kwargs):
+def marked_timer(name: str, timing_raw: dict[str, float], *args: Any, **kwargs: Any) -> None:
     """Context manager for timing with MSTX markers.
 
     This utility function measures the execution time of code within its context,
