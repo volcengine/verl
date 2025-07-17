@@ -14,7 +14,7 @@
 
 from transformers import PretrainedConfig
 
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_device_name, get_torch_device
 
 VALID_CONFIG_TYPE = {
     "llama",
@@ -40,8 +40,10 @@ def get_device_flops(unit="T"):
             ptr += 1
         return number
 
-    device_name = get_torch_device().get_device_name()
-    flops = float("inf")  # INF flops for unkown gpu type
+    device_name = get_device_name()
+    if device_name in ["cuda", "npu"]:
+        device_name = get_torch_device().get_device_name()
+    flops = 10e12  # approximate FLOPs for local/dev environment to allow fast testing
 
     if "MI300X" in device_name:
         flops = 1336e12
