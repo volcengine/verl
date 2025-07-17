@@ -170,7 +170,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             self._ref_is_offload_param = self.config.ref.megatron.get("param_offload", False)
 
     def _build_model_optimizer(
-        self, model_path, optim_config, override_model_config, override_transformer_config, override_ddp_config
+        self, model_path, optim_config, override_model_config, override_transformer_config, override_ddp_config=None
     ):
         from verl.utils.megatron.optimizer import get_megatron_optimizer, get_megatron_optimizer_param_scheduler
         from verl.utils.megatron_utils import McoreModuleWrapperConfig, init_megatron_optim_config, make_megatron_module
