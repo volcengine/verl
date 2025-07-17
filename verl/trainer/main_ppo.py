@@ -129,7 +129,7 @@ class TaskRunner:
             from verl.single_controller.ray import RayWorkerGroup
             from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 
-            use_legacy_worker_impl = config.trainer.use_legacy_worker_impl
+            use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
             if use_legacy_worker_impl in ["auto", "enable"]:
                 # import warnings
                 # warnings.warn(f"Legacy worker impl is going to be deprecated, will be removed in the future. \
