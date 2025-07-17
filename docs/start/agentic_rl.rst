@@ -93,7 +93,9 @@ Usage Example
 
 Note: During training, because the model may sometimes fail to generate correct toolcall tags, an error message "Failed to decode tool call" will be output to the console, which does not indicate an abnormality in training.
 
-Follow :doc:`Rollout trace<../advance/rollout_trace.rst>` to known more about trace feature.
+
+Follow :doc:`Rollout trace<../advance/rollout_trace>` to known more about trace feature.
+
 
 
 Agent Framework

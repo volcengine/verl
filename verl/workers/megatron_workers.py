@@ -394,7 +394,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 self.config.ref.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True
             )
         else:
-            override_transformer_config = None
+            override_transformer_config = {}
         self.param_dtype = torch.bfloat16
         log_gpu_memory_usage("Before init actor model and optimizer", logger=logger)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)

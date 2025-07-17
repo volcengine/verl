@@ -14,9 +14,17 @@
 
 import re
 
+_SOLUTION_CLIP_CHARS = 300
+
 
 def extract_solution(solution_str, method="strict"):
     assert method in ["strict", "flexible"]
+
+    # Optimization: Regular expression matching on very long strings can be slow.
+    # For math problems, the final answer is usually at the end.
+    # We only match on the last 300 characters, which is a safe approximation for 300 tokens.
+    if len(solution_str) > _SOLUTION_CLIP_CHARS:
+        solution_str = solution_str[-_SOLUTION_CLIP_CHARS:]
 
     if method == "strict":
         # this also tests the formatting of the model
