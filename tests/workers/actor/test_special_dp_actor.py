@@ -13,60 +13,70 @@
 # limitations under the License.
 
 import unittest
+from unittest.mock import patch
+
 import torch
 import torch.nn as nn
-from unittest.mock import patch, MagicMock
 from tensordict import TensorDict
-from transformers import AutoModelForCausalLM, Qwen2Config
+from transformers import AutoModelForCausalLM, Qwen3Config
 
 from verl import DataProto
-from verl.workers.actor.dp_actor import DataParallelPPOActor
 from verl.trainer.config.actor import FSDPActorConfig
+from verl.workers.actor.dp_actor import DataParallelPPOActor
 
 
 class MockTransformerModel(nn.Module):
     """Mock transformer model for testing DataParallelPPOActor"""
-    
+
     def __init__(self, vocab_size=1000, hidden_size=64):
         super().__init__()
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
         self.embedding = nn.Embedding(vocab_size, hidden_size)
         self.transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=hidden_size, nhead=4, batch_first=True),
-            num_layers=2
+            nn.TransformerEncoderLayer(d_model=hidden_size, nhead=4, batch_first=True), num_layers=2
         )
         self.lm_head = nn.Linear(hidden_size, vocab_size)
-    
+
     def forward(self, input_ids, attention_mask=None, position_ids=None, use_cache=False, **kwargs):
         batch_size, seq_len = input_ids.shape
-        
+
         embeddings = self.embedding(input_ids)
         hidden_states = self.transformer(embeddings)
         logits = self.lm_head(hidden_states)
-        
+
         class MockOutput:
             def __init__(self, logits):
                 self.logits = logits
-        
+
         return MockOutput(logits)
 
 
 class TestDataParallelPPOActor(unittest.TestCase):
     """Test DataParallelPPOActor compute_log_prob and update_policy methods"""
-    
+
     def setUp(self):
         """Set up test fixtures"""
-        self.mock_distributed_patcher = patch('torch.distributed.get_rank')
-        self.mock_get_rank = self.mock_distributed_patcher.start()
-        self.mock_get_rank.return_value = 0
-        
-        self.mock_memory_info_patcher = patch('verl.utils.profiler.performance._get_current_mem_info')
+        import os
+
+        import torch.distributed
+
+        if not torch.distributed.is_initialized():
+            rank = int(os.environ.get("RANK", 0))
+            world_size = int(os.environ.get("WORLD_SIZE", 1))
+            torch.distributed.init_process_group(
+                backend="cpu:gloo,cuda:nccl",
+                rank=rank,
+                world_size=world_size,
+                init_method=os.environ.get("DIST_INIT_METHOD", None),
+            )
+
+        self.mock_memory_info_patcher = patch("verl.utils.profiler.performance._get_current_mem_info")
         self.mock_memory_info = self.mock_memory_info_patcher.start()
         self.mock_memory_info.return_value = ("0.00", "0.00", "0.00", "0.00")
-        
+
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
+
         self.config = FSDPActorConfig(
             strategy="fsdp",
             ppo_mini_batch_size=4,
@@ -77,23 +87,21 @@ class TestDataParallelPPOActor(unittest.TestCase):
             grad_clip=1.0,
             use_dynamic_bsz=False,
             use_torch_compile=False,  # Disable torch.compile for testing
-            ulysses_sequence_parallel_size=1
+            ulysses_sequence_parallel_size=1,
         )
-        
+
         self.mock_model = MockTransformerModel(vocab_size=1000, hidden_size=64).to(self.device)
         self.mock_optimizer = torch.optim.Adam(self.mock_model.parameters(), lr=1e-4)
-        
+
         self.actor = DataParallelPPOActor(
-            config=self.config,
-            actor_module=self.mock_model,
-            actor_optimizer=self.mock_optimizer
+            config=self.config, actor_module=self.mock_model, actor_optimizer=self.mock_optimizer
         )
-    
+
     def tearDown(self):
         """Clean up test fixtures"""
-        self.mock_distributed_patcher.stop()
+        torch.distributed.destroy_process_group()
         self.mock_memory_info_patcher.stop()
-    
+
     def _create_test_data_for_compute_log_prob(self):
         """Create test DataProto for compute_log_prob method"""
         batch_size = 2
@@ -101,27 +109,26 @@ class TestDataParallelPPOActor(unittest.TestCase):
         response_length = 4
         total_length = prompt_length + response_length
         vocab_size = 1000
-        
+
         input_ids = torch.randint(0, vocab_size, (batch_size, total_length)).to(self.device)
         attention_mask = torch.ones(batch_size, total_length).to(self.device)
         position_ids = torch.arange(total_length).unsqueeze(0).expand(batch_size, -1).to(self.device)
         responses = input_ids[:, -response_length:]  # Last part is the response
-        
-        tensor_dict = TensorDict({
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "position_ids": position_ids,
-            "responses": responses
-        }, batch_size=[batch_size])
-        
-        meta_info = {
-            "micro_batch_size": batch_size,
-            "temperature": 1.0,
-            "use_dynamic_bsz": False
-        }
-        
+
+        tensor_dict = TensorDict(
+            {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
+                "responses": responses,
+            },
+            batch_size=[batch_size],
+        )
+
+        meta_info = {"micro_batch_size": batch_size, "temperature": 1.0, "use_dynamic_bsz": False}
+
         return DataProto(batch=tensor_dict, meta_info=meta_info)
-    
+
     def _create_test_data_for_update_policy(self):
         """Create test DataProto for update_policy method"""
         batch_size = 4  # Must match ppo_mini_batch_size
@@ -129,7 +136,7 @@ class TestDataParallelPPOActor(unittest.TestCase):
         response_length = 4
         total_length = prompt_length + response_length
         vocab_size = 1000
-        
+
         input_ids = torch.randint(0, vocab_size, (batch_size, total_length)).to(self.device)
         attention_mask = torch.ones(batch_size, total_length).to(self.device)
         position_ids = torch.arange(total_length).unsqueeze(0).expand(batch_size, -1).to(self.device)
@@ -137,72 +144,73 @@ class TestDataParallelPPOActor(unittest.TestCase):
         response_mask = torch.ones(batch_size, response_length).to(self.device)
         old_log_probs = torch.randn(batch_size, response_length).to(self.device) * 0.1  # Small values
         advantages = torch.randn(batch_size, response_length).to(self.device) * 0.5
-        
-        tensor_dict = TensorDict({
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "position_ids": position_ids,
-            "responses": responses,
-            "response_mask": response_mask,
-            "old_log_probs": old_log_probs,
-            "advantages": advantages
-        }, batch_size=[batch_size])
-        
-        meta_info = {
-            "temperature": 1.0
-        }
-        
+
+        tensor_dict = TensorDict(
+            {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
+                "responses": responses,
+                "response_mask": response_mask,
+                "old_log_probs": old_log_probs,
+                "advantages": advantages,
+            },
+            batch_size=[batch_size],
+        )
+
+        meta_info = {"temperature": 1.0}
+
         return DataProto(batch=tensor_dict, meta_info=meta_info)
-    
+
     def test_compute_log_prob(self):
         """Test compute_log_prob method"""
         data = self._create_test_data_for_compute_log_prob()
-        
+
         log_probs, entropies = self.actor.compute_log_prob(data, calculate_entropy=True)
-        
+
         batch_size = data.batch["responses"].shape[0]
         response_length = data.batch["responses"].shape[1]
-        
+
         self.assertIsInstance(log_probs, torch.Tensor)
         self.assertEqual(log_probs.shape, (batch_size, response_length))
         self.assertTrue(torch.all(torch.isfinite(log_probs)))
-        
+
         self.assertIsInstance(entropies, torch.Tensor)
         self.assertEqual(entropies.shape, (batch_size, response_length))
         self.assertTrue(torch.all(torch.isfinite(entropies)))
         self.assertTrue(torch.all(entropies >= 0))  # Entropy should be non-negative
-    
+
     def test_compute_log_prob_without_entropy(self):
         """Test compute_log_prob method without entropy calculation"""
         data = self._create_test_data_for_compute_log_prob()
-        
+
         log_probs, entropies = self.actor.compute_log_prob(data, calculate_entropy=False)
-        
+
         batch_size = data.batch["responses"].shape[0]
         response_length = data.batch["responses"].shape[1]
-        
+
         self.assertIsInstance(log_probs, torch.Tensor)
         self.assertEqual(log_probs.shape, (batch_size, response_length))
         self.assertTrue(torch.all(torch.isfinite(log_probs)))
-        
+
         self.assertIsNone(entropies)
-    
+
     def test_update_policy(self):
         """Test update_policy method"""
         data = self._create_test_data_for_update_policy()
-        
+
         metrics = self.actor.update_policy(data)
-        
+
         self.assertIsInstance(metrics, dict)
-        
+
         expected_metric_keys = [
             "actor/pg_loss",
-            "actor/pg_clipfrac", 
+            "actor/pg_clipfrac",
             "actor/ppo_kl",
             "actor/pg_clipfrac_lower",
-            "actor/grad_norm"
+            "actor/grad_norm",
         ]
-        
+
         for key in expected_metric_keys:
             self.assertIn(key, metrics)
             if isinstance(metrics[key], list):
@@ -210,20 +218,20 @@ class TestDataParallelPPOActor(unittest.TestCase):
             else:
                 self.assertIsInstance(metrics[key], (float, int))
                 self.assertTrue(torch.isfinite(torch.tensor(metrics[key])))
-    
+
     def test_dataparallelppoactor_initialization(self):
         """Test DataParallelPPOActor initialization"""
         self.assertIsNotNone(self.actor.actor_module)
         self.assertIsNotNone(self.actor.actor_optimizer)
         self.assertEqual(self.actor.config, self.config)
-        
+
         self.assertEqual(self.actor.config.strategy, "fsdp")
         self.assertEqual(self.actor.config.ppo_mini_batch_size, 4)
         self.assertEqual(self.actor.config.clip_ratio, 0.2)
-    
+
     def test_dataparallelppoactor_with_qwen3_model(self):
         """Test DataParallelPPOActor with real Qwen3ForCausalLM model"""
-        qwen_config = Qwen2Config(
+        qwen_config = Qwen3Config(
             vocab_size=1000,
             hidden_size=64,
             intermediate_size=128,
@@ -232,51 +240,44 @@ class TestDataParallelPPOActor(unittest.TestCase):
             num_key_value_heads=2,
             max_position_embeddings=512,
             torch_dtype=torch.float32,
-            use_cache=False
+            use_cache=False,
         )
-        
+
         with torch.device(self.device):
-            qwen_model = AutoModelForCausalLM.from_config(
-                config=qwen_config, 
-                torch_dtype=torch.float32
-            ).to(self.device)
-        
+            qwen_model = AutoModelForCausalLM.from_config(config=qwen_config, torch_dtype=torch.float32).to(self.device)
+
         qwen_optimizer = torch.optim.Adam(qwen_model.parameters(), lr=1e-4)
-        
-        qwen_actor = DataParallelPPOActor(
-            config=self.config,
-            actor_module=qwen_model,
-            actor_optimizer=qwen_optimizer
-        )
-        
+
+        qwen_actor = DataParallelPPOActor(config=self.config, actor_module=qwen_model, actor_optimizer=qwen_optimizer)
+
         data = self._create_test_data_for_compute_log_prob()
         log_probs, entropies = qwen_actor.compute_log_prob(data, calculate_entropy=True)
-        
+
         batch_size = data.batch["responses"].shape[0]
         response_length = data.batch["responses"].shape[1]
-        
+
         self.assertIsInstance(log_probs, torch.Tensor)
         self.assertEqual(log_probs.shape, (batch_size, response_length))
         self.assertTrue(torch.all(torch.isfinite(log_probs)))
-        
+
         self.assertIsInstance(entropies, torch.Tensor)
         self.assertEqual(entropies.shape, (batch_size, response_length))
         self.assertTrue(torch.all(torch.isfinite(entropies)))
         self.assertTrue(torch.all(entropies >= 0))
-        
+
         policy_data = self._create_test_data_for_update_policy()
         metrics = qwen_actor.update_policy(policy_data)
-        
+
         self.assertIsInstance(metrics, dict)
-        
+
         expected_metric_keys = [
             "actor/pg_loss",
-            "actor/pg_clipfrac", 
+            "actor/pg_clipfrac",
             "actor/ppo_kl",
             "actor/pg_clipfrac_lower",
-            "actor/grad_norm"
+            "actor/grad_norm",
         ]
-        
+
         for key in expected_metric_keys:
             self.assertIn(key, metrics)
             if isinstance(metrics[key], list):
