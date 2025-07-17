@@ -213,7 +213,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                     override_ddp_config=override_ddp_config,
                 )
 
-        if self._is_actor and self._is_rollout:
+        if self._is_actor or self._is_rollout:
             actor_module = make_model(wrap_with_ddp=True)
             print(f"actor_module: {len(actor_module)}")
             if self.config.actor.load_weight:
@@ -402,7 +402,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 self.config.ref.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True
             )
         else:
-            override_transformer_config = None
+            override_transformer_config = {}
         self.param_dtype = torch.bfloat16
         log_gpu_memory_usage("Before init actor model and optimizer", logger=logger)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
