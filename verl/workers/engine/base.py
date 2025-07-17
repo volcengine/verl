@@ -14,6 +14,7 @@
 """
 The abstract base class defining the interface for model training engines.
 """
+
 from typing import Callable, Dict, Tuple
 
 import torch
@@ -65,10 +66,11 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def infer_batch(self,
-                    data: DataProto,
-                    post_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]]
-                    ) -> Dict[str, torch.Tensor]:
+    def infer_batch(
+        self,
+        data: DataProto,
+        post_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
+    ) -> Dict[str, torch.Tensor]:
         """
         Perform inference on a mini batch of data.
 
@@ -82,10 +84,11 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def train_batch(self,
-                    data: DataProto,
-                    loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]]
-                    ) -> Dict[str, torch.Tensor]:
+    def train_batch(
+        self,
+        data: DataProto,
+        loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
+    ) -> Dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
 
@@ -146,7 +149,6 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-
     def to(self, device: str, model: bool = True, optimizer: bool = True):
         """
         Move model parameters, optimizer states, or both to the specified device.
@@ -192,6 +194,7 @@ class EngineRegistry:
             assert issubclass(engine_class, BaseEngine)
             cls._engines[key] = engine_class
             return engine_class
+
         return decorator
 
     @classmethod

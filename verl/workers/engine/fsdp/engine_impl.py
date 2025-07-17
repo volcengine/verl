@@ -78,6 +78,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
 
+
 @EngineRegistry.register("fsdp")
 class FSDPEngine(BaseEngine):
     """
@@ -400,7 +401,6 @@ class FSDPEngine(BaseEngine):
         }
         return ctx
 
-
     def _forward_micro_batch(self, micro_batch):
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
@@ -459,9 +459,7 @@ class FSDPEngine(BaseEngine):
 
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
-                    preds_rmpad = gather_outpus_and_unpad(
-                        preds_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size
-                    )
+                    preds_rmpad = gather_outpus_and_unpad(preds_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size)
 
                 # pad it back
                 preds = pad_input(preds_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
@@ -481,10 +479,11 @@ class FSDPEngine(BaseEngine):
 
             return preds
 
-    def infer_batch(self,
-                    data: DataProto,
-                    post_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]]
-                    ) -> Dict[str, torch.Tensor]:
+    def infer_batch(
+        self,
+        data: DataProto,
+        post_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
+    ) -> Dict[str, torch.Tensor]:
         """
         Perform inference on a mini batch of data.
 
@@ -528,7 +527,7 @@ class FSDPEngine(BaseEngine):
             # append micro batch preds to Dict[str, List[torch.Tensor]]
             append_to_dict(preds_list, outputs)
 
-        # reorganize mini batch preds from 
+        # reorganize mini batch preds from
         # Dict[str, List[torch.Tensor]] to Dict[str, torch.Tensor]
         mini_batch_preds = {}
         for key, t_list in preds_list.items():
@@ -544,11 +543,11 @@ class FSDPEngine(BaseEngine):
 
         return mini_batch_preds
 
-
-    def train_batch(self,
-                    data: DataProto,
-                    loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]]
-                    ) -> Dict[str, torch.Tensor]:
+    def train_batch(
+        self,
+        data: DataProto,
+        loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
+    ) -> Dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
 
@@ -627,7 +626,6 @@ class FSDPEngine(BaseEngine):
         self.lr_scheduler.step()
         lr = self.lr_scheduler.get_last_lr()
         return lr
-
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
         """

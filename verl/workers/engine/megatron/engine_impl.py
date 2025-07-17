@@ -48,11 +48,11 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-
-    def infer_batch(self,
-                    data: DataProto,
-                    post_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]]
-                    ) -> Dict[str, torch.Tensor]:
+    def infer_batch(
+        self,
+        data: DataProto,
+        post_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
+    ) -> Dict[str, torch.Tensor]:
         """
         Perform inference on a mini batch of data.
 
@@ -66,11 +66,11 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-
-    def train_batch(self,
-                    data: DataProto,
-                    loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]]
-                    ) -> Dict[str, torch.Tensor]:
+    def train_batch(
+        self,
+        data: DataProto,
+        loss_fn: Callable[[DataProto, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor]]],
+    ) -> Dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
 
@@ -130,7 +130,6 @@ class MegatronEngine(BaseEngine):
             Unsharded, combined data.
         """
         raise NotImplementedError
-
 
     def to(self, device: str, model: bool = True, optimizer: bool = True):
         """

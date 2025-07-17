@@ -53,22 +53,19 @@ class CriticWorker(Worker, DistProfilerExtension):
         self.config = config
         self.engine = EngineRegistry.new(self.config.strategy, self.config)
 
-
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         self.engine.init_model()
 
-
     def _post_fn_values(self, micro_batch, preds):
         response_length = micro_batch["responses"].size(-1)
         values = preds[:, -response_length - 1 : -1]
-        
+
         use_remove_padding = self.config.model.get("use_remove_padding", False)
         if not use_remove_padding:
             values = values.squeeze(-1)
 
         return values, {"values": values.clone().detach()}
-
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="cyan")
@@ -82,9 +79,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         with self.engine.eval_mode():
             data = self.engine.shard_data(data=data)
-            output = self.engine.infer_batch(
-                data, post_fn=self._post_fn_values
-            )
+            output = self.engine.infer_batch(data, post_fn=self._post_fn_values)
             response_mask = data.batch["response_mask"]
             values = output["values"] * response_mask  # Only action tokens have values
             output = DataProto.from_dict(tensors={"values": values})
@@ -93,11 +88,9 @@ class CriticWorker(Worker, DistProfilerExtension):
         output = output.to("cpu")
         return output
 
-
-    def loss_fn(self,
-                batch: DataProto,
-                vpreds: Dict[str, torch.Tensor]
-                ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    def loss_fn(
+        self, batch: DataProto, vpreds: Dict[str, torch.Tensor]
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         old_values = batch["values"]
         returns = batch["returns"]
         response_mask = batch["response_mask"]
@@ -127,7 +120,6 @@ class CriticWorker(Worker, DistProfilerExtension):
         }
 
         return loss, micro_batch_metrics
-
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="pink")
@@ -164,10 +156,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 for epoch in range(self.config.ppo_epochs):
                     for batch_idx, mini_batch in enumerate(dataloader):
                         self.engine.optimizer_zero_grad()
-                        mini_batch_metrics = self.engine.train_batch(
-                            mini_batch, 
-                            self.loss_fn
-                        )
+                        mini_batch_metrics = self.engine.train_batch(mini_batch, self.loss_fn)
                         grad_norm = self.engine.optimizer_step()
                         mini_batch_metrics["critic/grad_norm"] = grad_norm.detach().item()
                         append_to_dict(metrics, mini_batch_metrics)
@@ -185,8 +174,6 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         output = output.to("cpu")
         return output
-
-
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
