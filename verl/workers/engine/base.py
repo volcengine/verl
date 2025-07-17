@@ -192,6 +192,7 @@ class EngineRegistry:
     It provides a decorator `register` to add new engines to the registry and a `new` method
     to create an instance of a registered engine.
     """
+
     _engines = {}
 
     @classmethod
@@ -207,6 +208,7 @@ class EngineRegistry:
         Returns:
             A decorator function that takes an engine class and registers it.
         """
+
         def decorator(engine_class):
             assert issubclass(engine_class, BaseEngine)
             cls._engines[key] = engine_class
