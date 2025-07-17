@@ -12,60 +12,67 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+Replace DataProto with raw TensorDict
+"""
+
 import random
 
 import numpy as np
 import pytest
 import torch
-from tensordict import TensorDict
 
-from verl import DataProtoV2 as DataProto
-from verl.protocol import union_numpy_dict, union_tensor_dict
+from verl.protocol import union_tensor_dict
+from verl.utils.tensordict_utils import get_tensordict
 
 
 def test_union_tensor_dict():
     obs = torch.randn(100, 10)
 
-    data1 = TensorDict({"obs": obs, "act": torch.randn(100, 3)}, batch_size=[100])
-    data2 = TensorDict({"obs": obs, "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}, batch_size=[100])
+    meta_info1 = {"top_p": 0.8}
+    meta_info2 = {"top_p": 0.9}
+    data1 = {"obs": obs, "act": torch.randn(100, 3)}
+    data2 = {"obs": obs, "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}
 
-    data_with_copied_obs = TensorDict(
-        {"obs": obs.clone(), "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}, batch_size=[100]
-    )
+    data_with_copied_obs = {"obs": obs.clone(), "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}
+
+    data1 = get_tensordict(tensor_dict=data1)
+    data2 = get_tensordict(tensor_dict=data2)
+    data_with_copied_obs = get_tensordict(data_with_copied_obs)
+
+    from IPython import embed
+
+    embed()
 
     data = union_tensor_dict(data1, data2)
     with pytest.raises(AssertionError):
         data = union_tensor_dict(data1, data_with_copied_obs)
-
-    data = np.random.random(100)
-    data2 = [float("nan") for _ in range(99)]
-    data2.append("nan")
-    data2 = np.array(data2, dtype=object)
-    data3 = np.tile(data2, (2, 1))
-    a = {"a": data, "b": data2, "c": data3}
-    b = {"a": data, "b": data2, "c": data3}
-    b_ = {"a": np.random.random(100)}
-    union_numpy_dict(a, b)
-    with pytest.raises(AssertionError):
-        union_numpy_dict(a, b_)
 
 
 def test_tensor_dict_constructor():
     obs = torch.ones(100, 10)
     act = torch.zeros(100, 10, 3)
     data_source = ["gsm8k"] * 100
-    data = DataProto.from_dict(data={"obs": obs, "act": act, "data_source": data_source})
+    data = get_tensordict(tensor_dict={"obs": obs, "act": act, "data_source": data_source})
 
-    assert data.batch.batch_size == torch.Size([100])
+    assert data.batch_size == torch.Size([100])
 
     # test slicing
-    assert torch.all(torch.eq(data.batch[0]["obs"], torch.ones(10))).item()
-    assert torch.all(torch.eq(data.batch[0]["act"], torch.zeros(10, 3))).item()
-    assert data.batch[0]["data_source"] == "gsm8k"
+    assert torch.all(torch.eq(data[0]["obs"], torch.ones(10))).item()
+    assert torch.all(torch.eq(data[0]["act"], torch.zeros(10, 3))).item()
+    assert data[0]["data_source"] == "gsm8k"
 
-    assert torch.all(torch.eq(data.batch[0:2]["obs"], torch.ones(2, 10))).item()
-    assert torch.all(torch.eq(data.batch[0:2]["act"], torch.zeros(2, 10, 3))).item()
-    assert data.batch[0:2]["data_source"] == ["gsm8k"] * 2
+    assert torch.all(torch.eq(data[0:2]["obs"], torch.ones(2, 10))).item()
+    assert torch.all(torch.eq(data[0:2]["act"], torch.zeros(2, 10, 3))).item()
+    assert data[0:2]["data_source"] == ["gsm8k"] * 2
+
+
+def test_tensordict_with_images():
+    pass
+
+
+def test_tensordict_with_rmpad():
+    pass
 
 
 def test_tensor_dict_make_iterator():
