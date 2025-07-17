@@ -1,7 +1,7 @@
 Performance Tuning Guide
 ==============================
 
-Last updated: 06/23/2025.
+Last updated: 07/17/2025.
 
 Author: `Guangming Sheng <https://github.com/PeterSH6>`_, `Jiali Zheng <https://github.com/CurryRice233>`_
 
@@ -184,6 +184,25 @@ During the training phase, users can enable forward prefetching in FSDP by setti
 
 .. note::
     Backward prefetch is unsupported because the ``BACKWARD_POST`` policy may prefetch incorrectly in nested-module cases. For details, see the `FSDP documentation <https://github.com/pytorch/torchtitan/blob/main/docs/fsdp.md?plain=1#L70>`_
+
+Migrating to FSDP2
+----------------------
+
+FSDP2 offers notable improvements over FSDP1. According to `PyTorch TorchTitan benchmarks <https://arxiv.org/abs/2410.06511v1>`_:
+
+- 7% lower GPU memory usage on average
+- 1.5% throughput improvement with BF16 training
+- Better composability with DTensor and per-parameter sharding
+
+**Enabling FSDP2 in VERL:**
+
+   .. code-block:: python
+
+    # Enable FSDP2 in actor configuration
+    actor_rollout_ref.actor.strategy="fsdp2"
+
+.. note:: 
+   FSDP2 requires PyTorch 2.1+ and is recommended for models with transformer architecture.
 
 Memory optimization for entropy calculation from logits
 ----------------------
