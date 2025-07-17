@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 from unittest.mock import patch, MagicMock
 from tensordict import TensorDict
+from transformers import AutoModelForCausalLM, Qwen2Config
 
 from verl import DataProto
 from verl.workers.actor.dp_actor import DataParallelPPOActor
@@ -217,6 +218,70 @@ class TestDataParallelPPOActor(unittest.TestCase):
         self.assertEqual(self.actor.config.strategy, "fsdp")
         self.assertEqual(self.actor.config.ppo_mini_batch_size, 4)
         self.assertEqual(self.actor.config.clip_ratio, 0.2)
+    
+    def test_dataparallelppoactor_with_qwen3_model(self):
+        """Test DataParallelPPOActor with real Qwen3ForCausalLM model"""
+        qwen_config = Qwen2Config(
+            vocab_size=1000,
+            hidden_size=64,
+            intermediate_size=128,
+            num_hidden_layers=2,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            max_position_embeddings=512,
+            torch_dtype=torch.float32,
+            use_cache=False
+        )
+        
+        with torch.device("cpu"):
+            qwen_model = AutoModelForCausalLM.from_config(
+                config=qwen_config, 
+                torch_dtype=torch.float32
+            )
+        
+        qwen_optimizer = torch.optim.Adam(qwen_model.parameters(), lr=1e-4)
+        
+        qwen_actor = DataParallelPPOActor(
+            config=self.config,
+            actor_module=qwen_model,
+            actor_optimizer=qwen_optimizer
+        )
+        
+        data = self._create_test_data_for_compute_log_prob()
+        log_probs, entropies = qwen_actor.compute_log_prob(data, calculate_entropy=True)
+        
+        batch_size = data.batch["responses"].shape[0]
+        response_length = data.batch["responses"].shape[1]
+        
+        self.assertIsInstance(log_probs, torch.Tensor)
+        self.assertEqual(log_probs.shape, (batch_size, response_length))
+        self.assertTrue(torch.all(torch.isfinite(log_probs)))
+        
+        self.assertIsInstance(entropies, torch.Tensor)
+        self.assertEqual(entropies.shape, (batch_size, response_length))
+        self.assertTrue(torch.all(torch.isfinite(entropies)))
+        self.assertTrue(torch.all(entropies >= 0))
+        
+        policy_data = self._create_test_data_for_update_policy()
+        metrics = qwen_actor.update_policy(policy_data)
+        
+        self.assertIsInstance(metrics, dict)
+        
+        expected_metric_keys = [
+            "actor/pg_loss",
+            "actor/pg_clipfrac", 
+            "actor/ppo_kl",
+            "actor/pg_clipfrac_lower",
+            "actor/grad_norm"
+        ]
+        
+        for key in expected_metric_keys:
+            self.assertIn(key, metrics)
+            if isinstance(metrics[key], list):
+                self.assertTrue(all(torch.isfinite(torch.tensor(v)) for v in metrics[key]))
+            else:
+                self.assertIsInstance(metrics[key], (float, int))
+                self.assertTrue(torch.isfinite(torch.tensor(metrics[key])))
 
 
 if __name__ == "__main__":
