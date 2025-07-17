@@ -279,7 +279,7 @@ data:
     path: null
     name: null
 critic:
-  rollout_n: ${actor_rollout_ref.rollout.n}
+  rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
   strategy: megatron
   optim:
     lr_warmup_steps_ratio: 0.0
@@ -299,28 +299,28 @@ critic:
     use_checkpoint_opt_param_scheduler: false
   model:
     path: ~/models/deepseek-llm-7b-chat
-    tokenizer_path: ${actor_rollout_ref.model.path}
+    tokenizer_path: ${oc.select:actor_rollout_ref.model.path,"~/models/deepseek-llm-7b-chat"}
     override_config:
       model_config: {}
       moe_config:
         freeze_moe_router: false
-    external_lib: ${actor_rollout_ref.model.external_lib}
+    external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
     enable_gradient_checkpointing: false
-    trust_remote_code: ${actor_rollout_ref.model.trust_remote_code}
+    trust_remote_code: ${oc.select:actor_rollout_ref.model.trust_remote_code,false}
     gradient_checkpointing_kwargs:
       activations_checkpoint_method: null
       activations_checkpoint_granularity: null
       activations_checkpoint_num_layers: null
-  ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
+  ppo_mini_batch_size: ${oc.select:actor_rollout_ref.actor.ppo_mini_batch_size,256}
   ppo_micro_batch_size: null
-  ppo_micro_batch_size_per_gpu: null
-  use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+  ppo_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size,null}
+  use_dynamic_bsz: ${oc.select:actor_rollout_ref.actor.use_dynamic_bsz,false}
   ppo_max_token_len_per_gpu: 32768
   forward_max_token_len_per_gpu: ${.ppo_max_token_len_per_gpu}
-  ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
-  shuffle: ${actor_rollout_ref.actor.shuffle}
+  ppo_epochs: ${oc.select:actor_rollout_ref.actor.ppo_epochs,1}
+  shuffle: ${oc.select:actor_rollout_ref.actor.shuffle,false}
   cliprange_value: 0.5
-  loss_agg_mode: ${actor_rollout_ref.actor.loss_agg_mode}
+  loss_agg_mode: ${oc.select:actor_rollout_ref.actor.loss_agg_mode,token-mean}
   checkpoint:
     save_contents:
     - model
@@ -333,6 +333,7 @@ critic:
     discrete: false
     all_ranks: false
     ranks: []
+  _target_: verl.trainer.config.MegatronCriticConfig
   nccl_timeout: 600
   megatron:
     param_offload: false
@@ -348,15 +349,12 @@ critic:
     use_distributed_optimizer: true
     use_dist_checkpointing: false
     dist_checkpointing_path: null
-    seed: ${actor_rollout_ref.actor.megatron.seed}
-    override_ddp_config: ${actor_rollout_ref.actor.megatron.override_ddp_config}
-    override_transformer_config: ${actor_rollout_ref.actor.megatron.override_transformer_config}
-    use_mbridge: ${actor_rollout_ref.actor.megatron.use_mbridge}
+    seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
+    override_ddp_config: ${oc.select:actor_rollout_ref.actor.megatron.override_ddp_config,{}}
+    override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
+    use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
   load_weight: true
-  data_loader_seed: ${actor_rollout_ref.actor.data_loader_seed}
-  kl_ctrl:
-    type: fixed
-    kl_coef: 0.001
+  data_loader_seed: ${oc.select:actor_rollout_ref.actor.data_loader_seed,null}
 reward_model:
   enable: false
   strategy: megatron
@@ -394,9 +392,9 @@ reward_model:
     use_distributed_optimizer: false
     use_dist_checkpointing: false
     dist_checkpointing_path: null
-    seed: ${actor_rollout_ref.actor.megatron.seed}
+    seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
     override_transformer_config: {}
-    use_mbridge: ${actor_rollout_ref.actor.megatron.use_mbridge}
+    use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
   load_weight: true
 custom_reward_function:
   path: null
