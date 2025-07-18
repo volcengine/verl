@@ -50,6 +50,9 @@ optim:
 # configs for FSDP
 fsdp_config:
 
+  # Target class for this configuration
+  _target_: verl.workers.config.FSDPEngineConfig
+
   # policy for wrapping the model
   wrap_policy:
 

@@ -12,34 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .actor import (
-    ActorConfig,
-    CriticConfig,
-    CriticModelCfg,
-    FSDPActorConfig,
-    FSDPCriticConfig,
-    FSDPCriticModelCfg,
-    McoreActorConfig,
-    McoreCriticConfig,
-    McoreCriticModelCfg,
-    PolicyLossConfig,
-)
-from .engine import FSDPEngineConfig, McoreEngineConfig
-from .optimizer import FSDPOptimizerConfig, McoreOptimizerConfig
+from .critic import *  # noqa
+from .actor import *  # noqa
+from .engine import *  # noqa
+from .optimizer import *  # noqa
+from . import actor, critic, engine, optimizer
 
-__all__ = [
-    "ActorConfig",
-    "CriticConfig",
-    "CriticModelCfg",
-    "FSDPActorConfig",
-    "FSDPCriticConfig",
-    "FSDPCriticModelCfg",
-    "FSDPEngineConfig",
-    "FSDPOptimizerConfig",
-    "McoreActorConfig",
-    "McoreCriticConfig",
-    "McoreCriticModelCfg",
-    "McoreEngineConfig",
-    "McoreOptimizerConfig",
-    "PolicyLossConfig",
-]
+__all__ = actor.__all__ + critic.__all__ + engine.__all__ + optimizer.__all__

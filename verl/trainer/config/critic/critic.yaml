@@ -85,12 +85,18 @@ loss_agg_mode: ${oc.select:actor_rollout_ref.actor.loss_agg_mode,token-mean}
 # checkpoint configs
 checkpoint:
 
+  # Target dataclass for this configuration
+  _target_: verl.trainer.config.CheckpointConfig
+
   # What to include in saved checkpoints
   # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
   save_contents: ['model', 'optimizer', 'extra']
 
   # What to include when loading checkpoints
   load_contents: ${.save_contents}
+
+  # Whether to save checkpoints asynchronously. Only effective for Megatron as of now.
+  async_save: False
 
 # profiler configs
 # the corresponding dataclass is verl.utils.profiler.ProfilerConfig.

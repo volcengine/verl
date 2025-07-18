@@ -26,7 +26,7 @@ import torch
 import torch.distributed
 from codetiming import Timer
 from megatron.core import parallel_state as mpu
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from verl import DataProto
 from verl.single_controller.base.decorator import Dispatch, register
@@ -204,9 +204,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                     parallel_model.to(get_device_name())
                     return parallel_model
 
-                override_ddp_config = OmegaConf.to_container(
-                    self.config.actor.megatron.get("override_ddp_config", OmegaConf.create()), resolve=True
-                )
+                override_ddp_config = self.config.actor.megatron.get("override_ddp_config", {})
                 return get_model(
                     megatron_actor_model_provider,
                     wrap_with_ddp=wrap_with_ddp,
@@ -393,15 +391,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         from verl.utils.torch_dtypes import PrecisionType
 
-        override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
+        override_model_config = self.config.model.get("override_config", {})
         if self._is_actor:
-            override_transformer_config = OmegaConf.to_container(
-                self.config.actor.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True
-            )
+            override_transformer_config = self.config.actor.megatron.get("override_transformer_config", {})
         elif self._is_ref:
-            override_transformer_config = OmegaConf.to_container(
-                self.config.ref.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True
-            )
+            override_transformer_config = self.config.ref.megatron.get("override_transformer_config", {})
         else:
             override_transformer_config = {}
         self.param_dtype = torch.bfloat16
@@ -806,9 +800,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
                 parallel_model.to(get_device_name())
                 return parallel_model
 
-            override_ddp_config = OmegaConf.to_container(
-                self.config.megatron.get("override_ddp_config", OmegaConf.create()), resolve=True
-            )
+            override_ddp_config = self.config.megatron.get("override_ddp_config", {})
             # Step 3: initialize the megatron model
             critic_module = get_model(
                 model_provider_func=megatron_critic_model_provider,
@@ -861,10 +853,8 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             import importlib
 
             importlib.import_module(self.config.model.external_lib)
-        override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
-        override_transformer_config = OmegaConf.to_container(
-            self.config.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True
-        )
+        override_model_config = self.config.model.get("override_config", {})
+        override_transformer_config = self.config.megatron.get("override_transformer_config", {})
         self.param_dtype = torch.bfloat16
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         (
@@ -1110,10 +1100,8 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             import importlib
 
             importlib.import_module(self.config.model.external_lib)
-        override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
-        override_transformer_config = OmegaConf.to_container(
-            self.config.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True
-        )
+        override_model_config = self.config.model.get("override_config", {})
+        override_transformer_config = self.config.megatron.get("override_transformer_config", {})
 
         use_shm = self.config.model.get("use_shm", False)
         sft_tokenizer_local_path = copy_to_local(self.config.model.input_tokenizer, use_shm=use_shm)

@@ -15,14 +15,19 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from omegaconf import MISSING
+
 from verl.base_config import BaseConfig
+from verl.trainer.config import BaseModelConfig, CheckpointConfig
 from verl.utils.profiler import ProfilerConfig
-from verl.workers.config import FSDPEngineConfig
+
+from .engine import FSDPEngineConfig, McoreEngineConfig
+from .optimizer import OptimizerConfig
+
+__all__ = ["CriticConfig", "FSDPCriticConfig", "McoreCriticConfig", "McoreCriticModelCfg", "FSDPCriticModelCfg"]
 
 
-# Note(haibin.lin): kw_only=True is required as BaseConfig specifies `extra` with default values
-# If all of child class fields have default values, `kw_only=True` is not required.
-@dataclass(kw_only=True)
+@dataclass
 class CriticConfig(BaseConfig):
     """Configuration for critic model training.
 
@@ -48,21 +53,13 @@ class CriticConfig(BaseConfig):
         enable (Optional[bool]): Whether to enable the critic.
     """
 
-    strategy: str
-    # For legacy reason configs related to batch_size are mutated in each role
-    # In the future they will be added to frozen fields instead
-    _frozen_fields = [
-        "rollout_n",
-        "strategy",
-        "use_dynamic_bsz",
-        "ppo_max_token_len_per_gpu",
-        "forward_max_token_len_per_gpu",
-        "ppo_epochs",
-        "shuffle",
-        "cliprange_value",
-        "loss_agg_mode",
-    ]
+    _mutable_fields = BaseConfig._mutable_fields | {
+        "ppo_micro_batch_size_per_gpu",
+        "ppo_mini_batch_size",
+        "ppo_micro_batch_size",
+    }
 
+    strategy: str = MISSING
     ppo_micro_batch_size_per_gpu: Optional[int] = None
     enable: Optional[bool] = None
     rollout_n: int = 1
@@ -75,13 +72,14 @@ class CriticConfig(BaseConfig):
     cliprange_value: float = 0.5
     loss_agg_mode: str = "token-mean"
     ppo_micro_batch_size: Optional[int] = None
-    optim: dict[str, Any] = field(default_factory=dict)
-    model: dict[str, Any] = field(default_factory=dict)
-    checkpoint: dict[str, Any] = field(default_factory=dict)
+    optim: OptimizerConfig = field(default_factory=OptimizerConfig)
+    model: BaseModelConfig = field(default_factory=BaseModelConfig)
+    checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
 
     def __post_init__(self):
         """Validate critic configuration parameters."""
+        assert self.strategy != MISSING
         if not self.use_dynamic_bsz:
             self._check_mutually_exclusive(self.ppo_micro_batch_size, self.ppo_micro_batch_size_per_gpu, "critic")
 
@@ -147,15 +145,9 @@ class McoreCriticConfig(CriticConfig):
         data_loader_seed (Optional[int]): Seed for data loader.
     """
 
-    _frozen_fields = CriticConfig._frozen_fields + [
-        "nccl_timeout",
-        "load_weight",
-        "data_loader_seed",
-    ]
-
     strategy: str = "megatron"
     nccl_timeout: int = 600
-    megatron: dict[str, Any] = field(default_factory=dict)
+    megatron: McoreEngineConfig = field(default_factory=McoreEngineConfig)
     load_weight: bool = True
     data_loader_seed: Optional[int] = None
 
@@ -177,10 +169,10 @@ class FSDPCriticConfig(CriticConfig):
         grad_clip (float): Gradient clipping for critic updates.
     """
 
-    _frozen_fields = CriticConfig._frozen_fields + [
-        "ulysses_sequence_parallel_size",
-        "grad_clip",
-    ]
+    _mutable_fields = CriticConfig._mutable_fields | {
+        "forward_micro_batch_size",
+        "forward_micro_batch_size_per_gpu",
+    }
 
     strategy: str = "fsdp"
     forward_micro_batch_size: int = 1
@@ -214,29 +206,7 @@ class FSDPCriticConfig(CriticConfig):
 
 
 @dataclass
-class CriticModelCfg(BaseConfig):
-    """Base configuration for all critic models.
-    Contains core settings for loading and initializing a pretrained critic.
-
-    Args:
-        path (str): Path to pretrained model weights.
-        tokenizer_path (Optional[str]): Tokenizer path (defaults to actor's model path if not set).
-        override_config (dict): Hugging Face config override.
-        external_lib (Optional[str]): External model implementation (optional).
-        enable_gradient_checkpointing (bool): Enable gradient checkpointing to save memory, default True
-        trust_remote_code (bool): Whether to trust remote code from Hugging Face models.
-    """
-
-    path: str = "~/models/deepseek-llm-7b-chat"
-    tokenizer_path: Optional[str] = None
-    override_config: dict[str, Any] = field(default_factory=dict)
-    external_lib: Optional[str] = None
-    enable_gradient_checkpointing: bool = True
-    trust_remote_code: bool = False
-
-
-@dataclass
-class FSDPCriticModelCfg(CriticModelCfg):
+class FSDPCriticModelCfg(BaseModelConfig):
     """FSDP-enabled critic model configuration.
     Inherits base critic settings and adds distributed-memory and LoRA options.
 
@@ -260,7 +230,7 @@ class FSDPCriticModelCfg(CriticModelCfg):
 
 
 @dataclass
-class McoreCriticModelCfg(CriticModelCfg):
+class McoreCriticModelCfg(BaseModelConfig):
     """Megatron/MCore critic model configuration.
     Inherits base critic settings and customizes gradient checkpointing and MoE overrides.
 

@@ -33,11 +33,13 @@ actor_rollout_ref:
     ppo_epochs: 1
     shuffle: false
     checkpoint:
+      _target_: verl.trainer.config.CheckpointConfig
       save_contents:
       - model
       - optimizer
       - extra
       load_contents: ${.save_contents}
+      async_save: false
     optim:
       lr: 1.0e-06
       lr_warmup_steps_ratio: 0.0
@@ -54,6 +56,7 @@ actor_rollout_ref:
     entropy_from_logits_with_chunking: false
     entropy_checkpointing: false
     fsdp_config:
+      _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
         min_num_params: 0
       param_offload: false
@@ -71,11 +74,12 @@ actor_rollout_ref:
     log_prob_use_dynamic_bsz: ${oc.select:actor_rollout_ref.actor.use_dynamic_bsz,false}
     log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_token_len_per_gpu,16384}
     fsdp_config:
+      _target_: verl.workers.config.FSDPEngineConfig
+      wrap_policy:
+        min_num_params: 0
       param_offload: false
       reshard_after_forward: true
       forward_prefetch: false
-      wrap_policy:
-        min_num_params: 0
     ulysses_sequence_parallel_size: ${oc.select:actor_rollout_ref.actor.ulysses_sequence_parallel_size,1}
     entropy_from_logits_with_chunking: false
     entropy_checkpointing: false
@@ -302,11 +306,13 @@ critic:
   cliprange_value: 0.5
   loss_agg_mode: ${oc.select:actor_rollout_ref.actor.loss_agg_mode,token-mean}
   checkpoint:
+    _target_: verl.trainer.config.CheckpointConfig
     save_contents:
     - model
     - optimizer
     - extra
     load_contents: ${.save_contents}
+    async_save: false
   profiler:
     _target_: verl.utils.profiler.ProfilerConfig
     discrete: false
@@ -328,6 +334,7 @@ reward_model:
     use_remove_padding: false
     use_fused_kernels: ${actor_rollout_ref.model.use_fused_kernels}
     fsdp_config:
+      _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
         min_num_params: 0
       param_offload: false
@@ -370,7 +377,6 @@ algorithm:
     target_kl: 0.1
   use_pf_ppo: false
   pf_ppo:
-    _target_: verl.trainer.config.PFPPOConfig
     reweight_method: pow
     weight_pow: 2.0
 ray_init:

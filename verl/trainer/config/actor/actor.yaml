@@ -93,6 +93,9 @@ shuffle: false
 # checkpoint configs
 checkpoint:
 
+  # Target dataclass for this configuration
+  _target_: verl.trainer.config.CheckpointConfig
+
   # What to include in saved checkpoints
   # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
   save_contents: ['model', 'optimizer', 'extra']
@@ -100,6 +103,9 @@ checkpoint:
   # For more flexibility, you can specify the contents to load from the checkpoint.
   # .xxx refers to the local variable xxx from the same level of hierarchy similar to python pkg
   load_contents: ${.save_contents}
+
+  # Whether to save checkpoints asynchronously. Only effective for Megatron as of now.
+  async_save: False
 
 # optimizer configs
 optim:
