@@ -45,12 +45,13 @@ RUN pip uninstall -y torch torchvision torchaudio \
     pytorch-quantization pytorch-triton torch-tensorrt \
     xgboost transformer_engine flash_attn apex megatron-core grpcio
 
-RUN pip install --resume-retries 999 --no-cache-dir torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1
+RUN pip install --resume-retries 999 --no-cache-dir torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0
 
-# Install flash-attn-2.8.0.post2 (cxx11abi=True)
+# Install flash-attn-2.7.4.post1, although built with torch2.6, it is compatible with torch2.7
+# https://github.com/Dao-AILab/flash-attention/issues/1644#issuecomment-2899396361
 RUN ABI_FLAG=$(python -c "import torch; print('TRUE' if torch._C._GLIBCXX_USE_CXX11_ABI else 'FALSE')") && \
-    URL="https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.7cxx11abi${ABI_FLAG}-cp310-cp310-linux_x86_64.whl" && \
-    FILE="flash_attn-2.8.0.post2+cu12torch2.7cxx11abi${ABI_FLAG}-cp310-cp310-linux_x86_64.whl" && \
+    URL="https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.6cxx11abi${ABI_FLAG}-cp310-cp310-linux_x86_64.whl" && \
+    FILE="flash_attn-2.7.4.post1+cu12torch2.6cxx11abi${ABI_FLAG}-cp310-cp310-linux_x86_64.whl" && \
     wget -nv "${URL}" && \
     pip install --no-cache-dir "${FILE}"
 
@@ -80,7 +81,7 @@ RUN apt-get install -y ./nsight-systems-2025.3.1_2025.3.1.90-1_amd64.deb && \
     ln -s /opt/nvidia/nsight-systems/2025.3.1/target-linux-x64/nsys-ui /usr/local/cuda/bin/nsys-ui && \
     rm nsight-systems-2025.3.1_2025.3.1.90-1_amd64.deb
 
-RUN pip install --resume-retries 999 --no-cache-dir "tensordict==0.6.2" torchdata "transformers[hf_xet]>=4.53" accelerate datasets peft hf-transfer \
+RUN pip install --resume-retries 999 --no-cache-dir "tensordict==0.6.2" torchdata "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
     "numpy<2.0.0" "pyarrow>=19.0.1" pandas cuda-bindings \
     ray[default] codetiming hydra-core pylatexenc qwen-vl-utils wandb dill pybind11 liger-kernel mathruler blobfile xgrammar \
     pytest py-spy pyext pre-commit ruff
