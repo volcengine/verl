@@ -24,7 +24,7 @@ import os
 import torch.distributed as dist
 from omegaconf import DictConfig
 from sglang.srt.entrypoints.engine import Engine
-from sglang.srt.model_executor.model_runner import LocalSerializedTensor
+from sglang.srt.patch_torch import monkey_patch_torch_reductions
 from sglang.srt.utils import MultiprocessingSerializer
 from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
@@ -147,15 +147,16 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             await self.inference_engine.resume_memory_occupation()
         named_tensors = params
         load_format = None
+        monkey_patch_torch_reductions()
 
         update_weights_bucket_bytes = int(self.rollout_config.update_weights_bucket_megabytes) << 20
         for batch in get_named_tensor_buckets(named_tensors, update_weights_bucket_bytes):
             # On each rank, serialize a batch of (name, tensor) tuples.
             # named_tensors_batch will be a list like:
             # [(name0, serialized_tensor0_tp0), (name1, serialized_tensor1_tp0), ...]
-            named_tensors_batch = [
-                (name, MultiprocessingSerializer.serialize(tensor.detach())) for name, tensor in batch
-            ]
+            named_tensors_batch = MultiprocessingSerializer.serialize(
+                [(name, tensor.detach()) for name, tensor in batch], output_str=True
+            )
 
             if self.device_mesh["tp"].get_local_rank() == 0:
                 # On rank 0, prepare a list to hold the gathered batches from all ranks.
@@ -181,20 +182,8 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                 # This groups the serialized parts for each individual tensor across all TP ranks.
                 # Example: from [[(n0, t0_tp0), (n1, t1_tp0)], [(n0, t0_tp1), (n1, t1_tp1)]]
                 # to [ ( (n0, t0_tp0), (n0, t0_tp1) ), ( (n1, t1_tp0), (n1, t1_tp1) ) ]
-                logical_tensors = zip(*gathered_serialized_batches, strict=False)
                 await self.inference_engine.update_weights_from_tensor(
-                    named_tensors=[
-                        # 'tensor_group' represents a single logical tensor's data from all ranks.
-                        (
-                            tensor_group[0][0],  # Get the name from the first rank's data.
-                            LocalSerializedTensor(
-                                # 'rank_part' is the (name, serialized_tensor) tuple from one specific rank.
-                                values=[rank_part[1] for rank_part in tensor_group]
-                            ),
-                        )
-                        for tensor_group in logical_tensors
-                        # each tensor_group is like ( (n0, t0_tp0), (n0, t0_tp1) )
-                    ],
+                    named_tensors=gathered_serialized_batches,
                     load_format=load_format,
                     flush_cache=False,
                 )
