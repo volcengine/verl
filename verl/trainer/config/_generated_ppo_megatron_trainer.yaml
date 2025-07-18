@@ -343,6 +343,7 @@ critic:
     ranks: []
   nccl_timeout: 600
   megatron:
+    _target_: verl.workers.config.McoreEngineConfig
     param_offload: false
     grad_offload: false
     optimizer_offload: false

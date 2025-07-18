@@ -17,6 +17,8 @@ nccl_timeout: 600
 
 # optimizer configs
 optim:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.workers.config.McoreOptimizerConfig
 
   # select optimizer, default is Adam
@@ -50,7 +52,10 @@ optim:
 
 # model config for the critic
 model:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.workers.config.McoreCriticModelCfg
+
   # override default empty mapping
   override_config:
     model_config: {}
@@ -68,6 +73,9 @@ model:
 
 # megatron-specific parallelism settings
 megatron:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.McoreEngineConfig
 
   # Whether to offload model parameters to CPU
   param_offload: False
