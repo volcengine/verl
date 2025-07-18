@@ -82,3 +82,4 @@ trainer:
 
     # For more flexibility, you can specify the contents to load from the checkpoint.
     load_contents: ${trainer.checkpoint.save_contents}
+  device: cuda

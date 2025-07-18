@@ -131,6 +131,10 @@ jobs:
         run: |
           ray stop --force
           python scripts/converter_hf_to_mcore.py --hf_model_path=${HOME}/models/Qwen/Qwen1.5-MoE-A2.7B-Chat --output_path checkpoints/Qwen/Qwen1.5-MoE-A2.7B-Chat --use_cpu_initialization
+      - name: Running distributed Huggingface to Megatron dist_ckpt CPU converter (Qwen/Qwen1.5-MoE-A2.7B-Chat)
+        run: |
+          ray stop --force
+          torchrun --nproc_per_node 8 --nnodes 1 scripts/converter_hf_to_mcore.py --hf_model_path=${HOME}/models/Qwen/Qwen1.5-MoE-A2.7B-Chat --output_path checkpoints/Qwen/Qwen1.5-MoE-A2.7B-Chat_dist --use_cpu_initialization
       - name: clean up
         run: |
           rm -rf checkpoints
