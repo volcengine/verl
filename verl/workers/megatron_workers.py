@@ -187,7 +187,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         )
         self.generation_config = get_generation_config(self.local_path)
 
-        if self._is_actor and self._is_rollout:
+        if self._is_actor or self._is_rollout:
             wrap_config = McoreModuleWrapperConfig(
                 is_value_model=False,  # actor is not value model
                 share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
