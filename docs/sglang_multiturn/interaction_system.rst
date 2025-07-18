@@ -189,7 +189,6 @@ The GSM8K interaction demonstrates a complete implementation for math problem-so
 
             # Ensure GSM8K format (#### prefix)
             self._instance_dict[instance_id]["response"] = content
-            self._instance_dict[instance_id]["response"] = content
 
             reward = await self.calculate_score(instance_id)
             if reward == 1.0:
@@ -300,7 +299,7 @@ Comprehensive testing is essential for interaction systems:
         # Test complete workflow
         instance_id = await interaction.start_interaction(ground_truth="expected_answer")
         
-        messages = [{"role": "user", "content": "user_response"}]
+        messages = [{"role": "user", "content": "user_content"}, {"role": "assistant", "content": "assistant_response"}]
         should_terminate, response, reward, metadata = await interaction.generate_response(instance_id, messages)
         
         assert should_terminate in [True, False]
