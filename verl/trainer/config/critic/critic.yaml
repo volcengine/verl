@@ -7,6 +7,9 @@ rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
 # fsdp or fsdp2 strategy used for critic model training
 strategy: ???
 
+# whether to enable the critic worker.
+# by default it is only enabled if advantage estimator is gae
+# set it to True manually if you always want to enable critic worker
 enable: null
 
 # optimizer configs

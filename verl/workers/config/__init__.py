@@ -15,5 +15,4 @@
 
 from .optimizer import FSDPOptimizerConfig, McoreOptimizerConfig
 
-
 __all__ = ["FSDPOptimizerConfig", "McoreOptimizerConfig"]

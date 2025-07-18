@@ -14,7 +14,9 @@
 
 from dataclasses import dataclass
 from typing import Optional
+
 from verl.base_config import BaseConfig
+
 
 @dataclass(kw_only=True)
 class OptimizerConfig(BaseConfig):
@@ -27,11 +29,13 @@ class OptimizerConfig(BaseConfig):
         weight_decay (float): Weight decay factor.
         lr_warmup_steps (Optional[int]): Number of warmup steps; None delegates to lr_warmup_steps_ratio.
     """
+
     lr: float
     lr_warmup_steps_ratio: float = 0.0
     total_training_steps: int = -1
     weight_decay: float = 0.01
     lr_warmup_steps: Optional[int] = -1
+
 
 @dataclass
 class FSDPOptimizerConfig(OptimizerConfig):
@@ -43,9 +47,11 @@ class FSDPOptimizerConfig(OptimizerConfig):
         warmup_style (str): LR warmup style: "constant" or "cosine".
         num_cycles (float): Number of cosine cycles in LR schedule.
     """
+
     min_lr_ratio: Optional[float] = None
     warmup_style: str = "constant"
     num_cycles: float = 0.5
+
 
 @dataclass
 class McoreOptimizerConfig(OptimizerConfig):
@@ -64,6 +70,7 @@ class McoreOptimizerConfig(OptimizerConfig):
         lr_wsd_decay_steps (Optional[int]): Number of steps for weight-standard-deviation decay.
         use_checkpoint_opt_param_scheduler (bool): Whether to use checkpoint optimizer parameter scheduler.
     """
+
     optimizer: str = "adam"
     clip_grad: float = 1.0
     lr_warmup_init: float = 0.0

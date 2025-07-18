@@ -16,10 +16,13 @@ defaults:
 # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
 _target_: verl.trainer.config.FSDPCriticConfig
 
+# distribution strategy. Options: fsdp (deprecating), fsdp2
 strategy: fsdp
 
 # optimizer configs
 optim:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.workers.config.FSDPOptimizerConfig
 
   # Minimum LR ratio for cosine schedule

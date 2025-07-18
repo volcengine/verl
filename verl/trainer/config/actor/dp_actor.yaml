@@ -35,6 +35,7 @@ entropy_checkpointing: False
 # optimizer configs
 optim:
 
+  # Target class for this configuration
   _target_: verl.workers.config.FSDPOptimizerConfig
 
   # Minimum LR ratio for cosine schedule
