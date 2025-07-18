@@ -19,9 +19,24 @@ from megatron.core.packed_seq_params import PackedSeqParams
 
 from verl.utils.model import CausalLMOutputForPPO
 
+try:
+    from megatron.core.utils import is_te_min_version
+
+    HAVE_TE = True
+    try:
+        import transformer_engine_torch as tex
+
+        HAVE_TEX = True
+    except Exception:
+        HAVE_TEX = False
+except Exception as e:
+    HAVE_TE = False
+    if mpu.get_context_parallel_world_size() > 1:
+        raise RuntimeError("ContextParallelism requires TransformerEngine support, but not found.") from e
+
 
 def preprocess_packed_seqs(
-    input_ids: torch.Tensor, attention_mask: torch.Tensor, pre_process: bool = True
+    input_ids: torch.Tensor, attention_mask: torch.Tensor, pre_process: bool = True, bypass_cp_shard: bool = False
 ) -> tuple[torch.Tensor, PackedSeqParams]:
     """
     Preprocess packed sequences
@@ -45,6 +60,8 @@ def preprocess_packed_seqs(
     cu_seqlens_padded[1:] = torch.cumsum(seqlens_in_batch_padded, dim=0)
     max_seqlen_in_batch = seqlens_in_batch_padded.max().item()
 
+    # bypass context parallel shard in VLM models, because the cp shard should be operated after embedding combined
+    cp_size = 1 if bypass_cp_shard else cp_size
     shape = list(input_ids.shape[1:])
     shape[0] = seqlens_in_batch_padded.sum().item() // cp_size
     if pre_process:
@@ -74,9 +91,9 @@ def preprocess_packed_seqs(
 
     packed_seq_params = PackedSeqParams(
         qkv_format="thd",
-        cu_seqlens_q=cu_seqlens_padded,
+        cu_seqlens_q=cu_seqlens,
         max_seqlen_q=max_seqlen_in_batch,
-        cu_seqlens_kv=cu_seqlens_padded,
+        cu_seqlens_kv=cu_seqlens,
         max_seqlen_kv=max_seqlen_in_batch,
         cu_seqlens_q_padded=cu_seqlens_padded,
         cu_seqlens_kv_padded=cu_seqlens_padded,
@@ -94,6 +111,7 @@ def postprocess_packed_seqs(
     batch_size: int,
     seq_len: int,
     post_process: bool = True,
+    bypass_cp_allgather: bool = False,
 ) -> torch.Tensor:
     """
     Postprocess packed sequences
@@ -103,7 +121,7 @@ def postprocess_packed_seqs(
     shape = [batch_size, seq_len] + list(output.shape[2:])  # 1,packed, dim -> batch_size, seq_len, dim
     output_new = torch.zeros(shape, dtype=output.dtype, device=output.device)
 
-    cp_size = mpu.get_context_parallel_world_size()
+    cp_size = mpu.get_context_parallel_world_size() if not bypass_cp_allgather else 1
     # all gather output across context parallel group
     if cp_size > 1:
         # output shape: [1, packed_len, hidden_dim]
@@ -238,3 +256,172 @@ def postprocess_packed_seqs_for_dict_output(
         output.log_probs, packed_seq_params, attention_mask, batch_size, seq_len, post_process=post_process
     )
     return ret
+
+
+class get_embeddings_on_this_cp_rank_thd(torch.autograd.Function):
+    """Performs sharding for Context Parallelism in THD format
+
+    In the forward pass, indices are selected for each CP rank and remaining tokens are dropped.
+    In the backward pass, this class takes care of managing gradients for dropped tokens on each
+    CP rank.
+    """
+
+    @staticmethod
+    def forward(ctx, embeddings, packed_seq_params):
+        """Context Parallelism forward support for THD format"""
+        # embeddings shape: [S, 1, H], position_ids shape: [3, B, S]
+        assert embeddings.shape[1] == 1, (
+            f"embeddings should be in THD format with shape [S, 1, H], but got {embeddings.shape}"
+        )
+
+        assert HAVE_TEX and is_te_min_version("1.10.0"), (
+            "Please update Transformer Engine to >= 1.10 to use \
+                    Context Parallel with THD format data"
+        )
+        cp_size = mpu.get_context_parallel_world_size()
+        cp_rank = mpu.get_context_parallel_rank()
+        seqlen = embeddings.shape[0]
+        index = tex.thd_get_partitioned_indices(packed_seq_params.cu_seqlens_q_padded, seqlen, cp_size, cp_rank)
+        ctx.save_for_backward(index)
+        ctx.decoder_emb_seqlen = seqlen
+
+        embed_output = embeddings.index_select(0, index)
+        embed_output.requires_grad = embeddings.requires_grad
+
+        return embed_output
+
+    @staticmethod
+    def backward(ctx, grad_out):
+        """Context Parallelism backward support for THD format"""
+        seqlen = ctx.decoder_emb_seqlen
+        index = ctx.saved_tensors[0]
+        assert grad_out.size(0) == index.size(0), (
+            f"Shape mismatch in incoming gradient {grad_out.shape} and \
+                index from THD CP sharding {index.shape}"
+        )
+        grad_in = torch.zeros(
+            seqlen,
+            *grad_out.size()[1:],
+            dtype=grad_out.dtype,
+            device=grad_out.device,
+        )
+        grad_in[index] = grad_out
+
+        return (grad_in, None)
+
+
+def get_pos_ids_on_this_cp_rank_thd(pos_ids, packed_seq_params):
+    # pos_ids shape: [3, 1, S]
+    cp_size = mpu.get_context_parallel_world_size()
+    cp_rank = mpu.get_context_parallel_rank()
+    seqlen = pos_ids.shape[-1]
+    index = tex.thd_get_partitioned_indices(packed_seq_params.cu_seqlens_q_padded, seqlen, cp_size, cp_rank)
+    pos_ids_output = pos_ids.index_select(-1, index)
+    return pos_ids_output
+
+
+class AllGatherLanguageOutputs(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, packed_seq_params):
+        # input shape: [B, S/CP, H] or [1, S/CP, H]
+        seq_dim = 1
+        cp_size = mpu.get_context_parallel_world_size()
+
+        cp_rank = mpu.get_context_parallel_rank()
+        outputs = [torch.empty_like(input) for _ in range(cp_size)]
+        torch.distributed.all_gather(outputs, input, group=mpu.get_context_parallel_group())
+        if packed_seq_params is None or packed_seq_params.qkv_format == "sbhd":
+            raise ValueError("Only THD format is supported for context parallel")
+        elif packed_seq_params.qkv_format == "thd":
+            cp_seqlen = input.shape[seq_dim]
+            seqlen = cp_seqlen * cp_size
+            ctx.seqlen = seqlen
+            output = torch.zeros(
+                (*input.shape[:seq_dim], seqlen, *input.shape[seq_dim + 1 :]), device=input.device, dtype=input.dtype
+            )
+            for i in range(cp_size):
+                index = tex.thd_get_partitioned_indices(packed_seq_params.cu_seqlens_q_padded, seqlen, cp_size, i)
+                output[:, index] = outputs[i]
+                if i == cp_rank:
+                    ctx.save_for_backward(index)
+
+        ctx.cp_rank = cp_rank
+        ctx.cp_size = cp_size
+        ctx.seq_dim = seq_dim
+        ctx.packed_seq_params = packed_seq_params
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        packed_seq_params = ctx.packed_seq_params
+        if packed_seq_params is None or packed_seq_params.qkv_format == "sbhd":
+            raise ValueError("Only THD format is supported for context parallel")
+        elif packed_seq_params.qkv_format == "thd":
+            index = ctx.saved_tensors[0]
+            grad_output = grad_output.index_select(ctx.seq_dim, index)
+
+        return grad_output, None
+
+
+class AllGatherVisionEmbeddings(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, seqlens_on_cp_ranks):
+        outputs = []
+        for i in range(len(seqlens_on_cp_ranks)):
+            o = torch.zeros(
+                (seqlens_on_cp_ranks[i].sum(), *input.shape[1:]),
+                device=input.device,
+                dtype=input.dtype,
+                layout=input.layout,
+            )
+            outputs.append(o)
+        torch.distributed.all_gather(outputs, input, group=mpu.get_context_parallel_group())
+        cp_rank = mpu.get_context_parallel_rank()
+        ctx.cp_rank = cp_rank
+        ctx.save_for_backward(*seqlens_on_cp_ranks)
+
+        output = torch.cat(outputs, dim=0)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        cp_rank = ctx.cp_rank
+        seqlens_on_cp_ranks = ctx.saved_tensors
+        start_idx = torch.cat(seqlens_on_cp_ranks[:cp_rank]).sum() if cp_rank != 0 else 0
+        end_idx = start_idx + seqlens_on_cp_ranks[cp_rank].sum()
+        grad_output = grad_output[start_idx:end_idx]
+        return grad_output, None
+
+
+def get_vision_cp_data(vision_data, vision_grid_thw, square_merge_size):
+    """Get vision data and grid_thw for context parallelism.
+
+    Returns:
+        vision_data (torch.Tensor): Vision data of shape [total_thw_size, n_features].
+        vision_grid_thw (torch.Tensor): Vision grid_thw of shape [total_thw_size, 3].
+        seqlens_list (list of torch.Tensor): List of seqlens of the vision data in each context parallel rank,
+                                             for the all gather after vision encoder.
+    """
+    # we use the context parallelism size and context parallel group of LLM for vision model.
+    # we only divide the number of images in each context parallel rank.
+    cp_size = mpu.get_context_parallel_world_size()
+    cp_rank = mpu.get_context_parallel_rank()
+
+    img_num = vision_grid_thw.shape[0]
+    img_num_per_rank = (img_num + cp_size - 1) // cp_size
+    seqlens = torch.repeat_interleave(vision_grid_thw[:, 1] * vision_grid_thw[:, 2], vision_grid_thw[:, 0])
+    vision_grid_thw_list = []
+    vision_data_list = []
+    seqlens_list = []
+    for i in range(cp_size):
+        start_idx = i * img_num_per_rank
+        end_idx = min(start_idx + img_num_per_rank, img_num)
+        vision_grid_thw_list.append(vision_grid_thw[start_idx:end_idx])
+        seqlens_list.append(seqlens[start_idx:end_idx])
+        data_start_idx = seqlens[:start_idx].sum()
+        data_end_idx = seqlens[:end_idx].sum()
+        vision_data_list.append(vision_data[data_start_idx:data_end_idx])
+    new_vision_grid_thw = vision_grid_thw_list[cp_rank]
+    new_vision_data = vision_data_list[cp_rank]
+    new_seqlens_list = [t // square_merge_size for t in seqlens_list]
+    return new_vision_data, new_vision_grid_thw, new_seqlens_list
