@@ -255,24 +255,19 @@ class FlopsCounter:
         layer_types = getattr(self.config, "layer_types", None)
         sliding_window = getattr(self.config, "sliding_window", 1024)  # default 1024
 
-        if layer_types:
-            # Calculate attention flops per layer based on attention type
-            for layer_idx in range(num_hidden_layers):
+        for layer_idx in range(num_hidden_layers):
+            is_sliding = False
+            if layer_types and layer_idx < len(layer_types):
                 is_sliding = layer_types[layer_idx] == "sliding_attention"
 
-                for seqlen in batch_seqlens:
-                    if is_sliding and sliding_window:
-                        # Sliding window limits each token to attend to at most window_size tokens
-                        effective_seqlen = min(seqlen, sliding_window)
-                        seqlen_square_sum += seqlen * effective_seqlen
-                    else:
-                        # Full attention
-                        seqlen_square_sum += seqlen * seqlen
-        else:
-            # If no layer_types config, assume all layers use full attention
             for seqlen in batch_seqlens:
-                seqlen_square_sum += seqlen * seqlen
-            seqlen_square_sum *= num_hidden_layers
+                if is_sliding and sliding_window:
+                    # Sliding window limits each token to attend to at most window_size tokens
+                    effective_seqlen = min(seqlen, sliding_window)
+                    seqlen_square_sum += seqlen * effective_seqlen
+                else:
+                    # Full attention
+                    seqlen_square_sum += seqlen * seqlen
 
         attn_qkv_flops = 12 * seqlen_square_sum * head_dim * num_attention_heads
 
