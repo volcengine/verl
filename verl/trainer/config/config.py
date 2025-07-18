@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 
 from verl.base_config import BaseConfig
 
@@ -57,28 +57,3 @@ class ProfileConfig(BaseConfig):
     step_start: int = -1
     step_end: int = -1
     save_path: Optional[str] = None
-
-
-@dataclass
-class FSDPEngineConfig(BaseConfig):
-    """Configuration for FSDP (Fully Sharded Data Parallel).
-
-    The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
-
-    Args:
-        wrap_policy (Dict[str, Any]): Configuration for FSDP wrap policy.
-        param_offload (bool): Whether to offload parameters to CPU, default False
-        optimizer_offload (bool): Whether to offload optimizer states to CPU, default False
-        offload_policy (bool): Whether to offload policy model parameters, default False
-        reshard_after_forward (bool): Whether to reshard parameters after forward pass, default True
-        fsdp_size (int): FSDP group size. -1 means use all available GPUs.
-        forward_prefetch (bool): Whether to prefetch parameters for next forward pass, default False
-    """
-
-    wrap_policy: dict[str, Any] = field(default_factory=dict)
-    param_offload: bool = False
-    optimizer_offload: bool = False
-    offload_policy: bool = False
-    reshard_after_forward: bool = True
-    fsdp_size: int = -1
-    forward_prefetch: bool = False
