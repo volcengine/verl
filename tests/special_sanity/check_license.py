@@ -43,10 +43,6 @@ if __name__ == "__main__":
     for path in pathlist:
         # because path is object not string
         path_in_str = str(path.absolute())
-
-        if ".venv" in path_in_str:
-            continue
-
         print(path_in_str)
         with open(path_in_str, encoding="utf-8") as f:
             file_content = f.read()
