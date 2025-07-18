@@ -35,7 +35,7 @@ optim:
 model:
 
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-  _target_: verl.trainer.config.FSDPCriticModelCfg
+  _target_: verl.workers.config.FSDPCriticModelCfg
 
   # Whether to use shared memory for loading the model
   use_shm: False

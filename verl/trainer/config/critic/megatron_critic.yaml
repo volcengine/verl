@@ -50,7 +50,7 @@ optim:
 
 # model config for the critic
 model:
-  _target_: verl.trainer.config.McoreCriticModelCfg
+  _target_: verl.workers.config.McoreCriticModelCfg
   # override default empty mapping
   override_config:
     model_config: {}
