@@ -30,7 +30,6 @@
 # limitations under the License.
 
 import os
-import typing
 
 import torch
 import torch.distributed as dist
@@ -57,7 +56,7 @@ LOW_MEMORY_DIV_FACTOR = os.environ.get("LOW_MEMORY_DIV_FACTOR", 16)
 
 def run_torch_entropy(
     hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, temperature: float, reduction="none"
-) -> typing.List[torch.Tensor]:
+) -> list[torch.Tensor]:
     # [num_tokens, vocab_size]
     if len(hidden.shape) > 2:
         hidden = hidden.view(-1, hidden.shape[-1])  # [num_tokens, hidden_size]

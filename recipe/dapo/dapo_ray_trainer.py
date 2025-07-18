@@ -103,7 +103,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                 )
                 with marked_timer("start_profile", timing_raw):
                     if do_profile:
-                        self.actor_rollout_wg.start_profile()
+                        self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
                         if self.use_reference_policy:
                             self.ref_policy_wg.start_profile()
                         if self.use_critic:
@@ -214,7 +214,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                         # Collect the sequence reward for each trajectory
                         prompt_uid2metric_vals = defaultdict(list)
                         for uid, metric_val in zip(
-                            new_batch.non_tensor_batch["uid"], new_batch.non_tensor_batch[metric_name]
+                            new_batch.non_tensor_batch["uid"], new_batch.non_tensor_batch[metric_name], strict=True
                         ):
                             prompt_uid2metric_vals[uid].append(metric_val)
 

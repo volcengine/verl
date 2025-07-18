@@ -290,3 +290,15 @@ here is the readable format version:
    </think>
    
    #### 220000.0
+
+
+You can also use the `RolloutViewer` TUI tool to view the dumped rollout data:
+
+
+.. code-block:: bash
+
+    python scripts/rollout_viewer.py ${trainer.rollout_data_dir}
+
+
+.. image:: https://github.com/user-attachments/assets/e34e5157-2880-4a21-afb2-73885d0dfb11
+   :alt: RolloutViewer screenshot

@@ -23,7 +23,7 @@ import itertools
 import logging
 import os
 from functools import partial
-from typing import Dict, Iterable
+from typing import Iterable
 
 import torch
 import torch.distributed
@@ -295,7 +295,15 @@ class MegatronPPOActor(BasePPOActor):
         Returns:
 
         """
-        select_keys = ["responses", "input_ids", "attention_mask", "position_ids", "old_log_probs", "advantages"]
+        select_keys = [
+            "responses",
+            "input_ids",
+            "attention_mask",
+            "response_mask",
+            "position_ids",
+            "old_log_probs",
+            "advantages",
+        ]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
         self.has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
@@ -395,8 +403,7 @@ class MegatronPPOActor(BasePPOActor):
 
             responses = data["responses"]
             response_length = responses.size(1)
-            attention_mask = data["attention_mask"].to(bool)
-            response_mask = attention_mask[:, -response_length:]
+            response_mask = data["response_mask"].to(bool)
             loss_agg_mode = self.config.loss_agg_mode
 
             # compute policy loss
@@ -591,7 +598,7 @@ class MegatronPPOActor(BasePPOActor):
         return losses_reduced
 
     @GPUMemoryLogger(role="megatron actor", logger=logger)
-    def update_policy(self, dataloader: Iterable[DataProto]) -> Dict:
+    def update_policy(self, dataloader: Iterable[DataProto]) -> dict:
         """Update the policy with an iterator of DataProto
 
         Args:

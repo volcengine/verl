@@ -327,9 +327,6 @@ critic:
   data_loader_seed: ${actor_rollout_ref.actor.data_loader_seed}
   shuffle: ${actor_rollout_ref.actor.shuffle}
   cliprange_value: 0.5
-  kl_ctrl:
-    type: fixed
-    kl_coef: 0.001
   loss_agg_mode: ${actor_rollout_ref.actor.loss_agg_mode}
   checkpoint:
     async_save: False # save checkpoint asynchronously

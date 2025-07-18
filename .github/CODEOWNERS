@@ -8,8 +8,11 @@
 
 /third_party/sglang @zhaochenyang20 @SwordFaith
 /third_party/vllm @PeterSH6 @wuxibin89
-/verl/single_controller @zw0610 @wuxibin89
+/verl/single_controller @zw0610 @wuxibin89 @hongpeng-guo
 /verl/trainer @eric-haibin-lin @vermouth1992 @tongyx361 @PeterSH6
+/verl/workers/engine @eric-haibin-lin @vermouth1992 @ZihengJiang
+/verl/workers/roles @eric-haibin-lin @vermouth1992 @ZihengJiang
+/verl/workers/engine/fsdp @eric-haibin-lin @vermouth1992 @ZihengJiang
 /verl/workers/rollout/vllm_rollout @wuxibin89 @PeterSH6 @chenhaiq
 /verl/workers/rollout/sglang_rollout @zhaochenyang20 @SwordFaith @chenhaiq
 
