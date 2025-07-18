@@ -67,6 +67,7 @@ class RayDAPOTrainer(RayPPOTrainer):
         )
 
         self.global_steps = 0
+        self.gen_steps = 0
 
         # load checkpoint before doing anything
         self._load_checkpoint()
@@ -86,6 +87,7 @@ class RayDAPOTrainer(RayPPOTrainer):
 
         # we start from step 1
         self.global_steps += 1
+        self.gen_steps += 1
         last_val_metrics = None
 
         timing_raw = defaultdict(float)
@@ -126,7 +128,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                     )
                 gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
-                is_last_step = self.global_steps >= self.total_training_steps
+                is_last_step = self.gen_steps >= self.total_training_steps
 
                 with marked_timer("step", timing_raw):
                     # generate a batch
@@ -244,6 +246,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                             if max_num_gen_batches <= 0 or num_gen_batches < max_num_gen_batches:
                                 print(f"{num_gen_batches=}. Keep generating...")
                                 progress_bar.update(1)
+                                self.gen_steps += 1
                                 continue
                             else:
                                 raise ValueError(
@@ -373,3 +376,4 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                 progress_bar.update(1)
                 self.global_steps += 1
+                self.gen_steps += 1
