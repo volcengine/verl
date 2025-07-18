@@ -1,4 +1,4 @@
-# Copyright 2025 Amazon.com Inc and/or its affiliates
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,26 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from abc import abstractmethod
-from collections.abc import Sized
-
-from omegaconf import DictConfig
-from torch.utils.data import Sampler
-
-from verl import DataProto
-
-
-class AbstractSampler(Sampler[int]):
-    @abstractmethod
-    def __init__(
-        self,
-        data_source: Sized,
-        config: DictConfig,
-    ):
-        pass
-
-
-class AbstractCurriculumSampler(AbstractSampler):
-    @abstractmethod
-    def update(self, batch: DataProto) -> None:
-        pass

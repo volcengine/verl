@@ -17,7 +17,7 @@ import logging
 import os
 import warnings
 from dataclasses import asdict, dataclass
-from typing import Optional, Union
+from typing import Optional
 
 import torch
 import torch.distributed
@@ -42,8 +42,11 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))
 
 @dataclass
 class FSDPConfig:
-    """
-    Configuration for FSDP checkpointing.
+    """Configuration for FSDP checkpointing.
+
+    Args:
+        FSDP_version (int): Version of FSDP being used.
+        world_size (int): Number of processes in the distributed training setup.
     """
 
     FSDP_version: int
@@ -74,7 +77,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         model: FSDP,
         optimizer: Optional[torch.optim.Optimizer] = None,
         lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
-        processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
+        processing_class: PreTrainedTokenizer | ProcessorMixin = None,
         checkpoint_config: DictConfig = None,
         **kwargs,
     ):

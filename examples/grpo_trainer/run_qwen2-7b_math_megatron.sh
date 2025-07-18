@@ -16,6 +16,8 @@ math_test_path=$HOME/data/math/test.parquet
 train_files="['$gsm8k_train_path', '$math_train_path']"
 test_files="['$gsm8k_test_path', '$math_test_path']"
 
+USE_FUSED_KERNELS=True
+
 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_megatron_trainer.yaml'\
     algorithm.adv_estimator=grpo \
@@ -28,6 +30,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path=Qwen/Qwen2-7B-Instruct \
+    actor_rollout_ref.model.use_fused_kernels=$USE_FUSED_KERNELS \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
@@ -49,7 +52,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.ref.megatron.tensor_model_parallel_size=2 \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_grpo_example_gsm8k_math' \
     trainer.experiment_name='qwen2_7b_megatron' \
     trainer.n_gpus_per_node=8 \

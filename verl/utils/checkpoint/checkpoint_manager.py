@@ -16,7 +16,6 @@ import os
 import random
 import shutil
 from threading import Thread
-from typing import Union
 
 import numpy as np
 import torch
@@ -48,7 +47,7 @@ class BaseCheckpointManager:
         model,
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler = None,
-        processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
+        processing_class: PreTrainedTokenizer | ProcessorMixin = None,
         checkpoint_config: DictConfig = None,
     ):
         self.checkpoint_config = checkpoint_config

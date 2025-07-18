@@ -85,11 +85,12 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.1"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.2-te2.2"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
   setup:
+    if: github.repository_owner == 'volcengine'
     runs-on: ubuntu-latest
     outputs:
       runner-label: ${{ steps.create-runner.outputs.runner-label }}
@@ -132,12 +133,16 @@ jobs:
           ray stop --force
           export VLLM_USE_V1=1
           ray start --head
-          MODE=async RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 bash tests/special_e2e/run_ppo_trainer_megatron.sh
+          MODE=async USE_FUSED_KERNELS=True RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 bash tests/special_e2e/run_ppo_trainer_megatron.sh
       - name: Test Megatron checkpoints merging function (DeepSeek Actor and Critic)
         run: |
           exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"
           python -m verl.model_merger test --backend megatron --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
           python -m verl.model_merger test --backend megatron --is-value-model --local_dir checkpoints/verl-test/${exp_name}/global_step_1/critic --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/critic/huggingface
+      - name: Test Megatron distributed checkpoints merging function (DeepSeek)
+        run: |
+          exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"
+          torchrun --nproc_per_node 4 --nnodes 1  -m verl.model_merger merge --backend megatron --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --target_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/hf_model
       - name: Running GRPO GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Deepseek)
         run: |
           ray stop --force

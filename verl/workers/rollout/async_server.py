@@ -18,13 +18,14 @@ import socket
 import threading
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Optional
 
 import fastapi
 import ray
 import uvicorn
 from omegaconf import DictConfig
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
@@ -43,7 +44,7 @@ class AsyncServerBase(ABC):
     """Base class for AsyncServer."""
 
     def __init__(self):
-        self.address = ray._private.services.get_node_ip_address()
+        self.address = ray.util.get_node_ip_address()
         self.port = None
         self.server_ready = asyncio.Event()
         asyncio.create_task(self._start_fastapi_server())
@@ -68,21 +69,27 @@ class AsyncServerBase(ABC):
         server = uvicorn.Server(config)
         await server.serve()
 
-    async def get_server_address(self) -> Tuple[str, int]:
+    async def get_server_address(self) -> tuple[str, int]:
         """Get FastAPI server address."""
         await self.server_ready.wait()
         return f"{self.address}:{self.port}"
 
     @abstractmethod
-    async def chat_completion(self, raw_request: Request):
+    async def chat_completion(self, raw_request: Request) -> JSONResponse:
         """OpenAI chat completion API.
+
+        Args:
+            raw_request (Request): raw json request
+
+        Returns:
+            JSONResponse: json response
 
         API reference: https://platform.openai.com/docs/api-reference/chat/create
         """
         raise NotImplementedError
 
     @abstractmethod
-    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
         """Generate response ids given prompt ids.
 
         Args:
@@ -209,8 +216,8 @@ class AsyncLLMServerManager:
 
     def submit_chat_completions(
         self,
-        messages: List[Dict[str, str]],
-        sampling_params: Dict[str, Any],
+        messages: list[dict[str, str]],
+        sampling_params: dict[str, Any],
     ):
         """Submit a chat completion request to chat scheduler and wait until it is done.
         To submit multiple requests in parallel, please use `generate_sequences` instead.
@@ -240,7 +247,7 @@ class AsyncLLMServerManager:
 
 def async_server_class(
     rollout_backend: str, rollout_backend_module: Optional[str] = None, rollout_backend_class: Optional[str] = None
-) -> Type[AsyncServerBase]:
+) -> type[AsyncServerBase]:
     """Get async server class.
 
     Args:

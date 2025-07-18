@@ -20,7 +20,7 @@ import logging
 import os
 import warnings
 from dataclasses import asdict
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import psutil
 import torch
@@ -69,7 +69,7 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
-from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
+from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing
 from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
@@ -108,10 +108,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     or a hybrid engine based on the config.rollout
     """
 
-    def __init__(self, config: DictConfig, role: str):
+    def __init__(self, config: DictConfig, role: str, **kwargs):
         Worker.__init__(self)
 
         self.config = config
+        self.profile_option = kwargs.get("profile_option", None)
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -149,21 +150,16 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
-        profiler_config: Optional[ProfilerConfig] = None
         # TODO(haibin.lin):
         # As of now the type of config is DictConfig, if we assign config.profiler with ProfilerConfig,
         # it will actually convert the ProfilerConfig dataclass back to a DictConfig.
         # We can still use ProfilerConfig for testing purpose (tests/utils/test_nvtx_profile.py)
         # as they provides DictConfig-like interface
         # The benefit of creating the dataclass config is to perform validation during __post_init__
-        if self._is_actor:
-            profiler_config = omega_conf_to_dataclass(config.actor.get("profiler"))
-        if self._is_rollout:
-            profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler"))
-        if self._is_ref:
-            profiler_config = omega_conf_to_dataclass(config.ref.get("profiler"))
-
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
+        profiler_config = omega_conf_to_dataclass(config.get("profiler"))
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, option=self.profile_option)
+        )
 
         self._is_offload_param = False
         self._is_offload_optimizer = False
@@ -682,10 +678,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @DistProfiler.annotate(color="red")
+    @DistProfiler.annotate(color="red", role="actor_update")
     def update_actor(self, data: DataProto):
         # Support all hardwares
-        data = data.to("cpu")  # data will to device with each micro batch on actor.update_policy
+        data = data.to(get_device_id())
 
         assert self._is_actor
         if self._is_offload_param:
@@ -728,7 +724,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @DistProfiler.annotate(color="red")
+    @DistProfiler.annotate(color="red", role="rollout_generate")
     def generate_sequences(self, prompts: DataProto):
         # Support all hardwares
         prompts = prompts.to(get_device_id())
@@ -768,7 +764,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @DistProfiler.annotate(color="blue")
+    @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
     def compute_log_prob(self, data: DataProto):
         # when is_lora is True, we use the actor without lora applied to calculate the log_prob
         # which is mostly used for ref log_prob calculation
@@ -812,7 +808,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @DistProfiler.annotate(color="olive")
+    @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
     def compute_ref_log_prob(self, data: DataProto):
         if self._is_lora:
             # if _is_lora, actor without lora applied is the ref
@@ -925,9 +921,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             offload_fsdp_optimizer(self.actor_optimizer)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def start_profile(self) -> None:
+    def start_profile(self, **kwargs) -> None:
         """Start profiling for the current rank in the current training step."""
-        self.profiler.start()
+        self.profiler.start(**kwargs)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def stop_profile(self) -> None:
@@ -1465,7 +1461,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 unpad_input,
             )
 
-        from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
+        from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs
 
         with torch.no_grad(), torch.autocast(device_type=device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
@@ -1508,7 +1504,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
-                    reward_rmpad = gather_outpus_and_unpad(
+                    reward_rmpad = gather_outputs_and_unpad(
                         reward_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size
                     )
 
@@ -1692,7 +1688,7 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     # ============================ vLLM related ============================
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
+    def execute_method(self, method: str | bytes, *args, **kwargs):
         """Called by ExternalRayDistributedExecutor collective_rpc."""
         return self.rollout.execute_method(method, *args, **kwargs)
 
@@ -1708,7 +1704,7 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         return ret
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
-    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id)
         return ret
 
