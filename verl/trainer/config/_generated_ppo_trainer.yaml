@@ -214,6 +214,7 @@ trainer:
   max_critic_ckpt_to_keep: null
   ray_wait_register_center_timeout: 300
   device: cuda
+  use_legacy_worker_impl: auto
 data:
   tokenizer: null
   use_shm: false

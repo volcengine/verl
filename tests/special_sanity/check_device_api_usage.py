@@ -36,6 +36,7 @@ CUDA_KEYWORD_CHECK_WHITELIST = [
     "verl/trainer/ppo/ray_trainer.py",  # appear in default device_name
     "verl/utils/reward_score/sandbox_fusion/utils.py",  # appear in sandbox language type
     "verl/workers/reward_model/megatron/reward_model.py",  # appear in default device_name
+    "verl/workers/engine/fsdp/engine_impl.py",
 ]
 
 # directory or file path must contain keyword "nccl"
