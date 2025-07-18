@@ -260,8 +260,19 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
     hfllm = hfmodel.model
     mgllm = mgmodel.language_model
     copied_numel = 0
-    copied_numel += safe_copy(hfllm.embed_tokens.weight, mgllm.embedding.word_embeddings.weight)
-    for mglayer, hflayer in zip(mgllm.decoder.layers, hfllm.layers, strict=True):
+    if getattr(hfllm, "embed_tokens", None) is not None:
+        print(f'Using transformers < 4.52 API to load embed_tokens')
+        copied_numel += safe_copy(hfllm.embed_tokens.weight, mgllm.embedding.word_embeddings.weight)
+    else:
+        print(f'Using transformers >= 4.52 API to load embed_tokens')
+        copied_numel += safe_copy(hfllm.language_model.embed_tokens.weight, mgllm.embedding.word_embeddings.weight)
+    if getattr(hfllm, "layers", None) is not None:
+        print(f'Using transformers < 4.52 API to load layers')
+        layermaps = zip(mgllm.decoder.layers, hfllm.layers, strict=True)
+    else:
+        print(f'Using transformers >= 4.52 API to load layers')
+        layermaps = zip(mgllm.decoder.layers, hfllm.language_model.layers, strict=True)
+    for mglayer, hflayer in layermaps:
         copied_numel += safe_copy(hflayer.input_layernorm.weight, mglayer.self_attention.linear_qkv.layer_norm_weight)
 
         q_proj_weight = hflayer.self_attn.q_proj.weight.view(num_query_groups, -1, head_dim, hidden_size)
@@ -283,7 +294,12 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
         copied_numel += safe_copy(hflayer.mlp.down_proj.weight, mglayer.mlp.linear_fc2.weight)
         copied_numel += safe_copy(hflayer.post_attention_layernorm.weight, mglayer.mlp.linear_fc1.layer_norm_weight)
 
-    copied_numel += safe_copy(hfllm.norm.weight, mgllm.decoder.final_layernorm.weight)
+    if getattr(hfllm, "norms", None) is not None:
+        print(f'Using transformers < 4.52 API to load norm')
+        copied_numel += safe_copy(hfllm.norm.weight, mgllm.decoder.final_layernorm.weight)
+    else:
+        print(f'Using transformers >= 4.52 API to load norm')
+        copied_numel += safe_copy(hfllm.language_model.norm.weight, mgllm.decoder.final_layernorm.weight)
     if not hf_config.tie_word_embeddings:
         safe_copy(hfmodel.lm_head.weight, mgllm.output_layer.weight)
 
