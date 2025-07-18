@@ -24,12 +24,11 @@ from .actor import (
     McoreCriticModelCfg,
     PolicyLossConfig,
 )
-from .engine import CheckpointConfig, FSDPEngineConfig, McoreEngineConfig, ProfileConfig
+from .engine import FSDPEngineConfig, McoreEngineConfig
 from .optimizer import FSDPOptimizerConfig, McoreOptimizerConfig
 
 __all__ = [
     "ActorConfig",
-    "CheckpointConfig",
     "CriticConfig",
     "CriticModelCfg",
     "FSDPActorConfig",
@@ -43,5 +42,4 @@ __all__ = [
     "McoreEngineConfig",
     "McoreOptimizerConfig",
     "PolicyLossConfig",
-    "ProfileConfig",
 ]

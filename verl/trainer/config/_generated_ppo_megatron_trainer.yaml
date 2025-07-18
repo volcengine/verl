@@ -5,7 +5,6 @@
 
 actor_rollout_ref:
   actor:
-    _target_: verl.workers.config.McoreActorConfig
     strategy: megatron
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null
@@ -57,6 +56,7 @@ actor_rollout_ref:
       lr_wsd_decay_steps: null
       use_checkpoint_opt_param_scheduler: false
     use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
+    _target_: verl.workers.config.McoreActorConfig
     data_loader_seed: null
     load_weight: true
     megatron:

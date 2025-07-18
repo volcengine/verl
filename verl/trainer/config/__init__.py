@@ -12,34 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from verl.workers.config import (
-    ActorConfig,
-    CriticConfig,
-    FSDPActorConfig,
-    FSDPCriticConfig,
-    FSDPCriticModelCfg,
-    FSDPEngineConfig,
-    McoreActorConfig,
-    McoreCriticConfig,
-    McoreCriticModelCfg,
-    PolicyLossConfig,
-)
-
 from .algorithm import AlgoConfig, FilterGroupsConfig, KLControlConfig, PFPPOConfig
+from .config import CheckpointConfig, ProfileConfig
 
 __all__ = [
-    "ActorConfig",
     "AlgoConfig",
-    "CriticConfig",
     "FilterGroupsConfig",
-    "FSDPActorConfig",
-    "FSDPCriticConfig",
     "KLControlConfig",
-    "McoreActorConfig",
-    "McoreCriticConfig",
     "PFPPOConfig",
-    "PolicyLossConfig",
-    "FSDPCriticModelCfg",
-    "McoreCriticModelCfg",
-    "FSDPEngineConfig",
+    "CheckpointConfig",
+    "ProfileConfig",
 ]
