@@ -26,6 +26,8 @@ VALID_CONFIG_TYPE = {
     "deepseek_v3",
     "minicpmv",
     "minicpmo",
+    "mistral",
+    "gemma3_text",
 }
 
 
@@ -91,6 +93,8 @@ class FlopsCounter:
             "deepseek_v3": self._estimate_deepseek_v3_flops,
             "minicpmv": self._estimate_qwen2_flops,
             "minicpmo": self._estimate_qwen2_flops,
+            "mistral": self._estimate_qwen2_flops,
+            "gemma3_text": self._estimate_gemma3_flops,
         }
         self.config = config
 
@@ -215,6 +219,62 @@ class FlopsCounter:
         for seqlen in batch_seqlens:
             seqlen_square_sum += seqlen * seqlen
         attn_qkv_flops = 12 * seqlen_square_sum * head_dim * num_attention_heads * num_hidden_layers
+
+        # all_layer & all_token fwd & bwd flops
+        flops_all_token = dense_N_flops + attn_qkv_flops
+        flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
+        return flops_achieved
+
+    def _estimate_gemma3_flops(self, tokens_sum, batch_seqlens, delta_time):
+        hidden_size = self.config.hidden_size
+        vocab_size = self.config.vocab_size
+        num_hidden_layers = self.config.num_hidden_layers
+        num_key_value_heads = self.config.num_key_value_heads
+        num_attention_heads = self.config.num_attention_heads
+        intermediate_size = self.config.intermediate_size
+
+        head_dim = getattr(self.config, "head_dim", self.config.hidden_size // self.config.num_attention_heads)
+        q_size = num_attention_heads * head_dim
+        k_size = num_key_value_heads * head_dim
+        v_size = num_key_value_heads * head_dim
+
+        # non-attn per layer parm
+        # Gemma3 uses GeGLU (gelu_pytorch_tanh), having 3 matrices in MLP (inherited from Gemma2MLP)
+        mlp_N = hidden_size * intermediate_size * 3
+        attn_linear_N = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
+        emd_and_lm_head_N = vocab_size * hidden_size * 2
+        # non-attn all_layer parm
+        dense_N = (mlp_N + attn_linear_N) * num_hidden_layers + emd_and_lm_head_N
+        # non-attn all_layer & all_token fwd & bwd flops
+        dense_N_flops = 6 * dense_N * tokens_sum
+
+        # attn all_layer & all_token fwd & bwd flops
+        # Gemma3 alternates between full and sliding window attention based on layer_types
+        seqlen_square_sum = 0
+
+        layer_types = getattr(self.config, "layer_types", None)
+        sliding_window = getattr(self.config, "sliding_window", 1024)  # default 1024
+
+        if layer_types:
+            # Calculate attention flops per layer based on attention type
+            for layer_idx in range(num_hidden_layers):
+                is_sliding = layer_types[layer_idx] == "sliding_attention"
+
+                for seqlen in batch_seqlens:
+                    if is_sliding and sliding_window:
+                        # Sliding window limits each token to attend to at most window_size tokens
+                        effective_seqlen = min(seqlen, sliding_window)
+                        seqlen_square_sum += seqlen * effective_seqlen
+                    else:
+                        # Full attention
+                        seqlen_square_sum += seqlen * seqlen
+        else:
+            # If no layer_types config, assume all layers use full attention
+            for seqlen in batch_seqlens:
+                seqlen_square_sum += seqlen * seqlen
+            seqlen_square_sum *= num_hidden_layers
+
+        attn_qkv_flops = 12 * seqlen_square_sum * head_dim * num_attention_heads
 
         # all_layer & all_token fwd & bwd flops
         flops_all_token = dense_N_flops + attn_qkv_flops
