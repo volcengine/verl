@@ -39,7 +39,7 @@ class CheckpointConfig(BaseConfig):
 
 
 @dataclass
-class MegatronEngineConfig(BaseConfig):
+class McoreEngineConfig(BaseConfig):
     """Configuration for Megatron parallelism.
 
     The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
@@ -133,16 +133,15 @@ class FSDPEngineConfig(BaseConfig):
 
     Args:
         wrap_policy (Dict[str, Any]): Configuration for FSDP wrap policy.
-        param_offload (bool): Whether to offload parameters to CPU.
-        optimizer_offload (bool): Whether to offload optimizer states to CPU.
-        offload_policy (bool): Whether to offload policy model parameters.
-        reshard_after_forward (bool): Whether to reshard parameters after forward pass.
+        param_offload (bool): Whether to offload parameters to CPU, default False
+        optimizer_offload (bool): Whether to offload optimizer states to CPU, default False
+        offload_policy (bool): Whether to offload policy model parameters, default False
+        reshard_after_forward (bool): Whether to reshard parameters after forward pass, default True
         fsdp_size (int): FSDP group size. -1 means use all available GPUs.
-        forward_prefetch (bool): Whether to prefetch parameters for next forward pass.
+        forward_prefetch (bool): Whether to prefetch parameters for next forward pass, default False
     """
 
     wrap_policy: dict[str, Any] = field(default_factory=dict)
-
     param_offload: bool = False
     optimizer_offload: bool = False
     offload_policy: bool = False

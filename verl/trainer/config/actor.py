@@ -172,7 +172,7 @@ class ActorConfig(BaseConfig):
 
 
 @dataclass
-class MegatronActorConfig(ActorConfig):
+class McoreActorConfig(ActorConfig):
     """Configuration for Megatron actor models.
 
     The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.

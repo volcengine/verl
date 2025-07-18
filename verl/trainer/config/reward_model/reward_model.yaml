@@ -68,7 +68,7 @@ sandbox_fusion:
 # profiler configs
 profiler:
 
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.utils.profiler.ProfilerConfig
 
   # True for each task has its own database, False for all tasks in one training step share one database.

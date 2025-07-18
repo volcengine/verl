@@ -18,6 +18,8 @@ from typing import Any, Optional
 from verl.base_config import BaseConfig
 from verl.utils.profiler import ProfilerConfig
 
+from .config import FSDPEngineConfig
+
 
 # Note(haibin.lin): kw_only=True is required as BaseConfig specifies `extra` with default values
 # If all of child class fields have default values, `kw_only=True` is not required.
@@ -134,7 +136,7 @@ class CriticConfig(BaseConfig):
 
 
 @dataclass
-class MegatronCriticConfig(CriticConfig):
+class McoreCriticConfig(CriticConfig):
     """Configuration for Megatron-based critic model training.
 
     The inheritance from CriticConfig provides all base critic configuration plus Megatron-specific settings.
@@ -210,3 +212,64 @@ class FSDPCriticConfig(CriticConfig):
                         f"critic.ppo_micro_batch_size ({self.ppo_micro_batch_size}) * "
                         f"ulysses_sequence_parallel_size ({sp_size}) must be >= n_gpus ({n_gpus})"
                     )
+
+
+@dataclass
+class CriticModelCfg(BaseConfig):
+    """Base configuration for all critic models.
+    Contains core settings for loading and initializing a pretrained critic.
+
+    Args:
+        path (str): Path to pretrained model weights.
+        tokenizer_path (Optional[str]): Tokenizer path (defaults to actor's model path if not set).
+        override_config (dict): Hugging Face config override.
+        external_lib (Optional[str]): External model implementation (optional).
+        enable_gradient_checkpointing (bool): Enable gradient checkpointing to save memory, default True
+        trust_remote_code (bool): Whether to trust remote code from Hugging Face models.
+    """
+
+    path: str = "~/models/deepseek-llm-7b-chat"
+    tokenizer_path: Optional[str] = None
+    override_config: dict[str, Any] = field(default_factory=dict)
+    external_lib: Optional[str] = None
+    enable_gradient_checkpointing: bool = True
+    trust_remote_code: bool = False
+
+
+@dataclass
+class FSDPCriticModelCfg(CriticModelCfg):
+    """FSDP-enabled critic model configuration.
+    Inherits base critic settings and adds distributed-memory and LoRA options.
+
+    Args:
+        use_shm (bool): Whether to use shared memory for loading the model.
+        enable_activation_offload (bool): Offload activations to CPU to reduce GPU memory usage.
+        use_remove_padding (bool): Use remove-padding optimization (saves compute).
+        fsdp_config (FSDPEngineConfig): FSDP-specific configuration block.
+        lora_rank (int): Set to positive value to enable LoRA (e.g., 32).
+        lora_alpha (int): LoRA scaling factor.
+        target_modules (Union[str, List[str]]): LoRA target modules: "all-linear" or list of layer names.
+    """
+
+    use_shm: bool = False
+    enable_activation_offload: bool = False
+    use_remove_padding: bool = False
+    fsdp_config: FSDPEngineConfig = field(default_factory=FSDPEngineConfig)
+    lora_rank: int = 0
+    lora_alpha: int = 16
+    target_modules: str | list[str] = "all-linear"
+
+
+@dataclass
+class McoreCriticModelCfg(CriticModelCfg):
+    """Megatron/MCore critic model configuration.
+    Inherits base critic settings and customizes gradient checkpointing and MoE overrides.
+
+    Args:
+        override_config (Dict[str, Any]): Override default empty mapping with model-and MoE-specific configs
+        enable_gradient_checkpointing (bool): Enable gradient checkpointing to save memory (overrides base default)
+        gradient_checkpointing_kwargs (Dict[str, Any]): Activation checkpointing keyword arguments
+    """
+
+    enable_gradient_checkpointing: bool = False
+    gradient_checkpointing_kwargs: dict[str, Any] = field(default_factory=dict)

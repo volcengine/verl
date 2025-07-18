@@ -38,6 +38,7 @@ from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
+from verl.trainer.config import FSDPCriticConfig
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
@@ -913,18 +914,16 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
 
 class CriticWorker(Worker, DistProfilerExtension):
-    def __init__(self, config):
+    def __init__(self, config: FSDPCriticConfig):
         Worker.__init__(self)
-        DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
-        )
+        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler")))
         import torch.distributed
 
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(), init_method=os.environ.get("DIST_INIT_METHOD", None)
             )
-        self.config = config
+        self.config: FSDPCriticConfig = config
 
         # build device mesh for Ulysses Sequence Parallel
         world_size = torch.distributed.get_world_size()
@@ -993,8 +992,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 self.processor.chat_template = self.config.model.custom_chat_template
             else:
                 self.tokenizer.chat_template = self.config.model.custom_chat_template
-
-        override_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
+        override_config = self.config.model.get("override_config", {})
         override_config_kwargs = {
             "bos_token_id": self.tokenizer.bos_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
@@ -1160,8 +1158,14 @@ class CriticWorker(Worker, DistProfilerExtension):
                 optimizer=critic_optimizer, num_warmup_steps=num_warmup_steps
             )
         elif warmup_style == "cosine":
+            min_lr_ratio = config.optim.get("min_lr_ratio", 0.0)
+            num_cycles = config.optim.get("num_cycles", 0.5)
             critic_lr_scheduler = get_cosine_schedule_with_warmup(
-                optimizer=critic_optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=total_steps
+                optimizer=critic_optimizer,
+                num_warmup_steps=num_warmup_steps,
+                num_training_steps=total_steps,
+                min_lr_ratio=min_lr_ratio,
+                num_cycles=num_cycles,
             )
         else:
             raise NotImplementedError(f"Warmup style {warmup_style} is not supported")

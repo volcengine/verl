@@ -16,6 +16,7 @@ actor_rollout_ref:
     clip_ratio_low: 0.2
     clip_ratio_high: 0.2
     policy_loss:
+      _target_: verl.trainer.config.PolicyLossConfig
       loss_mode: vanilla
       clip_cov_ratio: 0.0002
       clip_cov_lb: 1.0
@@ -43,6 +44,7 @@ actor_rollout_ref:
       total_training_steps: -1
       weight_decay: 0.01
       lr_warmup_steps: -1
+      _target_: verl.workers.config.FSDPOptimizerConfig
       min_lr_ratio: 0.0
       num_cycles: 0.5
       warmup_style: constant
@@ -256,10 +258,12 @@ critic:
   strategy: fsdp
   enable: null
   optim:
+    lr: 1.0e-05
     lr_warmup_steps_ratio: 0.0
     total_training_steps: -1
     weight_decay: 0.01
-    lr: 1.0e-05
+    lr_warmup_steps: -1
+    _target_: verl.workers.config.FSDPOptimizerConfig
     min_lr_ratio: null
     warmup_style: constant
   model:
@@ -269,10 +273,12 @@ critic:
     external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
     enable_gradient_checkpointing: true
     trust_remote_code: ${oc.select:actor_rollout_ref.model.trust_remote_code,false}
+    _target_: verl.trainer.config.FSDPCriticModelCfg
     use_shm: false
     enable_activation_offload: false
     use_remove_padding: false
     fsdp_config:
+      _target_: verl.trainer.config.FSDPEngineConfig
       param_offload: false
       optimizer_offload: false
       offload_policy: false

@@ -1,4 +1,4 @@
-# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
 _target_: verl.trainer.config.CriticConfig
 
 # Number of rollouts per update (mirrors actor rollout_n)
@@ -12,6 +12,9 @@ enable: null
 # optimizer configs
 optim:
 
+  # Learning rate
+  lr: 1e-5
+
   # Warmup steps ratio; total steps will be injected at runtime
   lr_warmup_steps_ratio: 0.0
 
@@ -20,6 +23,10 @@ optim:
 
   # Weight decay
   weight_decay: 0.01
+
+  # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
+  lr_warmup_steps: -1
+
 
 # model config for the critic
 model:
@@ -86,7 +93,7 @@ checkpoint:
 # the corresponding dataclass is verl.utils.profiler.ProfilerConfig.
 profiler:
 
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.utils.profiler.ProfilerConfig
 
   # True for each task has its own database, False for all tasks in one training step share one database.

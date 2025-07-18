@@ -4,7 +4,7 @@ defaults:
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
-_target_: verl.trainer.config.MegatronActorConfig
+_target_: verl.trainer.config.McoreActorConfig
 
 strategy: megatron
 
@@ -17,16 +17,13 @@ checkpoint:
   async_save: False
 
 optim:
-
+  _target_: verl.workers.config.McoreOptimizerConfig
   optimizer: adam
 
   clip_grad: 1.0
 
   # initial learning rate for warmup, default to 0.0
   lr_warmup_init: 0.0
-
-  # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
-  lr_warmup_steps: null
 
   lr_decay_steps: null
 

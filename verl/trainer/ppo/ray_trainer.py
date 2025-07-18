@@ -54,6 +54,7 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
+from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
 from verl.utils.metric import (
     reduce_metrics,
@@ -448,9 +449,7 @@ class RayPPOTrainer:
                         f"'{name}.{param}' because only '*_{param_per_gpu}' is supported (the former is deprecated)."
                     )
 
-        # Actor validation moved to ActorConfig.__post_init__ and validate()
-        from verl.utils.config import omega_conf_to_dataclass
-
+        # Actor validation done in ActorConfig.__post_init__ and validate()
         actor_config = omega_conf_to_dataclass(config.actor_rollout_ref.actor)
         actor_config.validate(n_gpus, config.data.train_batch_size, config.actor_rollout_ref.model)
 
@@ -481,8 +480,6 @@ class RayPPOTrainer:
 
         # critic
         if self.use_critic:
-            from verl.utils.config import omega_conf_to_dataclass
-
             critic_config = omega_conf_to_dataclass(config.critic)
             critic_config.validate(n_gpus, config.data.train_batch_size)
 
@@ -796,7 +793,8 @@ class RayPPOTrainer:
         # create critic
         if self.use_critic:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
-            critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=self.config.critic)
+            critic_cfg = omega_conf_to_dataclass(self.config.critic)
+            critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=critic_cfg)
             self.resource_pool_to_cls[resource_pool]["critic"] = critic_cls
 
         # create reference policy if needed

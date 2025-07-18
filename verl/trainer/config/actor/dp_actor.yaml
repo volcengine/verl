@@ -35,8 +35,7 @@ entropy_checkpointing: False
 # optimizer configs
 optim:
 
-  # Warmup steps; negative value delegates to lr_warmup_steps_ratio
-  lr_warmup_steps: -1
+  _target_: verl.workers.config.FSDPOptimizerConfig
 
   # Minimum LR ratio for cosine schedule
   min_lr_ratio: 0.0
