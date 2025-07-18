@@ -700,6 +700,10 @@ def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str
     """
     if loss_agg_mode == "token-mean":
         loss = verl_F.masked_mean(loss_mat, loss_mask)
+    elif loss_agg_mode == "token-mean-unbiased":
+        # Use constant normalizer to avoid length bias (Dr. GRPO approach)
+        max_response_length = loss_mask.shape[-1]  # Use max possible response length
+        loss = verl_F.masked_mean_unbiased(loss_mat, loss_mask, max_length=max_response_length)
     elif loss_agg_mode == "seq-mean-token-sum":
         seq_losses = torch.sum(loss_mat * loss_mask, dim=-1)  # token-sum
         loss = torch.mean(seq_losses)  # seq-mean
@@ -708,11 +712,10 @@ def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str
         loss = torch.mean(seq_losses)  # seq-mean
     elif loss_agg_mode == "seq-mean-token-sum-norm":
         seq_losses = torch.sum(loss_mat * loss_mask, dim=-1)
-        loss = torch.sum(seq_losses) / loss_mask.shape[-1]  # The divisor
-        # (loss_mask.shape[-1]) should ideally be constant
-        # throughout training to well-replicate the DrGRPO paper.
-        # TODO: Perhaps add user-defined normalizer argument to
-        # agg_loss to ensure divisor stays constant throughout.
+        # Use constant normalizer (max response length) to avoid length bias
+        # This is equivalent to Dr. GRPO's approach of using MAX_TOKENS
+        max_response_length = loss_mask.shape[-1]
+        loss = torch.sum(seq_losses) / max_response_length
     else:
         raise ValueError(f"Invalid loss_agg_mode: {loss_agg_mode}")
 
