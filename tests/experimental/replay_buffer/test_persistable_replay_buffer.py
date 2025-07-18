@@ -14,6 +14,7 @@
 
 import copy
 import logging
+import os
 import random
 import tempfile
 import time
@@ -23,9 +24,8 @@ import numpy as np
 import torch
 
 from verl import DataProto
-from verl.utils.replay_buffer.persistable_replay_buffer_client import PersistableReplayBufferClient
-from verl.utils.replay_buffer.samplers.ordered_by_key_sampler import OrderedByKeySampler
-from verl.utils.replay_buffer.samplers.uniform_key_sampler import UniformKeySampler
+from verl.experimental.replay_buffer.persistable_replay_buffer_client import PersistableReplayBufferClient
+from verl.experimental.replay_buffer.samplers.uniform_key_sampler import UniformKeySampler
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -38,8 +38,8 @@ class TestPersistableReplayBuffer(unittest.TestCase):
         # Create a temp root directory
         cls.temp_dir = tempfile.TemporaryDirectory()
         # Every buffer created in this tests are all under this folder
-        PersistableReplayBufferClient.DB_BASE_DIR = cls.temp_dir.name
-        cls.samplers = [UniformKeySampler(), OrderedByKeySampler(0.5, OrderedByKeySampler.OrderType.Descending)]
+        base_dir = cls.temp_dir.name
+        PersistableReplayBufferClient.MAGIC_SUFFIX = os.path.join(base_dir, PersistableReplayBufferClient.MAGIC_SUFFIX)
 
     @classmethod
     def tearDownClass(cls):
@@ -116,7 +116,7 @@ class TestPersistableReplayBuffer(unittest.TestCase):
 
     # Test that uniform sampling works correctly using simple test cases
     def test_uniform_sample_basic(self):
-        samplers = [UniformKeySampler(), OrderedByKeySampler(0.5, OrderedByKeySampler.OrderType.Descending)]
+        samplers = [UniformKeySampler()]
         client = PersistableReplayBufferClient(
             replay_buffer_name="test_uniform_sample", cache_size_limit_in_mb=0.4, samplers=samplers
         )
@@ -136,36 +136,6 @@ class TestPersistableReplayBuffer(unittest.TestCase):
             key = next(sample)
             sampled_list = client.get(key)
             assert sampled_list == list_1 or sampled_list == list_2
-        client.close()
-
-    # Test that the order-by-key sampler works correctly using simple test cases
-    def test_order_key_sample_basic(self):
-        samplers = [UniformKeySampler(), OrderedByKeySampler(0.5, OrderedByKeySampler.OrderType.Descending)]
-        client = PersistableReplayBufferClient(
-            replay_buffer_name="test_order_key_sample", cache_size_limit_in_mb=0.4, samplers=samplers
-        )
-        sample = samplers[1].sample()
-        with self.assertRaises(StopIteration):
-            next(sample)
-
-        list_1 = [13, 14, 15]
-        for i in range(1, 11):
-            client.push(f"rollout_{i}", list_1)
-        sample = samplers[1].sample()
-        # The first 5 should be in descending order of rollout_id (10 to 6)
-        for i in range(10, 5, -1):
-            key = next(sample)
-            sampled_list = client.get(key)
-            assert key == f"rollout_{i}" and sampled_list == list_1
-        # the rest should be uniformly picked from 1 to 5
-        for _ in range(5):
-            key = next(sample)
-            sampled_list = client.get(key)
-            assert key in {f"rollout_{i}" for i in range(1, 6)} and sampled_list == list_1
-        # After sampling all, more next should raise StopIteration excecption
-        for _ in range(10):
-            with self.assertRaises(StopIteration):
-                next(sample)
         client.close()
 
     def test_delete_basic(self):
@@ -284,6 +254,8 @@ class TestPersistableReplayBuffer(unittest.TestCase):
         # cache and rocksdb.
         client.get("rollout_1")
         self._wait_for_p1_tasks(client)  # Wait for population task to finish
+        self._wait_for_eviction_tasks(client)  # wait for eviction manager thread to finish calculating
+        self._wait_for_p1_tasks(client)  # Wait for eviction task to finish
         rocksdb_value = client._db.get(b"rollout_1")
         dict_value = client._cache._data.get("rollout_1")
         assert rocksdb_value is None and dict_value is not None
@@ -312,7 +284,7 @@ class TestPersistableReplayBuffer(unittest.TestCase):
 
     # Test that push/get/sample are correct when the key is int
     def test_int_key_type(self):
-        samplers = [UniformKeySampler(), OrderedByKeySampler(0.5, OrderedByKeySampler.OrderType.Ascending)]
+        samplers = [UniformKeySampler()]
         client = PersistableReplayBufferClient(
             replay_buffer_name="test_int_key", cache_size_limit_in_mb=0.4, samplers=samplers
         )
@@ -324,37 +296,29 @@ class TestPersistableReplayBuffer(unittest.TestCase):
         client.push(2, list_2)
         client.push(3, list_3)
         assert client.get(1) == list_1 and client.get(2) == list_2 and client.get(3) == list_3
-        sample = samplers[1].sample()
-        # The first one should be in ascending order of rollout_id (key=1)
+
+        sample = samplers[0].sample()
         key = next(sample)
         sampled_list = client.get(key)
-        assert key == 1 and sampled_list == list_1
-        # the rest should be uniformly picked from key=2 and key=3
+        assert key in {1, 2, 3}
+
         for _ in range(2):
             key = next(sample)
             sampled_list = client.get(key)
-            assert sampled_list == list_2 or sampled_list == list_3
-        # After sampling all, more next should raise StopIteration excecption
-        for _ in range(5):
-            with self.assertRaises(StopIteration):
-                next(sample)
+            assert sampled_list == list_1 or sampled_list == list_2 or sampled_list == list_3
         client.close()
 
     # Test that sampling works correctly when there is only one key
     def test_sampler_one_key(self):
-        samplers = [UniformKeySampler(), OrderedByKeySampler(0.5, OrderedByKeySampler.OrderType.Ascending)]
+        samplers = [UniformKeySampler()]
         client = PersistableReplayBufferClient(
             replay_buffer_name="test_one_key", cache_size_limit_in_mb=0, samplers=samplers
         )
         client.push("rollout_1", [1])
         sample_uniform = samplers[0].sample()
-        sample_order = samplers[1].sample()
 
         key_uniform = next(sample_uniform)
-        key_order = next(sample_order)
-        assert key_uniform == "rollout_1" and key_order == "rollout_1"
-        with self.assertRaises(StopIteration):
-            next(sample_order)
+        assert key_uniform == "rollout_1"
         client.close()
 
     # Test that reading purely from rocksdb works correctly
@@ -431,6 +395,15 @@ class TestPersistableReplayBuffer(unittest.TestCase):
                 return
             time.sleep(2)
         raise TimeoutError("p1 task queue is not empty after wait")
+
+    # wait for eviction manager to finish calculating sizes
+    def _wait_for_eviction_tasks(self, client, timeout=10.0):
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if client._cache._eviction_manager._work_queue.empty():
+                return
+            time.sleep(2)
+        raise TimeoutError("eviction manager queue is not empty after wait")
 
 
 if __name__ == "__main__":

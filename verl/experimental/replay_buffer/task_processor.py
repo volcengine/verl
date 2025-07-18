@@ -22,7 +22,7 @@ import shutil
 import threading
 from enum import Enum
 
-from verl.utils.replay_buffer.persistable_replay_buffer_util.util import to_bytes
+from verl.experimental.replay_buffer.persistable_replay_buffer_util.util import to_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -107,9 +107,7 @@ class TaskProcessor:
         if merged_value is None:
             merged_value = []
 
-        # with self._p0_index_lock:  # to prevent concurrency issues. The pending_tasks can be decreasing.
         pending_tasks = self._p0_index.get(key, [])
-        # pending_tasks = pending_tasks.copy()
         for pending_task in pending_tasks:
             if pending_task.type == TaskType.PUSH:
                 merged_value.extend(pending_task.value)
@@ -125,8 +123,6 @@ class TaskProcessor:
         if merged_keys is None:
             merged_keys = set()
         # Get the final operation for each key -> whether push or delete.
-        # with self._p0_index_lock:  # to prevent concurrency issues. The pending_tasks can be decreasing.
-        # p0_index_copy = self._p0_index.copy()
         for key, pending_tasks in self._p0_index.items():
             final_operation = pending_tasks[-1]
             if final_operation.type == TaskType.PUSH:
@@ -140,15 +136,12 @@ class TaskProcessor:
         Add the task to p0 or p1 queue based on the task type
         """
         if task.type == TaskType.PUSH or task.type == TaskType.DELETE or task.type == TaskType.SNAPSHOT:
-            # self.acquire_q_lock()   # TODO: Delete the lock? Push/Delete/... wouldn't return before task added
             self._p0_q.put(task)
             # for push/delete, record the task in p0_index.
             if task.type != TaskType.SNAPSHOT:
-                # with self._p0_index_lock:
                 if task.key not in self._p0_index:
                     self._p0_index[task.key] = []
                 self._p0_index[task.key].append(task)
-            # self.release_q_lock()
         else:
             self._p1_q.put(task)
         self._task_available.set()
@@ -262,15 +255,13 @@ class TaskProcessor:
             "dict": self._cache._data,
             "size_in_bytes": self._cache._eviction_manager._size_in_bytes,
         }
-        from verl.utils.replay_buffer.persistable_replay_buffer_client import PersistableReplayBufferClient
-        from verl.utils.replay_buffer.persistable_replay_buffer_util.util import delete_files
+        from verl.experimental.replay_buffer.persistable_replay_buffer_client import PersistableReplayBufferClient
+        from verl.experimental.replay_buffer.persistable_replay_buffer_util.util import delete_files
 
         local_rocksdb_path = (
             f"{self._db_path}.zip"  # TODO: Maybe don't put as local variables, because shared with backup_manager
         )
-        local_cache_path = os.path.join(
-            PersistableReplayBufferClient.DB_BASE_DIR, PersistableReplayBufferClient.MAGIC_SUFFIX, "lru_cache.pickle"
-        )
+        local_cache_path = os.path.join(PersistableReplayBufferClient.MAGIC_SUFFIX, "lru_cache.pickle")
 
         delete_files(local_rocksdb_path, local_cache_path)
         shutil.make_archive(f"{self._db_path}", "zip", root_dir=self._db_path)

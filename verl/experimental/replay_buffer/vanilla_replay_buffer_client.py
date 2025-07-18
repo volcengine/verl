@@ -14,7 +14,7 @@
 
 import random
 
-from verl.utils.replay_buffer.replay_buffer_client import ReplayBufferClient
+from verl.experimental.replay_buffer.replay_buffer_client import ReplayBufferClient
 
 """
 The replay buffer backed by an in-mem dict.

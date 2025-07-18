@@ -51,11 +51,15 @@ class HDFSBackupManager:
 
     @staticmethod
     def hdfs_path_map2_local_path(hdfs_path: str) -> str:
-        if not hdfs_path.startswith("hdfs://"):
+        HDFS_PREFIX = "hdfs://"
+        FUSE_READER_DISABLE_ENV = "DISABLE_HDFS_FUSE_READER"
+        FUSE_VOLUME_ENV = "HDFSFUSE_VOLUMES"
+
+        if not hdfs_path.startswith(HDFS_PREFIX):
             return ""
-        if os.getenv("DISABLE_HDFS_FUSE_READER", "false") == "true":
+        if os.getenv(FUSE_READER_DISABLE_ENV, "false") == "true":
             return ""
-        fuse_mount_maps = os.getenv("ARNOLD_HDFSFUSE_VOLUMES", None)
+        fuse_mount_maps = os.getenv(FUSE_VOLUME_ENV, None)
         if not fuse_mount_maps:
             return ""
         fuse_mount_maps = eval(fuse_mount_maps)
@@ -113,7 +117,7 @@ class HDFSBackupManager:
             if self._is_updated:
                 self.reset_updated()
                 # Initiate a snapshot task
-                from verl.utils.replay_buffer.task_processor import Task, TaskType
+                from verl.experimental.replay_buffer.task_processor import Task, TaskType
 
                 snapshot_task = Task(TaskType.SNAPSHOT)
                 self._task_processor.add_task(snapshot_task)
@@ -123,13 +127,11 @@ class HDFSBackupManager:
 
     def _upload_to_hdfs_loop(self):
         # Check whether the paths exist (snapshot task executed). If so, upload to hdfs
-        from verl.utils.replay_buffer.persistable_replay_buffer_client import PersistableReplayBufferClient
-        from verl.utils.replay_buffer.persistable_replay_buffer_util.util import delete_files
+        from verl.experimental.replay_buffer.persistable_replay_buffer_client import PersistableReplayBufferClient
+        from verl.experimental.replay_buffer.persistable_replay_buffer_util.util import delete_files
 
         local_rocksdb_path = f"{self._db_path}.zip"  # TODO: Maybe don't put them as local variables
-        local_cache_path = os.path.join(
-            PersistableReplayBufferClient.DB_BASE_DIR, PersistableReplayBufferClient.MAGIC_SUFFIX, "lru_cache.pickle"
-        )
+        local_cache_path = os.path.join(PersistableReplayBufferClient.MAGIC_SUFFIX, "lru_cache.pickle")
         while True:
             self._upload_trigger.wait()
             self._upload_trigger.clear()

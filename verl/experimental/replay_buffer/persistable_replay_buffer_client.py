@@ -18,23 +18,22 @@ import pickle
 
 import rocksdbpy
 
-from verl.utils.replay_buffer.persistable_replay_buffer_util.lru_cache import LRUCache
-from verl.utils.replay_buffer.persistable_replay_buffer_util.util import to_bytes
-from verl.utils.replay_buffer.replay_buffer_client import ReplayBufferClient
-from verl.utils.replay_buffer.task_processor import Task, TaskProcessor, TaskType
+from verl.experimental.replay_buffer.persistable_replay_buffer_util.lru_cache import LRUCache
+from verl.experimental.replay_buffer.persistable_replay_buffer_util.util import to_bytes
+from verl.experimental.replay_buffer.replay_buffer_client import ReplayBufferClient
+from verl.experimental.replay_buffer.task_processor import Task, TaskProcessor, TaskType
 
 logger = logging.getLogger(__name__)
 
 # TODO:
-# 1. The underlying db is rocksdb,
+# The underlying db is rocksdb,
 # where there's no hard limit on the value size per se, but large value brings memory pressure
 # thus limit the number of parallism of push or get. So we have to solve it in the long run.
 # given each push would load the entire list of value into mem.
 #   Some approaches:
-#     1.1. if the list of value is too large, let's parition it.
-#     1.2. if multiple pushs on the same keys are happening, let's do a batch push, instead of
+#     1. if the list of value is too large, let's parition it.
+#     2. if multiple pushs on the same keys are happening, let's do a batch push, instead of
 #          pusing it one by one
-# 2. push could be slow, so we should allow user to do push asynchronously.
 """
 A thread safe LRU cache used to store replay buffer data.
 """
@@ -49,14 +48,18 @@ class PersistableReplayBufferClient(ReplayBufferClient):
 
     def __init__(self, replay_buffer_name, cache_size_limit_in_mb, restore_from_hdfs_path=None, samplers=None):
         """
+        replay_buffer_name: name of the replay buffer
         cache_size_limit_in_mb: the replay buffer in-mem cache size. The cache is used to serve hot data.
         restore_from_hdfs_path: where the replay buffer data will be backed up to
+        samplers: a list of sampler objects that the user initialized
         """
         self._db_path = os.path.join(PersistableReplayBufferClient.MAGIC_SUFFIX, replay_buffer_name)
         self._samplers = samplers if samplers else []
         if restore_from_hdfs_path is not None:
             # Restore replay buffer from hdfs to self.dp_path if restore_from_hdfs_path is not None. Start backup thread
-            from verl.utils.replay_buffer.persistable_replay_buffer_util.hdfs_backup_manager import HDFSBackupManager
+            from verl.experimental.replay_buffer.persistable_replay_buffer_util.hdfs_backup_manager import (
+                HDFSBackupManager,
+            )
 
             self._backup_manager = HDFSBackupManager(replay_buffer_name, self._db_path, restore_from_hdfs_path)
         else:
@@ -80,12 +83,12 @@ class PersistableReplayBufferClient(ReplayBufferClient):
 
     def _build_index(self, key, value):
         # build an index table which maps:
-        # indexed key to key.
+        # indexed key to key. For sampler.
         self._index[get_key_index_name()][key] = key
 
     def _remove_index(self, key):
         # build an index table which maps:
-        # indexed key to key.
+        # indexed key to key. For sampler.
         if key in self._index[get_key_index_name()]:
             self._index[get_key_index_name()].pop(key)
 
@@ -96,7 +99,6 @@ class PersistableReplayBufferClient(ReplayBufferClient):
         """Initialize RocksDB with thread-safe options."""
         opts = rocksdbpy.Option()
         opts.create_if_missing(True)
-        # opts.max_background_jobs = 16  # Optimize for concurrent operations
         return rocksdbpy.open(self._db_path, opts)
 
     def push(self, key, new_value):

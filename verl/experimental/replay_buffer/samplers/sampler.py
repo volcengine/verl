@@ -20,7 +20,6 @@ plugin based sampler design
 
 
 class Sampler:
-    # TODO: have sample_keys as arguments
     def __init__(self, sample_keys=None) -> None:
         # each sample key has its own index
 

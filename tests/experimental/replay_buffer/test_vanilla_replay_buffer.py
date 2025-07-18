@@ -20,7 +20,7 @@ import numpy as np
 import torch
 
 from verl import DataProto
-from verl.utils.replay_buffer.vanilla_replay_buffer_client import VanillaReplayBufferClient
+from verl.experimental.replay_buffer.vanilla_replay_buffer_client import VanillaReplayBufferClient
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)

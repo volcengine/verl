@@ -20,7 +20,7 @@ from queue import Queue
 from pympler import asizeof
 
 from verl import DataProto
-from verl.utils.replay_buffer.task_processor import Task, TaskType
+from verl.experimental.replay_buffer.task_processor import Task, TaskType
 
 
 def get_batch_bytes(batch):
@@ -77,7 +77,7 @@ class LRUCacheEvictionManager:
 
     def _eviction_worker(self):
         while True:
-            curr = self._work_queue.get()  # python queue: blocks until an item arrives
+            curr = self._work_queue.get()
             value = curr[0]
             was_inserted = curr[1]  # True if inserted, false if deleted
 
@@ -111,9 +111,8 @@ class LRUCache:
     # TODO: an adaptive eviction policy based on actual memory usage
     def __init__(self, cache_size_limit_in_mb, db):
         # LRU Cache -> Most recently accessed on the rightmost, least recently accessed on the leftmost
-        # It computes the number of bytes and conducts eviction in an async thread, not blocking push
+        # calculation of bytes and eviction are done in an async thread, not blocking push
         self._data = OrderedDict()
-        # self._dict_lock = threading.Lock()
         self._eviction_manager = LRUCacheEvictionManager(cache_size_limit_in_mb, self._data, db)
 
     def bind_task_processor(self, task_processor):
@@ -125,7 +124,6 @@ class LRUCache:
         self._eviction_manager._size_in_bytes = cache_state["size_in_bytes"]
 
     def get(self, key):
-        # with self._dict_lock:
         to_return = self._data.get(key, None)
         if to_return is not None:
             self._data.move_to_end(key, last=True)  # move the newly added key, value to the rightmost
@@ -136,18 +134,15 @@ class LRUCache:
 
     def push(self, key, new_value):
         self._eviction_manager.update_work_queue(new_value, True)
-        # with self._dict_lock:
         existing_value = self._data.get(key, [])
         existing_value.extend(new_value)
         self._data.update({key: existing_value})
         self._data.move_to_end(key, last=True)  # move the newly added key, value to the rightmost
 
     def get_keys(self):
-        # with self._dict_lock:
-        return set(self._data.keys())  # self._dict.keys() is a view object
+        return set(self._data.keys())
 
     def delete(self, key):
-        # with self._dict_lock:
         popped = self._data.pop(key, None)
         if popped is not None:
             self._eviction_manager.update_work_queue(popped, False)
