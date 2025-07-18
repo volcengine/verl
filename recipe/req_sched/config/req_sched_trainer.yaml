@@ -1,0 +1,19 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+data:
+  gen_batch_size: ${data.train_batch_size}
+    
+trainer:
+  project_name: verl-req_sched
+
+req_scheduler:
+  seq_dir: null
+  log_dir: null
+  agg: mean
+  algo: even_prompt_kk

@@ -50,7 +50,7 @@ def init_predefined_dispatch_mode():
     Dispatch.register("DP_COMPUTE_METRIC")
     # This is a special dispatch mode for vllm ExternalRayDistributedExecutor
     Dispatch.register("DIRECT_ROLLOUT_METHOD")
-
+    Dispatch.register("REQ_DISTRIBUTION")
 
 class Execute(DynamicEnum):
     """Enum class defining different execution modes for distributed computation.
@@ -414,6 +414,10 @@ DISPATCH_MODE_FN_REGISTRY = {
     Dispatch.DIRECT_ROLLOUT_METHOD: {
         "dispatch_fn": dummy_direct_rollout_call,
         "collect_fn": dummy_direct_rollout_call,
+    },
+    Dispatch.REQ_DISTRIBUTION: {
+        "dispatch_fn": dispatch_one_to_all,
+        "collect_fn": collect_dp_compute_data_proto,
     },
 }
 

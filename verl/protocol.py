@@ -84,7 +84,14 @@ def pad_dataproto_to_divisor(data: "DataProto", size_divisor: int):
         remaining_pad = pad_size
         while remaining_pad > 0:
             take_size = min(remaining_pad, len(data))
-            padding_protos.append(data[:take_size])
+            slice_data = data[:take_size]
+
+            if slice_data.non_tensor_batch is None:
+                slice_data.non_tensor_batch = {}
+
+            slice_data.non_tensor_batch["reqs_idx"] = np.full(take_size, -1, dtype=object)
+
+            padding_protos.append(slice_data)
             remaining_pad -= take_size
         data_padded = DataProto.concat([data] + padding_protos)
     else:
