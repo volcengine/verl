@@ -41,6 +41,7 @@ from verl.trainer.ppo.ray_trainer import (
     compute_response_mask,
 )
 from verl.utils.profiler import marked_timer
+from verl.workers.rollout.rollout_skip import RolloutSkip
 
 
 class RayDAPOTrainer(RayPPOTrainer):
@@ -92,6 +93,10 @@ class RayDAPOTrainer(RayPPOTrainer):
         batch = None
         num_prompt_in_batch = 0
         num_gen_batches = 0
+
+        if self.config.actor_rollout_ref.rollout.get("skip_rollout", False):
+            rollout_skip = RolloutSkip(self.config, self.actor_rollout_wg)
+
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 metrics = {}
