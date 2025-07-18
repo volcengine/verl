@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from hydra import compose, initialize_config_dir
 
-from verl.trainer.config import CriticConfig, FSDPCriticConfig, MegatronCriticConfig
+from verl.trainer.config import CriticConfig, FSDPCriticConfig, McoreCriticConfig
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.profiler import ProfilerConfig
 
@@ -32,7 +32,7 @@ class TestCriticConfig:
         return Path(__file__).parent.parent.parent.parent / "verl" / "trainer" / "config" / "critic"
 
     def test_megatron_critic_config_instantiation_from_yaml(self, config_dir):
-        """Test that MegatronCriticConfig can be instantiated from megatron_critic.yaml."""
+        """Test that McoreCriticConfig can be instantiated from megatron_critic.yaml."""
         yaml_path = config_dir / "megatron_critic.yaml"
         assert yaml_path.exists(), f"Config file not found: {yaml_path}"
 
@@ -41,7 +41,7 @@ class TestCriticConfig:
 
         megatron_config_obj = omega_conf_to_dataclass(test_config)
 
-        assert isinstance(megatron_config_obj, MegatronCriticConfig)
+        assert isinstance(megatron_config_obj, McoreCriticConfig)
         assert isinstance(megatron_config_obj, CriticConfig)
 
         expected_attrs = [
@@ -98,9 +98,9 @@ class TestCriticConfig:
 
     def test_config_inheritance_hierarchy(self):
         """Test that the inheritance hierarchy is correct."""
-        megatron_config = MegatronCriticConfig(ppo_micro_batch_size_per_gpu=1)
+        megatron_config = McoreCriticConfig(ppo_micro_batch_size_per_gpu=1)
         assert isinstance(megatron_config, CriticConfig)
-        assert isinstance(megatron_config, MegatronCriticConfig)
+        assert isinstance(megatron_config, McoreCriticConfig)
 
         fsdp_config = FSDPCriticConfig(ppo_micro_batch_size_per_gpu=1)
         assert isinstance(fsdp_config, CriticConfig)
@@ -108,7 +108,7 @@ class TestCriticConfig:
 
         critic_config = CriticConfig(ppo_micro_batch_size_per_gpu=1, strategy="fsdp2")
         assert isinstance(critic_config, CriticConfig)
-        assert not isinstance(critic_config, MegatronCriticConfig)
+        assert not isinstance(critic_config, McoreCriticConfig)
         assert not isinstance(critic_config, FSDPCriticConfig)
 
     def test_config_dict_interface(self):
@@ -136,7 +136,7 @@ class TestCriticConfig:
             with pytest.raises((AttributeError, TypeError, ValueError)):
                 setattr(critic_config, field_name, "modified_value")
 
-        megatron_config = MegatronCriticConfig(ppo_micro_batch_size_per_gpu=1)
+        megatron_config = McoreCriticConfig(ppo_micro_batch_size_per_gpu=1)
         megatron_frozen_fields = ["nccl_timeout", "load_weight", "data_loader_seed"]
 
         for field_name in megatron_frozen_fields:

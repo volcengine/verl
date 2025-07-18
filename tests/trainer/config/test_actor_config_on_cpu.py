@@ -15,7 +15,7 @@
 import os
 import unittest
 
-from verl.trainer.config import ActorConfig, FSDPActorConfig, MegatronActorConfig
+from verl.trainer.config import ActorConfig, FSDPActorConfig, McoreActorConfig
 from verl.utils.config import omega_conf_to_dataclass
 
 
@@ -25,7 +25,7 @@ class TestActorConfig(unittest.TestCase):
     def test_config_inheritance(self):
         """Test that the inheritance hierarchy works correctly."""
         megatron_dict = {
-            "_target_": "verl.trainer.config.MegatronActorConfig",
+            "_target_": "verl.trainer.config.McoreActorConfig",
             "strategy": "megatron",
             "ppo_mini_batch_size": 256,
             "clip_ratio": 0.2,
@@ -71,7 +71,7 @@ class TestActorConfig(unittest.TestCase):
         self.assertEqual(config.strategy, "fsdp")
 
     def test_megatron_actor_config_from_yaml(self):
-        """Test creating MegatronActorConfig from YAML file."""
+        """Test creating McoreActorConfig from YAML file."""
         from hydra import compose, initialize_config_dir
 
         with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config/actor")):
@@ -79,7 +79,7 @@ class TestActorConfig(unittest.TestCase):
 
         config = omega_conf_to_dataclass(cfg)
 
-        self.assertIsInstance(config, MegatronActorConfig)
+        self.assertIsInstance(config, McoreActorConfig)
         self.assertEqual(config.strategy, "megatron")
 
     def test_config_get_method(self):

@@ -31,7 +31,7 @@ from omegaconf import DictConfig, OmegaConf
 from verl import DataProto
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.base.megatron.worker import MegatronWorker
-from verl.trainer.config import MegatronCriticConfig
+from verl.trainer.config import McoreCriticConfig
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 from verl.utils.config import omega_conf_to_dataclass
@@ -712,10 +712,10 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
 
 class CriticWorker(MegatronWorker, DistProfilerExtension):
-    def __init__(self, config: MegatronCriticConfig):
+    def __init__(self, config: McoreCriticConfig):
         MegatronWorker.__init__(self)
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler")))
-        self.config: MegatronCriticConfig = config
+        self.config: McoreCriticConfig = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
