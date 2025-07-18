@@ -22,7 +22,7 @@ import shutil
 import threading
 from enum import Enum
 
-from verl.experimental.replay_buffer.persistable_replay_buffer_util.util import to_bytes
+from verl.experimental.replay_buffer.persistable_util.util import to_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -255,8 +255,8 @@ class TaskProcessor:
             "dict": self._cache._data,
             "size_in_bytes": self._cache._eviction_manager._size_in_bytes,
         }
-        from verl.experimental.replay_buffer.persistable_replay_buffer_client import PersistableReplayBufferClient
-        from verl.experimental.replay_buffer.persistable_replay_buffer_util.util import delete_files
+        from verl.experimental.replay_buffer.persistable_client import PersistableReplayBufferClient
+        from verl.experimental.replay_buffer.persistable_util.util import delete_files
 
         local_rocksdb_path = (
             f"{self._db_path}.zip"  # TODO: Maybe don't put as local variables, because shared with backup_manager

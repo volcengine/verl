@@ -127,8 +127,8 @@ class HDFSBackupManager:
 
     def _upload_to_hdfs_loop(self):
         # Check whether the paths exist (snapshot task executed). If so, upload to hdfs
-        from verl.experimental.replay_buffer.persistable_replay_buffer_client import PersistableReplayBufferClient
-        from verl.experimental.replay_buffer.persistable_replay_buffer_util.util import delete_files
+        from verl.experimental.replay_buffer.persistable_client import PersistableReplayBufferClient
+        from verl.experimental.replay_buffer.persistable_util.util import delete_files
 
         local_rocksdb_path = f"{self._db_path}.zip"  # TODO: Maybe don't put them as local variables
         local_cache_path = os.path.join(PersistableReplayBufferClient.MAGIC_SUFFIX, "lru_cache.pickle")

@@ -15,7 +15,7 @@
 import random
 from typing import Iterator
 
-from verl.experimental.replay_buffer.persistable_replay_buffer_client import get_key_index_name
+from verl.experimental.replay_buffer.persistable_client import get_key_index_name
 from verl.experimental.replay_buffer.samplers.sampler import Sampler
 
 

@@ -18,8 +18,8 @@ import pickle
 
 import rocksdbpy
 
-from verl.experimental.replay_buffer.persistable_replay_buffer_util.lru_cache import LRUCache
-from verl.experimental.replay_buffer.persistable_replay_buffer_util.util import to_bytes
+from verl.experimental.replay_buffer.persistable_util.lru_cache import LRUCache
+from verl.experimental.replay_buffer.persistable_util.util import to_bytes
 from verl.experimental.replay_buffer.replay_buffer_client import ReplayBufferClient
 from verl.experimental.replay_buffer.task_processor import Task, TaskProcessor, TaskType
 
@@ -57,7 +57,7 @@ class PersistableReplayBufferClient(ReplayBufferClient):
         self._samplers = samplers if samplers else []
         if restore_from_hdfs_path is not None:
             # Restore replay buffer from hdfs to self.dp_path if restore_from_hdfs_path is not None. Start backup thread
-            from verl.experimental.replay_buffer.persistable_replay_buffer_util.hdfs_backup_manager import (
+            from verl.experimental.replay_buffer.persistable_util.hdfs_backup_manager import (
                 HDFSBackupManager,
             )
 

@@ -20,7 +20,7 @@ import time
 import torch
 
 from verl import DataProto
-from verl.experimental.replay_buffer.persistable_replay_buffer_client import PersistableReplayBufferClient
+from verl.experimental.replay_buffer.persistable_client import PersistableReplayBufferClient
 from verl.experimental.replay_buffer.samplers.uniform_key_sampler import UniformKeySampler
 
 logger = logging.getLogger(__name__)
