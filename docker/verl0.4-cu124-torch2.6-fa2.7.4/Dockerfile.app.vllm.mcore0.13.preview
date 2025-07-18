@@ -10,7 +10,7 @@ ENV NODE_OPTIONS=""
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV HF_HUB_ENABLE_HF_TRANSFER="1"
 
-# Install torch-2.6.0+cu126 + vllm-0.8.5.post1
+# Install torch-2.6.0+cu124 + vllm-0.8.5.post1
 # torch-2.6.0+cu124: cxx11abi=False
 # torch-2.6.0+cu126: cxx11abi=True
 # see https://github.com/flashinfer-ai/flashinfer/issues/911
