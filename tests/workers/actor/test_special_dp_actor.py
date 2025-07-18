@@ -21,8 +21,8 @@ from tensordict import TensorDict
 from transformers import AutoModelForCausalLM, Qwen3Config
 
 from verl import DataProto
-from verl.trainer.config.actor import FSDPActorConfig
 from verl.workers.actor.dp_actor import DataParallelPPOActor
+from verl.workers.config import FSDPActorConfig
 
 
 class MockTransformerModel(nn.Module):

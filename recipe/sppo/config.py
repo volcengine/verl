@@ -14,9 +14,9 @@
 
 from dataclasses import dataclass
 
-import verl.trainer.config.actor
+from verl.workers.config import FSDPActorConfig
 
 
 @dataclass
-class SPPOActorConfig(verl.trainer.config.actor.FSDPActorConfig):
+class SPPOActorConfig(FSDPActorConfig):
     sppo_eta: float = 1.0

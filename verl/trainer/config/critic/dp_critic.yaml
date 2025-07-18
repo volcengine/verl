@@ -14,7 +14,7 @@ defaults:
   - _self_
 
 # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-_target_: verl.trainer.config.FSDPCriticConfig
+_target_: verl.workers.config.FSDPCriticConfig
 
 # distribution strategy. Options: fsdp (deprecating), fsdp2
 strategy: fsdp
@@ -50,7 +50,7 @@ model:
   fsdp_config:
 
     # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-    _target_: verl.trainer.config.FSDPEngineConfig
+    _target_: verl.workers.config.FSDPEngineConfig
 
     # Whether to offload model parameters to CPU
     param_offload: False

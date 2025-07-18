@@ -8,7 +8,7 @@ defaults:
   - _self_
 
 # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-_target_: verl.trainer.config.McoreCriticConfig
+_target_: verl.workers.config.McoreCriticConfig
 
 strategy: megatron
 

@@ -4,7 +4,7 @@ defaults:
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
-_target_: verl.trainer.config.McoreActorConfig
+_target_: verl.workers.config.McoreActorConfig
 
 strategy: megatron
 

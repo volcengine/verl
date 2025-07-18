@@ -5,7 +5,7 @@
 
 actor_rollout_ref:
   actor:
-    _target_: verl.trainer.config.McoreActorConfig
+    _target_: verl.workers.config.McoreActorConfig
     strategy: megatron
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null
@@ -16,7 +16,7 @@ actor_rollout_ref:
     clip_ratio_low: 0.2
     clip_ratio_high: 0.2
     policy_loss:
-      _target_: verl.trainer.config.PolicyLossConfig
+      _target_: verl.workers.config.PolicyLossConfig
       loss_mode: vanilla
       clip_cov_ratio: 0.0002
       clip_cov_lb: 1.0
@@ -283,7 +283,7 @@ data:
     path: null
     name: null
 critic:
-  _target_: verl.trainer.config.McoreCriticConfig
+  _target_: verl.workers.config.McoreCriticConfig
   rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
   strategy: megatron
   enable: null

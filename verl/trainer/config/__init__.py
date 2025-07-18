@@ -12,10 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .actor import ActorConfig, FSDPActorConfig, McoreActorConfig, PolicyLossConfig
+from verl.workers.config import (
+    ActorConfig,
+    CriticConfig,
+    FSDPActorConfig,
+    FSDPCriticConfig,
+    FSDPCriticModelCfg,
+    FSDPEngineConfig,
+    McoreActorConfig,
+    McoreCriticConfig,
+    McoreCriticModelCfg,
+    PolicyLossConfig,
+)
+
 from .algorithm import AlgoConfig, FilterGroupsConfig, KLControlConfig, PFPPOConfig
-from .config import FSDPEngineConfig
-from .critic import CriticConfig, FSDPCriticConfig, FSDPCriticModelCfg, McoreCriticConfig, McoreCriticModelCfg
 
 __all__ = [
     "ActorConfig",
