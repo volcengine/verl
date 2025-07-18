@@ -10,10 +10,7 @@ ENV NODE_OPTIONS=""
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV HF_HUB_ENABLE_HF_TRANSFER="1"
 
-# Install torch-2.6.0+cu126 + vllm-0.9.1
-# torch-2.6.0+cu124: cxx11abi=False
-# torch-2.6.0+cu126: cxx11abi=True
-# see https://github.com/flashinfer-ai/flashinfer/issues/911
+# Install torch-2.7.0+cu126 + vllm-0.9.1
 RUN pip install --resume-retries 999 --no-cache-dir vllm==0.9.1
 
 # Fix packages
