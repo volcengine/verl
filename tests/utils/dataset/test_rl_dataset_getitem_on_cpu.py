@@ -248,7 +248,8 @@ class TestRLHFDatasetGetItem:
         _ = dataset[0]
 
     def test_multi_modal_inputs_only_pops_second_per_grid_ts(self, tokenizer, basic_config):
-        """Test that only 'second_per_grid_ts' is popped from multi_modal_inputs when return_multi_modal_inputs is True"""
+        """Test that only 'second_per_grid_ts' is popped
+        from multi_modal_inputs when return_multi_modal_inputs is True"""
 
         # Enable return_multi_modal_inputs
         config = basic_config.copy()
