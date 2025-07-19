@@ -21,6 +21,19 @@ from typing import Optional
 
 
 class RolloutTraceConfig:
+    """Configuration for rollout tracing with various backends.
+
+    Singleton configuration class for managing rollout trace settings across different
+    tracing backends like Weave and MLflow.
+
+    Args:
+        backend (Optional[str]): Tracing backend to use ('weave', 'mlflow', or None).
+        client (Optional[object]): Client instance for the selected backend.
+        token2text (bool): Whether to convert tokens to text in traces. Defaults to False.
+        project_name (str): Name of the project for tracing.
+        experiment_name (str): Name of the experiment for tracing.
+    """
+
     _instance: Optional["RolloutTraceConfig"] = None
     backend: Optional[str] = None
     client: Optional[object] = None

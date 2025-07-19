@@ -14,9 +14,10 @@
 
 # Inspired from https://gitee.com/ascend/MindSpeed-RL/blob/master/mindspeed_rl/utils/utils.py
 import functools
+import logging
 import os
 from contextlib import contextmanager
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import torch_npu
 from omegaconf import DictConfig
@@ -61,7 +62,7 @@ def mark_annotate(message: Optional[str] = None) -> Callable:
 
 
 @contextmanager
-def marked_timer(name: str, timing_raw: dict[str, float], **kwargs):
+def marked_timer(name: str, timing_raw: dict[str, float], *args: Any, **kwargs: Any) -> None:
     """Context manager for timing with MSTX markers.
 
     This utility function measures the execution time of code within its context,
@@ -74,6 +75,10 @@ def marked_timer(name: str, timing_raw: dict[str, float], **kwargs):
     Yields:
         None: This is a context manager that yields control back to the code block.
     """
+    if args:
+        logging.warning(f"Args are not supported in mstx_profile, but received: {args}")
+    if kwargs:
+        logging.warning(f"Kwargs are not supported in mstx_profile, but received: {kwargs}")
     mark_range = mark_start_range(message=name)
     from .performance import _timer
 

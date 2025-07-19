@@ -19,11 +19,9 @@ import logging
 import os
 import re
 from collections import defaultdict
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 
-import datasets  # type: ignore
+import datasets
 import numpy as np
 import torch
 from omegaconf import DictConfig, ListConfig
@@ -36,77 +34,6 @@ from verl.utils.model import compute_position_id_with_mask
 logger = logging.getLogger(__name__)
 
 
-class TruncationStrategy(Enum):
-    LEFT = "left"
-    RIGHT = "right"
-    MIDDLE = "middle"
-    ERROR = "error"
-
-
-@dataclass
-class ProcessingContext:
-    raw_row: dict
-    messages: list[dict]
-    raw_prompt: str
-    model_inputs: dict[str, Any]
-    multi_modal_data: Optional[dict[str, Any]] = None
-    extra_info: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class CoreTensors:
-    input_ids: torch.Tensor
-    attention_mask: torch.Tensor
-    position_ids: torch.Tensor
-    raw_prompt_ids: list[int]
-
-
-@dataclass
-class ItemMetadata:
-    index: int = 0
-    tools_kwargs: dict[str, Any] = field(default_factory=dict)
-    interaction_kwargs: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class OptionalOutputs:
-    raw_prompt: Optional[list[dict]] = None
-    full_prompts: Optional[str] = None
-    multi_modal_data: Optional[dict[str, Any]] = None
-    multi_modal_inputs: Optional[dict[str, Any]] = None
-
-
-@dataclass
-class ProcessedDataItem:
-    core: CoreTensors
-    metadata: ItemMetadata
-    optional: OptionalOutputs
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to the dict format expected by the rest of the system."""
-        result = {
-            "input_ids": self.core.input_ids,
-            "attention_mask": self.core.attention_mask,
-            "position_ids": self.core.position_ids,
-            "raw_prompt_ids": self.core.raw_prompt_ids,
-            "index": self.metadata.index,
-            "tools_kwargs": self.metadata.tools_kwargs,
-            "interaction_kwargs": self.metadata.interaction_kwargs,
-        }
-
-        # Add optional fields only if they exist
-        if self.optional.raw_prompt is not None:
-            result["raw_prompt"] = self.optional.raw_prompt
-        if self.optional.full_prompts is not None:
-            result["full_prompts"] = self.optional.full_prompts
-        if self.optional.multi_modal_data is not None:
-            result["multi_modal_data"] = self.optional.multi_modal_data
-        if self.optional.multi_modal_inputs is not None:
-            result["multi_modal_inputs"] = self.optional.multi_modal_inputs
-
-        return result
-
-
 def collate_fn(data_list: list[dict]) -> dict:
     """
     Collate a batch of sample dicts into batched tensors and arrays.
@@ -116,7 +43,7 @@ def collate_fn(data_list: list[dict]) -> dict:
 
     Returns:
         Dict where tensor entries are stacked into a torch.Tensor of shape
-        (batch_size, \\*dims) and non-tensor entries are converted to
+        (batch_size, \*dims) and non-tensor entries are converted to
         np.ndarray of dtype object with shape (batch_size,).
     """
     tensors = defaultdict(list)
@@ -181,8 +108,7 @@ class RLHFDataset(Dataset):
         self.truncation = config.get("truncation", "error")
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
 
-        cpu_count = os.cpu_count() or 1
-        self.num_workers = config.get("filter_overlong_prompts_workers", max(1, cpu_count // 4))
+        self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
         self.use_shm = config.get("use_shm", False)
         self.chat_template_func = config.get("chat_template_func", None)
@@ -201,7 +127,7 @@ class RLHFDataset(Dataset):
         for i, parquet_file in enumerate(data_files):
             self.data_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir, use_shm=self.use_shm)
 
-    def _read_files_and_tokenize(self) -> None:
+    def _read_files_and_tokenize(self):
         dataframes = []
         for parquet_file in self.data_files:
             # read parquet files and cache
@@ -227,13 +153,11 @@ class RLHFDataset(Dataset):
 
                 def doc2len(doc) -> int:
                     messages = self._build_messages(doc)
-                    raw_prompt = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-                    images = (
-                        [process_image(image) for image in messages.pop(image_key)] if image_key in messages else None
+                    raw_prompt = self.processor.apply_chat_template(
+                        messages, add_generation_prompt=True, tokenize=False
                     )
-                    videos = (
-                        [process_video(video) for video in messages.pop(video_key)] if video_key in messages else None
-                    )
+                    images = [process_image(image) for image in doc[image_key]] if image_key in doc else None
+                    videos = [process_video(video) for video in doc[video_key]] if video_key in doc else None
 
                     return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
 
@@ -284,104 +208,60 @@ class RLHFDataset(Dataset):
 
         return messages
 
-    def __getitem__(self, item: int) -> dict[str, Any]:
+    def __getitem__(self, item):
         """
-        Note: We return raw_input_ids so it can be combined with other chat templates.
+        Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
-
-        raw_row: dict = self.dataframe[item]
-        context = self._create_processing_context(raw_row)
+        row_dict: dict = self.dataframe[item]
+        messages = self._build_messages(row_dict)
+        model_inputs = {}
 
         if self.processor is not None:
-            self._process_multimodal_inputs(context)
-        else:
-            self._process_text_only_inputs(context)
+            from verl.utils.dataset.vision_utils import process_image, process_video
 
-        self._create_core_tensors(context)
-        self._compute_position_ids(context)
-        self._process_raw_prompt_ids(context)
-
-        processed_item = self._build_processed_item(context)
-        return processed_item.to_dict()
-
-    def _create_processing_context(self, raw_row: dict) -> ProcessingContext:
-        """Create processing context from raw data row."""
-        # Make a copy to avoid modifying the original
-        row_copy = dict(raw_row)
-        messages = self._build_messages(row_copy)
-        extra_info = self._extract_extra_info(raw_row)
-
-        return ProcessingContext(
-            raw_row=row_copy,  # type: ignore[arg-type]
-            messages=messages,
-            raw_prompt="",  # Will be set in processing steps
-            model_inputs={},
-            extra_info=extra_info,
-        )
-
-    def _extract_extra_info(self, raw_row: dict) -> dict[str, Any]:
-        """Safely extract extra_info with defaults."""
-        extra_info_raw = raw_row.get("extra_info")
-        if extra_info_raw is None:
-            extra_info_raw = {}
-
-        return {
-            "index": extra_info_raw.get("index", 0),
-            "tools_kwargs": extra_info_raw.get("tools_kwargs", {}),
-            "interaction_kwargs": extra_info_raw.get("interaction_kwargs", {}),
-            "need_tools_kwargs": extra_info_raw.get("need_tools_kwargs", self.need_tools_kwargs),
-        }
-
-    def _process_multimodal_inputs(self, context: ProcessingContext) -> None:
-        """Process multimodal inputs using the processor."""
-        from verl.utils.dataset.vision_utils import process_image, process_video
-
-        if self.processor is not None:
-            context.raw_prompt = self.processor.apply_chat_template(
-                context.messages, add_generation_prompt=True, tokenize=False
-            )
-
+            raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
             multi_modal_data = {}
+
             images = None
+            if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None:
+                images = [process_image(image) for image in row_dict.pop(self.image_key)]
+
+                # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
+                # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
+                multi_modal_data["image"] = images
+
             videos = None
+            if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None:
+                videos = [process_video(video) for video in row_dict.pop(self.video_key)]
 
-            # Process images
-            if self.image_key in context.raw_row and context.raw_row.get(self.image_key) is not None:
-                images_data = context.raw_row.pop(self.image_key, None)  # type: ignore[misc]
-                if images_data is not None:
-                    images = [process_image(image) for image in images_data]
-                    # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
-                    # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
-                    multi_modal_data["image"] = images
+                # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
+                # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
+                multi_modal_data["video"] = [video.numpy() for video in videos]
 
-            # Process videos
-            if self.video_key in context.raw_row and context.raw_row.get(self.video_key) is not None:
-                videos_data = context.raw_row.pop(self.video_key, None)  # type: ignore[misc]
-                if videos_data is not None:
-                    videos = [process_video(video) for video in videos_data]
-                    # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
-                    # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
-                    multi_modal_data["video"] = [video.numpy() for video in videos]
+            model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
 
-            context.model_inputs = self.processor(
-                text=[context.raw_prompt], images=images, videos=videos, return_tensors="pt"
-            )
-            context.multi_modal_data = multi_modal_data
+            input_ids = model_inputs.pop("input_ids")
+            attention_mask = model_inputs.pop("attention_mask")
 
-    def _process_text_only_inputs(self, context: ProcessingContext) -> None:
-        """Process text-only inputs using the tokenizer."""
-        context.raw_prompt = self.tokenizer.apply_chat_template(
-            context.messages, add_generation_prompt=True, tokenize=False
-        )
-        context.model_inputs = self.tokenizer(context.raw_prompt, return_tensors="pt", add_special_tokens=False)
+            if "second_per_grid_ts" in model_inputs:
+                model_inputs.pop("second_per_grid_ts")
 
-    def _create_core_tensors(self, context: ProcessingContext) -> None:
-        """Create and postprocess core tensors."""
-        input_ids = context.model_inputs.pop("input_ids")
-        attention_mask = context.model_inputs.pop("attention_mask")
+            # There's a trap here, multi_modal_inputs has to be a dict, not BatchFeature
+            row_dict["multi_modal_data"] = multi_modal_data
 
-        # Remove unused fields
-        context.model_inputs.pop("second_per_grid_ts", None)
+            # We will do batch.union() in the trainer,
+            # so we cannot have "multi_modal_inputs" in row_dict if rollout generates new multi_modal_inputs
+            if self.return_multi_modal_inputs:
+                row_dict["multi_modal_inputs"] = dict(model_inputs)
+
+                # second_per_grid_ts isn't used for training, just for mrope
+                row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
+
+        else:
+            raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
+            input_ids = model_inputs.pop("input_ids")
+            attention_mask = model_inputs.pop("attention_mask")
 
         input_ids, attention_mask = verl_F.postprocess_data(
             input_ids=input_ids,
@@ -392,113 +272,60 @@ class RLHFDataset(Dataset):
             truncation=self.truncation,
         )
 
-        # Store processed tensors back in model_inputs for easy access
-        context.model_inputs["input_ids"] = input_ids[0]
-        context.model_inputs["attention_mask"] = attention_mask[0]
-
-    def _compute_position_ids(self, context: ProcessingContext) -> None:
-        """Compute position IDs, with special handling for Qwen2VL."""
         if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
             from verl.models.transformers.qwen2_vl import get_rope_index
 
-            position_ids = get_rope_index(
-                self.processor,
-                input_ids=context.model_inputs["input_ids"],
-                image_grid_thw=context.model_inputs.get("image_grid_thw"),
-                video_grid_thw=context.model_inputs.get("video_grid_thw"),
-                second_per_grid_ts=context.model_inputs.get("second_per_grid_ts"),
-                attention_mask=context.model_inputs["attention_mask"],
-            )
+            position_ids = [
+                get_rope_index(
+                    self.processor,
+                    input_ids=input_ids[0],
+                    image_grid_thw=model_inputs.get("image_grid_thw"),
+                    video_grid_thw=model_inputs.get("video_grid_thw"),
+                    second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
+                    attention_mask=attention_mask[0],
+                )
+            ]  # (1, 3, seq_len)
+
         else:
-            position_ids = compute_position_id_with_mask(context.model_inputs["attention_mask"].unsqueeze(0))[0]
+            position_ids = compute_position_id_with_mask(attention_mask)
 
-        context.model_inputs["position_ids"] = position_ids
+        row_dict["input_ids"] = input_ids[0]
+        row_dict["attention_mask"] = attention_mask[0]
+        row_dict["position_ids"] = position_ids[0]
 
-    def _process_raw_prompt_ids(self, context: ProcessingContext) -> None:
-        """Process raw prompt IDs with truncation."""
-        raw_prompt_ids = self.tokenizer.encode(context.raw_prompt, add_special_tokens=False)
-
+        raw_prompt_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
         if len(raw_prompt_ids) > self.max_prompt_length:
-            try:
-                strategy = TruncationStrategy(self.truncation)
-            except ValueError as err:
-                raise ValueError(
-                    f"Invalid truncation strategy: '{self.truncation}'. "
-                    f"Valid options are: {[s.value for s in TruncationStrategy]}"
-                ) from err
+            if self.truncation == "left":
+                raw_prompt_ids = raw_prompt_ids[-self.max_prompt_length :]
+            elif self.truncation == "right":
+                raw_prompt_ids = raw_prompt_ids[: self.max_prompt_length]
+            elif self.truncation == "middle":
+                left_half = self.max_prompt_length // 2
+                right_half = self.max_prompt_length - left_half
+                raw_prompt_ids = raw_prompt_ids[:left_half] + raw_prompt_ids[-right_half:]
+            elif self.truncation == "error":
+                raise RuntimeError(f"Prompt length {len(raw_prompt_ids)} is longer than {self.max_prompt_length}.")
 
-            raw_prompt_ids = self._apply_truncation(raw_prompt_ids, strategy)
-
-        context.model_inputs["raw_prompt_ids"] = raw_prompt_ids
-
-    def _apply_truncation(self, raw_prompt_ids: list[int], strategy: TruncationStrategy) -> list[int]:
-        """Apply truncation strategy to prompt IDs."""
-        max_length = self.max_prompt_length
-        if max_length is None:
-            return raw_prompt_ids
-
-        # Ensure max_length is an int for mypy
-        assert isinstance(max_length, int)
-
-        if strategy == TruncationStrategy.LEFT:
-            return raw_prompt_ids[-max_length:]
-        elif strategy == TruncationStrategy.RIGHT:
-            return raw_prompt_ids[:max_length]
-        elif strategy == TruncationStrategy.MIDDLE:
-            left_half = max_length // 2
-            right_half = max_length - left_half
-            return raw_prompt_ids[:left_half] + raw_prompt_ids[-right_half:]
-        elif strategy == TruncationStrategy.ERROR:
-            raise RuntimeError(f"Prompt length {len(raw_prompt_ids)} exceeds max length {max_length}")
-
-    def _build_processed_item(self, context: ProcessingContext) -> ProcessedDataItem:
-        """Build the structured ProcessedDataItem from context."""
-        # Create core tensors
-        core = CoreTensors(
-            input_ids=context.model_inputs["input_ids"],
-            attention_mask=context.model_inputs["attention_mask"],
-            position_ids=context.model_inputs["position_ids"],
-            raw_prompt_ids=context.model_inputs["raw_prompt_ids"],
-        )
-
-        # Create metadata
-        metadata = ItemMetadata(
-            index=context.extra_info["index"],
-            tools_kwargs=context.extra_info["tools_kwargs"],
-            interaction_kwargs=context.extra_info["interaction_kwargs"],
-        )
-
-        # Create optional outputs
-        optional = OptionalOutputs()
-
+        row_dict["raw_prompt_ids"] = raw_prompt_ids
+        # encode prompts without chat template
         if self.return_raw_chat:
-            optional.raw_prompt = context.messages
+            row_dict["raw_prompt"] = messages
 
+        # get prompts with chat template
         if self.return_full_prompt:
-            optional.full_prompts = context.raw_prompt
+            row_dict["full_prompts"] = raw_prompt  # array of strings
 
-        if context.multi_modal_data is not None:
-            optional.multi_modal_data = context.multi_modal_data
-
-            # We will do batch.union() in the trainer,
-            # so we cannot have "multi_modal_inputs" in row_dict if rollout generates new multi_modal_inputs
-            if self.return_multi_modal_inputs:
-                multi_modal_inputs = dict(context.model_inputs)
-
-                # second_per_grid_ts isn't used for training, just for mrope
-                multi_modal_inputs.pop("second_per_grid_ts", None)
-
-                optional.multi_modal_inputs = multi_modal_inputs
-
-        # Validate tools_kwargs if needed
-        if context.extra_info.get("need_tools_kwargs", False) and not context.extra_info.get("tools_kwargs", {}):
-            logger.warning(
-                "tools_kwargs is empty for index %s, data source: %s",
-                context.extra_info.get("index", 0),
-                context.raw_row.get("data_source", "unknown"),
-            )
-
-        return ProcessedDataItem(core=core, metadata=metadata, optional=optional)
+        # add index for each prompt
+        index = row_dict.get("extra_info", {}).get("index", 0)
+        tools_kwargs = row_dict.get("extra_info", {}).get("tools_kwargs", {})
+        interaction_kwargs = row_dict.get("extra_info", {}).get("interaction_kwargs", {})
+        need_tools_kwargs = row_dict.get("extra_info", {}).get("need_tools_kwargs", self.need_tools_kwargs)
+        if need_tools_kwargs and not tools_kwargs:
+            logger.warning("tools_kwargs is empty for index {}, data source: {}", index, row_dict["data_source"])
+        row_dict["index"] = index
+        row_dict["tools_kwargs"] = tools_kwargs
+        row_dict["interaction_kwargs"] = interaction_kwargs
+        return row_dict
 
     def __getstate__(self):
         if not self.serialize_dataset:
