@@ -12,19 +12,19 @@ use_kl_loss=False
 kl_loss_coef=0.0
 
 clip_ratio_low=0.2
-clip_ratio_high=0.24
+clip_ratio_high=0.28
 
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 4))
-enable_overlong_buffer=True
+enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=0.1
 
 loss_agg_mode="token-mean"
 
-train_prompt_bsz=32
+train_prompt_bsz=64
 n_resp_per_prompt=16
-train_prompt_mini_bsz=8
+train_prompt_mini_bsz=16
 
 # Ray
 # RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
