@@ -33,14 +33,11 @@ class BaseConfig(collections.abc.Mapping):
     def __setattr__(self, name: str, value):
         # if the field already exists (i.e. was set in __init__)
         # and is in our frozen list, block assignment
-        frozen_fields = set(self.__dict__.keys())
-        if hasattr(self, "_mutable_fields"):
-            for f in self._mutable_fields:
-                if f in frozen_fields:
-                    frozen_fields.remove(f)
-        if name in frozen_fields:
-            # raise Exception on mutating frozen fields
+    def __setattr__(self, name: str, value):
+        # if the field already exists, it's considered frozen unless it's in _mutable_fields
+        if name in self.__dict__ and name not in getattr(self, '_mutable_fields', set()):
             raise FrozenInstanceError(f"Field '{name}' is frozen and cannot be modified")
+        super().__setattr__(name, value)
 
         # do the normal thing
         super().__setattr__(name, value)
