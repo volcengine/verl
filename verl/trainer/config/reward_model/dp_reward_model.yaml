@@ -29,8 +29,12 @@ model:
   # FSDP-specific config
   fsdp_config:
 
+    # Target configuration dataclass
+    _target_: verl.workers.config.FSDPEngineConfig
+
     # Policy for wrapping layers with FSDP
     wrap_policy:
+
       # Minimum number of parameters to trigger wrapping
       min_num_params: 0
 

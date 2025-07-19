@@ -4,6 +4,9 @@
 # 3. Inline comments (after a field on the same line) are not allowed.
 # 4. Indentation level is respected for nested fields.
 
+# Target class for this configuration
+_target_: verl.workers.config.ActorConfig
+
 # the abstract actor configs
 # fsdp, fsdp2 or megatron. must be set.
 strategy: ???
@@ -37,6 +40,9 @@ clip_ratio_high: 0.2
 
 # policy loss config
 policy_loss:
+
+  # # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.PolicyLossConfig
 
   # Loss function mode: vanilla / clip-cov / kl-cov /gpg from https://arxiv.org/abs/2505.22617
   loss_mode: "vanilla"
@@ -87,6 +93,9 @@ shuffle: false
 # checkpoint configs
 checkpoint:
 
+  # Target dataclass for this configuration
+  _target_: verl.trainer.config.CheckpointConfig
+
   # What to include in saved checkpoints
   # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
   save_contents: ['model', 'optimizer', 'extra']
@@ -94,6 +103,9 @@ checkpoint:
   # For more flexibility, you can specify the contents to load from the checkpoint.
   # .xxx refers to the local variable xxx from the same level of hierarchy similar to python pkg
   load_contents: ${.save_contents}
+
+  # Whether to save checkpoints asynchronously. Only effective for Megatron as of now.
+  async_save: False
 
 # optimizer configs
 optim:
@@ -109,3 +121,10 @@ optim:
 
   # Weight decay
   weight_decay: 0.01
+
+  # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
+  lr_warmup_steps: -1
+
+
+# Whether to use custom fused kernels (e.g., FlashAttention, fused MLP)
+use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}

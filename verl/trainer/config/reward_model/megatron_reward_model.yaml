@@ -15,6 +15,10 @@ nccl_timeout: 600
 
 # Megatron parallelism & checkpointing config
 megatron:
+
+  # Target configuration dataclass
+  _target_: verl.workers.config.MegatronEngineConfig
+
   # Whether to offload model parameters to CPU
   param_offload: False
 

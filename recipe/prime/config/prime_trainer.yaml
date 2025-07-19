@@ -41,7 +41,6 @@ reward_model:
     fsdp_config:
       min_num_params: 0
       param_offload: ${actor_rollout_ref.actor.fsdp_config.param_offload}
-#      grad_offload: ${actor_rollout_ref.actor.fsdp_config.grad_offload}
       optimizer_offload: ${actor_rollout_ref.actor.fsdp_config.optimizer_offload}
     update: before # ``before`` for double-forward, ``after`` for single-forward
     optim:

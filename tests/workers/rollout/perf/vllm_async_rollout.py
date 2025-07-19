@@ -51,7 +51,14 @@ def init_config(n_gpus_per_node) -> DictConfig:
     from hydra import compose, initialize_config_dir
 
     with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
-        config = compose(config_name="ppo_trainer")
+        config = compose(
+            config_name="ppo_trainer",
+            overrides=[
+                "actor_rollout_ref.actor.use_dynamic_bsz=true",
+                "actor_rollout_ref.actor.fsdp_config.param_offload=True",
+                "actor_rollout_ref.actor.fsdp_config.optimizer_offload=True",
+            ],
+        )
     config.trainer.n_gpus_per_node = n_gpus_per_node
     config.data.train_batch_size = 128
     config.data.return_raw_chat = True
@@ -63,10 +70,6 @@ def init_config(n_gpus_per_node) -> DictConfig:
     config.actor_rollout_ref.rollout.prompt_length = 4096
     config.actor_rollout_ref.rollout.response_length = 4096
     config.actor_rollout_ref.rollout.n = 16
-
-    # test sleep/wake_up with fsdp offload
-    config.actor_rollout_ref.actor.fsdp_config.param_offload = True
-    config.actor_rollout_ref.actor.fsdp_config.optimizer_offload = True
 
     return config
 

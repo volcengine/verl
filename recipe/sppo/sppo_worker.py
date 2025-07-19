@@ -45,8 +45,7 @@ class SPPOActorRolloutRefWorker(ActorRolloutRefWorker):
 
         from omegaconf import OmegaConf
 
-        override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
-
+        override_model_config = self.config.model.get("override_config", {})
         use_remove_padding = self.config.model.get("use_remove_padding", False)
         use_fused_kernels = self.config.model.get("use_fused_kernels", False)
 
