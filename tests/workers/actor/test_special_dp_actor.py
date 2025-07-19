@@ -22,7 +22,7 @@ from transformers import AutoModelForCausalLM, Qwen3Config
 
 from verl import DataProto
 from verl.workers.actor.dp_actor import DataParallelPPOActor
-from verl.workers.config import FSDPActorConfig
+from verl.workers.config import FSDPActorConfig, OptimizerConfig
 
 
 class MockTransformerModel(nn.Module):
@@ -88,6 +88,7 @@ class TestDataParallelPPOActor(unittest.TestCase):
             use_dynamic_bsz=False,
             use_torch_compile=False,  # Disable torch.compile for testing
             ulysses_sequence_parallel_size=1,
+            optim=OptimizerConfig(lr=1e-6),
         )
 
         self.mock_model = MockTransformerModel(vocab_size=1000, hidden_size=64).to(self.device)
