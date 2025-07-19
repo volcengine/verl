@@ -1150,7 +1150,8 @@ class RayPPOTrainer:
                         gen_batch_output.meta_info.pop("timing", None)
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
-                        assert self.reward_fn is not None, "Reward function should not be None"
+                        if self.reward_fn is None:
+                            raise ValueError("A reward_fn is required for REMAX advantage estimation.")
 
                         with marked_timer("gen_max", timing_raw, color="purple"):
                             gen_baseline_batch = deepcopy(gen_batch)
