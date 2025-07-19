@@ -123,7 +123,7 @@ class ActorConfig(BaseConfig):
             else:
                 assert not (self.ppo_micro_batch_size is None and self.ppo_micro_batch_size_per_gpu is None), (
                     "[actor] Please set at least one of 'actor.ppo_micro_batch_size' or "
-                    "'actor.ppo_micro_batch_size_per_gpu'."
+                    "'actor.ppo_micro_batch_size_per_gpu' if use_dynamic_bsz is not enabled."
                 )
 
         valid_loss_agg_modes = [
