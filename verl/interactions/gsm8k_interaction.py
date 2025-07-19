@@ -58,14 +58,11 @@ class Gsm8kInteraction(BaseInteraction):
         content = ""
         for i in range(len(messages) - 1, -1, -1):
             item = messages[i]
-            if item.get("role") == "user":
+            if item.get("role") == "assistant":
                 content = item.get("content")
                 break
 
-        if content and content.startswith("#### "):
-            self._instance_dict[instance_id]["response"] = content
-        else:
-            self._instance_dict[instance_id]["response"] = "#### " + (content or "")
+        self._instance_dict[instance_id]["response"] = content
 
         reward = await self.calculate_score(instance_id)
         if reward == 1.0:
@@ -81,7 +78,7 @@ class Gsm8kInteraction(BaseInteraction):
         return gsm8k.compute_score(
             self._instance_dict[instance_id]["response"],
             self._instance_dict[instance_id]["ground_truth"],
-            method="flexible",
+            method="strict",
             format_score=0.0,
             score=1.0,
         )
