@@ -13,5 +13,6 @@
 # limitations under the License.
 
 from .critic import CriticWorker
+from .reward_model import RewardModelWorker
 
-__all__ = ["CriticWorker"]
+__all__ = ["CriticWorker", "RewardModelWorker"]
