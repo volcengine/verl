@@ -212,6 +212,23 @@ class RLHFDataset(Dataset):
 
         return messages
 
+    def _maybe_truncate_prompt_tokens(self, raw_prompt_ids: list[int]) -> list[int]:
+        if len(raw_prompt_ids) <= self.max_prompt_length:
+            return raw_prompt_ids
+
+        if self.truncation == "left":
+            raw_prompt_ids = raw_prompt_ids[-self.max_prompt_length :]
+        elif self.truncation == "right":
+            raw_prompt_ids = raw_prompt_ids[: self.max_prompt_length]
+        elif self.truncation == "middle":
+            left_half = self.max_prompt_length // 2
+            right_half = self.max_prompt_length - left_half
+            raw_prompt_ids = raw_prompt_ids[:left_half] + raw_prompt_ids[-right_half:]
+        elif self.truncation == "error":
+            raise RuntimeError(f"Prompt length {len(raw_prompt_ids)} is longer than {self.max_prompt_length}.")
+
+        return raw_prompt_ids
+
     def _process_multimodal_input(self, row_dict: RowDict, messages: Any) -> tuple[RowDict, Any, Any]:
         from verl.utils.dataset.vision_utils import process_image, process_video
 
@@ -299,19 +316,10 @@ class RLHFDataset(Dataset):
         row_dict["position_ids"] = position_ids[0]
 
         raw_prompt_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
-        if len(raw_prompt_ids) > self.max_prompt_length:
-            if self.truncation == "left":
-                raw_prompt_ids = raw_prompt_ids[-self.max_prompt_length :]
-            elif self.truncation == "right":
-                raw_prompt_ids = raw_prompt_ids[: self.max_prompt_length]
-            elif self.truncation == "middle":
-                left_half = self.max_prompt_length // 2
-                right_half = self.max_prompt_length - left_half
-                raw_prompt_ids = raw_prompt_ids[:left_half] + raw_prompt_ids[-right_half:]
-            elif self.truncation == "error":
-                raise RuntimeError(f"Prompt length {len(raw_prompt_ids)} is longer than {self.max_prompt_length}.")
+        raw_prompt_ids = self._maybe_truncate_prompt_tokens(raw_prompt_ids)
 
         row_dict["raw_prompt_ids"] = raw_prompt_ids
+
         # encode prompts without chat template
         if self.return_raw_chat:
             row_dict["raw_prompt"] = messages
