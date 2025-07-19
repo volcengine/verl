@@ -744,6 +744,7 @@ class RayPPOTrainer:
             test_batch.meta_info["validate"] = True
 
             # evaluate using reward_function
+            assert self.val_reward_fn is not None, "val_reward_fn should not be None"
             result = self.val_reward_fn(test_batch, return_dict=True)
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
@@ -1148,6 +1149,8 @@ class RayPPOTrainer:
                         gen_batch_output.meta_info.pop("timing", None)
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
+                        assert self.reward_fn is not None, "Reward function should not be None"
+
                         with marked_timer("gen_max", timing_raw, color="purple"):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info["do_sample"] = False
