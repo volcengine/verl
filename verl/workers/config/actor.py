@@ -120,6 +120,11 @@ class ActorConfig(BaseConfig):
                     "Please remove 'actor.ppo_micro_batch_size' because only '*_ppo_micro_batch_size_per_gpu' is "
                     "supported (the former is deprecated)."
                 )
+            else:
+                assert not (self.ppo_micro_batch_size is None and self.ppo_micro_batch_size_per_gpu is None), (
+                    "[actor] Please set at least one of 'actor.ppo_micro_batch_size' or "
+                    "'actor.ppo_micro_batch_size_per_gpu'."
+                )
 
         valid_loss_agg_modes = [
             "token-mean",

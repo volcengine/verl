@@ -122,7 +122,7 @@ class TestAlgoConfig(unittest.TestCase):
         # Check that nested configs are initialized
         self.assertIsNotNone(minimal_config.kl_ctrl)
         self.assertIsInstance(minimal_config.kl_ctrl, KLControlConfig)
-        self.assertIsNone(minimal_config.pf_ppo)
+        assert not minimal_config.pf_ppo
 
     def test_config_init_from_yaml(self):
         import os
