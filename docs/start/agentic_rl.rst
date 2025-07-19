@@ -59,6 +59,12 @@ Usage Example
 ~~~~~~~~~~~~~
 
 Follow :doc:`GSM8K example<../examples/gsm8k_example>` to prepare the dataset and model checkpoints.
+
+There are two options required to use agent loop:
+
+- `data.return_raw_chat=True`
+- `actor_rollout_ref.rollout.mode=async`
+
 This example uses the sglang inference engine by default, and you can also modify rollout_name to use vllm.
 
 .. code-block:: bash
