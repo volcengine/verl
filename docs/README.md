@@ -6,6 +6,9 @@
 # If you want to view auto-generated API docstring, please make sure verl is available in python path. For instance, install verl via:
 # pip install .. -e[test]
 
+# Enter docs.
+cd docs 
+
 # Install dependencies needed for building docs.
 pip install -r requirements-docs.txt
 

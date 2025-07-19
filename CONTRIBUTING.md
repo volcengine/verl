@@ -59,6 +59,9 @@ If possible, please add CI test(s) for your new feature:
 # Ensure verl is on your PYTHONPATH, e.g.:
 pip install -e .[test]
 
+# Enter docs
+cd docs 
+
 # Install documentation dependencies
 pip install -r requirements-docs.txt
 

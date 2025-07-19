@@ -29,7 +29,12 @@ from utils_sglang import get_rollout_config, prepare_inputs
 from verl.protocol import DataProto
 from verl.tools.mcp_search_tool import MCPSearchTool
 from verl.tools.utils.mcp_clients.McpClientManager import MCPClientManager
-from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
+from verl.workers.rollout.schemas import (
+    AsyncRolloutRequest,
+    AsyncRolloutRequestStateEnum,
+    Message,
+    force_chat_end_with_eos,
+)
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
 
 DEFAULT_USER_CONTENT_PREFIX = (
@@ -133,7 +138,10 @@ class TestRolloutWithMCPSearchTools:
         user_prompt, expect_turn_array, tool_return_array = get_search_messages()
         prompts = [[message] for message in user_prompt]
         preencode_turn_array = [
-            qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=False)
+            force_chat_end_with_eos(
+                qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=False),
+                eos_token=qwen_tokenizer.eos_token,
+            )
             for turn in expect_turn_array
         ]
         preencode_tool_return_array = [

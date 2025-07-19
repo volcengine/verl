@@ -15,6 +15,7 @@
 import difflib
 import logging
 import os
+import warnings
 from enum import Enum
 from typing import Any, Optional
 
@@ -76,6 +77,46 @@ class TokenizationSanityCheckModeEnum(str, Enum):
     DISABLE = "disable"
     STRICT = "strict"
     IGNORE_STRIPPABLE = "ignore_strippable"
+
+
+def force_chat_end_with_eos(rendered_chat: str, eos_token: str):
+    """
+    Remove everything after the last EOS token after applying
+    tokenizer/processor.apply_chat_template(messages,add_generation_prompt=False,tokenize=False)
+
+    Args:
+        rendered_chat (str): The chat string produced by `tokenizer/processor..apply_chat_template(...)`
+            with `add_generation_prompt=False` and `tokenize=False`.
+        eos_token (str): The EOS token of the tokenizer/processor.tokenizer.
+
+    Returns:
+        str: The truncated chat string, ending exactly at the last EOS token.
+
+    Example:
+        >>> messages = [
+        ...     {"role":"system","content":" "},
+        ...     {"role": "user", "content": "Hello."},
+        ...     {"role": "assistant", "content": "Hi."}
+        ... ]
+        >>> raw_chat = tokenizer.apply_chat_template(messages,add_generation_prompt=False,tokenize=False)
+        >>> raw_chat
+        '<|im_start|>system\n <|im_end|>\n<|im_start|>user\nHello.<|im_end|>\n<|im_start|>assistant\nHi.<|im_end|>\n'
+        >>> force_chat_end_with_eos(raw_chat,eos_token=tokenizer.eos_token)
+        '<|im_start|>system\n <|im_end|>\n<|im_start|>user\nHello.<|im_end|>\n<|im_start|>assistant\nHi.<|im_end|>'
+    """
+    idx = rendered_chat.rfind(eos_token)
+    if idx == -1:
+        warnings.warn(
+            "WARNING: No EOS token in the rendered chat. This may be due to using a Qwen Base model, where there is "
+            "a mismatch between the EOS token defined in the chat template (<|im_end|>) and the tokenizer "
+            f"({eos_token}). As a workaround, <|im_end|> will be used as the EOS token for force_chat_end_with_eos()",
+            stacklevel=2,
+        )
+        idx = rendered_chat.rfind("<|im_end|>")
+        if idx == -1:
+            # This should never happen.
+            raise ValueError("No EOS found in the rendered chat.")
+    return rendered_chat[: idx + len(eos_token)]
 
 
 class AsyncRolloutRequest(BaseModel):
@@ -237,8 +278,15 @@ class AsyncRolloutRequest(BaseModel):
                 logger.warning(
                     "There is multi_modal_data but you are not using a processor. Multi-modal data will be ignored."
                 )
+            if add_generation_prompt is False:
+                raw_prompt = force_chat_end_with_eos(raw_prompt, eos_token=processing_class.eos_token)
+
             model_inputs = processing_class(text=[raw_prompt], return_tensors="pt")
+
         elif isinstance(processing_class, ProcessorMixin):
+            if add_generation_prompt is False:
+                raw_prompt = force_chat_end_with_eos(raw_prompt, eos_token=processing_class.tokenizer.eos_token)
+
             # When we update multi_model_keys, we also need to update this logic
             images = images if len(images := multi_modal_data.get("image", [])) > 0 else None
             videos = videos if len(videos := multi_modal_data.get("video", [])) > 0 else None
