@@ -13,7 +13,9 @@
 # limitations under the License.
 
 import pytest
+
 from verl.workers.config.optimizer import FSDPOptimizerConfig
+
 
 class TestFSDPOptimizerConfigCPU:
     def test_default_configuration(self):
@@ -22,7 +24,7 @@ class TestFSDPOptimizerConfigCPU:
         assert config.warmup_style == "constant"
         assert config.num_cycles == 0.5
 
-    @pytest.mark.parametrize('warmup_style', ["constant", "cosine"])
+    @pytest.mark.parametrize("warmup_style", ["constant", "cosine"])
     def test_valid_warmup_styles(self, warmup_style):
         config = FSDPOptimizerConfig(warmup_style=warmup_style)
         assert config.warmup_style == warmup_style
@@ -31,7 +33,7 @@ class TestFSDPOptimizerConfigCPU:
         with pytest.raises(ValueError):
             FSDPOptimizerConfig(warmup_style="invalid_style")
 
-    @pytest.mark.parametrize('num_cycles', [0.1, 1.0, 2.5])
+    @pytest.mark.parametrize("num_cycles", [0.1, 1.0, 2.5])
     def test_num_cycles_configuration(self, num_cycles):
         config = FSDPOptimizerConfig(num_cycles=num_cycles)
         assert config.num_cycles == num_cycles
@@ -39,6 +41,6 @@ class TestFSDPOptimizerConfigCPU:
     def test_min_lr_ratio_validation(self):
         config = FSDPOptimizerConfig(min_lr_ratio=0.1)
         assert config.min_lr_ratio == 0.1
-        
+
         with pytest.raises(ValueError):
             FSDPOptimizerConfig(min_lr_ratio=-0.1)

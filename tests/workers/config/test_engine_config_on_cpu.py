@@ -13,7 +13,9 @@
 # limitations under the License.
 
 import pytest
-from verl.workers.config.engine import McoreEngineConfig
+
+from verl.workers.config.engine import FSDPEngineConfig, McoreEngineConfig
+
 
 class TestMcoreEngineConfig:
     def test_default_values(self):
@@ -37,11 +39,7 @@ class TestMcoreEngineConfig:
         with pytest.raises(AttributeError):
             config.tensor_model_parallel_size = 2  # Frozen field
 
-    @pytest.mark.parametrize('offload_field', [
-        'param_offload',
-        'grad_offload',
-        'optimizer_offload'
-    ])
+    @pytest.mark.parametrize("offload_field", ["param_offload", "grad_offload", "optimizer_offload"])
     def test_offload_flags(self, offload_field):
         config = McoreEngineConfig(**{offload_field: True})
         assert getattr(config, offload_field) is True
@@ -54,17 +52,16 @@ class TestFSDPEngineConfigCPU:
         assert config.optimizer_offload is False
         assert config.fsdp_size == -1
 
-    @pytest.mark.parametrize('offload_params', [
-        {'param_offload': True},
-        {'optimizer_offload': True},
-        {'param_offload': True, 'optimizer_offload': True}
-    ])
+    @pytest.mark.parametrize(
+        "offload_params",
+        [{"param_offload": True}, {"optimizer_offload": True}, {"param_offload": True, "optimizer_offload": True}],
+    )
     def test_offload_combinations(self, offload_params):
         config = FSDPEngineConfig(**offload_params)
-        assert config.param_offload == offload_params.get('param_offload', False)
-        assert config.optimizer_offload == offload_params.get('optimizer_offload', False)
+        assert config.param_offload == offload_params.get("param_offload", False)
+        assert config.optimizer_offload == offload_params.get("optimizer_offload", False)
 
     def test_wrap_policy_configuration(self):
-        test_policy = {'layer_class': 'TransformerBlock'}
+        test_policy = {"layer_class": "TransformerBlock"}
         config = FSDPEngineConfig(wrap_policy=test_policy)
         assert config.wrap_policy == test_policy
