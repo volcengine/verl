@@ -19,7 +19,9 @@ from omegaconf import MISSING
 
 from verl.base_config import BaseConfig
 from verl.trainer.config import CheckpointConfig
-from verl.workers.config import FSDPEngineConfig, McoreEngineConfig, OptimizerConfig
+
+from .engine import FSDPEngineConfig, McoreEngineConfig
+from .optimizer import OptimizerConfig
 
 __all__ = ["PolicyLossConfig", "ActorConfig", "FSDPActorConfig", "McoreActorConfig"]
 
