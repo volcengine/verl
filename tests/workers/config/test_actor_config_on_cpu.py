@@ -28,13 +28,23 @@ class TestActorConfig(unittest.TestCase):
             "_target_": "verl.workers.config.McoreActorConfig",
             "strategy": "megatron",
             "ppo_mini_batch_size": 256,
+            "ppo_micro_batch_size_per_gpu": 256,
             "clip_ratio": 0.2,
+            "optim": {
+                "_target_": "verl.workers.config.OptimizerConfig",
+                "lr": 0.1,
+            },
         }
         fsdp_dict = {
             "_target_": "verl.workers.config.FSDPActorConfig",
             "strategy": "fsdp",
             "ppo_mini_batch_size": 256,
+            "ppo_micro_batch_size_per_gpu": 256,
             "clip_ratio": 0.2,
+            "optim": {
+                "_target_": "verl.workers.config.OptimizerConfig",
+                "lr": 0.1,
+            },
         }
 
         megatron_config = omega_conf_to_dataclass(megatron_dict)
@@ -88,6 +98,11 @@ class TestActorConfig(unittest.TestCase):
             "_target_": "verl.workers.config.ActorConfig",
             "strategy": "fsdp",
             "ppo_mini_batch_size": 256,
+            "ppo_micro_batch_size_per_gpu": 256,
+            "optim": {
+                "_target_": "verl.workers.config.OptimizerConfig",
+                "lr": 0.1,
+            },
         }
         config = omega_conf_to_dataclass(config_dict)
 
@@ -103,6 +118,11 @@ class TestActorConfig(unittest.TestCase):
             "_target_": "verl.workers.config.ActorConfig",
             "strategy": "fsdp",
             "ppo_mini_batch_size": 256,
+            "ppo_micro_batch_size_per_gpu": 256,
+            "optim": {
+                "_target_": "verl.workers.config.OptimizerConfig",
+                "lr": 0.1,
+            },
         }
         config = omega_conf_to_dataclass(config_dict)
 
@@ -121,6 +141,11 @@ class TestActorConfig(unittest.TestCase):
             "_target_": "verl.workers.config.ActorConfig",
             "strategy": "fsdp",
             "ppo_mini_batch_size": 256,
+            "ppo_micro_batch_size_per_gpu": 256,
+            "optim": {
+                "_target_": "verl.workers.config.OptimizerConfig",
+                "lr": 0.1,
+            },
         }
         config = omega_conf_to_dataclass(config_dict)
 
@@ -136,11 +161,17 @@ class TestActorConfig(unittest.TestCase):
     def test_actor_config_validation_exceptions(self):
         """Test that ActorConfig.__post_init__ raises appropriate validation exceptions."""
         optim = OptimizerConfig(lr=0.1)
-        with self.assertRaises(ValueError) as cm:
-            ActorConfig(strategy="fsdp", loss_agg_mode="invalid-mode", use_dynamic_bsz=True, optim=optim)
+        with self.assertRaises((ValueError, AssertionError)) as cm:
+            ActorConfig(
+                strategy="fsdp",
+                loss_agg_mode="invalid-mode",
+                use_dynamic_bsz=True,
+                optim=optim,
+                ppo_micro_batch_size_per_gpu=4,
+            )
         self.assertIn("Invalid loss_agg_mode", str(cm.exception))
 
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises((ValueError, AssertionError)) as cm:
             ActorConfig(
                 strategy="fsdp",
                 use_dynamic_bsz=False,
@@ -150,9 +181,19 @@ class TestActorConfig(unittest.TestCase):
             )
         self.assertIn("You have set both", str(cm.exception))
 
+        with self.assertRaises((ValueError, AssertionError)) as cm:
+            ActorConfig(
+                strategy="fsdp",
+                use_dynamic_bsz=False,
+                ppo_micro_batch_size=None,
+                ppo_micro_batch_size_per_gpu=None,
+                optim=optim,
+            )
+        self.assertIn("Please set at least one", str(cm.exception))
+
         config = ActorConfig(
             strategy="fsdp",
-            use_dynamic_bsz=False,
+            use_dynamic_bsz=True,
             ppo_micro_batch_size=None,
             ppo_micro_batch_size_per_gpu=None,
             optim=optim,

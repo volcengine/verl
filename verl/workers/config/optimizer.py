@@ -59,6 +59,10 @@ class FSDPOptimizerConfig(OptimizerConfig):
     warmup_style: str = "constant"
     num_cycles: float = 0.5
 
+    def __post_init__(self):
+        assert self.warmup_style in ["constant", "cosine"]
+        return super().__post_init__()
+
 
 @dataclass
 class McoreOptimizerConfig(OptimizerConfig):
