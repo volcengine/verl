@@ -66,7 +66,19 @@ def collate_fn(data_list: list[dict]) -> dict:
 
 
 class RowDict(TypedDict, total=False):
-    placeholder: str
+    attention_mask: torch.Tensor
+    input_ids: list[int]
+    multi_modal_data: Any
+    multi_modal_inputs: Any
+    position_ids: Any
+    extra_info: dict[str, Any]
+    data_source: Any
+    index: Any
+    raw_prompt: Any
+    full_prompts: Any
+    interaction_kwargs: Any
+    tools_kwargs: Any
+    raw_prompt_ids: list[int]
 
 
 class RLHFDataset(Dataset):
@@ -112,7 +124,8 @@ class RLHFDataset(Dataset):
         self.truncation = config.get("truncation", "error")
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
 
-        self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
+        cpu_count = os.cpu_count() or 1
+        self.num_workers = config.get("filter_overlong_prompts_workers", max(1, cpu_count // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
         self.use_shm = config.get("use_shm", False)
         self.chat_template_func = config.get("chat_template_func", None)
@@ -157,6 +170,7 @@ class RLHFDataset(Dataset):
 
                 def doc2len(doc) -> int:
                     messages = self._build_messages(doc)
+                    assert self.processor is not None
                     raw_prompt = self.processor.apply_chat_template(
                         messages, add_generation_prompt=True, tokenize=False
                     )
@@ -191,8 +205,8 @@ class RLHFDataset(Dataset):
     def __len__(self):
         return len(self.dataframe)
 
-    def _build_messages(self, example: dict):
-        messages: list = example.pop(self.prompt_key)
+    def _build_messages(self, example: RowDict):
+        messages: list = example.pop(self.prompt_key)  # type: ignore[misc]
 
         if self.image_key in example or self.video_key in example:
             for message in messages:
@@ -232,12 +246,13 @@ class RLHFDataset(Dataset):
     def _process_multimodal_input(self, row_dict: RowDict, messages: Any) -> tuple[RowDict, Any, Any]:
         from verl.utils.dataset.vision_utils import process_image, process_video
 
+        assert self.processor is not None
         raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
         multi_modal_data = {}
 
         images = None
         if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None:
-            images = [process_image(image) for image in row_dict.pop(self.image_key)]
+            images = [process_image(image) for image in row_dict.pop(self.image_key)]  # type: ignore[misc]
 
             # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
             # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
@@ -245,7 +260,7 @@ class RLHFDataset(Dataset):
 
         videos = None
         if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None:
-            videos = [process_video(video) for video in row_dict.pop(self.video_key)]
+            videos = [process_video(video) for video in row_dict.pop(self.video_key)]  # type: ignore[misc]
 
             # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
             # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
