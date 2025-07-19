@@ -33,7 +33,7 @@ class BaseConfig(collections.abc.Mapping):
     def __setattr__(self, name: str, value):
         """Set the value of an attribute. Check if the attr is mutable before setting the value."""
         # If the field already exists, it's considered frozen unless it's in _mutable_fields
-        if name in self.__dict__ and name not in getattr(self, '_mutable_fields', set()):
+        if name in self.__dict__ and name not in getattr(self, "_mutable_fields", set()):
             raise FrozenInstanceError(f"Field '{name}' is frozen and cannot be modified")
         super().__setattr__(name, value)
 

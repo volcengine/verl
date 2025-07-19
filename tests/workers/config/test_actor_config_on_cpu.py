@@ -16,7 +16,7 @@ import os
 import unittest
 
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import ActorConfig, FSDPActorConfig, McoreActorConfig
+from verl.workers.config import ActorConfig, FSDPActorConfig, McoreActorConfig, OptimizerConfig
 
 
 class TestActorConfig(unittest.TestCase):
@@ -135,25 +135,38 @@ class TestActorConfig(unittest.TestCase):
 
     def test_actor_config_validation_exceptions(self):
         """Test that ActorConfig.__post_init__ raises appropriate validation exceptions."""
+        optim = OptimizerConfig(lr=0.1)
         with self.assertRaises(ValueError) as cm:
-            ActorConfig(strategy="fsdp", loss_agg_mode="invalid-mode", use_dynamic_bsz=True)
+            ActorConfig(strategy="fsdp", loss_agg_mode="invalid-mode", use_dynamic_bsz=True, optim=optim)
         self.assertIn("Invalid loss_agg_mode", str(cm.exception))
 
         with self.assertRaises(ValueError) as cm:
-            ActorConfig(strategy="fsdp", use_dynamic_bsz=False, ppo_micro_batch_size=4, ppo_micro_batch_size_per_gpu=2)
+            ActorConfig(
+                strategy="fsdp",
+                use_dynamic_bsz=False,
+                ppo_micro_batch_size=4,
+                ppo_micro_batch_size_per_gpu=2,
+                optim=optim,
+            )
         self.assertIn("You have set both", str(cm.exception))
 
         config = ActorConfig(
-            strategy="fsdp", use_dynamic_bsz=False, ppo_micro_batch_size=None, ppo_micro_batch_size_per_gpu=None
+            strategy="fsdp",
+            use_dynamic_bsz=False,
+            ppo_micro_batch_size=None,
+            ppo_micro_batch_size_per_gpu=None,
+            optim=optim,
         )
         self.assertIsNotNone(config)  # Should not raise an exception
 
     def test_fsdp_actor_config_validation_exceptions(self):
         """Test that FSDPActorConfig.validate() raises appropriate validation exceptions."""
+        optim = OptimizerConfig(lr=0.1)
         config = FSDPActorConfig(
             strategy="fsdp",
             ulysses_sequence_parallel_size=2,
             use_dynamic_bsz=True,  # Skip batch size validation to focus on FSDP validation
+            optim=optim,
         )
 
         model_config = {"use_remove_padding": False}
@@ -163,12 +176,14 @@ class TestActorConfig(unittest.TestCase):
 
     def test_actor_config_validate_method_exceptions(self):
         """Test that ActorConfig.validate() raises appropriate validation exceptions."""
+        optim = OptimizerConfig(lr=0.1)
         config = ActorConfig(
             strategy="fsdp",
             use_dynamic_bsz=False,
             ppo_mini_batch_size=256,
             ppo_micro_batch_size=8,
             ppo_micro_batch_size_per_gpu=None,  # Ensure only one batch size setting is used
+            optim=optim,
         )
 
         with self.assertRaises(ValueError) as cm:

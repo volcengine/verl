@@ -76,8 +76,8 @@ class ActorConfig(BaseConfig):
         kl_loss_type (str): Type of KL loss to use.
         ppo_epochs (int): Number of PPO epochs per training step.
         shuffle (bool): Whether to shuffle data during training.
-        checkpoint (dict[str, Any]): Configuration for checkpointing.
-        optim (Dict[str, Any]): Configuration for optimizer.
+        checkpoint (CheckpointConfig): Configuration for checkpointing.
+        optim (OptimizerConfig): Configuration for optimizer.
         use_fused_kernels (bool): Whether to use custom fused kernels (e.g., FlashAttention, fused MLP).
     """
 
