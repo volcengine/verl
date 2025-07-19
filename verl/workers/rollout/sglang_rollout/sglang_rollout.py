@@ -162,16 +162,14 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
 
     async def update_weights_from_tensor(
         self,
-        named_tensors: List[Tuple[str, torch.Tensor]],  # noqa: UP006
+        named_tensors: List[str],  # noqa: UP006
         load_format: Optional[str] = None,
         flush_cache: bool = True,
     ):
         """Update weights from distributed source. If there are going to be more updates, set `flush_cache` to be false
         to avoid duplicated cache cleaning operation."""
         obj = UpdateWeightsFromTensorReqInput(
-            serialized_named_tensors=[
-                MultiprocessingSerializer.serialize(named_tensors) for _ in range(self.server_args.tp_size)
-            ],
+            serialized_named_tensors=named_tensors,
             load_format=load_format,
             flush_cache=flush_cache,
         )
