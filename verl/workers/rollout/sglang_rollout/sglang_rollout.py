@@ -653,6 +653,9 @@ class SGLangRollout(BaseRollout):
                         "image_data": (
                             multi_modal_data.get("image", None) if isinstance(multi_modal_data, dict) else None
                         ),
+                        "video_data": (
+                            multi_modal_data.get("video", None) if isinstance(multi_modal_data, dict) else None
+                        ),
                     }
                 )
         else:
@@ -669,9 +672,10 @@ class SGLangRollout(BaseRollout):
                     f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}"
                 )
 
-        # Extract token IDs and image data for SGLang Engine
+        # Extract token IDs and multi-modal data for SGLang Engine
         idx_list = [input_data["prompt_token_ids"] for input_data in sglang_inputs]
-        image_list = [input_data.get("image_data", None) for input_data in sglang_inputs]
+        image_list = [input_data.get("image_data") for input_data in sglang_inputs]
+        video_list = [input_data.get("video_data") for input_data in sglang_inputs]
 
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
@@ -717,6 +721,7 @@ class SGLangRollout(BaseRollout):
                     return_logprob=True,
                     input_ids=idx_list,
                     image_data=image_list,
+                    video_data=video_list,
                 )
             )
         else:
@@ -868,23 +873,13 @@ class SGLangRollout(BaseRollout):
                     finish_reason_type = FinishReasonTypeEnum.LENGTH
                     break
 
-                # Video support is not implemented yet
-                image_data = (
-                    _req.multi_modal_data["image"]
-                    if _req.multi_modal_data and "image" in _req.multi_modal_data
-                    else None
-                )
-                video_data = (
-                    _req.multi_modal_data["video"]
-                    if _req.multi_modal_data and "video" in _req.multi_modal_data
-                    else None
-                )
-                if video_data:
-                    logger.warning(
-                        "video support is not implemented yet, current length of video data is %d", len(video_data)
-                    )
+                multi_modal_data = _req.multi_modal_data
+                image_data = multi_modal_data.get("image") if multi_modal_data else None
+                video_data = multi_modal_data.get("video") if multi_modal_data else None
 
-                output = await self._handle_engine_call(_req, request_sampling_params, image_data=image_data)
+                output = await self._handle_engine_call(
+                    _req, request_sampling_params, image_data=image_data, video_data=video_data
+                )
                 content = output["text"]
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
@@ -995,13 +990,21 @@ class SGLangRollout(BaseRollout):
         return _req
 
     async def _handle_engine_call(
-        self, _req: AsyncRolloutRequest, sampling_params: dict, image_data: Optional[list[Any]] = None
+        self,
+        _req: AsyncRolloutRequest,
+        sampling_params: dict,
+        image_data: Optional[list[Any]] = None,
+        video_data: Optional[list[Any]] = None,
     ) -> dict:
         generation_prompt_ids = _req.get_generation_prompt_ids(self.processing_class)
-        return await self._handle_engine_generate(generation_prompt_ids, sampling_params, image_data)
+        return await self._handle_engine_generate(generation_prompt_ids, sampling_params, image_data, video_data)
 
     async def _handle_engine_generate(
-        self, generation_prompt_ids: list[int], sampling_params: dict, image_data: Optional[list[Any]] = None
+        self,
+        generation_prompt_ids: list[int],
+        sampling_params: dict,
+        image_data: Optional[list[Any]] = None,
+        video_data: Optional[list[Any]] = None,
     ) -> dict:
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
         kwargs = sampling_params.copy()
@@ -1012,6 +1015,7 @@ class SGLangRollout(BaseRollout):
             sampling_params=kwargs,
             return_logprob=False,
             image_data=image_data,
+            video_data=video_data,
         )
         return output
 
