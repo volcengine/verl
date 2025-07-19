@@ -266,6 +266,17 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         """Get chunk data of this tp rank since we do all gather in preprocess."""
         if self.tp_size == 1:
             return data
+        
+        if len(data) % self.tp_size!=0:
+            pad_size = self.tp_size - len(data) % self.tp_size
+            padding_protos = [data[:pad_size]]
+            data = DataProto.concat([data] + padding_protos)
+            data = data.chunk(chunks=self.tp_size)[self.tp_rank]
+            if self.tp_rank==self.tp_size-1:
+                original = self.tp_size-pad_size
+                data = data[:original]
+            
+            return data
 
         return data.chunk(chunks=self.tp_size)[self.tp_rank]
 
