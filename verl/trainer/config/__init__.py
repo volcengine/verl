@@ -12,15 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .actor import ActorConfig, FSDPActorConfig, MegatronActorConfig, PolicyLossConfig
 from .algorithm import AlgoConfig, FilterGroupsConfig, KLControlConfig, PFPPOConfig
-from .config import CriticConfig, FSDPCriticConfig, MegatronCriticConfig
+from .critic import CriticConfig, FSDPCriticConfig, MegatronCriticConfig
 
 __all__ = [
+    "ActorConfig",
     "AlgoConfig",
     "CriticConfig",
     "FilterGroupsConfig",
+    "FSDPActorConfig",
     "FSDPCriticConfig",
     "KLControlConfig",
+    "MegatronActorConfig",
     "MegatronCriticConfig",
     "PFPPOConfig",
+    "PolicyLossConfig",
 ]

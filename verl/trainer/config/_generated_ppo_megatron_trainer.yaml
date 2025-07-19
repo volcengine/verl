@@ -5,6 +5,7 @@
 
 actor_rollout_ref:
   actor:
+    _target_: verl.trainer.config.MegatronActorConfig
     strategy: megatron
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null
@@ -279,8 +280,10 @@ data:
     path: null
     name: null
 critic:
+  _target_: verl.trainer.config.MegatronCriticConfig
   rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
   strategy: megatron
+  enable: null
   optim:
     lr_warmup_steps_ratio: 0.0
     total_training_steps: -1
@@ -333,7 +336,6 @@ critic:
     discrete: false
     all_ranks: false
     ranks: []
-  _target_: verl.trainer.config.MegatronCriticConfig
   nccl_timeout: 600
   megatron:
     param_offload: false

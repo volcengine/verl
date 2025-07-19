@@ -13,6 +13,9 @@ defaults:
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
+# Target class for this configuration
+_target_: verl.trainer.config.FSDPActorConfig
+
 # TODO(haibin.lin): switch to fsdp2
 strategy: fsdp
 

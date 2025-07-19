@@ -125,7 +125,7 @@ class DataParallelSPPOActor(DataParallelPPOActor):
 
                     entropy_coeff = self.config.entropy_coeff
                     loss_agg_mode = self.config.loss_agg_mode
-                    eta = self.config.get("sppo_eta", 1.0)
+                    eta = self.config.get("extra").get("sppo_eta", 1.0)
 
                     # all return: (bsz, response_length)
                     calculate_entropy = False

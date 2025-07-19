@@ -13,6 +13,9 @@ defaults:
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
+# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+_target_: verl.trainer.config.FSDPCriticConfig
+
 strategy: fsdp
 
 # optimizer configs
@@ -87,6 +90,3 @@ ulysses_sequence_parallel_size: 1
 
 # Gradient clipping for critic updates
 grad_clip: 1.0
-
-# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-_target_: verl.trainer.config.FSDPCriticConfig

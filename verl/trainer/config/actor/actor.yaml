@@ -4,6 +4,9 @@
 # 3. Inline comments (after a field on the same line) are not allowed.
 # 4. Indentation level is respected for nested fields.
 
+# Target class for this configuration
+_target_: verl.trainer.config.ActorConfig
+
 # the abstract actor configs
 # fsdp, fsdp2 or megatron. must be set.
 strategy: ???

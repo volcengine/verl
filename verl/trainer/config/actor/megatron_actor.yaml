@@ -4,6 +4,8 @@ defaults:
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
+_target_: verl.trainer.config.MegatronActorConfig
+
 strategy: megatron
 
 data_loader_seed: null
