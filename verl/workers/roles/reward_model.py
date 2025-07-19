@@ -64,8 +64,8 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         }
 
         src_max_length = data.batch["attention_mask"].shape[-1]
-        src_tokenizer = self.input_tokenizer
-        target_tokenizer = self.tokenizer
+        src_tokenizer = self.engine.input_tokenizer
+        target_tokenizer = self.engine.tokenizer
 
         rm_input_ids = []
         rm_attention_mask = []
@@ -129,7 +129,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         batch_size = micro_batch["input_ids"].shape[0]
         attention_mask = micro_batch["attention_mask"]
         position_ids = micro_batch["position_ids"]
-        scores = preds.sequeeze(-1)  # (batch_size, seq_len)
+        scores = preds.squeeze(-1)  # (batch_size, seq_len)
 
         # extract the result of the last valid token
         eos_mask_idx = torch.argmax(position_ids * attention_mask, dim=-1)  # (bsz,)

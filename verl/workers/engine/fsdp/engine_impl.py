@@ -65,9 +65,19 @@ from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_in
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 if is_cuda_available:
-    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
+    from flash_attn.bert_padding import (
+        index_first_axis,
+        pad_input,
+        rearrange,
+        unpad_input,
+    )
 elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
+    from transformers.integrations.npu_flash_attention import (
+        index_first_axis,
+        pad_input,
+        rearrange,
+        unpad_input,
+    )
 
 from ..base import BaseEngine, EngineRegistry
 from .utils import create_device_mesh, get_sharding_strategy
@@ -185,13 +195,15 @@ class FSDPEngine(BaseEngine):
         # note that the tokenizer between actor and critic may be different. So override tokenizer info with actor info
         # using random initialized model from any architecture. May not be the same as Actor.
 
-        if hasattr(config.model, "tokenizer_path") and config.model.tokenizer_path is not None:
-            tokenizer_path = copy_to_local(config.model.tokenizer_path, use_shm=use_shm)
-        elif hasattr(config.model, "input_tokenizer") and config.model.input_tokenizer is not None:
+        # for reward model with different tokenizer
+        if hasattr(config.model, "input_tokenizer") and config.model.input_tokenizer is not None:
             input_tokenizer_path = copy_to_local(config.model.input_tokenizer, use_shm=use_shm)
             self.input_tokenizer = hf_tokenizer(
-                input_tokenizer_path, trust_remote_code=config.model.get("truct_remote_code", False)
+                input_tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False)
             )
+
+        if hasattr(config.model, "tokenizer_path") and config.model.tokenizer_path is not None:
+            tokenizer_path = copy_to_local(config.model.tokenizer_path, use_shm=use_shm)
         else:
             tokenizer_path = copy_to_local(config.model.path, use_shm=use_shm)
         self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
@@ -361,7 +373,10 @@ class FSDPEngine(BaseEngine):
             if self.rank == 0:
                 print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
 
-            from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
+            from verl.utils.torch_functional import (
+                get_constant_schedule_with_warmup,
+                get_cosine_schedule_with_warmup,
+            )
 
             if warmup_style == "constant":
                 lr_scheduler = get_constant_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=num_warmup_steps)
