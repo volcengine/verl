@@ -31,15 +31,10 @@ class BaseConfig(collections.abc.Mapping):
     extra: dict[str, Any] = field(default_factory=dict)
 
     def __setattr__(self, name: str, value):
-        # if the field already exists (i.e. was set in __init__)
-        # and is in our frozen list, block assignment
-    def __setattr__(self, name: str, value):
-        # if the field already exists, it's considered frozen unless it's in _mutable_fields
+        """Set the value of an attribute. Check if the attr is mutable before setting the value."""
+        # If the field already exists, it's considered frozen unless it's in _mutable_fields
         if name in self.__dict__ and name not in getattr(self, '_mutable_fields', set()):
             raise FrozenInstanceError(f"Field '{name}' is frozen and cannot be modified")
-        super().__setattr__(name, value)
-
-        # do the normal thing
         super().__setattr__(name, value)
 
     def get(self, key: str, default: Any = None) -> Any:
