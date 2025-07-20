@@ -34,10 +34,10 @@ NNODES=${NNODES:-1}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 # Paths
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
-MODEL_PATH=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen3-30B-A3B-Base
+MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen3-30B-A3B-Base"}
 CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
-TRAIN_FILE=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/dataset/dapo-math-17k.parquet
-TEST_FILE=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/dataset/aime-2024.parquet
+TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
+TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 
 # Algorithm
 temperature=1.0
@@ -52,7 +52,7 @@ actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 1))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 offload=True
 gen_tp=4
-fsdp_size=32
+fsdp_size=8
 
 python3 -m verl.trainer.main_ppo \
     data.train_files="${TRAIN_FILE}" \
