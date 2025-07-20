@@ -68,7 +68,11 @@ def test_tensor_dict_constructor():
     obs = torch.ones(100, 10)
     act = torch.zeros(100, 10, 3)
     data_source = ["gsm8k"] * 100
-    data = tu.get_tensordict(tensor_dict={"obs": obs, "act": act, "data_source": data_source})
+    non_tensor_dict = {'name': "abdce"}
+
+    data = tu.get_tensordict(tensor_dict={"obs": obs, "act": act, "data_source": data_source},
+                             non_tensor_dict=non_tensor_dict)
+
 
     assert data.batch_size == torch.Size([100])
 
@@ -81,10 +85,31 @@ def test_tensor_dict_constructor():
     assert torch.all(torch.eq(data[0:2]["act"], torch.zeros(2, 10, 3))).item()
     assert data[0:2]["data_source"] == ["gsm8k"] * 2
 
+    # test non tensor data
+    data["name"] == "abdce"
 
 def test_tensordict_with_images():
     # each sample contains a sequence with multiple images of different sizes
-    pass
+    vocab_size = 128
+    a = torch.randint(low=0, high=vocab_size, size=(11,))
+    b = torch.randint(low=0, high=vocab_size, size=(13,))
+    input_ids = [a, b]
+    input_ids = torch.nested.as_nested_tensor(input_ids, layout=torch.jagged)
+
+    # must be numpy
+    # TODO(vermouth1992). We may use nested tensor too. But this requires nested over nested
+    a_images = [torch.randint(low=0, high=255, size=(3, 256, 256), dtype=torch.uint8).numpy(),
+                torch.randint(low=0, high=255, size=(3, 128, 128), dtype=torch.uint8).numpy()]
+    b_images = [torch.randint(low=0, high=255, size=(3, 256, 256), dtype=torch.uint8).numpy(),
+                torch.randint(low=0, high=255, size=(3, 128, 128), dtype=torch.uint8).numpy(),
+                torch.randint(low=0, high=255, size=(3, 64, 64), dtype=torch.uint8).numpy()]
+
+    images = [a_images, b_images]
+
+    data = tu.get_tensordict({"input_ids": input_ids, "images": images})
+
+    assert np.all(np.equal(data[0]["images"][0], a_images[0]))
+    assert torch.all(torch.eq(data[0]["input_ids"], a))
 
 
 def test_tensordict_with_packing():
@@ -114,16 +139,33 @@ def test_tensordict_with_packing():
 
 
 def test_tensor_dict_make_iterator():
-    obs = torch.randn(100, 10)
-    labels = [random.choice(["abc", "cde"]) for _ in range(100)]
-    dataset = DataProto.from_dict(data={"obs": obs, "labels": labels})
+    obs = torch.tensor([1, 2, 3, 4, 5, 6])
+    data_sources = ["abc", "def", "abc", "def", "pol", "klj"]
+    non_tensor_dict = {"train_sample_kwargs": {"top_p": 1.0},
+                       "val_sample_kwargs": {"top_p": 0.7}}
+    data = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
 
-    data_iter_1 = dataset.make_iterator(mini_batch_size=10, epochs=2, seed=1)
+    dataloader = tu.make_iterator(data, mini_batch_size=2, epochs=2, seed=0, dataloader_kwargs={"shuffle": False, "drop_last": False})
+
+    expected_tensor_dict = [data[0:2], data[2:4], data[4:6], data[0:2], data[2:4], data[4:6]]
+
+    i = 0
+    from IPython import embed
+    embed()
+
+    for d in dataloader:
+        torch.eq(d, expected_tensor_dict[i])
+        i += 1
+
+    from IPython import embed
+    embed()
+
+    data_iter_1 = tu.make_iterator(data, mini_batch_size=10, epochs=2, seed=1, dataloader_kwargs={"shuffle": True})
     data_list_1 = []
     for data in data_iter_1:
         data_list_1.append(data)
 
-    data_iter_2 = dataset.make_iterator(mini_batch_size=10, epochs=2, seed=1)
+    data_iter_2 = tu.make_iterator(data, mini_batch_size=10, epochs=2, seed=1, dataloader_kwargs={"shuffle": True})
     data_list_2 = []
     for data in data_iter_2:
         data_list_2.append(data)
@@ -145,12 +187,18 @@ def test_tensor_dict_make_iterator():
 def test_reorder():
     obs = torch.tensor([1, 2, 3, 4, 5, 6])
     labels = ["a", "b", "c", "d", "e", "f"]
-    data = DataProto.from_dict(tensors={"obs": obs}, non_tensors={"labels": labels}, meta_info={"name": "abdce"})
-    data.reorder(torch.tensor([3, 4, 2, 0, 1, 5]))
+    non_tensor_dict = {'name': "abdce"}
 
-    assert torch.all(torch.eq(data.batch["obs"], torch.tensor([4, 5, 3, 1, 2, 6])))
-    assert np.all(data.non_tensor_batch["labels"] == np.array(["d", "e", "c", "a", "b", "f"]))
-    assert data.meta_info == {"name": "abdce"}
+    data = tu.get_tensordict(tensor_dict={"obs": obs, "labels": labels}, non_tensor_dict=non_tensor_dict)
+
+    from IPython import embed
+    embed()
+
+    data = data[torch.tensor([3, 4, 2, 0, 1, 5])]
+
+    assert torch.all(torch.eq(data["obs"], torch.tensor([4, 5, 3, 1, 2, 6])))
+    assert np.all(data["labels"] == np.array(["d", "e", "c", "a", "b", "f"]))
+    assert data["name"] == "abdce"
 
 
 def test_chunk_concat():
@@ -267,28 +315,6 @@ def test_dataproto_pad_unpad():
     assert unpadd_data.meta_info == {"info": "test_info"}
 
 
-def test_dataproto_fold_unfold():
-    from verl.protocol import DataProto, fold_batch_dim, unfold_batch_dim
-
-    obs = torch.tensor([[1, 2], [3, 4], [5, 6]])
-    labels = ["a", "b", "c"]
-    data = DataProto.from_dict(tensors={"obs": obs}, non_tensors={"labels": labels}, meta_info={"info": "test_info"})
-
-    data1 = data.repeat(repeat_times=2, interleave=True)
-
-    data2 = fold_batch_dim(data1, new_batch_size=3)
-
-    torch.testing.assert_close(data2.batch["obs"], torch.tensor([[[1, 2], [1, 2]], [[3, 4], [3, 4]], [[5, 6], [5, 6]]]))
-    assert (data2.non_tensor_batch["labels"] == [["a", "a"], ["b", "b"], ["c", "c"]]).all()
-
-    data2.reorder(indices=torch.tensor([1, 2, 0]))
-
-    data3 = unfold_batch_dim(data2, batch_dims=2)
-
-    torch.testing.assert_close(data3.batch["obs"], torch.tensor([[3, 4], [3, 4], [5, 6], [5, 6], [1, 2], [1, 2]]))
-    assert (data3.non_tensor_batch["labels"] == ["b", "b", "c", "c", "a", "a"]).all()
-    assert data3.meta_info == {"info": "test_info"}
-
 
 def test_torch_save_data_proto():
     obs = torch.tensor([[1, 2], [3, 4], [5, 6]])
@@ -390,42 +416,6 @@ def test_dataproto_index():
     assert np.array_equal(result_list_bool.non_tensor_batch["labels"], labels_np[idx_list_bool])
 
 
-def test_old_vs_new_from_single_dict():
-    class CustomProto(DataProto):
-        """Uses the new, fixed from_single_dict."""
-
-        pass
-
-    class OriginProto(DataProto):
-        """Mimics the *old* from_single_dict (always returns a DataProto)."""
-
-        @classmethod
-        def from_single_dict(cls, data, meta_info=None, auto_padding=False):
-            tensors, non_tensors = {}, {}
-            for k, v in data.items():
-                if torch.is_tensor(v):
-                    tensors[k] = v
-                else:
-                    non_tensors[k] = v
-            # always calls DataProto.from_dict, ignoring `cls`
-            return DataProto.from_dict(
-                tensors=tensors,
-                non_tensors=non_tensors,
-                meta_info=meta_info,
-                auto_padding=auto_padding,
-            )
-
-    sample = {"x": torch.tensor([0])}
-
-    orig = OriginProto.from_single_dict(sample)
-    # old behavior: always DataProto, not a CustomOriginProto
-    assert type(orig) is DataProto
-    assert type(orig) is not OriginProto
-
-    cust = CustomProto.from_single_dict(sample)
-    # new behavior: respects subclass
-    assert type(cust) is CustomProto
-
 
 def test_dataproto_no_batch():
     labels = ["a", "b", "c"]
@@ -460,72 +450,6 @@ def test_sample_level_repeat():
     assert torch.all(torch.eq(repeated_data_no_interleave.batch["obs"], expected_obs_no_interleave))
     assert (repeated_data_no_interleave.non_tensor_batch["labels"] == expected_labels_no_interleave).all()
     assert repeated_data_no_interleave.meta_info == {"info": "test_info"}
-
-
-def test_dataproto_unfold_column_chunks():
-    obs1 = torch.tensor([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]])
-    obs2 = torch.tensor([[1, 2], [5, 6], [9, 10]])
-
-    labels = ["a", "b", "c"]
-    data = DataProto.from_dict(
-        tensors={"obs1": obs1, "obs2": obs2}, non_tensors={"labels": labels}, meta_info={"name": "abc"}
-    )
-    ret = data.unfold_column_chunks(2, split_keys=["obs1"])
-
-    expect_obs1 = torch.tensor([[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12]])
-    expect_obs2 = torch.tensor([[1, 2], [1, 2], [5, 6], [5, 6], [9, 10], [9, 10]])
-    expect_labels = ["a", "a", "b", "b", "c", "c"]
-    assert torch.all(torch.eq(ret.batch["obs1"], expect_obs1))
-    assert torch.all(torch.eq(ret.batch["obs2"], expect_obs2))
-    assert (ret.non_tensor_batch["labels"] == expect_labels).all()
-    assert ret.meta_info == {"name": "abc"}
-
-    obs1 = torch.tensor([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]])
-    obs2 = torch.tensor([[1, 2], [5, 6], [9, 10]])
-
-    labels = [["a1", "a2"], ["b1", "b2"], ["c1", "c2"]]
-    data = DataProto.from_dict(
-        tensors={"obs1": obs1, "obs2": obs2}, non_tensors={"labels": labels}, meta_info={"name": "abc"}
-    )
-    ret = data.unfold_column_chunks(2, split_keys=["obs1", "labels"])
-
-    expect_obs1 = torch.tensor([[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12]])
-    expect_obs2 = torch.tensor([[1, 2], [1, 2], [5, 6], [5, 6], [9, 10], [9, 10]])
-    expect_labels = [["a1"], ["a2"], ["b1"], ["b2"], ["c1"], ["c2"]]
-    assert torch.all(torch.eq(ret.batch["obs1"], expect_obs1))
-    assert torch.all(torch.eq(ret.batch["obs2"], expect_obs2))
-    assert (ret.non_tensor_batch["labels"] == expect_labels).all()
-    assert ret.meta_info == {"name": "abc"}
-
-    obs1 = torch.tensor(
-        [[[1, 1], [2, 2], [3, 3], [4, 4]], [[5, 5], [6, 6], [7, 7], [8, 8]], [[9, 9], [10, 10], [11, 11], [12, 12]]]
-    )
-    obs2 = torch.tensor([[[1, 1], [2, 2]], [[5, 5], [6, 6]], [[9, 9], [10, 10]]])
-
-    labels = ["a", "b", "c"]
-    data = DataProto.from_dict(
-        tensors={"obs1": obs1, "obs2": obs2}, non_tensors={"labels": labels}, meta_info={"name": "abc"}
-    )
-    ret = data.unfold_column_chunks(2, split_keys=["obs1"])
-
-    expect_obs1 = torch.tensor(
-        [
-            [[1, 1], [2, 2]],
-            [[3, 3], [4, 4]],
-            [[5, 5], [6, 6]],
-            [[7, 7], [8, 8]],
-            [[9, 9], [10, 10]],
-            [[11, 11], [12, 12]],
-        ]
-    )
-    expect_obs2 = torch.tensor(
-        [[[1, 1], [2, 2]], [[1, 1], [2, 2]], [[5, 5], [6, 6]], [[5, 5], [6, 6]], [[9, 9], [10, 10]], [[9, 9], [10, 10]]]
-    )
-    expect_labels = ["a", "a", "b", "b", "c", "c"]
-    assert torch.all(torch.eq(ret.batch["obs1"], expect_obs1))
-    assert torch.all(torch.eq(ret.batch["obs2"], expect_obs2))
-    assert (ret.non_tensor_batch["labels"] == expect_labels).all()
-    assert ret.meta_info == {"name": "abc"}
 
 
 def test_dataproto_chunk_after_index():

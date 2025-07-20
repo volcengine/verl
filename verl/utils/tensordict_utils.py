@@ -43,6 +43,10 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
     batch_size = None
 
     for key, val in tensor_dict.items():
+        if isinstance(val, list):
+            for v in val:
+                assert not isinstance(v, torch.Tensor), "Passing a list makes the data NonTensorStack, which doesn't support torch.Tensor. Please convert to numpy first"
+
         assert isinstance(val, (torch.Tensor, list))
 
         if batch_size is None:
@@ -52,7 +56,7 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
 
     for key, val in non_tensor_dict.items():
         assert key not in tensor_dict
-        tensor_dict.update(NonTensorData(val))
+        tensor_dict[key] = NonTensorData(val)
 
     return TensorDict(source=tensor_dict, batch_size=[batch_size])
 
@@ -80,29 +84,27 @@ def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> Ten
 
 
 def make_iterator(tensordict: TensorDict, mini_batch_size, epochs, seed=None, dataloader_kwargs=None):
-    pass
-    # from torch.utils.data import DataLoader
-    #
-    # assert tensordict.batch_size[0] % mini_batch_size == 0, f"{tensordict.batch_size[0]} % {mini_batch_size} != 0"
-    # # we can directly create a dataloader from TensorDict
-    # if dataloader_kwargs is None:
-    #     dataloader_kwargs = {}
-    #
-    # if seed is not None:
-    #     generator = torch.Generator()
-    #     generator.manual_seed(seed)
-    # else:
-    #     generator = None
-    #
-    # assert isinstance(dataloader_kwargs, dict)
-    # train_dataloader = DataLoader(
-    #     dataset=tensordict, batch_size=mini_batch_size, collate_fn=collate_fn, generator=generator, **dataloader_kwargs
-    # )
-    #
-    # def get_data():
-    #     for _ in range(epochs):
-    #         for d in train_dataloader:
-    #             d.meta_info = self.meta_info
-    #             yield d
-    #
-    # return iter(get_data())
+    from torch.utils.data import DataLoader
+
+    assert tensordict.batch_size[0] % mini_batch_size == 0, f"{tensordict.batch_size[0]} % {mini_batch_size} != 0"
+    # we can directly create a dataloader from TensorDict
+    if dataloader_kwargs is None:
+        dataloader_kwargs = {}
+
+    if seed is not None:
+        generator = torch.Generator()
+        generator.manual_seed(seed)
+    else:
+        generator = None
+
+    assert isinstance(dataloader_kwargs, dict)
+    train_dataloader = DataLoader(
+        dataset=tensordict, batch_size=mini_batch_size, collate_fn=lambda x: x, generator=generator, **dataloader_kwargs
+    )
+
+    def get_data():
+        for _ in range(epochs):
+            for d in train_dataloader:
+                yield d
+
+    return iter(get_data())
