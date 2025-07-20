@@ -22,8 +22,7 @@ import numpy as np
 import pytest
 import torch
 
-from verl.protocol import union_tensor_dict
-from verl.utils.tensordict_utils import get_tensordict
+from verl.utils import tensordict_utils as tu
 
 
 def test_union_tensor_dict():
@@ -31,29 +30,45 @@ def test_union_tensor_dict():
 
     meta_info1 = {"top_p": 0.8}
     meta_info2 = {"top_p": 0.9}
-    data1 = {"obs": obs, "act": torch.randn(100, 3)}
-    data2 = {"obs": obs, "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}
+    data1 = {"obs": obs, "act": torch.randn(100, 3), "data_sources": ["gsm8k"] * 100}
+    data2 = {"obs": obs, "next_obs": torch.randn(100, 10), "rew": torch.randn(100), "data_sources": ["gsm8k"] * 100}
 
     data_with_copied_obs = {"obs": obs.clone(), "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}
 
-    data1 = get_tensordict(tensor_dict=data1)
-    data2 = get_tensordict(tensor_dict=data2)
-    data_with_copied_obs = get_tensordict(data_with_copied_obs)
+    data1 = tu.get_tensordict(tensor_dict=data1)
+    data2 = tu.get_tensordict(tensor_dict=data2)
+    data_with_copied_obs = tu.get_tensordict(data_with_copied_obs)
 
-    from IPython import embed
-
-    embed()
-
-    data = union_tensor_dict(data1, data2)
+    data = tu.union_tensor_dict(data1, data2)
     with pytest.raises(AssertionError):
-        data = union_tensor_dict(data1, data_with_copied_obs)
+        # conflict in tensor values
+        data = tu.union_tensor_dict(data1, data_with_copied_obs)
+
+    data1 = tu.assign_non_tensor_dict(data1, meta_info1)
+    data = tu.union_tensor_dict(data1, data2)  # works ok
+
+    data2 = tu.assign_non_tensor_dict(data2, meta_info2)
+
+    with pytest.raises(AssertionError):
+        # conflict in NonTensorData
+        data = tu.union_tensor_dict(data1, data2)
+
+    data1.pop("top_p")
+    data2.pop("top_p")
+
+    data = tu.union_tensor_dict(data1, data2)
+
+    data2["data_sources"][0] = "math"
+    with pytest.raises(AssertionError):
+        # conflict in NonTensorData
+        data = tu.union_tensor_dict(data1, data2)
 
 
 def test_tensor_dict_constructor():
     obs = torch.ones(100, 10)
     act = torch.zeros(100, 10, 3)
     data_source = ["gsm8k"] * 100
-    data = get_tensordict(tensor_dict={"obs": obs, "act": act, "data_source": data_source})
+    data = tu.get_tensordict(tensor_dict={"obs": obs, "act": act, "data_source": data_source})
 
     assert data.batch_size == torch.Size([100])
 
@@ -68,11 +83,34 @@ def test_tensor_dict_constructor():
 
 
 def test_tensordict_with_images():
+    # each sample contains a sequence with multiple images of different sizes
     pass
 
 
-def test_tensordict_with_rmpad():
-    pass
+def test_tensordict_with_packing():
+    vocab_size = 128
+    a = torch.randint(low=0, high=vocab_size, size=(11,))
+    b = torch.randint(low=0, high=vocab_size, size=(13,))
+    input_ids = [a, b]
+    input_ids = torch.nested.as_nested_tensor(input_ids, layout=torch.jagged)
+
+    data = tu.get_tensordict({"input_ids": input_ids})
+
+    # test cu_seqlens
+    cu_seqlens = torch.tensor([0, 11, 24])
+    assert torch.all(torch.eq(cu_seqlens, data["input_ids"].offsets()))
+
+    # test index
+    assert torch.all(torch.eq(data["input_ids"][0], a))
+    assert torch.all(torch.eq(data["input_ids"][1], b))
+
+    assert torch.all(torch.eq(data[0]["input_ids"], a))
+    assert torch.all(torch.eq(data[1]["input_ids"], b))
+
+    data_lst = data.chunk(2)
+
+    assert torch.all(torch.eq(data_lst[0]["input_ids"][0], a))
+    assert torch.all(torch.eq(data_lst[1]["input_ids"][0], b))
 
 
 def test_tensor_dict_make_iterator():

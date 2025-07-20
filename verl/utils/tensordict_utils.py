@@ -16,10 +16,18 @@ import torch
 from tensordict import TensorDict
 from tensordict.tensorclass import NonTensorData
 
-META_INFO_KEY = "meta_info"
+
+def assign_non_tensor_dict(tensor_dict: TensorDict, non_tensor_dict: dict):
+    for key, val in non_tensor_dict.items():
+        assign_non_tensor_data(tensor_dict=tensor_dict, key=key, val=val)
+    return tensor_dict
 
 
-def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], meta_info: dict = None) -> TensorDict:
+def assign_non_tensor_data(tensor_dict: TensorDict, key, val):
+    tensor_dict[key] = NonTensorData(val)
+
+
+def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict: dict = None) -> TensorDict:
     """
 
     Args:
@@ -29,13 +37,12 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], meta_info: dict 
     Returns:
 
     """
-    if meta_info is None:
-        meta_info = {}
+    if non_tensor_dict is None:
+        non_tensor_dict = {}
 
     batch_size = None
 
     for key, val in tensor_dict.items():
-        assert key != META_INFO_KEY
         assert isinstance(val, (torch.Tensor, list))
 
         if batch_size is None:
@@ -43,34 +50,59 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], meta_info: dict 
         else:
             assert len(val) == batch_size
 
-    meta_info = NonTensorData(meta_info)
-    tensor_dict.update({META_INFO_KEY: meta_info})
+    for key, val in non_tensor_dict.items():
+        assert key not in tensor_dict
+        tensor_dict.update(NonTensorData(val))
+
     return TensorDict(source=tensor_dict, batch_size=[batch_size])
 
 
-def make_iterator(tensordict: TensorDict, mini_batch_size, epochs, seed=None, dataloader_kwargs=None):
-    from torch.utils.data import DataLoader
-
-    assert tensordict.batch_size[0] % mini_batch_size == 0, f"{tensordict.batch_size[0]} % {mini_batch_size} != 0"
-    # we can directly create a dataloader from TensorDict
-    if dataloader_kwargs is None:
-        dataloader_kwargs = {}
-
-    if seed is not None:
-        generator = torch.Generator()
-        generator.manual_seed(seed)
-    else:
-        generator = None
-
-    assert isinstance(dataloader_kwargs, dict)
-    train_dataloader = DataLoader(
-        dataset=tensordict, batch_size=mini_batch_size, collate_fn=collate_fn, generator=generator, **dataloader_kwargs
+def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> TensorDict:
+    """Union two tensordicts."""
+    assert tensor_dict1.batch_size == tensor_dict2.batch_size, (
+        f"Two tensor dict must have identical batch size. Got {tensor_dict1.batch_size} and {tensor_dict2.batch_size}"
     )
+    for key in tensor_dict2.keys():
+        if key not in tensor_dict1.keys():
+            tensor_dict1[key] = tensor_dict2[key]
+        else:
+            if isinstance(tensor_dict2[key], torch.Tensor):
+                assert tensor_dict1[key].equal(tensor_dict2[key]), (
+                    f"{key} in tensor_dict1 and tensor_dict2 are not the same object"
+                )
+            else:
+                # non-tensor
+                assert tensor_dict1[key] == tensor_dict2[key], (
+                    f"{key} in tensor_dict1 and tensor_dict2 are not the same object"
+                )
 
-    def get_data():
-        for _ in range(epochs):
-            for d in train_dataloader:
-                d.meta_info = self.meta_info
-                yield d
+    return tensor_dict1
 
-    return iter(get_data())
+
+def make_iterator(tensordict: TensorDict, mini_batch_size, epochs, seed=None, dataloader_kwargs=None):
+    pass
+    # from torch.utils.data import DataLoader
+    #
+    # assert tensordict.batch_size[0] % mini_batch_size == 0, f"{tensordict.batch_size[0]} % {mini_batch_size} != 0"
+    # # we can directly create a dataloader from TensorDict
+    # if dataloader_kwargs is None:
+    #     dataloader_kwargs = {}
+    #
+    # if seed is not None:
+    #     generator = torch.Generator()
+    #     generator.manual_seed(seed)
+    # else:
+    #     generator = None
+    #
+    # assert isinstance(dataloader_kwargs, dict)
+    # train_dataloader = DataLoader(
+    #     dataset=tensordict, batch_size=mini_batch_size, collate_fn=collate_fn, generator=generator, **dataloader_kwargs
+    # )
+    #
+    # def get_data():
+    #     for _ in range(epochs):
+    #         for d in train_dataloader:
+    #             d.meta_info = self.meta_info
+    #             yield d
+    #
+    # return iter(get_data())
