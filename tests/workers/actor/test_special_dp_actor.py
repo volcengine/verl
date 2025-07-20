@@ -61,14 +61,15 @@ class TestDataParallelPPOActor(unittest.TestCase):
 
         import torch.distributed
 
+        backend = "cpu:gloo,cuda:nccl" if torch.cuda.is_available() else "gloo"
         if not torch.distributed.is_initialized():
             rank = int(os.environ.get("RANK", 0))
             world_size = int(os.environ.get("WORLD_SIZE", 1))
             torch.distributed.init_process_group(
-                backend="cpu:gloo,cuda:nccl",
+                backend=backend,
                 rank=rank,
                 world_size=world_size,
-                init_method=os.environ.get("DIST_INIT_METHOD", None),
+                init_method=os.environ.get("DIST_INIT_METHOD", "env://"),
             )
 
         self.mock_memory_info_patcher = patch("verl.utils.profiler.performance._get_current_mem_info")
@@ -100,7 +101,8 @@ class TestDataParallelPPOActor(unittest.TestCase):
 
     def tearDown(self):
         """Clean up test fixtures"""
-        torch.distributed.destroy_process_group()
+        # repated init and destroy seems unstable with torch
+        # torch.distributed.destroy_process_group()
         self.mock_memory_info_patcher.stop()
 
     def _create_test_data_for_compute_log_prob(self):
