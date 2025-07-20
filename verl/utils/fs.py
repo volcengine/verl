@@ -198,7 +198,7 @@ def copy_to_local(
     """Copy files/directories from HDFS to local cache with validation.
 
     Args:
-        src (str): Source path - HDFS path (hdfs://...) or local filesystem path
+        src (str): Source path - HDFS path (hdfs://...) or local filesystem path or HuggingFace model name
         cache_dir (str, optional): Local directory for cached files. Uses system tempdir if None
         filelock (str): Base name for file lock. Defaults to ".file.lock"
         verbose (bool): Enable copy operation logging. Defaults to False
@@ -208,8 +208,53 @@ def copy_to_local(
     Returns:
         str: Local filesystem path to copied resource
     """
-    # Save to a local path for persistence.
-    local_path = copy_local_path_from_hdfs(src, cache_dir, filelock, verbose, always_recopy)
+    # Check if this is a HuggingFace model name (contains '/' but not a local path or HDFS path)
+    if "/" in src and not os.path.exists(src) and not is_non_local(src):
+        # This is likely a HuggingFace model name, download it
+        if verbose:
+            print(f"Detected HuggingFace model name: {src}, downloading...")
+
+        # Use HF_HOME or default cache directory
+        if cache_dir is None:
+            cache_dir = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+
+        # Create a unique path for this model
+        model_cache_dir = os.path.join(cache_dir, "hub", "models--" + src.replace("/", "--"))
+
+        if not os.path.exists(model_cache_dir) or always_recopy:
+            if verbose:
+                print(f"Downloading model {src} to {model_cache_dir}")
+
+            # Import here to avoid circular imports
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+
+            try:
+                # Download the model
+                model = AutoModelForCausalLM.from_pretrained(
+                    src, cache_dir=cache_dir, local_files_only=False, trust_remote_code=True
+                )
+                tokenizer = AutoTokenizer.from_pretrained(
+                    src, cache_dir=cache_dir, local_files_only=False, trust_remote_code=True
+                )
+
+                # Save to our cache directory
+                os.makedirs(model_cache_dir, exist_ok=True)
+                model.save_pretrained(model_cache_dir)
+                tokenizer.save_pretrained(model_cache_dir)
+
+                if verbose:
+                    print(f"Model {src} downloaded and saved to {model_cache_dir}")
+
+            except Exception as e:
+                print(f"Failed to download model {src}: {e}")
+                raise
+
+        # Return the local path
+        local_path = model_cache_dir
+    else:
+        # Save to a local path for persistence.
+        local_path = copy_local_path_from_hdfs(src, cache_dir, filelock, verbose, always_recopy)
+
     # Load into shm to improve efficiency.
     if use_shm:
         return copy_to_shm(local_path)
