@@ -210,47 +210,33 @@ def copy_to_local(
     """
     # Check if this is a HuggingFace model name (contains '/' but not a local path or HDFS path)
     if "/" in src and not os.path.exists(src) and not is_non_local(src):
-        # This is likely a HuggingFace model name, download it
+        # This is likely a HuggingFace model name, download it using huggingface_hub
         if verbose:
-            print(f"Detected HuggingFace model name: {src}, downloading...")
+            print(f"Detected HuggingFace model name: {src}, ensuring it is cached locally...")
 
-        # Use HF_HOME or default cache directory
+        # Import here to avoid circular imports and add huggingface_hub
+        from huggingface_hub import snapshot_download
+        from huggingface_hub.utils import HfFolder
+
+        # Use HF_HOME or default cache directory if not provided
         if cache_dir is None:
             cache_dir = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
 
-        # Create a unique path for this model
-        model_cache_dir = os.path.join(cache_dir, "hub", "models--" + src.replace("/", "--"))
-
-        if not os.path.exists(model_cache_dir) or always_recopy:
+        try:
+            # snapshot_download handles caching efficiently. It will download the model
+            # files and return the path to the cached directory. It avoids loading the
+            # model into memory and re-saving it.
+            local_path = snapshot_download(
+                repo_id=src,
+                cache_dir=cache_dir,
+                force_download=always_recopy,
+                token=HfFolder.get_token(),  # Use cached token for private models
+            )
             if verbose:
-                print(f"Downloading model {src} to {model_cache_dir}")
-
-            # Import here to avoid circular imports
-            from transformers import AutoModelForCausalLM, AutoTokenizer
-
-            try:
-                # Download the model
-                model = AutoModelForCausalLM.from_pretrained(
-                    src, cache_dir=cache_dir, local_files_only=False, trust_remote_code=True
-                )
-                tokenizer = AutoTokenizer.from_pretrained(
-                    src, cache_dir=cache_dir, local_files_only=False, trust_remote_code=True
-                )
-
-                # Save to our cache directory
-                os.makedirs(model_cache_dir, exist_ok=True)
-                model.save_pretrained(model_cache_dir)
-                tokenizer.save_pretrained(model_cache_dir)
-
-                if verbose:
-                    print(f"Model {src} downloaded and saved to {model_cache_dir}")
-
-            except Exception as e:
-                print(f"Failed to download model {src}: {e}")
-                raise
-
-        # Return the local path
-        local_path = model_cache_dir
+                print(f"Model {src} is available at {local_path}")
+        except Exception as e:
+            print(f"Failed to download model {src}: {e}")
+            raise
     else:
         # Save to a local path for persistence.
         local_path = copy_local_path_from_hdfs(src, cache_dir, filelock, verbose, always_recopy)
