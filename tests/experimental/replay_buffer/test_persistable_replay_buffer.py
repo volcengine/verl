@@ -382,8 +382,9 @@ class TestPersistableReplayBuffer(unittest.TestCase):
         while time.time() - start_time < timeout:
             # p0 queue empty means that the task is about to be executed or is executing
             if client._task_processor._p0_q.empty():
+                time.sleep(2)  # wait until actual executed
                 return
-            time.sleep(2)
+            time.sleep(0.5)
         raise TimeoutError("p0 task queue is not empty after wait")
 
     # wait for all p1 tasks (evict/populate) to finish executing by the task processor
@@ -392,8 +393,9 @@ class TestPersistableReplayBuffer(unittest.TestCase):
         while time.time() - start_time < timeout:
             # p1 queue empty means that the task is about to be executed or is executing
             if client._task_processor._p1_q.empty():
+                time.sleep(2)  # wait until actual executed
                 return
-            time.sleep(2)
+            time.sleep(0.5)
         raise TimeoutError("p1 task queue is not empty after wait")
 
     # wait for eviction manager to finish calculating sizes
@@ -401,8 +403,9 @@ class TestPersistableReplayBuffer(unittest.TestCase):
         start_time = time.time()
         while time.time() - start_time < timeout:
             if client._cache._eviction_manager._work_queue.empty():
+                time.sleep(2)  # wait until actual executed
                 return
-            time.sleep(2)
+            time.sleep(0.5)
         raise TimeoutError("eviction manager queue is not empty after wait")
 
 
