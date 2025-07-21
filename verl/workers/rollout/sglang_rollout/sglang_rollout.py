@@ -1217,14 +1217,17 @@ class SGLangRollout(BaseRollout):
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self._engine.flush_cache())
 
+        non_tensor_batch = {
+            "messages": np.array(messages),
+            "reward_scores": np.array(reward_scores),
+            "request_id": np.array(request_ids),
+        }
+        if isinstance(self.processing_class, ProcessorMixin):
+            non_tensor_batch["multi_modal_inputs"] = np.array(multi_modal_inputs, dtype=object)
+
         return DataProto(
             batch=batch,
-            non_tensor_batch={
-                "messages": np.array(messages),
-                "reward_scores": np.array(reward_scores),
-                "multi_modal_inputs": np.array(multi_modal_inputs, dtype=object),
-                "request_id": np.array(request_ids),
-            },
+            non_tensor_batch=non_tensor_batch,
         )
 
     def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: int = 1) -> list[AsyncRolloutRequest]:
