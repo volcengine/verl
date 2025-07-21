@@ -1,6 +1,6 @@
 # basics
 project_name='Code'
-exp_name='R1-Distill-7B-GRPO-0606'
+exp_name='R1-Distill-7B-AGPO'
 
 adv_estimator=grpo
 
@@ -23,10 +23,11 @@ NNODES=1
 
 # Paths
 RAY_DATA_HOME="/home/share/reasoning"
+CKPT_PATH="/home/share/reasoning/ckpts"
 MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/DeepSeek-R1-Distill-Qwen-7B"}
-CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/${project_name}/${exp_name}"}
-TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/rl_code_data_0528.parquet"}
-TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/code_test.parquet"}
+CKPTS_DIR=${CKPTS_DIR:-"${CKPT_PATH}/${project_name}/${exp_name}"}
+TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/rl_code_train_0630_array_filtered.parquet"}
+TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/rl_code_benchmark_0627.parquet"}
 # TEST_FILE=${TEST_FILE:-"/home/lichen/verl/test.parquet"}
 
 # Algorithm
@@ -91,6 +92,7 @@ CMD="python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.ref.fsdp_config.param_offload=${offload} \
     reward_model.reward_manager=prime \
+    +reward_model.validation_reward_manager=prime \
     trainer.logger=['console','wandb'] \
     trainer.project_name=\"${project_name}\" \
     trainer.experiment_name=\"${exp_name}\" \
@@ -107,7 +109,7 @@ CMD="python3 -m verl.trainer.main_ppo \
 # Check NNODES and execute accordingly
 if [ "$NNODES" -gt 1 ]; then
     echo "Running with Ray job submission (NNODES=$NNODES)"
-    ray job submit --address="http://10.55.251.20:8265" \
+    ray job submit --address="http://172.16.100.7:8265" \
         --runtime-env="./verl/trainer/runtime_env.yaml" \
         --no-wait \
         -- $CMD

@@ -19,7 +19,20 @@ import traceback
 from .utils import check_correctness as apps_check_correctness
 
 
+def remove_think_tags(text):
+    """Remove text wrapped by <think> and </think> tags"""
+    # Use regex to remove everything between <think> and </think> tags (including the tags)
+    # The .*? makes it non-greedy so it stops at the first </think>
+    # re.DOTALL flag makes . match newlines too
+    pattern = r'<think>.*?</think>'
+    cleaned_text = re.sub(pattern, '', text, flags=re.DOTALL | re.IGNORECASE)
+    return cleaned_text
+
+
 def compute_score(completion, test_cases, continuous=False):
+    # Remove think tags from completion first
+    completion = remove_think_tags(completion)
+    
     # try to get code solution from completion. if the completion is pure code, this will not take effect.
     solution = completion.split("```python")[-1].split("```")[0]
     try:
@@ -31,7 +44,7 @@ def compute_score(completion, test_cases, continuous=False):
 
         # Complete check on all in-out pairs first. If there is no failure, per-sample test can be skipped.
         try:
-            res, metadata = apps_check_correctness(in_outs=test_cases, generation=solution, timeout=10, debug=False)
+            res, metadata = apps_check_correctness(in_outs=test_cases, generation=solution, timeout=5, debug=False)
             metadata = dict(enumerate(metadata))[0]
             success = all(map(lambda x: x is True, res))
             if success:

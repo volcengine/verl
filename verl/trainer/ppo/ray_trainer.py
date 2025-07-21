@@ -952,7 +952,7 @@ class RayPPOTrainer:
                 with _timer("step", timing_raw):
                     # generate a batch
                     with _timer("gen", timing_raw):
-                        gen_batch_output = self._safe_generate_sequences(gen_batch)
+                        gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         if gen_batch_output is None:
                             print("WARNING: Generation failed, skipping to next batch")
                             progress_bar.update(1)

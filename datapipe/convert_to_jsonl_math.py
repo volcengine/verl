@@ -11,8 +11,7 @@ import sys
 sys.set_int_max_str_digits(1000000)
 
 print("Loading tokenizer...")
-# tokenizer = AutoTokenizer.from_pretrained("/home/share/reasoning/Qwen3-8B")
-tokenizer = AutoTokenizer.from_pretrained("/home/yangkai/models/Qwen2.5-32B")
+tokenizer = AutoTokenizer.from_pretrained("/home/share/reasoning/DeepSeek-R1-Distill-Qwen-7B")
 
 print("Loading math classification model...")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -23,10 +22,8 @@ math_model.eval()
 id2label = math_model.config.id2label
 
 # Create output directory
-output_dir = "/home/yangkai/data/data_process"
-# merged_data_path = os.path.join(output_dir, "rl_math_data.jsonl")
-# output_dir = "/home/share/reasoning"
-merged_data_path = os.path.join(output_dir, "raw_merged_math_data.jsonl")
+output_dir = "/home/share/reasoning"
+merged_data_path = os.path.join(output_dir, "rl_math_data.jsonl")
 
 # Path for the final processed data
 data_dir = "/home/yangkai/data/data_process"
