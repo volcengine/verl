@@ -24,7 +24,7 @@ from omegaconf import DictConfig
         "verl.workers.rollout.sglang_rollout.sglang_rollout": MagicMock(SGLangRollout=MagicMock()),
     },
 )
-class TestAsyncSglangServer:
+class TestAsyncSGLangServer:
     @pytest.fixture
     def server_config(self):
         return DictConfig({"rollout": {"tensor_model_parallel_size": 2}})
@@ -44,13 +44,13 @@ class TestAsyncSglangServer:
             {"name": "test_prefixWorkerDict_0:2", "namespace": "test"},
             {"name": "test_prefixWorkerDict_0:3", "namespace": "test"},
         ]
-        from verl.workers.rollout.sglang_rollout.async_sglang_server import AsyncSglangServer
+        from verl.workers.rollout.sglang_rollout.async_sglang_server import AsyncSGLangServer
 
-        ActualClassToInstantiate = AsyncSglangServer
-        if hasattr(AsyncSglangServer, "__ray_metadata__") and hasattr(
-            AsyncSglangServer.__ray_metadata__, "modified_class"
+        ActualClassToInstantiate = AsyncSGLangServer
+        if hasattr(AsyncSGLangServer, "__ray_metadata__") and hasattr(
+            AsyncSGLangServer.__ray_metadata__, "modified_class"
         ):
-            ActualClassToInstantiate = AsyncSglangServer.__ray_metadata__.modified_class
+            ActualClassToInstantiate = AsyncSGLangServer.__ray_metadata__.modified_class
 
         def mock_get_actor_side_effect(name, namespace=None):
             # Create a new mock actor for each call
