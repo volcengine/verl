@@ -158,6 +158,19 @@ def _get_mla_transformer_config(
     return base_config
 
 
+def _get_moe_common_optimization_config(origin_config: dict, has_shared_expert: bool = True) -> dict:
+    """
+    Create a dictionary with MoE optimization parameters based on the original configuration.
+    """
+    moe_common_optimization_configs = {
+        "moe_shared_expert_overlap": has_shared_expert,
+        "moe_grouped_gemm": True,
+        "moe_permute_fusion": True,
+    }
+    origin_config.update(moe_common_optimization_configs)
+    return origin_config
+
+
 def hf_to_mcore_config_dense(
     hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
 ) -> TransformerConfig:
@@ -197,17 +210,12 @@ def hf_to_mcore_config_qwen2moe(
         moe_aux_loss_coeff=hf_config.router_aux_loss_coef,
         # moe_aux_loss_coeff=0.0,
         moe_router_load_balancing_type="none",  # turn off aux_loss as it hurts perf in RL
-        moe_shared_expert_overlap=True,
-        moe_grouped_gemm=True,
         moe_router_score_function="softmax",
-        # Other optimizations
-        persist_layer_norm=True,
-        bias_activation_fusion=True,
-        bias_dropout_fusion=True,
         # Qwen specific
         moe_router_pre_softmax=True,
         add_qkv_bias=True,
     )
+    args = _get_moe_common_optimization_config(args)
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
     print(f"Overridden TF init config: {args}")
@@ -231,17 +239,10 @@ def hf_to_mcore_config_mixtral(
         moe_router_load_balancing_type="none",  # turn off aux_loss as it hurts perf in RL
         moe_router_score_function="softmax",
         moe_shared_expert_intermediate_size=None,  # mixtral has no shared expert
-        moe_shared_expert_overlap=False,  # mixtral has no shared expert
         moe_ffn_hidden_size=hf_config.intermediate_size,
         moe_router_bias_update_rate=0.001,
-        # moe_permute_fusion=True, # need TE 2.1+
-        moe_grouped_gemm=True,
-        # Other optimizations
-        persist_layer_norm=True,
-        apply_rope_fusion=True,
-        bias_activation_fusion=True,
-        bias_dropout_fusion=True,
     )
+    args = _get_moe_common_optimization_config(args, has_shared_expert=False)
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
     print(f"Overridden TF init config: {args}")
@@ -265,16 +266,12 @@ def hf_to_mcore_config_qwen3moe(
         moe_aux_loss_coeff=hf_config.router_aux_loss_coef,
         # moe_aux_loss_coeff=0.0,
         moe_router_load_balancing_type="none",  # turn off aux_loss as it hurts perf in RL
-        moe_grouped_gemm=True,
         moe_router_score_function="softmax",
-        # Other optimizations
-        persist_layer_norm=True,
-        bias_activation_fusion=True,
-        bias_dropout_fusion=True,
         # Qwen specific
         moe_router_pre_softmax=False,
         qk_layernorm=True,
     )
+    args = _get_moe_common_optimization_config(args, has_shared_expert=False)
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
     print(f"Overridden TF init config: {args}")
@@ -334,9 +331,6 @@ def hf_to_mcore_config_dpskv3(
         moe_shared_expert_intermediate_size=hf_config.moe_intermediate_size * hf_config.n_shared_experts,
         moe_aux_loss_coeff=getattr(hf_config, "aux_loss_alpha", 0.001),
         moe_router_load_balancing_type="seq_aux_loss",
-        moe_shared_expert_overlap=True,
-        # moe_permute_fusion=True, # need TE 2.1+
-        moe_grouped_gemm=True,
         moe_router_score_function="sigmoid",
         moe_router_pre_softmax=True,
         moe_router_topk_scaling_factor=hf_config.routed_scaling_factor,
@@ -344,13 +338,8 @@ def hf_to_mcore_config_dpskv3(
         # mcore 0.12 moe
         moe_router_dtype="fp64",
         disable_bf16_reduced_precision_matmul=True,
-        # Other optimizations
-        # deallocate_pipeline_outputs=True,
-        # gradient_accumulation_fusion=True,
-        persist_layer_norm=True,
-        bias_activation_fusion=True,
-        bias_dropout_fusion=True,
     )
+    args = _get_moe_common_optimization_config(args, has_shared_expert=True)
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
     transformer_config: MLATransformerConfig = MLATransformerConfig(**args)
