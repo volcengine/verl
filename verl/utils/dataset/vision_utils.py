@@ -26,7 +26,7 @@ def process_image(image: Union[dict, Image.Image]) -> Image.Image:
 
     if "bytes" in image:
         assert "image" not in image, "Cannot have both `bytes` and `image`"
-        return Image.open(BytesIO(image["bytes"]))
+        image["image"] = Image.open(BytesIO(image["bytes"]))
 
     return fetch_image(image)
 
