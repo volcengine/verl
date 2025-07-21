@@ -41,8 +41,11 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))
 
 @dataclass
 class FSDPConfig:
-    """
-    Configuration for FSDP checkpointing.
+    """Configuration for FSDP checkpointing.
+
+    Args:
+        FSDP_version (int): Version of FSDP being used.
+        world_size (int): Number of processes in the distributed training setup.
     """
 
     FSDP_version: int
