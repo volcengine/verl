@@ -25,6 +25,7 @@ import ray
 import uvicorn
 from omegaconf import DictConfig
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
@@ -43,7 +44,7 @@ class AsyncServerBase(ABC):
     """Base class for AsyncServer."""
 
     def __init__(self):
-        self.address = ray._private.services.get_node_ip_address()
+        self.address = ray.util.get_node_ip_address()
         self.port = None
         self.server_ready = asyncio.Event()
         asyncio.create_task(self._start_fastapi_server())
@@ -74,8 +75,14 @@ class AsyncServerBase(ABC):
         return f"{self.address}:{self.port}"
 
     @abstractmethod
-    async def chat_completion(self, raw_request: Request):
+    async def chat_completion(self, raw_request: Request) -> JSONResponse:
         """OpenAI chat completion API.
+
+        Args:
+            raw_request (Request): raw json request
+
+        Returns:
+            JSONResponse: json response
 
         API reference: https://platform.openai.com/docs/api-reference/chat/create
         """

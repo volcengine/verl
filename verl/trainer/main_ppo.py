@@ -64,8 +64,8 @@ def run_ppo(config) -> None:
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
     if (
         is_cuda_available
-        and OmegaConf.select(config.trainer, "profile_steps") is not None
-        and len(OmegaConf.select(config.trainer, "profile_steps")) > 0
+        and config.trainer.get("profile_steps") is not None
+        and len(config.trainer.get("profile_steps", [])) > 0
     ):
         nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
@@ -106,9 +106,7 @@ class TaskRunner:
         from verl.utils.fs import copy_to_local
 
         print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
-
         pprint(OmegaConf.to_container(config, resolve=True))
-
         OmegaConf.resolve(config)
 
         # Download the checkpoint from HDFS to the local machine.
@@ -125,19 +123,24 @@ class TaskRunner:
         # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
-        # Version validation for vllm.
-        if config.actor_rollout_ref.rollout.name in ["vllm"]:
-            from verl.utils.vllm_utils import is_version_ge
-
-            if config.actor_rollout_ref.model.get("lora_rank", 0) > 0:
-                if not is_version_ge(pkg="vllm", minver="0.7.3"):
-                    raise NotImplementedError("PPO LoRA is not supported before vllm 0.7.3")
-
         # Define worker classes based on the actor strategy.
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             assert config.critic.strategy in {"fsdp", "fsdp2"}
             from verl.single_controller.ray import RayWorkerGroup
-            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
+            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+
+            use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
+            if use_legacy_worker_impl in ["auto", "enable"]:
+                # import warnings
+                # warnings.warn(f"Legacy worker impl is going to be deprecated, will be removed in the future. \
+                #   Please set trainer.use_legacy_worker_impl = false to switch to the new worker implementation.")
+                from verl.workers.fsdp_workers import CriticWorker
+            elif use_legacy_worker_impl == "disable":
+                from verl.workers.roles import CriticWorker
+
+                print("Using new worker implementation")
+            else:
+                raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
 
             actor_rollout_cls = (
                 AsyncActorRolloutRefWorker
@@ -231,7 +234,6 @@ class TaskRunner:
             val_dataset=val_dataset,
             collate_fn=collate_fn,
             train_sampler=train_sampler,
-            device_name=config.trainer.device,
         )
         # Initialize the workers of the trainer.
         trainer.init_workers()

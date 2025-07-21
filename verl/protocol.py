@@ -727,6 +727,17 @@ class DataProto:
 
         return output
 
+    def split(self, split_size: int) -> list["DataProto"]:
+        """Split the batch among dim=0 into chunks. The meta_info is passed to each DataProto after split.
+
+        Args:
+            split_size (int): the size of each split
+
+        Returns:
+            List[DataProto]: a list of DataProto after splitting
+        """
+        return [self[i : i + split_size] for i in range(0, len(self), split_size)]
+
     @staticmethod
     def concat(data: list["DataProto"]) -> "DataProto":
         """Concat a list of DataProto. The batch is concatenated among dim=0.

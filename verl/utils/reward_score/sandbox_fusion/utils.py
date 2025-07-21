@@ -67,7 +67,7 @@ SUPPORTED_LANGUAGES = [
 def call_sandbox_api(
     sandbox_fusion_url: str,
     code: str,
-    stdin: str,
+    stdin: Optional[str],
     compile_timeout: int,
     run_timeout: int,
     memory_limit_mb: int,
@@ -259,9 +259,9 @@ def _execute_user_function():
             # Attempt to instantiate and get method.
             # Errors (e.g., Solution not a class, instantiation fails, method missing)
             # will be caught by the broad except block below.
-            _solution_instance = _Solution_class() 
+            _solution_instance = _Solution_class()
             _target_callable = getattr(_solution_instance, _SANDBOX_FN_NAME)
-        
+
         if not _target_callable:
             sys.stderr.write(f"WrapperError: Function or method '{{_SANDBOX_FN_NAME}}' not found.\\n")
             return None, True # result, error_occurred
@@ -286,10 +286,11 @@ if __name__ == '__main__':
             print(str(_result))
     # Optional: To explicitly exit with an error code if the sandbox relies on it
     # else:
-    #    sys.exit(1) 
+    #    sys.exit(1)
 """
         current_generation_code = wrapper_code
 
+    stdin = None if stdin_data is None else str(stdin_data)
     try:
         if concurrent_semaphore:
             # logger.debug(f"Case {case_index + 1}: Attempting to acquire semaphore.")
@@ -298,7 +299,7 @@ if __name__ == '__main__':
                 api_response, error_msg = call_sandbox_api(
                     sandbox_fusion_url=sandbox_fusion_url,
                     code=current_generation_code,
-                    stdin=str(stdin_data),
+                    stdin=stdin,
                     compile_timeout=timeout,
                     run_timeout=timeout,
                     memory_limit_mb=memory_limit_mb,
@@ -309,7 +310,7 @@ if __name__ == '__main__':
             api_response, error_msg = call_sandbox_api(
                 sandbox_fusion_url=sandbox_fusion_url,
                 code=current_generation_code,
-                stdin=str(stdin_data),
+                stdin=stdin,
                 compile_timeout=timeout,
                 run_timeout=timeout,
                 memory_limit_mb=memory_limit_mb,
@@ -322,7 +323,7 @@ if __name__ == '__main__':
 
     metadata = {
         "case_index": case_index,
-        "input": str(stdin_data),
+        "input": stdin,
         "expected_output": str(expected_output),
         "api_request_error": error_msg,
         "api_response": None,
@@ -346,7 +347,7 @@ if __name__ == '__main__':
         # Log code and input only on error for brevity
         generation_to_log = generation[:200] + "..." if len(generation) > 200 else generation
         logger.error(f"Case {case_index}: code: {generation_to_log}")
-        logger.error(f"Case {case_index}: input: {str(stdin_data)}")
+        logger.error(f"Case {case_index}: input: {stdin}")
     elif api_response:
         # --- Add debug logging ---
         logger.debug(f"Case {case_index}: API Response: {api_response}")

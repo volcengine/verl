@@ -102,6 +102,13 @@ class BackwardEnum:
 
 @dataclass
 class Config:
+    """Configuration for efficient entropy kernel operations.
+
+    Args:
+        _backward (BackwardEnum): Backward computation method. Defaults to BackwardEnum._Split_Dlogits_N.
+        _use_triton (bool): Whether to use Triton kernels for computation. Defaults to True.
+    """
+
     _backward: BackwardEnum = BackwardEnum._Split_Dlogits_N
     _use_triton: bool = True
 
