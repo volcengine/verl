@@ -35,7 +35,7 @@ def load_local_dataset(file_path):
         for line in f:
             try:
                 item = json.loads(line.strip())
-                if item["extra_params"]["level"] == 2 and is_numbers(item["answer"]):
+                if item["extra_params"]["level"] in [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] and is_numbers(item["answer"]):
                     source = item["extra_params"]["source"]
                     # if source == "big_math_rl_verified":
                     #     bigmath_cnt += 1
@@ -44,7 +44,6 @@ def load_local_dataset(file_path):
 
                     data["question"].append(item["question"])
                     data["answer"].append(item["answer"])
-
                     if source not in source_cnt:
                         source_cnt[source] = 0
                     source_cnt[source] += 1
@@ -59,12 +58,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--local_dir', default='/home/share/reasoning')
     parser.add_argument('--hdfs_dir', default=None)
-    parser.add_argument('--local_dataset', default='/home/share/reasoning/rl_math_data.jsonl')
+    parser.add_argument('--local_dataset', default='/home/share/reasoning/rl_math_data_test.jsonl')
 
     args = parser.parse_args()
     tokenizer = AutoTokenizer.from_pretrained("/home/share/reasoning/DeepSeek-R1-Distill-Qwen-7B")
 
-    # prompt_template = "{question} Let's think step by step and output the final answer within \\boxed{}."
+    prompt_template = "{question} Let's think step by step and output the final answer within \\boxed{}."
 
     # add a row to each data item that represents a unique id
     def train_make_map_fn(split):
@@ -78,7 +77,7 @@ if __name__ == '__main__':
                 solution = example.pop('solution')
                 answer = extract_answer(solution)
 
-            # question = prompt_template.format(question=question)
+            question = prompt_template.format(question=question)
 
             data = {
                 "data_source": 'math_agpo',
@@ -93,9 +92,9 @@ if __name__ == '__main__':
                 },
                 "extra_info": {
                     'split': split,
-                    'index': idx
+                    'index': idx,
                 }
-            } 
+            }
             return data
 
         return process_fn
@@ -117,7 +116,7 @@ if __name__ == '__main__':
     print(f"Train dataset size: {len(train_dataset)}")
 
     # Print a sample from the processed dataset
-    sample_idx = 6520  # You can change this to view different examples
+    sample_idx = 2000  # You can change this to view different examples
     print("\n===== SAMPLE FROM PROCESSED DATASET =====")
     print(f"Sample index: {sample_idx}")
     sample = train_dataset[sample_idx]
@@ -132,7 +131,7 @@ if __name__ == '__main__':
     local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
 
-    train_dataset.to_parquet(os.path.join(local_dir, 'rl_math_data.parquet'))
+    train_dataset.to_parquet(os.path.join(local_dir, 'rl_math_data_test.parquet'))
 
     if hdfs_dir is not None:
         makedirs(hdfs_dir)

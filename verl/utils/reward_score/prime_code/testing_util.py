@@ -145,7 +145,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                 signal.alarm(0)
                 error_traceback = traceback.format_exc()
                 if debug:
-                    print(f"type 0 compilation error = {e}")
+                    print(f"type 0 compilation error = {e}, {error_traceback}", file=open("/home/liunazhou/verl1/code_output_base_model_training.log", "a"))
                 results.append(-2)
                 return results, {
                     "error": repr(e),
@@ -206,7 +206,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                 signal.alarm(0)
                 error_traceback = traceback.format_exc()
                 if debug:
-                    print(f"type 1 compilation error = {e}")
+                    print(f"type 1 compilation error = {e}, {error_traceback}", file=open("/home/liunazhou/verl1/code_output_base_model_training.log", "a"))
                 results.append(-2)
                 return results, {
                     "error": repr(e),
@@ -224,7 +224,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
             signal.alarm(0)
             error_traceback = traceback.format_exc()
             e = sys.exc_info()
-            print(f"unable to get function error = {e}")
+            print(f"unable to get function error = {e}", file=open("/home/liunazhou/verl1/code_output_base_model_training.log", "a"))
             results.append(-2)
             return results, {
                 "error": repr(e),
@@ -312,7 +312,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                     error_traceback = traceback.format_exc()
                     faulthandler.disable()
                     if debug:
-                        print(f"Standard input runtime error or time limit exceeded error = {e}")
+                        print(f"Call-based runtime error or time limit exceeded error = {e}", file=open("/home/liunazhou/verl1/code_output_base_model_training.log", "a"))
                     results.append(-1)
                     if "timeoutexception" in repr(e).lower():
                         return results, {
@@ -358,7 +358,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                         # runtime error or took too long
                         signal.alarm(0)
                         error_traceback = traceback.format_exc()
-                        print(f"Call-based runtime error or time limit exceeded error = {repr(e)}{e}")
+                        print(f"Standard input runtime error or time limit exceeded error = {e}, sol={sol}, in={in_outs['inputs'][index]}, out={in_outs['outputs'][index]}", file=open("/home/liunazhou/verl1/code_output_base_model_training.log", "a"))
                         results.append(-1)
                         if "timeoutexception" in repr(e).lower():
                             return results, {
@@ -726,6 +726,6 @@ def reliability_guard(maximum_memory_bytes=None):
 
 
 if __name__ == "__main__":
-    in_outs = {'inputs': ['[25,7]'], 'outputs': ['1']}
-    test = """import math\n\ndef get_possible_values(x):\n    if x == 1:\n        return [(1, 0)]\n    possible = [(x, 0)]\n    current = x\n    while True:\n        if current == 1:\n            break\n        smallest_div = None\n        for i in range(2, int(math.sqrt(current)) + 1):\n            if current % i == 0:\n                smallest_div = i\n                break\n        if smallest_div is None:\n            break\n        else:\n            g = current // smallest_div\n            new_val = current // g\n            if new_val < current:\n                possible.append((new_val, len(possible)))\n            current = new_val\n    return possible\n\ndef main():\n    import sys\n    input = sys.stdin.read().split()\n    n = int(input[0])\n    nums = list(map(int, input[1:n+1]))\n    \n    if n == 0:\n        print(0)\n        return\n    \n    possible = []\n    for x in nums:\n        if x == 1:\n            possible.append([(1, 0)])\n        else:\n            possible.append(get_possible_values(x))\n    \n    steps_dict = {}\n    for v, s in possible[0]:\n        steps_dict[v] = s\n    \n    for i in range(1, n):\n        current_possible = possible[i]\n        current_steps = {}\n        for (v_prev, s_prev) in steps_dict.items():\n            for (v_i, s_i) in current_possible:\n                if v_prev <= v_i:\n                    total_steps = s_prev + s_i\n                    if v_i not in current_steps or total_steps < current_steps[v_i]:\n                        current_steps[v_i] = total_steps\n        if not current_steps:\n            print(-1)\n            return\n        steps_dict = current_steps\n    \n    if not steps_dict:\n        print(0)\n    else:\n        print(min(steps_dict.values()))\n\nif __name__ == "__main__":\n    main()\n"""
+    in_outs = {'inputs': ['[-3,2,-2,-1,3,-2,3]'], 'outputs': ['7'], 'fn_name': 'maxSubarraySum'}
+    test = """import sys\n\ndef max_subarray(arr):\n    if not arr:\n        return 0\n    max_current = max_global = arr[0]\n    for num in arr[1:]:\n        max_current = max(num, max_current + num)\n        max_global = max(max_global, max_current)\n    return max_global\n\ndef main():\n    nums = list(map(int, sys.stdin.readline().split()))\n    if not nums:\n        print(0)\n        return\n    \n    base_max = max_subarray(nums)\n    unique_x = set(nums)\n    \n    max_after_removal = 0\n    for x in unique_x:\n        temp = [num for num in nums if num != x]\n        current_max = max_subarray(temp)\n        if current_max > max_after_removal:\n            max_after_removal = current_max\n    \n    result = max(base_max, max_after_removal)\n    print(result)\n\nif __name__ == "__main__":\n    main()\n"""
     print(run_test(in_outs, test, debug=True, timeout=5))
