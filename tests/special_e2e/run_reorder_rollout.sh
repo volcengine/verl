@@ -5,7 +5,7 @@ set -x
 
 # For async rollout mode, dataset should return raw chat.
 rollout_mode="async"
-rollout_name="sglang" # sglang or vllm
+rollout_name="vllm" # sglang or vllm
 if [ "$rollout_mode" = "async" ]; then
     export VLLM_USE_V1=1
     export VLLM_LOGGING_LEVEL="DEBUG"
@@ -47,12 +47,12 @@ python3 -m recipe.reorder_rollout.main_reorder_ppo \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_grpo_example_gsm8k' \
     trainer.experiment_name='qwen2_7b_reorder_rollout_kl1e-3' \
-    trainer.val_before_train=True \
+    trainer.val_before_train=False \
     trainer.test_freq=20 \
     trainer.n_gpus_per_node=8 \
     trainer.total_training_steps=2 \
     actor_rollout_ref.rollout.chat_scheduler.micro_batch.max_inflight_req=288 \
     actor_rollout_ref.rollout.reorder_mode=True \
-    actor_rollout_ref.rollout.chat_scheduler.prefetch_factor=2.0 \
+    actor_rollout_ref.rollout.chat_scheduler.prefetch_factor=1.2 \
     trainer.total_epochs=15 $@
 

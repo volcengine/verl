@@ -293,8 +293,6 @@ class AgentLoopWorker:
             max_prompt_length=self.config.actor_rollout_ref.rollout.prompt_length,
             max_response_length=self.config.actor_rollout_ref.rollout.response_length,
         )
-        timing = agent_loop_perf(output.meta_info["metrics"], output)
-        output.meta_info = {"timing": timing}
         return output
 
     async def _run_agent_loop(

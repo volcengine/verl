@@ -72,7 +72,7 @@ on:
       # Entrypoints
       - ".github/workflows/e2e_reorder_rollout.yaml"
       - "examples/data_preprocess/gsm8k.py"
-      - "tests/special_e2e/run_dapo.sh"
+      - "tests/special_e2e/run_reorder_rollout.sh"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -106,7 +106,7 @@ jobs:
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running the E2E test with the DAPO algorithm
+      - name: Running the E2E test with the ReOrder Rollout algorithm
         run: |
           ray stop --force
-          bash tests/special_e2e/run_dapo.sh
+          bash test/special_e2e/run_reorder_rollout.sh
