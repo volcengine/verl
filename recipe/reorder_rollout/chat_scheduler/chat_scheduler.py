@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Protocol
 from uuid import uuid4
 
+import hydra
 import numpy as np
 import ray
 import torch
@@ -44,12 +45,18 @@ from recipe.reorder_rollout.chat_scheduler.utils import (
     WorkStealingActor,
     _MgrProxy,
     concat_data_proto,
-    get_agent_loop_class,
 )
-from verl.experimental.agent_loop.agent_loop import AgentLoopOutput
+from verl.experimental.agent_loop.agent_loop import (
+    AgentLoopOutput,
+    _DummyConfig,
+    get_registry_detail,
+    get_registry_keys,
+    get_trajectory_info,
+)
 from verl.experimental.agent_loop.utils import agent_loop_perf, agent_loop_postprocess
 from verl.protocol import DataProto
 from verl.utils.fs import copy_to_local
+from verl.utils.rollout_trace import rollout_trace_attr
 from verl.utils.tokenizer import hf_tokenizer
 
 logger = logging.getLogger(__name__)
@@ -138,6 +145,12 @@ class MicroBatchScheduler(ChatCompletionScheduler):
         self.rollout_req_handler = rollout_req_handler
         self.reduce_handler = reduce_handler
         self.initialized = False
+        model_path = config.actor_rollout_ref.model.path
+        self.model_name = "/".join(model_path.split("/")[-2:])
+        local_path = copy_to_local(config.actor_rollout_ref.model.path)
+        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
+        self.max_prompt_length = self.config.prompt_length
+        self.max_response_length = self.config.response_length
 
     def set_rollout_rate(self, rate):
         assert rate <= 1 and rate > 0, "rollout rate must be in (0, 1]"
@@ -230,6 +243,18 @@ class MicroBatchScheduler(ChatCompletionScheduler):
 
         Returns:
             DataProto: Output batch.
+            - prompts: [bsz, prompt_length], prompt token ids from dataset.
+            - responses: [bsz, response_length], output token ids include response tokens
+              from LLM generation and observation tokens from tool_calls.
+            - response_mask: [bsz, response_length], 1 for LLM generated tokens, 0 for observation/padding tokens.
+            - input_ids: [bsz, prompt_length + response_length], whole sequence token ids, including prompt tokens
+              and response tokens.
+            - attention_mask: [bsz, prompt_length + response_length], 0 for padding tokens, 1 for other tokens.
+            - position_ids: [bsz, prompt_length + response_length], incremental position ids.
+
+            For multi-turn conversations:
+            responses:     |<- LLM generation ->|<- tool_calls ->|<- LLM generation ->|<- padding ->|
+            response_mask: | 1, 1, 1, ..., 1, 1 | 0, 0, .., 0, 0 | 1, 1, 1, ..., 1, 1 | 0, 0, ..., 0|
         """
         config = self.original_config.actor_rollout_ref.rollout
         sampling_params = dict(
@@ -243,40 +268,67 @@ class MicroBatchScheduler(ChatCompletionScheduler):
             sampling_params["top_p"] = config.val_kwargs.top_p
             sampling_params["temperature"] = config.val_kwargs.temperature
 
-        n = 1 if batch.meta_info.get("validate", False) else config.n
-        tasks = []
-
         # by default, we assume it's a single turn agent
         if "agent_name" not in batch.non_tensor_batch:
             batch.non_tensor_batch["agent_name"] = np.array(["single_turn_agent"] * len(batch), dtype=object)
 
-        agent_names = batch.non_tensor_batch["agent_name"].repeat(n, axis=0)
-        raw_prompts = batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0)
-        for agent_name, messages in zip(agent_names, raw_prompts, strict=False):
+        tasks = []
+        agent_names = batch.non_tensor_batch["agent_name"]
+        raw_prompts = batch.non_tensor_batch["raw_prompt"]
+        if "index" in batch.non_tensor_batch:
+            index = batch.non_tensor_batch["index"]
+        else:
+            index = np.arange(len(raw_prompts))
+
+        trajectory_info = await get_trajectory_info(
+            batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
+        )
+
+        for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
             proxy_mgr = _MgrProxy(routing_method=functools.partial(self._routing, handle=None))
             tasks.append(
-                asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, proxy_mgr))
+                asyncio.create_task(
+                    self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory, proxy_mgr)
+                )
             )
-        print(f"length of tasks: {len(tasks)}")
         outputs = await asyncio.gather(*tasks)
-
-        output = agent_loop_postprocess(self.tokenizer, outputs, self.max_prompt_length, self.max_response_length)
-        print("[MicroBatchScheduler] generate_sequences done")
-        # calculate performance metrics
-        metrics = [output.meta_info["metrics"]]  # List[List[Dict[str, str]]]
-        timing = agent_loop_perf(metrics, output)
-
-        output.meta_info = {"timing": timing}
-
+        output = agent_loop_postprocess(
+            tokenizer=self.tokenizer,
+            inputs=outputs,
+            max_prompt_length=self.max_prompt_length,
+            max_response_length=self.max_response_length,
+        )
         return output
 
     async def _run_agent_loop(
-        self, agent_name: str, messages: list[dict[str, Any]], sampling_params: dict[str, Any], proxy_mgr
+        self,
+        agent_name: str,
+        messages: list[dict[str, Any]],
+        sampling_params: dict[str, Any],
+        trajectory: dict[str, Any],
+        proxy_mgr: _MgrProxy,
     ) -> AgentLoopOutput:
-        agent_loop_class = get_agent_loop_class(agent_name)
-        agent_loop = agent_loop_class(self.original_config, proxy_mgr, self.tokenizer)
-        output = await agent_loop.run(messages, sampling_params)
-        return output
+        with rollout_trace_attr(
+            step=trajectory["step"],
+            sample_index=trajectory["sample_index"],
+            rollout_n=trajectory["rollout_n"],
+            validate=trajectory["validate"],
+            name="agent_loop",
+        ):
+            registry_keys = get_registry_keys()
+            assert agent_name in registry_keys, (
+                f"Agent loop {agent_name} not registered, registered agent loops: {registry_keys}"
+            )
+
+            agent_loop_config = get_registry_detail(agent_name)
+            agent_loop = hydra.utils.instantiate(
+                config=agent_loop_config,
+                trainer_config=_DummyConfig(config=self.original_config),
+                server_manager=proxy_mgr,
+                tokenizer=self.tokenizer,
+            )
+            output = await agent_loop.run(messages, sampling_params)
+            return output
 
 
 @dataclass
@@ -321,16 +373,10 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
             self.reduce_handler,
             enable_work_stealing,
         )
-        self.max_prompt_length = self.config.prompt_length
-        self.max_response_length = self.config.response_length
         self.prefetch_factor = self.config.chat_scheduler.prefetch_factor
         self.batch_size = config.data.train_batch_size
         self.synchorize_interval = self.config.chat_scheduler.synchorize_interval
         self.max_in_mem_samples = self.prefetch_factor * self.batch_size
-        model_path = config.actor_rollout_ref.model.path
-        self.model_name = "/".join(model_path.split("/")[-2:])
-        local_path = copy_to_local(config.actor_rollout_ref.model.path)
-        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
         self._validate()
         logger.info(
             f"init with resource: tokenizer: {self.tokenizer},model name: {self.model_name}, max \
@@ -400,11 +446,21 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
 
                 agent_names = gen_batch.non_tensor_batch["agent_name"]
                 raw_prompts = gen_batch.non_tensor_batch["raw_prompt"]
+
+                if "index" in batch.non_tensor_batch:
+                    index = batch.non_tensor_batch["index"]
+                else:
+                    index = np.arange(len(raw_prompts))
+
+                trajectory_info = await get_trajectory_info(
+                    batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
+                )
                 # assert len(batch) == 1
-                for agent_name, messages in zip(agent_names, raw_prompts, strict=False):
+                for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
                     sample_id = self._generate_unique_id()
                     rollout_req = RolloutReq(
                         agent_name=agent_name,
+                        trajectory_info=trajectory,
                         messages=messages.tolist(),
                         model_name=self.model_name,
                         sampling_params=sampling_params,
@@ -542,7 +598,11 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
                   submit to engine {server_handle}，sample_id: {rollout_req.sample_id}"
             )
             agent_loop_output = await self._run_agent_loop(
-                rollout_req.agent_name, rollout_req.messages, rollout_req.sampling_params, proxy_mgr=proxy_mgr
+                rollout_req.agent_name,
+                rollout_req.messages,
+                rollout_req.sampling_params,
+                trajectory=rollout_req.trajectory_info,
+                proxy_mgr=proxy_mgr,
             )
         except asyncio.CancelledError as cancel_err:
             request_id = proxy_mgr.request_id
@@ -553,7 +613,7 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
                 await proxy_mgr.server_handle.cancel.remote(request_id)
             raise
         except Exception as e:
-            logger.warning(
+            logger.exception(
                 f"[ReorderScheduler] _consumer process get sample,chat completion failed with exception: {e}"
             )
             exception = e

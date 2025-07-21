@@ -29,6 +29,7 @@ class RolloutReq:
     messages: list[dict[str, str]]
     sampling_params: dict[str, Any]
     agent_name: np.ndarray
+    trajectory_info: list[dict[str, Any]]
     # maybe we can count the requeue times
     generation: int = 0
     # this works for tool-calling, indicate for one-multi-turns request

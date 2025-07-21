@@ -25,7 +25,6 @@ import ray
 import torch
 from cachetools import LRUCache
 from omegaconf import DictConfig, OmegaConf
-from pydantic import BaseModel
 from tensordict import TensorDict
 from transformers import AutoTokenizer
 
@@ -105,28 +104,6 @@ class AsyncLLMServerManager:
         return output
 
 
-class AgentLoopMetrics(BaseModel):
-    """Agent loop performance metrics."""
-
-    generate_sequences: float = 0.0
-    tool_calls: float = 0.0
-
-
-class AgentLoopOutput(BaseModel):
-    """Agent loop output."""
-
-    prompt_ids: list[int]
-    """Prompt token ids."""
-    response_ids: list[int]
-    """Response token ids including LLM generated token, tool response token."""
-    response_mask: list[int]
-    """Response mask, 1 for LLM generated token, 0 for tool response token."""
-    num_turns: int = 0
-    """Number of chat turns, including user, assistant, tool."""
-    metrics: AgentLoopMetrics
-    """Auxiliary performance metrics"""
-
-
 # make hydra.utils.instantiate happy
 class _DummyConfig:
     def __init__(self, config: DictConfig) -> None:
@@ -199,6 +176,27 @@ def register(agent_name: str):
         return subclass
 
     return decorator
+
+
+def get_registry_keys():
+    """Get agent loop registry keys.
+
+    Returns:
+        List[str]: agent loop registry keys.
+    """
+    return _agent_loop_registry.keys()
+
+
+def get_registry_detail(key):
+    """Get agent loop config.
+
+    Args:
+        key (str): agent loop name.
+
+    Returns:
+        DictConfig: agent loop config.
+    """
+    return _agent_loop_registry[key]
 
 
 @ray.remote
@@ -295,6 +293,8 @@ class AgentLoopWorker:
             max_prompt_length=self.config.actor_rollout_ref.rollout.prompt_length,
             max_response_length=self.config.actor_rollout_ref.rollout.response_length,
         )
+        timing = agent_loop_perf(output.meta_info["metrics"], output)
+        output.meta_info = {"timing": timing}
         return output
 
     async def _run_agent_loop(

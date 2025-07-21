@@ -208,7 +208,6 @@ class AsyncvLLMServer(AsyncServerBase):
         self.vllm_dp_rank = vllm_dp_rank
         self.wg_prefix = wg_prefix
         self.engine: AsyncLLM = None
-        self.active_req: dict[str, asyncio.Event] = {}
 
     async def init_engine(self):
         """Init vLLM AsyncLLM engine."""
