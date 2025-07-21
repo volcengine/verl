@@ -368,7 +368,7 @@ class RayPPOTrainer:
         if self.config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
-        if config.critic.get("enable") is not None:
+        if config.critic.enable is not None:
             self.use_critic = bool(config.critic.enable)
         elif self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
             self.use_critic = True
