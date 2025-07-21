@@ -182,13 +182,7 @@ actor_rollout_ref:
     external_lib: null
     override_config:
       model_config: {}
-      moe_config:
-        freeze_moe_router: false
-    enable_gradient_checkpointing: false
-    gradient_checkpointing_kwargs:
-      activations_checkpoint_method: null
-      activations_checkpoint_granularity: null
-      activations_checkpoint_num_layers: null
+      moe_config: null
     use_fused_kernels: false
     trust_remote_code: false
   profiler:
@@ -305,12 +299,7 @@ critic:
       moe_config:
         freeze_moe_router: false
     external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
-    enable_gradient_checkpointing: false
     trust_remote_code: ${oc.select:actor_rollout_ref.model.trust_remote_code,false}
-    gradient_checkpointing_kwargs:
-      activations_checkpoint_method: null
-      activations_checkpoint_granularity: null
-      activations_checkpoint_num_layers: null
   ppo_mini_batch_size: ${oc.select:actor_rollout_ref.actor.ppo_mini_batch_size,256}
   ppo_micro_batch_size: null
   ppo_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size,null}
@@ -393,7 +382,7 @@ reward_model:
     use_dist_checkpointing: false
     dist_checkpointing_path: null
     seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
-    override_transformer_config: {}
+    override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
     use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
   load_weight: true
 custom_reward_function:
