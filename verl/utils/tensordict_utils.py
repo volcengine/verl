@@ -54,11 +54,16 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
         else:
             assert len(val) == batch_size
 
+    if batch_size is None:
+        batch_size = []
+    else:
+        batch_size = [batch_size]
+
     for key, val in non_tensor_dict.items():
         assert key not in tensor_dict
         tensor_dict[key] = NonTensorData(val)
 
-    return TensorDict(source=tensor_dict, batch_size=[batch_size])
+    return TensorDict(source=tensor_dict, batch_size=batch_size)
 
 
 def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> TensorDict:
@@ -108,3 +113,19 @@ def make_iterator(tensordict: TensorDict, mini_batch_size, epochs, seed=None, da
                 yield d
 
     return iter(get_data())
+
+
+def assert_tensordict_eq(tensordict1: TensorDict, tensordict2: TensorDict):
+    assert set(tensordict1.keys()) == set(tensordict2.keys())
+
+    for key in tensordict1.keys():
+        val = tensordict1[key]
+        val2 = tensordict2[key]
+
+        assert type(val) == type(val2), f"The type of {key} must be the same. Got {type(val)} vs {type(val2)}"
+
+        if isinstance(val, torch.Tensor):
+            assert torch.all(torch.eq(val, val2)).item()
+        else:
+            assert val == val2
+

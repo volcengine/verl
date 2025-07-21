@@ -15,7 +15,7 @@
 """
 Replace DataProto with raw TensorDict
 """
-
+import copy
 import random
 
 import numpy as np
@@ -138,50 +138,70 @@ def test_tensordict_with_packing():
     assert torch.all(torch.eq(data_lst[1]["input_ids"][0], b))
 
 
-def test_tensor_dict_make_iterator():
+def test_tensordict_eq():
     obs = torch.tensor([1, 2, 3, 4, 5, 6])
     data_sources = ["abc", "def", "abc", "def", "pol", "klj"]
     non_tensor_dict = {"train_sample_kwargs": {"top_p": 1.0},
                        "val_sample_kwargs": {"top_p": 0.7}}
     data = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
 
-    dataloader = tu.make_iterator(data, mini_batch_size=2, epochs=2, seed=0, dataloader_kwargs={"shuffle": False, "drop_last": False})
+    obs = torch.tensor([1, 2, 3, 4, 5, 6])
+    data_sources = ["abc", "def", "abc", "def", "pol", "klj"]
+    non_tensor_dict = {"train_sample_kwargs": {"top_p": 1.0},
+                       "val_sample_kwargs": {"top_p": 0.7}}
+    data1 = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
 
-    expected_tensor_dict = [data[0:2], data[2:4], data[4:6], data[0:2], data[2:4], data[4:6]]
+    tu.assert_tensordict_eq(data, data1)
+
+    data2 = copy.deepcopy(data1)
+    data2["obs"][0] += 1
+
+    with pytest.raises(AssertionError):
+        tu.assert_tensordict_eq(data, data2)
+
+    data2 = copy.deepcopy(data1)
+    data2["data_sources"][0] = 'math'
+
+    with pytest.raises(AssertionError):
+        tu.assert_tensordict_eq(data, data2)
+
+    data2 = copy.deepcopy(data1)
+    data2["train_sample_kwargs"]['top_p'] = 0.9
+
+    with pytest.raises(AssertionError):
+        tu.assert_tensordict_eq(data, data2)
+
+
+
+def test_tensor_dict_make_iterator():
+    obs = torch.tensor([1, 2, 3, 4, 5, 6])
+    data_sources = ["abc", "def", "abc", "def", "pol", "klj"]
+    non_tensor_dict = {"train_sample_kwargs": {"top_p": 1.0},
+                       "val_sample_kwargs": {"top_p": 0.7}}
+    dataset = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
+
+    dataloader = tu.make_iterator(dataset, mini_batch_size=2, epochs=2, seed=0, dataloader_kwargs={"shuffle": False, "drop_last": False})
+
+    expected_tensor_dict = [dataset[0:2], dataset[2:4], dataset[4:6], dataset[0:2], dataset[2:4], dataset[4:6]]
 
     i = 0
-    from IPython import embed
-    embed()
 
     for d in dataloader:
-        torch.eq(d, expected_tensor_dict[i])
+        tu.assert_tensordict_eq(d, expected_tensor_dict[i])
         i += 1
 
-    from IPython import embed
-    embed()
-
-    data_iter_1 = tu.make_iterator(data, mini_batch_size=10, epochs=2, seed=1, dataloader_kwargs={"shuffle": True})
+    data_iter_1 = tu.make_iterator(dataset, mini_batch_size=3, epochs=1, seed=1, dataloader_kwargs={"shuffle": True})
     data_list_1 = []
     for data in data_iter_1:
         data_list_1.append(data)
 
-    data_iter_2 = tu.make_iterator(data, mini_batch_size=10, epochs=2, seed=1, dataloader_kwargs={"shuffle": True})
+    data_iter_2 = tu.make_iterator(dataset, mini_batch_size=3, epochs=1, seed=1, dataloader_kwargs={"shuffle": True})
     data_list_2 = []
     for data in data_iter_2:
         data_list_2.append(data)
 
     for data1, data2 in zip(data_list_1, data_list_2, strict=True):
-        assert isinstance(data1, DataProto)
-        assert isinstance(data2, DataProto)
-        result = torch.all(torch.eq(data1.batch["obs"], data2.batch["obs"]))
-        if not result.item():
-            print(data1.batch["obs"])
-            print(data2.batch["obs"])
-            raise AssertionError()
-        non_tensor_result = np.all(np.equal(data1.non_tensor_batch["labels"], data2.non_tensor_batch["labels"]))
-        if not non_tensor_result.item():
-            print(data1.non_tensor_batch["labels"])
-            print(data2.non_tensor_batch["labels"])
+        tu.assert_tensordict_eq(data1, data2)
 
 
 def test_reorder():
@@ -190,10 +210,6 @@ def test_reorder():
     non_tensor_dict = {'name': "abdce"}
 
     data = tu.get_tensordict(tensor_dict={"obs": obs, "labels": labels}, non_tensor_dict=non_tensor_dict)
-
-    from IPython import embed
-    embed()
-
     data = data[torch.tensor([3, 4, 2, 0, 1, 5])]
 
     assert torch.all(torch.eq(data["obs"], torch.tensor([4, 5, 3, 1, 2, 6])))
@@ -335,21 +351,18 @@ def test_torch_save_data_proto():
 def test_len():
     obs = torch.tensor([[1, 2], [3, 4], [5, 6]])
     labels = np.array(["a", "b", "c"], dtype=object)
-    data = DataProto.from_dict(tensors={"obs": obs}, non_tensors={"labels": labels}, meta_info={"info": "test_info"})
 
+    data = tu.get_tensordict({"obs": obs, "labels": labels.tolist()}, non_tensor_dict={'info': 'test_info'})
     assert len(data) == 3
 
-    data = DataProto(batch=None, non_tensor_batch={"labels": labels}, meta_info={"info": "test_info"})
-
+    data = tu.get_tensordict({"labels": labels.tolist()}, non_tensor_dict={'info': 'test_info'})
     assert len(data) == 3
 
-    data = DataProto(batch=None, non_tensor_batch={}, meta_info={"info": "test_info"})
-
+    data = tu.get_tensordict({}, non_tensor_dict={'info': 'test_info'})
     assert len(data) == 0
 
-    data = DataProto(batch=None, non_tensor_batch=None, meta_info={"info": "test_info"})
-
-    assert len(data) == 0
+    data_item = data[0]
+    assert len(data_item) == 0
 
 
 def test_dataproto_index():
