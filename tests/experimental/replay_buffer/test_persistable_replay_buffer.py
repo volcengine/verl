@@ -185,9 +185,7 @@ class TestPersistableReplayBuffer(unittest.TestCase):
         self._wait_for_p0_tasks(client)
         # Check that the order is {'rollout_1', 'rollout_2', 'rollout_3'} in dict, most recently pushed on the rightmost
         expected_order = ["rollout_1", "rollout_2", "rollout_3"]
-        actual_order = list(
-            client._cache._data.keys()
-        )  # ordereddict.keys() returns a view object that preserves the ordering
+        actual_order = list(client._cache._data.keys())
         assert expected_order == actual_order
 
         # order should be correct after get too
