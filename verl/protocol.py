@@ -906,22 +906,24 @@ class DataProto:
         Returns:
             str: Formatted string showing tensor details and recursive metadata types
         """
-        info = ["=== Batch ==="]
+        info = ["batch"]
 
         for key, tensor in self.batch.items():
-            if hasattr(tensor, "shape") and hasattr(tensor, "dtype"):
-                info.append(f"{key}: {tuple(tensor.shape)} ({tensor.dtype})")
+            if hasattr(tensor, "shape") and hasattr(tensor, "dtype") and hasattr(tensor, "device"):
+                info.append(f"  {key}: {tuple(tensor.shape)} ({tensor.dtype}) {tensor.device}")
+            elif hasattr(tensor, "shape") and hasattr(tensor, "dtype"):
+                info.append(f"  {key}: {tuple(tensor.shape)} ({tensor.dtype})")
             else:
-                info.append(f"{key}: {type(tensor).__name__}")
+                info.append(f"  {key}: {type(tensor).__name__}")
 
-        info.append("=== Non-tensor Batch ===")
+        info.append("non_tensor_batch")
         for key, array in self.non_tensor_batch.items():
-            info.append(f"{key}: ndarray{array.shape} ({array.dtype})")
+            info.append(f"  {key}: ndarray{array.shape} ({array.dtype})")
 
-        info.append("=== Meta Info ===")
+        info.append("meta_info")
         for k, v in self.meta_info.items():
             type_info = self._get_type_info(v)
-            info.append(f"{k}: {type_info}")
+            info.append(f"  {k}: {type_info}")
 
         return "\n".join(info)
 
