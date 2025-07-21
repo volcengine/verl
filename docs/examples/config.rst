@@ -214,9 +214,10 @@ Actor/Rollout/Reference Policy
 - ``actor_rollout_ref.model.override_config``: Used to override some of
   the model's original configurations, mainly dropout
 - ``actor_rollout_ref.model.enable_gradient_checkpointing``: FSDP only, decide
-  Whether to enable gradient checkpointing for the actor
+  Whether to enable gradient checkpointing for the actor,
+  Megatron uses recompute options in ``override_transformer_config`` to set this
 - ``actor_rollout_ref.model.enable_activation_offload``: Whether to enable
-  activation offloading for the actor, Megatron use ``override_transformer_config`` to set this
+  activation offloading for the actor
 - ``actor_rollout_ref.model.trust_remote_code``: Whether to enable loading
   a remote code model
 - ``actor_rollout_ref.model.use_fused_kernels``: Whether to use fused
