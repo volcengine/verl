@@ -265,9 +265,15 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             hf_config_tokenizer_path = os.path.join(local_path, "huggingface")
             local_mkdir_safe(hf_config_tokenizer_path)
             model_config = unwrap_model.config
-            if unwrap_model.can_generate() and hasattr(model_config, "name_or_path") and model_config.name_or_path:
+            if (
+                unwrap_model.can_generate()
+                and hasattr(model_config, "name_or_path")
+                and model_config.name_or_path
+                and os.path.exists(os.path.join(model_config.name_or_path, "generation_config.json"))
+            ):
                 # Some model's name_or_path is empty if not initialized from pretrained,
-                # in this cases, we don't save generation config.
+                # or it doesn't contain generation_config.json
+                # in those cases, we don't save generation config.
                 generation_config = GenerationConfig.from_pretrained(model_config.name_or_path)
                 generation_config.save_pretrained(hf_config_tokenizer_path)
             else:
@@ -312,9 +318,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
                     auto_model_cls = AutoModelForCausalLM
                 elif "ForConditionalGeneration" in model_config.architectures[0]:
-                    from transformers import AutoModelForVision2Seq
+                    from transformers import AutoModelForImageTextToText
 
-                    auto_model_cls = AutoModelForVision2Seq
+                    auto_model_cls = AutoModelForImageTextToText
                 else:
                     raise NotImplementedError(f"Unknown architecture {model_config['architectures']}")
 
