@@ -16,4 +16,4 @@ req_scheduler:
   seq_dir: null
   log_dir: null
   agg: mean
-  algo: even_prompt_kk
+  algo: even_token_kk

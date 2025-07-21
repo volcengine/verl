@@ -267,16 +267,11 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         if self.tp_size == 1:
             return data
         
-        if len(data) % self.tp_size!=0:
-            pad_size = self.tp_size - len(data) % self.tp_size
-            padding_protos = [data[:pad_size]]
-            data = DataProto.concat([data] + padding_protos)
-            data = data.chunk(chunks=self.tp_size)[self.tp_rank]
-            if self.tp_rank==self.tp_size-1:
-                original = self.tp_size-pad_size
-                data = data[:original]
-            
-            return data
+        if len(data) % self.tp_size != 0:
+            chunk_size = (len(data) + self.tp_size - 1) // self.tp_size
+            start = self.tp_rank * chunk_size
+            end = min(start + chunk_size, len(data))
+            return data[start:end]
 
         return data.chunk(chunks=self.tp_size)[self.tp_rank]
 

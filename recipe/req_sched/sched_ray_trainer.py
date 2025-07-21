@@ -232,7 +232,7 @@ class ReqScheduler:
         cnt = 0
         global_idx = [None for _ in range(bs)]
         group_idx = 0
-        max_id = max(reqs_idx)
+        max_id = max(reqs_idx) if reqs_idx else -1
         while group_idx <= max_id:
             for i, idx in enumerate(reqs_idx):
                 if idx == group_idx:
