@@ -71,7 +71,12 @@ actor_rollout_ref:
       dist_checkpointing_path: null
       seed: 42
       override_ddp_config: {}
-      override_transformer_config: {}
+      override_transformer_config:
+        recompute_granularity: selective
+        recompute_modules:
+        - core_attn
+        recompute_method: null
+        recompute_num_layers: null
       use_mbridge: false
     profile:
       use_profile: false
