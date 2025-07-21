@@ -217,7 +217,7 @@ Actor/Rollout/Reference Policy
   Whether to enable gradient checkpointing for the actor,
   Megatron uses recompute options in ``override_transformer_config`` to set this
 - ``actor_rollout_ref.model.enable_activation_offload``: Whether to enable
-  activation offloading for the actor
+  activation offloading for the actor, Megatron use ``override_transformer_config`` to set this
 - ``actor_rollout_ref.model.trust_remote_code``: Whether to enable loading
   a remote code model
 - ``actor_rollout_ref.model.use_fused_kernels``: Whether to use fused
