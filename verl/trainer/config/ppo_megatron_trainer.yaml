@@ -39,6 +39,8 @@ actor_rollout_ref:
 
       moe_config:
 
+        freeze_moe_router: False
+
     use_fused_kernels: False # Whether to use custom fused kernels (PostProcessing, for memory efficiency)
 
     trust_remote_code: False

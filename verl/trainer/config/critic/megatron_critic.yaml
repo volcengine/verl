@@ -59,6 +59,7 @@ model:
     model_config: {}
 
     moe_config:
+
       freeze_moe_router: False
 
 # megatron-specific parallelism settings

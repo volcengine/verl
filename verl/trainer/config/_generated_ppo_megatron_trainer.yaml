@@ -187,7 +187,8 @@ actor_rollout_ref:
     external_lib: null
     override_config:
       model_config: {}
-      moe_config: null
+      moe_config:
+        freeze_moe_router: false
     use_fused_kernels: false
     trust_remote_code: false
   profiler:
