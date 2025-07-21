@@ -22,7 +22,7 @@ import os
 import time
 from copy import deepcopy
 from json import JSONDecodeError
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional
 from uuid import uuid4
 
 import numpy as np
@@ -38,7 +38,6 @@ from sglang.srt.managers.tokenizer_manager import (
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
-    MultiprocessingSerializer,
     assert_pkg_version,
     get_ip,
     get_open_port,

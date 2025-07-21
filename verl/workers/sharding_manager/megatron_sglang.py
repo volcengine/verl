@@ -24,7 +24,6 @@ import os
 import torch.distributed as dist
 from omegaconf import DictConfig
 from sglang.srt.entrypoints.engine import Engine
-from sglang.srt.patch_torch import monkey_patch_torch_reductions
 from sglang.srt.utils import MultiprocessingSerializer
 from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
@@ -147,7 +146,6 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             await self.inference_engine.resume_memory_occupation()
         named_tensors = params
         load_format = None
-        monkey_patch_torch_reductions()
 
         update_weights_bucket_bytes = int(self.rollout_config.update_weights_bucket_megabytes) << 20
         for batch in get_named_tensor_buckets(named_tensors, update_weights_bucket_bytes):
