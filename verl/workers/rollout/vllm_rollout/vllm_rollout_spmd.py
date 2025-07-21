@@ -198,7 +198,7 @@ class vLLMRollout(BaseRollout):
 
         # supporting adding any sampling params from the config file
         for k in config.keys():
-            if hasattr(SamplingParams(), str(k)):
+            if hasattr(SamplingParams(), str(k)) and k != "seed":
                 kwargs[k] = config.get(k)
         kwargs["n"] = 1  # already repeat in ray_trainer
         print(f"kwargs: {kwargs}")
