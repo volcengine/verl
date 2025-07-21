@@ -14,7 +14,6 @@
 # limitations under the License.
 import asyncio
 import logging
-from contextlib import ExitStack
 from typing import Any
 
 import ray
@@ -73,30 +72,10 @@ class AsyncSglangServer(AsyncServerBase):
     async def generate_with_cancel(
         self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str
     ) -> list[int]:
-        with ExitStack() as stack:
-            self.active_req[request_id] = asyncio.Event()
-            self.cancel_req[request_id] = asyncio.Event()
-            stack.callback(lambda: self.active_req.pop(request_id, None))
-            cancel_handle = asyncio.create_task(self.active_req[request_id].wait())
-            generation_handle = asyncio.create_task(self.generate(prompt_ids, sampling_params, request_id))
-            done, pending = await asyncio.wait([generation_handle, cancel_handle], return_when=asyncio.FIRST_COMPLETED)
-            for task in pending:
-                task.cancel()
-            if generation_handle in done:
-                stack.callback(lambda: self.cancel_req.pop(request_id, None))
-                return generation_handle.result()
-            else:
-                self.cancel_req[request_id].set()
-            return None
+        return await self.master_worker.generate.remote(prompt_ids, sampling_params, request_id)
 
     async def cancel(self, request_id: str):
-        if request_id in self.active_req:
-            self.active_req[request_id].set()
-            await self.cancel_req[request_id].wait()
-            del self.cancel_req[request_id]
-            logger.debug(f"cancel request_id {request_id}")
-        else:
-            logger.debug(f"request_id {request_id} not in active_req")
+        return await self.master_worker.cancel_req.remote(request_id)
 
     async def wake_up(self):
         if not self.config.rollout.free_cache_engine:

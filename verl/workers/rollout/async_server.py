@@ -48,9 +48,6 @@ class AsyncServerBase(ABC):
         self.port = None
         self.server_ready = asyncio.Event()
         asyncio.create_task(self._start_fastapi_server())
-        # for cancelation
-        self.active_req: dict[str, asyncio.Event] = {}
-        self.cancel_req: dict[str, asyncio.Event] = {}
 
     async def _start_fastapi_server(self):
         @asynccontextmanager
