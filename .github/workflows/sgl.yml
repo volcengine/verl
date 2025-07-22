@@ -87,6 +87,8 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: 1
       SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK: "True"
+      NCCL_SHM_DISABLE: "1"
+      NCCL_P2P_DISABLE: "1"
     container:
       image: verlai/verl:app-verl0.5-sglang0.4.8-mcore0.12.2-te2.2
       options: --gpus all --shm-size=10g

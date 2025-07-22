@@ -12,14 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from dataclasses import dataclass
+from importlib.metadata import version
 from typing import Optional
 
 import torch
+from packaging.version import Version
 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
     Qwen2_5_VLCausalLMOutputWithPast,
     Qwen2_5_VLForConditionalGeneration,
 )
+
+try:
+    from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLModelOutputWithPast
+except ImportError:
+    warnings.warn("Using old API for qwen2_5_vl.", stacklevel=1)
 
 
 @dataclass
@@ -28,7 +36,7 @@ class Qwen2_5_VLCausalLMOutputForPPO(Qwen2_5_VLCausalLMOutputWithPast):
     entropy: Optional[torch.FloatTensor] = None
 
 
-def forward_base_model(
+def forward_base_model_old_api(
     self: Qwen2_5_VLForConditionalGeneration,
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
@@ -138,6 +146,125 @@ def forward_base_model(
     return outputs
 
 
+def forward_base_model_new_api(
+    self: Qwen2_5_VLForConditionalGeneration,
+    input_ids: torch.LongTensor = None,
+    attention_mask: Optional[torch.Tensor] = None,
+    position_ids: Optional[torch.LongTensor] = None,
+    past_key_values: Optional[list[torch.FloatTensor]] = None,
+    inputs_embeds: Optional[torch.FloatTensor] = None,
+    use_cache: Optional[bool] = None,
+    output_attentions: Optional[bool] = None,
+    output_hidden_states: Optional[bool] = None,
+    return_dict: Optional[bool] = None,
+    pixel_values: Optional[torch.Tensor] = None,
+    pixel_values_videos: Optional[torch.FloatTensor] = None,
+    image_grid_thw: Optional[torch.LongTensor] = None,
+    video_grid_thw: Optional[torch.LongTensor] = None,
+    rope_deltas: Optional[torch.LongTensor] = None,
+    cache_position: Optional[torch.LongTensor] = None,
+    second_per_grid_ts: Optional[torch.Tensor] = None,
+) -> tuple | Qwen2_5_VLCausalLMOutputWithPast:
+    r"""
+    Copy paste Qwen2_5_VL's forward
+    https://github.com/huggingface/transformers/blob/f4fc42216cd56ab6b68270bf80d811614d8d59e4/src/transformers/models/qwen2_5_vl/modeling_qwen2_5_vl.py#L1618
+    """
+    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+    output_hidden_states = (
+        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    )
+    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+    if inputs_embeds is None:
+        inputs_embeds = self.get_input_embeddings()(input_ids)
+        if pixel_values is not None:
+            image_embeds = self.get_image_features(pixel_values, image_grid_thw)
+            n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
+            n_image_features = image_embeds.shape[0]
+            if n_image_tokens != n_image_features:
+                raise ValueError(
+                    "Image features and image tokens do not match:tokens: {n_image_tokens}, features {n_image_features}"
+                )
+
+            mask = input_ids == self.config.image_token_id
+            mask_unsqueezed = mask.unsqueeze(-1)
+            mask_expanded = mask_unsqueezed.expand_as(inputs_embeds)
+            image_mask = mask_expanded.to(inputs_embeds.device)
+
+            image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
+            inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+
+        if pixel_values_videos is not None:
+            video_embeds = self.get_video_features(pixel_values_videos, video_grid_thw)
+            n_video_tokens = (input_ids == self.config.video_token_id).sum().item()
+            n_video_features = video_embeds.shape[0]
+            if n_video_tokens != n_video_features:
+                raise ValueError(
+                    "Video features and video tokens do not match: "
+                    "tokens: {n_video_tokens}, features {n_video_features}"
+                )
+
+            mask = input_ids == self.config.video_token_id
+            mask_unsqueezed = mask.unsqueeze(-1)
+            mask_expanded = mask_unsqueezed.expand_as(inputs_embeds)
+            video_mask = mask_expanded.to(inputs_embeds.device)
+
+            video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
+            inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
+
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(inputs_embeds.device)
+
+    # if we get 4D attention mask we cannot calculate rope deltas anymore. TODO @raushan fixme
+    if position_ids is None and (attention_mask is None or attention_mask.ndim == 2):
+        # calculate RoPE index once per generation in the pre-fill stage only
+        if (
+            (cache_position is not None and cache_position[0] == 0)
+            or self.rope_deltas is None
+            or (past_key_values is None or past_key_values.get_seq_length() == 0)
+        ):
+            position_ids, rope_deltas = self.get_rope_index(
+                input_ids,
+                image_grid_thw,
+                video_grid_thw,
+                second_per_grid_ts,
+                attention_mask,
+            )
+            self.rope_deltas = rope_deltas
+        # then use the prev pre-calculated rope-deltas to get the correct position ids
+        else:
+            batch_size, seq_length, _ = inputs_embeds.shape
+            delta = (cache_position[0] + self.rope_deltas).to(inputs_embeds.device) if cache_position is not None else 0
+            position_ids = torch.arange(seq_length, device=inputs_embeds.device)
+            position_ids = position_ids.view(1, -1).expand(batch_size, -1)
+            if cache_position is not None:  # otherwise `deltas` is an int `0`
+                delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=0)
+            position_ids = position_ids.add(delta)
+            position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
+
+    outputs = self.language_model(
+        input_ids=None,
+        position_ids=position_ids,
+        attention_mask=attention_mask,
+        past_key_values=past_key_values,
+        inputs_embeds=inputs_embeds,
+        use_cache=use_cache,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
+        return_dict=True,
+        cache_position=cache_position,
+    )
+
+    output = Qwen2_5_VLModelOutputWithPast(
+        last_hidden_state=outputs.last_hidden_state,
+        past_key_values=outputs.past_key_values,
+        hidden_states=outputs.hidden_states,
+        attentions=outputs.attentions,
+        rope_deltas=self.rope_deltas,
+    )
+    return output if return_dict else output.to_tuple()
+
+
 def forward_with_torch_backend(
     self: Qwen2_5_VLForConditionalGeneration,
     input_ids: torch.LongTensor = None,
@@ -162,6 +289,10 @@ def forward_with_torch_backend(
 ) -> tuple | Qwen2_5_VLCausalLMOutputForPPO:
     from verl.utils.experimental.torch_functional import FusedLinearForPPO
 
+    if Version(version("transformers")) < Version("4.52.0"):
+        forward_base_model = forward_base_model_old_api
+    else:
+        forward_base_model = forward_base_model_new_api
     outputs = forward_base_model(
         self,
         input_ids=input_ids,
@@ -237,6 +368,10 @@ def forward_with_triton_backend(
 ) -> tuple | Qwen2_5_VLCausalLMOutputForPPO:
     from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
 
+    if Version(version("transformers")) < Version("4.52.0"):
+        forward_base_model = forward_base_model_old_api
+    else:
+        forward_base_model = forward_base_model_new_api
     outputs = forward_base_model(
         self,
         input_ids=input_ids,
