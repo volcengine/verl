@@ -17,14 +17,12 @@ import importlib
 import logging
 import os
 import sys
+import threading
 from enum import Enum
 
-import uvloop
 from omegaconf import OmegaConf
 
 from verl.tools.schemas import OpenAIFunctionToolSchema
-
-asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -84,6 +82,20 @@ def get_tool_class(cls_name):
 def initialize_tools_from_config(tools_config_file):
     tools_config = OmegaConf.load(tools_config_file)
     tool_list = []
+
+    tmp_event_loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=tmp_event_loop.run_forever, name="mcp tool list fetcher", daemon=True)
+
+    def run_coroutine(coroutine):
+        if not thread.is_alive():
+            thread.start()
+
+        future = asyncio.run_coroutine_threadsafe(coroutine, tmp_event_loop)
+        return future.result()
+
+    async def stop_loop():
+        tmp_event_loop.stop()
+
     for tool_config in tools_config.tools:
         cls_name = tool_config.class_name
         tool_type = ToolType(tool_config.config.type)
@@ -102,37 +114,14 @@ def initialize_tools_from_config(tools_config_file):
                 )
                 tool_list.append(tool)
             case ToolType.MCP:
-                loop = asyncio.get_event_loop()
-                mcp_tools = loop.run_until_complete(initialize_mcp_tool(tool_cls, tool_config))
+                # loop = asyncio.get_event_loop()
+                # mcp_tools = loop.run_until_complete(initialize_mcp_tool(tool_cls, tool_config))
+                mcp_tools = run_coroutine(initialize_mcp_tool(tool_cls, tool_config))
                 tool_list.extend(mcp_tools)
             case _:
                 raise NotImplementedError
-    return tool_list
 
+    asyncio.run_coroutine_threadsafe(stop_loop(), tmp_event_loop)
+    thread.join()
 
-async def async_initialize_tools_from_config(tools_config_file):
-    tools_config = OmegaConf.load(tools_config_file)
-    tool_list = []
-    for tool_config in tools_config.tools:
-        cls_name = tool_config.class_name
-        tool_type = ToolType(tool_config.config.type)
-        tool_cls = get_tool_class(cls_name)
-
-        match tool_type:
-            case ToolType.NATIVE:
-                if tool_config.get("tool_schema", None) is None:
-                    tool_schema = None
-                else:
-                    tool_schema_dict = OmegaConf.to_container(tool_config.tool_schema, resolve=True)
-                    tool_schema = OpenAIFunctionToolSchema.model_validate(tool_schema_dict)
-                tool = tool_cls(
-                    config=OmegaConf.to_container(tool_config.config, resolve=True),
-                    tool_schema=tool_schema,
-                )
-                tool_list.append(tool)
-            case ToolType.MCP:
-                mcp_tools = await initialize_mcp_tool(tool_cls, tool_config)
-                tool_list.extend(mcp_tools)
-            case _:
-                raise NotImplementedError
     return tool_list
