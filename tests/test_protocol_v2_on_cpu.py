@@ -217,6 +217,18 @@ def test_reorder():
     assert data["name"] == "abdce"
 
 
+def test_tensor_split():
+    obs = torch.tensor([1, 2, 3, 4, 5, 6])
+    labels = ["a", "b", "c", "d", "e", "f"]
+    data = tu.get_tensordict({"obs": obs, "labels": labels}, non_tensor_dict={"name": "abcde"})
+
+    data_lst = tu.tensor_split(data, indices_or_sections=5, dim=0)
+    data_lst = tu.tensor_split(data, indices_or_sections=[1, 4], dim=0)
+
+    from IPython import embed
+    embed()
+
+
 def test_chunk_concat():
     obs = torch.tensor([1, 2, 3, 4, 5, 6])
     labels = ["a", "b", "c", "d", "e", "f"]
@@ -433,6 +445,11 @@ def test_dataproto_index():
     assert result_list_bool.non_tensor_batch["labels"].shape[0] == sum(idx_list_bool)
     assert np.array_equal(result_list_bool.batch["obs"].cpu().numpy(), obs[idx_list_bool].cpu().numpy())
     assert np.array_equal(result_list_bool.non_tensor_batch["labels"], labels_np[idx_list_bool])
+
+
+
+def test_select():
+    pass
 
 
 
