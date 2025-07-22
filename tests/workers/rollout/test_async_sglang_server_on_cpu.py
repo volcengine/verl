@@ -24,6 +24,7 @@ from omegaconf import DictConfig
         "verl.workers.rollout.sglang_rollout.sglang_rollout": MagicMock(SGLangRollout=MagicMock()),
         "verl.workers.rollout.chat_scheduler": MagicMock(ChatCompletionScheduler=MagicMock()),
         "fastapi": MagicMock(FastAPI=MagicMock()),
+        "uvicorn": MagicMock(FastAPI=MagicMock()),
     },
 )
 class TestAsyncSglangServer:

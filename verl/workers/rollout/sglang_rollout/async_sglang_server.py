@@ -48,16 +48,23 @@ class AsyncSglangServer(AsyncServerBase):
         ]
 
         gpu_per_node = len(set([actor["name"].split(":")[1] for actor in matched_actors]))
+        # total gpu num
+        assert len(all_actors) == self._dp_size * self._tp_size
 
         for matched_actor in matched_actors:
             fields = matched_actor["name"].split(":")
             assert len(fields) == 2, f"invalid actor name: {matched_actor['name']}"
             pg_index, local_rank = int(fields[0].split("_")[-1]), int(fields[1])
 
-            if (gpu_per_node * pg_index + local_rank) // self._tp_size == self._dp_rank:
+            current_global_rank = gpu_per_node * pg_index + local_rank
+            worker_dp_rank = current_global_rank // self._tp_size
+            worker_tp_rank = current_global_rank % self._tp_size
+
+            if worker_dp_rank == self._dp_rank:
                 worker = ray.get_actor(**matched_actor)
                 self.workers.append(worker)
-                if (gpu_per_node * pg_index + local_rank) / self._tp_size == self._dp_rank:
+
+                if worker_tp_rank == 0:
                     self.master_worker = worker
 
     async def chat_completion(self, raw_request: Request):
