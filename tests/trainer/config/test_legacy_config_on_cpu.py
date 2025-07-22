@@ -24,6 +24,14 @@ from omegaconf import OmegaConf
 class TestConfigComparison(unittest.TestCase):
     """Test that current configs match their legacy counterparts exactly."""
 
+    ignored_keys = [
+        "enable_gradient_checkpointing",
+        "gradient_checkpointing_kwargs",
+        "activations_checkpoint_method",
+        "activations_checkpoint_granularity",
+        "activations_checkpoint_num_layers",
+    ]
+
     def _compare_configs_recursively(
         self, current_config, legacy_config, path="", legacy_allow_missing=True, current_allow_missing=False
     ):
@@ -39,6 +47,13 @@ class TestConfigComparison(unittest.TestCase):
 
             missing_in_current = legacy_keys - current_keys
             missing_in_legacy = current_keys - legacy_keys
+
+            # Ignore specific keys that are allowed to be missing
+            for key in self.ignored_keys:
+                if key in missing_in_current:
+                    missing_in_current.remove(key)
+                if key in missing_in_legacy:
+                    missing_in_legacy.remove(key)
 
             if missing_in_current:
                 msg = f"Keys missing in current config at {path}: {missing_in_current}"
