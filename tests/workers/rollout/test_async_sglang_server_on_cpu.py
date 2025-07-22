@@ -25,6 +25,8 @@ from omegaconf import DictConfig
         "verl.workers.rollout.chat_scheduler": MagicMock(ChatCompletionScheduler=MagicMock()),
         "fastapi": MagicMock(FastAPI=MagicMock()),
         "uvicorn": MagicMock(FastAPI=MagicMock()),
+        "starlette.requests": MagicMock(Request=MagicMock()),
+        "starlette.responses": MagicMock(JSONResponse=MagicMock()),
     },
 )
 class TestAsyncSglangServer:
