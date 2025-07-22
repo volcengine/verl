@@ -16,7 +16,6 @@
 Multi-turn SFT dataset that supports training on conversation data with multiple turns
 """
 
-import json
 import logging
 from typing import Any, Optional
 
