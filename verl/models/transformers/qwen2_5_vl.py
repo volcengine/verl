@@ -183,7 +183,8 @@ def forward_base_model_new_api(
             n_image_features = image_embeds.shape[0]
             if n_image_tokens != n_image_features:
                 raise ValueError(
-                    "Image features and image tokens do not match:tokens: {n_image_tokens}, features {n_image_features}"
+                    f"Image features and image tokens do not match: tokens: {n_image_tokens}, "
+                    f"features {n_image_features}"
                 )
 
             mask = input_ids == self.config.image_token_id
