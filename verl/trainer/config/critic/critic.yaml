@@ -46,9 +46,6 @@ model:
   # External model implementation (optional)
   external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
 
-  # Enable gradient checkpointing to save memory
-  enable_gradient_checkpointing: True
-
   # Whether to trust remote code from Hugging Face models
   trust_remote_code: ${oc.select:actor_rollout_ref.model.trust_remote_code,false}
 

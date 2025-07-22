@@ -58,18 +58,12 @@ model:
 
   # override default empty mapping
   override_config:
+
     model_config: {}
+
     moe_config:
+
       freeze_moe_router: False
-
-  # Enable gradient checkpointing to save memory
-  enable_gradient_checkpointing: False
-
-  # Activation Checkpointing settings
-  gradient_checkpointing_kwargs:
-    activations_checkpoint_method: null
-    activations_checkpoint_granularity: null
-    activations_checkpoint_num_layers: null
 
 # megatron-specific parallelism settings
 megatron:

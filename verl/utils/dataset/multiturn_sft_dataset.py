@@ -16,7 +16,6 @@
 Multi-turn SFT dataset that supports training on conversation data with multiple turns
 """
 
-import json
 import logging
 from typing import Any, Optional
 
@@ -229,11 +228,6 @@ class MultiTurnSFTDataset(Dataset):
         messages = self.messages[item]
         tools = self.tools[item] if self.tools is not None else None
         enable_thinking = self.enable_thinking[item] if self.enable_thinking is not None else None
-
-        if self.tools is not None:
-            tools = json.loads(self.tools[item])
-        else:
-            tools = None
 
         # First, get the full conversation tokens
         try:

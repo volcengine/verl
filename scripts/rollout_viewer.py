@@ -165,7 +165,10 @@ class JsonLineViewer(App):
         align: center top;
     }
     #search-box {
-        width: 80%;
+        width: 50%;
+    }
+    #reqid-box {
+        width: 50%;
     }
     """
 
@@ -185,12 +188,19 @@ class JsonLineViewer(App):
         self.highlighter = Highlighter()
 
         first_samples = data[list(data.keys())[0]]["samples"]
+        # Prepare the initial field filter list (all keys from the first sample)
         self.filter_fields = [(f, f, True) for f in first_samples[0].keys()]
+
+        # Internal set used for fast membership checks when we add new fields on the fly.
+        # We keep it here so that when new columns appear in later steps (e.g. `request_id`),
+        # they can be added to the UI automatically without restarting the viewer.
+        self._field_set: set[str] = set(first_samples[0].keys())
         self.sample_num = len(first_samples)
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="search-container"):
             yield Input(placeholder="find something...", id="search-box")
+            yield Input(placeholder="request id...", id="reqid-box")
             with Vertical(id="search-container2"):
                 yield self.pbar
                 yield Static("", id="search-status")
@@ -243,6 +253,7 @@ class JsonLineViewer(App):
         self.sample_sort = self.query_one("#sample-sort", Select)
         self.content_display = self.query_one("#content", Static)
         self.search_box = self.query_one("#search-box", Input)
+        self.reqid_box = self.query_one("#reqid-box", Input)
         self.scroll_view = self.query_one("#scroll-view", VerticalScroll)
         self.search_status = self.query_one("#search-status", Static)
         self.fields_select = self.query_one("#fields-select", SelectionList)
@@ -282,8 +293,13 @@ class JsonLineViewer(App):
         content = ""
         try:
             samples = self.data[self.selected_step_index].get("samples", [])
-            content_dict = samples[self.selected_sample_index]
-            content_dict = {k: v for k, v in content_dict.items() if k in self.fields_select.selected}
+            content_dict_full = samples[self.selected_sample_index]
+
+            # Dynamically track any NEW keys that appear and add them to the field filter.
+            self._update_fields_select(content_dict_full.keys())
+
+            # Apply field selection filter (only show selected fields)
+            content_dict = {k: v for k, v in content_dict_full.items() if k in self.fields_select.selected}
             if self.render_table:
                 content = Table("key", "value", show_lines=True)
                 for k in content_dict:
@@ -307,6 +323,73 @@ class JsonLineViewer(App):
             content = self.highlighter(traceback.format_exc())
 
         self.content_display.update(content)
+
+    # ---------------------------------------------------------------------
+    # Request-ID jump logic
+    # ---------------------------------------------------------------------
+
+    @on(Input.Submitted, "#reqid-box")
+    async def on_reqid_submitted(self, event: Input.Submitted) -> None:
+        """Jump to the sample that has a matching `request_id`."""
+
+        req_id_raw = event.value.strip()
+        # Remove hyphens so search is tolerant to different id formats
+        req_id = req_id_raw.replace("-", "")
+        if not req_id:
+            return
+
+        found = False
+        for step_idx, step_data in self.data.items():
+            for sample in step_data.get("samples", []):
+                sample_id = str(sample.get("request_id", ""))
+                if sample_id.replace("-", "") == req_id:
+                    # Update selected indices
+                    self.selected_step_index = step_idx
+                    self.step_select.value = step_idx
+
+                    # Ensure sample list is updated and select sample
+                    self.update_result_options(offset=sample[INDEX_KEY])
+                    self.selected_sample_index = sample[INDEX_KEY]
+                    self.sample_select.value = sample[INDEX_KEY]
+
+                    await self._clear_search()
+                    await self.update_content()
+
+                    found = True
+                    break
+            if found:
+                break
+
+        if not found:
+            self.search_status.update(Text(f"request_id '{req_id_raw}' not found", style="bold red"))
+        else:
+            # Keep the typed id in the input box so users see what was searched.
+            pass
+
+    # ---------------------------------------------------------------------
+    # Helper: add new fields to SelectionList on-the-fly
+    # ---------------------------------------------------------------------
+
+    def _update_fields_select(self, keys):
+        """Add any unseen *keys* to the field-selection widget so they can be toggled.
+
+        The viewer is often launched with only the first step loaded. Later steps may
+        introduce new columns (e.g. `request_id`). This helper ensures those fields
+        become visible without requiring a restart.
+        """
+        # Ensure we have the widget (only after on_mount)
+        if not hasattr(self, "fields_select"):
+            return
+
+        for k in keys:
+            if k not in self._field_set:
+                self._field_set.add(k)
+                try:
+                    # By default, new fields are selected so they appear immediately.
+                    self.fields_select.add_option(k, k, selected=True)
+                except Exception:
+                    # Fallback for older textual versions where signature is different.
+                    self.fields_select.add_option((k, k, True))
 
     @on(Select.Changed, "#step-select")
     async def step_changed(self, event):

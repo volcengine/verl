@@ -41,20 +41,6 @@ actor_rollout_ref:
 
         freeze_moe_router: False
 
-    enable_gradient_checkpointing: False
-
-    gradient_checkpointing_kwargs:
-
-      ## Activation Checkpointing
-      activations_checkpoint_method: null # 'uniform', 'block'; not used with 'selective'
-
-      # 'uniform' divides the total number of transformer layers and checkpoints the input activation of each chunk
-      # 'block' checkpoints the specified number of layers per pipeline stage at the specified granularity
-      activations_checkpoint_granularity: null # 'selective' or 'full'
-
-      # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
-      activations_checkpoint_num_layers: null # not used with 'selective'
-
     use_fused_kernels: False # Whether to use custom fused kernels (PostProcessing, for memory efficiency)
 
     trust_remote_code: False
