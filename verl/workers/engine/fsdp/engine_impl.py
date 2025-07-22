@@ -24,6 +24,7 @@ from typing import Callable
 
 import torch
 import torch.distributed
+from omegaconf import OmegaConf
 from peft import LoraConfig, TaskType, get_peft_model
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
@@ -194,7 +195,7 @@ class FSDPEngine(BaseEngine):
             else:
                 self.tokenizer.chat_template = self.config.model.custom_chat_template
 
-        override_config = self.config.model.get("override_config", {})
+        override_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
         override_config_kwargs = {
             "bos_token_id": self.tokenizer.bos_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,

@@ -202,7 +202,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                     parallel_model.to(get_device_name())
                     return parallel_model
 
-                override_ddp_config = self.config.actor.megatron.get("override_ddp_config", {})
+                override_ddp_config = OmegaConf.to_container(
+                    OmegaConf.create(self.config.actor.megatron.get("override_ddp_config", {}))
+                )
                 return get_model(
                     megatron_actor_model_provider,
                     wrap_with_ddp=wrap_with_ddp,
@@ -389,7 +391,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         from verl.utils.torch_dtypes import PrecisionType
 
-        override_model_config = self.config.model.get("override_config", {})
+        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
         if self._is_actor:
             override_transformer_config = OmegaConf.to_container(
                 OmegaConf.create(self.config.actor.megatron.get("override_transformer_config", {}))
@@ -800,7 +802,9 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
                 parallel_model.to(get_device_name())
                 return parallel_model
 
-            override_ddp_config = self.config.megatron.get("override_ddp_config", {})
+            override_ddp_config = OmegaConf.to_container(
+                OmegaConf.create(self.config.megatron.get("override_ddp_config", {}))
+            )
             # Step 3: initialize the megatron model
             critic_module = get_model(
                 model_provider_func=megatron_critic_model_provider,

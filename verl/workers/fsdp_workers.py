@@ -567,7 +567,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
 
-        override_model_config = self.config.model.get("override_config", {})
+        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
         use_remove_padding = self.config.model.get("use_remove_padding", False)
         use_shm = self.config.model.get("use_shm", False)
         use_fused_kernels = self.config.model.get("use_fused_kernels", False)
@@ -991,7 +991,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 self.processor.chat_template = self.config.model.custom_chat_template
             else:
                 self.tokenizer.chat_template = self.config.model.custom_chat_template
-        override_config = self.config.model.get("override_config", {})
+        override_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
         override_config_kwargs = {
             "bos_token_id": self.tokenizer.bos_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
