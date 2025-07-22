@@ -15,7 +15,6 @@
 
 import tempfile
 import unittest
-from unittest.mock import patch
 
 import torch
 import torch.distributed
@@ -55,17 +54,8 @@ class TestCriticWorker(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        from unittest.mock import MagicMock
-
-        mock_device = MagicMock()
-        mock_device.get_device_name.return_value = "CPU"
-        self.mock_get_torch_device_patcher = patch(
-            "verl.utils.flops_counter.get_torch_device", return_value=mock_device
-        )
-        self.mock_get_torch_device_patcher.start()
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
         self.temp_dir = tempfile.mkdtemp()
 
         config = AutoConfig.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")
@@ -97,7 +87,6 @@ class TestCriticWorker(unittest.TestCase):
         import shutil
 
         shutil.rmtree(self.temp_dir, ignore_errors=True)
-        self.mock_get_torch_device_patcher.stop()
 
     def _create_test_data_for_compute_values(self, batch_size=2, seq_len=10, response_len=5):
         """Create test data for compute_values method"""

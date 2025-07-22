@@ -54,26 +54,27 @@ class MockTransformerModel(nn.Module):
 class TestDataParallelPPOActor(unittest.TestCase):
     """Test DataParallelPPOActor compute_log_prob and update_policy methods"""
 
-    def setUp(self):
-        """Set up test fixtures"""
-        import os
-
-        import torch.distributed
-
+    @classmethod
+    def setUpClass(cls):
+        """Set up distributed environment"""
         if not torch.distributed.is_initialized():
-            rank = int(os.environ.get("RANK", 0))
-            world_size = int(os.environ.get("WORLD_SIZE", 1))
             torch.distributed.init_process_group(
-                backend="cpu:gloo,cuda:nccl",
-                rank=rank,
-                world_size=world_size,
-                init_method=os.environ.get("DIST_INIT_METHOD", None),
+                backend="nccl" if torch.cuda.is_available() else "gloo", init_method="env://"
             )
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        cls.rank = torch.distributed.get_rank()
+        cls.world_size = torch.distributed.get_world_size()
 
+        if torch.cuda.is_available():
+            torch.cuda.set_device(cls.rank)
+            cls.device = torch.device(f"cuda:{cls.rank}")
+        else:
+            cls.device = torch.device("cpu")
+
+    def setUp(self):
+        """Set up test fixtures"""
         self.config = FSDPActorConfig(
-            strategy="fsdp",
+            strategy="fsdp2",
             ppo_mini_batch_size=4,
             ppo_micro_batch_size_per_gpu=2,
             ppo_epochs=1,
@@ -93,9 +94,11 @@ class TestDataParallelPPOActor(unittest.TestCase):
             config=self.config, actor_module=self.mock_model, actor_optimizer=self.mock_optimizer
         )
 
-    def tearDown(self):
-        """Clean up test fixtures"""
-        torch.distributed.destroy_process_group()
+    @classmethod
+    def tearDownClass(cls):
+        """Clean up distributed environment"""
+        if torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
 
     def _create_test_data_for_compute_log_prob(self):
         """Create test DataProto for compute_log_prob method"""
@@ -220,7 +223,7 @@ class TestDataParallelPPOActor(unittest.TestCase):
         self.assertIsNotNone(self.actor.actor_optimizer)
         self.assertEqual(self.actor.config, self.config)
 
-        self.assertEqual(self.actor.config.strategy, "fsdp")
+        self.assertEqual(self.actor.config.strategy, "fsdp2")
         self.assertEqual(self.actor.config.ppo_mini_batch_size, 4)
         self.assertEqual(self.actor.config.clip_ratio, 0.2)
 
