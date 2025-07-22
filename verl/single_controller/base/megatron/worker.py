@@ -91,21 +91,6 @@ class MegatronWorker(Worker):
             print(f"Model config after override: {hf_config}")
         tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
 
-        def add_optimization_config_to_tf_config(tf_config):
-            # add optimization config to tf_config, e.g. checkpointing
-            if self.config.model.get("enable_gradient_checkpointing", False):
-                gradient_checkpointing_cfg = dict(self.config.model.get("gradient_checkpointing_kwargs", dict()))
-                tf_config.recompute_method = gradient_checkpointing_cfg.get("activations_checkpoint_method", "full")
-                tf_config.recompute_granularity = gradient_checkpointing_cfg.get(
-                    "activations_checkpoint_granularity", "full"
-                )
-                tf_config.recompute_num_layers = gradient_checkpointing_cfg.get("activations_checkpoint_num_layers", -1)
-            if megatron_config := self.config.get("megatron", {}):
-                if extra := megatron_config.get("extra", {}):
-                    for k, v in extra.items():
-                        setattr(tf_config, k, v)
-
-        add_optimization_config_to_tf_config(tf_config)
         if use_mbridge:
             from verl.models.mcore.mbridge import AutoBridge
 
