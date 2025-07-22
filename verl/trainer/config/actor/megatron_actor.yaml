@@ -81,7 +81,23 @@ megatron:
 
   # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
   # oc.select: default val for ref.megatron.override_transformer_config
-  override_transformer_config: {}
+  override_transformer_config:
+    # Recompute configuration, same as in megatron.training.arguments
+    # default use minimal performance-interference recompute methods
+    # Recompute granualarity, choices: ["full", "selective"]
+    recompute_granularity: selective
+
+    # Recompute modules, multiple choices: ["core_attn", "moe_act", "layernorm", "mla_up_proj", "mlp", "moe"]
+    # Please use correct module in matched model
+    recompute_modules: ["core_attn"]
+
+    # 'uniform', 'block'
+    # 'uniform' divides the total number of transformer layers and checkpoints the input activation of each chunk
+    # 'block' checkpoints the specified number of layers per pipeline stage at the specified granularity
+    recompute_method: null
+
+    # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
+    recompute_num_layers: null
 
   # oc.select: default val for ref.megatron.use_mbridge
   use_mbridge: False
