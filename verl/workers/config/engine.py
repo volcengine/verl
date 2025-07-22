@@ -16,8 +16,6 @@ import warnings
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from omegaconf import DictConfig
-
 from verl.base_config import BaseConfig
 
 __all__ = ["FSDPEngineConfig", "McoreEngineConfig"]
@@ -67,8 +65,8 @@ class McoreEngineConfig(BaseConfig):
     use_dist_checkpointing: bool = False
     dist_checkpointing_path: Optional[str] = None
     seed: int = 42
-    override_ddp_config: dict[str, Any] = field(default_factory=DictConfig)
-    override_transformer_config: dict[str, Any] = field(default_factory=DictConfig)
+    override_ddp_config: dict[str, Any] = field(default_factory=dict)
+    override_transformer_config: dict[str, Any] = field(default_factory=dict)
     use_mbridge: bool = False
 
     def __post_init__(self) -> None:
