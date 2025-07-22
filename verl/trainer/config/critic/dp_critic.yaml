@@ -33,6 +33,9 @@ model:
   # Whether to use shared memory for loading the model
   use_shm: False
 
+  # Enable gradient checkpointing to save memory
+  enable_gradient_checkpointing: True
+
   # Offload activations to CPU to reduce GPU memory usage
   enable_activation_offload: False
 
