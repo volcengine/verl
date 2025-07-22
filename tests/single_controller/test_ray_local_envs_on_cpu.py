@@ -60,18 +60,18 @@ def test_customized_worker_env():
     resource_pool = RayResourcePool([4], use_gpu=False)
     class_with_args = RayClassWithInitArgs(cls=TestActor)
 
-    # worker_group = RayWorkerGroup(
-    #     resource_pool=resource_pool, ray_cls_with_init=class_with_args, name_prefix="worker_group_customized",
-    #     worker_env={
-    #         "test_key": "test_value",  # new key will be appended
-    #     }
-    # )
+    worker_group = RayWorkerGroup(
+        resource_pool=resource_pool, ray_cls_with_init=class_with_args, name_prefix="worker_group_customized",
+        worker_env={
+            "test_key": "test_value",  # new key will be appended
+        }
+    )
 
-    # output = worker_group.execute_all_sync("getenv", key="RAY_LOCAL_RANK")
-    # assert set(output) == set(["0", "1", "2", "3"])
+    output = worker_group.execute_all_sync("getenv", key="RAY_LOCAL_RANK")
+    assert set(output) == set(["0", "1", "2", "3"])
 
-    # output = worker_group.execute_all_sync("getenv", key="test_key")
-    # assert output == ["test_value", "test_value", "test_value", "test_value"]
+    output = worker_group.execute_all_sync("getenv", key="test_key")
+    assert output == ["test_value", "test_value", "test_value", "test_value"]
 
     try:
         worker_group = RayWorkerGroup(
@@ -89,5 +89,5 @@ def test_customized_worker_env():
 
 
 if __name__ == "__main__":
-    # test_basics()
+    test_basics()
     test_customized_worker_env()
