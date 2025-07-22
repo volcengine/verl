@@ -108,3 +108,31 @@ def initialize_tools_from_config(tools_config_file):
             case _:
                 raise NotImplementedError
     return tool_list
+
+
+async def async_initialize_tools_from_config(tools_config_file):
+    tools_config = OmegaConf.load(tools_config_file)
+    tool_list = []
+    for tool_config in tools_config.tools:
+        cls_name = tool_config.class_name
+        tool_type = ToolType(tool_config.config.type)
+        tool_cls = get_tool_class(cls_name)
+
+        match tool_type:
+            case ToolType.NATIVE:
+                if tool_config.get("tool_schema", None) is None:
+                    tool_schema = None
+                else:
+                    tool_schema_dict = OmegaConf.to_container(tool_config.tool_schema, resolve=True)
+                    tool_schema = OpenAIFunctionToolSchema.model_validate(tool_schema_dict)
+                tool = tool_cls(
+                    config=OmegaConf.to_container(tool_config.config, resolve=True),
+                    tool_schema=tool_schema,
+                )
+                tool_list.append(tool)
+            case ToolType.MCP:
+                mcp_tools = await initialize_mcp_tool(tool_cls, tool_config)
+                tool_list.extend(mcp_tools)
+            case _:
+                raise NotImplementedError
+    return tool_list
