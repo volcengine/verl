@@ -377,6 +377,12 @@ class RayWorkerGroup(WorkerGroup):
                 if rank != 0:
                     env_vars["MASTER_ADDR"] = self._master_addr
                     env_vars["MASTER_PORT"] = self._master_port
+                conflict_env_vars = set(env_vars.keys()) & set(os.environ.keys())
+                if len(conflict_env_vars) > 0:
+                    logging.error(
+                        f"User customized env vars conflict with system env: {conflict_env_vars} "
+                        f"Overriding may cause unexpected behavior."
+                    )
                 logging.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
                 env_vars = {**env_vars, **worker_env}
                 import re
