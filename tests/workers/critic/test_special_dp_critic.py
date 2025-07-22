@@ -72,7 +72,7 @@ class TestCriticWorker(unittest.TestCase):
         config.save_pretrained(self.temp_dir)
 
         self.config = FSDPCriticConfig(
-            strategy="fsdp",
+            strategy="fsdp2",
             ppo_mini_batch_size=4,
             ppo_micro_batch_size_per_gpu=2,
             forward_micro_batch_size_per_gpu=2,
