@@ -214,6 +214,7 @@ class FSDPCriticModelCfg(BaseModelConfig):
         use_shm (bool): Whether to use shared memory for loading the model.
         enable_activation_offload (bool): Offload activations to CPU to reduce GPU memory usage.
         use_remove_padding (bool): Use remove-padding optimization (saves compute).
+        enable_gradient_checkpointing (bool): Enable gradient checkpointing for memory efficiency.
         fsdp_config (FSDPEngineConfig): FSDP-specific configuration block.
         lora_rank (int): Set to positive value to enable LoRA (e.g., 32).
         lora_alpha (int): LoRA scaling factor.
@@ -223,6 +224,7 @@ class FSDPCriticModelCfg(BaseModelConfig):
     use_shm: bool = False
     enable_activation_offload: bool = False
     use_remove_padding: bool = False
+    enable_gradient_checkpointing: bool = True
     fsdp_config: FSDPEngineConfig = field(default_factory=FSDPEngineConfig)
     lora_rank: int = 0
     lora_alpha: int = 16
