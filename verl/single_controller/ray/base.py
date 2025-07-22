@@ -377,7 +377,7 @@ class RayWorkerGroup(WorkerGroup):
                 if rank != 0:
                     env_vars["MASTER_ADDR"] = self._master_addr
                     env_vars["MASTER_PORT"] = self._master_port
-                conflict_env_vars = set(env_vars.keys()) & set(os.environ.keys())
+                conflict_env_vars = set(env_vars.keys()) & set(worker_env.keys())
                 if len(conflict_env_vars) > 0:
                     logging.error(
                         f"User customized env vars conflict with system env: {conflict_env_vars} "
