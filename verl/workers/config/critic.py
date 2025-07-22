@@ -24,7 +24,7 @@ from verl.utils.profiler import ProfilerConfig
 from .engine import FSDPEngineConfig, McoreEngineConfig
 from .optimizer import OptimizerConfig
 
-__all__ = ["CriticConfig", "FSDPCriticConfig", "McoreCriticConfig", "McoreCriticModelCfg", "FSDPCriticModelCfg"]
+__all__ = ["CriticConfig", "FSDPCriticConfig", "McoreCriticConfig", "FSDPCriticModelCfg"]
 
 
 @dataclass
@@ -227,18 +227,3 @@ class FSDPCriticModelCfg(BaseModelConfig):
     lora_rank: int = 0
     lora_alpha: int = 16
     target_modules: str | list[str] = "all-linear"
-
-
-@dataclass
-class McoreCriticModelCfg(BaseModelConfig):
-    """Megatron/MCore critic model configuration.
-    Inherits base critic settings and customizes gradient checkpointing and MoE overrides.
-
-    Args:
-        override_config (Dict[str, Any]): Override default empty mapping with model-and MoE-specific configs
-        enable_gradient_checkpointing (bool): Enable gradient checkpointing to save memory (overrides base default)
-        gradient_checkpointing_kwargs (Dict[str, Any]): Activation checkpointing keyword arguments
-    """
-
-    enable_gradient_checkpointing: bool = False
-    gradient_checkpointing_kwargs: dict[str, Any] = field(default_factory=dict)

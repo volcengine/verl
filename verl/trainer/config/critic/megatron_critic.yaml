@@ -54,7 +54,7 @@ optim:
 model:
 
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-  _target_: verl.workers.config.McoreCriticModelCfg
+  _target_: verl.trainer.config.BaseModelCfg
 
   # override default empty mapping
   override_config:
