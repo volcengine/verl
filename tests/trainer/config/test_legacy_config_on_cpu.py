@@ -14,6 +14,7 @@
 
 import os
 import unittest
+import warnings
 
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
@@ -42,14 +43,14 @@ class TestConfigComparison(unittest.TestCase):
             if missing_in_current:
                 msg = f"Keys missing in current config at {path}: {missing_in_current}"
                 if current_allow_missing:
-                    print(msg)
+                    warnings.warn(msg, stacklevel=1)
                 else:
                     self.fail(f"Keys missing in current config at {path}: {missing_in_current}")
             if missing_in_legacy:
                 # if the legacy
                 msg = f"Keys missing in legacy config at {path}: {missing_in_legacy}"
                 if legacy_allow_missing:
-                    print(msg)
+                    warnings.warn(msg, stacklevel=1)
                 else:
                     self.fail(msg)
 
