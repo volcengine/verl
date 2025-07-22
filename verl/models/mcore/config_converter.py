@@ -171,6 +171,30 @@ def _get_moe_common_optimization_config(origin_config: dict, has_shared_expert: 
     return origin_config
 
 
+def check_and_disable_uncompatible_configs(original_config: PretrainedConfig) -> dict:
+    """
+    Check and disable incompatible configurations for older Megatron version.
+
+    Args:
+        original_config (PretrainedConfig): The original model configuration.
+
+    Returns:
+        dict: The updated model configuration with incompatible settings disabled.
+    """
+    removed_keys = []
+    for key in original_config.keys():
+        if not hasattr(TransformerConfig, key):
+            removed_keys.append(key)
+    if removed_keys:
+        warnings.warn(
+            f"The following keys are not supported in the current Megatron version and will be removed: {removed_keys}",
+            stacklevel=2,
+        )
+        for key in removed_keys:
+            original_config.pop(key)
+    return original_config
+
+
 def hf_to_mcore_config_dense(
     hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
 ) -> TransformerConfig:
@@ -188,6 +212,7 @@ def hf_to_mcore_config_dense(
     )
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
+    args = check_and_disable_uncompatible_configs(args)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
 
@@ -218,6 +243,7 @@ def hf_to_mcore_config_qwen2moe(
     args = _get_moe_common_optimization_config(args)
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
+    args = check_and_disable_uncompatible_configs(args)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
 
@@ -245,6 +271,7 @@ def hf_to_mcore_config_mixtral(
     args = _get_moe_common_optimization_config(args, has_shared_expert=False)
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
+    args = check_and_disable_uncompatible_configs(args)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
 
@@ -274,6 +301,7 @@ def hf_to_mcore_config_qwen3moe(
     args = _get_moe_common_optimization_config(args, has_shared_expert=False)
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
+    args = check_and_disable_uncompatible_configs(args)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
 
@@ -342,6 +370,7 @@ def hf_to_mcore_config_dpskv3(
     args = _get_moe_common_optimization_config(args, has_shared_expert=True)
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
+    args = check_and_disable_uncompatible_configs(args)
     transformer_config: MLATransformerConfig = MLATransformerConfig(**args)
     print(f"Overridden MLA TF init config: {transformer_config}")
     # MTP
@@ -367,6 +396,7 @@ def hf_to_mcore_config_qwen2_5_vl(
     )
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
+    args = check_and_disable_uncompatible_configs(args)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
 
