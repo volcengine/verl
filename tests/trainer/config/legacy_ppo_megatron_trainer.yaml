@@ -36,15 +36,6 @@ actor_rollout_ref:
       model_config: {}
       moe_config:
         freeze_moe_router: False
-    enable_gradient_checkpointing: False
-    gradient_checkpointing_kwargs:
-      ## Activation Checkpointing
-      activations_checkpoint_method: null # 'uniform', 'block'; not used with 'selective'
-      # 'uniform' divides the total number of transformer layers and checkpoints the input activation of each chunk
-      # 'block' checkpoints the specified number of layers per pipeline stage at the specified granularity
-      activations_checkpoint_granularity: null # 'selective' or 'full'
-      # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
-      activations_checkpoint_num_layers: null # not used with 'selective'
     trust_remote_code: False
   actor:
     strategy: megatron  # This is for backward-compatibility
@@ -293,12 +284,6 @@ critic:
         freeze_moe_router: False
     external_lib: ${actor_rollout_ref.model.external_lib}
     trust_remote_code: False
-    enable_gradient_checkpointing: False
-    gradient_checkpointing_kwargs:
-      ## Activation Checkpointing
-      activations_checkpoint_method: null
-      activations_checkpoint_granularity: null
-      activations_checkpoint_num_layers: null
   megatron:
     param_offload: False
     grad_offload: False

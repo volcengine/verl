@@ -24,7 +24,7 @@ class TestConfigComparison(unittest.TestCase):
     """Test that current configs match their legacy counterparts exactly."""
 
     def _compare_configs_recursively(
-        self, current_config, legacy_config, path="", legacy_allow_missing=True, current_allow_missing=True
+        self, current_config, legacy_config, path="", legacy_allow_missing=True, current_allow_missing=False
     ):
         """Recursively compare two OmegaConf configs and assert they are identical.
 
@@ -113,7 +113,7 @@ class TestConfigComparison(unittest.TestCase):
                 del current_dict["defaults"]
 
             self._compare_configs_recursively(
-                current_dict, legacy_dict, legacy_allow_missing=True, current_allow_missing=True
+                current_dict, legacy_dict, legacy_allow_missing=True, current_allow_missing=False
             )
         finally:
             GlobalHydra.instance().clear()
