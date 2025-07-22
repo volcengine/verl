@@ -17,6 +17,7 @@ import warnings
 
 import torch
 import torch.distributed
+from omegaconf import OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 
 from verl import DataProto
@@ -98,7 +99,7 @@ class PRIMERewardModelWorker(Worker):
         tokenizer_path = copy_local_path_from_hdfs(config.model.tokenizer_path)
         self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
 
-        override_config = self.config.model.get("override_config", {})
+        override_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
         override_config_kwargs = {
             "bos_token_id": self.tokenizer.bos_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
