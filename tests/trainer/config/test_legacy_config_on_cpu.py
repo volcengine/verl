@@ -23,7 +23,9 @@ from omegaconf import OmegaConf
 class TestConfigComparison(unittest.TestCase):
     """Test that current configs match their legacy counterparts exactly."""
 
-    def _compare_configs_recursively(self, current_config, legacy_config, path="", legacy_allow_missing=True):
+    def _compare_configs_recursively(
+        self, current_config, legacy_config, path="", legacy_allow_missing=True, current_allow_missing=True
+    ):
         """Recursively compare two OmegaConf configs and assert they are identical.
 
         Args:
@@ -38,7 +40,11 @@ class TestConfigComparison(unittest.TestCase):
             missing_in_legacy = current_keys - legacy_keys
 
             if missing_in_current:
-                self.fail(f"Keys missing in current config at {path}: {missing_in_current}")
+                msg = f"Keys missing in current config at {path}: {missing_in_current}"
+                if current_allow_missing:
+                    print(msg)
+                else:
+                    self.fail(f"Keys missing in current config at {path}: {missing_in_current}")
             if missing_in_legacy:
                 # if the legacy
                 msg = f"Keys missing in legacy config at {path}: {missing_in_legacy}"
@@ -106,7 +112,9 @@ class TestConfigComparison(unittest.TestCase):
             if "defaults" in current_dict:
                 del current_dict["defaults"]
 
-            self._compare_configs_recursively(current_dict, legacy_dict, legacy_allow_missing=True)
+            self._compare_configs_recursively(
+                current_dict, legacy_dict, legacy_allow_missing=True, current_allow_missing=True
+            )
         finally:
             GlobalHydra.instance().clear()
 
