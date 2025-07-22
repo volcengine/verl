@@ -230,11 +230,6 @@ class MultiTurnSFTDataset(Dataset):
         tools = self.tools[item] if self.tools is not None else None
         enable_thinking = self.enable_thinking[item] if self.enable_thinking is not None else None
 
-        if self.tools is not None:
-            tools = json.loads(self.tools[item])
-        else:
-            tools = None
-
         # First, get the full conversation tokens
         try:
             full_tokens = tokenizer.apply_chat_template(

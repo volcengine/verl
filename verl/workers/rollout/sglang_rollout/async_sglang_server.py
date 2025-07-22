@@ -27,7 +27,7 @@ logger = logging.getLogger(__file__)
 
 
 @ray.remote(num_cpus=1)
-class AsyncSglangServer(AsyncServerBase):
+class AsyncSGLangServer(AsyncServerBase):
     def __init__(self, config: DictConfig, dp_size: int, dp_rank: int, wg_prefix: str):
         super().__init__()
         self.config = config.actor_rollout_ref
