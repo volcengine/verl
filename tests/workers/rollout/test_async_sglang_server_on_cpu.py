@@ -39,13 +39,13 @@ class TestAsyncSglangServer:
     @patch("verl.workers.rollout.async_server.AsyncServerBase._start_fastapi_server", new_callable=AsyncMock)
     @pytest.mark.filterwarnings("ignore:Ray state API is no longer experimental:DeprecationWarning")
     async def test_init_engine(self, mock_start_fastapi_server, mock_list_actors, server_config):
-        from verl.workers.rollout.sglang_rollout.async_sglang_server import AsyncSglangServer
+        from verl.workers.rollout.sglang_rollout.async_sglang_server import AsyncSGLangServer
 
-        ActualClassToInstantiate = AsyncSglangServer
-        if hasattr(AsyncSglangServer, "__ray_metadata__") and hasattr(
-            AsyncSglangServer.__ray_metadata__, "modified_class"
+        ActualClassToInstantiate = AsyncSGLangServer
+        if hasattr(AsyncSGLangServer, "__ray_metadata__") and hasattr(
+            AsyncSGLangServer.__ray_metadata__, "modified_class"
         ):
-            ActualClassToInstantiate = AsyncSglangServer.__ray_metadata__.modified_class
+            ActualClassToInstantiate = AsyncSGLangServer.__ray_metadata__.modified_class
 
         def mock_get_actor_side_effect(name, namespace=None):
             # Create a new mock actor for each call
