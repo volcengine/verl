@@ -19,9 +19,12 @@ import os
 import sys
 from enum import Enum
 
+import uvloop
 from omegaconf import OmegaConf
 
 from verl.tools.schemas import OpenAIFunctionToolSchema
+
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
