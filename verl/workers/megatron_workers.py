@@ -26,7 +26,7 @@ import torch
 import torch.distributed
 from codetiming import Timer
 from megatron.core import parallel_state as mpu
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from verl import DataProto
 from verl.single_controller.base.decorator import Dispatch, register
@@ -391,9 +391,13 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         override_model_config = self.config.model.get("override_config", {})
         if self._is_actor:
-            override_transformer_config = self.config.actor.megatron.get("override_transformer_config", {})
+            override_transformer_config = OmegaConf.to_container(
+                OmegaConf.create(self.config.actor.megatron.get("override_transformer_config", {}))
+            )
         elif self._is_ref:
-            override_transformer_config = self.config.ref.megatron.get("override_transformer_config", {})
+            override_transformer_config = OmegaConf.to_container(
+                OmegaConf.create(self.config.ref.megatron.get("override_transformer_config", {}))
+            )
         else:
             override_transformer_config = {}
         self.param_dtype = torch.bfloat16
@@ -849,8 +853,10 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             import importlib
 
             importlib.import_module(self.config.model.external_lib)
-        override_model_config = self.config.model.get("override_config", {})
-        override_transformer_config = self.config.megatron.get("override_transformer_config", {})
+        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
+        override_transformer_config = OmegaConf.to_container(
+            OmegaConf.create(self.config.megatron.get("override_transformer_config", {}))
+        )
         self.param_dtype = torch.bfloat16
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         (
@@ -1094,8 +1100,10 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             import importlib
 
             importlib.import_module(self.config.model.external_lib)
-        override_model_config = self.config.model.get("override_config", {})
-        override_transformer_config = self.config.megatron.get("override_transformer_config", {})
+        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
+        override_transformer_config = OmegaConf.to_container(
+            OmegaConf.create(self.config.megatron.get("override_transformer_config", {}))
+        )
 
         use_shm = self.config.model.get("use_shm", False)
         sft_tokenizer_local_path = copy_to_local(self.config.model.input_tokenizer, use_shm=use_shm)

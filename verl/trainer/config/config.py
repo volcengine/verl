@@ -15,6 +15,8 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from omegaconf import DictConfig
+
 from verl.base_config import BaseConfig
 
 __all__ = ["CheckpointConfig", "ProfileConfig", "BaseModelConfig"]
@@ -74,6 +76,6 @@ class BaseModelConfig(BaseConfig):
 
     path: str = "~/models/deepseek-llm-7b-chat"
     tokenizer_path: Optional[str] = None
-    override_config: dict[str, Any] = field(default_factory=dict)
+    override_config: dict[str, Any] = field(default_factory=DictConfig)
     external_lib: Optional[str] = None
     trust_remote_code: bool = False
