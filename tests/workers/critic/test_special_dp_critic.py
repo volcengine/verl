@@ -55,10 +55,6 @@ class TestCriticWorker(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        self.mock_memory_info_patcher = patch("verl.utils.profiler.performance._get_current_mem_info")
-        self.mock_memory_info = self.mock_memory_info_patcher.start()
-        self.mock_memory_info.return_value = ("0.00", "0.00", "0.00", "0.00")
-
         from unittest.mock import MagicMock
 
         mock_device = MagicMock()
@@ -72,7 +68,7 @@ class TestCriticWorker(unittest.TestCase):
 
         self.temp_dir = tempfile.mkdtemp()
 
-        config = AutoConfig.from_pretrained("microsoft/DialoGPT-medium")
+        config = AutoConfig.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")
         config.save_pretrained(self.temp_dir)
 
         self.config = FSDPCriticConfig(
@@ -94,13 +90,13 @@ class TestCriticWorker(unittest.TestCase):
                 use_remove_padding=False,
             ),
         )
+        assert self.world_size <= 4 // 2
 
     def tearDown(self):
         """Clean up test fixtures"""
         import shutil
 
         shutil.rmtree(self.temp_dir, ignore_errors=True)
-        self.mock_memory_info_patcher.stop()
         self.mock_get_torch_device_patcher.stop()
 
     def _create_test_data_for_compute_values(self, batch_size=2, seq_len=10, response_len=5):
@@ -204,7 +200,7 @@ class TestCriticWorker(unittest.TestCase):
             self.assertIn(key, metrics)
 
         for key, value in metrics.items():
-            if isinstance(value, (list, tuple)):
+            if isinstance(value, list | tuple):
                 for v in value:
                     self.assertTrue(torch.isfinite(torch.tensor(v)).all())
             else:

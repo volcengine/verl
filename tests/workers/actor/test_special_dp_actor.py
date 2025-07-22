@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import unittest
-from unittest.mock import patch
 
 import torch
 import torch.nn as nn
@@ -71,10 +70,6 @@ class TestDataParallelPPOActor(unittest.TestCase):
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
 
-        self.mock_memory_info_patcher = patch("verl.utils.profiler.performance._get_current_mem_info")
-        self.mock_memory_info = self.mock_memory_info_patcher.start()
-        self.mock_memory_info.return_value = ("0.00", "0.00", "0.00", "0.00")
-
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.config = FSDPActorConfig(
@@ -101,7 +96,6 @@ class TestDataParallelPPOActor(unittest.TestCase):
     def tearDown(self):
         """Clean up test fixtures"""
         torch.distributed.destroy_process_group()
-        self.mock_memory_info_patcher.stop()
 
     def _create_test_data_for_compute_log_prob(self):
         """Create test DataProto for compute_log_prob method"""
