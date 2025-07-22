@@ -191,7 +191,6 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     critic.optim.lr=2e-5 \
     critic.optim.lr_warmup_steps=$LR_WARMUP_STEPS \
     critic.model.path="${MODEL_PATH}" \
-    critic.model.enable_gradient_checkpointing=False \
     critic.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     critic.ppo_max_token_len_per_gpu=${forward_max_token_len_per_gpu} \
     critic.megatron.use_mbridge=${USE_MBRIDGE} \
