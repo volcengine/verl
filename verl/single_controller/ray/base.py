@@ -383,6 +383,7 @@ class RayWorkerGroup(WorkerGroup):
                         f"User customized env vars conflict with system env: {conflict_env_vars} "
                         f"Overriding may cause unexpected behavior."
                     )
+                    raise ValueError(f"Cannot override protected system env: {conflict_env_vars}")
                 logging.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
                 env_vars = {**env_vars, **worker_env}
                 import re
