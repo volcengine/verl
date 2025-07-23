@@ -1222,7 +1222,12 @@ class SGLangRollout(BaseRollout):
             "reward_scores": np.array(reward_scores),
             "request_id": np.array(request_ids),
         }
-        if isinstance(self.processing_class, ProcessorMixin):
+
+        is_multimodal = isinstance(self.processing_class, ProcessorMixin) and (
+            hasattr(self.processing_class, "image_processor") or hasattr(self.model_hf_config, "vision_config")
+        )
+
+        if is_multimodal:
             non_tensor_batch["multi_modal_inputs"] = np.array(multi_modal_inputs, dtype=object)
 
         return DataProto(
