@@ -6,7 +6,7 @@ from uuid import uuid4
 from verl.tools.base_tool import BaseTool, OpenAIFunctionToolSchema
 
 
-from envs.base_env import BaseEnv, ToolDefinition
+from benchmax.envs.base_env import BaseEnv, ToolDefinition
 from verl.tools.schemas import OpenAIFunctionSchema
 
 class BenchmaxToolAdapter(BaseTool):

@@ -24,7 +24,7 @@ from omegaconf import OmegaConf
 from verl.tools.benchmax_tool import benchmax_env_to_tool_list
 from verl.tools.schemas import OpenAIFunctionToolSchema
 
-from envs.base_env import BaseEnv
+from benchmax.envs.base_env import BaseEnv
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))

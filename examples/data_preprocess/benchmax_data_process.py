@@ -32,7 +32,7 @@ from verl.utils.hdfs_io import copy, makedirs
 def load_class(dotted_path: str) -> BaseEnv:
     """
     Load and return the class specified by `dotted_path`.
-    Example: "envs.wikipedia.wiki_env.WikipediaEnv"
+    Example: "benchmax.envs.wikipedia.wiki_env.WikipediaEnv"
     """
     try:
         module_path, class_name = dotted_path.rsplit(".", 1)
@@ -68,7 +68,7 @@ if __name__ == "__main__":
         required=True,
         help=(
             "Dotted path to the BaseEnv subclass to use for preprocessing, "
-            "e.g. 'envs.wikipedia.wiki_env.WikipediaEnv'."
+            "e.g. 'benchmax.envs.wikipedia.wiki_env.WikipediaEnv'."
         )
     )
     parser.add_argument(
