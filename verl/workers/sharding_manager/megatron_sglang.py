@@ -27,7 +27,6 @@ from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.model_executor.model_runner import LocalSerializedTensor
 
 try:
-    # TorchPatchMultiprocessingSerializer is introduced by SGLang 0.4.9.post3, which could speed up update weights by 3x
     from sglang.srt.utils import TorchPatchMultiprocessingSerializer as MultiprocessingSerializer
 except ImportError:
     from sglang.srt.utils import MultiprocessingSerializer
