@@ -641,7 +641,10 @@ class RayPPOTrainer:
 
         for k, v in reward_extra_infos_dict.items():
             if len(v) == n:
-                base_data[k] = v
+                if hasattr(v, "tolist"):
+                    base_data[k] = v.tolist()
+                else:
+                    base_data[k] = v
 
         lines = []
         for i in range(n):
