@@ -21,10 +21,10 @@ from enum import Enum
 
 from omegaconf import OmegaConf
 
-from verl.tools.sandbox_tool import sandbox_to_tool_list
+from verl.tools.benchmax_tool import benchmax_env_to_tool_list
 from verl.tools.schemas import OpenAIFunctionToolSchema
 
-from envs.base_sandbox import BaseSandbox
+from envs.base_env import BaseEnv
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -33,7 +33,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class ToolType(Enum):
     NATIVE = "native"
     MCP = "mcp"
-    SANDBOX = "sandbox"
+    BENCHMAX = "benchmax"
 
 
 async def initialize_mcp_tool(tool_cls, tool_config) -> list:
@@ -68,15 +68,17 @@ async def initialize_mcp_tool(tool_cls, tool_config) -> list:
     return tool_list
 
 
-async def initialize_sandbox_environment(tool_cls, tool_config) -> list:
-    """Initialize a sandbox environment and return a list of verl compatible tools."""
-    print(f"Initializing sandbox environment with config: {tool_config.config}")
-    if not issubclass(tool_cls, BaseSandbox):
-        raise TypeError("tool_cls must subclass BaseSandbox")
-    sandbox = tool_cls(
+async def initialize_benchmax_environment(env_cls, tool_config) -> list:
+    """Initialize a benchmax environment and return a list of verl compatible tools."""
+    print(f"Initializing benchmax environment with config: {tool_config.config}")
+    if not issubclass(env_cls, BaseEnv):
+        raise TypeError("tool_cls must subclass BaseEnv when using Benchmax")
+    tool_config.config.pop("type")
+    print("initializing benchmax environment with config:", tool_config.config, env_cls)
+    benchmax_env = env_cls(
         **tool_config.config,
     )
-    return sandbox_to_tool_list(sandbox)
+    return benchmax_env_to_tool_list(benchmax_env)
 
 def get_tool_class(cls_name):
     module_name, class_name = cls_name.rsplit(".", 1)
@@ -116,10 +118,10 @@ def initialize_tools_from_config(tools_config_file):
                 loop = asyncio.get_event_loop()
                 mcp_tools = loop.run_until_complete(initialize_mcp_tool(tool_cls, tool_config))
                 tool_list.extend(mcp_tools)
-            case ToolType.SANDBOX:
+            case ToolType.BENCHMAX:
                 loop = asyncio.get_event_loop()
-                sandbox_tools = loop.run_until_complete(initialize_sandbox_environment(tool_cls, tool_config))
-                tool_list.extend(sandbox_tools)
+                benchmax_tools = loop.run_until_complete(initialize_benchmax_environment(tool_cls, tool_config))
+                tool_list.extend(benchmax_tools)
                 break
             case _:
                 raise NotImplementedError

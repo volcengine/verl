@@ -1,0 +1,6 @@
+# Example Benchmax Tool Config
+# Class name points to sandbox class. This is expected to be a subclass of envs.BaseEnv
+tools:
+  - class_name: envs.wikipedia.wiki_env.WikipediaEnv
+    config:
+      type: benchmax

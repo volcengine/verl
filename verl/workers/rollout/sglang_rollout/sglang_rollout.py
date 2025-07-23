@@ -58,6 +58,7 @@ from verl.interactions.base import BaseInteraction
 from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
 from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.tools.base_tool import BaseTool
+from verl.tools.benchmax_tool import BenchmaxToolAdapter
 from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
 from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.net_utils import is_ipv6
@@ -866,7 +867,7 @@ class SGLangRollout(BaseRollout):
 
                 output = await self._handle_engine_call(_req, request_sampling_params, image_data=image_data)
                 content = output["text"]
-                print("got content", content)
+                # print("got content", content)
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
@@ -1196,15 +1197,27 @@ class SGLangRollout(BaseRollout):
         if self._engine is not None and self._tp_rank == 0:
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self._engine.flush_cache())
+        
+
+        non_tensor_batch = {
+            "messages": np.array(messages),
+            "reward_scores": np.array(reward_scores),
+            "uid": np.array([req.uid for req in sorted_output_req_list]),
+            "multi_modal_inputs": np.array(multi_modal_inputs, dtype=object),
+        }
+
+        # if benchmax tool, get workspace dirs as well
+        # this is useful for rewards that need to access files or directories.
+        first_tool = self._tool_map[list(self._tool_map.keys())[0]]
+        if isinstance(first_tool, BenchmaxToolAdapter):
+            workspaces = [
+                first_tool.get_rollout_workspace(req.request_id) for req in sorted_output_req_list
+            ]
+            non_tensor_batch["workspaces"] = np.array(workspaces, dtype=object)
 
         return DataProto(
             batch=batch,
-            non_tensor_batch={
-                "messages": np.array(messages),
-                "reward_scores": np.array(reward_scores),
-                "uid": np.array([req.uid for req in sorted_output_req_list]),
-                "multi_modal_inputs": np.array(multi_modal_inputs, dtype=object),
-            },
+            non_tensor_batch=non_tensor_batch,
         )
 
     def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: int = 1) -> list[AsyncRolloutRequest]:

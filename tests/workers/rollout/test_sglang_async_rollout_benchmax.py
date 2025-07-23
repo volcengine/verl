@@ -29,14 +29,14 @@ from utils_sglang import (
 )
 
 from verl.protocol import DataProto
-from verl.tools.sandbox_tool import SandboxToolAdapter
+from verl.tools.benchmax_tool import BenchmaxToolAdapter
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
 
 
-def get_sandbox_messages():
+def get_benchmax_messages():
     """
-    Conversation scaffold for the WikipediaSandbox environment.
+    Conversation scaffold for the WikipediaEnv environment.
     """
 
     # ── Turn 0 ───────────────────────────────────────────────────────────────
@@ -122,7 +122,7 @@ def get_sandbox_messages():
 
 
 
-class TestRolloutWithSandbox:
+class TestRolloutWithBenchmaxTools:
     @pytest.fixture
     def qwen_tokenizer(self):
         local_model_path = "Qwen/Qwen2.5-0.5B"
@@ -138,8 +138,8 @@ class TestRolloutWithSandbox:
         return config
 
     @pytest.fixture
-    def sandbox_tool_schemas(self):
-        """Schemas for the WikipediaSandbox tools."""
+    def benchmax_tool_schemas(self):
+        """Schemas for the WikipediaEnv tools."""
         tool_schemas = [
             {
                 "type": "function",
@@ -187,8 +187,8 @@ class TestRolloutWithSandbox:
         return tool_schemas
 
     @pytest.fixture
-    def sandbox_data(self, qwen_tokenizer):
-        user_prompt, expect_turn_array, tool_return_array = get_sandbox_messages()
+    def benchmax_data(self, qwen_tokenizer):
+        user_prompt, expect_turn_array, tool_return_array = get_benchmax_messages()
         prompts = [[message] for message in user_prompt]
         preencode_turn_array = [
             qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=False)
@@ -201,20 +201,20 @@ class TestRolloutWithSandbox:
         return prompts, preencode_turn_array, preencode_tool_return_array
 
     @pytest.fixture
-    def sandbox_rollout_config(self):
+    def benchmax_rollout_config(self):
         max_prompt_length = 4096
         max_response_length = 3000
         dtype = "bfloat16"
         tensor_parallel_size = 1
-        tool_path = "./rollout/resource/tool_configs/sandbox_tool_config"
+        tool_path = "./rollout/resource/tool_configs/benchmax_tool_config"
         rollout_config = get_rollout_config(
             max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_path
         )
         return rollout_config
 
     @pytest.fixture
-    def sandbox_data_proto(self, sandbox_data, qwen_tokenizer):
-        preencode_prompts, _, _ = sandbox_data
+    def benchmax_data_proto(self, benchmax_data, qwen_tokenizer):
+        preencode_prompts, _, _ = benchmax_data
         prompts = [
             qwen_tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True)
             for message in preencode_prompts
@@ -240,20 +240,20 @@ class TestRolloutWithSandbox:
         return prompts
 
     @pytest.fixture
-    def mock_rollout(self, sandbox_rollout_config, qwen_tokenizer, qwen_model_config):
+    def mock_rollout(self, benchmax_rollout_config, qwen_tokenizer, qwen_model_config):
         """Mock the rollout instance with sampling_params initialized."""
         with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(
             SGLangRollout, "_init_inference_engine", return_value=None
         ), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
             rollout = SGLangRollout(
                 actor_module="",
-                config=sandbox_rollout_config,
+                config=benchmax_rollout_config,
                 processing_class=qwen_tokenizer,
                 model_hf_config=qwen_model_config,
             )
             rollout.sampling_params = {
                 "n": 1,
-                "max_new_tokens": sandbox_rollout_config.response_length,
+                "max_new_tokens": benchmax_rollout_config.response_length,
                 "presence_penalty": 0.0,
                 "frequency_penalty": 0.0,
                 "repetition_penalty": 1.0,
@@ -264,27 +264,26 @@ class TestRolloutWithSandbox:
         assert len(mock_rollout._tool_schemas) != 0
         assert "get_wikipedia_article" in mock_rollout._tool_map.keys()
         assert "search_wikipedia" in mock_rollout._tool_map.keys()
-        from verl.tools.sandbox_tool import SandboxToolAdapter
 
-        assert isinstance(mock_rollout._tool_map["get_wikipedia_article"], SandboxToolAdapter)
-        assert isinstance(mock_rollout._tool_map["search_wikipedia"], SandboxToolAdapter)
+        assert isinstance(mock_rollout._tool_map["get_wikipedia_article"], BenchmaxToolAdapter)
+        assert isinstance(mock_rollout._tool_map["search_wikipedia"], BenchmaxToolAdapter)
         # depend on the tokenizer
         assert mock_rollout._tool_call_parser_type == "qwen25"
 
-    def test_rollout_req_creation(self, mock_rollout, sandbox_data_proto):
-        req_list = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)
+    def test_rollout_req_creation(self, mock_rollout, benchmax_data_proto):
+        req_list = mock_rollout._preprocess_prompt_to_async_rollout_requests(benchmax_data_proto, n=1)
         assert len(req_list) == 1
         assert req_list[0].state == AsyncRolloutRequestStateEnum.PENDING
         assert len(req_list[0].tool_schemas) == 2
 
-    def test_over_size_case(self, mock_rollout, sandbox_data_proto, sandbox_data):
+    def test_over_size_case(self, mock_rollout, benchmax_data_proto, benchmax_data):
         mock_rollout.config.multi_turn.max_assistant_turns = 1
-        req = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
+        req = mock_rollout._preprocess_prompt_to_async_rollout_requests(benchmax_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
         req.finalize = MagicMock()
         req_list = [req]
 
-        _, expect_turn_array, _ = sandbox_data
+        _, expect_turn_array, _ = benchmax_data
         # here we mock a meta info with 'length'. indicate the response is truncate
         mock_rollout._handle_engine_call = MagicMock()
         future = asyncio.Future()
@@ -322,14 +321,14 @@ class TestRolloutWithSandbox:
             tool_calls=None,
         )
 
-    @patch.object(SandboxToolAdapter, "execute", new_callable=AsyncMock)
-    def test_tool_call_basic_case(self, mock_execute, mock_rollout, sandbox_data_proto, sandbox_data):
-        _, expect_turn_array, tool_return_array = sandbox_data
-        # Mock sandbox tool execution to return predefined responses
+    @patch.object(BenchmaxToolAdapter, "execute", new_callable=AsyncMock)
+    def test_tool_call_basic_case(self, mock_execute, mock_rollout, benchmax_data_proto, benchmax_data):
+        _, expect_turn_array, tool_return_array = benchmax_data
+        # Mock benchmax env tool execution to return predefined responses
         mock_execute.side_effect = [(msg, 0.0, {"status": "success"}) for msg in tool_return_array]
 
         mock_rollout.config.multi_turn.max_assistant_turns = 10
-        req = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
+        req = mock_rollout._preprocess_prompt_to_async_rollout_requests(benchmax_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
         req.finalize = MagicMock()
         req_list = [req]
@@ -368,16 +367,16 @@ class TestRolloutWithSandbox:
         assert mock_execute.await_count == 2
         assert len(output_req.messages) == 6
         # Verify tool response messages contain expected content
-        sandbox_counter = 0
+        benchmax_counter = 0
         for msg in output_req.messages:
             if msg.role == "tool":
-                assert msg.content == tool_return_array[sandbox_counter]
-                sandbox_counter += 1
-        assert sandbox_counter == 2
+                assert msg.content == tool_return_array[benchmax_counter]
+                benchmax_counter += 1
+        assert benchmax_counter == 2
 
-    @patch.object(SandboxToolAdapter, "execute", new_callable=AsyncMock)
-    def test_tool_call_batch_case(self, mock_execute, mock_rollout, sandbox_data_proto, sandbox_data):
-        _, expect_turn_array, tool_return_array = sandbox_data
+    @patch.object(BenchmaxToolAdapter, "execute", new_callable=AsyncMock)
+    def test_tool_call_batch_case(self, mock_execute, mock_rollout, benchmax_data_proto, benchmax_data):
+        _, expect_turn_array, tool_return_array = benchmax_data
         # Mock tool execution for large batch (100 requests * 2 calls each)
         mock_execute.side_effect = [
             (tool_return_array[0], 0.0, {"status": "success"}),
@@ -385,7 +384,7 @@ class TestRolloutWithSandbox:
         ] * 100
 
         mock_rollout.config.multi_turn.max_assistant_turns = 10
-        base_req = mock_rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
+        base_req = mock_rollout._preprocess_prompt_to_async_rollout_requests(benchmax_data_proto, n=1)[0]
 
         req_nums = 100
         req_list = []

@@ -1,8 +1,8 @@
 # run on 8xH20
 # make sure your current working directory is the root of the project
 # Specifically note the last 3 lines
-# The first line points to tool config, which is necessary for initializing tools from the sandbox
-# The second and third lines point to the relevant sandbox to initialize the rewards from
+# The first line points to tool config, which is necessary for initializing tools from the benchmax environment
+# The second and third lines point to the relevant benchmax environment to initialize the rewards from
 
 set -x
 
@@ -15,12 +15,13 @@ CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 TRAIN_DATA="/data/train.parquet"
 VAL_DATA="/data/test.parquet"
 
-TOOL_CONFIG="$CONFIG_PATH/tool_config/sandbox_tool_config.yaml"
+TOOL_CONFIG="$CONFIG_PATH/tool_config/benchmax_math_tool_config.yaml"
+BENCHMAX_CLASS_NAME="benchmax.envs.wikipedia.math_env.MathEnv"
 
 
 PYTHONPATH="$PYTHONPATH:$(pwd)" python -m verl.trainer.main_ppo \
     --config-path="$CONFIG_PATH" \
-    --config-name='sandbox_multiturn_grpo' \
+    --config-name='benchmax_math_multiturn_grpo' \
     algorithm.adv_estimator=grpo \
     data.train_batch_size=4 \
     data.val_batch_size=4 \
@@ -65,5 +66,5 @@ PYTHONPATH="$PYTHONPATH:$(pwd)" python -m verl.trainer.main_ppo \
     data.val_files="$VAL_DATA"  \
     trainer.total_epochs=1 $@ \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$TOOL_CONFIG" \
-    reward_model.reward_manager=sandbox \
-    +reward_model.reward_kwargs.sandbox_cls_name=envs.wikipedia.wiki_sandbox.WikipediaSandbox
+    reward_model.reward_manager=benchmax \
+    +reward_model.reward_kwargs.benchmax_cls_name="$BENCHMAX_CLASS_NAME"

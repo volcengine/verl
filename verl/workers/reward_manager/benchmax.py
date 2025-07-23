@@ -22,21 +22,21 @@ from verl.tools.utils.tool_registry import get_tool_class
 from verl.workers.reward_manager import register
 
 
-@register("sandbox")
-class SandboxRewardManager:
-    """SandboxRewardManager is a reward manager that computes rewards as defined in a sandbox environment."""
+@register("benchmax")
+class BenchmaxRewardManager:
+    """BenchmaxRewardManager is a reward manager that computes rewards as defined in a benchmax environment."""
 
-    def __init__(self, tokenizer, sandbox_cls_name="", **kwargs) -> None:
+    def __init__(self, tokenizer, benchmax_cls_name="", **kwargs) -> None:
         """
-        Initialize the SandboxRewardManager instance.
+        Initialize the BenchmaxRewardManager instance.
 
         Args:
             tokenizer: The tokenizer used to decode token IDs into text.
             num_examine: The number of batches of decoded responses to print to the console for debugging purpose.
             compute_score: A function to compute the reward score. If None, `default_compute_score` will be used.
         """
-        assert sandbox_cls_name, "Specify sandbox class name"
-        self.sandbox_cls = get_tool_class(sandbox_cls_name)
+        assert benchmax_cls_name, "Specify benchmax class name"
+        self.benchmax_cls = get_tool_class(benchmax_cls_name)
         self.tokenizer = tokenizer  # Store the tokenizer for decoding token IDs
 
     def __call__(self, data: DataProto, return_dict=False):
@@ -61,23 +61,24 @@ class SandboxRewardManager:
             response_str = self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
 
             ground_truth = data_item.non_tensor_batch["ground_truth"]
+            workspace = data_item.non_tensor_batch.get("workspaces", "")
             extra_info = data_item.non_tensor_batch.get("extra_info", {})
             num_turns = data_item.non_tensor_batch.get("__num_turns__", None)
             extra_info["num_turns"] = num_turns
 
             reward = 0
-            for fn in self.sandbox_cls.get_reward_funcs():
+            for fn in self.benchmax_cls.reward_funcs:
                 reward += fn(
                     prompt=prompt_str,
                     completion=response_str,
                     ground_truth=ground_truth,
-                    workspace=Path(),
+                    workspace=Path(workspace),
                     **extra_info,
                 )
 
             reward_tensor[i, valid_response_length - 1] = reward
-            print("[prompt]", prompt_str)
-            print("[response]", response_str)
+            # print("[prompt]", prompt_str)
+            # print("[response]", response_str)
             print("[ground_truth]", ground_truth)
             print("[reward]", reward)
 
