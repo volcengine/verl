@@ -12,7 +12,7 @@
 # - `special_sanity`: a suite of quick sanity tests
 # - `special_standalone`: a set of test that are designed to run in dedicated environments
 
-# Accelerators for tests 
+# Accelerators for tests
 # - By default tests are run with GPU available, except for the ones under `special_npu`, and any test script whose name ends with `on_cpu.py`.
 # - For test scripts with `on_cpu.py` name suffix would be tested on CPU resources in linux environment.
 
@@ -98,7 +98,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: create-runner
-        uses: volcengine/vemlp-github-runner@v1 
+        uses: volcengine/vemlp-github-runner@v1
         with:
           mode: "create"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
@@ -234,6 +234,10 @@ jobs:
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
+      - name: Download Model to Use
+        run: |
+          huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B
+          export HF_HUB_OFFLINE=1
       - name: Prepare dist_ckpt of Qwen2.5-0.5B, uneven layer distribution only supports dist_ckpt
         run: |
           python3 scripts/converter_hf_to_mcore.py --hf_model_path ${HOME}/models/Qwen/Qwen2.5-0.5B --output_path checkpoints/verl-test/qwen2.5-0.5b-megatron
@@ -341,21 +345,24 @@ jobs:
       - name: Running Geo3k E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
         run: |
           ray stop --force
-          ENGINE=sglang TRAIN_FILES=${HOME}/data/geo3k/train.parquet VAL_FILES=${HOME}/data/geo3k/test.parquet MAX_PROMPT_LENGTH=1024 MAX_RESPONSE_LENGTH=2048  MODEL_ID=Qwen/Qwen2.5-VL-3B-Instruct ADV_ESTIMATOR=grpo USE_DYNAMIC_BSZ=False SKIP_SAVE_HF_MODEL=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 COMMON_TP=2 USE_DIST_CKPT=true DIST_CKPT_PATH=checkpoints/verl-test/qwen2.5-vl-3b-megatron bash tests/special_e2e/run_ppo_trainer_megatron.sh 
+          ENGINE=sglang TRAIN_FILES=${HOME}/data/geo3k/train.parquet VAL_FILES=${HOME}/data/geo3k/test.parquet MAX_PROMPT_LENGTH=1024 MAX_RESPONSE_LENGTH=2048  MODEL_ID=Qwen/Qwen2.5-VL-3B-Instruct ADV_ESTIMATOR=grpo USE_DYNAMIC_BSZ=False SKIP_SAVE_HF_MODEL=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 COMMON_TP=2 USE_DIST_CKPT=true DIST_CKPT_PATH=checkpoints/verl-test/qwen2.5-vl-3b-megatron bash tests/special_e2e/run_ppo_trainer_megatron.sh
       - name: clean up
         run: |
           rm -rf checkpoints
 
   cleanup:
     runs-on: ubuntu-latest
-    needs: [setup, 
-      e2e_ppo_trainer_megatron-deepseek, 
-      e2e_ppo_trainer_megatron-qwen3,
-      e2e_ppo_trainer_megatron-different-train-infer-tp-qwen-tie-embedding,
-      e2e_ppo_trainer_megatron-qwen-override-transformer-config,
-      e2e_ppo_trainer_megatron-deepseek-override-transformer-config,
-      e2e_ppo_trainer_megatron-moe-expert-parallel,
-      e2e_ppo_trainer_megatron-qwen2_5vl-3b]
+    needs:
+      [
+        setup,
+        e2e_ppo_trainer_megatron-deepseek,
+        e2e_ppo_trainer_megatron-qwen3,
+        e2e_ppo_trainer_megatron-different-train-infer-tp-qwen-tie-embedding,
+        e2e_ppo_trainer_megatron-qwen-override-transformer-config,
+        e2e_ppo_trainer_megatron-deepseek-override-transformer-config,
+        e2e_ppo_trainer_megatron-moe-expert-parallel,
+        e2e_ppo_trainer_megatron-qwen2_5vl-3b,
+      ]
     if: always()
     steps:
       - id: destroy-runner
