@@ -14,15 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Preprocess a huggingface dataset to a multiturn format suitable for a benchmax environment.
+Preprocess a huggingface/benchmax dataset to a multiturn format suitable for a benchmax environment.
 """
 
 import argparse
-import json
 import os
 from importlib import import_module
 from types import ModuleType
-from typing import Type, Any
+from typing import Type
 
 import datasets
 
@@ -132,13 +131,18 @@ if __name__ == "__main__":
             # Add everything else to extra_info
             extra_info = {
                 k: v for k, v in example.items()
-                if k != args.prompt_key and k != args.ground_truth_key
+                if k not in [
+                    args.prompt_key, args.ground_truth_key,
+                    "init_rollout_args"
+                ]
             }
-            extra_info["tools_kwargs"] = {
-                tool_name: {
-                    "create_kwargs": {**example.get("init_rollout_args", {})},
-                } for tool_name in tool_names
-            }
+            if example.get("init_rollout_args", None):
+                extra_info["tools_kwargs"] = {
+                    tool_name: {
+                        "create_kwargs": {**example.get("init_rollout_args", {})},
+                    } for tool_name in tool_names
+                }
+            example.pop("init_rollout_args")
             # This extra_info is used to pass addition info during reward computation
             example["extra_info"] = extra_info
             return example
@@ -149,7 +153,6 @@ if __name__ == "__main__":
 
     local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
-
     train_dataset.to_parquet(os.path.join(local_dir, "train.parquet"))
     test_dataset.to_parquet(os.path.join(local_dir, "test.parquet"))
 
