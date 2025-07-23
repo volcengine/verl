@@ -76,6 +76,7 @@ class TestAsyncSglangServer:
             # tensor_model_parallel_size: 2
             # DP_size: 4
             mock_list_actors.return_value = [
+                {"name": "test_xxxx", "namespace": "test"},
                 {"name": "test_prefixWorkerDict_1:0", "namespace": "test"},
                 {"name": "test_prefixWorkerDict_1:1", "namespace": "test"},
                 {"name": "test_prefixWorkerDict_0:0", "namespace": "test"},

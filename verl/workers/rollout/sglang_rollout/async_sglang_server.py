@@ -49,7 +49,7 @@ class AsyncSGLangServer(AsyncServerBase):
 
         gpu_per_node = len(set([actor["name"].split(":")[1] for actor in matched_actors]))
         # total gpu num
-        assert len(all_actors) == self._dp_size * self._tp_size
+        assert len(matched_actors) == self._dp_size * self._tp_size
 
         for matched_actor in matched_actors:
             fields = matched_actor["name"].split(":")
