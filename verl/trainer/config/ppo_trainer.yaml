@@ -112,7 +112,7 @@ actor_rollout_ref:
   # profiler configs
   profiler:
 
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.utils.profiler.ProfilerConfig
 
     # True for each task has its own database, False for all tasks in one training step share one database.
@@ -137,7 +137,7 @@ custom_reward_function:
 # config for the algorithm
 algorithm:
 
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.trainer.config.AlgoConfig
 
   # Discount factor for future rewards
@@ -161,7 +161,7 @@ algorithm:
   # KL control configuration
   kl_ctrl:
 
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.trainer.config.KLControlConfig
 
     # KL control type: "fixed" or "adaptive"
@@ -181,9 +181,6 @@ algorithm:
 
   # Preference feedback PPO settings
   pf_ppo:
-
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-    _target_: verl.trainer.config.PFPPOConfig
 
     # Method for reweighting samples: "pow", "max_min", or "max_random"
     reweight_method: pow

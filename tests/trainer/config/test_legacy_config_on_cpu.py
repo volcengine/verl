@@ -20,6 +20,12 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
+_BREAKING_CHANGES = [
+    "critic.optim.lr",  # mcore critic lr init value 1e-6 -> 1e-5
+    "actor_rollout_ref.actor.optim.lr_warmup_steps",  # None -> -1
+    "critic.optim.lr_warmup_steps",  # None -> -1
+]
+
 
 class TestConfigComparison(unittest.TestCase):
     """Test that current configs match their legacy counterparts exactly."""
@@ -81,7 +87,7 @@ class TestConfigComparison(unittest.TestCase):
             )
             for i, (current_item, legacy_item) in enumerate(zip(current_config, legacy_config, strict=True)):
                 self._compare_configs_recursively(current_item, legacy_item, f"{path}[{i}]")
-        else:
+        elif path not in _BREAKING_CHANGES:
             self.assertEqual(
                 current_config,
                 legacy_config,

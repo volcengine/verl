@@ -68,7 +68,7 @@ custom_reward_function:
   name: compute_score
 
 algorithm:
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.trainer.config.AlgoConfig
   gamma: 1.0
   lam: 1.0
@@ -77,7 +77,7 @@ algorithm:
   use_kl_in_reward: False
   kl_penalty: kl  # how to estimate kl divergence
   kl_ctrl:
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.trainer.config.KLControlConfig
     type: fixed
     kl_coef: 0.001
@@ -85,8 +85,6 @@ algorithm:
     target_kl: 0.1
   use_pf_ppo: False
   pf_ppo:
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-    _target_: verl.trainer.config.PFPPOConfig
     reweight_method: pow  # ["pow", "max_min", "max_random"]
     weight_pow: 2.0
 
