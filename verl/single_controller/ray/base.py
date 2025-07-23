@@ -308,7 +308,11 @@ class RayWorkerGroup(WorkerGroup):
             self._init_with_detached_workers(worker_names=worker_names, worker_handles=worker_handles)
         else:
             self._init_with_resource_pool(
-                resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init, bin_pack=bin_pack, detached=detached, worker_env=self.customized_worker_env
+                resource_pool=resource_pool,
+                ray_cls_with_init=ray_cls_with_init,
+                bin_pack=bin_pack,
+                detached=detached,
+                worker_env=self.customized_worker_env,
             )
 
         if ray_cls_with_init is not None:

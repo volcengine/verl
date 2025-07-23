@@ -61,10 +61,12 @@ def test_customized_worker_env():
     class_with_args = RayClassWithInitArgs(cls=TestActor)
 
     worker_group = RayWorkerGroup(
-        resource_pool=resource_pool, ray_cls_with_init=class_with_args, name_prefix="worker_group_customized",
+        resource_pool=resource_pool,
+        ray_cls_with_init=class_with_args,
+        name_prefix="worker_group_customized",
         worker_env={
             "test_key": "test_value",  # new key will be appended
-        }
+        },
     )
 
     output = worker_group.execute_all_sync("getenv", key="RAY_LOCAL_RANK")
@@ -75,10 +77,12 @@ def test_customized_worker_env():
 
     try:
         worker_group = RayWorkerGroup(
-            resource_pool=resource_pool, ray_cls_with_init=class_with_args, name_prefix="worker_group_error",
+            resource_pool=resource_pool,
+            ray_cls_with_init=class_with_args,
+            name_prefix="worker_group_error",
             worker_env={
                 "WORLD_SIZE": "100",  # override system env will result in error
-            }
+            },
         )
     except ValueError as e:
         assert "WORLD_SIZE" in str(e)
