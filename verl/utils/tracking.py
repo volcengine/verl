@@ -262,6 +262,9 @@ def _flatten_dict(raw: dict[str, Any], *, sep: str) -> dict[str, Any]:
 
 @dataclasses.dataclass
 class ValidationGenerationsLogger:
+    project_name: str = None
+    experiment_name: str = None
+
     def log(self, loggers, samples, step):
         if "wandb" in loggers:
             self.log_generations_to_wandb(samples, step)
@@ -387,7 +390,13 @@ class ValidationGenerationsLogger:
         if not hasattr(self, "writer"):
             from torch.utils.tensorboard import SummaryWriter
 
-            tensorboard_dir = os.environ.get("TENSORBOARD_DIR", "tensorboard_log")
+            # Use the same directory structure as _TensorboardAdapter
+            if self.project_name and self.experiment_name:
+                default_dir = os.path.join("tensorboard_log", self.project_name, self.experiment_name)
+            else:
+                default_dir = "tensorboard_log"
+
+            tensorboard_dir = os.environ.get("TENSORBOARD_DIR", default_dir)
             os.makedirs(tensorboard_dir, exist_ok=True)
             self.writer = SummaryWriter(log_dir=tensorboard_dir)
 
