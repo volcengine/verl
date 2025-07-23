@@ -16,8 +16,6 @@
 import gc
 import logging
 
-import torch
-
 from verl.utils.device import get_torch_device
 
 logger = logging.getLogger(__name__)
@@ -28,13 +26,12 @@ def aggressive_empty_cache(force_sync: bool = True, max_retries: int = 3) -> Non
     More aggressive GPU memory cleanup function, tries to release PyTorch reserved but unallocated memory.
 
     Args:
-        force_sync: Whether to force CUDA synchronization
+        force_sync: Whether to force device synchronization
         max_retries: Maximum number of retries
     """
-    if not torch.cuda.is_available():
-        return
-
     device = get_torch_device()
+    if not device.is_available():
+        return
 
     for attempt in range(max_retries):
         # Record memory status before cleanup
@@ -71,7 +68,7 @@ def aggressive_empty_cache(force_sync: bool = True, max_retries: int = 3) -> Non
 
 def reset_memory_stats() -> None:
     """Reset GPU memory statistics"""
-    if torch.cuda.is_available():
+    if get_torch_device().is_available():
         device = get_torch_device()
         device.reset_peak_memory_stats()
         device.reset_accumulated_memory_stats()
@@ -79,7 +76,7 @@ def reset_memory_stats() -> None:
 
 def get_memory_info() -> dict:
     """Get detailed GPU memory information"""
-    if not torch.cuda.is_available():
+    if not get_torch_device().is_available():
         return {}
 
     device = get_torch_device()
@@ -97,7 +94,7 @@ def get_memory_info() -> dict:
 
 def log_memory_usage(stage: str = "current") -> None:
     """Log GPU memory usage"""
-    if not torch.cuda.is_available():
+    if not get_torch_device().is_available():
         return
 
     info = get_memory_info()
@@ -112,11 +109,11 @@ def log_memory_usage(stage: str = "current") -> None:
 
 def optimize_memory_for_inference() -> None:
     """Optimize GPU memory usage for inference"""
-    if not torch.cuda.is_available():
+    if not get_torch_device().is_available():
         return
 
     # Set a more aggressive memory allocation policy
-    torch.cuda.set_per_process_memory_fraction(0.95)  # Use 95% of GPU memory
+    get_torch_device().set_per_process_memory_fraction(0.95)  # Use 95% of GPU memory
 
     # Clear cache
     aggressive_empty_cache(force_sync=True)
@@ -126,11 +123,11 @@ def optimize_memory_for_inference() -> None:
 
 def optimize_memory_for_training() -> None:
     """Optimize GPU memory usage for training"""
-    if not torch.cuda.is_available():
+    if not get_torch_device().is_available():
         return
 
     # Set a moderate memory allocation policy
-    torch.cuda.set_per_process_memory_fraction(0.9)  # Use 90% of GPU memory
+    get_torch_device().set_per_process_memory_fraction(0.9)  # Use 90% of GPU memory
 
     # Clear cache
     aggressive_empty_cache(force_sync=False)
