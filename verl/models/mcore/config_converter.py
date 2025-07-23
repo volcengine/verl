@@ -17,6 +17,8 @@
 # convert huggingface config to mcore transformer config
 
 
+import warnings
+
 import torch
 import torch.nn.functional as F
 from megatron.core import parallel_state as mpu
@@ -80,9 +82,36 @@ def _get_base_transformer_config(
         "sequence_parallel": mpu.get_tensor_model_parallel_world_size() > 1,
         # Common settings
         "variable_seq_lengths": True,
-        "masked_softmax_fusion": True,
         "moe_token_dispatcher_type": "alltoall",
+        # Common optimizations
+        # Operators Fusion
+        "masked_softmax_fusion": True,
+        "bias_activation_fusion": True,
+        "bias_dropout_fusion": True,
+        "apply_rope_fusion": True,
+        "gradient_accumulation_fusion": True,
+        # Extra
+        "deallocate_pipeline_outputs": True,
+        "persist_layer_norm": True,
     }
+
+    # Some megatron.core versions not support apply_rope_fusion with context parallel
+    try:
+        from megatron.core.extensions.transformer_engine import fused_apply_rotary_pos_emb_thd
+
+        print(f"TE function {fused_apply_rotary_pos_emb_thd} is available, apply_rope_fusion will be enabled.")
+    except ImportError:
+        if mpu.get_context_parallel_world_size() > 1:
+            base_config["apply_rope_fusion"] = False
+            warnings.warn(
+                "TE function fused_apply_rotary_pos_emb_thd not found, "
+                "Please manually change megatron.core.extensions.transformer_engine\n"
+                "from transformer_engine.pytorch.attention import FusedRoPEFunc\n"
+                "to:\n"
+                "from transformer_engine.pytorch.attention.rope import FusedRoPEFunc\n"
+                "Disabling apply_rope_fusion due to not supported context parallel. ",
+                stacklevel=2,
+            )
 
     # Update with any provided overrides
     # override_transformer_config_kwargs as kwargs shall never be none
@@ -129,6 +158,43 @@ def _get_mla_transformer_config(
     return base_config
 
 
+def _get_moe_common_optimization_config(origin_config: dict, has_shared_expert: bool = True) -> dict:
+    """
+    Create a dictionary with MoE optimization parameters based on the original configuration.
+    """
+    moe_common_optimization_configs = {
+        "moe_shared_expert_overlap": has_shared_expert,
+        "moe_grouped_gemm": True,
+        "moe_permute_fusion": True,
+    }
+    origin_config.update(moe_common_optimization_configs)
+    return origin_config
+
+
+def check_and_disable_uncompatible_configs(original_config: PretrainedConfig) -> dict:
+    """
+    Check and disable incompatible configurations for older Megatron version.
+
+    Args:
+        original_config (PretrainedConfig): The original model configuration.
+
+    Returns:
+        dict: The updated model configuration with incompatible settings disabled.
+    """
+    removed_keys = []
+    for key in original_config.keys():
+        if not hasattr(TransformerConfig, key):
+            removed_keys.append(key)
+    if removed_keys:
+        warnings.warn(
+            f"The following keys are not supported in the current Megatron version and will be removed: {removed_keys}",
+            stacklevel=2,
+        )
+        for key in removed_keys:
+            original_config.pop(key)
+    return original_config
+
+
 def hf_to_mcore_config_dense(
     hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs
 ) -> TransformerConfig:
@@ -146,6 +212,7 @@ def hf_to_mcore_config_dense(
     )
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
+    args = check_and_disable_uncompatible_configs(args)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
 
@@ -168,19 +235,15 @@ def hf_to_mcore_config_qwen2moe(
         moe_aux_loss_coeff=hf_config.router_aux_loss_coef,
         # moe_aux_loss_coeff=0.0,
         moe_router_load_balancing_type="none",  # turn off aux_loss as it hurts perf in RL
-        moe_shared_expert_overlap=True,
-        moe_grouped_gemm=True,
         moe_router_score_function="softmax",
-        # Other optimizations
-        persist_layer_norm=True,
-        bias_activation_fusion=True,
-        bias_dropout_fusion=True,
         # Qwen specific
         moe_router_pre_softmax=True,
         add_qkv_bias=True,
     )
+    args = _get_moe_common_optimization_config(args)
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
+    args = check_and_disable_uncompatible_configs(args)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
 
@@ -202,19 +265,13 @@ def hf_to_mcore_config_mixtral(
         moe_router_load_balancing_type="none",  # turn off aux_loss as it hurts perf in RL
         moe_router_score_function="softmax",
         moe_shared_expert_intermediate_size=None,  # mixtral has no shared expert
-        moe_shared_expert_overlap=False,  # mixtral has no shared expert
         moe_ffn_hidden_size=hf_config.intermediate_size,
         moe_router_bias_update_rate=0.001,
-        # moe_permute_fusion=True, # need TE 2.1+
-        moe_grouped_gemm=True,
-        # Other optimizations
-        persist_layer_norm=True,
-        apply_rope_fusion=True,
-        bias_activation_fusion=True,
-        bias_dropout_fusion=True,
     )
+    args = _get_moe_common_optimization_config(args, has_shared_expert=False)
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
+    args = check_and_disable_uncompatible_configs(args)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
 
@@ -236,18 +293,15 @@ def hf_to_mcore_config_qwen3moe(
         moe_aux_loss_coeff=hf_config.router_aux_loss_coef,
         # moe_aux_loss_coeff=0.0,
         moe_router_load_balancing_type="none",  # turn off aux_loss as it hurts perf in RL
-        moe_grouped_gemm=True,
         moe_router_score_function="softmax",
-        # Other optimizations
-        persist_layer_norm=True,
-        bias_activation_fusion=True,
-        bias_dropout_fusion=True,
         # Qwen specific
         moe_router_pre_softmax=False,
         qk_layernorm=True,
     )
+    args = _get_moe_common_optimization_config(args, has_shared_expert=False)
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
+    args = check_and_disable_uncompatible_configs(args)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
 
@@ -305,9 +359,6 @@ def hf_to_mcore_config_dpskv3(
         moe_shared_expert_intermediate_size=hf_config.moe_intermediate_size * hf_config.n_shared_experts,
         moe_aux_loss_coeff=getattr(hf_config, "aux_loss_alpha", 0.001),
         moe_router_load_balancing_type="seq_aux_loss",
-        moe_shared_expert_overlap=True,
-        # moe_permute_fusion=True, # need TE 2.1+
-        moe_grouped_gemm=True,
         moe_router_score_function="sigmoid",
         moe_router_pre_softmax=True,
         moe_router_topk_scaling_factor=hf_config.routed_scaling_factor,
@@ -315,15 +366,11 @@ def hf_to_mcore_config_dpskv3(
         # mcore 0.12 moe
         moe_router_dtype="fp64",
         disable_bf16_reduced_precision_matmul=True,
-        # Other optimizations
-        # deallocate_pipeline_outputs=True,
-        # gradient_accumulation_fusion=True,
-        persist_layer_norm=True,
-        bias_activation_fusion=True,
-        bias_dropout_fusion=True,
     )
+    args = _get_moe_common_optimization_config(args, has_shared_expert=True)
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
+    args = check_and_disable_uncompatible_configs(args)
     transformer_config: MLATransformerConfig = MLATransformerConfig(**args)
     print(f"Overridden MLA TF init config: {transformer_config}")
     # MTP
@@ -349,6 +396,7 @@ def hf_to_mcore_config_qwen2_5_vl(
     )
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
+    args = check_and_disable_uncompatible_configs(args)
     print(f"Overridden TF init config: {args}")
     return TransformerConfig(**args)
 
