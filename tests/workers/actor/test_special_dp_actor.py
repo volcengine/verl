@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import unittest
-from unittest.mock import patch
 
 import torch
 import torch.nn as nn
@@ -55,31 +54,27 @@ class MockTransformerModel(nn.Module):
 class TestDataParallelPPOActor(unittest.TestCase):
     """Test DataParallelPPOActor compute_log_prob and update_policy methods"""
 
-    def setUp(self):
-        """Set up test fixtures"""
-        import os
-
-        import torch.distributed
-
-        backend = "cpu:gloo,cuda:nccl" if torch.cuda.is_available() else "gloo"
+    @classmethod
+    def setUpClass(cls):
+        """Set up distributed environment"""
         if not torch.distributed.is_initialized():
-            rank = int(os.environ.get("RANK", 0))
-            world_size = int(os.environ.get("WORLD_SIZE", 1))
             torch.distributed.init_process_group(
-                backend=backend,
-                rank=rank,
-                world_size=world_size,
-                init_method=os.environ.get("DIST_INIT_METHOD", "env://"),
+                backend="nccl" if torch.cuda.is_available() else "gloo", init_method="env://"
             )
 
-        self.mock_memory_info_patcher = patch("verl.utils.profiler.performance._get_current_mem_info")
-        self.mock_memory_info = self.mock_memory_info_patcher.start()
-        self.mock_memory_info.return_value = ("0.00", "0.00", "0.00", "0.00")
+        cls.rank = torch.distributed.get_rank()
+        cls.world_size = torch.distributed.get_world_size()
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if torch.cuda.is_available():
+            torch.cuda.set_device(cls.rank)
+            cls.device = torch.device(f"cuda:{cls.rank}")
+        else:
+            cls.device = torch.device("cpu")
 
+    def setUp(self):
+        """Set up test fixtures"""
         self.config = FSDPActorConfig(
-            strategy="fsdp",
+            strategy="fsdp2",
             ppo_mini_batch_size=4,
             ppo_micro_batch_size_per_gpu=2,
             ppo_epochs=1,
@@ -99,11 +94,11 @@ class TestDataParallelPPOActor(unittest.TestCase):
             config=self.config, actor_module=self.mock_model, actor_optimizer=self.mock_optimizer
         )
 
-    def tearDown(self):
-        """Clean up test fixtures"""
-        # repated init and destroy seems unstable with torch
-        # torch.distributed.destroy_process_group()
-        self.mock_memory_info_patcher.stop()
+    @classmethod
+    def tearDownClass(cls):
+        """Clean up distributed environment"""
+        if torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
 
     def _create_test_data_for_compute_log_prob(self):
         """Create test DataProto for compute_log_prob method"""
@@ -228,7 +223,7 @@ class TestDataParallelPPOActor(unittest.TestCase):
         self.assertIsNotNone(self.actor.actor_optimizer)
         self.assertEqual(self.actor.config, self.config)
 
-        self.assertEqual(self.actor.config.strategy, "fsdp")
+        self.assertEqual(self.actor.config.strategy, "fsdp2")
         self.assertEqual(self.actor.config.ppo_mini_batch_size, 4)
         self.assertEqual(self.actor.config.clip_ratio, 0.2)
 
