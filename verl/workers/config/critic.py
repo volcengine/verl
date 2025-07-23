@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 
 from omegaconf import MISSING
 
@@ -24,7 +24,7 @@ from verl.utils.profiler import ProfilerConfig
 from .engine import FSDPEngineConfig, McoreEngineConfig
 from .optimizer import OptimizerConfig
 
-__all__ = ["CriticConfig", "FSDPCriticConfig", "McoreCriticConfig", "McoreCriticModelCfg", "FSDPCriticModelCfg"]
+__all__ = ["CriticConfig", "FSDPCriticConfig", "McoreCriticConfig", "FSDPCriticModelCfg"]
 
 
 @dataclass
@@ -214,6 +214,7 @@ class FSDPCriticModelCfg(BaseModelConfig):
         use_shm (bool): Whether to use shared memory for loading the model.
         enable_activation_offload (bool): Offload activations to CPU to reduce GPU memory usage.
         use_remove_padding (bool): Use remove-padding optimization (saves compute).
+        enable_gradient_checkpointing (bool): Enable gradient checkpointing for memory efficiency.
         fsdp_config (FSDPEngineConfig): FSDP-specific configuration block.
         lora_rank (int): Set to positive value to enable LoRA (e.g., 32).
         lora_alpha (int): LoRA scaling factor.
@@ -223,22 +224,8 @@ class FSDPCriticModelCfg(BaseModelConfig):
     use_shm: bool = False
     enable_activation_offload: bool = False
     use_remove_padding: bool = False
+    enable_gradient_checkpointing: bool = True
     fsdp_config: FSDPEngineConfig = field(default_factory=FSDPEngineConfig)
     lora_rank: int = 0
     lora_alpha: int = 16
     target_modules: str | list[str] = "all-linear"
-
-
-@dataclass
-class McoreCriticModelCfg(BaseModelConfig):
-    """Megatron/MCore critic model configuration.
-    Inherits base critic settings and customizes gradient checkpointing and MoE overrides.
-
-    Args:
-        override_config (Dict[str, Any]): Override default empty mapping with model-and MoE-specific configs
-        enable_gradient_checkpointing (bool): Enable gradient checkpointing to save memory (overrides base default)
-        gradient_checkpointing_kwargs (Dict[str, Any]): Activation checkpointing keyword arguments
-    """
-
-    enable_gradient_checkpointing: bool = False
-    gradient_checkpointing_kwargs: dict[str, Any] = field(default_factory=dict)

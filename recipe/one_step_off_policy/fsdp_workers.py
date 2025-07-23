@@ -18,7 +18,7 @@ import os
 
 import torch
 import torch.distributed
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import AutoConfig
@@ -139,7 +139,7 @@ class RolloutWorker(ActorRolloutRefWorker):
     def init_model(self):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
-        override_model_config = self.config.model.get("override_config", {})
+        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
 
         use_shm = self.config.model.get("use_shm", False)
         local_path = copy_to_local(self.config.model.path, use_shm=use_shm)

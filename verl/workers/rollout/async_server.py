@@ -268,9 +268,9 @@ def async_server_class(
 
             return AsyncvLLMServer
         elif rollout_backend == "sglang":
-            from verl.workers.rollout.sglang_rollout.async_sglang_server import AsyncSglangServer
+            from verl.workers.rollout.sglang_rollout.async_sglang_server import AsyncSGLangServer
 
-            return AsyncSglangServer
+            return AsyncSGLangServer
         else:
             raise NotImplementedError(f"rollout backend {rollout_backend} is not supported")
 

@@ -90,6 +90,8 @@ class FSDPEngineConfig(BaseConfig):
         reshard_after_forward (bool): Whether to reshard parameters after forward pass, default True
         fsdp_size (int): FSDP group size. -1 means use all available GPUs.
         forward_prefetch (bool): Whether to prefetch parameters for next forward pass, default False
+        model_dtype (str): Model data type used to initialize the transformers model. default "fp32"
+        use_orig_params (bool): Whether to use original parameters when initialize FSDP1, default False
     """
 
     wrap_policy: dict[str, Any] = field(default_factory=dict)
@@ -99,3 +101,5 @@ class FSDPEngineConfig(BaseConfig):
     reshard_after_forward: bool = True
     fsdp_size: int = -1
     forward_prefetch: bool = False
+    model_dtype: str = "fp32"
+    use_orig_params: bool = False

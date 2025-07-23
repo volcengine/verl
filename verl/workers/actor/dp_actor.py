@@ -53,7 +53,7 @@ class DataParallelPPOActor(BasePPOActor):
     """FSDP DataParallel PPO Actor or Ref worker
 
     Args:
-        config (ActorConfig | RefConfig): Actor config
+        config (ActorConfig): Actor config
         actor_module (nn.Module): Actor or ref module
         actor_optimizer (torch.optim.Optimizer, optional): Actor optimizer. Defaults to None.
     """

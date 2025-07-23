@@ -69,7 +69,6 @@ class BaseModelConfig(BaseConfig):
         tokenizer_path (Optional[str]): Tokenizer path (defaults to actor's model path if not set).
         override_config (dict): Hugging Face config override.
         external_lib (Optional[str]): External model implementation (optional).
-        enable_gradient_checkpointing (bool): Enable gradient checkpointing to save memory, default True
         trust_remote_code (bool): Whether to trust remote code from Hugging Face models.
     """
 
@@ -77,5 +76,4 @@ class BaseModelConfig(BaseConfig):
     tokenizer_path: Optional[str] = None
     override_config: dict[str, Any] = field(default_factory=dict)
     external_lib: Optional[str] = None
-    enable_gradient_checkpointing: bool = True
     trust_remote_code: bool = False
