@@ -19,7 +19,7 @@ import threading
 from contextlib import ExitStack
 from enum import Enum
 from math import ceil, floor
-from typing import Any, Callable, Optional, Tuple, TypeVar, Union
+from typing import Any, Callable, Optional, TypeVar
 from uuid import uuid4
 
 import ray
@@ -300,7 +300,7 @@ class ImageZoomInTool(BaseTool):
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
 
-    async def create(self, instance_id: Optional[str], image: Union[str, Image.Image], **kwargs) -> str:
+    async def create(self, instance_id: Optional[str], image: str | Image.Image, **kwargs) -> str:
         """
         Creates a new instance for image zoom-in tool.
 
@@ -332,12 +332,16 @@ class ImageZoomInTool(BaseTool):
         }
         return instance_id
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         bbox_2d = parameters.get("bbox_2d")
         label = parameters.get("label", "")
 
         if not bbox_2d or len(bbox_2d) != 4:
-            return "Error: bbox_2d parameter is missing or not a list of 4 numbers.", -0.05, {"success": False}
+            return (
+                {"text": "Error: bbox_2d parameter is missing or not a list of 4 numbers."},
+                -0.05,
+                {"success": False},
+            )
 
         instance_data = self._instance_dict[instance_id]
         image = instance_data["image"]
@@ -352,13 +356,13 @@ class ImageZoomInTool(BaseTool):
                     f"the minimum size of {self.MIN_DIMENSION}x{self.MIN_DIMENSION}."
                 )
                 logger.warning(f"Tool execution failed: {error_msg}")
-                return error_msg, -0.05, {"success": False}
+                return {"text": error_msg}, -0.05, {"success": False}
 
             cropped_image = image.crop(resized_bbox)
             logger.info(f"Cropped image size: {cropped_image.size}")
         except Exception as e:
             logger.error(f"Error processing image zoom-in: {e}")
-            return f"Error processing image zoom-in: {e}", -0.05, {"success": False}
+            return {"text": f"Error processing image zoom-in: {e}"}, -0.05, {"success": False}
 
         response_text = f"Zoomed in on the image to the region {bbox_2d}."
         if label:

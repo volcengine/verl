@@ -15,7 +15,8 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any
+from abc import ABC, abstractmethod
+from typing import Any, Optional
 from uuid import uuid4
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
@@ -56,7 +57,14 @@ class ToolAgentLoop(AgentLoopBase):
         cls.system_prompt = tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
 
     @rollout_trace_op
-    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
+    async def run(
+        self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], image_data: Optional[list[Any]] = None
+    ) -> AgentLoopOutput:
+        import copy
+
+        # create a deep copy to avoid modifying shared data across async tasks
+        image_data = copy.deepcopy(image_data) if image_data is not None else None
+
         metrics = {}
         request_id = uuid4().hex
         prompt_ids = await self.loop.run_in_executor(
@@ -71,7 +79,7 @@ class ToolAgentLoop(AgentLoopBase):
         while True:
             with simple_timer("generate_sequences", metrics):
                 response_ids = await self.server_manager.generate(
-                    request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params
+                    request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params, image_data=image_data
                 )
             prompt_ids += response_ids
             response_mask += [1] * len(response_ids)
@@ -97,7 +105,7 @@ class ToolAgentLoop(AgentLoopBase):
             # call tools
             tasks = []
             for tool_call in tool_calls[: self.max_parallel_calls]:
-                tasks.append(self._call_tool(tool_call))
+                tasks.append(self._call_tool(tool_call, image_data))
             with simple_timer("tool_calls", metrics):
                 tool_responses = await asyncio.gather(*tasks)
             if any(isinstance(item, Exception) for item in tool_responses):
@@ -133,7 +141,7 @@ class ToolAgentLoop(AgentLoopBase):
         )
         return output
 
-    async def _call_tool(self, tool_call: FunctionCall) -> dict[str, str]:
+    async def _call_tool(self, tool_call: FunctionCall, image_data: Optional[list[Any]] = None) -> dict[str, str]:
         """Call tool and return tool response."""
         tool, instance_id = None, None
         try:
@@ -142,25 +150,51 @@ class ToolAgentLoop(AgentLoopBase):
             tool_args = json.loads(tool_call.arguments)
             tool = self.tools[tool_name]
 
-            instance_id = await tool.create()
+            if tool_name == "image_zoom_in_tool" and image_data is not None:
+                instance_id = await tool.create(instance_id=instance_id, image=image_data[0])
+            else:
+                instance_id = await tool.create()
             tool_response, _, _ = await tool.execute(instance_id, tool_args)
         except Exception as e:
-            logger.exception(f"Error when executing tool: {e}")
-            return e
+            logger.warning(f"Error when executing tool: {e}")
+            return {
+                "role": "tool",
+                "content": f"Error when executing tool: {e}",
+            }
         finally:
             if tool and instance_id:
                 await tool.release(instance_id)
 
-        if len(tool_response) > self.max_tool_response_length:
-            if self.tool_response_truncate_side == "left":
-                tool_response = tool_response[: self.max_tool_response_length] + "...(truncated)"
-            elif self.tool_response_truncate_side == "right":
-                tool_response = "(truncated)..." + tool_response[-self.max_tool_response_length :]
-            else:
-                length = self.max_tool_response_length // 2
-                tool_response = tool_response[:length] + "...(truncated)..." + tool_response[-length:]
+        # if len(tool_response) > self.max_tool_response_length:
+        #     if self.tool_response_truncate_side == "left":
+        #         tool_response = tool_response[: self.max_tool_response_length] + "...(truncated)"
+        #     elif self.tool_response_truncate_side == "right":
+        #         tool_response = "(truncated)..." + tool_response[-self.max_tool_response_length :]
+        #     else:
+        #         length = self.max_tool_response_length // 2
+        #         tool_response = tool_response[:length] + "...(truncated)..." + tool_response[-length:]
 
-        return {
-            "role": "tool",
-            "content": tool_response,
+        # return {
+        #     "role": "tool",
+        #     "content": tool_response,
+        # }
+        image_response = tool_response.get("image", None)
+        text_response = tool_response.get("text", "")
+        if image_response:
+            image_data.append(image_response[0])
+            return {"role": "tool", "content": [{"type": "image"}, {"type": "text", "text": text_response}]}
+        else:
+            return {
+                "role": "tool",
+                "content": text_response,
+            }
+
+    @classmethod
+    def get_tool_parser(cls, name: str) -> ToolParser:
+        from verl.experimental.agent_loop.tool_parser import HermesToolParser
+        tool_parsers = {
+            "hermes": HermesToolParser,
         }
+        if name not in tool_parsers:
+            raise ValueError(f"Unknown tool parser: {name}")
+        return tool_parsers[name](cls.tokenizer)
