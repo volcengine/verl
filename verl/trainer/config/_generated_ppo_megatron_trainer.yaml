@@ -72,7 +72,7 @@ actor_rollout_ref:
       seed: 42
       override_ddp_config: {}
       override_transformer_config:
-        recompute_granularity: selective
+        recompute_granularity: null
         recompute_modules:
         - core_attn
         recompute_method: null
