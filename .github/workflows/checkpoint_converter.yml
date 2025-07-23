@@ -12,7 +12,7 @@
 # - `special_sanity`: a suite of quick sanity tests
 # - `special_standalone`: a set of test that are designed to run in dedicated environments
 
-# Accelerators for tests 
+# Accelerators for tests
 # - By default tests are run with GPU available, except for the ones under `special_npu`, and any test script whose name ends with `on_cpu.py`.
 # - For test scripts with `on_cpu.py` name suffix would be tested on CPU resources in linux environment.
 
@@ -28,8 +28,6 @@
 #   - Since cpu/gpu unit tests by default runs all tests under `tests`, please make sure tests are manually excluded in them when
 #     - new workflow yaml is added to `.github/workflows`
 #     - new tests are added to workflow mentioned in 2.
-
-
 
 name: checkpoint_converter
 # latest version: Megatron-LM core_r0.11.0 https://github.com/NVIDIA/Megatron-LM/tree/core_r0.11.0
@@ -64,14 +62,13 @@ on:
       - "verl/trainer/main_ppo.py"
       - "verl/trainer/config/ppo_megatron_trainer.yaml"
 
-
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Declare permissions just read content.
-permissions: 
+permissions:
   contents: read
 
 jobs:
@@ -89,10 +86,14 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-            fetch-depth: 0
+          fetch-depth: 0
       - name: Install the current repository
         run: |
           pip3 install -e .[test]
+      - name: Download Model to Use
+        run: |
+          huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B
+          export HF_HUB_OFFLINE=1
       - name: Running Huggingface to Megatron dist_ckpt converter (Qwen/Qwen2.5-0.5B)
         run: |
           ray stop --force
@@ -119,7 +120,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-            fetch-depth: 0
+          fetch-depth: 0
       - name: Install the current repository
         run: |
           pip3 install -e .[test]
