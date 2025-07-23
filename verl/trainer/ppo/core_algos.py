@@ -22,18 +22,31 @@ __all__ = ["register_adv_est", "get_adv_estimator_fn", "AdvantageEstimator"]
 
 from collections import defaultdict
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 import torch
+from omegaconf import DictConfig
 
 import verl.utils.torch_functional as verl_F
 from verl.trainer.config import AlgoConfig
 
-POLICY_LOSS_REGISTRY = {}
+PolicyLossFn = Callable[
+    [
+        torch.Tensor,  # old_log_prob
+        torch.Tensor,  # log_prob
+        torch.Tensor,  # advantages
+        torch.Tensor,  # response_mask
+        str,  # loss_agg_mode
+        Optional[DictConfig | AlgoConfig],  # config
+    ],
+    tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+]
+
+POLICY_LOSS_REGISTRY: dict[str, PolicyLossFn] = {}
 
 
-def register_policy_loss(name):
+def register_policy_loss(name: str) -> Callable[[PolicyLossFn], PolicyLossFn]:
     """Register a policy loss function with the given name.
 
     Args:
@@ -43,7 +56,7 @@ def register_policy_loss(name):
         function: Decorator function that registers the policy loss function.
     """
 
-    def decorator(func):
+    def decorator(func: PolicyLossFn) -> PolicyLossFn:
         POLICY_LOSS_REGISTRY[name] = func
         return func
 
@@ -822,7 +835,7 @@ def compute_policy_loss_clip_cov(
     advantages: torch.Tensor,
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
-    config: Any = None,
+    config: Optional[DictConfig | AlgoConfig] = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for Clip-Cov.
@@ -855,6 +868,8 @@ def compute_policy_loss_clip_cov(
         clip_cov_ub (float, optional):
             Upper bound for clipping covariance. Defaults to 5.0.
     """
+    assert config is not None
+
     clip_cov_ratio = config.policy_loss.clip_cov_ratio if config.policy_loss.clip_cov_ratio is not None else 0.0002
     cliprange = config.clip_ratio
     cliprange_low = config.clip_ratio_low if config.clip_ratio_low is not None else cliprange
@@ -912,7 +927,7 @@ def compute_policy_loss_kl_cov(
     advantages: torch.Tensor,
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
-    config: Any = None,
+    config: Optional[DictConfig | AlgoConfig] = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for Clip-Cov.
@@ -936,6 +951,8 @@ def compute_policy_loss_kl_cov(
         ppo_kl_coef (float, optional):
             Coefficient for the KL penalty term in the loss. Defaults to 1.
     """
+    assert config is not None
+
     kl_cov_ratio = config.policy_loss.kl_cov_ratio if config.policy_loss.kl_cov_ratio is not None else 0.0002
     ppo_kl_coef = config.policy_loss.ppo_kl_coef if config.policy_loss.ppo_kl_coef is not None else 1.0
 
