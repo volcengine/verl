@@ -131,12 +131,12 @@ def _get_mla_transformer_config(
     return base_config
 
 
-def check_and_disable_incompatible_configs(original_config: PretrainedConfig) -> dict:
+def check_and_disable_incompatible_configs(original_config: dict) -> dict:
     """
     Check and disable incompatible configurations for older Megatron version.
 
     Args:
-        original_config (PretrainedConfig): The original model configuration.
+        original_config (dict): The original model configuration.
 
     Returns:
         dict: The updated model configuration with incompatible settings disabled.
