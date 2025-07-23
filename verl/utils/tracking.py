@@ -392,7 +392,7 @@ class ValidationGenerationsLogger:
 
             # Use the same directory structure as _TensorboardAdapter
             if self.project_name and self.experiment_name:
-                default_dir = f"tensorboard_log/{self.project_name}/{self.experiment_name}"
+                default_dir = os.path.join("tensorboard_log", self.project_name, self.experiment_name)
             else:
                 default_dir = "tensorboard_log"
 
