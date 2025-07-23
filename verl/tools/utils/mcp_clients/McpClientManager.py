@@ -61,10 +61,8 @@ class MCPClientManager:
             await asyncio.sleep(0.1)
 
         client = self.get_client_with_tool_name(tool_name)
-        logger.info(f"[McpClientManager] Tool call: {tool_name} with params {parameters}")
         async with client:
             x = await client.call_tool_mcp(tool_name, parameters)
-            logger.info("[McpClientManager] Tool call result: {x}")
             return x
 
     async def fetch_tool_schemas(self, tool_selected_list: list[str]) -> list[dict]:
