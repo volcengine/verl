@@ -58,7 +58,7 @@ class ActorRolloutRefWorker(ARRWorker):
         else:
             is_first_tp_rank = False
         
-        reqs_idx = prompts.non_tensor_batch.pop('reqs_idx')
+        reqs_idx = prompts.non_tensor_batch.get('reqs_idx', None)
         pre_outlens = prompts.non_tensor_batch.pop('pre_outlens')
 
         my_idx = [i for i, idx in enumerate(reqs_idx) if idx == my_req_idx]
@@ -79,15 +79,21 @@ class ActorRolloutRefWorker(ARRWorker):
         if is_first_tp_rank:
             print(
                 f"[GEN]:\n"
-                f"  {rank=}, len(my_idx)={len(my_idx)}, pre_longest={pre_longest}, pre_shortest={pre_shortest}, pre_avg={pre_avg:.2f}, pre_std={pre_std:.2f}\n"
+                f"{rank=}, len(my_idx)={len(my_idx)},\
+                pre_longest={pre_longest}, pre_shortest={pre_shortest},\
+                pre_avg={pre_avg:.2f}, pre_std={pre_std:.2f}\n"
             )
         prompts = prompts.to(get_device_id())
 
         assert self._is_rollout
 
         meta_info = {
-            "eos_token_id": self.generation_config.eos_token_id if self.generation_config is not None else self.tokenizer.eos_token_id,
-            "pad_token_id": self.generation_config.pad_token_id if self.generation_config is not None else self.tokenizer.pad_token_id,
+            "eos_token_id": self.generation_config.eos_token_id 
+            if self.generation_config is not None 
+            else self.tokenizer.eos_token_id,
+            "pad_token_id": self.generation_config.pad_token_id 
+            if self.generation_config is not None 
+            else self.tokenizer.pad_token_id,
         }
         prompts.meta_info.update(meta_info)
         timing_generate = {}
@@ -138,7 +144,11 @@ class ActorRolloutRefWorker(ARRWorker):
                 actual_max = np.max(actual_outlen)
                 actual_min = np.min(actual_outlen)
                 #breakpoint()
-                print(f"[GENTIME] {rank=}, {timing_generate['generate_sequences']:.2f}s; Sum: predict_totallens={predict_tsum}, pre_outlens={pre_osum}, insum={insum} ; Total: {predict_tlongest=}, {predict_tshortest=}, {predict_tavg=}, {predict_tstd=}; In: {inlongest=}, {inshortest=}, inavg={inavg:.0f}, instd={instd:.0f}; ACTUAL: {actual_sum=}, {actual_mean=}, {actual_max=}, {actual_min=}")
+                print(f"[GENTIME] {rank=}, {timing_generate['generate_sequences']:.2f}s; \
+                    Sum: predict_totallens={predict_tsum}, pre_outlens={pre_osum}, insum={insum} ; \
+                    Total: {predict_tlongest=}, {predict_tshortest=}, {predict_tavg=}, {predict_tstd=}; \
+                    In: {inlongest=}, {inshortest=}, inavg={inavg:.0f}, instd={instd:.0f}; \
+                    ACTUAL: {actual_sum=}, {actual_mean=}, {actual_max=}, {actual_min=}")
             output = self.rollout_sharding_manager.postprocess_data(output)
 
         timing_generate.update(self.rollout_sharding_manager.timing)

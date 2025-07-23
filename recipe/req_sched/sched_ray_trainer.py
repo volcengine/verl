@@ -53,7 +53,10 @@ from verl.utils.metric import (
     reduce_metrics,
 )
 from verl.utils.seqlen_balancing import karmarkar_karp
-from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, Role, ResourcePoolManager, apply_kl_penalty, compute_advantage, compute_response_mask
+from verl.trainer.ppo.ray_trainer import (
+    RayPPOTrainer, Role, ResourcePoolManager, 
+    apply_kl_penalty, compute_advantage, compute_response_mask
+)
 from verl.utils.debug import marked_timer
 WorkerType = Type[Worker]
 
@@ -134,10 +137,10 @@ class ReqScheduler:
 
                 ps = data['prompts']
                 ls = data['lengths']
-                for p, l in zip(ps, ls):
+                for p, length in zip(ps, ls):
                     p = tuple(p)
                     if p not in ans:
-                        ans[p] = l
+                        ans[p] = length
                 print(f"[ReqScheduler] Processed {filename}, found {len(ans)} unique prompts")
             except Exception as e:
                 print(f"[ReqScheduler] Error processing {filename}: {str(e)}")
@@ -196,7 +199,9 @@ class ReqScheduler:
         print(f'[ReqScheduler] in update_table, Table-Size: {len(self.table)=}')
 
     def log_seqlen(self, raw_prompt_ids, responses, prefix):
-        print(f'[ReqScheduler] in log_seqlen, {type(raw_prompt_ids)}, {type(responses)}, {len(raw_prompt_ids)}, {len(responses)}')
+        print(
+            f'[ReqScheduler] in log_seqlen, {type(raw_prompt_ids)},\
+            {type(responses)}, {len(raw_prompt_ids)}, {len(responses)}')
         assert len(raw_prompt_ids) == len(responses), f'{len(raw_prompt_ids)}, {len(responses)}'
         prompts_dict = {}
         prompts, response = [], []
@@ -386,7 +391,7 @@ class RaySchedTrainer(RayPPOTrainer):
         val_dataset: Optional[Dataset] = None,
         collate_fn=None,
         train_sampler: Optional[Sampler] = None,
-        device_name="cuda",
+        device_name=None,
     ):
         super().__init__(
             config=config,
@@ -424,7 +429,10 @@ class RaySchedTrainer(RayPPOTrainer):
             test_batch = DataProto.from_single_dict(test_data)
 
             # repeat test batch
-            test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True)
+            test_batch = test_batch.repeat(
+                repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, 
+                interleave=True
+            )
 
             # we only do validation on rule-based rm
             if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
@@ -520,7 +528,11 @@ class RaySchedTrainer(RayPPOTrainer):
             for var_name, metric2val in var2metric2val.items():
                 n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
                 for metric_name, metric_val in metric2val.items():
-                    if (var_name == core_var) and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"]) and (f"@{n_max}" in metric_name):
+                    if (
+                        (var_name == core_var) 
+                        and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"]) 
+                        and (f"@{n_max}" in metric_name)
+                    ):
                         metric_sec = "val-core"
                     else:
                         metric_sec = "val-aux"
@@ -576,7 +588,11 @@ class RaySchedTrainer(RayPPOTrainer):
                     self.config.actor_rollout_ref,
                 )
 
-                do_profile = self.global_steps in self.config.trainer.profile_steps if self.config.trainer.profile_steps is not None else False
+                do_profile = (
+                    self.global_steps in self.config.trainer.profile_steps 
+                    if self.config.trainer.profile_steps is not None 
+                    else False
+                )
                 if do_profile:
                     self.actor_rollout_wg.start_profile()
                     if self.use_reference_policy:
@@ -619,7 +635,10 @@ class RaySchedTrainer(RayPPOTrainer):
                 raw_prompt_ids = gen_batch.non_tensor_batch['raw_prompt_ids'] # (bs, varlen)
                 batch.non_tensor_batch['raw_prompt_ids'] = raw_prompt_ids
                 print(
-                    f'[BATCH INPUT]: {idx.shape}, {gen_batch.non_tensor_batch.keys()=}, raw_prompt_ids = {type(raw_prompt_ids)}'
+                    f'[BATCH INPUT]: \
+                    {idx.shape}, \
+                    {gen_batch.non_tensor_batch.keys()=}, \
+                    raw_prompt_ids = {type(raw_prompt_ids)}'
                 )
 
                 with marked_timer("step", timing_raw):
@@ -648,7 +667,9 @@ class RaySchedTrainer(RayPPOTrainer):
                         reqs_idx,
                         self.config.actor_rollout_ref.rollout.n,
                     )
-                    batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+                    batch.non_tensor_batch["uid"] = np.array(
+                        [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
+                    )
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
@@ -758,14 +779,18 @@ class RaySchedTrainer(RayPPOTrainer):
 
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
-                            batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty)
+                            batch, kl_metrics = apply_kl_penalty(
+                                batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty
+                            )
                             metrics.update(kl_metrics)
                         else:
                             batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
                         # compute advantages, executed on the driver process
 
-                        norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)  # GRPO adv normalization factor
+                        norm_adv_by_std_in_grpo = self.config.algorithm.get(
+                            "norm_adv_by_std_in_grpo", True
+                        )  # GRPO adv normalization factor
 
                         batch = compute_advantage(
                             batch,
@@ -810,14 +835,21 @@ class RaySchedTrainer(RayPPOTrainer):
                             )
 
                     # validate
-                    if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0):
+                    if (
+                        self.val_reward_fn is not None 
+                        and self.config.trainer.test_freq > 0 
+                        and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+                    ):
                         with marked_timer("testing", timing_raw, color="green"):
                             val_metrics: dict = self._validate()
                             if is_last_step:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
 
-                    if self.config.trainer.save_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0):
+                    if (
+                        self.config.trainer.save_freq > 0 
+                        and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0)
+                        ):
                         with marked_timer("save_checkpoint", timing_raw, color="green"):
                             self._save_checkpoint()
 
