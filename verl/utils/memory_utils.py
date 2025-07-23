@@ -38,8 +38,8 @@ def aggressive_empty_cache(force_sync: bool = True, max_retries: int = 3) -> Non
 
     for attempt in range(max_retries):
         # Record memory status before cleanup
-        before_reserved = device.memory_reserved(0)
-        before_allocated = device.memory_allocated(0)
+        before_reserved = device.memory_reserved()
+        before_allocated = device.memory_allocated()
 
         # Run garbage collection
         gc.collect()
@@ -52,8 +52,8 @@ def aggressive_empty_cache(force_sync: bool = True, max_retries: int = 3) -> Non
             device.synchronize()
 
         # Record memory status after cleanup
-        after_reserved = device.memory_reserved(0)
-        after_allocated = device.memory_allocated(0)
+        after_reserved = device.memory_reserved()
+        after_allocated = device.memory_allocated()
 
         # Calculate freed memory
         reserved_freed = before_reserved - after_reserved
@@ -83,14 +83,15 @@ def get_memory_info() -> dict:
         return {}
 
     device = get_torch_device()
+    device_id = device.current_device()
 
     return {
-        "total_memory_gb": device.get_device_properties(0).total_memory / 1024**3,
-        "reserved_memory_gb": device.memory_reserved(0) / 1024**3,
-        "allocated_memory_gb": device.memory_allocated(0) / 1024**3,
-        "cached_memory_gb": (device.memory_reserved(0) - device.memory_allocated(0)) / 1024**3,
-        "max_memory_allocated_gb": device.max_memory_allocated(0) / 1024**3,
-        "max_memory_reserved_gb": device.max_memory_reserved(0) / 1024**3,
+        "total_memory_gb": device.get_device_properties(device_id).total_memory / 1024**3,
+        "reserved_memory_gb": device.memory_reserved() / 1024**3,
+        "allocated_memory_gb": device.memory_allocated() / 1024**3,
+        "cached_memory_gb": (device.memory_reserved() - device.memory_allocated()) / 1024**3,
+        "max_memory_allocated_gb": device.max_memory_allocated() / 1024**3,
+        "max_memory_reserved_gb": device.max_memory_reserved() / 1024**3,
     }
 
 
