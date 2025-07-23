@@ -159,6 +159,7 @@ class CustomRLHFDataset(RLHFDataset):
         }
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
+        row_dict["agent_name"] = "tool_agent"
         return row_dict
 
 

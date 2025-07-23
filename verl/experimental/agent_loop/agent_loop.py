@@ -17,7 +17,7 @@ import logging
 import os
 import random
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import ray
@@ -83,6 +83,7 @@ class AsyncLLMServerManager:
         *,
         prompt_ids: list[int],
         sampling_params: dict[str, Any],
+        image_data: Optional[list[Any]] = None,
     ) -> list[int]:
         """Generate tokens from prompt ids.
 
@@ -99,6 +100,7 @@ class AsyncLLMServerManager:
             request_id=request_id,
             prompt_ids=prompt_ids,
             sampling_params=sampling_params,
+            image_data=image_data,
         )
         return output
 
@@ -148,7 +150,9 @@ class AgentLoopBase(ABC):
         cls._class_initialized = True
 
     @abstractmethod
-    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
+    async def run(
+        self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], image_data: Optional[list[Any]] = None
+    ) -> AgentLoopOutput:
         """Run agent loop to interact with LLM server and environment.
 
         Args:
@@ -179,6 +183,9 @@ class AgentLoopWorker:
         self.model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
+
+        if self.config.actor_rollout_ref.model.get("custom_chat_template", None) is not None:
+            self.tokenizer.chat_template = self.config.actor_rollout_ref.model.custom_chat_template
 
         trace_config = config.trainer.get("rollout_trace", {})
 
@@ -234,11 +241,20 @@ class AgentLoopWorker:
         else:
             index = np.arange(len(raw_prompts))
 
+        # extract multi-modal data if available
+        multi_modal_data = batch.non_tensor_batch.get("multi_modal_data", [None] * len(raw_prompts))
+
         trajectory_info = await get_trajectory_info(batch.meta_info.get("global_steps", -1), index)
 
-        for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
+        for agent_name, messages, trajectory, image_data in zip(
+            agent_names, raw_prompts, trajectory_info, multi_modal_data, strict=True
+        ):
             tasks.append(
-                asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory))
+                asyncio.create_task(
+                    self._run_agent_loop(
+                        agent_name, messages.tolist(), sampling_params, trajectory, image_data=image_data["image"]
+                    )
+                )
             )
         outputs = await asyncio.gather(*tasks)
 
@@ -251,13 +267,14 @@ class AgentLoopWorker:
         messages: list[dict[str, Any]],
         sampling_params: dict[str, Any],
         trajectory: dict[str, Any],
+        image_data: Optional[list[Any]] = None,
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
             step=trajectory["step"], sample_index=trajectory["sample_index"], rollout_n=trajectory["rollout_n"]
         ):
             agent_loop_class = self.get_agent_loop_class(agent_name)
             agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer)
-            output = await agent_loop.run(messages, sampling_params)
+            output = await agent_loop.run(messages, sampling_params, image_data=image_data)
             return output
 
     def get_agent_loop_class(self, agent_name: str) -> type[AgentLoopBase]:
