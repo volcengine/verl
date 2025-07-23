@@ -22,17 +22,17 @@ import torch.distributed
 from omegaconf import DictConfig
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
+from verl.trainer.config import CheckpointConfig
 from verl.utils.device import get_device_name, get_torch_device
 
 
 class BaseCheckpointManager:
     """
-    A checkpoint manager that saves and loads
+    A checkpoint manager that saves and loads the following states in a SPMD way:
     - model
     - optimizer
     - lr_scheduler
     - extra_states
-    in a SPMD way.
 
     We save
     - sharded model states and optimizer states
@@ -46,7 +46,7 @@ class BaseCheckpointManager:
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler = None,
         processing_class: PreTrainedTokenizer | ProcessorMixin = None,
-        checkpoint_config: DictConfig = None,
+        checkpoint_config: DictConfig | CheckpointConfig = None,
     ):
         self.checkpoint_config = checkpoint_config
         checkpoint_load_contents = checkpoint_config.get("load_contents", None) if checkpoint_config else None

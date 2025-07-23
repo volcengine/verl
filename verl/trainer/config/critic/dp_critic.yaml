@@ -13,13 +13,17 @@ defaults:
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
+# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+_target_: verl.workers.config.FSDPCriticConfig
+
+# distribution strategy. Options: fsdp (deprecating), fsdp2
 strategy: fsdp
 
 # optimizer configs
 optim:
 
-  # Learning rate
-  lr: 1e-5
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.FSDPOptimizerConfig
 
   # Minimum LR ratio for cosine schedule
   min_lr_ratio: null
@@ -29,6 +33,9 @@ optim:
 
 # model config for the critic
 model:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.FSDPCriticModelCfg
 
   # Whether to use shared memory for loading the model
   use_shm: False
@@ -44,6 +51,9 @@ model:
 
   # FSDP-specific config
   fsdp_config:
+
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+    _target_: verl.workers.config.FSDPEngineConfig
 
     # Whether to offload model parameters to CPU
     param_offload: False
@@ -90,6 +100,3 @@ ulysses_sequence_parallel_size: 1
 
 # Gradient clipping for critic updates
 grad_clip: 1.0
-
-# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-_target_: verl.trainer.config.FSDPCriticConfig

@@ -7,6 +7,9 @@ defaults:
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
+# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+_target_: verl.workers.config.McoreCriticConfig
+
 strategy: megatron
 
 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
@@ -15,20 +18,17 @@ nccl_timeout: 600
 # optimizer configs
 optim:
 
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.McoreOptimizerConfig
+
   # select optimizer, default is Adam
   optimizer: adam
-
-  # Learning rate
-  lr: 1e-6
 
   # Clip gradients norm
   clip_grad: 1.0
 
   # initial learning rate for warmup, default to 0.0
   lr_warmup_init: 0.0
-
-  # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
-  lr_warmup_steps: null
 
   lr_decay_steps: null
 
@@ -53,6 +53,9 @@ optim:
 # model config for the critic
 model:
 
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.trainer.config.BaseModelConfig
+
   # override default empty mapping
   override_config:
 
@@ -64,6 +67,9 @@ model:
 
 # megatron-specific parallelism settings
 megatron:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.McoreEngineConfig
 
   # Whether to offload model parameters to CPU
   param_offload: False
@@ -121,10 +127,3 @@ load_weight: True
 
 # seed for data loader
 data_loader_seed: ${oc.select:actor_rollout_ref.actor.data_loader_seed,null}
-
-# Asynchronous checkpoint saving
-checkpoint:
-  async_save: False
-
-# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-_target_: verl.trainer.config.MegatronCriticConfig
