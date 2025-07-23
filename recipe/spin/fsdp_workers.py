@@ -22,7 +22,7 @@ import psutil
 import torch
 import torch.distributed
 from codetiming import Timer
-from omegaconf import open_dict
+from omegaconf import OmegaConf, open_dict
 from torch.distributed.device_mesh import init_device_mesh
 
 import verl.utils.torch_functional as verl_F
@@ -83,10 +83,7 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
 
-        from omegaconf import OmegaConf
-
-        override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
-
+        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
         use_remove_padding = self.config.model.get("use_remove_padding", False)
         use_fused_kernels = self.config.model.get("use_fused_kernels", False)
 

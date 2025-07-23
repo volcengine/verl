@@ -4,27 +4,22 @@ defaults:
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
+_target_: verl.workers.config.McoreActorConfig
+
 strategy: megatron
 
 data_loader_seed: null
 
 load_weight: True
 
-checkpoint:
-
-  async_save: False
-
 optim:
-
+  _target_: verl.workers.config.McoreOptimizerConfig
   optimizer: adam
 
   clip_grad: 1.0
 
   # initial learning rate for warmup, default to 0.0
   lr_warmup_init: 0.0
-
-  # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
-  lr_warmup_steps: null
 
   lr_decay_steps: null
 
@@ -47,10 +42,16 @@ optim:
 
 megatron:
 
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.McoreEngineConfig
+
+  # Whether to offload model parameters to CPU
   param_offload: False
 
+  # Whether to offload gradients to CPU
   grad_offload: False
 
+  # Whether to offload optimizer state to CPU
   optimizer_offload: False
 
   tensor_model_parallel_size: 1
@@ -104,6 +105,7 @@ megatron:
 
 # profile the actor model in `update_policy` 
 profile:
+
   # turn it on when you want to profile the actor model
   use_profile: False
 

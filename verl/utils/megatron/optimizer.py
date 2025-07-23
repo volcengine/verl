@@ -42,23 +42,25 @@ def get_megatron_optimizer_param_scheduler(
     """
     Get the optimizer parameter scheduler for Megatron.
     """
+    lr_decay_steps = config.lr_decay_steps
+    lr_warmup_steps = config.lr_warmup_steps
     if config.get("lr_decay_steps", None) is None:
-        config.lr_decay_steps = config.total_training_steps
+        lr_decay_steps = config.total_training_steps
     wsd_decay_steps = None
     if config.get("lr_wsd_decay_steps", None) is not None:
         wsd_decay_steps = config.lr_wsd_decay_steps
     if config.get("lr_warmup_steps_ratio", None) is not None and (
         config.get("lr_warmup_steps", None) is None or config.lr_warmup_steps <= 0
     ):
-        config.lr_warmup_steps = int(config.lr_warmup_steps_ratio * config.lr_decay_steps)
+        lr_warmup_steps = int(config.lr_warmup_steps_ratio * lr_decay_steps)
 
     opt_param_scheduler = OptimizerParamScheduler(
         optimizer,
         init_lr=config.lr_warmup_init,
         max_lr=config.lr,
         min_lr=config.min_lr,
-        lr_warmup_steps=config.lr_warmup_steps,
-        lr_decay_steps=config.lr_decay_steps,
+        lr_warmup_steps=lr_warmup_steps,
+        lr_decay_steps=lr_decay_steps,
         lr_decay_style=config.lr_decay_style,
         start_wd=config.weight_decay,
         end_wd=config.weight_decay,
