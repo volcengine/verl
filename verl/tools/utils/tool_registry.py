@@ -121,7 +121,8 @@ def initialize_tools_from_config(tools_config_file):
             case _:
                 raise NotImplementedError
 
-    asyncio.run_coroutine_threadsafe(stop_loop(), tmp_event_loop)
-    thread.join()
+    if thread.is_alive():
+        asyncio.run_coroutine_threadsafe(stop_loop(), tmp_event_loop)
+        thread.join()
 
     return tool_list
