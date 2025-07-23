@@ -25,7 +25,12 @@ import torch.distributed as dist
 from omegaconf import DictConfig
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.model_executor.model_runner import LocalSerializedTensor
-from sglang.srt.utils import MultiprocessingSerializer
+
+try:
+    # TorchPatchMultiprocessingSerializer is introduced by SGLang 0.4.9.post3, which could speed up update weights by 3x
+    from sglang.srt.utils import TorchPatchMultiprocessingSerializer as MultiprocessingSerializer
+except ImportError:
+    from sglang.srt.utils import MultiprocessingSerializer
 from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
 
