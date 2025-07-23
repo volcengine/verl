@@ -60,7 +60,6 @@ class TestDataParallelPPOActor(unittest.TestCase):
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(
                 backend="nccl" if torch.cuda.is_available() else "gloo", init_method="env://"
-                backend=backend,
                 rank=rank,
                 world_size=world_size,
                 init_method=os.environ.get("DIST_INIT_METHOD", "env://"),
