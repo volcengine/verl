@@ -104,8 +104,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             )
             get_torch_device().set_device(rank)
 
-            if self.config.actor.megatron.sequence_parallel:
-                os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "1"
             mpu.initialize_model_parallel(
                 tensor_model_parallel_size=self.config.actor.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.actor.megatron.pipeline_model_parallel_size,
@@ -736,8 +734,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             )
             get_torch_device().set_device(rank)
 
-            if self.config.megatron.sequence_parallel:
-                os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "1"
             mpu.initialize_model_parallel(
                 tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
@@ -1016,8 +1012,6 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             )
             get_torch_device().set_device(rank)
 
-            if self.config.megatron.sequence_parallel:
-                os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "1"
             mpu.initialize_model_parallel(
                 tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
