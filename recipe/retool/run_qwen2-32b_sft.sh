@@ -1,29 +1,10 @@
 #!/bin/bash
 set -x
 
-# set dist args
-nproc_per_node=${ARNOLD_WORKER_GPU}
-if [ ! -z "$SINGLE" ] && [ "$SINGLE" != "0" ]; then
-  echo "[single node alone] SINGLE=$SINGLE"
-  MASTER_NODE_ID=${ARNOLD_ID}
-  nnodes=1
-  node_rank=0
-else
-  MASTER_NODE_ID=0
-  nnodes=${ARNOLD_WORKER_NUM}
-  node_rank=${ARNOLD_ID}
-fi
-master_addr="METIS_WORKER_${MASTER_NODE_ID}_HOST"
-master_addr=${!master_addr}
-master_port="METIS_WORKER_${MASTER_NODE_ID}_PORT"
-master_port=${!master_port}
-ports=(`echo $master_port | tr ',' ' '`)
-master_port=${ports[0]}
-echo "[nproc_per_node: ${nproc_per_node}]"
-echo "[nnodes: ${nnodes}]"
-echo "[node_rank: ${node_rank}]"
-echo "[master_addr: ${master_addr}]"
-echo "[master_port: ${master_port}]"
+nnodes=2
+nproc_per_node=8
+master_addr=
+master_port=
 
 experiment_name=multiturn-sft-qwen-2.5-32b-instruct
 HDFS_ROOT=${HDFS_ROOT:-$PWD}
@@ -34,8 +15,8 @@ EVAL_DATA=$DATA_ROOT/dataset/wuxibin/ReTool-SFT/data/train-00000-of-00001.parque
 MODEL_PATH=$HDFS_ROOT/model/Qwen2.5-32B-Instruct
 SAVE_PATH=$DATA_ROOT/checkpoint/$experiment_name
 
-torchrun --nnodes=$ARNOLD_WORKER_NUM \
-     --nproc_per_node=$ARNOLD_WORKER_GPU \
+torchrun --nnodes=$nnodes \
+     --nproc_per_node=$nproc_per_node \
      --master-addr=$master_addr \
      --master-port=$master_port \
      --node-rank=$node_rank \
