@@ -211,6 +211,12 @@ jobs:
         run: |
           ray stop --force
           FUSED_KERNEL=True FUSED_KERNEL_BACKEND=triton bash tests/special_e2e/ppo_trainer/run_model_reward.sh
+      - name: Running GSM8K E2E training tests on vllm async
+        run: |
+          ray stop --force
+          export VLLM_USE_V1=1
+          ray start --head
+          TOTAL_TRAIN_STEPS=2 ENGINE=vllm ROLLOUT_MODE=async bash tests/special_e2e/ppo_trainer/run_function_reward.sh
 
   e2e_ppo_trainer_vllm_vlm:
     runs-on: [L20x8]
@@ -280,7 +286,7 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.2-te2.2
+      image: verlai/verl:app-verl0.5-sglang0.4.8-mcore0.12.2-te2.2
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -301,12 +307,6 @@ jobs:
         run: |
           ray stop --force
           TOTAL_TRAIN_STEPS=2 ENGINE=sglang ROLLOUT_MODE=async bash tests/special_e2e/ppo_trainer/run_function_reward.sh
-      - name: Running GSM8K E2E training tests on vllm async
-        run: |
-          ray stop --force
-          export VLLM_USE_V1=1
-          ray start --head
-          TOTAL_TRAIN_STEPS=2 ENGINE=vllm ROLLOUT_MODE=async bash tests/special_e2e/ppo_trainer/run_function_reward.sh
 
   e2e_ppo_trainer_sglang_multiturn_with_tool:
     runs-on: [L20x8]
@@ -319,7 +319,7 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.2-te2.2
+      image: verlai/verl:app-verl0.5-sglang0.4.8-mcore0.12.2-te2.2
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -352,7 +352,7 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.2-te2.2
+      image: verlai/verl:app-verl0.5-sglang0.4.8-mcore0.12.2-te2.2
       options: --gpus all --shm-size=50g # Visual dataloader requires large memory
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -409,7 +409,7 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.2-te2.2
+      image: verlai/verl:app-verl0.5-sglang0.4.8-mcore0.12.2-te2.2
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
