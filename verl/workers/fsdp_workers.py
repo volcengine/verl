@@ -623,6 +623,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.rollout, self.rollout_sharding_manager = self._build_rollout(
                 trust_remote_code=self.config.model.get("trust_remote_code", False)
             )
+            # Downloads remote env files we might need on every worker. Remove once we remotely host envs.
+            remote_env_path = self.config.rollout.get("remote_env_path", None)
+            local_env_path = self.config.rollout.get("local_env_path", None)
+            if remote_env_path or local_env_path:
+                assert remote_env_path and local_env_path, (
+                    "If a local or remote env path is set, the other must be also set"
+                )
+                copy_to_local(src=remote_env_path, recursive=True, local_path=local_env_path)
 
         if self._is_ref:
             local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
@@ -833,7 +841,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+    def save_checkpoint(self, local_path, hdfs_path=None, remote_path=None, global_step=0, max_ckpt_to_keep=None):
+        assert hdfs_path is None or remote_path is None, (
+            "Both remote_path and hdfs_path can't be set! Note hdfs_path is being deprecated."
+        )
+
         from verl.utils.logger import log_with_rank
 
         # only support save and load ckpt for actor
@@ -843,7 +855,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
         self.checkpoint_manager.save_checkpoint(
-            local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep
+            local_path=local_path,
+            hdfs_path=hdfs_path,
+            remote_path=remote_path,
+            global_step=global_step,
+            max_ckpt_to_keep=max_ckpt_to_keep,
         )
         dist.barrier()
 
@@ -1264,14 +1280,21 @@ class CriticWorker(Worker, DistProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+    def save_checkpoint(self, local_path, hdfs_path=None, remote_path=None, global_step=0, max_ckpt_to_keep=None):
+        assert hdfs_path is None or remote_path is None, (
+            "Both remote_path and hdfs_path can't be set! Note hdfs_path is being deprecated."
+        )
         import torch
 
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.critic_module)
 
         self.checkpoint_manager.save_checkpoint(
-            local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep
+            local_path=local_path,
+            hdfs_path=hdfs_path,
+            remote_path=remote_path,
+            global_step=global_step,
+            max_ckpt_to_keep=max_ckpt_to_keep,
         )
 
         torch.distributed.barrier()

@@ -56,6 +56,7 @@ from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
+from verl.utils.fs import copy_to_local, copy_to_remote
 from verl.utils.metric import (
     reduce_metrics,
 )
@@ -150,6 +151,48 @@ class ResourcePoolManager:
                     f"Resource pool {resource_pool_name}: {num_gpus}*{num_nodes}"
                     + "cannot be satisfied in this ray cluster"
                 )
+
+
+@dataclass
+class RemotePath:
+    """
+    Stores variables for remote paths (either S3 or HDFS currently).
+    """
+
+    config: any
+    global_steps: int
+    s3_global_step_folder: str
+
+    actor_remote_path: Optional[str] = None
+    critic_remote_path: Optional[str] = None
+
+    def __post_init__(self):
+        """
+        Initialize the remote path vars.
+        """
+        trainer_cfg = self.config.trainer
+
+        if trainer_cfg.get("default_remote_dir"):
+            self.actor_remote_path = os.path.join(self.s3_global_step_folder, "actor")
+
+            self.critic_remote_path = os.path.join(self.s3_global_step_folder, "critic")
+
+        elif getattr(trainer_cfg, "default_hdfs_dir", None):
+            self.actor_remote_path = os.path.join(
+                trainer_cfg.default_hdfs_dir,
+                f"global_step_{self.global_steps}",
+                "actor",
+            )
+
+            self.critic_remote_path = os.path.join(
+                trainer_cfg.default_hdfs_dir,
+                f"global_step_{self.global_steps}",
+                "critic",
+            )
+
+        else:
+            self.actor_remote_path = None
+            self.critic_remote_path = None
 
 
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty="kl"):
@@ -382,6 +425,12 @@ class RayPPOTrainer:
                 stacklevel=2,
             )
             self.use_critic = False
+
+        self.s3_global_step_folder = (
+            None
+            if self.config.trainer.get("default_remote_dir", None) is None
+            else os.path.join(self.config.trainer.default_remote_dir, f"global_step_{self.global_steps}")
+        )
 
         self._validate_config()
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
@@ -883,13 +932,12 @@ class RayPPOTrainer:
         )
 
         print(f"local_global_step_folder: {local_global_step_folder}")
+
         actor_local_path = os.path.join(local_global_step_folder, "actor")
 
-        actor_remote_path = (
-            None
-            if self.config.trainer.default_hdfs_dir is None
-            else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "actor")
-        )
+        remote_path = RemotePath(self.config, self.global_steps, self.s3_global_step_folder)
+
+        actor_remote_path = remote_path.actor_remote_path
 
         remove_previous_ckpt_in_save = self.config.trainer.get("remove_previous_ckpt_in_save", False)
         if remove_previous_ckpt_in_save:
@@ -905,18 +953,21 @@ class RayPPOTrainer:
         )
 
         self.actor_rollout_wg.save_checkpoint(
-            actor_local_path, actor_remote_path, self.global_steps, max_ckpt_to_keep=max_actor_ckpt_to_keep
+            actor_local_path,
+            remote_path=actor_remote_path,
+            global_step=self.global_steps,
+            max_ckpt_to_keep=max_actor_ckpt_to_keep,
         )
 
         if self.use_critic:
             critic_local_path = os.path.join(local_global_step_folder, "critic")
-            critic_remote_path = (
-                None
-                if self.config.trainer.default_hdfs_dir is None
-                else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "critic")
-            )
+            critic_remote_path = remote_path.critic_remote_path
+
             self.critic_wg.save_checkpoint(
-                critic_local_path, critic_remote_path, self.global_steps, max_ckpt_to_keep=max_critic_ckpt_to_keep
+                critic_local_path,
+                remote_path=critic_remote_path,
+                global_step=self.global_steps,
+                max_ckpt_to_keep=max_critic_ckpt_to_keep,
             )
 
         # save dataloader
@@ -924,6 +975,11 @@ class RayPPOTrainer:
         dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
         dataloader_state_dict = self.train_dataloader.state_dict()
         torch.save(dataloader_state_dict, dataloader_local_path)
+
+        # save dataloader to s3
+        if self.config.trainer.get("default_remote_dir", None):
+            s3_dataloader_path = os.path.join(self.s3_global_step_folder, "data.pt")
+            copy_to_remote(s3_dataloader_path, dataloader_local_path, verbose=True)
 
         # latest checkpointed iteration tracker (for atomic usage)
         local_latest_checkpointed_iteration = os.path.join(
@@ -936,18 +992,26 @@ class RayPPOTrainer:
         if self.config.trainer.resume_mode == "disable":
             return 0
 
+        # Remember that resume_from_path defaults to None
+        is_s3 = self.config.trainer.resume_from_path and self.config.trainer.resume_from_path.startswith("s3://")
+
         # load from hdfs
         if self.config.trainer.default_hdfs_dir is not None:
             raise NotImplementedError("load from hdfs is not implemented yet")
-        else:
-            checkpoint_folder = self.config.trainer.default_local_dir  # TODO: check path
-            if not os.path.isabs(checkpoint_folder):
-                working_dir = os.getcwd()
-                checkpoint_folder = os.path.join(working_dir, checkpoint_folder)
-            global_step_folder = find_latest_ckpt_path(checkpoint_folder)  # None if no latest
 
         # find global_step_folder
         if self.config.trainer.resume_mode == "auto":
+            if is_s3:
+                from utils.s3_io import find_remote_auto_checkpoint
+
+                # get global_step_folder for latest checkpoint
+                global_step_folder = find_remote_auto_checkpoint(self.config.trainer.resume_from_path)
+            else:
+                checkpoint_folder = self.config.trainer.default_local_dir  # TODO: check path
+                if not os.path.isabs(checkpoint_folder):
+                    working_dir = os.getcwd()
+                    checkpoint_folder = os.path.join(working_dir, checkpoint_folder)
+                global_step_folder = find_latest_ckpt_path(checkpoint_folder)  # None if no latest
             if global_step_folder is None:
                 print("Training from scratch")
                 return 0
@@ -958,7 +1022,7 @@ class RayPPOTrainer:
                     "resume ckpt must specify the global_steps"
                 )
                 global_step_folder = self.config.trainer.resume_from_path
-                if not os.path.isabs(global_step_folder):
+                if not is_s3 and not os.path.isabs(global_step_folder):
                     working_dir = os.getcwd()
                     global_step_folder = os.path.join(working_dir, global_step_folder)
         print(f"Load from checkpoint folder: {global_step_folder}")
@@ -981,8 +1045,9 @@ class RayPPOTrainer:
             )
 
         # load dataloader,
-        # TODO: from remote not implemented yet
         dataloader_local_path = os.path.join(global_step_folder, "data.pt")
+        if is_s3:
+            dataloader_local_path = copy_to_local(dataloader_local_path, recursive=False)
         if os.path.exists(dataloader_local_path):
             dataloader_state_dict = torch.load(dataloader_local_path, weights_only=False)
             self.train_dataloader.load_state_dict(dataloader_state_dict)

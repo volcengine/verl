@@ -19,7 +19,7 @@ import shutil
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
 
-_HDFS_PREFIX = "hdfs://"
+HDFS_PREFIX = "hdfs://"
 
 _HDFS_BIN_PATH = shutil.which("hdfs")
 
@@ -146,4 +146,4 @@ def _hdfs_cmd(cmd: str) -> str:
 
 
 def _is_non_local(path: str):
-    return path.startswith(_HDFS_PREFIX)
+    return path.startswith(HDFS_PREFIX)

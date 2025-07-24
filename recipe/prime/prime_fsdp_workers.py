@@ -352,14 +352,21 @@ class PRIMERewardModelWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+    def save_checkpoint(self, local_path, hdfs_path=None, remote_path=None, global_step=0, max_ckpt_to_keep=None):
+        assert hdfs_path is None or remote_path is None, (
+            "Both remote_path and hdfs_path can't be set! Note hdfs_path is being deprecated."
+        )
         import torch
 
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.reward_module)
 
         self.checkpoint_manager.save_checkpoint(
-            local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep
+            local_path=local_path,
+            hdfs_path=hdfs_path,
+            remote_path=remote_path,
+            global_step=global_step,
+            max_ckpt_to_keep=max_ckpt_to_keep,
         )
 
         torch.distributed.barrier()
