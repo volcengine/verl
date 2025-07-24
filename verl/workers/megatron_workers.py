@@ -177,7 +177,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         self.generation_config = get_generation_config(self.local_path)
 
         override_ddp_config = OmegaConf.to_container(
-            self.config.actor.megatron.get("override_ddp_config", OmegaConf.create()), resolve=True
+            OmegaConf.create(self.config.actor.megatron.get("override_ddp_config", {}))
         )
 
         def make_model(wrap_with_ddp=False):
@@ -781,7 +781,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         )
 
         override_ddp_config = OmegaConf.to_container(
-            self.config.megatron.get("override_ddp_config", OmegaConf.create()), resolve=True
+            OmegaConf.create(self.config.megatron.get("override_ddp_config", {}))
         )
         if self.bridge is not None:
             from verl.models.mcore.mbridge import freeze_moe_router, make_value_model
