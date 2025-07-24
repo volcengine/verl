@@ -74,15 +74,6 @@ class FilterGroupsConfig(BaseConfig):
 
 
 @dataclass
-class PolicyLossConfig(BaseConfig):
-    ppo_kl_coef: float = 0.1
-    kl_cov_ratio: float = 0.0002
-    clip_cov_lb: float = 1.0
-    clip_cov_ub: float = 5.0
-    clip_cov_ratio: float = 0.0002
-
-
-@dataclass
 class AlgoConfig(BaseConfig):
     """Configuration for the algorithm.
 
@@ -121,7 +112,3 @@ class AlgoConfig(BaseConfig):
     use_pf_ppo: bool = False
     pf_ppo: Optional[PFPPOConfig] = None
     filter_groups: Optional[FilterGroupsConfig] = None
-    policy_loss: Optional[PolicyLossConfig] = field(default_factory=PolicyLossConfig)
-    clip_ratio_high: float = 0.2
-    clip_ratio_low: float = 0.2
-    clip_ratio: float = 0.2

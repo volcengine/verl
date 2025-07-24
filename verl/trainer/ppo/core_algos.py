@@ -869,7 +869,6 @@ def compute_policy_loss_clip_cov(
             Upper bound for clipping covariance. Defaults to 5.0.
     """
     assert config is not None
-    assert config.policy_loss is not None
 
     clip_cov_ratio = config.policy_loss.clip_cov_ratio if config.policy_loss.clip_cov_ratio is not None else 0.0002
     cliprange = config.clip_ratio
@@ -953,7 +952,6 @@ def compute_policy_loss_kl_cov(
             Coefficient for the KL penalty term in the loss. Defaults to 1.
     """
     assert config is not None
-    assert config.policy_loss is not None
 
     kl_cov_ratio = config.policy_loss.kl_cov_ratio if config.policy_loss.kl_cov_ratio is not None else 0.0002
     ppo_kl_coef = config.policy_loss.ppo_kl_coef if config.policy_loss.ppo_kl_coef is not None else 1.0

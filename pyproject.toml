@@ -78,10 +78,7 @@ follow_imports = "skip"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-module = [
-"verl.trainer.config.algorithm",
-"verl.trainer.ppo.core_algos",
-]
+module = ["verl.trainer.ppo.core_algos"]
 ignore_errors = false
 
 # -------------------------------
