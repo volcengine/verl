@@ -15,7 +15,6 @@
 import logging
 from typing import Iterator
 
-import numpy as np
 import torch
 from tensordict import TensorDict
 from tensordict.tensorclass import NonTensorData, NonTensorStack
@@ -185,47 +184,3 @@ def unpad(data: TensorDict, pad_size):
     if pad_size != 0:
         data = data[:-pad_size]
     return data
-
-
-def sample_level_repeat(data: TensorDict, repeat_times):
-    """
-    Repeat each row of the batch data a specified number of times.
-
-    Args:
-        repeat_times (torch.tensor, list, tuple, ndarray):  Number of times to repeat the data.
-
-    Returns:
-        DataProto: A new DataProto with repeated data.
-    """
-    if isinstance(repeat_times, tuple):
-        repeat_times = list(repeat_times)
-    elif isinstance(repeat_times, torch.Tensor):
-        assert len(repeat_times.shape) == 1
-        repeat_times = repeat_times.tolist()
-    elif isinstance(repeat_times, np.ndarray):
-        assert len(repeat_times.shape) == 1
-        repeat_times = repeat_times.tolist()
-    else:
-        assert isinstance(repeat_times, list), (
-            f"repeat_times type must be in [list, torch.Tensor, np.ndarray, tuple], got {type(repeat_times)}"
-        )
-    repeat_times = torch.tensor(repeat_times)
-
-    repeated_tensors = {}
-
-    for key, tensor in data.items():
-        if isinstance(tensor, torch.Tensor):
-            repeated_tensors[key] = torch.repeat_interleave(tensor, repeat_times, dim=0)
-        elif isinstance(tensor, NonTensorStack):
-            repeated_tensors[key] = np.repeat(np.array(tensor.tolist(), dtype=object), repeats=repeat_times).tolist()
-        else:
-            assert isinstance(tensor, NonTensorData)
-            repeated_tensors[key] = tensor
-
-    repeated_batch = TensorDict(
-        source=repeated_tensors,
-        batch_size=(repeat_times.sum().item(),),
-        device=data.device,
-    )
-
-    return repeated_batch

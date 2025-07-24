@@ -464,7 +464,7 @@ def test_sample_level_repeat():
     data = tu.get_tensordict({"obs": obs, "labels": labels}, non_tensor_dict={"info": "test_info"})
 
     # list
-    repeated_data_interleave = tu.sample_level_repeat(data, repeat_times=[3, 1, 2])
+    repeated_data_interleave = data.repeat_interleave(repeats=torch.tensor([3, 1, 2]))
     expected_obs_interleave = torch.tensor([[1, 2], [1, 2], [1, 2], [3, 4], [5, 6], [5, 6]])
     expected_labels_interleave = ["a", "a", "a", "b", "c", "c"]
 
@@ -473,7 +473,7 @@ def test_sample_level_repeat():
     assert repeated_data_interleave["info"] == "test_info"
 
     # torch.tensor
-    repeated_data_no_interleave = tu.sample_level_repeat(data, repeat_times=[1, 2, 3])
+    repeated_data_no_interleave = data.repeat_interleave(repeats=torch.tensor([1, 2, 3]))
     expected_obs_no_interleave = torch.tensor([[1, 2], [3, 4], [3, 4], [5, 6], [5, 6], [5, 6]])
     expected_labels_no_interleave = ["a", "b", "b", "c", "c", "c"]
 
