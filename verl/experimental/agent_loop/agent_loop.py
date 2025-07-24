@@ -547,4 +547,3 @@ class AgentLoopManager:
     def sleep(self):
         """Sleep all rollout server instances."""
         ray.get([server.sleep.remote() for server in self.async_llm_servers])
-        ray.get([server.sleep.remote() for server in self.async_llm_servers])

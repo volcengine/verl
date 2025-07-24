@@ -69,7 +69,7 @@ class Gsm8kTool(BaseTool):
             instance_id = str(uuid4())
 
         ground_truth = None
-        if not parameters:
+        if parameters:
             ground_truth = parameters["ground_truth"]
 
         self._instance_dict[instance_id] = {
