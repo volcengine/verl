@@ -41,9 +41,9 @@ actor_rollout_ref:
 
         freeze_moe_router: False
 
-    enable_gradient_checkpointing: true
+    enable_gradient_checkpointing: False
 
-    enable_activation_offload: false
+    enable_activation_offload: False
 
     use_fused_kernels: False # Whether to use custom fused kernels (PostProcessing, for memory efficiency)
 
