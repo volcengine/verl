@@ -196,7 +196,6 @@ actor_rollout_ref:
       model_config: {}
       moe_config:
         freeze_moe_router: false
-    enable_activation_offload: false
     use_fused_kernels: false
     trust_remote_code: false
   profiler:
