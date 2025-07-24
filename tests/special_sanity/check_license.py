@@ -56,4 +56,4 @@ if __name__ == "__main__":
                 if lh in file_content:
                     has_license = True
                     break
-            assert has_license, f"file {path_in_str} does not contain license \n {file_content}"
+            assert has_license, f"file {path_in_str} does not contain license"
