@@ -56,7 +56,7 @@ class ToolAgentLoop(AgentLoopBase):
         cls.system_prompt = tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
 
     @rollout_trace_op
-    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
+    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], tool_kwarg: dict[str, Any]) -> AgentLoopOutput:
         metrics = {}
         request_id = uuid4().hex
         prompt_ids = await self.loop.run_in_executor(
@@ -97,7 +97,7 @@ class ToolAgentLoop(AgentLoopBase):
             # call tools
             tasks = []
             for tool_call in tool_calls[: self.max_parallel_calls]:
-                tasks.append(self._call_tool(tool_call))
+                tasks.append(self._call_tool(tool_call, tool_kwarg))
             with simple_timer("tool_calls", metrics):
                 tool_responses = await asyncio.gather(*tasks)
             if any(isinstance(item, Exception) for item in tool_responses):
@@ -133,7 +133,7 @@ class ToolAgentLoop(AgentLoopBase):
         )
         return output
 
-    async def _call_tool(self, tool_call: FunctionCall) -> dict[str, str]:
+    async def _call_tool(self, tool_call: FunctionCall, tool_kwarg: dict[str, Any]) -> dict[str, str]:
         """Call tool and return tool response."""
         tool, instance_id = None, None
         try:
@@ -141,8 +141,8 @@ class ToolAgentLoop(AgentLoopBase):
             tool_name = tool_call.name
             tool_args = json.loads(tool_call.arguments)
             tool = self.tools[tool_name]
-
-            instance_id = await tool.create()
+            kwargs = tool_kwarg.get(tool_name, {})
+            instance_id = await tool.create(parameters=kwargs.get("create_kwargs", {}))
             tool_response, _, _ = await tool.execute(instance_id, tool_args)
         except Exception as e:
             logger.exception(f"Error when executing tool: {e}")
