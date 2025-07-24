@@ -34,7 +34,7 @@ You can check the following dependencies are in your environment:
     - **PyTorch**: 2.6.0+cu124
     - **CUDA**: 12.4
     - **flashinfer-python**: 0.2.5+cu124torch2.6
-    - **sgLang**: 0.4.6.post5
+    - **SGLang**: 0.4.6.post5
     - **sgl-kernel**: 0.1.4
 
 Using SGLang as the Inference Backend for PPO Training on a Single Machine
