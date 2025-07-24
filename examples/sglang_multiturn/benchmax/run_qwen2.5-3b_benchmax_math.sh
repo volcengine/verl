@@ -21,7 +21,7 @@ BENCHMAX_CLASS_NAME="benchmax.envs.wikipedia.math_env.MathEnv"
 
 PYTHONPATH="$PYTHONPATH:$(pwd)" python -m verl.trainer.main_ppo \
     --config-path="$CONFIG_PATH" \
-    --config-name='benchmax_math_multiturn_grpo' \
+    --config-name='benchmax_multiturn_grpo' \
     algorithm.adv_estimator=grpo \
     data.train_batch_size=4 \
     data.val_batch_size=4 \
