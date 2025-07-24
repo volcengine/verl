@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
@@ -93,7 +93,7 @@ def _ulysses_flash_attn_forward(
     output_attentions: bool = False,
     use_cache: bool = False,
     **kwargs,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[tuple[torch.Tensor]]]:
     bsz, q_len, _ = hidden_states.size()
 
     if self.q_lora_rank is None:

@@ -21,5 +21,6 @@ def compute_score_batched(data_sources, solution_strs, ground_truths, extra_info
     Typically, you want to use batched reward to speed up the process with parallelization
     """
     return [
-        compute_score(solution_str, ground_truth) for solution_str, ground_truth in zip(solution_strs, ground_truths)
+        compute_score(solution_str, ground_truth)
+        for solution_str, ground_truth in zip(solution_strs, ground_truths, strict=True)
     ]

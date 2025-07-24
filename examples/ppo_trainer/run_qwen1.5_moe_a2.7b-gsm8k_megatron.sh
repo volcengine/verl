@@ -63,7 +63,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     critic.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_megatron_gsm8k_examples' \
     trainer.experiment_name='qwen1.5_moe_nochat' \
     trainer.n_gpus_per_node=8 \

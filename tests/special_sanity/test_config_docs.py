@@ -62,6 +62,11 @@ def test_trainer_config_doc():
         "verl/trainer/config/ppo_trainer.yaml",
         "verl/trainer/config/actor/actor.yaml",
         "verl/trainer/config/actor/dp_actor.yaml",
+        "verl/trainer/config/critic/critic.yaml",
+        "verl/trainer/config/critic/dp_critic.yaml",
+        "verl/trainer/config/ref/ref.yaml",
+        "verl/trainer/config/ref/dp_ref.yaml",
+        "verl/trainer/config/rollout/rollout.yaml",
     ]
     success = True
     for yaml_to_inspect in yamls_to_inspect:

@@ -15,7 +15,7 @@
 import inspect
 import os
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import Optional
 
 import torch
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
@@ -230,9 +230,9 @@ def ulysses_flash_attn_forward(
     hidden_states: torch.Tensor,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
-    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
+    position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
     **kwargs,
-) -> Tuple[torch.Tensor, None, None]:
+) -> tuple[torch.Tensor, None, None]:
     from transformers.models.qwen2_vl.modeling_qwen2_vl import apply_multimodal_rotary_pos_emb, repeat_kv
 
     bsz, q_len, _ = hidden_states.size()  # q_len = seq_length / sp_size
@@ -315,7 +315,7 @@ def forward_base_model(
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[List[torch.FloatTensor]] = None,
+    past_key_values: Optional[list[torch.FloatTensor]] = None,
     inputs_embeds: Optional[torch.FloatTensor] = None,
     use_cache: Optional[bool] = None,
     output_attentions: Optional[bool] = None,
@@ -327,7 +327,7 @@ def forward_base_model(
     video_grid_thw: Optional[torch.LongTensor] = None,
     rope_deltas: Optional[torch.LongTensor] = None,
     cache_position: Optional[torch.LongTensor] = None,
-) -> Union[Tuple, Qwen2VLCausalLMOutputWithPast]:
+) -> tuple | Qwen2VLCausalLMOutputWithPast:
     r"""
     Copy paste Qwen2VL's forward
     https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/transformers/model/qwen2_vl.py
@@ -418,7 +418,7 @@ def forward_with_torch_backend(
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[List[torch.FloatTensor]] = None,
+    past_key_values: Optional[list[torch.FloatTensor]] = None,
     inputs_embeds: Optional[torch.FloatTensor] = None,
     labels: Optional[torch.LongTensor] = None,
     use_cache: Optional[bool] = None,
@@ -433,7 +433,7 @@ def forward_with_torch_backend(
     cache_position: Optional[torch.LongTensor] = None,
     temperature: float = 1.0,
     **loss_kwargs,
-) -> Union[Tuple, Qwen2VLCausalLMOutputForPPO]:
+) -> tuple | Qwen2VLCausalLMOutputForPPO:
     from verl.utils.experimental.torch_functional import FusedLinearForPPO
 
     outputs = forward_base_model(
@@ -491,7 +491,7 @@ def forward_with_triton_backend(
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[List[torch.FloatTensor]] = None,
+    past_key_values: Optional[list[torch.FloatTensor]] = None,
     inputs_embeds: Optional[torch.FloatTensor] = None,
     labels: Optional[torch.LongTensor] = None,
     use_cache: Optional[bool] = None,
@@ -506,7 +506,7 @@ def forward_with_triton_backend(
     cache_position: Optional[torch.LongTensor] = None,
     temperature: float = 1.0,
     **loss_kwargs,
-) -> Union[Tuple, Qwen2VLCausalLMOutputForPPO]:
+) -> tuple | Qwen2VLCausalLMOutputForPPO:
     from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
 
     outputs = forward_base_model(

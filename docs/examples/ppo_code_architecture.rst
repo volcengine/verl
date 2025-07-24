@@ -48,8 +48,8 @@ Define worker classes
 
 .. code:: python
 
-   if config.actor_rollout_ref.actor.strategy == 'fsdp': # for FSDP backend
-       assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+   if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}: # for FSDP backend
+       assert config.critic.strategy in {"fsdp", "fsdp2"}
        from verl.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
        from verl.single_controller.ray import RayWorkerGroup
        ray_worker_group_cls = RayWorkerGroup

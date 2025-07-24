@@ -25,7 +25,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     trainer.default_local_dir=$save_path \
     trainer.project_name=gsm8k-sft \
     trainer.experiment_name=gsm8k-sft-qwen-2.5-0.5b-instruct-sp2 \
-    trainer.logger=['console'] \
+    trainer.logger=console \
     trainer.total_training_steps=1 $@ \
     ulysses_sequence_parallel_size=2 \
     use_remove_padding=true

@@ -84,9 +84,6 @@ class MegatronPPOCritic(BasePPOCritic):
         assert config.get("ulysses_sequence_parallel_size", 1) == 1
         if config.shuffle:
             assert config.data_loader_seed is not None, "If shuffle dataloader, seed must be manually set"
-        if config.megatron.tensor_model_parallel_size == 1:
-            print("[Warining] Because critic tp size == 1, set sp to False")
-            config.megatron.sequence_parallel = False
         self.config = config
 
     @GPUMemoryLogger("megatron critic", logger=logger)

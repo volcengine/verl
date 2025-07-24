@@ -22,7 +22,7 @@ import logging
 import os
 import pickle
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Union
+from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -200,8 +200,8 @@ def collate_fn(x: list["DataProtoItem"]):
 class DataProtoItem:
     # TODO(zhangchi.usc1992) add consistency check
     batch: TensorDict = None
-    non_tensor_batch: Dict = field(default_factory=dict)
-    meta_info: Dict = field(default_factory=dict)
+    non_tensor_batch: dict = field(default_factory=dict)
+    meta_info: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -214,8 +214,8 @@ class DataProto:
     """
 
     batch: TensorDict = None
-    non_tensor_batch: Dict = field(default_factory=dict)
-    meta_info: Dict = field(default_factory=dict)
+    non_tensor_batch: dict = field(default_factory=dict)
+    meta_info: dict = field(default_factory=dict)
 
     def __post_init__(self):
         # perform necessary checking
@@ -251,11 +251,11 @@ class DataProto:
             return self.slice(item.start, item.stop, item.step)
 
         # Case 2: List, numpy array, or torch tensor - use sel_idxs
-        elif isinstance(item, (list, np.ndarray, torch.Tensor)):
+        elif isinstance(item, list | np.ndarray | torch.Tensor):
             return self.select_idxs(item)
 
         # Case 3: Single integer - return DataProtoItem for backward compatibility
-        elif isinstance(item, (int, np.integer)):
+        elif isinstance(item, int | np.integer):
             tensor_data = self.batch[item] if self.batch is not None else None
             non_tensor_data = {key: val[item] for key, val in self.non_tensor_batch.items()}
             return DataProtoItem(batch=tensor_data, non_tensor_batch=non_tensor_data, meta_info=self.meta_info)
@@ -343,7 +343,7 @@ class DataProto:
                 )
 
     @classmethod
-    def from_single_dict(cls, data: Dict[str, Union[torch.Tensor, np.ndarray]], meta_info=None, auto_padding=False):
+    def from_single_dict(cls, data: dict[str, torch.Tensor | np.ndarray], meta_info=None, auto_padding=False):
         """Create a DataProto from a dict of tensors and non_tensors"""
         tensors = {}
         non_tensors = {}
@@ -361,7 +361,7 @@ class DataProto:
     @classmethod
     def from_dict(
         cls,
-        tensors: Optional[Dict[str, torch.Tensor]] = None,
+        tensors: Optional[dict[str, torch.Tensor]] = None,
         non_tensors=None,
         meta_info=None,
         num_batch_dims=1,
@@ -649,7 +649,7 @@ class DataProto:
         else:
             generator = None
 
-        assert isinstance(dataloader_kwargs, Dict)
+        assert isinstance(dataloader_kwargs, dict)
         train_dataloader = DataLoader(
             dataset=self, batch_size=mini_batch_size, collate_fn=collate_fn, generator=generator, **dataloader_kwargs
         )
@@ -686,7 +686,7 @@ class DataProto:
         self.batch = padded_dp.batch
         self.non_tensor_batch = padded_dp.non_tensor_batch
 
-    def chunk(self, chunks: int) -> List["DataProto"]:
+    def chunk(self, chunks: int) -> list["DataProto"]:
         """Split the batch among dim=0 into chunks. The meta_info is passed to each DataProto after split.
 
         Args:
@@ -727,8 +727,19 @@ class DataProto:
 
         return output
 
+    def split(self, split_size: int) -> list["DataProto"]:
+        """Split the batch among dim=0 into chunks. The meta_info is passed to each DataProto after split.
+
+        Args:
+            split_size (int): the size of each split
+
+        Returns:
+            List[DataProto]: a list of DataProto after splitting
+        """
+        return [self[i : i + split_size] for i in range(0, len(self), split_size)]
+
     @staticmethod
-    def concat(data: List["DataProto"]) -> "DataProto":
+    def concat(data: list["DataProto"]) -> "DataProto":
         """Concat a list of DataProto. The batch is concatenated among dim=0.
         The meta_info is assumed to be identical and will use the first one.
 
@@ -802,7 +813,7 @@ class DataProto:
             meta_info=self.meta_info,
         )
 
-    def unfold_column_chunks(self, n_split: int, split_keys: Optional[List[str]] = None):
+    def unfold_column_chunks(self, n_split: int, split_keys: Optional[list[str]] = None):
         """Split along the second dim into `n_split`, unfold it to the first dim (batch dim)
         Useful in passing grouped tensors that doesn't want to be shuffled in dataset.
         keys not in split_keys are repeated to match the shape
@@ -889,6 +900,50 @@ class DataProto:
             meta_info=self.meta_info,
         )
 
+    def get_data_info(self) -> str:
+        """Return formatted information about stored data with nested type details.
+
+        Returns:
+            str: Formatted string showing tensor details and recursive metadata types
+        """
+        info = ["batch"]
+
+        for key, tensor in self.batch.items():
+            if hasattr(tensor, "shape") and hasattr(tensor, "dtype") and hasattr(tensor, "device"):
+                info.append(f"  {key}: {tuple(tensor.shape)} ({tensor.dtype}) {tensor.device}")
+            elif hasattr(tensor, "shape") and hasattr(tensor, "dtype"):
+                info.append(f"  {key}: {tuple(tensor.shape)} ({tensor.dtype})")
+            else:
+                info.append(f"  {key}: {type(tensor).__name__}")
+
+        info.append("non_tensor_batch")
+        for key, array in self.non_tensor_batch.items():
+            info.append(f"  {key}: ndarray{array.shape} ({array.dtype})")
+
+        info.append("meta_info")
+        for k, v in self.meta_info.items():
+            type_info = self._get_type_info(v)
+            info.append(f"  {k}: {type_info}")
+
+        return "\n".join(info)
+
+    def _get_type_info(self, value):
+        """Recursively get type information for nested structures"""
+        if isinstance(value, list):
+            elem_types = {self._get_type_info(v) for v in value[:3]}
+            return f"list[{'|'.join(elem_types) if elem_types else '...'}]"
+        if isinstance(value, tuple):
+            elem_types = [self._get_type_info(v) for v in value]
+            return f"tuple({', '.join(elem_types)})"
+        if isinstance(value, dict):
+            if not value:
+                return "dict"
+            k, v = next(iter(value.items()))
+            return f"dict[{self._get_type_info(k)}: {self._get_type_info(v)}]"
+        if isinstance(value, np.ndarray):
+            return f"ndarray{value.shape} ({value.dtype})"
+        return type(value).__name__
+
 
 @dataclass
 class DataProtoFuture:
@@ -906,15 +961,15 @@ class DataProtoFuture:
     """
 
     collect_fn: Callable
-    futures: List[ray.ObjectRef]
+    futures: list[ray.ObjectRef]
     dispatch_fn: Callable = None
 
     @staticmethod
-    def concat(data: List[ray.ObjectRef]) -> "DataProtoFuture":
+    def concat(data: list[ray.ObjectRef]) -> "DataProtoFuture":
         output = DataProtoFuture(collect_fn=DataProto.concat, futures=data)
         return output
 
-    def chunk(self, chunks: int) -> List["DataProtoFuture"]:
+    def chunk(self, chunks: int) -> list["DataProtoFuture"]:
         from functools import partial
 
         arg_future_lst = []

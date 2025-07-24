@@ -17,15 +17,14 @@ import os
 import threading
 from contextlib import ExitStack
 from enum import Enum
-from typing import Any, Callable, Optional, Tuple, TypeVar
+from typing import Any, Callable, Optional, TypeVar
 from uuid import uuid4
 
 import ray
-import ray.actor
-import ray.util.multiprocessing
 
 from verl.tools.base_tool import BaseTool
 from verl.utils.reward_score.sandbox_fusion.utils import _process_single_case
+from verl.utils.rollout_trace import rollout_trace_op
 
 from .schemas import OpenAIFunctionToolSchema
 
@@ -163,7 +162,8 @@ class SandboxFusionTool(BaseTool):
         }
         return instance_id
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    @rollout_trace_op
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         code = parameters.get("code", "")
         timeout = parameters.get("timeout", self.default_timeout)
         language = parameters.get("language", self.default_language)

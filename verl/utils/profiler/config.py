@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from verl.base_config import BaseConfig
 
 
-@dataclass(frozen=True)
+@dataclass
 class ProfilerConfig(BaseConfig):
     """Worker profiler config. Currently only support Nsight system profiler.
 
@@ -31,9 +31,7 @@ class ProfilerConfig(BaseConfig):
     """
 
     discrete: bool = False
-
     all_ranks: bool = False
-
     ranks: list[int] = field(default_factory=list)
 
     def union(self, other: "ProfilerConfig") -> "ProfilerConfig":
@@ -52,6 +50,6 @@ class ProfilerConfig(BaseConfig):
 
     def __post_init__(self) -> None:
         """config validation logics go here"""
-        assert isinstance(self.ranks, (set, list, tuple)), (
+        assert isinstance(self.ranks, set | list | tuple), (
             f"Profiler ranks must be of type list, got {type(self.ranks)}"
         )

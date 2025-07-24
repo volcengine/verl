@@ -176,3 +176,4 @@ Comparing to using global https_proxy env variable, this approach won't mess up 
 .. code:: bash
 
   +trainer.wandb_proxy=http://<your proxy and port>
+

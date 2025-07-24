@@ -69,6 +69,7 @@ def test_sglang_spmd():
             mem_fraction_static=0.5,
             enable_memory_saver=True,
             tp_size=inference_device_mesh_cpu["tp"].size(),
+            attention_backend="fa3",
         )
 
         input_ids = input_ids.cuda()

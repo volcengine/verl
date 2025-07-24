@@ -99,6 +99,16 @@ Example usage for merging Megatron checkpoints:
         --local_dir checkpoints/verl_megatron_gsm8k_examples/qwen2_5_0b5_megatron_saveload/global_step_1/actor \
         --target_dir /path/to/merged_hf_model
 
+Example usage for distributed merging Megatron checkpoints:
+
+.. code:: bash
+
+    torchrun --nproc_per_node 1 --nnodes 8 --node_rank ${RANK} -m verl.model_merger merge \
+        --backend megatron \
+        --tie-word-embedding \
+        --local_dir checkpoints/verl_megatron_gsm8k_examples/qwen2_5_0b5_megatron_saveload/global_step_1/actor \
+        --target_dir /path/to/merged_hf_model
+
 Example usage for merging FSDP checkpoints:
 
 .. code:: bash
@@ -144,6 +154,15 @@ Example command to convert the model is as follows:
         --output_path /mnt/disk/Qwen/Qwen1.5-MoE-A2.7B-Chat \
         --use_cpu_initialization    # Only work for MoE models
 
+
+Example command to distributed convert the huge model like deepseekv3 671B is as follows:
+
+.. code:: bash
+
+    torchrun --nproc_per_node 1 --nnodes 8 --node_rank ${RANK} scripts/converter_hf_to_mcore.py \
+        --hf_model_path deepseek-ai/DeepSeek-V3 \
+        --output_path /mnt/disk/deepseek-ai/DeepSeek-V3 \
+        --use_cpu_initialization    # Only work for MoE models
 
 Original Checkpoint Utils
 -------------------------

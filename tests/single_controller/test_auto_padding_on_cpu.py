@@ -68,19 +68,37 @@ def test_auto_padding():
     output = actor_wg.add(data)
 
     print(output.batch["a"])
-    assert len(output) == 10
+    assert len(output) == 10, "Failed in args split and padding."
+
+    data = DataProto.from_dict({"a": torch.zeros(10)}, {"na": np.array([str(i) for i in range(10)], dtype=object)})
+    output = actor_wg.add(data=data)
+
+    print(output.batch["a"])
+    assert len(output) == 10, "Failed in kwargs split and padding."
 
     data = DataProto.from_dict({"a": torch.zeros(1)}, {"na": np.array([str(i) for i in range(1)], dtype=object)})
     output = actor_wg.add(data)
 
     print(output.batch["a"])
-    assert len(output) == 1
+    assert len(output) == 1, "Failed in args split and padding."
+
+    data = DataProto.from_dict({"a": torch.zeros(1)}, {"na": np.array([str(i) for i in range(1)], dtype=object)})
+    output = actor_wg.add(data=data)
+
+    print(output.batch["a"])
+    assert len(output) == 1, "Failed in kwargs split and padding."
 
     data = DataProto.from_dict({"a": torch.zeros(8)}, {"na": np.array([str(i) for i in range(8)], dtype=object)})
     output = actor_wg.add(data)
 
     print(output.batch["a"])
-    assert len(output) == 8
+    assert len(output) == 8, "Failed in args split and padding."
+
+    data = DataProto.from_dict({"a": torch.zeros(8)}, {"na": np.array([str(i) for i in range(8)], dtype=object)})
+    output = actor_wg.add(data=data)
+
+    print(output.batch["a"])
+    assert len(output) == 8, "Failed in kwargs split and padding."
 
     # test data proto specific config
     DataProtoConfig.auto_padding = False
@@ -90,7 +108,14 @@ def test_auto_padding():
     )
     output = actor_wg.add(data)
     print(output.batch["a"])
-    assert len(output) == 10
+    assert len(output) == 10, "Failed in args split and padding."
+
+    data = DataProto.from_dict(
+        {"a": torch.zeros(10)}, {"na": np.array([str(i) for i in range(10)], dtype=object)}, auto_padding=True
+    )
+    output = actor_wg.add(data=data)
+    print(output.batch["a"])
+    assert len(output) == 10, "Failed in kwargs split and padding."
 
     data = DataProto.from_single_dict(
         {"a": torch.zeros(1), "na": np.array([str(i) for i in range(1)], dtype=object)}, auto_padding=True
@@ -98,13 +123,27 @@ def test_auto_padding():
     output = actor_wg.add(data)
 
     print(output.batch["a"])
-    assert len(output) == 1
+    assert len(output) == 1, "Failed in args split and padding."
+
+    data = DataProto.from_single_dict(
+        {"a": torch.zeros(1), "na": np.array([str(i) for i in range(1)], dtype=object)}, auto_padding=True
+    )
+    output = actor_wg.add(data=data)
+
+    print(output.batch["a"])
+    assert len(output) == 1, "Failed in kwargs split and padding."
 
     data = DataProto.from_single_dict({"a": torch.zeros(8), "na": np.array([str(i) for i in range(8)], dtype=object)})
     output = actor_wg.add(data)
 
     print(output.batch["a"])
-    assert len(output) == 8
+    assert len(output) == 8, "Failed in args split and padding."
+
+    data = DataProto.from_single_dict({"a": torch.zeros(8), "na": np.array([str(i) for i in range(8)], dtype=object)})
+    output = actor_wg.add(data=data)
+
+    print(output.batch["a"])
+    assert len(output) == 8, "Failed in kwargs split and padding."
 
     ray.shutdown()
 

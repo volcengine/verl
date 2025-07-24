@@ -18,7 +18,7 @@
 import argparse
 import json
 import warnings
-from typing import List, Optional
+from typing import Optional
 
 import datasets
 import faiss
@@ -75,7 +75,7 @@ class Encoder:
         self.model.eval()
 
     @torch.no_grad()
-    def encode(self, query_list: List[str], is_query=True) -> np.ndarray:
+    def encode(self, query_list: list[str], is_query=True) -> np.ndarray:
         # processing query for different encoders
         if isinstance(query_list, str):
             query_list = [query_list]
@@ -133,13 +133,13 @@ class BaseRetriever:
     def _search(self, query: str, num: int, return_score: bool):
         raise NotImplementedError
 
-    def _batch_search(self, query_list: List[str], num: int, return_score: bool):
+    def _batch_search(self, query_list: list[str], num: int, return_score: bool):
         raise NotImplementedError
 
     def search(self, query: str, num: int = None, return_score: bool = False):
         return self._search(query, num, return_score)
 
-    def batch_search(self, query_list: List[str], num: int = None, return_score: bool = False):
+    def batch_search(self, query_list: list[str], num: int = None, return_score: bool = False):
         return self._batch_search(query_list, num, return_score)
 
 
@@ -190,7 +190,7 @@ class BM25Retriever(BaseRetriever):
         else:
             return results
 
-    def _batch_search(self, query_list: List[str], num: int = None, return_score: bool = False):
+    def _batch_search(self, query_list: list[str], num: int = None, return_score: bool = False):
         results = []
         scores = []
         for query in query_list:
@@ -237,7 +237,7 @@ class DenseRetriever(BaseRetriever):
         else:
             return results
 
-    def _batch_search(self, query_list: List[str], num: int = None, return_score: bool = False):
+    def _batch_search(self, query_list: list[str], num: int = None, return_score: bool = False):
         if isinstance(query_list, str):
             query_list = [query_list]
         if num is None:
@@ -318,7 +318,7 @@ class Config:
 
 
 class QueryRequest(BaseModel):
-    queries: List[str]
+    queries: list[str]
     topk: Optional[int] = None
     return_scores: bool = False
 
@@ -365,7 +365,7 @@ def retrieve_endpoint(request: QueryRequest):
         if request.return_scores:
             # If scores are returned, combine them with results
             combined = []
-            for doc, score in zip(single_result, scores[i]):
+            for doc, score in zip(single_result, scores[i], strict=True):
                 combined.append({"document": doc, "score": score})
             resp.append(combined)
         else:

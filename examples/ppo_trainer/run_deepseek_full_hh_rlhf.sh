@@ -32,7 +32,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     reward_model.param_offload=False \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_megatron_full_hh_rlhf_examples' \
     trainer.experiment_name='deepseek_llm_7b_model_rm' \
     trainer.n_gpus_per_node=8 \

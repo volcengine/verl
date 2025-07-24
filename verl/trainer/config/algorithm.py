@@ -13,12 +13,14 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from verl.base_config import BaseConfig
 
+__all__ = ["AlgoConfig", "FilterGroupsConfig", "KLControlConfig"]
 
-@dataclass(frozen=True)
+
+@dataclass
 class KLControlConfig(BaseConfig):
     """Configuration for KL control.
 
@@ -37,22 +39,7 @@ class KLControlConfig(BaseConfig):
     target_kl: float = 0.1
 
 
-@dataclass(frozen=True)
-class PFPPOConfig(BaseConfig):
-    """Configuration for preference feedback PPO.
-
-    The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
-
-    Args:
-        reweight_method (str): Method for reweighting samples. Can be "pow", "max_min", or "max_random".
-        weight_pow (float): Power used for weight scaling in "pow" method.
-    """
-
-    reweight_method: str = "pow"
-    weight_pow: float = 2.0
-
-
-@dataclass(frozen=True)
+@dataclass
 class FilterGroupsConfig(BaseConfig):
     """Configuration for filter groups (used in DAPO and Entropy).
 
@@ -69,7 +56,7 @@ class FilterGroupsConfig(BaseConfig):
     max_num_gen_batches: int = 0
 
 
-@dataclass(frozen=True)
+@dataclass
 class AlgoConfig(BaseConfig):
     """Configuration for the algorithm.
 
@@ -84,7 +71,7 @@ class AlgoConfig(BaseConfig):
         kl_penalty (str): How to estimate KL divergence: "kl", "abs", "mse", "low_var_kl", or "full".
         kl_ctrl (KLControlConfig): KL control configuration.
         use_pf_ppo (bool): Whether to enable preference feedback PPO.
-        pf_ppo (Optional[PFPPOConfig]): Preference feedback PPO settings.
+        pf_ppo (dict[str, Any]): Preference feedback PPO settings.
         filter_groups (Optional[FilterGroupsConfig]): Filter groups configuration, used in DAPO and Entropy
     """
 
@@ -96,5 +83,5 @@ class AlgoConfig(BaseConfig):
     kl_penalty: str = "kl"
     kl_ctrl: KLControlConfig = field(default_factory=KLControlConfig)
     use_pf_ppo: bool = False
-    pf_ppo: Optional[PFPPOConfig] = None
+    pf_ppo: dict[str, Any] = field(default_factory=dict)
     filter_groups: Optional[FilterGroupsConfig] = None

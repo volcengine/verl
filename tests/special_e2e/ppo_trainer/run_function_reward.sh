@@ -135,7 +135,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.kl_penalty=kl \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
-    trainer.logger=['console'] \
+    trainer.logger=console \
     trainer.project_name='verl-test' \
     trainer.experiment_name="${exp_name}" \
     trainer.nnodes=1 \

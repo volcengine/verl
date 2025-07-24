@@ -59,7 +59,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.kl_ctrl.kl_coef=0.001 \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name=${WANDB_PROJECT} \
     trainer.experiment_name=${WANDB_EXP} \
     trainer.n_gpus_per_node=2 \

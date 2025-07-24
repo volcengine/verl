@@ -19,7 +19,6 @@ import math
 import os
 from collections import OrderedDict
 from contextlib import contextmanager, nullcontext
-from typing import Dict
 
 import torch
 import torch.distributed as dist
@@ -308,7 +307,7 @@ def parallel_load_safetensors(filepath):
     return shard_states
 
 
-def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, torch.nn.Parameter]):
+def parallel_init_module_fn(module: torch.nn.Module, shard_states: dict[str, torch.nn.Parameter]):
     """
     Generate a function to initialize sub-modules in the `module` with `shard_states`
     from huggingface checkpoint.
@@ -339,7 +338,7 @@ def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, tor
         else:  # buffer
             param = torch.empty_like(state.data, device=device)
         loaded = shard_states[param_name]
-        if isinstance(loaded, (torch.nn.Parameter, torch.Tensor)):
+        if isinstance(loaded, torch.nn.Parameter | torch.Tensor):
             # NOTE: loaded.dtype can be different with param.dtype
             param.data.copy_(loaded.data)
             dist.broadcast(param.data, src=dist.get_rank())
@@ -453,7 +452,13 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
         model (`torch.nn.Module`): The model to load the state dict into
         full_state (`dict`): The full state dict to load, can only be on rank 0
     """
-    from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
+
+    if version.parse(torch.__version__) >= version.parse("2.7.0"):
+        from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
+    else:
+        # official torch 2.6.0 set_model_state_dict API leads to OOM
+        # use torch 2.7.0 copy from verl/third_party/torch/distributed/checkpoint
+        from verl.third_party.torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
 
     # To broadcast, it needs to be instantiated in the GPU.
     if dist.get_rank() == 0:

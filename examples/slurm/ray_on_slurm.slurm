@@ -89,7 +89,7 @@ PYTHONUNBUFFERED=1 srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
     critic.model.path=Qwen/Qwen2.5-0.5B-Instruct \
     critic.ppo_micro_batch_size_per_gpu=4 \
     algorithm.use_kl_in_reward=False \
-    trainer.logger=['console'] \
+    trainer.logger=console \
     trainer.val_before_train=False \
     trainer.n_gpus_per_node="${SLURM_GPUS_PER_NODE}" \
     trainer.nnodes="${SLURM_NNODES}" \

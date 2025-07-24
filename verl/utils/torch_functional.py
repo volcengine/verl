@@ -17,7 +17,7 @@ Contain small torch utilities
 
 import math
 from contextlib import contextmanager
-from typing import Dict, List, Optional, Union
+from typing import Optional
 
 import torch
 import torch.distributed
@@ -125,7 +125,7 @@ def logprobs_from_logits_v2(logits: torch.FloatTensor, labels):
     else:
         # logsumexp approach is unstable with bfloat16, fall back to slightly less efficent approach
         logprobs_labels = []
-        for row_logits, row_labels in zip(logits, labels):  # loop to reduce peak mem consumption
+        for row_logits, row_labels in zip(logits, labels, strict=True):  # loop to reduce peak mem consumption
             row_logprobs = F.log_softmax(row_logits, dim=-1)
             row_logprobs_labels = row_logprobs.gather(dim=-1, index=row_labels.unsqueeze(-1)).squeeze(-1)
             logprobs_labels.append(row_logprobs_labels)
@@ -223,7 +223,7 @@ def masked_whiten(values, mask, shift_mean=True):
     return whitened
 
 
-def get_response_mask(response_id: torch.Tensor, eos_token: Union[int, List[int]] = 2, dtype=torch.int64):
+def get_response_mask(response_id: torch.Tensor, eos_token: int | list[int] = 2, dtype=torch.int64):
     """
     end of sentence token can be int or list: 1 or [1, 2]
     e.g.
@@ -254,7 +254,7 @@ def compute_grad_norm(model: nn.Module):
     return total_grad_square
 
 
-def broadcast_dict_tensor(tensors: Union[Dict[str, torch.Tensor], TensorDict], src, group):
+def broadcast_dict_tensor(tensors: dict[str, torch.Tensor] | TensorDict, src, group):
     """
     TODO: optimize this. Technically, we only need one broadcast
     """
@@ -263,7 +263,7 @@ def broadcast_dict_tensor(tensors: Union[Dict[str, torch.Tensor], TensorDict], s
         torch.distributed.broadcast(tensors[key], src=src, group=group, async_op=False)
 
 
-def allgather_dict_tensors(tensors: Union[Dict[str, torch.Tensor], TensorDict], size, group, dim=0):
+def allgather_dict_tensors(tensors: dict[str, torch.Tensor] | TensorDict, size, group, dim=0):
     """
     TODO: optimize this.
     - We can use async ops
@@ -297,7 +297,7 @@ def allgather_dict_tensors(tensors: Union[Dict[str, torch.Tensor], TensorDict], 
     return output
 
 
-def split_dict_tensor_into_batches(tensors: TensorDict, batch_size) -> List[TensorDict]:
+def split_dict_tensor_into_batches(tensors: TensorDict, batch_size) -> list[TensorDict]:
     assert tensors.batch_size[0] % batch_size == 0, (
         f"input data batch size: {tensors.batch_size[0]}, split batch size: {batch_size}"
     )
@@ -344,7 +344,7 @@ def postprocess_data(
         max_length: Target sequence length
         pad_token_id: Padding token ID
         left_pad: Pad left if True
-        truncation: "left", "right" or "error"
+        truncation: "left", "right", "middle" or "error"
 
     Returns:
         (input_ids, attention_mask) padded/truncated to max_length
@@ -414,7 +414,7 @@ def remove_pad_token(input_ids: torch.Tensor, attention_mask: torch.Tensor):
         no_padding_batch(List[List[int]]): contains the rmpad token ids per query.
     """
     no_padding_batch = []
-    for ids, mask in zip(input_ids, attention_mask):
+    for ids, mask in zip(input_ids, attention_mask, strict=True):
         no_padding_batch.append((ids[len(ids) - mask.sum() :]).cpu().numpy().tolist())
     return no_padding_batch
 

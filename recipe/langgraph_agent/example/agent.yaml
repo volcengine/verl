@@ -1,0 +1,2 @@
+- name: math_expression
+  _target_: recipe.langgraph_agent.example.math_expression.MathExpressionReactAgentLoop

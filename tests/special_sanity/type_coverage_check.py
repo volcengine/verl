@@ -22,23 +22,22 @@ import ast
 import linecache
 import subprocess
 from pathlib import Path
-from typing import List, Set, Tuple
 
 
-def get_changed_files() -> List[Path]:
+def get_changed_files() -> list[Path]:
     result = subprocess.run(
         ["git", "diff", "--name-only", "--diff-filter=AM", "origin/main...HEAD"], stdout=subprocess.PIPE, text=True
     )
     return [Path(f) for f in result.stdout.splitlines() if f.endswith(".py")]
 
 
-def get_changed_lines(file_path: Path) -> Set[int]:
+def get_changed_lines(file_path: Path) -> set[int]:
     result = subprocess.run(
         ["git", "diff", "-U0", "origin/main...HEAD", "--", str(file_path)],
         stdout=subprocess.PIPE,
         text=True,
     )
-    lines: Set[int] = set()
+    lines: set[int] = set()
     for line in result.stdout.splitlines():
         if line.startswith("@@"):
             for part in line.split():
@@ -84,19 +83,19 @@ def has_type_annotations(node: ast.AST, debug: bool = False) -> int:
 
 
 def check_file(
-    file_path: Path, changed_lines: Set[int], debug: bool = False
-) -> Tuple[int, int, List[Tuple[Path, int, str]], List[Tuple[Path, int, str]]]:
+    file_path: Path, changed_lines: set[int], debug: bool = False
+) -> tuple[int, int, list[tuple[Path, int, str]], list[tuple[Path, int, str]]]:
     with open(file_path) as f:
         source: str = f.read()
     tree = ast.parse(source, filename=str(file_path))
     annotated = 0
     total = 0
-    warning_lines: List[Tuple[Path, int, str]] = []
-    failure_lines: List[Tuple[Path, int, str]] = []
+    warning_lines: list[tuple[Path, int, str]] = []
+    failure_lines: list[tuple[Path, int, str]] = []
 
     for node in ast.walk(tree):
         if hasattr(node, "lineno") and node.lineno in changed_lines:
-            if isinstance(node, (ast.FunctionDef, ast.Assign, ast.AnnAssign)):
+            if isinstance(node, ast.FunctionDef | ast.Assign | ast.AnnAssign):
                 total += 1
                 result = has_type_annotations(node, debug)
                 if result == CHECK_SUCCESS or result == CHECK_WARNING:
@@ -128,8 +127,8 @@ def main() -> None:
 
     total_changed = 0
     total_annotated = 0
-    all_warnings: List[Tuple[Path, int, str]] = []
-    all_failures: List[Tuple[Path, int, str]] = []
+    all_warnings: list[tuple[Path, int, str]] = []
+    all_failures: list[tuple[Path, int, str]] = []
 
     target_files = [args.target_file] if args.target_file is not None else get_changed_files()
     for fpath in target_files:
