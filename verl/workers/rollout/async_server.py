@@ -17,7 +17,7 @@ import os
 import socket
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Optional
 
 import fastapi
 import ray
@@ -110,3 +110,40 @@ class AsyncServerBase(ABC):
     async def sleep(self):
         """Sleep engine to offload model weights and discard kv cache."""
         raise NotImplementedError
+
+
+def async_server_class(
+    rollout_backend: str, rollout_backend_module: Optional[str] = None, rollout_backend_class: Optional[str] = None
+) -> type[AsyncServerBase]:
+    """Get async server class.
+
+    Args:
+        rollout_backend: str, rollout backend type (alias), should be "vllm" or "sglang".
+        rollout_backend_module: Optional[str], import path of the rollout backend.
+        rollout_backend_class: Optional[str], class name of the rollout backend.
+
+    Returns:
+        Type[AsyncServerBase]: async server class.
+    """
+    if rollout_backend_class is None and rollout_backend_module is None:
+        # If both are None, use the default backend class
+        # Do not change the original import behavior
+        # importlib.import_module and from ... import ... have subtle differences in ray
+
+        if rollout_backend == "vllm":
+            from verl.workers.rollout.vllm_rollout.vllm_async_server import AsyncvLLMServer
+
+            return AsyncvLLMServer
+        elif rollout_backend == "sglang":
+            from verl.workers.rollout.sglang_rollout.async_sglang_server import AsyncSGLangServer
+
+            return AsyncSGLangServer
+        else:
+            raise NotImplementedError(f"rollout backend {rollout_backend} is not supported")
+
+    if rollout_backend_module is None or rollout_backend_class is None:
+        raise ValueError("rollout_backend_module and rollout_backend_class must be both provided for customization")
+
+    from verl.utils.import_utils import load_extern_type
+
+    return load_extern_type(rollout_backend_module, rollout_backend_class)
