@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 from typing import Iterator
 
+import numpy as np
 import torch
-from tensordict import TensorDict, TensorDictBase
-from tensordict.tensorclass import NonTensorData
-
-import math
+from tensordict import TensorDict
+from tensordict.tensorclass import NonTensorData, NonTensorStack
 
 
 def assign_non_tensor_dict(tensor_dict: TensorDict, non_tensor_dict: dict):
@@ -49,9 +49,12 @@ def get_tensordict(tensor_dict: dict[str, torch.Tensor | list], non_tensor_dict:
     for key, val in tensor_dict.items():
         if isinstance(val, list):
             for v in val:
-                assert not isinstance(v, torch.Tensor), "Passing a list makes the data NonTensorStack, which doesn't support torch.Tensor. Please convert to numpy first"
+                assert not isinstance(v, torch.Tensor), (
+                    "Passing a list makes the data NonTensorStack, "
+                    "which doesn't support torch.Tensor. Please convert to numpy first"
+                )
 
-        assert isinstance(val, (torch.Tensor, list))
+        assert isinstance(val, torch.Tensor | list)
 
         if batch_size is None:
             batch_size = len(val)
@@ -113,8 +116,7 @@ def make_iterator(tensordict: TensorDict, mini_batch_size, epochs, seed=None, da
 
     def get_data():
         for _ in range(epochs):
-            for d in train_dataloader:
-                yield d
+            yield from train_dataloader
 
     return iter(get_data())
 
@@ -126,7 +128,7 @@ def assert_tensordict_eq(tensordict1: TensorDict, tensordict2: TensorDict):
         val = tensordict1[key]
         val2 = tensordict2[key]
 
-        assert type(val) == type(val2), f"The type of {key} must be the same. Got {type(val)} vs {type(val2)}"
+        assert type(val) is type(val2), f"The type of {key} must be the same. Got {type(val)} vs {type(val2)}"
 
         if isinstance(val, torch.Tensor):
             assert torch.all(torch.eq(val, val2)).item()
@@ -139,8 +141,10 @@ def pop(tensordict: TensorDict, keys: Iterator[str]) -> TensorDict:
     non_tensor_output = {}
     for key in keys:
         output = tensordict.get(key)
-        if isinstance(output, torch.Tensor | list):
+        if isinstance(output, torch.Tensor):
             tensor_output[key] = tensordict.pop(key)
+        elif isinstance(output, NonTensorStack):
+            tensor_output[key] = tensordict.pop(key).tolist()
         else:
             assert isinstance(output, NonTensorData)
             non_tensor_output[key] = tensordict.pop(key)
@@ -148,50 +152,80 @@ def pop(tensordict: TensorDict, keys: Iterator[str]) -> TensorDict:
     return get_tensordict(tensor_output, non_tensor_output)
 
 
-def tensor_split(
-    a: TensorDict,
-    indices_or_sections: int | list[int],
-    dim: int = 0,
-) -> tuple[TensorDictBase, ...]:
-    assert isinstance(indices_or_sections, int | list)
+def pad_to_divisor(data: TensorDict, size_divisor: int):
+    """Pad a DataProto to size divisible by size_divisor
 
-    from tensordict.utils import _maybe_correct_neg_dim
+    Args:
+        size_divisor (int): size divisor
 
-    batch_size = a.batch_size
-    dim = _maybe_correct_neg_dim(dim, batch_size)
-
-    if a.ndim == 0:
-        msg = "tensor_split: received a rank zero tensor, but expected a tensor of rank one or greater!"
-        raise ValueError(msg)
-
-    # Case 0 -- indices_or_sections is an integer or a scalar tensor n and a is split along dim into n parts of equal-ish length
-    if isinstance(indices_or_sections, int):
-        sections: int = (
-            indices_or_sections  # type: ignore[assignment]
-        )
-
-        if sections <= 0:
-            msg = f"tensor_split: number of sections must be greater than 0, but was {sections}"
-            raise ValueError(msg)
-
-        dim_size = a.shape[dim]
-        min_split_size = math.floor(dim_size / sections)
-        num_splits_one_extra = dim_size % sections
-
-        split_sizes = []
-        for split_idx in range(sections):
-            split_size = (
-                min_split_size + 1
-                if (split_idx < num_splits_one_extra)
-                else min_split_size
-            )
-            split_sizes.append(split_size)
-
-        return tuple(a.split(split_sizes, dim=dim))
-    # Case 1 -- indices_or_sections is a sequence of integers or a 1D tensor describing the splits
+    Returns:
+        data: (DataProto): the padded DataProto
+        pad_size (int)
+    """
+    assert isinstance(data, TensorDict), "data must be a DataProto"
+    if len(data) % size_divisor != 0:
+        pad_size = size_divisor - len(data) % size_divisor
+        padding_protos = []
+        remaining_pad = pad_size
+        while remaining_pad > 0:
+            take_size = min(remaining_pad, len(data))
+            padding_protos.append(data[:take_size])
+            remaining_pad -= take_size
+        data_padded = torch.cat([data] + padding_protos)
     else:
-        indices = indices_or_sections
-        indices = [0] + list(indices) + [a.shape[dim]]
-        split_sizes = [indices[i + 1] - indices[i] for i in range(len(indices) - 1)]
-        return tuple(a.split(split_sizes, dim=dim))
+        if len(data) == 0:
+            logging.warning("padding a DataProto with no item, no changed made")
+        pad_size = 0
+        data_padded = data
+    return data_padded, pad_size
 
+
+def unpad(data: TensorDict, pad_size):
+    """Unpad the data proto with pad_size. i.e. `data[:-pad_size]`"""
+    if pad_size != 0:
+        data = data[:-pad_size]
+    return data
+
+
+def sample_level_repeat(data: TensorDict, repeat_times):
+    """
+    Repeat each row of the batch data a specified number of times.
+
+    Args:
+        repeat_times (torch.tensor, list, tuple, ndarray):  Number of times to repeat the data.
+
+    Returns:
+        DataProto: A new DataProto with repeated data.
+    """
+    if isinstance(repeat_times, tuple):
+        repeat_times = list(repeat_times)
+    elif isinstance(repeat_times, torch.Tensor):
+        assert len(repeat_times.shape) == 1
+        repeat_times = repeat_times.tolist()
+    elif isinstance(repeat_times, np.ndarray):
+        assert len(repeat_times.shape) == 1
+        repeat_times = repeat_times.tolist()
+    else:
+        assert isinstance(repeat_times, list), (
+            f"repeat_times type must be in [list, torch.Tensor, np.ndarray, tuple], got {type(repeat_times)}"
+        )
+    repeat_times = torch.tensor(repeat_times)
+
+    repeated_tensors = {}
+
+    for key, tensor in data.items():
+        if isinstance(tensor, torch.Tensor):
+            repeated_tensors[key] = torch.repeat_interleave(tensor, repeat_times, dim=0)
+        elif isinstance(tensor, NonTensorStack):
+            repeated_tensors[key] = np.repeat(np.array(tensor.tolist(), dtype=object), repeats=repeat_times).tolist()
+        else:
+            assert isinstance(tensor, NonTensorData)
+            repeated_tensors[key] = tensor
+
+    repeated_batch = TensorDict(
+        source=repeated_tensors,
+        batch_size=(repeat_times.sum().item(),),
+        device=data.device,
+    )
+
+    return repeated_batch
