@@ -17,7 +17,7 @@ import logging
 import os
 import random
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional
 
 import hydra
 import numpy as np
@@ -84,6 +84,7 @@ class AsyncLLMServerManager:
         *,
         prompt_ids: list[int],
         sampling_params: dict[str, Any],
+        image_data: Optional[list[Any]] = None
     ) -> list[int]:
         """Generate tokens from prompt ids.
 
@@ -100,6 +101,7 @@ class AsyncLLMServerManager:
             request_id=request_id,
             prompt_ids=prompt_ids,
             sampling_params=sampling_params,
+            image_data=image_data,
         )
         return output
 
@@ -279,13 +281,18 @@ class AgentLoopWorker:
         else:
             index = np.arange(len(raw_prompts))
 
+        if "multi_modal_data" in batch.non_tensor_batch:
+            multi_modal_data = batch.non_tensor_batch["multi_modal_data"]
+        else:
+            multi_modal_data = [{"image": None} for _ in range(len(raw_prompts))]
+
         trajectory_info = await get_trajectory_info(
             batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
         )
 
-        for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
+        for agent_name, messages, trajectory, multi_modal in zip(agent_names, raw_prompts, trajectory_info, multi_modal_data, strict=True):
             tasks.append(
-                asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory))
+                asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory, image_data=multi_modal.get("image", None)))
             )
         outputs = await asyncio.gather(*tasks)
 
@@ -298,6 +305,7 @@ class AgentLoopWorker:
         messages: list[dict[str, Any]],
         sampling_params: dict[str, Any],
         trajectory: dict[str, Any],
+        image_data: Optional[list[Any]] = None,
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
             step=trajectory["step"],
@@ -317,7 +325,7 @@ class AgentLoopWorker:
                 server_manager=self.server_manager,
                 tokenizer=self.tokenizer,
             )
-            output = await agent_loop.run(messages, sampling_params)
+            output = await agent_loop.run(messages, sampling_params, image_data=image_data)
             return output
 
     def _postprocess(self, inputs: list[AgentLoopOutput]) -> DataProto:
