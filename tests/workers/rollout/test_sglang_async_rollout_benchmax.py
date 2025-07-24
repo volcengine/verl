@@ -206,7 +206,7 @@ class TestRolloutWithBenchmaxTools:
         max_response_length = 3000
         dtype = "bfloat16"
         tensor_parallel_size = 1
-        tool_path = "./rollout/resource/tool_configs/benchmax_tool_config"
+        tool_path = "./resource/tool_configs/benchmax_tool_config"
         rollout_config = get_rollout_config(
             max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_path
         )

@@ -131,6 +131,10 @@ jobs:
         run: |
           cd tests/workers/rollout
           pytest -s test_sglang_async_rollout_mcp_tools.py
+      - name: Test the latest SGLang Rollout async with benchmax integration
+        run: |
+          cd tests/workers/rollout
+          pytest -s test_sglang_async_rollout_benchmax.py
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests
       - name: Test the latest SGLang Rollout async with multimodal delta
         run: |
