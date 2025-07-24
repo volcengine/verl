@@ -57,16 +57,6 @@ def is_nvtx_available():
         nvtx_spec = importlib.util.find_spec("nvtx")
     except ModuleNotFoundError:
         nvtx_spec = None
-
-    from verl.utils.device import is_cuda_available
-
-    if is_cuda_available and nvtx_spec is None:
-        warnings.warn(
-            "WARNING: nvtx is not available in CUDA platform. Please 'pip3 install nvtx'",
-            category=UserWarning,
-            stacklevel=2,
-        )
-
     return nvtx_spec is not None
 
 
