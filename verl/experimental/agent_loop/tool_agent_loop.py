@@ -31,8 +31,11 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 @register("tool_agent")
 class ToolAgentLoop(AgentLoopBase):
+    def __init__(self, config, server_manager, tokenizer, processor):
+        super().__init__(config, server_manager, tokenizer, processor)
+
     @classmethod
-    def init_class(cls, config, tokenizer, **kwargs):
+    def init_class(cls, config, tokenizer, processor, **kwargs):
         if cls._class_initialized:
             return
         cls._class_initialized = True
@@ -40,6 +43,7 @@ class ToolAgentLoop(AgentLoopBase):
 
         # Initialize tools from config file
         cls.tokenizer = tokenizer
+        cls.processor = processor
         cls.max_user_turns = config.actor_rollout_ref.rollout.multi_turn.max_user_turns
         cls.max_assistant_turns = config.actor_rollout_ref.rollout.multi_turn.max_assistant_turns
         cls.max_parallel_calls = config.actor_rollout_ref.rollout.multi_turn.max_parallel_calls
@@ -67,12 +71,23 @@ class ToolAgentLoop(AgentLoopBase):
 
         metrics = {}
         request_id = uuid4().hex
-        prompt_ids = await self.loop.run_in_executor(
-            None,
-            lambda: self.tokenizer.apply_chat_template(
-                messages, tools=self.tool_schemas, add_generation_prompt=True, tokenize=True
-            ),
-        )
+        if self.processor is not None:
+            raw_prompt = await self.loop.run_in_executor(
+                None,
+                lambda: self.processor.apply_chat_template(
+                    messages, tools=self.tool_schemas, add_generation_prompt=True, tokenize=False
+                ),
+            )
+            model_inputs = self.processor(text=[raw_prompt], images=image_data, return_tensors="pt")
+            prompt_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+        else:
+            prompt_ids = await self.loop.run_in_executor(
+                None,
+                lambda: self.tokenizer.apply_chat_template(
+                    messages, tools=self.tool_schemas, add_generation_prompt=True, tokenize=True
+                ),
+            )
+
         response_mask = []
 
         user_turns, assistant_turns = 0, 0
@@ -112,12 +127,22 @@ class ToolAgentLoop(AgentLoopBase):
                 break
 
             # append tool_response_ids
-            tool_response_ids = await self.loop.run_in_executor(
-                None,
-                lambda messages=tool_responses: self.tokenizer.apply_chat_template(
-                    messages, add_generation_prompt=True, tokenize=True
-                ),
-            )
+            if self.processor is not None:
+                raw_tool_response = await self.loop.run_in_executor(
+                    None,
+                    lambda messages=tool_responses: self.processor.apply_chat_template(
+                        messages, add_generation_prompt=True, tokenize=False
+                    ),
+                )
+                model_inputs = self.processor(text=[raw_tool_response], images=image_data[-1], return_tensors="pt")
+                tool_response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+            else:
+                tool_response_ids = await self.loop.run_in_executor(
+                    None,
+                    lambda messages=tool_responses: self.tokenizer.apply_chat_template(
+                        messages, add_generation_prompt=True, tokenize=True
+                    ),
+                )
             tool_response_ids = tool_response_ids[len(self.system_prompt) :]
 
             # NOTE: last turn should not be user turn, or the EOS token reward
@@ -132,10 +157,13 @@ class ToolAgentLoop(AgentLoopBase):
         response_ids = prompt_ids[-len(response_mask) :]
         prompt_ids = prompt_ids[: len(prompt_ids) - len(response_mask)]
 
+        multi_modal_data = {"image": image_data} if image_data is not None else {}
+
         output = AgentLoopOutput(
             prompt_ids=prompt_ids,
             response_ids=response_ids[: self.response_length],
             response_mask=response_mask[: self.response_length],
+            multi_modal_data=multi_modal_data,
             num_turns=user_turns + assistant_turns + 1,
             metrics=metrics,
         )
