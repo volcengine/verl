@@ -78,10 +78,8 @@ multi_stage_wake_up: false
 
 # Extra inference engine arguments (vllm, sglang).
 engine_kwargs:
-
   # for vllm
   vllm:
-
     # Swap space (in GB) used by inference engine. null uses default (e.g., 4 GB).
     swap_space: null
 
@@ -90,13 +88,11 @@ engine_kwargs:
 
   # for sglang
   sglang:
-
     # The attention backend for sglang engine. Options: flashinfer, triton, flashmla, null for default.
     attention_backend: null
 
 # Sampling parameters used during validation.
 val_kwargs:
-
   # sampling parameters for validation
   # Top-k sampling parameter. -1 for vLLM rollout, 0 for HF rollout.
   top_k: -1
@@ -115,7 +111,6 @@ val_kwargs:
 
 # Multi-turn interaction config for tools or chat.
 multi_turn:
-
   # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
   enable: False
 
@@ -140,9 +135,6 @@ multi_turn:
   # null for no interaction
   interaction_config_path: null
 
-  # null for default callback
-  completion_callback: null
-
   # - When set to True, the model's default chat template is used for multi-turn rollout, which typically matches production behavior.
   # - When set to False, the token ids recorded for training are used instead; unlike the default chat template, these always include the model's full output,
   #   which may contain additional content such as reasoning content. This maintains the consistency between training and rollout, but it will lead to longer prompts.
@@ -166,7 +158,6 @@ calculate_log_probs: False
 
 # [Experimental] agent loop based rollout configs
 agent:
-
   # Number of agent loop workers
   num_workers: 8
 
@@ -184,7 +175,6 @@ agent:
 
   # custom async server configs
   custom_async_server:
-
     # Path to the custom async server implementation
     path: null
 
@@ -207,7 +197,6 @@ update_weights_bucket_megabytes: 512
 
 # trace rollout data
 trace:
-  
   # trace backend, support mlflow, weave
   backend: null
 
