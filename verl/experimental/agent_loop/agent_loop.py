@@ -26,12 +26,13 @@ from cachetools import LRUCache
 from omegaconf import DictConfig
 from pydantic import BaseModel
 from tensordict import TensorDict
-from transformers import AutoTokenizer
+from transformers import AutoProcessor, AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin
 
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
-from verl.utils import hf_tokenizer
+from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
+from verl.utils.model import compute_position_id_with_mask
 from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
 from verl.workers.rollout.async_server import async_server_class
 
@@ -118,6 +119,7 @@ class AgentLoopOutput(BaseModel):
     prompt_ids: list[int]
     response_ids: list[int]
     response_mask: list[int]
+    multi_modal_data: dict[str, Any]
     num_turns: int = 0
     metrics: AgentLoopMetrics
 
@@ -128,22 +130,30 @@ class AgentLoopBase(ABC):
 
     _class_initialized = False
 
-    def __init__(self, config: DictConfig, server_manager: AsyncLLMServerManager, tokenizer: AutoTokenizer):
+    def __init__(
+        self,
+        config: DictConfig,
+        server_manager: AsyncLLMServerManager,
+        tokenizer: AutoTokenizer,
+        processor: AutoProcessor,
+    ):
         """Initialize agent loop.
 
         Args:
             config (DictConfig): YAML config.
             server_manager (AsyncLLMServerManager): OpenAI compatible LLM server manager.
             tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
+            processor (AutoProcessor): Processor for process messages.
         """
         self.config = config
         self.server_manager = server_manager
         self.tokenizer = tokenizer
+        self.processor = processor
         self.loop = asyncio.get_running_loop()
-        self.init_class(config, tokenizer)
+        self.init_class(config, tokenizer, processor)
 
     @classmethod
-    def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer):
+    def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer, processor: AutoProcessor):
         """Initialize class state shared across all instances."""
         if cls._class_initialized:
             return
@@ -183,8 +193,11 @@ class AgentLoopWorker:
         self.model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
+        self.processor = hf_processor(local_path, trust_remote_code=True)
 
         if self.config.actor_rollout_ref.model.get("custom_chat_template", None) is not None:
+            if self.processor is not None:
+                self.processor.chat_template = self.config.actor_rollout_ref.model.custom_chat_template
             self.tokenizer.chat_template = self.config.actor_rollout_ref.model.custom_chat_template
 
         trace_config = config.trainer.get("rollout_trace", {})
@@ -273,7 +286,7 @@ class AgentLoopWorker:
             step=trajectory["step"], sample_index=trajectory["sample_index"], rollout_n=trajectory["rollout_n"]
         ):
             agent_loop_class = self.get_agent_loop_class(agent_name)
-            agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer)
+            agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer, self.processor)
             output = await agent_loop.run(messages, sampling_params, image_data=image_data)
             return output
 
@@ -348,7 +361,33 @@ class AgentLoopWorker:
 
         input_ids = torch.cat([prompt_ids, response_ids], dim=1)
         attention_mask = torch.cat([prompt_attention_mask, response_attention_mask], dim=1)
-        position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
+
+        # Process position_ids for each sample
+        position_ids_list = []
+        multi_modal_inputs_list = []
+        for i in range(len(inputs)):
+            if self.processor is not None:
+                images = inputs[i].multi_modal_data.get("image", [])
+                current_text = self.tokenizer.decode(input_ids[i], skip_special_tokens=True)
+                multi_modal_inputs = self.processor(text=[current_text], images=images, return_tensors="pt")
+                multi_modal_inputs.pop("input_ids", None)
+                multi_modal_inputs.pop("attention_mask", None)
+
+                # We must use dict(multi_modal_inputs) to convert BatchFeature values to a new dict
+                # because np.array() only keeps the keys for BatchFeature.
+                multi_modal_inputs = dict(multi_modal_inputs)
+                multi_modal_inputs_list.append(multi_modal_inputs)
+                position_ids = self._get_position_ids(
+                    self.processor,
+                    input_ids[i].unsqueeze(0),
+                    attention_mask[i].unsqueeze(0),
+                    multi_modal_inputs=multi_modal_inputs,
+                )
+            else:
+                position_ids = self._get_position_ids(self.tokenizer, input_ids[i], attention_mask[i])
+            position_ids_list.append(position_ids)
+
+        position_ids = torch.stack(position_ids_list, dim=0)
 
         batch = TensorDict(
             {
@@ -357,14 +396,58 @@ class AgentLoopWorker:
                 "response_mask": response_mask,  # [bsz, response_length]
                 "input_ids": input_ids,  # [bsz, prompt_length + response_length]
                 "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
-                "position_ids": position_ids,  # [bsz, prompt_length + response_length]
+                "position_ids": position_ids,
             },
             batch_size=len(input_ids),
         )
 
-        num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
+        non_tensor_batch = {
+            "__num_turns__": np.array([input.num_turns for input in inputs], dtype=np.int32),
+        }
+        if len(multi_modal_inputs_list) > 0:
+            non_tensor_batch["multi_modal_inputs"] = np.array(multi_modal_inputs_list, dtype=object)
+
         metrics = [input.metrics.model_dump() for input in inputs]
-        return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
+        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch, meta_info={"metrics": metrics})
+
+    @staticmethod
+    def _get_position_ids(
+        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        multi_modal_inputs: Optional[dict[str, torch.Tensor]] = None,
+    ) -> torch.Tensor:
+        # special case for qwen2vl
+        is_qwen2vl = (
+            hasattr(processing_class, "image_processor")
+            and "Qwen2VLImageProcessor" in processing_class.image_processor.__class__.__name__
+        )
+        if is_qwen2vl:
+            from verl.models.transformers.qwen2_vl import get_rope_index
+
+            image_grid_thw = video_grid_thw = second_per_grid_ts = None
+            if multi_modal_inputs:
+                image_grid_thw = multi_modal_inputs.get("image_grid_thw")
+                video_grid_thw = multi_modal_inputs.get("video_grid_thw")
+                second_per_grid_ts = multi_modal_inputs.get("second_per_grid_ts")
+
+            assert input_ids.dim() == 2 and input_ids.shape[0] == 1, (
+                f"input_ids should be 2D with batch size 1, but got shape {input_ids.shape}"
+            )
+            assert attention_mask.dim() == 2 and attention_mask.shape[0] == 1, (
+                f"attention_mask should be 2D with batch size 1, but got shape {attention_mask.shape}"
+            )
+            new_position_ids = get_rope_index(
+                processing_class,
+                input_ids=input_ids.squeeze(0),
+                image_grid_thw=image_grid_thw,
+                video_grid_thw=video_grid_thw,
+                second_per_grid_ts=second_per_grid_ts,
+                attention_mask=attention_mask.squeeze(0),
+            )
+            return new_position_ids  # (3, seq_len)
+        else:
+            return compute_position_id_with_mask(attention_mask)  # (1, seq_len)
 
 
 async def get_trajectory_info(step, index):

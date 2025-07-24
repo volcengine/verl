@@ -47,7 +47,9 @@ class CustomRLHFDataset(RLHFDataset):
                 "role": "system",
                 # We don't need tool description, because custom_chat_template will add it.
                 "content": (
-                    "You are a helpful assistant. You may call one or more functions to assist with the user query."
+                    "You are a helpful assistant. You can call functions to assist with the user query. "
+                    "Important: You must call only one function at a time. After each function call, "
+                    "wait for the execution result before making the next function call if needed."
                 ),
             },
             {
