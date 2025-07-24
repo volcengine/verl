@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import torch
 from transformers import PretrainedConfig
 
 from verl.utils.device import get_torch_device
@@ -32,6 +33,22 @@ VALID_CONFIG_TYPE = {
 
 
 def get_device_flops(unit="T"):
+    """Get the theoretical FLOPS (Floating Point Operations Per Second) capacity of the current device.
+
+    Args:
+        unit (str): The unit to return the FLOPS in. Supported values are:
+            "B" - Billion (1e9)
+            "K" - Thousand (1e3)
+            "M" - Million (1e6)
+            "G" - Giga (1e9)
+            "T" - Tera (1e12, default)
+            "P" - Peta (1e15)
+
+    Returns:
+        float: The theoretical FLOPS capacity of the current device in the specified unit.
+        Returns float('inf') for unknown GPU types.
+    """
+
     def unit_convert(number, level):
         units = ["B", "K", "M", "G", "T", "P"]
         if number <= 0:
@@ -42,10 +59,17 @@ def get_device_flops(unit="T"):
             ptr += 1
         return number
 
-    device_name = get_torch_device().get_device_name()
+    device = get_torch_device()
+    if device == torch.cpu:
+        device_name = "CPU"
+    else:
+        device_name = get_torch_device().get_device_name()
     flops = float("inf")  # INF flops for unkown gpu type
 
-    if "MI300X" in device_name:
+    if "CPU" in device_name:
+        # use a general CPU flops placeholder to make the function CPU compatible
+        flops = 448e9
+    elif "MI300X" in device_name:
         flops = 1336e12
     elif "H100" in device_name or "H800" in device_name or "H200" in device_name:
         flops = 989e12

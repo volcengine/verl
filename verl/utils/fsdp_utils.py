@@ -452,7 +452,13 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
         model (`torch.nn.Module`): The model to load the state dict into
         full_state (`dict`): The full state dict to load, can only be on rank 0
     """
-    from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
+
+    if version.parse(torch.__version__) >= version.parse("2.7.0"):
+        from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
+    else:
+        # official torch 2.6.0 set_model_state_dict API leads to OOM
+        # use torch 2.7.0 copy from verl/third_party/torch/distributed/checkpoint
+        from verl.third_party.torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
 
     # To broadcast, it needs to be instantiated in the GPU.
     if dist.get_rank() == 0:
