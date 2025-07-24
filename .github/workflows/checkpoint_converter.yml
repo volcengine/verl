@@ -93,6 +93,7 @@ jobs:
       - name: Download Model to Use
         run: |
           huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B
+          huggingface-cli download deepseek-ai/deepseek-coder-1.3b-instruct --local-dir ${HOME}/models/deepseek-ai/deepseek-coder-1.3b-instruct
           export HF_HUB_OFFLINE=1
       - name: Running Huggingface to Megatron dist_ckpt converter (Qwen/Qwen2.5-0.5B)
         run: |
