@@ -95,7 +95,7 @@ class RaySPPOTrainer(RayPPOTrainer):
         val_dataset: Optional[Dataset] = None,
         collate_fn=None,
         train_sampler: Optional[Sampler] = None,
-        device_name="cuda",
+        device_name=None,
     ):
         self.tokenizer = tokenizer
         self.processor = processor
@@ -115,7 +115,7 @@ class RaySPPOTrainer(RayPPOTrainer):
         self.use_rm = Role.RewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
         self.validation_generations_logger = ValidationGenerationsLogger()
-        self.device_name = device_name
+        self.device_name = device_name if device_name else self.config.trainer.device
 
         # define in-reward KL control
         # kl loss control currently not supported

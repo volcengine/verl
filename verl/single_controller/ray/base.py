@@ -270,7 +270,6 @@ class RayWorkerGroup(WorkerGroup):
         worker_names=None,
         worker_handles: list[ray.actor.ActorHandle] = None,
         ray_wait_register_center_timeout: int = 300,
-        device_name="cuda",
         **kwargs,
     ) -> None:
         """Initialize a RayWorkerGroup.
@@ -294,9 +293,10 @@ class RayWorkerGroup(WorkerGroup):
         # if a WorkerGroup is spawned from Colocate WorkerGroup, this indicates which sub-class is binded to
         # this WorkerGroup.
         self.sub_cls_name = ""
-        self.device_name = device_name
+        self.device_name = kwargs.get("device_name", "cuda")
         self.profile_steps = kwargs.get("profile_steps", None)
         self.worker_nsight_options = kwargs.get("worker_nsight_options", None)
+        self.customized_worker_env = kwargs.get("worker_env", {})
         if self.worker_nsight_options is not None and self.worker_nsight_options["capture-range-end"] is None:
             self.worker_nsight_options["capture-range-end"] = f"repeat-shutdown:{6 * len(self.profile_steps)}"
 
@@ -308,7 +308,11 @@ class RayWorkerGroup(WorkerGroup):
             self._init_with_detached_workers(worker_names=worker_names, worker_handles=worker_handles)
         else:
             self._init_with_resource_pool(
-                resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init, bin_pack=bin_pack, detached=detached
+                resource_pool=resource_pool,
+                ray_cls_with_init=ray_cls_with_init,
+                bin_pack=bin_pack,
+                detached=detached,
+                worker_env=self.customized_worker_env,
             )
 
         if ray_cls_with_init is not None:
@@ -338,7 +342,7 @@ class RayWorkerGroup(WorkerGroup):
         self._workers = workers
         self._world_size = len(worker_names)
 
-    def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, bin_pack, detached):
+    def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, bin_pack, detached, worker_env=None):
         """Initialize the worker group by creating new workers from a resource pool.
 
         Args:
@@ -378,6 +382,16 @@ class RayWorkerGroup(WorkerGroup):
                     env_vars["MASTER_ADDR"] = self._master_addr
                     env_vars["MASTER_PORT"] = self._master_port
 
+                if worker_env is not None:
+                    logging.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
+                    conflict_env_vars = set(env_vars.keys()) & set(worker_env.keys())
+                    if len(conflict_env_vars) > 0:
+                        logging.error(
+                            f"User customized env vars conflict with system env: {conflict_env_vars} "
+                            f"Overriding may cause unexpected behavior."
+                        )
+                        raise ValueError(f"Cannot override protected system env: {conflict_env_vars}")
+                    env_vars.update(worker_env)
                 import re
 
                 cia_name = type(ray_cls_with_init.cls).__name__

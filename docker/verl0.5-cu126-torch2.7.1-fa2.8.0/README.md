@@ -11,7 +11,7 @@ sglang==0.4.8
 vllm==0.8.5.post1
 vidia-cudnn-cu12==9.8.0.87
 transformer_engine==2.3
-megatron.core==core_v0.12.1
+megatron.core==core_v0.12.2
 # Preview
 transformer_engine==2.5
 megatron.core==core_r0.13.0
@@ -22,6 +22,6 @@ megatron.core==core_r0.13.0
 - Base image:
     - `verlai/verl:base-verl0.5-cu126-cudnn9.8-torch2.7.1-fa2.8.0`: We offer a base image with deep ep built in
 - App image:
-    - `verlai/verl:app-verl0.5-sglang0.4.9-mcore0.12.1`
+    - `verlai/verl:app-verl0.5-sglang0.4.9-mcore0.12.2`
     - `verlai/verl:app-verl0.5-sglang0.4.9-mcore0.13.0-preview`
 - vllm temporarily not support latest version
