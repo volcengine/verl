@@ -29,7 +29,7 @@ from omegaconf import DictConfig
         "starlette.responses": MagicMock(JSONResponse=MagicMock()),
     },
 )
-class TestAsyncSglangServer:
+class TestAsyncSGLangServer:
     @pytest.fixture
     def server_config(self):
         return DictConfig({"actor_rollout_ref": {"rollout": {"tensor_model_parallel_size": 2}}})
