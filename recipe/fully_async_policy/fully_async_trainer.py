@@ -14,7 +14,6 @@
 
 import logging
 from pprint import pprint
-from typing import Optional
 
 import numpy as np
 import ray
@@ -62,10 +61,10 @@ class FullyAsyncTrainer:
         processor=None,
         reward_fn=None,
         val_reward_fn=None,
-        train_dataset: Optional[Dataset] = None,
-        val_dataset: Optional[Dataset] = None,
+        train_dataset: Dataset | None = None,
+        val_dataset: Dataset | None = None,
         collate_fn=None,
-        train_sampler: Optional[Sampler] = None,
+        train_sampler: Sampler | None = None,
         device_name="cuda",
     ):
         self.config = config

@@ -16,7 +16,6 @@ import logging
 import threading
 import time
 import uuid
-from typing import Optional
 
 import numpy as np
 import ray
@@ -85,9 +84,9 @@ class Rollouter:
         resource_pool_manager: ResourcePoolManager,
         ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
         processor=None,
-        train_dataset: Optional[Dataset] = None,
+        train_dataset: Dataset | None = None,
         collate_fn=None,
-        train_sampler: Optional[Sampler] = None,
+        train_sampler: Sampler | None = None,
         device_name="cuda",
     ):
         self.config = config
@@ -253,7 +252,7 @@ class Rollouter:
 
         return False
 
-    def _generate_batch(self, epoch: int, batch_dict: dict) -> Optional[DataProto]:
+    def _generate_batch(self, epoch: int, batch_dict: dict) -> DataProto | None:
         """生成单个batch的样本"""
         try:
             batch = DataProto.from_single_dict(batch_dict)

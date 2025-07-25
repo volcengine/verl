@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import threading
-import time
+import threadingimport time
 import uuid
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import ray
 import zmq
@@ -39,7 +38,7 @@ class BatchSample:
     rollout_metadata: dict[str, Any]
 
 
-@ray.remote(num_cpus=1)
+@ray.remote(num_cpus=24)
 class MessageQueue:
     """
     基于ZeroMQ的异步消息队列，用于Rollouter和Trainer之间的通信
@@ -84,7 +83,7 @@ class MessageQueue:
             self.socket.bind(self.address)
 
     def put_batch(
-        self, epoch: int, batch: DataProto, param_version: int, rollout_metadata: dict[str, Any] = None
+            self, epoch: int, batch: DataProto, param_version: int, rollout_metadata: dict[str, Any] = None
     ) -> bool:
         """
         放入一个batch样本到队列
@@ -129,7 +128,7 @@ class MessageQueue:
 
             return True
 
-    def get_batch(self, min_batch_count: int = 1, timeout: float = 30.0) -> Optional[list[BatchSample]]:
+    def get_batch(self, min_batch_count: int = 1, timeout: float = 30.0) -> list[BatchSample] | None:
         """
         从队列获取batch样本
 
@@ -208,12 +207,12 @@ class MessageQueueClient:
         self.queue_actor = queue_actor
 
     def put_batch(
-        self, epoch: int, batch: DataProto, param_version: int, rollout_metadata: dict[str, Any] = None
+            self, epoch: int, batch: DataProto, param_version: int, rollout_metadata: dict[str, Any] = None
     ) -> bool:
         """放入batch到队列"""
         return ray.get(self.queue_actor.put_batch.remote(epoch, batch, param_version, rollout_metadata))
 
-    def get_batch(self, min_batch_count: int = 1, timeout: float = 30.0) -> Optional[list[BatchSample]]:
+    def get_batch(self, min_batch_count: int = 1, timeout: float = 30.0) -> list[BatchSample] | None:
         """从队列获取batch"""
         return ray.get(self.queue_actor.get_batch.remote(min_batch_count, timeout))
 

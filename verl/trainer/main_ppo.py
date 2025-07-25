@@ -41,7 +41,7 @@ def main(config):
 
 
 # Define a function to run the PPO-like training process
-def run_ppo(config) -> None:
+def run_ppo(config, task_runner_class = None) -> None:
     """Initialize Ray cluster and run distributed PPO training process.
 
     Args:
@@ -59,6 +59,9 @@ def run_ppo(config) -> None:
             runtime_env=get_ppo_ray_runtime_env(),
             num_cpus=config.ray_init.num_cpus,
         )
+    # for recipe to change TaskRunner
+    if task_runner_class is None:
+        task_runner_class = TaskRunner
 
     # Create a remote instance of the TaskRunner class, and
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
@@ -68,9 +71,9 @@ def run_ppo(config) -> None:
         and len(config.trainer.get("profile_steps", [])) > 0
     ):
         nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
-        runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
+        runner = task_runner_class.options(runtime_env={"nsight": nsight_options}).remote()
     else:
-        runner = TaskRunner.remote()
+        runner = task_runner_class.remote()
     ray.get(runner.run.remote(config))
 
     # [Optional] get the path of the timeline trace file from the configuration, default to None
