@@ -150,7 +150,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             await sgl_update_weights(
                 engine=self.inference_engine,
                 params_batch=params_batch,
-                device_mesh_key="infer_tp",
+                device_mesh_key="tp",
                 device_mesh=self.device_mesh,
             )
 
