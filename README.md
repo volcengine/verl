@@ -229,7 +229,6 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [PF-PPO](https://arxiv.org/abs/2409.06957): Policy Filtration for PPO based on the reliability of reward signals for more efficient and robust RLHF.
 - [RACRO](https://github.com/gyhdog99/RACRO2): Build multi-modal reasoning models via decoupling it into query-conditioned captioning and text-only reasoning ![GitHub Repo stars](https://img.shields.io/github/stars/gyhdog99/RACRO2)
 - [Agent Lightning](https://github.com/microsoft/agent-lightning): A flexible and extensible framework that enables seamless agent optimization for any existing agent framework. ![GitHub Repo stars](https://img.shields.io/github/stars/microsoft/agent-lightning)
-- [CosyVoice-TTS-GRPO](https://github.com/nvidia-china-sae/mair-hub/tree/main/rl-tutorial/cosyvoice_llm): Cosyvoice TTS GRPO fine-tuning recipe ![GitHub Repo stars](https://img.shields.io/github/stars/nvidia-china-sae/mair-hub)
 
 and many more awesome work listed in [recipe](recipe/README.md).
 
