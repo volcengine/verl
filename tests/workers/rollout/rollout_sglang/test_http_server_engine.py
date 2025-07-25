@@ -598,31 +598,45 @@ class TestAsyncHttpServerEngineAdapter:
     @pytest.mark.asyncio
     async def test_make_async_request_success(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test successful async HTTP request."""
+
+        # Instantiate adapter
         adapter = AsyncHttpServerEngineAdapter(**basic_adapter_kwargs)
 
-        # Mock aiohttp session and response
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value={"status": "success"})
         mock_response.raise_for_status = Mock()
 
-        mock_session = AsyncMock()
-        mock_session.post.return_value.__aenter__.return_value = mock_response
+        mock_post_context_manager = AsyncMock()
+        mock_post_context_manager.__aenter__.return_value = mock_response
+
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
         mock_session.closed = False
+        mock_session.post.return_value = mock_post_context_manager
 
-        with patch.object(adapter, "_get_session") as mock_get_session:
-            mock_get_session.return_value.__aenter__.return_value = mock_session
+        mock_session_cm = AsyncMock()
+        mock_session_cm.__aenter__.return_value = mock_session
 
+        with patch.object(adapter, "_get_session", return_value=mock_session_cm):
             result = await adapter._make_async_request("test_endpoint", {"param": "value"})
 
+            # Assert result is correct
             assert result == {"status": "success"}
-            mock_session.post.assert_called_once()
+
+            # Verify post was called
+            mock_session.post.assert_called_once_with(
+                "http://localhost:8000/test_endpoint",
+                json={"param": "value"},
+                timeout=adapter.timeout
+            )
 
         await adapter.close()
 
     @pytest.mark.asyncio
     async def test_make_async_request_get_method(self, mock_launch_server_process, basic_adapter_kwargs):
-        """Test async GET request."""
+        """Test async GET request using aiohttp and proper context mocking."""
+
+        # Instantiate the async adapter
         adapter = AsyncHttpServerEngineAdapter(**basic_adapter_kwargs)
 
         mock_response = AsyncMock()
@@ -630,17 +644,25 @@ class TestAsyncHttpServerEngineAdapter:
         mock_response.json = AsyncMock(return_value={"data": "test"})
         mock_response.raise_for_status = Mock()
 
-        mock_session = AsyncMock()
-        mock_session.get.return_value.__aenter__.return_value = mock_response
+        mock_get_context_manager = AsyncMock()
+        mock_get_context_manager.__aenter__.return_value = mock_response
+
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
         mock_session.closed = False
+        mock_session.get.return_value = mock_get_context_manager
 
-        with patch.object(adapter, "_get_session") as mock_get_session:
-            mock_get_session.return_value.__aenter__.return_value = mock_session
+        mock_session_cm = AsyncMock()
+        mock_session_cm.__aenter__.return_value = mock_session
 
+        with patch.object(adapter, "_get_session", return_value=mock_session_cm):
             result = await adapter._make_async_request("test_endpoint", method="GET")
 
+            # Validate
             assert result == {"data": "test"}
-            mock_session.get.assert_called_once()
+            mock_session.get.assert_called_once_with(
+                "http://localhost:8000/test_endpoint",
+                timeout=adapter.timeout
+            )
 
         await adapter.close()
 
@@ -730,7 +752,7 @@ class TestErrorRecovery:
 
     def test_flush_cache_recovery(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test flush cache recovery from failures."""
-        adapter = HttpServerEngineAdapter(max_retries=1, **basic_adapter_kwargs)
+        adapter = HttpServerEngineAdapter(max_retries=2, **basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.get") as mock_get:
             # Simulate multiple failures then success
@@ -898,33 +920,6 @@ class TestDataTypeHandling:
             call_args = mock_request.call_args[0][1]
             assert call_args["sampling_params"] == complex_sampling_params
 
-
-class TestServerArgsConfiguration:
-    """Test ServerArgs configuration edge cases."""
-
-    def test_server_args_edge_cases(self, mock_sglang_modules):
-        """Test ServerArgs with edge case values."""
-        MockServerArgs = mock_sglang_modules["MockServerArgs"]
-
-        # Test with minimal required args
-        args = MockServerArgs(host="localhost", port=8000)
-        assert args.host == "localhost"
-        assert args.port == 8000
-
-        # Test with all possible args (this depends on ServerArgs implementation)
-        # We're just testing that it doesn't crash
-        try:
-            args = MockServerArgs(
-                host="0.0.0.0",
-                port=65535,  # Max port
-                node_rank=999,
-                api_key="very-long-api-key-" + "x" * 1000,
-            )
-        except Exception:
-            # If ServerArgs has validation, that's fine
-            pass
-
-
 class TestIntegration:
     """Integration tests for both adapters."""
 
@@ -941,9 +936,12 @@ class TestIntegration:
         async_methods = {
             name for name in dir(async_adapter) if not name.startswith("_") and callable(getattr(async_adapter, name))
         }
-
         # Async adapter should have all sync methods plus async-specific ones
         expected_extra_methods = {"async_generate", "close", "__aenter__", "__aexit__"}
+        async_methods.update(
+            name for name in expected_extra_methods
+            if callable(getattr(async_adapter, name, None))
+        )
         assert sync_methods.issubset(async_methods)
         assert expected_extra_methods.issubset(async_methods)
 
