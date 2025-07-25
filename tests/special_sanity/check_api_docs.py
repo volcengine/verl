@@ -48,6 +48,8 @@ _ALLOW_LIST = [
     "verl.utils.profiler.mark_start_range",
     "verl.models.mcore.qwen2_5_vl.get_vision_model_config",
     "verl.models.mcore.qwen2_5_vl.get_vision_projection_config",
+    "verl.models.mcore.mbridge.freeze_moe_router",
+    "verl.models.mcore.mbridge.make_value_model",
 ]
 
 

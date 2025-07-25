@@ -139,7 +139,7 @@ class RolloutWorker(ActorRolloutRefWorker):
     def init_model(self):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
-        override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
+        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
 
         use_shm = self.config.model.get("use_shm", False)
         local_path = copy_to_local(self.config.model.path, use_shm=use_shm)

@@ -17,6 +17,7 @@ import argparse
 import os
 import warnings
 from contextlib import contextmanager
+from importlib.metadata import version
 from typing import Any, Callable, ContextManager, Optional
 
 import numpy as np
@@ -29,6 +30,7 @@ from megatron.core.dist_checkpointing.mapping import ShardedTensor
 from megatron.core.dist_checkpointing.serialization import StrictHandling
 from megatron.core.models.gpt.gpt_model import ModelType
 from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
+from packaging.version import Version
 from transformers import AutoConfig
 
 from verl.model_merger.megatron_model_merger import get_dynamic_pipeline_shards
@@ -204,7 +206,11 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
     head_dim = hidden_size // num_attention_heads
 
     # 1. vision model
-    hfvision = hfmodel.visual
+    if Version(version("transformers")) < Version("4.52.0"):
+        print("Using transformers < 4.52 API to load vision model")
+        hfvision = hfmodel.visual
+    else:
+        hfvision = hfmodel.model.visual
     mgvision = mgmodel.vision_model
     vision_hidden_size = mgvision.config.hidden_size
     vision_num_query_groups = mgvision.config.num_query_groups
@@ -255,13 +261,18 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
     copied_numel += safe_copy(hfprojector.mlp[2].weight, mgprojector.encoder.linear_fc2.weight)
     copied_numel += safe_copy(hfprojector.mlp[2].bias, mgprojector.encoder.linear_fc2.bias)
     n_params = sum([t.numel() for t in hfvision.state_dict().values()])
-    assert n_params == copied_numel
+    assert n_params == copied_numel, f"n_params={n_params} != copied_numel={copied_numel}"
     # 3. llm [just Qwen2]
-    hfllm = hfmodel.model
+    if Version(version("transformers")) < Version("4.52.0"):
+        print("Using transformers < 4.52 API to load llm")
+        hfllm = hfmodel.model
+    else:
+        hfllm = hfmodel.model.language_model
     mgllm = mgmodel.language_model
     copied_numel = 0
     copied_numel += safe_copy(hfllm.embed_tokens.weight, mgllm.embedding.word_embeddings.weight)
-    for mglayer, hflayer in zip(mgllm.decoder.layers, hfllm.layers, strict=True):
+    layermaps = zip(mgllm.decoder.layers, hfllm.layers, strict=True)
+    for mglayer, hflayer in layermaps:
         copied_numel += safe_copy(hflayer.input_layernorm.weight, mglayer.self_attention.linear_qkv.layer_norm_weight)
 
         q_proj_weight = hflayer.self_attn.q_proj.weight.view(num_query_groups, -1, head_dim, hidden_size)
@@ -289,7 +300,7 @@ def convert_checkpoint_from_transformers_to_megatron_qwen2_5_vl(hfmodel, mgmodel
 
     n_params = sum([t.numel() for t in hfllm.state_dict().values()])
 
-    assert n_params == copied_numel
+    assert n_params == copied_numel, f"n_params={n_params} != copied_numel={copied_numel}"
 
 
 @torch.inference_mode()
