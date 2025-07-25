@@ -142,7 +142,7 @@ class ToolAgentLoop(AgentLoopBase):
             tool_args = json.loads(tool_call.arguments)
             tool = self.tools[tool_name]
             kwargs = tool_kwarg.get(tool_name, {})
-            instance_id = await tool.create(parameters=kwargs.get("create_kwargs", {}))
+            instance_id = await tool.create(create_kwargs=kwargs.get("create_kwargs", {}))
             tool_response, _, _ = await tool.execute(instance_id, tool_args)
         except Exception as e:
             logger.exception(f"Error when executing tool: {e}")
