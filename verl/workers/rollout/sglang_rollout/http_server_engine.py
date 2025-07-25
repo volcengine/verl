@@ -98,6 +98,7 @@ def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIME
     p.start()
 
     if server_args.node_rank != 0:
+        # changyi: 为什么非master节点也要启动进程？
         return p
 
     base_url = server_args.url()

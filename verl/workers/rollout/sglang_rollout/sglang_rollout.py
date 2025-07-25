@@ -69,6 +69,7 @@ from verl.workers.rollout.schemas import (
     FinishReasonTypeEnum,
     Message,
 )
+from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerEngineAdapter
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
 
 try:
@@ -407,6 +408,34 @@ class SGLangRollout(BaseRollout):
         if first_rank_in_node:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
+            # self._engine = AsyncHttpServerEngineAdapter(
+            #                     model_path=actor_module,
+            #     dtype=self.config.dtype,
+            #     mem_fraction_static=self.config.gpu_memory_utilization,
+            #     enable_memory_saver=True,
+            #     base_gpu_id=0,
+            #     gpu_id_step=1,
+            #     tp_size=self._tp_size,
+            #     node_rank=node_rank,
+            #     load_format=load_format,
+            #     dist_init_addr=dist_init_addr,
+            #     nnodes=nnodes,
+            #     trust_remote_code=trust_remote_code,
+            #     # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
+            #     # when random.seed is being set during training
+            #     port=30000 + rank,
+            #     # NOTE(Chenyang): if you want to debug the SGLang engine output
+            #     # please set the following parameters
+            #     # Otherwise, it will make the engine run too slow
+            #     # log_level="INFO",
+            #     # log_requests=True,
+            #     # log_requests_level=2,
+            #     # max_running_requests=1,
+            #     mm_attention_backend="fa3",
+            #     attention_backend="fa3",
+            #     # In async mode, we want token in token out.
+            #     skip_tokenizer_init=self.config.mode == "async",
+            # )
             self._engine = AsyncEngine(
                 model_path=actor_module,
                 dtype=self.config.dtype,
