@@ -45,7 +45,6 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.profiler.discrete=$DISCRETE \
     critic.optim.lr=1e-5 \
     critic.model.path=deepseek-ai/deepseek-llm-7b-chat \
-    critic.model.enable_gradient_checkpointing=False \
     critic.ppo_micro_batch_size_per_gpu=4 \
     critic.profiler.ranks=$PROFILE_RANKS \
     critic.profiler.all_ranks=$PROFILE_RANKS_ALL \
