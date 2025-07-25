@@ -22,19 +22,41 @@ __all__ = ["register_adv_est", "get_adv_estimator_fn", "AdvantageEstimator"]
 
 from collections import defaultdict
 from enum import Enum
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 import torch
+from omegaconf import DictConfig
 
 import verl.utils.torch_functional as verl_F
 from verl.trainer.config import AlgoConfig
 
-POLICY_LOSS_REGISTRY = {}
+PolicyLossFn = Callable[
+    [
+        torch.Tensor,  # old_log_prob
+        torch.Tensor,  # log_prob
+        torch.Tensor,  # advantages
+        torch.Tensor,  # response_mask
+        str,  # loss_agg_mode
+        Optional[DictConfig | AlgoConfig],  # config
+    ],
+    tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+]
+
+POLICY_LOSS_REGISTRY: dict[str, PolicyLossFn] = {}
 
 
-def register_policy_loss(name):
-    def decorator(func):
+def register_policy_loss(name: str) -> Callable[[PolicyLossFn], PolicyLossFn]:
+    """Register a policy loss function with the given name.
+
+    Args:
+        name (str): The name to register the policy loss function under.
+
+    Returns:
+        function: Decorator function that registers the policy loss function.
+    """
+
+    def decorator(func: PolicyLossFn) -> PolicyLossFn:
         POLICY_LOSS_REGISTRY[name] = func
         return func
 
@@ -59,10 +81,30 @@ def get_policy_loss_fn(name):
     return POLICY_LOSS_REGISTRY[loss_name]
 
 
-ADV_ESTIMATOR_REGISTRY = {}
+class AdvantageEstimator(str, Enum):
+    """Using an enumeration class to avoid spelling errors in adv_estimator.
+
+    Note(haibin.lin): this enum class is immutable after creation. Extending this
+    enum for new estimators may not be necessary since users can always just call
+    `verl.trainer.ppo.core_algos.register` with string name for a custom advantage
+    estimator instead.
+    """
+
+    GAE = "gae"
+    GRPO = "grpo"
+    REINFORCE_PLUS_PLUS = "reinforce_plus_plus"
+    REINFORCE_PLUS_PLUS_BASELINE = "reinforce_plus_plus_baseline"
+    REMAX = "remax"
+    RLOO = "rloo"
+    OPO = "opo"
+    GRPO_PASSK = "grpo_passk"
+    GPG = "gpg"
 
 
-def register_adv_est(name_or_enum):
+ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
+
+
+def register_adv_est(name_or_enum: str | AdvantageEstimator) -> Any:
     """Decorator to register a advantage estimator function with a given name.
 
     Args:
@@ -99,26 +141,6 @@ def get_adv_estimator_fn(name_or_enum):
     return ADV_ESTIMATOR_REGISTRY[name]
 
 
-class AdvantageEstimator(str, Enum):
-    """Using an enumeration class to avoid spelling errors in adv_estimator.
-
-    Note(haibin.lin): this enum class is immutable after creation. Extending this
-    enum for new estimators may not be necessary since users can always just call
-    `verl.trainer.ppo.core_algos.register` with string name for a custom advantage
-    estimator instead.
-    """
-
-    GAE = "gae"
-    GRPO = "grpo"
-    REINFORCE_PLUS_PLUS = "reinforce_plus_plus"
-    REINFORCE_PLUS_PLUS_BASELINE = "reinforce_plus_plus_baseline"
-    REMAX = "remax"
-    RLOO = "rloo"
-    OPO = "opo"
-    GRPO_PASSK = "grpo_passk"
-    GPG = "gpg"
-
-
 class AdaptiveKLController:
     """
     Adaptive KL controller described in the paper:
@@ -131,6 +153,12 @@ class AdaptiveKLController:
         self.horizon = horizon
 
     def update(self, current_kl, n_steps):
+        """Update the KL coefficient based on current KL divergence.
+
+        Args:
+            current_kl (float): Current KL divergence value.
+            n_steps (int): Number of steps taken.
+        """
         target = self.target
         proportional_error = np.clip(current_kl / target - 1, -0.2, 0.2)
         mult = 1 + proportional_error * n_steps / self.horizon
@@ -144,10 +172,28 @@ class FixedKLController:
         self.value = kl_coef
 
     def update(self, current_kl, n_steps):
+        """Update method for fixed KL controller (no-op).
+
+        Args:
+            current_kl (float): Current KL divergence value (unused).
+            n_steps (int): Number of steps taken (unused).
+        """
         pass
 
 
 def get_kl_controller(kl_ctrl):
+    """Factory function to create appropriate KL controller based on configuration.
+
+    Args:
+        kl_ctrl: Configuration object containing KL controller settings.
+
+    Returns:
+        KL controller instance (FixedKLController or AdaptiveKLController).
+
+    Raises:
+        NotImplementedError: If controller type is not supported.
+        AssertionError: If adaptive controller horizon is not positive.
+    """
     if kl_ctrl.type == "fixed":
         return FixedKLController(kl_coef=kl_ctrl.kl_coef)
     elif kl_ctrl.type == "adaptive":
@@ -635,6 +681,17 @@ def compute_gpg_outcome_advantage(
 
 
 def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
+    """Compute token-level rewards with KL penalty.
+
+    Args:
+        token_level_scores (torch.Tensor): Token-level reward scores.
+        old_log_prob (torch.Tensor): Log probabilities from current policy.
+        ref_log_prob (torch.Tensor): Log probabilities from reference policy.
+        kl_ratio (float): KL penalty coefficient.
+
+    Returns:
+        torch.Tensor: Token-level rewards with KL penalty applied.
+    """
     kl = old_log_prob - ref_log_prob
     return token_level_scores - kl * kl_ratio
 
@@ -778,7 +835,7 @@ def compute_policy_loss_clip_cov(
     advantages: torch.Tensor,
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
-    config: Optional[AlgoConfig] = None,
+    config: Optional[DictConfig | AlgoConfig] = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for Clip-Cov.
@@ -811,6 +868,10 @@ def compute_policy_loss_clip_cov(
         clip_cov_ub (float, optional):
             Upper bound for clipping covariance. Defaults to 5.0.
     """
+    assert config is not None
+    assert not isinstance(config, AlgoConfig), "passing AlgoConfig not supported yet"
+    assert config.policy_loss is not None
+
     clip_cov_ratio = config.policy_loss.clip_cov_ratio if config.policy_loss.clip_cov_ratio is not None else 0.0002
     cliprange = config.clip_ratio
     cliprange_low = config.clip_ratio_low if config.clip_ratio_low is not None else cliprange
@@ -868,7 +929,7 @@ def compute_policy_loss_kl_cov(
     advantages: torch.Tensor,
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
-    config: Optional[AlgoConfig] = None,
+    config: Optional[DictConfig | AlgoConfig] = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for Clip-Cov.
@@ -892,6 +953,10 @@ def compute_policy_loss_kl_cov(
         ppo_kl_coef (float, optional):
             Coefficient for the KL penalty term in the loss. Defaults to 1.
     """
+    assert config is not None
+    assert not isinstance(config, AlgoConfig), "passing AlgoConfig not supported yet"
+    assert config.policy_loss is not None
+
     kl_cov_ratio = config.policy_loss.kl_cov_ratio if config.policy_loss.kl_cov_ratio is not None else 0.0002
     ppo_kl_coef = config.policy_loss.ppo_kl_coef if config.policy_loss.ppo_kl_coef is not None else 1.0
 
@@ -1043,6 +1108,19 @@ def compute_pf_ppo_reweight_data(
 
     @torch.no_grad()
     def compute_weights(scores: torch.Tensor, reweight_method: str, weight_pow: float) -> torch.Tensor:
+        """Compute importance weights for resampling based on scores.
+
+        Args:
+            scores (torch.Tensor): Tensor of scores to compute weights from.
+            reweight_method (str): Method for computing weights ('pow', 'max_min', 'max_random').
+            weight_pow (float): Power exponent for 'pow' method.
+
+        Returns:
+            torch.Tensor: Computed importance weights.
+
+        Raises:
+            ValueError: If reweight_method is not supported.
+        """
         if reweight_method == "pow":
             weights = torch.pow(torch.abs(scores), weight_pow)
         elif reweight_method == "max_min":

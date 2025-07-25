@@ -16,7 +16,7 @@
 
 import logging
 import os
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 from uuid import uuid4
 
 from verl.utils.reward_score import geo3k
@@ -72,10 +72,10 @@ class Geo3kTool(BaseTool):
             "ground_truth": ground_truth,
             "reward": 0.0,
         }
-        return instance_id, None
+        return instance_id
 
     @rollout_trace_op
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         answer = parameters.get("answer", "")
         if not isinstance(answer, str):
             answer = str(answer)
