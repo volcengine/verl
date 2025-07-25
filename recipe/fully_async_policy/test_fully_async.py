@@ -23,8 +23,7 @@ from unittest.mock import Mock
 import ray
 from omegaconf import OmegaConf
 
-from recipe.fully_async_policy.message_queue import MessageQueue, MessageQueueClient
-from verl import DataProto
+from recipe.fully_async_policy.message_queue import DataProto, MessageQueue, MessageQueueClient
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

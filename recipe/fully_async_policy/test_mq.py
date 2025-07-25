@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
-import time
 import threading
-from unittest.mock import Mock, patch, MagicMock
-from omegaconf import DictConfig
-import ray
+import time
+from unittest.mock import Mock
 
+import pytest
+import ray
 from message_queue import BatchSample, MessageQueue, MessageQueueClient
+from omegaconf import DictConfig
 
 
 @pytest.fixture
@@ -31,21 +31,13 @@ def mock_data_proto():
 @pytest.fixture
 def basic_config():
     """基础配置"""
-    return DictConfig({
-        'async_training': {
-            'freshness_threshold': 3
-        }
-    })
+    return DictConfig({"async_training": {"freshness_threshold": 3}})
 
 
 @pytest.fixture
 def queue_config():
     """队列配置"""
-    return DictConfig({
-        'async_training': {
-            'freshness_threshold': 2
-        }
-    })
+    return DictConfig({"async_training": {"freshness_threshold": 2}})
 
 
 class TestBatchSample:
@@ -59,7 +51,7 @@ class TestBatchSample:
             data=mock_data_proto,
             param_version=5,
             timestamp=1234567890.0,
-            rollout_metadata={"key": "value"}
+            rollout_metadata={"key": "value"},
         )
 
         assert sample.batch_id == "test-123"
@@ -73,29 +65,16 @@ class TestBatchSample:
 class TestMessageQueue:
     """测试MessageQueue类（需要在非Ray环境下测试内部逻辑）"""
 
-    @patch('message_queue.zmq.Context')
-    @patch('message_queue.FileLock')
-    @patch('socket.socket')
-    def test_message_queue_init(self, mock_socket, mock_filelock, mock_zmq_context, basic_config):
+    def test_message_queue_init(self, basic_config):
         """测试MessageQueue初始化"""
-        # Mock socket
-        mock_sock_instance = Mock()
-        mock_sock_instance.getsockname.return_value = ('127.0.0.1', 12345)
-        mock_socket.return_value.__enter__.return_value = mock_sock_instance
+        # 直接创建MessageQueue实例（不使用Ray装饰器）
+        queue = MessageQueue.__ray_actor_class__(basic_config, max_queue_size=100)
 
-        # Mock ZMQ
-        mock_context = Mock()
-        mock_zmq_context.return_value = mock_context
-        mock_zmq_socket = Mock()
-        mock_context.socket.return_value = mock_zmq_socket
+        # 确保ZeroMQ初始化成功
+        assert queue.context is not None
+        assert queue.socket is not None
 
-        # Mock FileLock
-        mock_filelock.return_value.__enter__ = Mock(return_value=None)
-        mock_filelock.return_value.__exit__ = Mock(return_value=None)
-
-        # 创建MessageQueue实例（不使用Ray装饰器）
-        queue = MessageQueue.__wrapped__(basic_config, max_queue_size=100)
-
+        # 基本属性检查
         assert queue.max_queue_size == 100
         assert queue.current_param_version == 0
         assert queue.freshness_threshold == 3
@@ -103,6 +82,9 @@ class TestMessageQueue:
         assert queue.total_produced == 0
         assert queue.total_consumed == 0
         assert queue.dropped_samples == 0
+
+        # 清理资源
+        queue.shutdown()
 
 
 @pytest.fixture
@@ -117,17 +99,9 @@ def ray_setup():
 @pytest.fixture
 def message_queue_actor(ray_setup, basic_config):
     """创建MessageQueue actor"""
-    with patch('message_queue.zmq.Context'), \
-            patch('message_queue.FileLock'), \
-            patch('socket.socket') as mock_socket:
-        # Mock socket setup
-        mock_sock_instance = Mock()
-        mock_sock_instance.getsockname.return_value = ('127.0.0.1', 12345)
-        mock_socket.return_value.__enter__.return_value = mock_sock_instance
-
-        actor = MessageQueue.remote(basic_config, max_queue_size=10)
-        yield actor
-        ray.get(actor.shutdown.remote())
+    actor = MessageQueue.remote(basic_config, max_queue_size=10)
+    yield actor
+    ray.get(actor.shutdown.remote())
 
 
 class TestMessageQueueActor:
@@ -135,12 +109,11 @@ class TestMessageQueueActor:
 
     def test_put_batch_success(self, message_queue_actor, mock_data_proto):
         """测试成功放入batch"""
-        result = ray.get(message_queue_actor.put_batch.remote(
-            epoch=1,
-            batch=mock_data_proto,
-            param_version=1,
-            rollout_metadata={"test": "data"}
-        ))
+        result = ray.get(
+            message_queue_actor.put_batch.remote(
+                epoch=1, batch=mock_data_proto, param_version=1, rollout_metadata={"test": "data"}
+            )
+        )
 
         assert result is True
 
@@ -159,12 +132,14 @@ class TestMessageQueueActor:
         ray.get(message_queue_actor.update_param_version.remote(5))
 
         # 尝试放入版本过旧的batch（版本差异>=3会被拒绝）
-        result = ray.get(message_queue_actor.put_batch.remote(
-            epoch=1,
-            batch=mock_data_proto,
-            param_version=2,  # 5-2=3, 达到阈值
-            rollout_metadata={}
-        ))
+        result = ray.get(
+            message_queue_actor.put_batch.remote(
+                epoch=1,
+                batch=mock_data_proto,
+                param_version=2,  # 5-2=3, 达到阈值
+                rollout_metadata={},
+            )
+        )
 
         assert result is False
 
@@ -176,12 +151,11 @@ class TestMessageQueueActor:
         """测试队列溢出处理"""
         # 填满队列（最大容量10）
         for i in range(12):  # 超过最大容量
-            ray.get(message_queue_actor.put_batch.remote(
-                epoch=1,
-                batch=mock_data_proto,
-                param_version=1,
-                rollout_metadata={}
-            ))
+            ray.get(
+                message_queue_actor.put_batch.remote(
+                    epoch=1, batch=mock_data_proto, param_version=1, rollout_metadata={}
+                )
+            )
 
         # 队列大小应该保持在最大值
         queue_size = ray.get(message_queue_actor.get_queue_size.remote())
@@ -195,12 +169,11 @@ class TestMessageQueueActor:
         """测试成功获取batch"""
         # 先放入一些batch
         for i in range(3):
-            ray.get(message_queue_actor.put_batch.remote(
-                epoch=i,
-                batch=mock_data_proto,
-                param_version=1,
-                rollout_metadata={"index": i}
-            ))
+            ray.get(
+                message_queue_actor.put_batch.remote(
+                    epoch=i, batch=mock_data_proto, param_version=1, rollout_metadata={"index": i}
+                )
+            )
 
         # 获取2个batch
         samples = ray.get(message_queue_actor.get_batch.remote(min_batch_count=2, timeout=5.0))
@@ -234,9 +207,7 @@ class TestMessageQueueActor:
         """测试清空队列"""
         # 先添加一些样本
         for i in range(3):
-            ray.get(message_queue_actor.put_batch.remote(
-                epoch=i, batch=mock_data_proto, param_version=1
-            ))
+            ray.get(message_queue_actor.put_batch.remote(epoch=i, batch=mock_data_proto, param_version=1))
 
         # 清空队列
         ray.get(message_queue_actor.clear_queue.remote())
@@ -250,8 +221,12 @@ class TestMessageQueueActor:
         stats = ray.get(message_queue_actor.get_statistics.remote())
 
         expected_keys = {
-            "queue_size", "total_produced", "total_consumed",
-            "dropped_samples", "current_param_version", "freshness_threshold"
+            "queue_size",
+            "total_produced",
+            "total_consumed",
+            "dropped_samples",
+            "current_param_version",
+            "freshness_threshold",
         }
         assert set(stats.keys()) == expected_keys
         assert isinstance(stats["queue_size"], int)
@@ -266,12 +241,7 @@ class TestMessageQueueClient:
         """测试客户端放入batch"""
         client = MessageQueueClient(message_queue_actor)
 
-        result = client.put_batch(
-            epoch=1,
-            batch=mock_data_proto,
-            param_version=1,
-            rollout_metadata={"test": "client"}
-        )
+        result = client.put_batch(epoch=1, batch=mock_data_proto, param_version=1, rollout_metadata={"test": "client"})
 
         assert result is True
         assert client.get_queue_size() == 1
@@ -338,9 +308,7 @@ class TestConcurrency:
 
         def producer():
             for i in range(5):
-                result = client.put_batch(
-                    epoch=i, batch=mock_data_proto, param_version=1
-                )
+                result = client.put_batch(epoch=i, batch=mock_data_proto, param_version=1)
                 results.append(("put", result))
                 time.sleep(0.1)
 

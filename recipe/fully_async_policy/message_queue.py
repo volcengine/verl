@@ -12,18 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import threadingimport time
+import threading
+import time
 import uuid
 from collections import deque
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 import ray
 import zmq
 from filelock import FileLock
 from omegaconf import DictConfig
-
-from verl import DataProto
 
 
 @dataclass
@@ -32,13 +31,13 @@ class BatchSample:
 
     batch_id: str
     epoch: int
-    data: DataProto
+    data: Any
     param_version: int
     timestamp: float
     rollout_metadata: dict[str, Any]
 
 
-@ray.remote(num_cpus=24)
+@ray.remote(num_cpus=1)
 class MessageQueue:
     """
     基于ZeroMQ的异步消息队列，用于Rollouter和Trainer之间的通信
@@ -49,13 +48,24 @@ class MessageQueue:
         self.max_queue_size = max_queue_size
         self.queue = deque(maxlen=max_queue_size)
         self.current_param_version = 0
-        self.freshness_threshold = config.async_training.get("freshness_threshold", 3)
+
+        # 安全地获取配置值，避免递归问题
+        try:
+            if hasattr(config, "async_training") and config.async_training is not None:
+                self.freshness_threshold = getattr(config.async_training, "freshness_threshold", 3)
+            else:
+                self.freshness_threshold = 3
+        except (AttributeError, RecursionError):
+            self.freshness_threshold = 3
 
         # ZeroMQ setup
-        self.context = zmq.Context()
+        self.context = None
         self.socket = None
         self.address = None
-        self._setup_zmq()
+        try:
+            self._setup_zmq()
+        except Exception as e:
+            print(f"Warning: ZeroMQ setup failed: {e}. Queue will work without ZeroMQ.")
 
         # Threading for message handling
         self.running = True
@@ -71,6 +81,9 @@ class MessageQueue:
     def _setup_zmq(self):
         """设置ZeroMQ socket"""
         with FileLock("/tmp/verl_message_queue.lock"):
+            # 初始化 ZeroMQ context
+            self.context = zmq.Context()
+
             # 使用TCP socket
             import socket as sock
 
@@ -82,9 +95,7 @@ class MessageQueue:
             self.socket = self.context.socket(zmq.PAIR)
             self.socket.bind(self.address)
 
-    def put_batch(
-            self, epoch: int, batch: DataProto, param_version: int, rollout_metadata: dict[str, Any] = None
-    ) -> bool:
+    def put_batch(self, epoch: int, batch: Any, param_version: int, rollout_metadata: dict[str, Any] = None) -> bool:
         """
         放入一个batch样本到队列
 
@@ -128,7 +139,7 @@ class MessageQueue:
 
             return True
 
-    def get_batch(self, min_batch_count: int = 1, timeout: float = 30.0) -> list[BatchSample] | None:
+    def get_batch(self, min_batch_count: int = 1, timeout: float = 30.0) -> Optional[list[BatchSample]]:
         """
         从队列获取batch样本
 
@@ -203,16 +214,14 @@ class MessageQueue:
 class MessageQueueClient:
     """MessageQueue的客户端，用于与MessageQueue Actor通信"""
 
-    def __init__(self, queue_actor: ray.ActorHandle):
+    def __init__(self, queue_actor: Any):
         self.queue_actor = queue_actor
 
-    def put_batch(
-            self, epoch: int, batch: DataProto, param_version: int, rollout_metadata: dict[str, Any] = None
-    ) -> bool:
+    def put_batch(self, epoch: int, batch: Any, param_version: int, rollout_metadata: dict[str, Any] = None) -> bool:
         """放入batch到队列"""
         return ray.get(self.queue_actor.put_batch.remote(epoch, batch, param_version, rollout_metadata))
 
-    def get_batch(self, min_batch_count: int = 1, timeout: float = 30.0) -> list[BatchSample] | None:
+    def get_batch(self, min_batch_count: int = 1, timeout: float = 30.0) -> Optional[list[BatchSample]]:
         """从队列获取batch"""
         return ray.get(self.queue_actor.get_batch.remote(min_batch_count, timeout))
 
