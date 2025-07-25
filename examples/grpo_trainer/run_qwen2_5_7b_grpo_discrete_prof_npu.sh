@@ -16,6 +16,7 @@ WITH_CPU=True
 WITH_MODULE=False
 WITH_STACK=False
 ANALYSIS=True
+ROLES=["all"]
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -59,6 +60,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.npu_profile.options.with_module=$WITH_MODULE \
     trainer.npu_profile.options.with_stack=$WITH_STACK \
     trainer.npu_profile.options.analysis=$ANALYSIS \
+    trainer.npu_profile.options.roles=$ROLES \
     trainer.critic_warmup=0 \
     trainer.logger=console \
     trainer.project_name='verl_grpo_example_gsm8k' \
