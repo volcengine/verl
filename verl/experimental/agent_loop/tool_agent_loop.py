@@ -31,14 +31,14 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 @register("tool_agent")
 class ToolAgentLoop(AgentLoopBase):
     @classmethod
-    def init_class(cls, config, tokenizer, **kwargs):
+    def init_class(cls, config, processing_class, **kwargs):
         if cls._class_initialized:
             return
         cls._class_initialized = True
         print("Performing class-level ToolAgentLoop initialization")
 
         # Initialize tools from config file
-        cls.tokenizer = tokenizer
+        cls.processing_class = processing_class
         cls.max_user_turns = config.actor_rollout_ref.rollout.multi_turn.max_user_turns
         cls.max_assistant_turns = config.actor_rollout_ref.rollout.multi_turn.max_assistant_turns
         cls.max_parallel_calls = config.actor_rollout_ref.rollout.multi_turn.max_parallel_calls
@@ -48,12 +48,20 @@ class ToolAgentLoop(AgentLoopBase):
         tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
         cls.tools = {tool.name: tool for tool in tool_list}
         cls.tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
-        cls.tool_parser = ToolParser.get_tool_parser(config.actor_rollout_ref.rollout.multi_turn.format, cls.tokenizer)
+        cls.tool_parser = ToolParser.get_tool_parser(config.actor_rollout_ref.rollout.multi_turn.format, cls.processing_class)
         print(f"Initialized tools: {cls.tools}")
 
         cls.prompt_length = config.actor_rollout_ref.rollout.prompt_length
         cls.response_length = config.actor_rollout_ref.rollout.response_length
-        cls.system_prompt = tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
+        # system_prompt: ['<|im_start|>', 'system', '\n', 'You', ' are', ' a', ' helpful', ' assistant', '.', '<|im_end|>', '\n']
+        if 'processor' in processing_class.__class__.__name__.lower():
+            # This is when processing_class is a processor
+            cls.system_prompt = processing_class.tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
+        elif 'tokenizer' in processing_class.__class__.__name__.lower():
+            # This is when processing_class is a tokenizer
+            cls.system_prompt = processing_class.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
+        else:
+            raise ValueError(f"Unknown processing_class {processing_class.__class__.__name__}")
 
     @rollout_trace_op
     async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], image_data: Optional[list[Any]] = None) -> AgentLoopOutput:
@@ -61,11 +69,16 @@ class ToolAgentLoop(AgentLoopBase):
         request_id = uuid4().hex
         prompt_ids = await self.loop.run_in_executor(
             None,
-            lambda: self.tokenizer.apply_chat_template(
+            lambda: self.processing_class.apply_chat_template(
                 messages, tools=self.tool_schemas, add_generation_prompt=True, tokenize=True
             ),
         )
         response_mask = []
+
+        if len(prompt_ids)==1 and isinstance(prompt_ids[0], list):
+            # `processor.apply_chat_template` returns [{}], while `tokenizer.apply_chat_template` returns {} for an input of batch size 1
+            # It could be a bug in HuggingFace implementation: https://github.com/huggingface/transformers/blob/37f8b0b53512e6aae0cfd15746c133c101783178/src/transformers/processing_utils.py#L1551C9-L1553C11
+            prompt_ids = prompt_ids[0]
 
         user_turns, assistant_turns = 0, 0
         while True:
@@ -106,10 +119,14 @@ class ToolAgentLoop(AgentLoopBase):
             # append tool_response_ids
             tool_response_ids = await self.loop.run_in_executor(
                 None,
-                lambda messages=tool_responses: self.tokenizer.apply_chat_template(
+                lambda messages=tool_responses: self.processing_class.apply_chat_template(
                     messages, add_generation_prompt=True, tokenize=True
                 ),
             )
+            if len(tool_response_ids)==1 and isinstance(tool_response_ids[0], list):
+                # `processor.apply_chat_template` returns [{}], while `tokenizer.apply_chat_template` returns {} for an input of batch size 1
+                # It could be a bug in HuggingFace implementation: https://github.com/huggingface/transformers/blob/37f8b0b53512e6aae0cfd15746c133c101783178/src/transformers/processing_utils.py#L1551C9-L1553C11
+                tool_response_ids = tool_response_ids[0]
             tool_response_ids = tool_response_ids[len(self.system_prompt) :]
 
             # NOTE: last turn should not be user turn, or the EOS token reward
@@ -160,7 +177,24 @@ class ToolAgentLoop(AgentLoopBase):
                 length = self.max_tool_response_length // 2
                 tool_response = tool_response[:length] + "...(truncated)..." + tool_response[-length:]
 
-        return {
-            "role": "tool",
-            "content": tool_response,
-        }
+        if 'processor' in self.processing_class.__class__.__name__.lower():
+            # This is when processing_class is a processor
+            output = {
+                "role": "tool",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": tool_response
+                    }
+                ],
+            }
+        elif 'tokenizer' in self.processing_class.__class__.__name__.lower():
+            # This is when processing_class is a tokenizer
+            output = {
+                "role": "tool",
+                "content": tool_response,
+            }
+        else:
+            raise ValueError(f"Unknown processing_class {self.processing_class.__class__.__name__}")
+
+        return output

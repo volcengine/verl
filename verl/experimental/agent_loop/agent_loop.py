@@ -27,11 +27,11 @@ from cachetools import LRUCache
 from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel
 from tensordict import TensorDict
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoProcessor
 
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
-from verl.utils import hf_tokenizer
+from verl.utils import hf_tokenizer, hf_processor
 from verl.utils.fs import copy_to_local
 from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
 from verl.workers.rollout.async_server import async_server_class
@@ -141,28 +141,28 @@ class AgentLoopBase(ABC):
     _class_initialized = False
 
     def __init__(
-        self, trainer_config: _DummyConfig, server_manager: AsyncLLMServerManager, tokenizer: AutoTokenizer, **kwargs
+        self, trainer_config: _DummyConfig, server_manager: AsyncLLMServerManager, processing_class: AutoTokenizer|AutoProcessor, **kwargs
     ):
         """Initialize agent loop, each sample will have its own loop instance.
 
         Args:
             trainer_config (_DummyConfig): trainer config.
             server_manager (AsyncLLMServerManager): OpenAI compatible LLM server manager.
-            tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
+            processing_class (AutoTokenizer|AutoProcessor): Processing class for processing messages.
         """
-        self.init_class(trainer_config.config, tokenizer, **kwargs)
+        self.init_class(trainer_config.config, processing_class, **kwargs)
         self.config = trainer_config.config
         self.server_manager = server_manager
-        self.tokenizer = tokenizer
+        self.processing_class = processing_class
         self.loop = asyncio.get_running_loop()
 
     @classmethod
-    def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer, **kwargs):
+    def init_class(cls, config: DictConfig, processing_class: AutoTokenizer|AutoProcessor, **kwargs):
         """This is used to do heavy initialization work that should shared across all instances. It's only called once.
 
         Args:
             config (DictConfig): trainer config.
-            tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
+            processing_class (AutoTokenizer|AutoProcessor): Processing class for processing messages.
             **kwargs: extra kwargs from config file passed in by `hydra.utils.instantiate`.
         """
         if cls._class_initialized:
@@ -220,6 +220,15 @@ class AgentLoopWorker:
         self.model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
+        self.processor = hf_processor(local_path, trust_remote_code=True)
+
+        custom_chat_template = config.actor_rollout_ref.model.get("custom_chat_template", None)
+        if custom_chat_template is not None:
+            if self.processor is not None:
+                self.processor.chat_template = custom_chat_template
+                self.processor.tokenizer.chat_template = custom_chat_template
+            else:
+                self.tokenizer.chat_template = custom_chat_template
 
         agent_loop_config_path = config.actor_rollout_ref.rollout.agent.agent_loop_config_path
         if agent_loop_config_path:
@@ -323,7 +332,7 @@ class AgentLoopWorker:
                 config=agent_loop_config,
                 trainer_config=_DummyConfig(config=self.config),
                 server_manager=self.server_manager,
-                tokenizer=self.tokenizer,
+                processing_class=self.processor if self.processor is not None else self.tokenizer,
             )
             output = await agent_loop.run(messages, sampling_params, image_data=image_data)
             return output
