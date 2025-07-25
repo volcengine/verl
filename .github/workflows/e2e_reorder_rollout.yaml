@@ -30,7 +30,7 @@
 #     - new tests are added to workflow mentioned in 2.
 
 
-name: e2e_dapo
+name: e2e_reorder_rollout
 
 on:
   # Trigger the workflow on push or pull request,

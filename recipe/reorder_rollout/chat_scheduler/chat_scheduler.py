@@ -18,6 +18,7 @@ import logging
 import math
 import os
 import random
+import traceback
 from concurrent.futures.thread import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass
@@ -115,6 +116,24 @@ class ChatCompletionScheduler:
     async def generate_sequences(self, batch: DataProto) -> DataProto: ...
 
 
+class _Queue(asyncio.Queue):
+    def __init__(self, maxsize=0, blocker: asyncio.Event = None):
+        super().__init__(maxsize)
+        self.get_counter = 0
+        self.put_counter = 0
+        self.blocker: asyncio.Event = blocker
+
+    async def get(self):
+        re = await super().get()
+        await self.blocker.wait()
+        self.get_counter += 1
+        return re
+
+    def put_nowait(self, item):
+        super().put_nowait(item)
+        self.put_counter += 1
+
+
 class MicroBatchScheduler(ChatCompletionScheduler):
     def __init__(
         self,
@@ -124,7 +143,7 @@ class MicroBatchScheduler(ChatCompletionScheduler):
         max_inflight_req=8,
         rollout_req_handler=None,
         reduce_handler=None,
-        enable_work_stealing=True,
+        enable_work_stealing=False,
     ):
         super().__init__(config, server_handles, max_cache_size)
         self.original_config = config
@@ -167,7 +186,8 @@ class MicroBatchScheduler(ChatCompletionScheduler):
         # TODO use ZMQ to implement pub-sub for debug purpose
         self.loop = asyncio.get_event_loop()
         self.death_signal = asyncio.Queue()
-        self.global_data_queue = asyncio.Queue()
+        self.global_data_blocker = asyncio.Event()
+        self.global_data_queue: _Queue = _Queue(0, self.global_data_blocker)
         self.local_data_queue_group = QueueGroup(
             self.number_of_servers, [asyncio.Queue() for _ in range(self.number_of_servers)]
         )
@@ -196,6 +216,8 @@ class MicroBatchScheduler(ChatCompletionScheduler):
         # since the asyncio.Queue is not thread safe.
         # max_inflight_req consumer coroutine to get element from local_queue and submit to vllm
         actors = []
+        self.error_sink_queue = asyncio.Queue()
+        self.re_key_dict: dict[str, int] = {}
         counter = 0
         for idx, addr in enumerate(server_address):
             print(
@@ -216,10 +238,21 @@ class MicroBatchScheduler(ChatCompletionScheduler):
                     work_fn=work_fn,
                     enable_work_stealing=self.enable_work_stealing,
                     death_sigal=self.death_signal,
+                    sink_queue=self.error_sink_queue,
                 )
                 actors.append(actor)
                 counter += 1
         print(f"[MicroBatchChatCompletionScheduler] init engine call actors done, total: {len(actors)}")
+
+        async def _get_sink_queue_re():
+            while True:
+                task = await self.error_sink_queue.get()
+                if task.sample_id in self.re_key_dict:
+                    self.re_key_dict[task.sample_id] += 1
+                else:
+                    self.re_key_dict[task.sample_id] = 1
+
+        asyncio.create_task(_get_sink_queue_re())
         return actors
 
     def wake_up_engine_actor(
@@ -227,13 +260,6 @@ class MicroBatchScheduler(ChatCompletionScheduler):
     ):
         for actor in self.engine_call_actors:
             actor.wakeup()
-
-    async def shut_down_actors(self):
-        print("shut down engine actors with length: ", len(self.engine_call_actors))
-        for actor in self.engine_call_actors:
-            print("ready to shutdown actor: ", actor.actor_meta)
-            await actor.shutdown()
-        print("[MicroBatchChatCompletionScheduler] shut down engine actor")
 
     async def generate_sequences(self, batch: DataProto) -> DataProto:
         """Generate sequences from agent loop.
@@ -337,6 +363,11 @@ class _Sample:
     batch: DataProto
     gen_batch: DataProto
     generation: int
+    model_name: str
+    messages: list[dict[str, str]]
+    sampling_params: dict[str, Any]
+    agent_name: np.ndarray
+    trajectory_info: list[dict[str, Any]]
 
 
 class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
@@ -358,11 +389,18 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         self.reduce_handler = reduce_handler if reduce_handler else self.reorder_handle_reduce_req
         self.data_fetcher_actor = None
         self.data_fetcher_exit = asyncio.Event()
+        self.all_sample: dict[str, _Sample] = {}
         self.pending_sample: dict[str, _Sample] = {}
         self.active_sample: dict[str, _Sample] = {}
+        self.done_sample: dict[str, _Sample] = {}
         self.done_sample_counter = 0
+        self.first_round_keys: dict[str, bool] = {}
+        self.second_round_keys: dict[str, bool] = {}
         self.data_iter_length = 0
         self.batch_counter = 0
+        self.global_data = 0
+        self.put_counter = 0
+        self.requeue_id_counter: dict[str, int] = {}
         logger.info("init stream scheduler")
         super().__init__(
             config,
@@ -375,8 +413,9 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         )
         self.prefetch_factor = self.config.chat_scheduler.prefetch_factor
         self.batch_size = config.data.train_batch_size
-        self.synchorize_interval = self.config.chat_scheduler.synchorize_interval
+        self.synchronize_interval = self.config.chat_scheduler.synchronize_interval
         self.max_in_mem_samples = self.prefetch_factor * self.batch_size
+        self.print_rate = 0.1
         self._validate()
         logger.info(
             f"init with resource: tokenizer: {self.tokenizer},model name: {self.model_name}, max \
@@ -384,14 +423,14 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
             max_in_mem_samples: {self.max_in_mem_samples} \
             batch_size: {self.batch_size} \
             prefetch_factor: {self.prefetch_factor} \
-            synchorize_interval: {self.synchorize_interval}"
+            synchronize_interval: {self.synchronize_interval}"
         )
 
     def _validate(self):
         assert self.prefetch_factor >= 1, "prefetch_factor must be >=1"
 
-        if self.prefetch_factor > 2 and self.synchorize_interval is not None:
-            raise ValueError("prefetch_factor must be 2 when synchorize_interval is not None")
+        if self.prefetch_factor > 2 and self.synchronize_interval is not None:
+            raise ValueError("prefetch_factor must be 2 when synchronize_interval is not None")
 
     async def _default_data_fetcher(self, data_iter):
         class _Iter:
@@ -459,18 +498,23 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
                 for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
                     sample_id = self._generate_unique_id()
                     rollout_req = RolloutReq(
+                        generation=0,
+                        sample_id=sample_id,
+                    )
+                    self.all_sample[sample_id] = _Sample(
+                        rollout_req,
+                        batch,
+                        gen_batch,
+                        generation=0,
                         agent_name=agent_name,
                         trajectory_info=trajectory,
                         messages=messages.tolist(),
                         model_name=self.model_name,
                         sampling_params=sampling_params,
-                        generation=0,
-                        sample_id=sample_id,
                     )
-                    self.pending_sample[sample_id] = _Sample(rollout_req, batch, gen_batch, generation=0)
+                    self.pending_sample[sample_id] = None
                     for _ in range(n):
                         _rollout_req = deepcopy(rollout_req)
-                        _rollout_req.verl_session_id = uuid4().hex
                         logger.debug(f"put {sample_id} to global data queue")
                         # raw_prompt: [{"role": "user", "content": ""}, ["role": "assistant", "content"], ...]
                         await self.global_data_queue.put(_rollout_req)
@@ -478,16 +522,17 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         except asyncio.CancelledError:
             logger.warning("data fetcher cancled")
         except Exception as e:
+            traceback.print_exc()
             logger.warning(f"exit data fetcher for exception: {e}")
         logger.info(f"exit data fetcher, pending sample size: {len(self.pending_sample)}")
         self.data_fetcher_exit.set()
 
     async def _stop_fetch_if_max_in_mem_samples(self):
-        if len(self.pending_sample) + len(self.active_sample) >= self.max_in_mem_samples:
+        if len(self.all_sample) >= self.max_in_mem_samples:
             self.data_loader_blocker.clear()
             print(
                 f"stop fetch data if max in mem samples, pending sample size: {len(self.pending_sample)}, \
-                active_sample: {len(self.active_sample)}"
+                active_sample: {len(self.active_sample)}, done_sample: {len(self.done_sample)}"
             )
             await self.data_loader_blocker.wait()
             print(f"resume fetch data after stop, pending sample size: {len(self.pending_sample)}")
@@ -545,40 +590,6 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         logger.info(f"[ReorderScheduler] cancel_all_req with length: {len(evts)}")
         await asyncio.gather(*evts)
 
-    def _skip_if_stale_request(self, rollout_req: RolloutReq, stage: str):
-        sample_id = rollout_req.sample_id
-        if sample_id in self.pending_sample:
-            if self.pending_sample[sample_id].generation == rollout_req.generation:
-                # first time see this sample, pop it from pending sample.
-                # TODO reduce handler won't hit this term, make sanity check if necessary.
-                self.active_sample[sample_id] = self.pending_sample.pop(sample_id)
-                return False
-            else:
-                # stale generation,skip this
-                logger.debug(
-                    f"[ReorderScheduler] _consumer process get sample,stage: {stage}, skip  \
-                    pending sample, sample_id: {sample_id}"
-                )
-                return True
-        elif sample_id in self.active_sample.keys():
-            #  in active sample, must be n_sample cases
-            if self.active_sample[sample_id].generation != rollout_req.generation:
-                # stale generation,skip this
-                logger.debug(
-                    f"[ReorderScheduler] _consumer process get sample, stage: {stage}, \
-                    skip active sample, sample_id: {sample_id}"
-                )
-                return True
-        else:
-            # not in pending and active, should be a finished one but with stale generation
-            # TODO better sanity check
-            logger.debug(
-                f"[ReorderScheduler] _consumer process get sample, stage: {stage}, \
-                sample_id: {sample_id} not in pending and active"
-            )
-            return True
-        return False
-
     async def reorder_hanlde_rollout_req(
         self,
         server_handle,
@@ -586,47 +597,60 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         actor_meta: ActorMeta,
         rollout_req: RolloutReq,
     ):
-        if self._skip_if_stale_request(rollout_req, stage="handle_rollout_req"):
-            return
-        # agent loop need a async function implement generate_sequences interface.
-        request_id = None
-        proxy_mgr = _MgrProxy(routing_method=functools.partial(self._routing, handle=server_handle))
-        agent_loop_output, exception = None, None
         try:
+            sample_id = rollout_req.sample_id
+            sample = self.all_sample[sample_id]
+            if rollout_req.generation != self.all_sample[sample_id].generation:
+                # stale one, send it to reduce queue
+                self.reduce_data_queue.put_nowait(
+                    RolloutResp(
+                        request=rollout_req,
+                        req_id="stale-req",
+                        exception=None,
+                        agent_loop_output=None,
+                    )
+                )
+                return
+            else:
+                # not stale
+                if sample_id in self.pending_sample:
+                    self.pending_sample.pop(sample_id)
+                    self.active_sample[sample_id] = None
+
+            # agent loop need a async function implement generate_sequences interface.
+            request_id = None
+            proxy_mgr = _MgrProxy(routing_method=functools.partial(self._routing, handle=server_handle))
+            agent_loop_output, exception = None, None
             logger.debug(
-                f"[StreamScheduler] _consumer process get sample, \
-                  submit to engine {server_handle}，sample_id: {rollout_req.sample_id}"
+                f"[ReorderScheduler] _consumer process get sample, \
+                submit to engine {server_handle}，sample_id: {rollout_req.sample_id}"
             )
             agent_loop_output = await self._run_agent_loop(
-                rollout_req.agent_name,
-                rollout_req.messages,
-                rollout_req.sampling_params,
-                trajectory=rollout_req.trajectory_info,
+                sample.agent_name,
+                sample.messages,
+                sample.sampling_params,
+                trajectory=deepcopy(sample.trajectory_info),
                 proxy_mgr=proxy_mgr,
             )
-        except asyncio.CancelledError as cancel_err:
             request_id = proxy_mgr.request_id
-            logger.debug(f"chat completion failed with exception: {cancel_err}")
-            # do cancel:
-            if proxy_mgr.ray_awaitable is not None:
-                # need to figure out how tool calls needs to be canceled
-                await proxy_mgr.server_handle.cancel.remote(request_id)
-            raise
+        except asyncio.exceptions.CancelledError:
+            if proxy_mgr is not None:
+                request_id = proxy_mgr.request_id
+                # do cancel:
+                if proxy_mgr.ray_awaitable is not None:
+                    # need to figure out how tool calls needs to be canceled
+                    await proxy_mgr.server_handle.cancel.remote(request_id)
+            exception = asyncio.CancelledError()
         except Exception as e:
             logger.exception(
                 f"[ReorderScheduler] _consumer process get sample,chat completion failed with exception: {e}"
             )
             exception = e
-        request_id = proxy_mgr.request_id
         resp = RolloutResp(
             request=rollout_req, exception=exception, req_id=request_id, agent_loop_output=agent_loop_output
         )
-        try:
-            logger.debug(f"[ReorderScheduler] _consumer process put sample to reduce_queue,idx: {actor_meta.actor_id}")
-            reduce_queue.put_nowait(resp)
-        except Exception as e:
-            resp.exception = e
-            reduce_queue.put_nowait(resp)
+        reduce_queue.put_nowait(resp)
+        return
 
     # maybe we can make this sink_queue as a pubsub proxy using zmq
     async def reorder_handle_reduce_req(self, batch_size, n_sample, sink_queue: asyncio.Queue = None):
@@ -637,23 +661,38 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         gen_batch_proto_list = []
         batch_proto_list = []
         counter = 0
-        print_rate = 0.1
-        _print_div = math.ceil(batch_size * print_rate)
-        if print_rate == 0:
+        _print_div = math.ceil(batch_size * self.print_rate)
+        if self.print_rate == 0:
             _print_div = 1
         print(
             f"[ReorderScheduler] _gather_result launch, current queue size: \
-            {self.reduce_data_queue.qsize()}, batch_size: {batch_size}, print_rate: {print_rate}"
+            {self.reduce_data_queue.qsize()}, batch_size: {batch_size}, print_rate: {_print_div}"
         )
         while counter < batch_size:
             if counter % _print_div == 0:
-                print(f"[ReorderScheduler] _gather_result counter: {counter}")
+                if self.is_sync_batch:
+                    print(
+                        f"[ReorderScheduler] _gather_result counter: {counter}，"
+                        f"batch_size: {batch_size},pending samples: {len(self.pending_sample)},"
+                        f"active_sample: {len(self.active_sample)}, queue size: {self.global_data_queue.qsize()},"
+                        f" queue task: {self.global_data_queue._unfinished_tasks}"
+                    )
+                else:
+                    print(
+                        f"[ReorderScheduler] _gather_result counter: {counter}，batch_size: {batch_size},"
+                        f"pending samples: {len(self.pending_sample)}, active_sample: {len(self.active_sample)}，"
+                        f"done sample: {len(self.done_sample)},queue size: {self.global_data_queue.qsize()} "
+                    )
             rollout_resp: RolloutResp = await self.reduce_data_queue.get()
-            if self._skip_if_stale_request(rollout_resp.request, stage="handle_reduce_req"):
+            # stale generation
+            sample = self.all_sample[rollout_resp.request.sample_id]
+            if sample.generation != rollout_resp.request.generation:
+                # stale generation
                 continue
             if sink_queue is not None:
                 sink_queue.put(rollout_resp)
             sample_id = rollout_resp.request.sample_id
+            assert sample_id in self.active_sample
             if rollout_resp.exception is not None:
                 # maybe skip or requeue?  error handling issue
                 # should be handled by supervisor
@@ -663,13 +702,15 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
             else:
                 joiner_buffer[sample_id] = [rollout_resp.agent_loop_output]
             if len(joiner_buffer[sample_id]) == n_sample:
-                _sample = self.active_sample.pop(sample_id)
+                self.active_sample.pop(sample_id)
+                _sample = self.all_sample.get(sample_id)
                 logger.debug(f"finished for samples: {sample_id}")
                 loop_outputs: list[AgentLoopOutput] = joiner_buffer[sample_id]
                 reduce_resp = self._build_reduce_resp(loop_outputs)
                 batch_agent_output.append(reduce_resp)
                 gen_batch_proto_list.append(_sample.gen_batch)
                 batch_proto_list.append(_sample.batch)
+                self.done_sample[sample_id] = _sample
                 counter += 1
         batch = concat_data_proto(batch_proto_list)
         gen_batch = concat_data_proto(gen_batch_proto_list)
@@ -717,22 +758,32 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         )
 
     def _requeue_preempt_req(self):
-        print(f"ready to requeue active samples {len(self.active_sample)}")
+        print(
+            f"ready to requeue active samples {len(self.active_sample)},"
+            f"current pending samples: {len(self.pending_sample)},"
+            f"global_queue_size: {self.global_data_queue.qsize()}"
+        )
         for sample_id in list(self.active_sample.keys()):
-            _sample: _Sample = self.active_sample.pop(sample_id)
+            self.requeue_id_counter[sample_id] = 1
+            self.active_sample.pop(sample_id)
+            _sample: _Sample = self.all_sample.get(sample_id)
             _sample.generation += 1
-            self.pending_sample[sample_id] = _sample
+            self.pending_sample[sample_id] = None
             for _ in range(self.config.n):
                 req: RolloutReq = deepcopy(_sample.rollout_req)
-                req.verl_session_id = uuid4().hex
                 req.generation = _sample.generation
                 self.global_data_queue.put_nowait(req)
+        print(
+            f"current queue size: {self.global_data_queue.qsize()},"
+            f"queue undone task: {self.global_data_queue._unfinished_tasks}"
+        )
         assert len(self.active_sample) == 0
 
     async def reorder_generate_sequences(
         self, data_iter: Iterable, renew=False
     ) -> tuple[bool, DataProto, DataProto, DataProto]:
         self._lazy_init_global_resource(data_iter, renew)
+        self.global_data_blocker.set()
         self.wake_up_engine_actor()
         pending_sample_length = len(self.pending_sample)
         if self._data_fetcher_done() and pending_sample_length == 0:
@@ -743,13 +794,23 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         print(
             f"[ReorderScheduler] reorder rollout done, cancel all left request, real size: {len(batch_conversations)}"
         )
+        self.global_data_blocker.clear()
         await self.cancel_all_req()
         self._requeue_preempt_req()
+        done_sample_ids = list(self.done_sample.keys())
+        for sample_id in done_sample_ids:
+            self.done_sample.pop(sample_id)
+            self.all_sample.pop(sample_id)
+        assert len(self.done_sample) == 0
         self.done_sample_counter += len(batch_conversations)
         self.batch_counter += 1
         print(
             f"[ReorderScheduler] generate_sequences done with {len(batch_conversations)} samples, \
             done_sample_counter: {self.done_sample_counter}"
+        )
+        print(
+            f"current data info: pending_sample: {len(self.pending_sample)}, active_sample: {len(self.active_sample)},"
+            f"done_sample: {len(self.done_sample)}"
         )
         gen_batch_output = self.handle_agent_loop_output(batch_conversations)
         if not is_last_batch:
@@ -811,13 +872,16 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         assert self.reduce_data_queue.empty(), "reduce_data_queue not empty"
 
     def handle_sync_batch(self):
-        if self.synchorize_interval is not None and self._is_next_sync_batch(
-            self.batch_counter, self.synchorize_interval
+        self.done_sample = {}
+        if self.synchronize_interval is not None and self._is_next_sync_batch(
+            self.batch_counter, self.synchronize_interval
         ):
             logger.info(f"[ReorderScheduler] handle_sync_batch, next batch: {self.batch_counter} should be sync batch")
             # modify prefetch factor to one, so the dataloader will only fetch one batch
             self.max_in_mem_samples = self.batch_size
             self.is_sync_batch = True
+            os.environ["VERL_LOGGING_LEVEL"] = "DEBUG"
+            os.environ["VERL_QUEUE_LOGGING_LEVEL"] = "DEBUG"
             if len(self.pending_sample) >= self.batch_size:
                 # no need to set blocker
                 logger.info(f"[ReorderScheduler] pending samples: {len(self.pending_sample)},skip set blocker")
@@ -828,6 +892,8 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
                 )
                 self.data_loader_blocker.set()
         else:
+            os.environ["VERL_LOGGING_LEVEL"] = "INFO"
+            os.environ["VERL_QUEUE_LOGGING_LEVEL"] = "INFO"
             self.max_in_mem_samples = self.batch_size * self.prefetch_factor
             self.is_sync_batch = False
             self.data_loader_blocker.set()

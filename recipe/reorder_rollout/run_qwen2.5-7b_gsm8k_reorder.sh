@@ -50,7 +50,7 @@ python3 -m recipe.reorder_rollout.main_reorder_ppo \
     trainer.val_before_train=True \
     trainer.test_freq=20 \
     trainer.n_gpus_per_node=8 \
-    trainer.total_training_steps=2 \
+    trainer.total_training_steps=105 \
     actor_rollout_ref.rollout.chat_scheduler.micro_batch.max_inflight_req=288 \
     actor_rollout_ref.rollout.reorder_mode=True \
     actor_rollout_ref.rollout.chat_scheduler.prefetch_factor=2.0 \

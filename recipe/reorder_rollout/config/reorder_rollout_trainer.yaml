@@ -27,7 +27,7 @@ actor_rollout_ref:
       
       # synchronize interval for reorder scheduler, each synchroize will force consume all
       # samples, include the long tail samples
-      synchorize_interval: null
+      synchronize_interval: null
 
       # name of chat scheduler
       name: reorder

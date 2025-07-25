@@ -12,9 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
-import numpy as np
 import torch
 
 from recipe.reorder_rollout.chat_scheduler.utils import ActorMeta
@@ -25,15 +24,9 @@ from verl.experimental.agent_loop.agent_loop import AgentLoopOutput
 class RolloutReq:
     # sample_id works for n-samples, n replicated requests share the same sample_id
     sample_id: Optional[str]
-    model_name: str
-    messages: list[dict[str, str]]
-    sampling_params: dict[str, Any]
-    agent_name: np.ndarray
-    trajectory_info: list[dict[str, Any]]
+
     # maybe we can count the requeue times
     generation: int = 0
-    # this works for tool-calling, indicate for one-multi-turns request
-    verl_session_id: Optional[str] = None
 
 
 @dataclass

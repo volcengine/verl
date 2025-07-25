@@ -169,7 +169,7 @@ def run_reorder_scheduler(config, dataset):
 def run_sync_batch_scheduler(config, dataset):
     setup_environment()
     ray.init(runtime_env=ray_env())
-    config.actor_rollout_ref.rollout.chat_scheduler.synchorize_interval = 2.0
+    config.actor_rollout_ref.rollout.chat_scheduler.synchronize_interval = 2
     dataloader = DataLoader(dataset=dataset, batch_size=1, shuffle=False, drop_last=True, collate_fn=collate_fn)
     async_rollout_manager = init_async_rollout_manager(config)
     sync_batch_time = []
@@ -209,7 +209,7 @@ def main(cfg):
     cfg.actor_rollout_ref.model.path = large_model_path()
     cfg.actor_rollout_ref.rollout.mode = "async"
     cfg.actor_rollout_ref.rollout.multi_turn.format = "hermes"
-    cfg.actor_rollout_ref.rollout.chat_scheduler.micro_batch.max_inflight_req = 256
+    cfg.actor_rollout_ref.rollout.chat_scheduler.micro_batch.max_inflight_req = 288
     cfg.actor_rollout_ref.rollout.chat_scheduler.name = "reorder"
     cfg.actor_rollout_ref.rollout.prompt_length = 2048
     cfg.actor_rollout_ref.rollout.response_length = 16384
@@ -226,7 +226,7 @@ def main(cfg):
     cfg.data.train_batch_size = batch_size
     dataset = load_dataset(data_source="gsm8k", limit=5000)
 
-    mode = "use_reorder"
+    mode = "use_sync"
     if mode == "use_native":
         run_native_scheduler(cfg, dataset, batch_size)
     elif mode == "use_reorder":
