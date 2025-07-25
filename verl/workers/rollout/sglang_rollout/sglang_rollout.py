@@ -1089,6 +1089,7 @@ class SGLangRollout(BaseRollout):
         messages = []
         reward_scores = []
         multi_modal_inputs = []
+        request_ids = []
 
         for req in sorted_output_req_list:
             assert req.state == AsyncRolloutRequestStateEnum.COMPLETED, f"Request {req.request_id} is not completed"
@@ -1128,6 +1129,7 @@ class SGLangRollout(BaseRollout):
             messages.append({"messages": req.messages})
             reward_scores.append(req.reward_scores)
             multi_modal_inputs.append(req.multi_modal_inputs)
+            request_ids.append(req.request_id)
 
         prompt_ids = pad_sequence(
             prompt_ids,
@@ -1215,13 +1217,22 @@ class SGLangRollout(BaseRollout):
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self._engine.flush_cache())
 
+        non_tensor_batch = {
+            "messages": np.array(messages),
+            "reward_scores": np.array(reward_scores),
+            "request_id": np.array(request_ids),
+        }
+
+        is_multimodal = isinstance(self.processing_class, ProcessorMixin) and (
+            hasattr(self.processing_class, "image_processor") or hasattr(self.model_hf_config, "vision_config")
+        )
+
+        if is_multimodal:
+            non_tensor_batch["multi_modal_inputs"] = np.array(multi_modal_inputs, dtype=object)
+
         return DataProto(
             batch=batch,
-            non_tensor_batch={
-                "messages": np.array(messages),
-                "reward_scores": np.array(reward_scores),
-                "multi_modal_inputs": np.array(multi_modal_inputs, dtype=object),
-            },
+            non_tensor_batch=non_tensor_batch,
         )
 
     def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: int = 1) -> list[AsyncRolloutRequest]:

@@ -295,7 +295,15 @@ class MegatronPPOActor(BasePPOActor):
         Returns:
 
         """
-        select_keys = ["responses", "input_ids", "attention_mask", "position_ids", "old_log_probs", "advantages"]
+        select_keys = [
+            "responses",
+            "input_ids",
+            "attention_mask",
+            "response_mask",
+            "position_ids",
+            "old_log_probs",
+            "advantages",
+        ]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
         self.has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
@@ -395,8 +403,7 @@ class MegatronPPOActor(BasePPOActor):
 
             responses = data["responses"]
             response_length = responses.size(1)
-            attention_mask = data["attention_mask"].to(bool)
-            response_mask = attention_mask[:, -response_length:]
+            response_mask = data["response_mask"].to(bool)
             loss_agg_mode = self.config.loss_agg_mode
 
             # compute policy loss
@@ -523,9 +530,17 @@ class MegatronPPOActor(BasePPOActor):
                     assert label.shape == label_mask.shape
                     ret = {}
                     if calculate_entropy:
+                        logits_bak = logits.clone()
+                        logger.warning_once(
+                            "For memory-efficient computation, enable fused kernels via "
+                            "`actor_rollout_ref.model.use_fused_kernels=True`. "
+                            "The current `clone()` operation ensures correctness but increases memory usage."
+                        )
                         entropy = vocab_parallel_entropy(logits)
                         ret["entropy"] = entropy
-                    log_probs = vocab_parallel_log_probs_from_logits(logits, label)
+                    else:
+                        logits_bak = logits
+                    log_probs = vocab_parallel_log_probs_from_logits(logits_bak, label)
                     log_probs = log_probs.masked_fill(~label_mask, 0.0)
                     ret["log_probs"] = log_probs
                     return ret
