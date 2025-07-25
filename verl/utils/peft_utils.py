@@ -75,7 +75,7 @@ def set_model_peft_weights(model, peft_state_dict: dict, adapter_name: str = Non
         new_key = key[len(prefix) :] if key.startswith(prefix) else key
         processed_adapter_state_dict[new_key] = value
 
-    incompatible_keys = set_peft_model_state_dict(model, processed_adapter_state_dict, adapter_name)
+    incompatible_keys = set_peft_model_state_dict(model, processed_adapter_state_dict, adapter_name, low_cpu_mem_usage=True)
 
     if incompatible_keys and len(getattr(incompatible_keys, "unexpected_keys", [])) > 0:
         raise Exception(f"Unexpected keys in the state dict: {list(sorted(incompatible_keys.unexpected_keys))}")
