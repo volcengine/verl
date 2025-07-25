@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+# remove auto_map in config.json to use DeepSeek provided by huggingface
+
 set -xeuo pipefail
 
 project_name='DAPO'
