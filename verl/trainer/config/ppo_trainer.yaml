@@ -123,7 +123,17 @@ actor_rollout_ref:
 
     # The ranks that will be profiled. [] or [0,1,...]
     ranks: []
-
+  # actor self judgement config
+  actor_self_judgement:
+    enable: False
+    custom_cat_function:
+      path: null
+      name: construct_reward_chat
+    custom_reward_format_validator:
+      path: null
+      name: is_reward_format_valid
+      max_retries: 3
+    gen_num: 1
 # custom reward function definition
 custom_reward_function:
 
