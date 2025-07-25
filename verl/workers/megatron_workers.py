@@ -43,6 +43,7 @@ from verl.utils.megatron_utils import (
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
 )
+from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.model import get_hf_model_path, load_mcore_dist_weights, load_megatron_gptmodel_weights
 from verl.utils.profiler import (
     DistProfiler,
@@ -175,6 +176,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         )
         self.generation_config = get_generation_config(self.local_path)
 
+        override_ddp_config = OmegaConf.to_container(
+            OmegaConf.create(self.config.actor.megatron.get("override_ddp_config", {}))
+        )
+
         def make_model(wrap_with_ddp=False):
             if self.bridge is not None:
                 from verl.models.mcore.mbridge import freeze_moe_router
@@ -183,7 +188,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 if override_model_config.get("moe_config", {}).get("freeze_moe_router", False):
                     post_model_creation_callbacks.append(freeze_moe_router)
                 return self.bridge.get_model(
-                    post_model_creation_callbacks=post_model_creation_callbacks, wrap_with_ddp=wrap_with_ddp
+                    post_model_creation_callbacks=post_model_creation_callbacks,
+                    wrap_with_ddp=wrap_with_ddp,
+                    optimizer_config=override_ddp_config,
                 )
             else:
 
@@ -202,9 +209,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                     parallel_model.to(get_device_name())
                     return parallel_model
 
-                override_ddp_config = OmegaConf.to_container(
-                    OmegaConf.create(self.config.actor.megatron.get("override_ddp_config", {}))
-                )
                 return get_model(
                     megatron_actor_model_provider,
                     wrap_with_ddp=wrap_with_ddp,
@@ -532,7 +536,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             offload_megatron_optimizer(self.actor_optimizer)
             log_gpu_memory_usage("After offload actor optimizer during update_actor", logger=logger)
 
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -569,7 +573,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         output.meta_info["timing"] = timing_generate
         output = output.to("cpu")
         # clear kv cache
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
@@ -592,7 +596,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         if self._ref_is_offload_param:
             offload_megatron_model_to_cpu(self.ref_module)
             log_gpu_memory_usage("After offload ref params and grad during compute_ref_log_prob", logger=logger)
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
@@ -619,7 +623,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
             log_gpu_memory_usage("After offload actor params and grad during compute_log_prob", logger=logger)
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -776,6 +780,9 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             self.config.megatron.use_mbridge,
         )
 
+        override_ddp_config = OmegaConf.to_container(
+            OmegaConf.create(self.config.megatron.get("override_ddp_config", {}))
+        )
         if self.bridge is not None:
             from verl.models.mcore.mbridge import freeze_moe_router, make_value_model
 
@@ -783,7 +790,9 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             if override_model_config.get("moe_config", {}).get("freeze_moe_router", False):
                 post_model_creation_callbacks.append(freeze_moe_router)
             critic_module = self.bridge.get_model(
-                post_model_creation_callbacks=post_model_creation_callbacks, wrap_with_ddp=True
+                post_model_creation_callbacks=post_model_creation_callbacks,
+                wrap_with_ddp=True,
+                optimizer_config=override_ddp_config,
             )
         else:
 
@@ -802,9 +811,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
                 parallel_model.to(get_device_name())
                 return parallel_model
 
-            override_ddp_config = OmegaConf.to_container(
-                OmegaConf.create(self.config.megatron.get("override_ddp_config", {}))
-            )
             # Step 3: initialize the megatron model
             critic_module = get_model(
                 model_provider_func=megatron_critic_model_provider,
