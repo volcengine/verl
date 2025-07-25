@@ -178,7 +178,7 @@ html {
     right: 0;
     width: 8px;
     height: 100%;
-    background: linear-gradient(to right, transparent, #ccc, transparent);
+    background: #ccc;
     cursor: col-resize;
     z-index: 1001;
     opacity: 0.3;
@@ -187,7 +187,7 @@ html {
 
 .resize-handle:hover {
     opacity: 0.8;
-    background: linear-gradient(to right, transparent, #999, transparent);
+    background: #999;
 }
 
 .resize-handle::before {
