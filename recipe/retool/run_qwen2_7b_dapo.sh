@@ -1,5 +1,7 @@
 set -x
 
+export VLLM_USE_V1=1
+
 # ================= data/model/tool =================
 HDFS_ROOT=${HDFS_ROOT:-$PWD}
 DATA_ROOT=${DATA_ROOT:-$PWD}
@@ -43,7 +45,7 @@ n_resp_per_prompt_val=30
 
 # ================= perfomance =================
 infer_tp=4 # vllm
-train_sp=8 # train
+train_sp=4 # train
 offload=True
 
 actor_max_token_len_per_gpu=$(( (max_prompt_length + max_response_length) * 1 ))
