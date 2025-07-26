@@ -166,33 +166,83 @@ class CustomRLHFDataset(RLHFDataset):
 
 
 def compute_score(data_source: str, solution_str: str, ground_truth: str, extra_info=None) -> float:
+    """
+    Compute reward score for model solutions with robust handling of various formats.
+
+    Returns a weighted combination of:
+    - Accuracy reward (0.8 weight): Whether the answer is semantically correct
+    - Format reward (0.2 weight): Whether the output follows expected format
+    - Tool reward (1.2 weight): Whether tools were used when answer is correct
+    """
+
+    # Initialize tracking variables
     is_format_error = False
-    # predict_str = "<think>" + predict_str
+
+    # 1. Check <think> tag format
     count_think_1 = solution_str.count("<think>")
     count_think_2 = solution_str.count("</think>")
     if count_think_1 != count_think_2:
         is_format_error = True
 
-    count_vision_1 = solution_str.count("<|vision_start|><|image_pad|>")
-    count_vision_2 = solution_str.count("<|image_pad|><|vision_end|>")
-    if count_vision_1 != count_vision_2:
-        is_format_error = True
+    # 2. Check vision tokens (skip this since tokenizer removes special tokens)
+    # We'll use <tool_call> and <tool_response> instead to detect tool usage
 
-    predict_no_think = solution_str.split("</think>")[-1].strip()
+    # 3. Extract answer text with multiple fallback strategies
+    answer_text = ""
+
+    # Strategy 1: Try to extract from <answer> tags first
+    predict_no_think = (
+        solution_str.split("</think>")[-1].strip() if "</think>" in solution_str else solution_str.strip()
+    )
+
+    # Check <answer> tag format
     count_answer_1 = predict_no_think.count("<answer>")
     count_answer_2 = predict_no_think.count("</answer>")
     if count_answer_1 != count_answer_2:
         is_format_error = True
 
-    # Use regex to safely extract content between <answer> tags.
-    # If tags are not found, this will result in an empty string.
-    match = re.search(r"<answer>(.*?)</answer>", predict_no_think, re.DOTALL)
-    if match:
-        answer_text = match.group(1).strip()
+    # Try to extract from <answer> tags
+    answer_match = re.search(r"<answer>(.*?)</answer>", predict_no_think, re.DOTALL)
+    if answer_match:
+        answer_text = answer_match.group(1).strip()
     else:
-        answer_text = ""
+        # No proper <answer> tags found - this is a format error
+        is_format_error = True
 
-    question_text = extra_info["question"]
+        # Strategy 2: If no <answer> tags, extract content after tool responses
+        # Look for pattern: <tool_response>...</tool_response>assistant\n[actual_answer]
+        tool_response_match = re.search(
+            r"</tool_response>\s*assistant\s*\n(.*?)$", predict_no_think, re.DOTALL | re.MULTILINE
+        )
+        if tool_response_match:
+            answer_text = tool_response_match.group(1).strip()
+        else:
+            # Strategy 3: If no tool responses, look for content after </think>
+            if "</think>" in solution_str:
+                # Remove any remaining tool-related tags and extract meaningful content
+                remaining_content = predict_no_think
+                # Remove tool calls and responses
+                remaining_content = re.sub(r"<tool_call>.*?</tool_call>", "", remaining_content, flags=re.DOTALL)
+                remaining_content = re.sub(
+                    r"<tool_response>.*?</tool_response>", "", remaining_content, flags=re.DOTALL
+                )
+                # Remove user/assistant markers
+                remaining_content = re.sub(r"\b(user|assistant)\b", "", remaining_content)
+                answer_text = remaining_content.strip()
+            else:
+                # Strategy 4: Use the entire solution_str as fallback
+                answer_text = solution_str.strip()
+
+    # Clean up answer text
+    answer_text = answer_text.strip()
+
+    # If answer is still empty after all strategies, mark as format error
+    if not answer_text:
+        is_format_error = True
+        answer_text = solution_str.strip()  # Use full text as last resort
+
+    # 4. Evaluate correctness using LLM judge
+    question_text = extra_info.get("question", "") if extra_info else ""
 
     if not client or not model_name:
         logger.warning("Reward function client not initialized or model name not found.")
@@ -248,7 +298,7 @@ def compute_score(data_source: str, solution_str: str, ground_truth: str, extra_
         logger.warning(f" [WARNING] Chat completion request failed: {e}")
         return 0.0
 
-    # Use regex for robust parsing. Search for whole words, case-insensitive.
+    # Parse LLM judge response
     if re.search(r"\bCORRECT\b", response, re.IGNORECASE):
         acc_reward = 1.0
     elif re.search(r"\bINCORRECT\b", response, re.IGNORECASE):
@@ -262,18 +312,41 @@ def compute_score(data_source: str, solution_str: str, ground_truth: str, extra_
         )
         acc_reward = 0.0
 
-    # Penalize for model trying to predict longer answer to hack llm-as-judge
+    # Penalize excessively long answers (potential judge hacking)
     if len(answer_text) >= 1000:
         acc_reward = 0.0
         is_format_error = True
 
-    tool_reward = 1.0 if count_vision_1 > 0 and acc_reward > 0.5 else 0.0
+    # 5. Check tool usage - look for tool_call/tool_response patterns instead of vision tokens
+    has_tool_usage = bool(
+        re.search(r"<tool_call>.*?</tool_call>", solution_str, re.DOTALL)
+        or re.search(r"<tool_response>.*?</tool_response>", solution_str, re.DOTALL)
+    )
+
+    # Tool reward: only give if tools were used AND answer is correct
+    tool_reward = 1.0 if has_tool_usage and acc_reward > 0.5 else 0.0
+
+    # Format reward: penalty for format errors
     format_reward = -1.0 if is_format_error else 0.0
-    # reward 2
-    return 0.8 * acc_reward + 0.2 * format_reward + 1.2 * tool_reward
+
+    # Log debug information for problematic cases
+    if is_format_error or not answer_text:
+        logger.debug(
+            f"Format issue detected:\n"
+            f"Solution: {solution_str[:200]}...\n"
+            f"Extracted answer: '{answer_text}'\n"
+            f"Format error: {is_format_error}\n"
+            f"Tool usage: {has_tool_usage}"
+        )
+
+    # Final weighted score
+    final_score = 0.8 * acc_reward + 0.2 * format_reward + 1.2 * tool_reward
+
+    return final_score
 
 
 if __name__ == "__main__":
+    # Test case 1: Original test case
     predict_str = "The answer is 2 + 2 = 4 </think> <answer> right </answer> <answer> left </answer>"
     ground_truth = "left"
     extra_info = {
@@ -283,11 +356,57 @@ if __name__ == "__main__":
         "pred_ans": "The woman is to the right of the man who is holding the camera.",
         "question": "Is the woman to the left or to the right of the man who is holding the camera?",
     }
-    print("start")
+    print("=== Test Case 1: Original test ===")
     import time
 
     time_start = time.time()
     score = compute_score("common_reasoning", predict_str, ground_truth, extra_info)
     print(f"Score: {score}")
+    time_end = time.time()
+    print(f"Time: {time_end - time_start}")
+
+    # Test case 2: Problematic case mentioned by user
+    problematic_solution = """<tool_call>
+{"name": "image_zoom_in_tool", "arguments": {"bbox_2d": [226, 399, 265, 464], "label": "white van"}}
+</tool_call>user
+<tool_response>
+Zoomed in on the image to the region [226, 399, 265, 464] with label white van.
+</tool_response>
+assistant
+The white van is visible in the lower section of the image, near the diagonal road."""
+
+    problematic_ground_truth = "Yes, the white van is indeed situated in the bottom part of the picture."
+    problematic_extra_info = {
+        "question": "Is the white van in the bottom part of the picture?",
+    }
+
+    print("\n=== Test Case 2: Problematic case (no answer tags) ===")
+    print(f"Solution: {problematic_solution}")
+    print(f"Ground truth: {problematic_ground_truth}")
+
+    time_start = time.time()
+    score2 = compute_score("common_reasoning", problematic_solution, problematic_ground_truth, problematic_extra_info)
+    print(f"Score: {score2}")
+    time_end = time.time()
+    print(f"Time: {time_end - time_start}")
+
+    # Test case 3: Well-formatted case with tools
+    well_formatted_solution = """<think>
+I need to use the image zoom tool to get a better look at the specific area.
+</think>
+<tool_call>
+{"name": "image_zoom_in_tool", "arguments": {"bbox_2d": [226, 399, 265, 464], "label": "white van"}}
+</tool_call>
+<tool_response>
+Zoomed in on the image to the region [226, 399, 265, 464] with label white van.
+</tool_response>
+<answer>Yes, the white van is indeed situated in the bottom part of the picture.</answer>"""
+
+    print("\n=== Test Case 3: Well-formatted case ===")
+    time_start = time.time()
+    score3 = compute_score(
+        "common_reasoning", well_formatted_solution, problematic_ground_truth, problematic_extra_info
+    )
+    print(f"Score: {score3}")
     time_end = time.time()
     print(f"Time: {time_end - time_start}")
