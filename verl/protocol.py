@@ -19,13 +19,13 @@ We can subclass Protocol to define more detailed batch info with specific keys
 import contextlib
 import copy
 import logging
+import math
 import os
 import pickle
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
-import pandas as pd
 import ray
 import tensordict
 import torch
@@ -118,14 +118,77 @@ def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> Ten
     return tensor_dict1
 
 
+def _array_equal(array1: np.ndarray, array2: np.ndarray, visited: set[int]) -> bool:
+    """
+    Recursively compares two NumPy arrays for strict equality, with special
+    handling for object-dtype arrays, NaN values, and circular references.
+    This function assumes that the two arguments provided are NumPy arrays.
+
+    Args:
+        array1: The first NumPy array.
+        array2: The second NumPy array.
+
+    Returns:
+        True if the arrays' dtypes, shapes, and all elements are equal.
+    """
+    # Check dtype and shape first, as this is the fastest failure path.
+    if array1.dtype != array2.dtype or array1.shape != array2.shape:
+        return False
+
+    # For non-object dtypes, use NumPy's implementation with equal_nan=True.
+    if array1.dtype != "object":
+        return np.array_equal(array1, array2, equal_nan=True)
+
+    # For object-dtype arrays, we must recursively compare each element.
+    # We delegate to _deep_equal to handle elements, as they could be any
+    # type, including other nested arrays or NaNs.
+    return all(_deep_equal(x, y, visited) for x, y in zip(array1.flat, array2.flat, strict=False))
+
+
+def _deep_equal(a: Any, b: Any, visited: set[int]) -> bool:
+    """
+    Recursively performs a deep comparison between two Python objects.
+    - Handles NaN values correctly (NaN == NaN evaluates to True).
+    - Handling circular references.
+    - Dispatches to _array_equal if both objects are NumPy arrays.
+    - Otherwise, uses standard '==' comparison.
+    """
+    if type(a) is not type(b):
+        return False
+
+    # If we have seen this object ID before on this path, it's a cycle.
+    # Since we already know the types match, we can safely assume this part
+    # of the structure is equal.
+    obj_id = id(a)
+    if obj_id in visited:
+        return True
+
+    visited.add(obj_id)
+
+    # Perform the specific comparison based on type
+    result = False
+    if isinstance(a, float) and math.isnan(a) and math.isnan(b):
+        result = True
+    elif isinstance(a, np.ndarray):
+        # We know b is also an ndarray due to the initial type check
+        result = _array_equal(a, b, visited)
+    else:
+        # Standard equality for all other types
+        result = a == b
+
+    # Clean up the visited set on the way out of the recursion
+    visited.remove(obj_id)
+    return result
+
+
 def union_numpy_dict(tensor_dict1: dict[str, np.ndarray], tensor_dict2: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     for key, val in tensor_dict2.items():
         if key in tensor_dict1:
             assert isinstance(tensor_dict2[key], np.ndarray)
             assert isinstance(tensor_dict1[key], np.ndarray)
             # to properly deal with nan and object type
-            assert pd.DataFrame(tensor_dict2[key]).equals(pd.DataFrame(tensor_dict1[key])), (
-                f"{key} in tensor_dict1 and tensor_dict2 are not the same object"
+            assert _deep_equal(tensor_dict1[key], tensor_dict2[key], visited=set()), (
+                f"`{key}` in tensor_dict1 and tensor_dict2 are not the same object."
             )
         tensor_dict1[key] = val
 
