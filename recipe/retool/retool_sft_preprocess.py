@@ -16,6 +16,7 @@ Convert JoeYing/ReTool-SFT to standard multi-turn tool calling messages.
 """
 
 import json
+import os
 import re
 from typing import Any
 
@@ -119,6 +120,7 @@ def process(row: dict, *, tools: str):
             messages.append(message)
             role = "assistant"
 
+    tools = json.loads(tools)
     return {"messages": messages, "tools": tools}
 
 
@@ -130,4 +132,5 @@ if __name__ == "__main__":
 
     data = datasets.load_dataset("JoeYing/ReTool-SFT")["train"]
     data = data.map(process, fn_kwargs={"tools": tools})
-    data.to_parquet("wuxibin/ReTool-SFT/data/train-00000-of-00001.parquet")
+    save_path = os.path.expanduser("~/ReTool-SFT/data/train-00000-of-00001.parquet")
+    data.to_parquet(save_path)
