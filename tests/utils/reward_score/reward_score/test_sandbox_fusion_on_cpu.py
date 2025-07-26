@@ -664,8 +664,8 @@ class Solution:
 
     assert results == [True, True]
     assert "error" not in metadata_list[0]
-    assert metadata_list[0].get("status") != "compilation error"
-    assert metadata_list[0].get("status") != "runtime error"
+    assert metadata_list[0].get("status") != "compile_error"
+    assert metadata_list[0].get("status") != "runtime_error"
 
 
 @pytest.mark.skipif(skip_condition, reason=skip_reason)
@@ -688,5 +688,60 @@ print(f"You said '{sys.stdin.readline().strip()}'")
 
     assert results == [True, True, True]
     assert "error" not in metadata_list[0]
-    assert metadata_list[0].get("status") != "compilation error"
-    assert metadata_list[0].get("status") != "runtime error"
+    assert metadata_list[0].get("status") != "compile_error"
+    assert metadata_list[0].get("status") != "runtime_error"
+
+
+@pytest.mark.skipif(skip_condition, reason=skip_reason)
+def test_assert_case_success():
+    """Tests successful execution for assert case.
+    from KodCode
+    """
+    generation_code = """
+from typing import List, Tuple
+
+def merge_intervals(intervals: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+    if not intervals:
+        return []
+
+    # Sort intervals by the start time
+    intervals.sort(key=lambda x: x[0])
+
+    merged = [intervals[0]]
+
+    for current in intervals[1:]:
+        last = merged[-1]
+        # If intervals overlap, merge them
+        if current[0] <= last[1]:
+            merged[-1] = (last[0], max(last[1], current[1]))
+        else:
+            merged.append(current)
+
+    return merged
+"""
+    test_cases = {
+        "fn_name": "merge_intervals",
+        "assert_case": [
+            "assert merge_intervals([(0, 1), (3, 5), (4, 7), (6, 8), (10, 12),"
+            " (12, 14)]) == [(0, 1), (3, 8), (10, 14)]",
+            "assert merge_intervals([(1, 2), (2, 3), (3, 4)]) == [(1, 4)]",
+            "assert merge_intervals([(1, 2), (3, 4), (5, 6)]) == [(1, 2), (3, 4), (5, 5)]",
+        ],
+    }
+
+    assert_cases = test_cases.get("assert_case")
+    test_cases.setdefault("inputs", ["" for _ in assert_cases])
+    test_cases.setdefault("outputs", [None for _ in assert_cases])
+
+    # Use a short timeout for fast tests
+    results, metadata_list = check_correctness(SANDBOX_URL, test_cases, generation_code, timeout=5)
+    assert results == [True, True, -2]
+    for i in range(2):
+        assert "error" not in metadata_list[i]
+        assert metadata_list[i].get("status") == "success"
+        assert metadata_list[i].get("expected_output") is None
+        assert metadata_list[i].get("status") != "runtime_error"
+    assert "error" not in metadata_list[2]
+    assert metadata_list[2].get("status") != "success"
+    assert metadata_list[2].get("expected_output") is None
+    assert metadata_list[2].get("status") == "runtime_error"
