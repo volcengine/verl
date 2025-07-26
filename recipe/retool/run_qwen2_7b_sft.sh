@@ -20,7 +20,7 @@ experiment_name=multiturn-sft-qwen-2.5-7b-instruct
 TRAIN_DATA=/mnt/hdfs/zhangchi.usc1992_lf_lq/data/ReTool-SFT/data/train-00000-of-00001.parquet
 EVAL_DATA=/mnt/hdfs/zhangchi.usc1992_lf_lq/data/ReTool-SFT/data/train-00000-of-00001.parquet
 MODEL_PATH=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen2.5-7B-Instruct
-SAVE_PATH=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/open_verl/${project_name}/${exp_name}
+SAVE_PATH=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/open_verl/${project_name}/${experiment_name}
 
 torchrun --nnodes=$nnodes \
      --nproc_per_node=$nproc_per_node \
