@@ -67,6 +67,8 @@ class Gsm8kTool(BaseTool):
     async def create(self, instance_id: Optional[str] = None, ground_truth: Optional[str] = None, **kwargs) -> str:
         if instance_id is None:
             instance_id = str(uuid4())
+        if ground_truth is None:
+            ground_truth = kwargs.get("create_kwargs", {}).get("ground_truth", None)
         self._instance_dict[instance_id] = {
             "response": "",
             "ground_truth": ground_truth,
