@@ -13,15 +13,17 @@
 # limitations under the License.
 
 from collections import defaultdict
+from typing import Any
 
 import torch
 
 from verl import DataProto
 from verl.workers.reward_manager import register
+from verl.workers.reward_manager.abstract import AbstractRewardManager
 
 
 @register("batch")
-class BatchRewardManager:
+class BatchRewardManager(AbstractRewardManager):
     """
     A batch reward manager that computes rewards for a batch of data.
 
@@ -87,7 +89,7 @@ class BatchRewardManager:
 
         scores = self.verify(data)
         rewards = []
-        already_printed = {}
+        already_printed: dict[str, Any] = {}
 
         for i in range(len(data)):
             length = valid_response_lengths[i].item()

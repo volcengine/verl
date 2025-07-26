@@ -19,10 +19,11 @@ import torch
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register
+from verl.workers.reward_manager.abstract import AbstractRewardManager
 
 
 @register("naive")
-class NaiveRewardManager:
+class NaiveRewardManager(AbstractRewardManager):
     """The reward manager."""
 
     def __init__(self, tokenizer, num_examine, compute_score=None, reward_fn_key="data_source") -> None:
