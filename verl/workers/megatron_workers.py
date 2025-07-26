@@ -194,7 +194,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 )
             else:
 
-                def megatron_actor_model_provider(pre_process, post_process):
+                def megatron_actor_model_provider(pre_process, post_process, vp_stage=None):
                     from verl.models.mcore import init_mcore_model
 
                     parallel_model = init_mcore_model(
@@ -205,6 +205,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                         share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
                         value=False,
                         freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False),
+                        vp_stage=vp_stage,
                     )
                     parallel_model.to(get_device_name())
                     return parallel_model
@@ -796,7 +797,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             )
         else:
 
-            def megatron_critic_model_provider(pre_process, post_process):
+            def megatron_critic_model_provider(pre_process, post_process, vp_stage=None):
                 from verl.models.mcore import init_mcore_model
 
                 parallel_model = init_mcore_model(
@@ -807,6 +808,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
                     share_embeddings_and_output_weights=False,
                     value=True,
                     freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False),
+                    vp_stage=vp_stage,
                 )
                 parallel_model.to(get_device_name())
                 return parallel_model
@@ -1058,7 +1060,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             )
         else:
 
-            def megatron_rm_model_provider(pre_process, post_process):
+            def megatron_rm_model_provider(pre_process, post_process, vp_stage=None):
                 from verl.models.mcore import init_mcore_model
 
                 parallel_model = init_mcore_model(
@@ -1068,6 +1070,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
                     post_process,
                     share_embeddings_and_output_weights=False,
                     value=True,
+                    vp_stage=vp_stage,
                 )
                 parallel_model.to(get_device_name())
                 return parallel_model
