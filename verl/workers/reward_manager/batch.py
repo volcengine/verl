@@ -19,7 +19,7 @@ import torch
 
 from verl import DataProto
 from verl.workers.reward_manager import register
-from verl.workers.reward_manager.abstract import AbstractRewardManager
+from verl.workers.reward_manager.abstract import AbstractRewardManager, RewardFn
 
 
 @register("batch")
@@ -35,7 +35,7 @@ class BatchRewardManager(AbstractRewardManager):
         reward_kwargs (dict): The keyword arguments to pass to the reward function.
     """
 
-    def __init__(self, tokenizer, num_examine, compute_score, reward_fn_key="data_source", **reward_kwargs):
+    def __init__(self, tokenizer, num_examine, compute_score: RewardFn, reward_fn_key="data_source", **reward_kwargs):
         self.tokenizer = tokenizer
         self.num_examine = num_examine
         self.compute_score = compute_score
@@ -71,7 +71,7 @@ class BatchRewardManager(AbstractRewardManager):
 
         return scores
 
-    def __call__(self, data: DataProto, return_dict=False):
+    def __call__(self, data: DataProto, return_dict: bool = False) -> torch.Tensor | dict[str, Any]:
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if "rm_scores" in data.batch.keys():
             if return_dict:

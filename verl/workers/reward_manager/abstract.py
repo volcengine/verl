@@ -15,7 +15,13 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Callable
+
+import torch
+
+from verl.protocol import DataProto
+
+RewardFn = Callable[..., Any]
 
 
 class AbstractRewardManager(ABC):
@@ -24,9 +30,16 @@ class AbstractRewardManager(ABC):
         self,
         tokenizer: Any,
         num_examine: int,
-        compute_score=None,
+        compute_score: RewardFn | None,
         reward_fn_key: str = "data_source",
-        max_resp_len=None,
-        overlong_buffer_cfg=None,
-    ) -> None:
+        **kwargs: Any,
+    ):
+        pass
+
+    @abstractmethod
+    def __call__(
+        self,
+        data: DataProto,
+        return_dict: bool,
+    ) -> torch.Tensor | dict[str, Any]:
         pass

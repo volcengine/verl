@@ -18,15 +18,16 @@ import os
 import sys
 import warnings
 from functools import partial
-from typing import Any
+from typing import Any, Optional
 
 import ray
+import torch
 from omegaconf import DictConfig
 
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import get_reward_manager_cls
-from verl.workers.reward_manager.abstract import AbstractRewardManager
+from verl.workers.reward_manager.abstract import AbstractRewardManager, RewardFn
 
 
 def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
@@ -38,7 +39,7 @@ def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
     return raw_fn(*args, **merged_kwargs)
 
 
-def get_custom_reward_fn(config: DictConfig):
+def get_custom_reward_fn(config: DictConfig) -> Optional[RewardFn]:
     """Load and return a custom reward function from external file.
 
     Dynamically imports a reward function from a specified file path and wraps
@@ -147,7 +148,7 @@ def load_reward_manager(
     )
 
 
-def compute_reward(data: DataProto, reward_fn):
+def compute_reward(data: DataProto, reward_fn) -> tuple[torch.Tensor, dict[str, Any]]:
     """
     Compute reward for a batch of data.
     Args:
