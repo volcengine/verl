@@ -462,8 +462,8 @@ class SGLangRollout(BaseRollout):
                 # max_running_requests=1,
                 mm_attention_backend="fa3",
                 attention_backend="fa3",
-                # In async mode, we want token in token out.
-                skip_tokenizer_init=self.config.mode == "async",
+                # we want token in token out by default
+                skip_tokenizer_init=True,
             )
         else:
             self._engine = None
@@ -885,11 +885,16 @@ class SGLangRollout(BaseRollout):
                     )
 
                 output = await self._handle_engine_call(_req, request_sampling_params, image_data=image_data)
-                content = output["text"]
+                content, content_ids = None, None
+                if "text" in output:
+                    content = output["text"]
+                elif "output_ids" in output:
+                    content_ids = output["output_ids"]
+
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
-                    _req.add_assistant_message(self.processing_class, content)
+                    _req.add_assistant_message(self.processing_class, content=content, content_ids=content_ids)
                     break
                 else:
                     if self._function_call_parser and self._function_call_parser.has_tool_call(content):
@@ -922,17 +927,21 @@ class SGLangRollout(BaseRollout):
                             )
                         if len(parsed_tool_calls) > 0:
                             _req.add_assistant_message(
-                                self.processing_class, normed_content, tool_calls=parsed_tool_calls
+                                self.processing_class,
+                                content=normed_content,
+                                content_ids=content_ids,
+                                tool_calls=parsed_tool_calls,
                             )
                         else:
-                            _req.add_assistant_message(self.processing_class, content)
+                            _req.add_assistant_message(self.processing_class, content=content, content_ids=content_ids)
                             finish_reason_type = FinishReasonTypeEnum.STOP
                             _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                             break
                     else:
                         _req.add_assistant_message(
                             self.processing_class,
-                            content,
+                            content=content,
+                            content_ids=content_ids,
                         )
                         if (
                             _req.interaction_kwargs
