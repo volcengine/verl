@@ -93,6 +93,12 @@ html_static_path = ["_static"]
 # Add the JavaScript file
 html_js_files = [
     "js/runllm-widget.js",
+    "js/resizable-sidebar.js",
+]
+
+# Add custom CSS file for full-width layout
+html_css_files = [
+    "custom.css",
 ]
 
 exclude_patterns += ["README.md", "README_vllm0.7.md"]

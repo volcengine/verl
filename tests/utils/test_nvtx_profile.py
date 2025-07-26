@@ -57,7 +57,7 @@ class TestProfilerConfig(unittest.TestCase):
         from verl.utils.profiler.config import ProfilerConfig
 
         # Create a new ProfilerConfig instance
-        config = ProfilerConfig(discrete=True, all_ranks=False, ranks=[0])
+        config = ProfilerConfig(discrete=True, all_ranks=False, ranks=[0], extra={"key": "value"})
 
         # Test direct attribute assignment
         with self.assertRaises(FrozenInstanceError):
@@ -79,7 +79,9 @@ class TestProfilerConfig(unittest.TestCase):
         with self.assertRaises(TypeError):
             config["ranks"] = [1, 2, 3]
 
-        config["extra"]["key"] = "value"
+        assert config["extra"]["key"] == "value"
+        config["extra"]["key"] = "value2"
+        assert config["extra"]["key"] == "value2"
 
 
 class TestNsightSystemsProfiler(unittest.TestCase):

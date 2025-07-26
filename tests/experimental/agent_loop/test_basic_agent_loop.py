@@ -33,7 +33,16 @@ def init_config() -> DictConfig:
     from hydra import compose, initialize_config_dir
 
     with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
-        config = compose(config_name="ppo_trainer")
+        config = compose(
+            config_name="ppo_trainer",
+            overrides=[
+                "actor_rollout_ref.actor.use_dynamic_bsz=true",
+                # test sleep/wake_up with fsdp offload
+                "actor_rollout_ref.actor.fsdp_config.param_offload=True",
+                "actor_rollout_ref.actor.fsdp_config.optimizer_offload=True",
+            ],
+        )
+
     model_path = "Qwen/Qwen2.5-1.5B-Instruct"
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
@@ -42,10 +51,6 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.rollout.response_length = 4096
     config.actor_rollout_ref.rollout.n = 4
     config.actor_rollout_ref.rollout.agent.num_workers = 2
-
-    # test sleep/wake_up with fsdp offload
-    config.actor_rollout_ref.actor.fsdp_config.param_offload = True
-    config.actor_rollout_ref.actor.fsdp_config.optimizer_offload = True
 
     return config
 

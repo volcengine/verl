@@ -39,32 +39,47 @@ def preprocess_packed_seqs(
 
     pad_size = (align_size - seqlens_in_batch % align_size) % align_size
     seqlens_in_batch_padded = seqlens_in_batch + pad_size
+
     cu_seqlens = torch.zeros(batch_size + 1, dtype=torch.int32, device=input_ids.device)
     cu_seqlens[1:] = torch.cumsum(seqlens_in_batch, dim=0)
     cu_seqlens_padded = torch.zeros(batch_size + 1, dtype=torch.int32, device=input_ids.device)
     cu_seqlens_padded[1:] = torch.cumsum(seqlens_in_batch_padded, dim=0)
-    max_seqlen_in_batch = seqlens_in_batch_padded.max().item()
+
+    # ----------------------------------------------------------------------------
+    # Move the index information needed in the subsequent loop to the CPU at once,
+    # to avoid frequent .item() calls in the loop that cause D2H synchronization
+    # ----------------------------------------------------------------------------
+    seqlens_in_batch_cpu: list[int] = seqlens_in_batch.tolist()  # original valid lengths
+    seqlens_in_batch_padded_cpu: list[int] = seqlens_in_batch_padded.tolist()  # lengths after padding
+    cu_seqlens_padded_cpu: list[int] = cu_seqlens_padded.tolist()  # start positions (after padding)
+
+    # Pure Python int calculation to avoid further synchronization
+    max_seqlen_in_batch = max(seqlens_in_batch_padded_cpu)
 
     shape = list(input_ids.shape[1:])
-    shape[0] = seqlens_in_batch_padded.sum().item() // cp_size
+    shape[0] = sum(seqlens_in_batch_padded_cpu) // cp_size
     if pre_process:
         input_ids_rmpad = torch.zeros(shape, dtype=input_ids.dtype, device=input_ids.device)
         for i in range(batch_size):
+            # Use Python int, so no GPU→CPU sync in the loop
             if cp_size <= 1:
-                seqlen = seqlens_in_batch[i]
-                input_ids_rmpad[cu_seqlens_padded[i] : cu_seqlens_padded[i] + seqlen] = input_ids[i, attention_mask[i]]
+                seqlen = seqlens_in_batch_cpu[i]
+                start_idx = cu_seqlens_padded_cpu[i]
+                input_ids_rmpad[start_idx : start_idx + seqlen] = input_ids[i, attention_mask[i]]
                 continue
-            seqlen = seqlens_in_batch_padded[i] // cp_size
+
+            seqlen_padded_i = seqlens_in_batch_padded_cpu[i]
+            seqlen = seqlen_padded_i // cp_size
             half_seqlen = seqlen // 2
-            start_idx = cu_seqlens_padded[i] // cp_size
+            start_idx = cu_seqlens_padded_cpu[i] // cp_size
             # split to 2 chunks
             d = input_ids[i, attention_mask[i]]
             input_ids_rmpad[start_idx : start_idx + half_seqlen] = d[
                 half_seqlen * cp_rank : half_seqlen * (cp_rank + 1)
             ]
 
-            remain_start = seqlens_in_batch_padded[i] - half_seqlen * (cp_rank + 1)
-            remain_end = seqlens_in_batch_padded[i] - half_seqlen * cp_rank
+            remain_start = seqlen_padded_i - half_seqlen * (cp_rank + 1)
+            remain_end = seqlen_padded_i - half_seqlen * cp_rank
             remain_end = min(remain_end, d.shape[0])
             remain_len = remain_end - remain_start
             if remain_len > 0:
@@ -100,6 +115,14 @@ def postprocess_packed_seqs(
     """
     if not post_process:
         return output
+
+    # -------------------------------------------------------------------------
+    # Move the lengths and offsets needed for subsequent Python-level indexing to the CPU in advance,
+    # to avoid a large number of .item() calls in the loop
+    # -------------------------------------------------------------------------
+    cu_padded_cpu: list[int] = packed_seq_params.cu_seqlens_q_padded.tolist()
+    seq_lens_cpu: list[int] = attention_mask.sum(dim=1, dtype=torch.int32).cpu().tolist()
+
     shape = [batch_size, seq_len] + list(output.shape[2:])  # 1,packed, dim -> batch_size, seq_len, dim
     output_new = torch.zeros(shape, dtype=output.dtype, device=output.device)
 
@@ -115,22 +138,19 @@ def postprocess_packed_seqs(
         output_list = [output]
     for i in range(batch_size):
         if cp_size <= 1:
-            s = attention_mask[i].sum().item()
-            output_new[i, attention_mask[i]] = output[0][
-                packed_seq_params.cu_seqlens_q_padded[i] : packed_seq_params.cu_seqlens_q_padded[i] + s
-            ]
+            s = seq_lens_cpu[i]
+            start_idx = cu_padded_cpu[i]
+            output_new[i, attention_mask[i]] = output[0][start_idx : start_idx + s]
             continue
-        s_len_padded_chunk = (
-            packed_seq_params.cu_seqlens_q_padded[i + 1] - packed_seq_params.cu_seqlens_q_padded[i]
-        ) // cp_size
+        s_len_padded_chunk = (cu_padded_cpu[i + 1] - cu_padded_cpu[i]) // cp_size
         half_seqlen = s_len_padded_chunk // 2
-        s_len = attention_mask[i].sum().item()
+        s_len = seq_lens_cpu[i]
         s_len_padded = s_len_padded_chunk * cp_size
         tmp = torch.empty(s_len_padded, *output.shape[2:], device=output.device)
         for j in range(cp_size):
             o = output_list[j][0]
             # split to 2 chunks
-            packed_start_idx = packed_seq_params.cu_seqlens_q_padded[i] // cp_size
+            packed_start_idx = cu_padded_cpu[i] // cp_size
             o0, o1 = (
                 o[packed_start_idx : packed_start_idx + half_seqlen],
                 o[packed_start_idx + half_seqlen : packed_start_idx + s_len_padded_chunk],

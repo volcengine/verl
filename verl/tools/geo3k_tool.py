@@ -72,7 +72,7 @@ class Geo3kTool(BaseTool):
             "ground_truth": ground_truth,
             "reward": 0.0,
         }
-        return instance_id, None
+        return instance_id
 
     @rollout_trace_op
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:

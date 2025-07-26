@@ -1,7 +1,7 @@
 Data collection based on FSDP (Fully Sharded Data Parallel) backend on Ascend devices(NPU)
 ==========================================================================================
 
-Last updated: 07/14/2025.
+Last updated: 07/24/2025.
 
 This is a tutorial for data collection using the GRPO or DAPO algorithm
 based on FSDP on Ascend devices.
@@ -35,6 +35,17 @@ and steps.
 Use parameters in npu_profile.yaml to control collection behavior:
 
 -  save_path: Storage path for collected data.
+-  roles: Roles to collect. The following options are available
+
+   -  rollout_generate: Collect the `generate_sequences` phase 
+      of rollout worker.
+   -  actor_compute_log_prob: Collect the `compute_log_prob` phase 
+      of the actor worker.
+   -  actor_update:  Collect the `update_actor` phase of the actor worker.
+   -  ref_compute_log_prob: Collect the `compute_ref_log_prob` phase 
+      of the ref worker.
+   -  all: Collect all of the above phases.
+
 -  level: Collection level—options are level_none, level0, level1, and
    level2
 
@@ -87,6 +98,23 @@ Discrete Mode Collection
 
        trainer:
            profile_steps: [1, 2, 5]
+       actor_rollout_ref:
+            profiler:
+                discrete: True
+                all_ranks: False
+                ranks: [0, 1]
+
+
+Enable actor collection in discrete mode
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code:: yaml
+
+       trainer:
+           profile_steps: [1, 2, 5]
+           npu_profile:
+                options:
+                    roles: ["actor_compute_log_prob", "actor_update"]
        actor_rollout_ref:
             profiler:
                 discrete: True

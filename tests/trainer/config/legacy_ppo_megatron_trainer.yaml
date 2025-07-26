@@ -223,9 +223,6 @@ actor_rollout_ref:
       # null for no interaction
       interaction_config_path: null
 
-      # null for default callback
-      completion_callback: null
-
       # - When set to True, the model's default chat template is used for multi-turn rollout, which typically matches production behavior.
       # - When set to False, the token ids recorded for training are used instead; unlike the default chat template, these always include the model's full output,
       #   which may contain additional content such as reasoning content. This maintains the consistency between training and rollout, but it will lead to longer prompts.
@@ -258,7 +255,7 @@ actor_rollout_ref:
     calculate_log_probs: False
     # Nsight system profiler configs
   profiler:
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.utils.profiler.ProfilerConfig
     discrete: False
     all_ranks: False
@@ -336,7 +333,7 @@ critic:
     load_contents: ${critic.checkpoint.save_contents}
   # Nsight system profiler configs
   profiler:
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.utils.profiler.ProfilerConfig
     discrete: False
     all_ranks: False
@@ -379,7 +376,7 @@ reward_model:
     memory_limit_mb: 1024 # Max memory limit for each sandbox process in MB
   # Nsight system profiler configs
   profiler:
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.utils.profiler.ProfilerConfig
     discrete: False
     all_ranks: False
@@ -390,7 +387,7 @@ custom_reward_function:
   name: compute_score
 
 algorithm:
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.trainer.config.AlgoConfig
   gamma: 1.0
   lam: 1.0
@@ -399,7 +396,7 @@ algorithm:
   use_kl_in_reward: False
   kl_penalty: kl  # how to estimate kl divergence
   kl_ctrl:
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.trainer.config.KLControlConfig
     type: fixed
     kl_coef: 0.001
@@ -407,8 +404,6 @@ algorithm:
     target_kl: 0.1
   use_pf_ppo: False
   pf_ppo:
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-    _target_: verl.trainer.config.PFPPOConfig
     reweight_method: pow  # ["pow", "max_min", "max_random"]
     weight_pow: 2.0
 
@@ -455,6 +450,7 @@ trainer:
   npu_profile:
     options:
       save_path: ./profiler_data
+      roles: ["all"]
       level: level1
       with_memory: False
       record_shapes: False

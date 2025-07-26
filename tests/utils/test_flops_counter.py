@@ -18,7 +18,7 @@ import pytest
 
 from verl.utils.flops_counter import FlopsCounter
 
-VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3"}
+VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text"}
 
 
 class Config:
@@ -135,12 +135,83 @@ CONFIG = {
         # 12*(4096*4096+4096*4096+4096*4096)*61*192*128
         "expected_flops_tuple": (906535995703296 / 1e12, 3674028304760832 / 1e12),
     },
+    "mistral": {
+        "config": {  # mistralai/Mistral-Small-24B-Instruct-2501
+            "model_type": "mistral",
+            "vocab_size": 131072,
+            "hidden_size": 5120,
+            "intermediate_size": 32768,
+            "num_hidden_layers": 40,
+            "num_attention_heads": 32,
+            "num_key_value_heads": 8,
+            "head_dim": 128,
+        },
+        "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
+        # Mistral uses same architecture as Llama, with GQA
+        # 6*(vocab*hidden*2+layer*(hidden*(q+k+v+head*head_dim)+ hidden*inter*3))*token_sum +
+        # 12*sum(seqlen^2)*layer*head*head_dim
+        # vocab part: 131072*5120*2 = 1342177280
+        # attn part per layer: 5120*(128*32+128*8+128*8+128*32) = 5120*10240 = 52428800
+        # mlp part per layer: 5120*32768*3 = 503316480
+        # total per layer: 52428800 + 503316480 = 555745280
+        # all layers: 1342177280 + 40*555745280 = 23571988480
+        # For batch [512, 1024, 2048], tokens_sum = 3584:
+        # dense flops: 6 * 23571988480 * 3584 = 506892040273920
+        # attn flops: 12 * 5505024 * 40 * 128 * 32 = 10823317585920
+        # total: 517715357859840 / 1e12 = 517.71535785984
+        # For batch [4096, 4096, 4096], tokens_sum = 12288:
+        # dense flops: 6 * 23571988480 * 12288 = 1737915566653440
+        # attn flops: 12 * 50331648 * 40 * 128 * 32 = 98956046499840
+        # total: 1836871613153280 / 1e12 = 1836.87161315328
+        "expected_flops_tuple": (517715357859840 / 1e12, 1836871613153280 / 1e12),
+    },
+    "gemma3_text": {
+        "config": {  # Gemma3-12B-IT-TextOnly
+            "model_type": "gemma3_text",
+            "vocab_size": 262208,
+            "hidden_size": 3840,
+            "intermediate_size": 15360,
+            "num_hidden_layers": 48,
+            "num_attention_heads": 16,
+            "num_key_value_heads": 8,
+            "head_dim": 256,
+            "sliding_window": 1024,
+            "layer_types": None,
+            # Will be auto-generated based on sliding_window_pattern
+            "sliding_window_pattern": 6,
+            # Every 6th layer is full attention
+        },
+        "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
+        # Gemma3 has alternating sliding window attention
+        # With sliding_window_pattern=6: layers 5,11,17,23,29,35,41,47 use full attention (8 layers)
+        # Other 40 layers use sliding window attention with window_size=1024
+        #
+        # Non-attention FLOPs:
+        # vocab part: 262208*3840*2 = 2013757440
+        # attn part per layer: 3840*(256*16+256*8+256*8+256*16) = 3840*12288 = 47185920
+        # mlp part per layer: 3840*15360*3 = 176947200
+        # total per layer: 47185920 + 176947200 = 224133120
+        # all layers: 2013757440 + 48*224133120 = 12772147200
+        #
+        # For batch [512, 1024, 2048], tokens_sum = 3584:
+        # dense flops: 6 * 12772147200 * 3584 = 274652253388800
+        # seqlen_square_sum: 180355072 (calculated with sliding window logic)
+        # attn flops: 12 * 180355072 * 256 * 16 = 8864812498944
+        # total: 283517065887744 / 1e12 = 283.517065887744
+        #
+        # For batch [4096, 4096, 4096], tokens_sum = 12288:
+        # dense flops: 6 * 12772147200 * 12288 = 941664868761600
+        # seqlen_square_sum: 905969664 (calculated with sliding window logic)
+        # attn flops: 12 * 905969664 * 256 * 16 = 44530220924928
+        # total: 986195089686528 / 1e12 = 986.195089686528
+        "expected_flops_tuple": (283517065887744 / 1e12, 986195089686528 / 1e12),
+    },
 }
 
 
 @pytest.mark.parametrize(
     "config_type",
-    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3"],
+    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text"],
 )
 def test_flops_counter(config_type: str):
     test_config = CONFIG[config_type]

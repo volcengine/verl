@@ -27,8 +27,24 @@ from verl.utils.logger import DecoratorLoggerBase
 
 
 def _get_current_mem_info(unit: str = "GB", precision: int = 2) -> tuple[str]:
-    """Get current memory usage."""
+    """Get current memory usage.
+
+    Note that CPU device memory info is always 0.
+
+    Args:
+        unit (str, optional): The unit of memory measurement. Defaults to "GB".
+        precision (int, optional): The number of decimal places to round memory values. Defaults to 2.
+
+    Returns:
+        tuple[str]: A tuple containing memory allocated, memory reserved, memory used, and memory total
+        in the specified unit.
+    """
     assert unit in ["GB", "MB", "KB"]
+    device = get_torch_device()
+    # torch.cpu.memory_allocated() does not exist
+    if device == torch.cpu:
+        return "0.00", "0.00", "0.00", "0.00"
+
     divisor = 1024**3 if unit == "GB" else 1024**2 if unit == "MB" else 1024
     mem_allocated = get_torch_device().memory_allocated()
     mem_reserved = get_torch_device().memory_reserved()

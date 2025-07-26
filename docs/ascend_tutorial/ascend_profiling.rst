@@ -1,7 +1,7 @@
 在昇腾设备上基于FSDP后端进行数据采集
 ====================================
 
-Last updated: 07/14/2025.
+Last updated: 07/24/2025.
 
 这是一份在昇腾设备上基于FSDP后端使用GRPO或DAPO算法进行数据采集的教程。
 
@@ -32,6 +32,14 @@ Last updated: 07/14/2025.
 通过 npu_profile.yaml 中的参数控制具体采集行为：
 
 -  save_path：采集数据的存放路径
+-  roles: 采集的角色，下列为可选项
+
+   -  rollout_generate：采集rollout的generate_sequences阶段
+   -  actor_compute_log_prob：采集actor的compute_log_prob阶段
+   -  actor_update：采集actor的update_actor阶段
+   -  ref_compute_log_prob：采集ref的compute_ref_log_prob阶段
+   -  all： 采集以上所有阶段
+
 -  level：采集等级，可选项为level_none、level0、level1和level2
 
    -  level_none：不采集所有Level层级控制的数据，即关闭profiler_level
@@ -79,6 +87,23 @@ Last updated: 07/14/2025.
 
        trainer:
            profile_steps: [1, 2, 5]
+       actor_rollout_ref:
+            profiler:
+                discrete: True
+                all_ranks: False
+                ranks: [0, 1]
+
+
+离散模式采集actor
+~~~~~~~~~~~~~~~~~~
+
+.. code:: yaml
+
+       trainer:
+           profile_steps: [1, 2, 5]
+           npu_profile:
+                options:
+                    roles: ["actor_compute_log_prob", "actor_update"]
        actor_rollout_ref:
             profiler:
                 discrete: True

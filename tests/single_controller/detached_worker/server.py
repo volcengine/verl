@@ -51,7 +51,6 @@ class Trainer(MegatronWorker):
             torch.distributed.init_process_group(backend="nccl")
             torch.cuda.set_device(rank)
 
-            os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "1"
             mpu.initialize_model_parallel(
                 tensor_model_parallel_size=2,
                 pipeline_model_parallel_size=1,

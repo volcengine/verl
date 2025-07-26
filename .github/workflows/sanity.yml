@@ -85,6 +85,12 @@ jobs:
             echo "Please use verl instead of veRL in the codebase"
             exit 1
           fi
+      - name: Assert SGLang naming convention
+        run: |
+          if grep -rIn --exclude-dir=.git --exclude-dir=.github --exclude-dir=venv --exclude-dir=__pycache__ -E 'Sglang|sgLang|sglAng|sglaNg|sglanG' .; then
+            echo "Please use SGLang or sglang as the formal name of SGLang rollout engine"
+            exit 1
+          fi
       - name: Validate test folder structure
         run: python3 tests/special_sanity/validate_structure.py
       - name: Assert documentation requirement for functions

@@ -470,7 +470,7 @@ actor_rollout_ref:
     # number of responses (i.e. num sample times). > 1 for grpo
     n: 1
 
-    # Whether to wake up inference engine in multi-stage. (Wake up model weights first, then resume kv cache)
+    # Whether to wake up inference engine in multi-stage to reduce peak memory during training-rollout transition.
     multi_stage_wake_up: false
 
     # Extra inference engine arguments (vllm, sglang).
@@ -537,9 +537,6 @@ actor_rollout_ref:
       # null for no interaction
       interaction_config_path: null
 
-      # null for default callback
-      completion_callback: null
-
       # - When set to True, the model's default chat template is used for multi-turn rollout, which typically matches production behavior.
       # - When set to False, the token ids recorded for training are used instead; unlike the default chat template, these always include the model's full output,
       #   which may contain additional content such as reasoning content. This maintains the consistency between training and rollout, but it will lead to longer prompts.
@@ -579,7 +576,7 @@ actor_rollout_ref:
   # profiler configs
   profiler:
 
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.utils.profiler.ProfilerConfig
 
     # True for each task has its own database, False for all tasks in one training step share one database.
@@ -744,7 +741,7 @@ critic:
   # the corresponding dataclass is verl.utils.profiler.ProfilerConfig.
   profiler:
 
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.utils.profiler.ProfilerConfig
 
     # True for each task has its own database, False for all tasks in one training step share one database.
@@ -858,7 +855,7 @@ reward_model:
   # profiler configs
   profiler:
 
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.utils.profiler.ProfilerConfig
 
     # True for each task has its own database, False for all tasks in one training step share one database.
@@ -883,7 +880,7 @@ custom_reward_function:
 # config for the algorithm
 algorithm:
 
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.trainer.config.AlgoConfig
 
   # Discount factor for future rewards
@@ -907,7 +904,7 @@ algorithm:
   # KL control configuration
   kl_ctrl:
 
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.trainer.config.KLControlConfig
 
     # KL control type: "fixed" or "adaptive"
@@ -927,9 +924,6 @@ algorithm:
 
   # Preference feedback PPO settings
   pf_ppo:
-
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-    _target_: verl.trainer.config.PFPPOConfig
 
     # Method for reweighting samples: "pow", "max_min", or "max_random"
     reweight_method: pow
@@ -1000,6 +994,11 @@ trainer:
 
       # Storage path of collected data.
       save_path: ./profiler_data
+
+      # The roles that will be profiled. Only takes effect in discrete mode.
+      # optional values: all, rollout_generate, actor_compute_log_prob, actor_update and ref_compute_log_prob.
+      # "all" means all roles will be profiled.
+      roles: ["all"]
 
       # Collection level, optional values: level_none, level0, level1, level2.
       level: level1

@@ -14,16 +14,33 @@
 
 import os
 import unittest
+import warnings
 
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
+_BREAKING_CHANGES = [
+    "critic.optim.lr",  # mcore critic lr init value 1e-6 -> 1e-5
+    "actor_rollout_ref.actor.optim.lr_warmup_steps",  # None -> -1
+    "critic.optim.lr_warmup_steps",  # None -> -1
+]
+
 
 class TestConfigComparison(unittest.TestCase):
     """Test that current configs match their legacy counterparts exactly."""
 
-    def _compare_configs_recursively(self, current_config, legacy_config, path="", legacy_allow_missing=True):
+    ignored_keys = [
+        "enable_gradient_checkpointing",
+        "gradient_checkpointing_kwargs",
+        "activations_checkpoint_method",
+        "activations_checkpoint_granularity",
+        "activations_checkpoint_num_layers",
+    ]
+
+    def _compare_configs_recursively(
+        self, current_config, legacy_config, path="", legacy_allow_missing=True, current_allow_missing=False
+    ):
         """Recursively compare two OmegaConf configs and assert they are identical.
 
         Args:
@@ -37,13 +54,24 @@ class TestConfigComparison(unittest.TestCase):
             missing_in_current = legacy_keys - current_keys
             missing_in_legacy = current_keys - legacy_keys
 
+            # Ignore specific keys that are allowed to be missing
+            for key in self.ignored_keys:
+                if key in missing_in_current:
+                    missing_in_current.remove(key)
+                if key in missing_in_legacy:
+                    missing_in_legacy.remove(key)
+
             if missing_in_current:
-                self.fail(f"Keys missing in current config at {path}: {missing_in_current}")
+                msg = f"Keys missing in current config at {path}: {missing_in_current}"
+                if current_allow_missing:
+                    warnings.warn(msg, stacklevel=1)
+                else:
+                    self.fail(f"Keys missing in current config at {path}: {missing_in_current}")
             if missing_in_legacy:
                 # if the legacy
                 msg = f"Keys missing in legacy config at {path}: {missing_in_legacy}"
                 if legacy_allow_missing:
-                    print(msg)
+                    warnings.warn(msg, stacklevel=1)
                 else:
                     self.fail(msg)
 
@@ -59,7 +87,7 @@ class TestConfigComparison(unittest.TestCase):
             )
             for i, (current_item, legacy_item) in enumerate(zip(current_config, legacy_config, strict=True)):
                 self._compare_configs_recursively(current_item, legacy_item, f"{path}[{i}]")
-        else:
+        elif path not in _BREAKING_CHANGES:
             self.assertEqual(
                 current_config,
                 legacy_config,
@@ -106,7 +134,9 @@ class TestConfigComparison(unittest.TestCase):
             if "defaults" in current_dict:
                 del current_dict["defaults"]
 
-            self._compare_configs_recursively(current_dict, legacy_dict, legacy_allow_missing=True)
+            self._compare_configs_recursively(
+                current_dict, legacy_dict, legacy_allow_missing=True, current_allow_missing=False
+            )
         finally:
             GlobalHydra.instance().clear()
 

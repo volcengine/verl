@@ -38,7 +38,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.megatron.seed=42 \
-    actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=2 \
     actor_rollout_ref.ref.megatron.virtual_pipeline_model_parallel_size=2 \
     actor_rollout_ref.ref.megatron.context_parallel_size=2 \

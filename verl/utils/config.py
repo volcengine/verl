@@ -41,8 +41,9 @@ def omega_conf_to_dataclass(config: DictConfig | dict, dataclass_type: Optional[
 
     if dataclass_type is None:
         assert "_target_" in config, (
-            "When dataclass_type is not provided, config must contain _target_."
-            "See trainer/config/ppo_trainer.yaml algorithm section for an example."
+            "When dataclass_type is not provided, config must contain _target_. "
+            "See trainer/config/ppo_trainer.yaml algorithm section for an example. "
+            f"Got config: {config}"
         )
         from hydra.utils import instantiate
 
@@ -51,6 +52,9 @@ def omega_conf_to_dataclass(config: DictConfig | dict, dataclass_type: Optional[
     if not is_dataclass(dataclass_type):
         raise ValueError(f"{dataclass_type} must be a dataclass")
     cfg = OmegaConf.create(config)  # in case it's a dict
+    # pop _target_ to avoid hydra instantiate error, as most dataclass do not have _target_
+    if "_target_" in cfg:
+        cfg.pop("_target_")
     cfg_from_dataclass = OmegaConf.structured(dataclass_type)
     # let cfg override the existing vals in `cfg_from_dataclass`
     cfg_merged = OmegaConf.merge(cfg_from_dataclass, cfg)

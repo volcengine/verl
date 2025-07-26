@@ -4,27 +4,22 @@ defaults:
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
+_target_: verl.workers.config.McoreActorConfig
+
 strategy: megatron
 
 data_loader_seed: null
 
 load_weight: True
 
-checkpoint:
-
-  async_save: False
-
 optim:
-
+  _target_: verl.workers.config.McoreOptimizerConfig
   optimizer: adam
 
   clip_grad: 1.0
 
   # initial learning rate for warmup, default to 0.0
   lr_warmup_init: 0.0
-
-  # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
-  lr_warmup_steps: null
 
   lr_decay_steps: null
 
@@ -47,10 +42,16 @@ optim:
 
 megatron:
 
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.McoreEngineConfig
+
+  # Whether to offload model parameters to CPU
   param_offload: False
 
+  # Whether to offload gradients to CPU
   grad_offload: False
 
+  # Whether to offload optimizer state to CPU
   optimizer_offload: False
 
   tensor_model_parallel_size: 1
@@ -81,13 +82,30 @@ megatron:
 
   # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
   # oc.select: default val for ref.megatron.override_transformer_config
-  override_transformer_config: {}
+  override_transformer_config:
+    # Recompute configuration, same as in megatron.training.arguments
+    # default use minimal performance-interference recompute methods
+    # Recompute granualarity, choices: ["full", "selective"]
+    recompute_granularity: null
+
+    # Recompute modules, multiple choices: ["core_attn", "moe_act", "layernorm", "mla_up_proj", "mlp", "moe"]
+    # Please use correct module in matched model
+    recompute_modules: ["core_attn"]
+
+    # 'uniform', 'block'
+    # 'uniform' divides the total number of transformer layers and checkpoints the input activation of each chunk
+    # 'block' checkpoints the specified number of layers per pipeline stage at the specified granularity
+    recompute_method: null
+
+    # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
+    recompute_num_layers: null
 
   # oc.select: default val for ref.megatron.use_mbridge
   use_mbridge: False
 
 # profile the actor model in `update_policy` 
 profile:
+
   # turn it on when you want to profile the actor model
   use_profile: False
 

@@ -10,7 +10,17 @@ defaults:
 
 actor_rollout_ref:
   actor:
+    _target_: recipe.sppo.config.SPPOActorConfig
+
+    # sppo_eta is an additional hyperparameter for SPPO, not available in
+    # verl core. specifying _target_ with SPPOActorConfig is needed to
+    # extend verl ActorConfig with custom fields.
+    # additional, it is also possible to use the `extra` field natively supported
+    # by all verl core dataclasses, without having to define SPPOActorConfig
+    # extra:
+    #   sppo_eta: 1.0
     sppo_eta: 1.0
+
     optim:
       lr_warmup_steps: 15
   rollout:
