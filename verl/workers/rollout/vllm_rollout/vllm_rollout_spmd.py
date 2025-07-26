@@ -311,7 +311,7 @@ class vLLMRollout(BaseRollout):
             }
 
         if len(prompts.non_tensor_batch.pop('reqs_idx', [])):
-            self.sampling_params.n = self.config.rollout.get('n', 1)
+            self.sampling_params.n = self.config.get('n', 1)
 
         lora_requests = None
         if self.lora_kwargs:
