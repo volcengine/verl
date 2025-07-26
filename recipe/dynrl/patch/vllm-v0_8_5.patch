@@ -1,0 +1,181 @@
+diff --git a/device_allocator/cumem.py b/device_allocator/cumem.py
+index 9ff77f14a..64b915b81 100644
+--- a/device_allocator/cumem.py
++++ b/device_allocator/cumem.py
+@@ -172,8 +172,8 @@ class CuMemAllocator:
+ 
+     def sleep(
+             self,
+-            offload_tags: Optional[Union[Tuple[str, ...],
+-                                         str]] = None) -> None:
++            offload_tags: Optional[Union[Tuple[str, ...], str]] = None,
++            tags = None) -> None:
+         """
+         Put the allocator in sleep mode.
+         All data in the memory allocation with the specified tag will be
+@@ -193,17 +193,18 @@ class CuMemAllocator:
+ 
+         for ptr, data in self.pointer_to_data.items():
+             handle = data.handle
+-            if data.tag in offload_tags:
+-                size_in_bytes = handle[1]
+-                cpu_backup_tensor = torch.empty(
+-                    size_in_bytes,
+-                    dtype=torch.uint8,
+-                    device='cpu',
+-                    pin_memory=is_pin_memory_available())
+-                cpu_ptr = cpu_backup_tensor.data_ptr()
+-                libcudart.cudaMemcpy(cpu_ptr, ptr, size_in_bytes)
+-                data.cpu_backup_tensor = cpu_backup_tensor
+-            unmap_and_release(handle)
++            if tags is None or data.tag in tags:
++                if data.tag in offload_tags:
++                    size_in_bytes = handle[1]
++                    cpu_backup_tensor = torch.empty(
++                        size_in_bytes,
++                        dtype=torch.uint8,
++                        device='cpu',
++                        pin_memory=is_pin_memory_available())
++                    cpu_ptr = cpu_backup_tensor.data_ptr()
++                    libcudart.cudaMemcpy(cpu_ptr, ptr, size_in_bytes)
++                    data.cpu_backup_tensor = cpu_backup_tensor
++                unmap_and_release(handle)
+ 
+         gc.collect()
+         torch.cuda.empty_cache()
+diff --git a/executor/executor_base.py b/executor/executor_base.py
+index 58796e5d7..de98f58c0 100644
+--- a/executor/executor_base.py
++++ b/executor/executor_base.py
+@@ -202,10 +202,11 @@ class ExecutorBase(ABC):
+         if self.is_sleeping:
+             logger.warning("Executor is already sleeping.")
+             return
++        tp_size = self.parallel_config.tensor_parallel_size
+         time_before_sleep = time.perf_counter()
+         self.collective_rpc("sleep", kwargs=dict(level=level))
+         time_after_sleep = time.perf_counter()
+-        self.sleeping_tags = {"weights", "kv_cache"}
++        self.sleeping_tags = {f"weights_{tp_size}", f"kv_cache_{tp_size}"}
+         self.is_sleeping = True
+         logger.info("It took %.6f seconds to fall asleep.",
+                     time_after_sleep - time_before_sleep)
+@@ -214,12 +215,16 @@ class ExecutorBase(ABC):
+         if not self.is_sleeping:
+             logger.warning("Executor is not sleeping.")
+             return
++        tp_size = self.parallel_config.tensor_parallel_size
+         if tags:
++            tags = [f"{tag}_{tp_size}" for tag in tags]
+             for tag in tags:
+                 if tag not in self.sleeping_tags:
+                     logger.warning("Tag %s is not in sleeping tags %s", tag,
+                                    self.sleeping_tags)
+                     return
++        else:
++            tags = list(self.sleeping_tags)
+         time_before_wakeup = time.perf_counter()
+         self.collective_rpc("wake_up", kwargs=dict(tags=tags))
+         time_after_wakeup = time.perf_counter()
+diff --git a/model_executor/layers/rotary_embedding.py b/model_executor/layers/rotary_embedding.py
+index c5970c71c..06fb51482 100644
+--- a/model_executor/layers/rotary_embedding.py
++++ b/model_executor/layers/rotary_embedding.py
+@@ -1491,8 +1491,10 @@ def get_rope(
+         rope_scaling_args = None
+     if partial_rotary_factor < 1.0:
+         rotary_dim = int(rotary_dim * partial_rotary_factor)
++    from vllm.distributed import get_tensor_model_parallel_world_size
++    tp_size = get_tensor_model_parallel_world_size()
+     key = (head_size, rotary_dim, max_position, base, is_neox_style,
+-           rope_scaling_args, dtype)
++           rope_scaling_args, dtype, tp_size)
+     if key in _ROPE_DICT:
+         return _ROPE_DICT[key]
+ 
+diff --git a/v1/worker/gpu_worker.py b/v1/worker/gpu_worker.py
+index 68c4e94fc..1f8569c50 100644
+--- a/v1/worker/gpu_worker.py
++++ b/v1/worker/gpu_worker.py
+@@ -74,6 +74,7 @@ class Worker(WorkerBase):
+                     torch_profiler_trace_dir, use_gzip=True))
+         else:
+             self.profiler = None
++        self.tp_size = self.parallel_config.tensor_parallel_size
+ 
+     def sleep(self, level: int = 1) -> None:
+         free_bytes_before_sleep = torch.cuda.mem_get_info()[0]
+@@ -87,7 +88,8 @@ class Worker(WorkerBase):
+             }
+ 
+         allocator = CuMemAllocator.get_instance()
+-        allocator.sleep(offload_tags=("weights", ) if level == 1 else tuple())
++        allocator.sleep(offload_tags=(f"weights_{self.tp_size}", ) if level == 1 else tuple(),
++                                tags=(f"weights_{self.tp_size}", f"kv_cache_{self.tp_size}"))
+         free_bytes_after_sleep, total = torch.cuda.mem_get_info()
+         freed_bytes = free_bytes_after_sleep - free_bytes_before_sleep
+         used_bytes = total - free_bytes_after_sleep
+@@ -154,7 +156,7 @@ class Worker(WorkerBase):
+             assert allocator.get_current_usage() == 0, (
+                 "Sleep mode can only be "
+                 "used for one instance per process.")
+-            context = allocator.use_memory_pool(tag="weights")
++            context = allocator.use_memory_pool(tag=f"weights_{self.tp_size}")
+         else:
+             from contextlib import nullcontext
+             context = nullcontext()
+@@ -218,7 +220,7 @@ class Worker(WorkerBase):
+         """Allocate GPU KV cache with the specified kv_cache_config."""
+         if self.vllm_config.model_config.enable_sleep_mode:
+             allocator = CuMemAllocator.get_instance()
+-            context = allocator.use_memory_pool(tag="kv_cache")
++            context = allocator.use_memory_pool(tag=f"kv_cache_{self.tp_size}")
+         else:
+             from contextlib import nullcontext
+             context = nullcontext()
+diff --git a/worker/worker.py b/worker/worker.py
+index 78ea990de..cc9e44756 100644
+--- a/worker/worker.py
++++ b/worker/worker.py
+@@ -114,6 +114,7 @@ class Worker(LocalOrDistributedWorkerBase):
+                     torch_profiler_trace_dir, use_gzip=True))
+         else:
+             self.profiler = None
++        self.tp_size = self.parallel_config.tensor_parallel_size
+ 
+     def start_profile(self):
+         if self.profiler is None:
+@@ -137,7 +138,8 @@ class Worker(LocalOrDistributedWorkerBase):
+             }
+ 
+         allocator = CuMemAllocator.get_instance()
+-        allocator.sleep(offload_tags=("weights", ) if level == 1 else tuple())
++        allocator.sleep(offload_tags=(f"weights_{self.tp_size}", ) if level == 1 else tuple(),
++                                tags=(f"weights_{self.tp_size}", f"kv_cache_{self.tp_size}"))
+         free_bytes_after_sleep, total = torch.cuda.mem_get_info()
+         freed_bytes = free_bytes_after_sleep - free_bytes_before_sleep
+         used_bytes = total - free_bytes_after_sleep
+@@ -192,10 +194,10 @@ class Worker(LocalOrDistributedWorkerBase):
+     def load_model(self):
+         if self.vllm_config.model_config.enable_sleep_mode:
+             allocator = CuMemAllocator.get_instance()
+-            assert allocator.get_current_usage() == 0, (
+-                "Sleep mode can only be "
+-                "used for one instance per process.")
+-            context = allocator.use_memory_pool(tag="weights")
++            # assert allocator.get_current_usage() == 0, (
++            #    "Sleep mode can only be "
++            #    "used for one instance per process.")
++            context = allocator.use_memory_pool(tag=f"weights_{self.tp_size}")
+         else:
+             from contextlib import nullcontext
+             context = nullcontext()
+@@ -319,7 +321,7 @@ class Worker(LocalOrDistributedWorkerBase):
+ 
+         if self.vllm_config.model_config.enable_sleep_mode:
+             allocator = CuMemAllocator.get_instance()
+-            context = allocator.use_memory_pool(tag="kv_cache")
++            context = allocator.use_memory_pool(tag=f"kv_cache_{self.tp_size}")
+         else:
+             from contextlib import nullcontext
+             context = nullcontext()
