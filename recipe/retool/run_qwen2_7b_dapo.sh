@@ -10,7 +10,7 @@ aime_2025=/mnt/hdfs/zhangchi.usc1992_lf_lq/data/yentinglin/aime_2025
 model_path=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/open_verl/retool/multiturn-sft-qwen-2.5-7b-instruct/global_step_372/huggingface
 
 train_files="['$dapo_math_17k']"
-test_files="['$aime_2025']"
+test_files="['$aime_2025', '$aime_2024']"
 
 # tool
 tool_config_path=recipe/retool/sandbox_fusion_tool_config.yaml
