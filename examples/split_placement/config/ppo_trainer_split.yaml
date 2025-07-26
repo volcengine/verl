@@ -2,7 +2,7 @@
 
 hydra:
   searchpath:
-    - file://verl/trainer/config
+    - file://../../verl/trainer/config
 
 defaults:
   - ppo_trainer
