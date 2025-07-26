@@ -39,6 +39,7 @@ class ToolAgentLoop(AgentLoopBase):
 
         # Initialize tools from config file
         cls.processing_class = processing_class
+        cls.tokenizer = getattr(processing_class, "tokenizer", None)
         cls.max_user_turns = config.actor_rollout_ref.rollout.multi_turn.max_user_turns
         cls.max_assistant_turns = config.actor_rollout_ref.rollout.multi_turn.max_assistant_turns
         cls.max_parallel_calls = config.actor_rollout_ref.rollout.multi_turn.max_parallel_calls
@@ -53,15 +54,12 @@ class ToolAgentLoop(AgentLoopBase):
 
         cls.prompt_length = config.actor_rollout_ref.rollout.prompt_length
         cls.response_length = config.actor_rollout_ref.rollout.response_length
-        # system_prompt: ['<|im_start|>', 'system', '\n', 'You', ' are', ' a', ' helpful', ' assistant', '.', '<|im_end|>', '\n']
-        if 'processor' in processing_class.__class__.__name__.lower():
+        if cls.tokenizer:
             # This is when processing_class is a processor
-            cls.system_prompt = processing_class.tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
-        elif 'tokenizer' in processing_class.__class__.__name__.lower():
-            # This is when processing_class is a tokenizer
-            cls.system_prompt = processing_class.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
+            cls.system_prompt = cls.tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
         else:
-            raise ValueError(f"Unknown processing_class {processing_class.__class__.__name__}")
+            # This is when processing_class is a tokenizer
+            cls.system_prompt = cls.processing_class.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
 
     @rollout_trace_op
     async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], image_data: Optional[list[Any]] = None) -> AgentLoopOutput:
@@ -177,7 +175,7 @@ class ToolAgentLoop(AgentLoopBase):
                 length = self.max_tool_response_length // 2
                 tool_response = tool_response[:length] + "...(truncated)..." + tool_response[-length:]
 
-        if 'processor' in self.processing_class.__class__.__name__.lower():
+        if self.tokenizer:
             # This is when processing_class is a processor
             output = {
                 "role": "tool",
@@ -188,13 +186,11 @@ class ToolAgentLoop(AgentLoopBase):
                     }
                 ],
             }
-        elif 'tokenizer' in self.processing_class.__class__.__name__.lower():
+        else:
             # This is when processing_class is a tokenizer
             output = {
                 "role": "tool",
                 "content": tool_response,
             }
-        else:
-            raise ValueError(f"Unknown processing_class {self.processing_class.__class__.__name__}")
 
         return output
