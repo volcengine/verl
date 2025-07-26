@@ -7,8 +7,16 @@
 Deploy the pretrained GenRM model using vLLM. Skip this step if you want to use an external api service.
 
 ```bash 
-vllm serve verl-team/GenRM-CI-Test-1.5B --served-model-name genrm-demo
+VLLM_SERVER_DEV_MODE=1 vllm serve verl-team/GenRM-CI-Test-1.5B --served-model-name genrm-demo --enable-sleep-mode --dtype float32
 ```
+Note that the wake_up and sleep operations for managing CUDA memory in vLLM are only available when both `VLLM_SERVER_DEV_MODE=1` and `enable_sleep_mode` are set. This capability is particularly beneficial when the model server shares resources with a training workload on the same machine. It allows the reward model service to be temporarily offloaded (to free up GPU memory) during intensive training sessions and reloaded when the service is required again. The relevant vllm code implementation can be found below:
+
+[VLLM_SERVER_DEV_MODE](https://github.com/vllm-project/vllm/blob/5a19a6c6705fe83db2e3517a2d2f473586901743/vllm/entrypoints/openai/api_server.py#L971)
+
+[sleep and wake_up mode](https://github.com/vllm-project/vllm/blob/5a19a6c6705fe83db2e3517a2d2f473586901743/vllm/entrypoints/openai/api_server.py#L994-L1003)
+
+When the backend is configured as `SERVER_BACKEND`="VLLM", the `USE_OFFLOAD` flag can be toggled between True and False.(see `reward_function.py`)
+
 
 ### Step 2: Perform RL using GenRM
 

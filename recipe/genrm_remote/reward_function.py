@@ -12,13 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from concurrent.futures import ThreadPoolExecutor
+import random
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import sleep
 
 import requests
+import tqdm
 
 from verl.utils.reward_score.math import last_boxed_only_string, remove_boxed
 
+SERVER_BACKEND = "VLLM"
+USE_OFFLOAD = True
 BASE_URL = "http://localhost:30000"
 API_KEY = "EMPTY"
 MAX_RETRIES = 3
@@ -40,6 +45,13 @@ Your task is to review and critique the solution step by step, and output whethe
 
 Please put your final answer (i.e., 'True' or 'False') in \\boxed{{}}.
 """.strip()
+
+
+def vllm_execute_method(task="sleep"):
+    assert task in ["sleep", "wake_up"], f"Invalid task: {task}"
+    url_root = BASE_URL
+    response = requests.post(url_root + "/" + task)
+    assert response.status_code == 200
 
 
 def get_response(problem, solution_str, ground_truth):
@@ -77,14 +89,14 @@ def compute_reward(response):
     return reward_score
 
 
-def compute_score(data_source, solution_str, ground_truth, extra_info):
+def compute_score(data_source, solution_str, ground_truth, extra_info, index):
     split = extra_info["split"]
     from verl.utils.reward_score import default_compute_score
 
     func_rm_score = default_compute_score(data_source, solution_str, ground_truth, extra_info)
 
     if split == "test":
-        return func_rm_score
+        return func_rm_score, index
     else:
         problem = extra_info["question"]
         response = get_response(problem, solution_str, ground_truth)
@@ -93,18 +105,29 @@ def compute_score(data_source, solution_str, ground_truth, extra_info):
         else:
             reward_score = 0.0
 
-        return reward_score
+        return reward_score, index
 
 
 def compute_score_batch(data_sources, solution_strs, ground_truths, extra_infos):
+    results = []
+    indexes = list(range(len(data_sources)))
+    if SERVER_BACKEND == "VLLM" and USE_OFFLOAD:
+        vllm_execute_method("wake_up")
+
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = []
-        for data_source, solution_str, ground_truth, extra_info in zip(
-            data_sources, solution_strs, ground_truths, extra_infos, strict=True
+        for data_source, solution_str, ground_truth, extra_info, index in zip(
+            data_sources, solution_strs, ground_truths, extra_infos, indexes, strict=True
         ):
-            future = executor.submit(compute_score, data_source, solution_str, ground_truth, extra_info)
+            future = executor.submit(compute_score, data_source, solution_str, ground_truth, extra_info, index)
+            time.sleep(0.001 * random.random())
             futures.append(future)
 
-        results = [future.result() for future in futures]
+        for future in tqdm.tqdm(as_completed(futures), total=len(futures)):
+            results.append(future.result())
+        results = sorted(results, key=lambda x: x[-1], reverse=False)
+        results = [result[0] for result in results]
 
+    if SERVER_BACKEND == "VLLM" and USE_OFFLOAD:
+        vllm_execute_method("sleep")
     return results
