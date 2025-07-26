@@ -60,16 +60,17 @@ def init_config(n_gpus_per_node) -> DictConfig:
             ],
         )
     config.trainer.n_gpus_per_node = n_gpus_per_node
-    config.data.train_batch_size = 128
+    config.data.train_batch_size = 1
     config.data.return_raw_chat = True
-    config.actor_rollout_ref.model.path = "Qwen/Qwen2.5-7B-Instruct"
+    config.actor_rollout_ref.model.path = "/opt/tiger/Qwen2.5-7B-Instruct"
     config.actor_rollout_ref.rollout.mode = "async"
-    config.actor_rollout_ref.rollout.tensor_model_parallel_size = 2
-    config.actor_rollout_ref.rollout.gpu_memory_utilization = 0.9
+    config.actor_rollout_ref.rollout.tensor_model_parallel_size = 1
+    config.actor_rollout_ref.rollout.pipeline_model_parallel_size = 2
+    config.actor_rollout_ref.rollout.gpu_memory_utilization = 0.5
     config.actor_rollout_ref.rollout.multi_turn.format = "hermes"
     config.actor_rollout_ref.rollout.prompt_length = 4096
     config.actor_rollout_ref.rollout.response_length = 4096
-    config.actor_rollout_ref.rollout.n = 16
+    config.actor_rollout_ref.rollout.n = 1
 
     return config
 
@@ -95,7 +96,7 @@ def initialize(config, backend) -> tuple[AgentLoopManager | RayWorkerGroup, Stat
     dataloader = StatefulDataLoader(
         dataset=dataset,
         batch_size=config.data.get("gen_batch_size", config.data.train_batch_size),
-        num_workers=config.data.get("dataloader_num_workers", 8),
+        num_workers=config.data.get("dataloader_num_workers", 1),
         drop_last=True,
         collate_fn=default_collate_fn,
         sampler=SequentialSampler(dataset),
@@ -130,9 +131,12 @@ def perf_rollout(mode, backend, n_gpus_per_node, num_steps):
 
 if __name__ == "__main__":
     num_steps = 1
-    n_gpus_per_node = 8
+    n_gpus_per_node = 2
+    import os
+    print("XXX main", os.environ.get("CUDA_VISIBLE_DEVICES"))
 
     # test_cases = [("sync", "sync"), ("async", "zeromq"), ("async", "ray")]
-    test_cases = [("async", "zeromq"), ("async", "ray")]
+    test_cases = [("async", "zeromq")] #, ("async", "ray")]
+    # test_cases = [("async", "ray")]
     for mode, backend in test_cases:
         perf_rollout(mode=mode, backend=backend, n_gpus_per_node=n_gpus_per_node, num_steps=num_steps)

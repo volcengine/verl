@@ -428,7 +428,9 @@ class AgentLoopManager:
 
     def _initialize_llm_servers(self):
         self.rollout_tp_size = self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
-        self.rollout_dp_size = self.worker_group.world_size // self.rollout_tp_size
+        self.rollout_pp_size = self.config.actor_rollout_ref.rollout.pipeline_model_parallel_size
+        self.rollout_mp_size = self.rollout_tp_size * self.rollout_pp_size
+        self.rollout_dp_size = self.worker_group.world_size // self.rollout_mp_size
 
         register_center = ray.get_actor(f"{self.worker_group.name_prefix}_register_center")
         workers_info = ray.get(register_center.get_worker_info.remote())
@@ -453,7 +455,7 @@ class AgentLoopManager:
                 rollout_dp_rank: server_class.options(
                     # make sure AsyncvLLMServer colocates with its corresponding workers
                     scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
-                        node_id=workers_info[rollout_dp_rank * self.rollout_tp_size],
+                        node_id=workers_info[rollout_dp_rank * self.rollout_mp_size],
                         soft=False,
                     ),
                     name=f"async_llm_server_{rollout_dp_rank}",

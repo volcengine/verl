@@ -40,6 +40,7 @@ logger = logging.getLogger(__file__)
 
 
 def _get_model_runner_workers(vllm_config, init_ray: bool = True):
+    print("XXX vllm_config", vllm_config)
     assert vllm_config.instance_id is not None, "instance_id must be set for external ray actors."
 
     fields = vllm_config.instance_id.split(":")
@@ -57,10 +58,10 @@ def _get_model_runner_workers(vllm_config, init_ray: bool = True):
         actor_name for actor_name in ray.util.list_named_actors() if actor_name.startswith(f"{wg_prefix}WorkerDict")
     ]
 
-    vllm_tp_size = vllm_config.parallel_config.tensor_parallel_size
-    assert len(actor_names) == vllm_dp_size * vllm_tp_size, (
+    vllm_mp_size = vllm_config.parallel_config.tensor_parallel_size * vllm_config.parallel_config.pipeline_parallel_size
+    assert len(actor_names) == vllm_dp_size * vllm_mp_size, (
         f"instance_id: {vllm_config.instance_id} has {len(actor_names)} actors, but vllm_dp_size: "
-        f"{vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = {vllm_dp_size * vllm_tp_size} is expected."
+        f"{vllm_dp_size} * vllm_mp_size: {vllm_mp_size} = {vllm_dp_size * vllm_mp_size} is expected."
     )
 
     def get_pg_index_and_local_rank(actor_name) -> tuple[int, int]:
@@ -71,7 +72,7 @@ def _get_model_runner_workers(vllm_config, init_ray: bool = True):
 
     # sort actor names by pg_index and local_rank
     actor_names = sorted(actor_names, key=get_pg_index_and_local_rank)
-    actor_names = actor_names[vllm_dp_rank * vllm_tp_size : (vllm_dp_rank + 1) * vllm_tp_size]
+    actor_names = actor_names[vllm_dp_rank * vllm_mp_size : (vllm_dp_rank + 1) * vllm_mp_size]
     workers: list[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
     print(f"instance_id: {vllm_config.instance_id} initializes with external actors: {actor_names}")
 
@@ -110,8 +111,8 @@ class ExternalRayDistributedExecutor(Executor):
             sent_method = method
         else:
             sent_method = pickle.dumps(method)
+        print("XXX Executing", method, kwargs, flush=True)
         del method
-
         # ~3ms overhead per schedule step due to SchedulerOutput/ModelRunnerOutput serialization/deserialization.
         outputs = ray.get(
             [worker.execute_method.remote(sent_method, *args, **(kwargs or {})) for worker in self.workers]
@@ -121,6 +122,9 @@ class ExternalRayDistributedExecutor(Executor):
     def check_health(self):
         return
 
+    @property
+    def max_concurrent_batches(self) -> int:
+        return self.parallel_config.pipeline_parallel_size
 
 class ExternalZeroMQDistributedExecutor(Executor):
     """An executor that engines are launched by external ray actors."""
@@ -135,6 +139,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
             socket = self.context.socket(zmq.REQ)
             socket.connect(address)
             self.sockets.append(socket)
+        print("XXX self.sockets", self.sockets)
 
         kwargs = dict(
             vllm_config=self.vllm_config,
@@ -147,30 +152,94 @@ class ExternalZeroMQDistributedExecutor(Executor):
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
 
+        from concurrent.futures import Future, ThreadPoolExecutor
+
+        # For pipeline parallel, we use a thread pool for asynchronous
+        # execute_model.
+        self.io_thread_pool: Optional[ThreadPoolExecutor] = None
+        if self.max_concurrent_batches > 1:
+            # Note: must use only 1 IO thread to keep dequeue sequence
+            # from the response queue
+            # TODO: submit to pool
+            self.io_thread_pool = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="zmq_exec_io")
+
+        self.output_rank = self._get_output_rank()
+        print("XXX self.output_rank", self.output_rank)
+        self.output_rank = self._get_output_rank()
+
+
     def collective_rpc(
         self,
         method: str | Callable,
         timeout: Optional[float] = None,
         args: tuple = (),
         kwargs: Optional[dict[str, Any]] = None,
+        non_block: bool = False,
+        unique_reply_rank: Optional[int] = None,
     ) -> list[Any]:
         if isinstance(method, str):
             sent_method = method
         else:
             sent_method = pickle.dumps(method)
+        kwargs = {} if kwargs is None else kwargs
+        # if unique_reply_rank is not None:
+        #     kwargs["unique_reply_rank"] = unique_reply_rank
+        print("XXX server Executing", method, kwargs, self.sockets, flush=True)
         del method
 
-        message = pickle.dumps((sent_method, args, kwargs or {}))
+        message = pickle.dumps((sent_method, args, kwargs, unique_reply_rank))
+        sockets = self.sockets if unique_reply_rank is None else [self.sockets[unique_reply_rank]]
+        # selective
         for socket in self.sockets:
-            socket.send(message, zmq.DONTWAIT)
+            print('XXX sending to socket', socket)
+            socket.send(message) #, zmq.DONTWAIT)
 
         outputs = []
-        for socket in self.sockets:
-            outputs.append(pickle.loads(socket.recv()))
+        import torch
+        print("XXX torch.cuda.is_available", torch.cuda.is_available(), unique_reply_rank, self.sockets)
+        for socket in sockets:
+            val = pickle.loads(socket.recv())
+            if non_block:
+                # TODO: use io thread
+                from concurrent.futures import Future
+                fut = Future()
+                fut.set_result(val)
+                fut.done()
+                outputs.append(fut)
+            else:
+                outputs.append(val)
+        print("XXX Received..", outputs)
         return outputs
 
     def check_health(self):
         return
+
+    def execute_model(
+        self,
+        scheduler_output,):
+    # ) -> Union[ModelRunnerOutput, Future[ModelRunnerOutput]]:
+        non_block = self.max_concurrent_batches > 1
+        import vllm.envs as envs
+        output = self.collective_rpc("execute_model",
+                                     args=(scheduler_output, ), unique_reply_rank=self.output_rank, non_block=non_block)#, timeout=envs.VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS)
+        return output[0]
+
+    @property
+    def max_concurrent_batches(self) -> int:
+        return self.parallel_config.pipeline_parallel_size
+
+    def _get_output_rank(self) -> int:
+        # Only returns ModelRunnerOutput from TP rank=0 and PP rank=-1
+        # (the first TP worker of the last PP stage).
+        # Example:
+        # Assuming TP=8, PP=4, then the world_size=32
+        # 0-7, PP rank 0
+        # 8-15, PP rank 1
+        # 16-23, PP rank 2
+        # 24-31, PP rank 3
+        # so world_size - tp_size = 32 - 8 = 24 should be PP rank = -1 (i.e. 3)
+        return self.parallel_config.world_size - self.parallel_config.tensor_parallel_size
 
 
 @ray.remote(num_cpus=1)
@@ -216,6 +285,8 @@ class AsyncvLLMServer(AsyncServerBase):
         config = config.rollout
 
         tensor_parallel_size = config.get("tensor_model_parallel_size", 1)
+        pipeline_parallel_size = config.get("pipeline_model_parallel_size", 1)
+        print("init with pipeline=", pipeline_parallel_size, flush=True)
         max_num_batched_tokens = config.get("max_num_batched_tokens", 8192)
         max_model_len = config.max_model_len if config.max_model_len else config.prompt_length + config.response_length
         self.max_model_len = int(max_model_len)
@@ -246,6 +317,7 @@ class AsyncvLLMServer(AsyncServerBase):
             enable_sleep_mode=config.free_cache_engine,
             override_generation_config=kwargs,
             tensor_parallel_size=tensor_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
             distributed_executor_backend=distributed_executor_backend,
             dtype=config.dtype,
             enforce_eager=config.enforce_eager,

@@ -168,6 +168,7 @@ class Worker(WorkerHelper):
         }
         if cuda_visible_devices is not None:
             store[f"_{get_visible_devices_keyword()}".lower()] = cuda_visible_devices
+            print("XXX _CUDA_VIS set", cuda_visible_devices)
 
         self._configure_with_store(store=store)
 
@@ -232,6 +233,7 @@ class Worker(WorkerHelper):
             local_rank = os.environ.get("RAY_LOCAL_RANK")
             os.environ["LOCAL_RANK"] = local_rank
             get_torch_device().set_device(int(local_rank))
+            print("XXX set local device", local_rank)
 
     def _configure_with_store(self, store: dict):
         """

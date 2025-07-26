@@ -89,6 +89,8 @@ class vLLMRollout(BaseRollout):
         self.config = config
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
+        pipeline_parallel_size = self.config.get("pipeline_parallel_size", 1)
+        print(f"XXX tensor_parallel_size: {tensor_parallel_size}, pipeline_parallel_size: {pipeline_parallel_size}")
         assert tensor_parallel_size <= torch.distributed.get_world_size(), (
             "tensor parallel size should be less than or equal to the world size"
         )
@@ -166,6 +168,7 @@ class vLLMRollout(BaseRollout):
             model=model_path,
             enable_sleep_mode=config.free_cache_engine,
             tensor_parallel_size=tensor_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
             distributed_executor_backend="external_launcher",
             dtype=config.dtype,
             enforce_eager=config.enforce_eager,
@@ -414,13 +417,17 @@ class vLLMAsyncRollout:
         self.sharding_manager = None
         self.is_sleep = False
         self.address = self._init_zeromq()
+        import os
+        print("XXX vLLMAsyncRollout.Init", os.environ.get("CUDA_VISIBLE_DEVICES"), int(os.environ["RANK"]))
 
     def _init_zeromq(self) -> str:
         tensor_parallel_size = self.config.tensor_model_parallel_size
+        pipeline_parallel_size = self.config.pipeline_model_parallel_size
+        model_parallel_size = tensor_parallel_size * pipeline_parallel_size
 
         # single node: ipc, multi nodes: tcp
         local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
-        socket_type = "ipc" if tensor_parallel_size <= local_world_size else "tcp"
+        socket_type = "ipc" if model_parallel_size <= local_world_size else "tcp"
 
         # File lock to prevent multiple workers listen to same port
         with FileLock("/tmp/verl_vllm_zmq.lock"):
@@ -436,6 +443,7 @@ class vLLMAsyncRollout:
 
         self.loop_thread = threading.Thread(target=self._loop_forever)
         self.loop_thread.start()
+        print('XXX address', address)
 
         return address
 
@@ -449,20 +457,38 @@ class vLLMAsyncRollout:
     def _loop_forever(self):
         while True:
             message = self.socket.recv()
-            method, args, kwargs = pickle.loads(message)
+            method, args, kwargs, unique_reply_rank = pickle.loads(message)
+            import os
+            print("XXX spmd received..", method, os.environ["RANK"], flush=True)
             result = self.execute_method(method, *args, **kwargs)
-            self.socket.send(pickle.dumps(result))
+            # if unique_reply_rank is None or unique_reply_rank == int(os.environ["RANK"]):
+            if unique_reply_rank is None or unique_reply_rank == int(os.environ["RANK"]):
+                print("XXX Sending..", os.environ["RANK"], flush=True)
+                self.socket.send(pickle.dumps(result))
+            else:
+                print("XXX Done without sending msg", flush=True)
 
     def get_zeromq_address(self):
         return self.address
 
     def init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
-        all_kwargs[0]["rank"] = int(os.environ["RANK"])
-        all_kwargs[0]["local_rank"] = 0
+        rpc_rank = int(os.environ["RANK"])
+        all_kwargs.append(all_kwargs[-1])
+        assert len(all_kwargs) == 2
+        all_kwargs[rpc_rank]["rank"] = int(os.environ["RANK"])
+        all_kwargs[rpc_rank]["local_rank"] = int(os.environ["RANK"])
+        print("XXX local_rank before init_worker", (os.environ["LOCAL_RANK"]))
 
         self.vllm_config = all_kwargs[0]["vllm_config"]
-        self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
+
+        # TODO: not sure if this is needed
+        is_driver_worker = (rpc_rank % self.vllm_config.parallel_config.tensor_parallel_size == 0)
+        all_kwargs[rpc_rank]["is_driver_worker"] = is_driver_worker
+
+        print(f"XXX vllm_config: {self.vllm_config}")
+        # TODO: set rpc rank as pipeline rank
+        self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config, rpc_rank=int(os.environ["RANK"]))
         self.inference_engine.init_worker(all_kwargs)
 
     def load_model(self, *args, **kwargs):

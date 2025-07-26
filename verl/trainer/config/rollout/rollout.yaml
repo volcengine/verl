@@ -40,6 +40,8 @@ free_cache_engine: True
 # TP size for rollout. Not effective for hf
 tensor_model_parallel_size: 2
 
+pipeline_model_parallel_size: 2
+
 # max number of tokens in a batch
 max_num_batched_tokens: 8192
 
@@ -165,7 +167,7 @@ calculate_log_probs: False
 agent:
 
   # Number of agent loop workers
-  num_workers: 8
+  num_workers: 1
 
   # custom agent loop config path, which should contain list of configs to intialize AgentLoop instances.
   # https://hydra.cc/docs/advanced/instantiate_objects/overview/
