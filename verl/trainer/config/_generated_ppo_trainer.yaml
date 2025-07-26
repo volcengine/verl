@@ -84,7 +84,7 @@ actor_rollout_ref:
     entropy_from_logits_with_chunking: false
     entropy_checkpointing: false
   rollout:
-    name: vllm
+    name: ???
     mode: sync
     temperature: 1.0
     top_k: -1

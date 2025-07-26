@@ -121,7 +121,7 @@ actor_rollout_ref:
       save_path: null
     load_weight: true
   rollout:
-    name: vllm
+    name: ???
     mode: sync
     temperature: 1.0
     top_k: -1
