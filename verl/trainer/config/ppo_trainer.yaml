@@ -149,6 +149,9 @@ algorithm:
   # Advantage estimator type: "gae", "grpo", "reinforce_plus_plus", etc.
   adv_estimator: gae
 
+  # Whether to enable dynamic filter in dapo
+  dynamic_filter: False
+
   # Whether to normalize advantages by std (specific to GRPO)
   norm_adv_by_std_in_grpo: True
 
