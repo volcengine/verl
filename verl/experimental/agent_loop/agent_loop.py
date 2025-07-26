@@ -33,7 +33,7 @@ from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
-from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
+from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr
 from verl.workers.rollout.async_server import async_server_class
 
 logger = logging.getLogger(__file__)
@@ -77,7 +77,6 @@ class AsyncLLMServerManager:
         self.request_id_to_server[request_id] = server
         return server
 
-    @rollout_trace_op
     async def generate(
         self,
         request_id,
