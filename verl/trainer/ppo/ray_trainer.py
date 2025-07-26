@@ -1069,18 +1069,25 @@ class RayPPOTrainer:
         last_val_metrics = None
         self.max_steps_duration = 0
 
+        prev_step_profile = False
+        curr_step_profile = (
+            self.global_steps in self.config.trainer.profile_steps
+            if self.config.trainer.profile_steps is not None
+            else False
+        )
+        next_step_profile = False
+
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
 
-                do_profile = (
-                    self.global_steps in self.config.trainer.profile_steps
-                    if self.config.trainer.profile_steps is not None
-                    else False
-                )
                 with marked_timer("start_profile", timing_raw):
-                    self._start_profiling(do_profile)
+                    self._start_profiling(
+                        not prev_step_profile and curr_step_profile
+                        if self.config.trainer.profile_continuous_steps
+                        else curr_step_profile
+                    )
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
@@ -1330,7 +1337,18 @@ class RayPPOTrainer:
                             self._save_checkpoint()
 
                 with marked_timer("stop_profile", timing_raw):
-                    self._stop_profiling(do_profile)
+                    next_step_profile = (
+                        self.global_steps + 1 in self.config.trainer.profile_steps
+                        if self.config.trainer.profile_steps is not None
+                        else False
+                    )
+                    self._stop_profiling(
+                        curr_step_profile and not next_step_profile
+                        if self.config.trainer.profile_continuous_steps
+                        else curr_step_profile
+                    )
+                    prev_step_profile = curr_step_profile
+                    curr_step_profile = next_step_profile
 
                 steps_duration = timing_raw["step"]
                 self.max_steps_duration = max(self.max_steps_duration, steps_duration)

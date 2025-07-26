@@ -44,7 +44,7 @@ actor_rollout_ref:
     use_fused_kernels: False # Whether to use custom fused kernels (PostProcessing, for memory efficiency)
 
     trust_remote_code: False
-    
+
   rollout:
     # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
     enable_chunked_prefill: False
@@ -93,6 +93,7 @@ trainer:
   total_epochs: 30
   total_training_steps: null
   profile_steps: null # [1,2,5] or [] or null
+  profile_continuous_steps: False
   project_name: verl_examples
   experiment_name: gsm8k
   logger: ['console', 'wandb']
