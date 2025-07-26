@@ -7,6 +7,9 @@ defaults:
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
+# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+_target_: verl.workers.config.McoreRewardModelConfig
+
 strategy: megatron
 
 # seconds, default is 10 minutes for torch, you can set it to a larger value
@@ -17,7 +20,7 @@ nccl_timeout: 600
 megatron:
 
   # Target configuration dataclass
-  _target_: verl.workers.config.MegatronEngineConfig
+  _target_: verl.workers.config.McoreEngineConfig
 
   # Whether to offload model parameters to CPU
   param_offload: False

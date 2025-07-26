@@ -13,9 +13,15 @@ defaults:
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
+# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+_target_: verl.workers.config.FSDPRewardModelConfig
+
 strategy: fsdp
 
 model:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.FSDPRewardModelCfg
 
   # Whether to use shared memory for loading the model
   use_shm: False
@@ -24,7 +30,7 @@ model:
   use_remove_padding: False
 
   # Whether to use fused reward kernels for speedup
-  use_fused_kernels: ${actor_rollout_ref.model.use_fused_kernels}
+  use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
 
   # FSDP-specific config
   fsdp_config:
