@@ -1194,14 +1194,14 @@ class RayPPOTrainer:
                         reward_tensor = self.rm_wg.compute_rm_score(batch)
                         batch = batch.union(reward_tensor)
 
-                    if self.config.algorithm.dynamic_filter or not self.config.reward_model.launch_reward_fn_async:
+                    if self.config.algorithm.dynamic_filter.enable or not self.config.reward_model.launch_reward_fn_async:
                         reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
                         batch = self._compute_reward(batch, reward_tensor, reward_extra_infos_dict, metrics)
                     
-                    if self.config.algorithm.dynamic_filter:
+                    if self.config.algorithm.dynamic_filter.enable:
                         # NOTE: When prompts after filtering is less than train batch size,
                         # we skip to the next generation batch
-                        metric_name = self.config.algorithm.filter_groups.metric
+                        metric_name = self.config.algorithm.dynamic_filter.metric
                         if metric_name == "seq_final_reward":
                             # Turn to numpy for easier filtering
                             batch.non_tensor_batch["seq_final_reward"] = (
@@ -1241,7 +1241,7 @@ class RayPPOTrainer:
                         
                         if num_prompt_in_batch < prompt_bsz:
                             print(f"{num_prompt_in_batch=} < {prompt_bsz=}")
-                            max_num_gen_batches = self.config.algorithm.filter_groups.max_num_gen_batches
+                            max_num_gen_batches = self.config.algorithm.dynamic_filter.max_num_gen_batches
                             if max_num_gen_batches <= 0 or num_gen_batches < max_num_gen_batches:
                                 print(f"{num_gen_batches=}. Keep generating...")
                                 self.gen_steps += 1
@@ -1283,7 +1283,7 @@ class RayPPOTrainer:
                     with marked_timer("reward", timing_raw, color="yellow"):
                         # compute reward model score
 
-                        if self.config.reward_model.launch_reward_fn_async and not self.config.algorithm.dynamic_filter:
+                        if self.config.reward_model.launch_reward_fn_async and not self.config.algorithm.dynamic_filter.enable:
                             future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
 
                     # recompute old_log_probs
@@ -1339,7 +1339,7 @@ class RayPPOTrainer:
 
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
-                        if self.config.reward_model.launch_reward_fn_async and not self.config.algorithm.dynamic_filter:
+                        if self.config.reward_model.launch_reward_fn_async and not self.config.algorithm.dynamic_filter.enable:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                             batch = self._compute_reward(batch, reward_tensor, reward_extra_infos_dict, metrics)
 

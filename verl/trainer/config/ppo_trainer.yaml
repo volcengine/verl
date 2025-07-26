@@ -150,7 +150,16 @@ algorithm:
   adv_estimator: gae
 
   # Whether to enable dynamic filter in dapo
-  dynamic_filter: False
+  dynamic_filter:
+
+    # Whether to enable dynamic filter
+    enable: False
+
+    # Metric to use for dynamic filter
+    metric: seq_reward
+
+    # Maximum number of generation batches to keep
+    max_num_gen_batches: 10
 
   # Whether to normalize advantages by std (specific to GRPO)
   norm_adv_by_std_in_grpo: True
