@@ -32,3 +32,6 @@ RUN pip3 install --no-deps --no-cache-dir --no-build-isolation git+https://githu
 
 # Install mbridge
 RUN pip3 install --no-cache-dir mbridge
+
+# Fix qwen vl
+RUN pip3 install --no-cache-dir --no-deps trl

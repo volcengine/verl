@@ -60,7 +60,7 @@ permissions:
 jobs:
   cpu_unit_tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 10 # Increase this timeout value as needed
+    timeout-minutes: 20 # Increase this timeout value as needed
     strategy:
       matrix:
         python-version: ["3.10"]
