@@ -21,16 +21,16 @@ clip_ratio_low=0.2
 clip_ratio_high=0.28
 
 max_prompt_length=$((1024 * 2))
-max_response_length=$((1024 * 4))
-enable_overlong_buffer=True
+max_response_length=$((1024 * 8))
+enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=0.1
 
 loss_agg_mode="token-mean"
 
-train_prompt_bsz=512 # must be > n_gpus. need to fix
-n_resp_per_prompt=2
-train_prompt_mini_bsz=16  # mini_bsz * n >= micro_bsz * pp * dp
+train_prompt_bsz=256 # must be > n_gpus. need to fix
+n_resp_per_prompt=16
+train_prompt_mini_bsz=32  # mini_bsz * n >= micro_bsz * pp * dp
 
 NNODES=${NNODES:-64}
 
