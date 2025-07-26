@@ -1,5 +1,8 @@
 # configs for the reward model
 
+# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+_target_: verl.workers.config.RewardModelConfig
+
 # Whether to enable reward model. If False, we compute the reward only with the user-defined reward functions.
 # In GSM8K and Math examples, we disable reward model.
 # For RLHF alignment example using full_hh_rlhf, we utilize reward model to assess the responses.
@@ -15,15 +18,15 @@ model:
   # Input tokenizer. If the reward model's chat template is inconsistent with the policy,
   # we need to first decode to plaintext, then apply the rm's chat_template.
   # Then score with RM. If chat_templates are consistent, it can be set to null.
-  # set this to null if the chat template is identical
-  input_tokenizer: ${actor_rollout_ref.model.path}
+  # set this to null if the chat template is identical (default to actor's model path)
+  input_tokenizer: ${oc.select:actor_rollout_ref.model.path,"~/models/deepseek-llm-7b-chat"}
 
   # RM’s HDFS path or local path. Note that RM only supports AutoModelForSequenceClassification.
   # Other model types need to define their own RewardModelWorker and pass it from the code.
   path: ~/models/FsfairX-LLaMA3-RM-v0.1
 
   # External model implementation (optional)
-  external_lib: ${actor_rollout_ref.model.external_lib}
+  external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
 
   # Whether to enable loading a remote code model, default to False
   trust_remote_code: False
@@ -39,10 +42,10 @@ micro_batch_size_per_gpu: null
 max_length: null
 
 # Whether to dynamically adjust batch size at runtime
-use_dynamic_bsz: ${critic.use_dynamic_bsz}
+use_dynamic_bsz: ${oc.select:critic.use_dynamic_bsz,false}
 
 # Maximum number of tokens per GPU in one forward pass
-forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
+forward_max_token_len_per_gpu: ${oc.select:critic.forward_max_token_len_per_gpu,32768}
 
 # Reward Manager. This defines the mechanism of computing rule-based reward and handling different reward sources.
 # Default is naive. If all verification functions are multiprocessing-safe,

@@ -72,7 +72,7 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing
 from verl.utils.py_functional import convert_to_regular_types
-from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig
+from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, FSDPRewardModelConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 logger = logging.getLogger(__file__)
@@ -1303,7 +1303,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
     Note that we only implement the reward model that is subclass of AutoModelForTokenClassification.
     """
 
-    def __init__(self, config):
+    def __init__(self, config: FSDPRewardModelConfig):
         Worker.__init__(self)
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
@@ -1315,7 +1315,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(), init_method=os.environ.get("DIST_INIT_METHOD", None)
             )
-        self.config = config
+        self.config: FSDPRewardModelConfig = config
 
         # build device mesh for Ulysses Sequence Parallel
         world_size = torch.distributed.get_world_size()

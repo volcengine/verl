@@ -364,18 +364,19 @@ critic:
   load_weight: true
   data_loader_seed: ${oc.select:actor_rollout_ref.actor.data_loader_seed,null}
 reward_model:
+  _target_: verl.workers.config.McoreRewardModelConfig
   enable: false
   strategy: megatron
   model:
-    input_tokenizer: ${actor_rollout_ref.model.path}
+    input_tokenizer: ${oc.select:actor_rollout_ref.model.path,"~/models/deepseek-llm-7b-chat"}
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
-    external_lib: ${actor_rollout_ref.model.external_lib}
+    external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
     trust_remote_code: false
   micro_batch_size: null
   micro_batch_size_per_gpu: null
   max_length: null
-  use_dynamic_bsz: ${critic.use_dynamic_bsz}
-  forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
+  use_dynamic_bsz: ${oc.select:critic.use_dynamic_bsz,false}
+  forward_max_token_len_per_gpu: ${oc.select:critic.forward_max_token_len_per_gpu,32768}
   reward_manager: naive
   launch_reward_fn_async: false
   sandbox_fusion:
@@ -389,7 +390,7 @@ reward_model:
     ranks: []
   nccl_timeout: 600
   megatron:
-    _target_: verl.workers.config.MegatronEngineConfig
+    _target_: verl.workers.config.McoreEngineConfig
     param_offload: false
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1

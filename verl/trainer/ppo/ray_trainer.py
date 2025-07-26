@@ -471,10 +471,9 @@ class RayPPOTrainer:
             )
 
         # Check for reward model micro-batch size conflicts
-        if config.reward_model.enable and not config.reward_model.use_dynamic_bsz:
-            check_mutually_exclusive(
-                config.reward_model.micro_batch_size, config.reward_model.micro_batch_size_per_gpu, "reward_model"
-            )
+        if self.use_rm:
+            rm_config = omega_conf_to_dataclass(config.reward_model)
+            rm_config.validate(n_gpus)
 
         if self.config.algorithm.use_kl_in_reward and config.actor_rollout_ref.actor.use_kl_loss:
             print("NOTICE: You have both enabled in-reward kl and kl loss.")
