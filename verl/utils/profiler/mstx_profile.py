@@ -202,20 +202,36 @@ class NPUProfiler(DistProfiler):
             @functools.wraps(func)
             def wrapper(self, *args, **kwargs):
                 profile_name = message or func.__name__
+                profile_this_role = True
+                discrete_mode = self.profiler.discrete
+                profile_enable = self.profiler.this_step and self.profile_option is not None
 
-                if self.profiler.this_step and self.profile_option is not None:
-                    if self.profiler.discrete:
-                        profile_npu = get_npu_profiler(option=self.profile_option, role=role)
-                        profile_npu.start()
-                    mark_range = mark_start_range(message=profile_name)
+                if not profile_enable:
+                    return func(self, *args, **kwargs)
+
+                if profile_enable and role is not None:
+                    target_roles = self.profile_option.get("roles", [])
+                    profile_this_role = "all" in target_roles or role in target_roles
+
+                if profile_enable:
+                    if not discrete_mode:
+                        mark_range = mark_start_range(message=profile_name)
+                    else:
+                        if profile_this_role:
+                            profile_npu = get_npu_profiler(option=self.profile_option, role=role)
+                            profile_npu.start()
+                            mark_range = mark_start_range(message=profile_name)
 
                 result = func(self, *args, **kwargs)
 
-                if self.profiler.this_step and self.profile_option is not None:
-                    mark_end_range(mark_range)
-                    if self.profiler.discrete:
-                        profile_npu.step()
-                        profile_npu.stop()
+                if profile_enable:
+                    if not discrete_mode:
+                        mark_end_range(mark_range)
+                    else:
+                        if profile_this_role:
+                            mark_end_range(mark_range)
+                            profile_npu.step()
+                            profile_npu.stop()
 
                 return result
 
