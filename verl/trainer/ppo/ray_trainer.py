@@ -573,6 +573,25 @@ class RayPPOTrainer:
         except Exception as e:
             print(f"Warning: Could not set total_training_steps in config. Structure missing? Error: {e}")
 
+    def _extract_reward_extra_infos(self, batch: DataProto) -> dict[str, list]:
+        """Extract reward extra info from batch.non_tensor_batch for dump_generations.
+        """
+        reward_extra_infos_dict = {}
+        
+        if hasattr(batch, 'non_tensor_batch') and batch.non_tensor_batch:
+            # Standard keys that are not reward extra info
+            standard_keys = {
+                'uid', 'data_source', '__num_turns__', 'seq_reward', 'seq_final_reward', 
+                'raw_prompt_ids', 'raw_prompt', 'multi_modal_data', 'tools_kwargs', 
+                'interaction_kwargs', 'agent_name', 'index'
+            }
+            
+            for key, values in batch.non_tensor_batch.items():
+                if key not in standard_keys and isinstance(values, (list, np.ndarray)):
+                    reward_extra_infos_dict[key] = values.tolist() if isinstance(values, np.ndarray) else values
+                    
+        return reward_extra_infos_dict
+
     def _dump_generations(self, inputs, outputs, scores, reward_extra_infos_dict, dump_path):
         """Dump rollout/validation samples as JSONL."""
         os.makedirs(dump_path, exist_ok=True)
@@ -1316,7 +1335,6 @@ class RayPPOTrainer:
 
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
-                        reward_extra_infos_dict: dict[str, list]
                         if self.config.reward_model.launch_reward_fn_async and not self.config.algorithm.dynamic_filter.enable:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                             batch.batch["token_level_scores"] = reward_tensor
@@ -1375,11 +1393,9 @@ class RayPPOTrainer:
                             inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
                             outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
                             scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
-                            if "request_id" in batch.non_tensor_batch:
-                                reward_extra_infos_dict.setdefault(
-                                    "request_id",
-                                    batch.non_tensor_batch["request_id"].tolist(),
-                                )
+                            
+                            reward_extra_infos_dict = self._extract_reward_extra_infos(batch)
+                            
                             self._dump_generations(
                                 inputs=inputs,
                                 outputs=outputs,
