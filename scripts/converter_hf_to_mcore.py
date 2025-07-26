@@ -23,6 +23,10 @@ from typing import Any, Callable, ContextManager, Optional
 import numpy as np
 import torch
 import torch.distributed as dist
+try:
+    import mindspeed.megatron_adaptor  # NPU patch
+except ImportError:
+    pass
 from accelerate import init_empty_weights
 from megatron.core import dist_checkpointing
 from megatron.core import parallel_state as mpu

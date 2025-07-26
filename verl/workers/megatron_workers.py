@@ -25,8 +25,14 @@ import psutil
 import torch
 import torch.distributed
 from codetiming import Timer
-from megatron.core import parallel_state as mpu
 from omegaconf import DictConfig, OmegaConf
+
+try:
+    from mindspeed.megatron_adaptor import repatch
+except ImportError:
+    repatch = None
+
+from megatron.core import parallel_state as mpu
 
 from verl import DataProto
 from verl.single_controller.base.decorator import Dispatch, register
@@ -90,6 +96,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config: DictConfig, role: str, **kwargs):
         MegatronWorker.__init__(self)
         self.config = config
+        if repatch is not None:
+            # NPU MindSpeed patch, will be refactored with MindSpeedEngine.
+            repatch(self.config.actor.megatron.get("override_transformer_config", {}))
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
