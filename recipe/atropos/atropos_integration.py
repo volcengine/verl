@@ -24,7 +24,6 @@ import time
 from typing import Dict, List, Optional, Any, Tuple
 import requests
 import torch
-import numpy as np
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
