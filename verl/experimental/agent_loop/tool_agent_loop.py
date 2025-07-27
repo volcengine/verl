@@ -15,7 +15,6 @@ import asyncio
 import json
 import logging
 import os
-from abc import ABC, abstractmethod
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -31,9 +30,6 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 @register("tool_agent")
 class ToolAgentLoop(AgentLoopBase):
-    def __init__(self, config, server_manager, tokenizer, processor):
-        super().__init__(config, server_manager, tokenizer, processor)
-
     @classmethod
     def init_class(cls, config, tokenizer, processor, **kwargs):
         if cls._class_initialized:
@@ -193,19 +189,6 @@ class ToolAgentLoop(AgentLoopBase):
             if tool and instance_id:
                 await tool.release(instance_id)
 
-        # if len(tool_response) > self.max_tool_response_length:
-        #     if self.tool_response_truncate_side == "left":
-        #         tool_response = tool_response[: self.max_tool_response_length] + "...(truncated)"
-        #     elif self.tool_response_truncate_side == "right":
-        #         tool_response = "(truncated)..." + tool_response[-self.max_tool_response_length :]
-        #     else:
-        #         length = self.max_tool_response_length // 2
-        #         tool_response = tool_response[:length] + "...(truncated)..." + tool_response[-length:]
-
-        # return {
-        #     "role": "tool",
-        #     "content": tool_response,
-        # }
         image_response = tool_response.get("image", None)
         text_response = tool_response.get("text", "")
         if image_response:
@@ -220,6 +203,7 @@ class ToolAgentLoop(AgentLoopBase):
     @classmethod
     def get_tool_parser(cls, name: str) -> ToolParser:
         from verl.experimental.agent_loop.tool_parser import HermesToolParser
+
         tool_parsers = {
             "hermes": HermesToolParser,
         }

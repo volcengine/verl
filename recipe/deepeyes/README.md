@@ -29,7 +29,7 @@ Next, launch an inference service to act as a judge for reward calculation. You 
 python -m sglang.launch_server --model-path /path/to/Qwen2.5-72B-Instruct \
     --port 18901 \
     --tp-size 8 \
-    --max-model-len 32768 \
+    --context-length 32768 \
     --trust-remote-code \
     --log-requests false
 ```

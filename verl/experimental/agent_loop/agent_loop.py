@@ -149,7 +149,7 @@ class AgentLoopBase(ABC):
         server_manager: AsyncLLMServerManager,
         tokenizer: AutoTokenizer,
         processor: AutoProcessor,
-        **kwargs
+        **kwargs,
     ):
         """Initialize agent loop, each sample will have its own loop instance.
 
@@ -159,7 +159,7 @@ class AgentLoopBase(ABC):
             tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
             processor (AutoProcessor): Processor for process messages.
         """
-        self.init_class(trainer_config.config, tokenizer, **kwargs)
+        self.init_class(trainer_config.config, tokenizer, processor, **kwargs)
         self.config = trainer_config.config
         self.server_manager = server_manager
         self.tokenizer = tokenizer
