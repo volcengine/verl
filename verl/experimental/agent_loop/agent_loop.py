@@ -124,6 +124,8 @@ class AgentLoopOutput(BaseModel):
     """Number of chat turns, including user, assistant, tool."""
     metrics: AgentLoopMetrics
     """Auxiliary performance metrics"""
+    processed_tensors: dict = None
+    """Pre-processed tensors for batching."""
 
 
 # make hydra.utils.instantiate happy
@@ -318,55 +320,82 @@ class AgentLoopWorker:
                 tokenizer=self.tokenizer,
             )
             output = await agent_loop.run(messages, sampling_params)
+
+            # Direct padding after generation
+            # Pad prompt (left padding)
+            self.tokenizer.padding_side = "left"
+            prompt_output = self.tokenizer.pad(
+                {"input_ids": output.prompt_ids},
+                padding="max_length",
+                max_length=self.config.actor_rollout_ref.rollout.prompt_length,
+                return_tensors="pt",
+                return_attention_mask=True,
+            )
+
+            # Ensure we have a batch dimension
+            if prompt_output["input_ids"].dim() == 1:
+                prompt_output["input_ids"] = prompt_output["input_ids"].unsqueeze(0)
+                prompt_output["attention_mask"] = prompt_output["attention_mask"].unsqueeze(0)
+
+            # Pad response (right padding)
+            self.tokenizer.padding_side = "right"
+            response_output = self.tokenizer.pad(
+                {"input_ids": output.response_ids},
+                padding="max_length",
+                max_length=self.config.actor_rollout_ref.rollout.response_length,
+                return_tensors="pt",
+                return_attention_mask=True,
+            )
+
+            # Ensure we have a batch dimension
+            if response_output["input_ids"].dim() == 1:
+                response_output["input_ids"] = response_output["input_ids"].unsqueeze(0)
+                response_output["attention_mask"] = response_output["attention_mask"].unsqueeze(0)
+
+            # Pad response mask
+            response_mask_output = self.tokenizer.pad(
+                {"input_ids": output.response_mask},
+                padding="max_length",
+                max_length=self.config.actor_rollout_ref.rollout.response_length,
+                return_tensors="pt",
+                return_attention_mask=False,
+            )
+
+            # Ensure we have a batch dimension
+            if response_mask_output["input_ids"].dim() == 1:
+                response_mask_output["input_ids"] = response_mask_output["input_ids"].unsqueeze(0)
+
+            # Apply attention mask to response mask
+            response_mask = response_mask_output["input_ids"] * response_output["attention_mask"]
+
+            # Create input_ids and attention_mask
+            input_ids = torch.cat([prompt_output["input_ids"], response_output["input_ids"]], dim=1)
+            attention_mask = torch.cat([prompt_output["attention_mask"], response_output["attention_mask"]], dim=1)
+            position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
+
+            # Add processed tensors to output
+            output.processed_tensors = {
+                "prompt_ids": prompt_output["input_ids"],
+                "prompt_attention_mask": prompt_output["attention_mask"],
+                "response_ids": response_output["input_ids"],
+                "response_attention_mask": response_output["attention_mask"],
+                "response_mask": response_mask,
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
+            }
+
             return output
 
     def _postprocess(self, inputs: list[AgentLoopOutput]) -> DataProto:
-        # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
-        # prompts: left pad
-        # responses: right pad
-        # input_ids: prompt + response
-        # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
-        # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
-
-        # prompts
-        self.tokenizer.padding_side = "left"
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.prompt_ids} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.prompt_length,
-            return_tensors="pt",
-            return_attention_mask=True,
-        )
-        prompt_ids, prompt_attention_mask = outputs["input_ids"], outputs["attention_mask"]
-
-        # responses
-        self.tokenizer.padding_side = "right"
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.response_ids} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.response_length,
-            return_tensors="pt",
-            return_attention_mask=True,
-        )
-        response_ids, response_attention_mask = outputs["input_ids"], outputs["attention_mask"]
-
-        # response_mask
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.response_mask} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.response_length,
-            return_tensors="pt",
-            return_attention_mask=False,
-        )
-        response_mask = outputs["input_ids"]
-        assert response_ids.shape == response_mask.shape, (
-            f"mismatch in response_ids and response_mask shape: {response_ids.shape} vs {response_mask.shape}"
-        )
-        response_mask = response_mask * response_attention_mask
-
-        input_ids = torch.cat([prompt_ids, response_ids], dim=1)
-        attention_mask = torch.cat([prompt_attention_mask, response_attention_mask], dim=1)
-        position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
+        """Process the padded outputs from _run_agent_loop and combine them into a batch."""
+        # Extract pre-processed tensors from each output
+        prompt_ids = torch.cat([input.processed_tensors["prompt_ids"] for input in inputs], dim=0)
+        response_ids = torch.cat([input.processed_tensors["response_ids"] for input in inputs], dim=0)
+        response_mask = torch.cat([input.processed_tensors["response_mask"] for input in inputs], dim=0)
+        input_ids = torch.cat([input.processed_tensors["input_ids"] for input in inputs], dim=0)
+        attention_mask = torch.cat([input.processed_tensors["attention_mask"] for input in inputs], dim=0)
+        position_ids = torch.cat([input.processed_tensors["position_ids"] for input in inputs], dim=0)
 
         batch = TensorDict(
             {
@@ -380,9 +409,14 @@ class AgentLoopWorker:
             batch_size=len(input_ids),
         )
 
-        num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
+        # Convert numpy int64 values to standard Python integers to avoid serialization issues
+        num_turns = [int(input.num_turns) for input in inputs]
         metrics = [input.metrics.model_dump() for input in inputs]
-        return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
+        return DataProto(
+            batch=batch,
+            non_tensor_batch={"__num_turns__": np.array(num_turns, dtype=np.int32)},
+            meta_info={"metrics": metrics},
+        )
 
 
 async def get_trajectory_info(step, index, validate):
@@ -516,21 +550,21 @@ class AgentLoopManager:
         timing = {}
         t_generate_sequences = np.array([metric["generate_sequences"] for chunk in metrics for metric in chunk])
         t_tool_calls = np.array([metric["tool_calls"] for chunk in metrics for metric in chunk])
-        timing["agent_loop/generate_sequences/min"] = t_generate_sequences.min()
-        timing["agent_loop/generate_sequences/max"] = t_generate_sequences.max()
-        timing["agent_loop/generate_sequences/mean"] = t_generate_sequences.mean()
-        timing["agent_loop/tool_calls/min"] = t_tool_calls.min()
-        timing["agent_loop/tool_calls/max"] = t_tool_calls.max()
-        timing["agent_loop/tool_calls/mean"] = t_tool_calls.mean()
+        timing["agent_loop/generate_sequences/min"] = float(t_generate_sequences.min())
+        timing["agent_loop/generate_sequences/max"] = float(t_generate_sequences.max())
+        timing["agent_loop/generate_sequences/mean"] = float(t_generate_sequences.mean())
+        timing["agent_loop/tool_calls/min"] = float(t_tool_calls.min())
+        timing["agent_loop/tool_calls/max"] = float(t_tool_calls.max())
+        timing["agent_loop/tool_calls/mean"] = float(t_tool_calls.mean())
 
         # batch sequence generation is bounded by the slowest sample
-        slowest = np.argmax(t_generate_sequences + t_tool_calls)
+        slowest = int(np.argmax(t_generate_sequences + t_tool_calls))
         attention_mask = output.batch["attention_mask"][slowest]
-        prompt_length = output.batch["prompts"].shape[1]
-        timing["agent_loop/slowest/generate_sequences"] = t_generate_sequences[slowest]
-        timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
-        timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
-        timing["agent_loop/slowest/response_length"] = attention_mask[prompt_length:].sum().item()
+        prompt_length = int(output.batch["prompts"].shape[1])
+        timing["agent_loop/slowest/generate_sequences"] = float(t_generate_sequences[slowest])
+        timing["agent_loop/slowest/tool_calls"] = float(t_tool_calls[slowest])
+        timing["agent_loop/slowest/prompt_length"] = int(attention_mask[:prompt_length].sum().item())
+        timing["agent_loop/slowest/response_length"] = int(attention_mask[prompt_length:].sum().item())
 
         return timing
 
