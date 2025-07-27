@@ -35,7 +35,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_batch_size=256 \
     data.max_prompt_length=1024 \
-    data.max_response_length=1024 \
+    data.max_response_length=600 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.return_raw_chat=True \
@@ -59,7 +59,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
-    algorithm.dynamic_filter.enable=True \
+    algorithm.dynamic_filter.enable=False \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='verl-profile-sglang-qwen2.5' \

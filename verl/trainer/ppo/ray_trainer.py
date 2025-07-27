@@ -1096,6 +1096,14 @@ class RayPPOTrainer:
         num_prompt_in_batch = 0
         num_gen_batches = 0
         prompt_bsz = self.config.data.train_batch_size
+        
+        # Display dynamic filter settings
+        if self.config.algorithm.dynamic_filter.enable:
+            print(f"[DF] Dynamic Filter ENABLED - Target batch size: {prompt_bsz} prompts")
+            print(f"[DF] Filter metric: {self.config.algorithm.dynamic_filter.metric}")
+            print(f"[DF] Max generation batches: {self.config.algorithm.dynamic_filter.get('max_num_gen_batches', 'unlimited')}")
+        else:
+            print(f"[Normal] Dynamic Filter DISABLED - Processing single batches of {prompt_bsz} prompts")
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
@@ -1199,6 +1207,8 @@ class RayPPOTrainer:
                         # NOTE: When prompts after filtering is less than train batch size,
                         # we skip to the next generation batch
                         metric_name = self.config.algorithm.dynamic_filter.metric
+                        
+                        print(f"[DF] Generation batch {num_gen_batches}: Processing {len(batch.batch['responses'])} trajectories")
                         if metric_name == "seq_final_reward":
                             # Turn to numpy for easier filtering
                             raise ValueError("seq_final_reward is not supported for dynamic filter")
@@ -1226,7 +1236,15 @@ class RayPPOTrainer:
                             for uid, std in prompt_uid2metric_std.items()
                             if std > 0 or len(prompt_uid2metric_vals[uid]) == 1
                         ]
-                        num_prompt_in_batch += len(kept_prompt_uids)
+                        
+                        total_prompts_this_batch = len(prompt_uid2metric_std)
+                        kept_prompts_this_batch = len(kept_prompt_uids)
+                        filtered_prompts_this_batch = total_prompts_this_batch - kept_prompts_this_batch
+                        
+                        print(f"[DF] Filtering: {kept_prompts_this_batch}/{total_prompts_this_batch} prompts kept, "
+                              f"{filtered_prompts_this_batch} filtered out")
+                        
+                        num_prompt_in_batch += kept_prompts_this_batch
 
                         kept_traj_idxs = []
                         for idx, traj_from_prompt_uid in enumerate(batch.non_tensor_batch["uid"]):
@@ -1234,13 +1252,18 @@ class RayPPOTrainer:
                                 kept_traj_idxs.append(idx)
 
                         batch = batch[kept_traj_idxs]
+                        kept_trajectories_this_batch = len(kept_traj_idxs)
+                        
                         accumulated_batch = batch if accumulated_batch is None else DataProto.concat([accumulated_batch, batch])
+                        accumulated_trajectories = len(accumulated_batch.batch['responses']) if accumulated_batch else 0
+                        
+                        print(f"[DF] Trajectories: {kept_trajectories_this_batch} kept this batch, "
+                              f"{accumulated_trajectories} total accumulated")
                         if num_prompt_in_batch < prompt_bsz:
-                            print(f"{num_prompt_in_batch=} < {prompt_bsz=}")
+                            print(f"[DF] Status: {num_prompt_in_batch}/{prompt_bsz} prompts collected, need more data")
                             max_num_gen_batches = self.config.algorithm.dynamic_filter.max_num_gen_batches
                             if max_num_gen_batches <= 0 or num_gen_batches < max_num_gen_batches:
-                                print(f"{num_gen_batches=}. Keep generating...")
-                                self.gen_steps += 1
+                                print(f"[DF] Continue generating (batch {num_gen_batches+1})...")
                                 continue
                             else:
                                 raise ValueError(
@@ -1252,16 +1275,12 @@ class RayPPOTrainer:
                             # Align the batch
                             traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
                             batch = accumulated_batch[:traj_bsz]
-
-
-
-
-
-
-
-
-
-
+                            
+                            print(f"[DF] SUCCESS: Collected {num_prompt_in_batch} prompts in {num_gen_batches} generation batches")
+                            print(f"[DF] Final batch: {len(batch.batch['responses'])} trajectories ready for training")
+                    else:
+                        # Non-dynamic filter case - always complete after processing one batch
+                        print(f"[Normal] Processing single batch: {len(batch.batch['responses'])} trajectories")
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
@@ -1468,9 +1487,15 @@ class RayPPOTrainer:
                 progress_bar.update(1)
                 self.global_steps += 1
 
-                # dynamic filter
+                # Training step completed, show summary
+                if self.config.algorithm.dynamic_filter.enable and num_gen_batches > 0:
+                    print(f"[DF] Step {self.global_steps} completed: Used {num_gen_batches} generation batches")
+                elif not self.config.algorithm.dynamic_filter.enable:
+                    print(f"[Normal] Step {self.global_steps} completed: Single batch processing")
+                
+                # Reset dynamic filter state for next training step
                 self.gen_steps += 1
-                num_gen_batches =0 
+                num_gen_batches = 0 
                 num_prompt_in_batch = 0
                 accumulated_batch = None
                 if is_last_step:
