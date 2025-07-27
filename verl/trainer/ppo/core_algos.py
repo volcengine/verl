@@ -416,6 +416,11 @@ def compute_grpo_atropos_advantage(
         advantages: (bs, response_length)
         returns: (bs, response_length)
     """
+    # Extract config parameters if available
+    if config is not None:
+        epsilon = getattr(config, 'epsilon', epsilon)
+        norm_adv_by_std_in_grpo = getattr(config, 'norm_adv_by_std_in_grpo', norm_adv_by_std_in_grpo)
+    
     # Check if we have token-level advantages from Atropos
     token_level_advantages = kwargs.get("token_level_advantages")
     

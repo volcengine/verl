@@ -20,11 +20,13 @@ enabling training with environment feedback and token-level advantages.
 """
 
 import logging
+import random
 import time
-from typing import Dict, List, Optional, Any, Tuple
+from dataclasses import dataclass
+from typing import Any, Optional
+
 import requests
 import torch
-from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +75,11 @@ class AtroposEnvironmentClient:
     
     def submit_responses_and_get_advantages(
         self,
-        prompts: List[str],
-        responses: List[str], 
-        metadata: Optional[Dict[str, Any]] = None,
+        prompts: list[str],
+        responses: list[str], 
+        metadata: Optional[dict[str, Any]] = None,
         response_mask: Optional[torch.Tensor] = None
-    ) -> Tuple[Optional[torch.Tensor], Dict[str, Any]]:
+    ) -> tuple[Optional[torch.Tensor], dict[str, Any]]:
         """
         Submit responses to Atropos and get token-level advantages.
         
@@ -98,8 +100,9 @@ class AtroposEnvironmentClient:
         }
         
         last_error = None
+        cumulative_wait_time = 0.0
         
-        # Retry loop with exponential backoff
+        # Retry loop with exponential backoff and total wait time cap
         for attempt in range(self.config.retry_attempts):
             try:
                 # Submit to Atropos
@@ -120,9 +123,23 @@ class AtroposEnvironmentClient:
                     
                     # Wait before retrying on server errors
                     if attempt < self.config.retry_attempts - 1:
-                        wait_time = self.config.retry_delay * (2 ** attempt)
-                        logger.info(f"Retrying in {wait_time}s... (attempt {attempt + 1}/{self.config.retry_attempts})")
+                        base_wait_time = self.config.retry_delay * (2 ** attempt)
+                        # Add random jitter (0-1s) to prevent thundering herd
+                        jitter = random.uniform(0, 1)
+                        wait_time = base_wait_time + jitter
+                        
+                        # Check if we would exceed max_wait_time
+                        if cumulative_wait_time + wait_time > self.config.max_wait_time:
+                            logger.warning(
+                                f"Would exceed max_wait_time ({self.config.max_wait_time}s), stopping retries"
+                            )
+                            break
+                            
+                        logger.info(
+                            f"Retrying in {wait_time:.1f}s... (attempt {attempt + 1}/{self.config.retry_attempts})"
+                        )
                         time.sleep(wait_time)
+                        cumulative_wait_time += wait_time
                     continue
                 
                 # Parse response
@@ -146,16 +163,30 @@ class AtroposEnvironmentClient:
                 
                 # Wait before retrying
                 if attempt < self.config.retry_attempts - 1:
-                    wait_time = self.config.retry_delay * (2 ** attempt)
-                    logger.info(f"Retrying in {wait_time}s... (attempt {attempt + 1}/{self.config.retry_attempts})")
+                    base_wait_time = self.config.retry_delay * (2 ** attempt)
+                    # Add random jitter (0-1s) to prevent thundering herd
+                    jitter = random.uniform(0, 1)
+                    wait_time = base_wait_time + jitter
+                    
+                    # Check if we would exceed max_wait_time
+                    if cumulative_wait_time + wait_time > self.config.max_wait_time:
+                        logger.warning(
+                            f"Would exceed max_wait_time ({self.config.max_wait_time}s), stopping retries"
+                        )
+                        break
+                        
+                    logger.info(
+                        f"Retrying in {wait_time:.1f}s... (attempt {attempt + 1}/{self.config.retry_attempts})"
+                    )
                     time.sleep(wait_time)
+                    cumulative_wait_time += wait_time
         
         logger.error(f"All {self.config.retry_attempts} attempts failed. Last error: {last_error}")
         return None, {}
     
     def _convert_to_token_level_advantages(
         self, 
-        advantages: List[float],
+        advantages: list[float],
         response_mask: torch.Tensor
     ) -> torch.Tensor:
         """Convert response-level advantages to token-level using response mask"""
@@ -191,7 +222,7 @@ class AtroposGRPOComputer:
         tokenizer,
         response_mask: torch.Tensor,
         fallback_estimator = None
-    ) -> Tuple[torch.Tensor, Dict[str, Any]]:
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
         """
         Compute advantages with Atropos environment overrides.
         
@@ -220,12 +251,17 @@ class AtroposGRPOComputer:
             logger.info("Using advantages from Atropos environments")
             # Ensure correct shape and device
             if advantages.shape[0] != responses.shape[0]:
-                logger.warning(f"Advantage batch size mismatch: expected {responses.shape[0]}, got {advantages.shape[0]}")
+                logger.warning(
+                    f"Advantage batch size mismatch: expected {responses.shape[0]}, got {advantages.shape[0]}"
+                )
                 return self._compute_fallback_advantages(
                     scores, response_mask, fallback_estimator
                 )
             if advantages.shape[1] != response_mask.shape[1]:
-                logger.warning(f"Advantage sequence length mismatch: expected {response_mask.shape[1]}, got {advantages.shape[1]}")
+                logger.warning(
+                    f"Advantage sequence length mismatch: expected {response_mask.shape[1]}, "
+                    f"got {advantages.shape[1]}"
+                )
                 return self._compute_fallback_advantages(
                     scores, response_mask, fallback_estimator
                 )
@@ -248,7 +284,7 @@ class AtroposGRPOComputer:
         scores: torch.Tensor,
         response_mask: torch.Tensor,
         fallback_estimator
-    ) -> Tuple[torch.Tensor, Dict[str, Any]]:
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
         """Compute advantages using fallback method"""
         if fallback_estimator is None:
             # Simple score-based advantages

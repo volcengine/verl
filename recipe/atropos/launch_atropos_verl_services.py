@@ -19,7 +19,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List
 
 import requests
 from omegaconf import OmegaConf
@@ -33,7 +32,7 @@ class ServiceLauncher:
 
     def __init__(self, config_path: str):
         self.config = OmegaConf.load(config_path)
-        self.processes: List[subprocess.Popen] = []
+        self.processes: list[subprocess.Popen] = []
         self.config_path = config_path
 
         # Register signal handlers for cleanup
@@ -126,7 +125,7 @@ class ServiceLauncher:
         ]
 
         logger.info(f"Launching Atropos server: {' '.join(cmd)}")
-        proc = subprocess.Popen(cmd, cwd=atropos_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.Popen(cmd, cwd=atropos_path, text=True)
         self.processes.append(proc)
 
         # Wait for Atropos to start
@@ -174,7 +173,7 @@ class ServiceLauncher:
             cmd.extend(["--dtype", inference_config["dtype"]])
 
         logger.info(f"Launching vLLM server: {' '.join(cmd)}")
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.Popen(cmd, text=True)
         self.processes.append(proc)
 
         # Wait for vLLM to start
@@ -229,7 +228,7 @@ class ServiceLauncher:
             ]
 
         logger.info(f"Launching training: {' '.join(cmd)}")
-        proc = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr, text=True)
+        proc = subprocess.Popen(cmd, text=True)
         self.processes.append(proc)
         return proc
 
@@ -269,9 +268,15 @@ class ServiceLauncher:
 def main():
     parser = argparse.ArgumentParser(description="Launch Atropos-VeRL integrated services")
     parser.add_argument("--config", type=str, required=True, help="Path to configuration file")
-    parser.add_argument("--atropos-path", type=str, help="Path to Atropos installation (overrides ATROPOS_PATH env var)")
-    parser.add_argument("--skip-atropos", action="store_true", help="Skip launching Atropos server (assume it's already running)")
-    parser.add_argument("--skip-vllm", action="store_true", help="Skip launching vLLM server (assume it's already running)")
+    parser.add_argument(
+        "--atropos-path", type=str, help="Path to Atropos installation (overrides ATROPOS_PATH env var)"
+    )
+    parser.add_argument(
+        "--skip-atropos", action="store_true", help="Skip launching Atropos server (assume it's already running)"
+    )
+    parser.add_argument(
+        "--skip-vllm", action="store_true", help="Skip launching vLLM server (assume it's already running)"
+    )
 
     args = parser.parse_args()
 

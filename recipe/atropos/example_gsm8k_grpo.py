@@ -20,15 +20,13 @@ This script demonstrates how to train a language model using GRPO
 with real environment feedback from Atropos GSM8K.
 """
 
-import argparse
 import logging
-import os
 import sys
 from pathlib import Path
 
-import torch
 from transformers import AutoTokenizer
-from verl.trainer.main_ppo import get_args_parser, merge_args, process_args
+
+from verl.trainer.main_ppo import get_args_parser, process_args
 from verl.utils.import_utils import import_external_libs
 
 # Add recipe directory to path

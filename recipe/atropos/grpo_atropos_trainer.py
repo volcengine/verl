@@ -20,13 +20,13 @@ for computing advantages with token-level overrides.
 """
 
 import logging
-from typing import Dict, Optional, Any
-import torch
+
 import numpy as np
+import torch
 
 from verl import DataProto
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.core_algos import compute_advantage
+from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
 from .atropos_integration import AtroposConfig, AtroposGRPOComputer
 
@@ -80,28 +80,18 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
         responses = batch.batch["responses"]
         response_mask = batch.batch["response_mask"]
         
-        # Get prompts (input_ids minus response)
-        # Calculate prompt length per sample based on response_mask
-        # Find where response starts for each sample
-        batch_size = input_ids.shape[0]
-        prompts = []
-        
-        for i in range(batch_size):
-            # Find first non-zero response token (where response starts)
-            response_start = (response_mask[i] > 0).nonzero(as_tuple=True)[0]
-            if len(response_start) > 0:
-                prompt_len = input_ids.shape[1] - responses.shape[1] + response_start[0].item()
-            else:
-                # No response tokens, use full input as prompt
-                prompt_len = input_ids.shape[1] - responses.shape[1]
-            
-            prompts.append(input_ids[i, :prompt_len])
-        
-        # For decoding, we'll use the original approach but decode per sample
-        # Store original prompts tensor for batch operations
-        response_length = responses.shape[1]
-        prompt_length = input_ids.shape[1] - response_length
-        prompts_tensor = input_ids[:, :prompt_length]
+        # Get prompt lengths from batch metadata if available, otherwise calculate
+        if "prompt_len" in batch.non_tensor_batch:
+            prompt_lengths = batch.non_tensor_batch["prompt_len"]
+            prompts_list = []
+            for i, prompt_len in enumerate(prompt_lengths):
+                prompts_list.append(input_ids[i, :prompt_len])
+            prompts_tensor = torch.nn.utils.rnn.pad_sequence(prompts_list, batch_first=True, padding_value=0)
+        else:
+            # Fallback to original calculation
+            response_length = responses.shape[1]
+            prompt_length = input_ids.shape[1] - response_length
+            prompts_tensor = input_ids[:, :prompt_length]
         
         # Get scores if available
         scores = batch.batch.get("token_level_scores")
@@ -130,8 +120,13 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
         return advantages
     
     def _compute_standard_grpo_advantages(self, batch: DataProto) -> torch.Tensor:
-        """Compute standard GRPO advantages as fallback"""
-        # Use the registered grpo_atropos estimator
+        """Compute standard GRPO advantages as fallback with per-sample baselines"""
+        # For GRPO fallback, use per-sample baselines (group size = 1) to maintain 
+        # theoretical correctness and avoid group coupling
+        batch_size = batch.batch["responses"].shape[0]
+        per_sample_index = np.arange(batch_size)  # Each sample is its own group
+        
+        # Use the registered grpo_atropos estimator with per-sample indexing
         advantages = compute_advantage(
             rewards=batch.batch.get("token_level_rewards", batch.batch.get("token_level_scores")),
             values=None,  # GRPO doesn't use values
@@ -140,13 +135,14 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
             gamma=self.config.algorithm.gamma,
             lam=self.config.algorithm.lam,
             response_mask=batch.batch["response_mask"],
+            index=per_sample_index,  # Use per-sample indexing
             old_rewards=batch.batch.get("old_rewards"),
             ref_log_probs=batch.batch.get("ref_log_probs"),
             log_probs=batch.batch.get("old_log_probs"),
             kl_penalties=batch.batch.get("kl_penalties"),
             kl_rewards=batch.batch.get("kl_rewards"),
             uid=batch.non_tensor_batch.get("uid"),
-            norm_adv_by_std_in_grpo=True,
+            norm_adv_by_std_in_grpo=self.config.algorithm.get("norm_adv_by_std_in_grpo", True),
             epsilon=1e-6
         )
         return advantages
@@ -155,8 +151,11 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
         """
         Override training step to use GRPO advantage computation.
         """
+        # Clone the batch to avoid in-place mutations that can cause DDP issues
+        batch_dict_cloned = {k: v.clone() if isinstance(v, torch.Tensor) else v for k, v in batch_dict.items()}
+        
         # Convert to DataProto
-        batch = DataProto.from_single_dict(batch_dict)
+        batch = DataProto.from_single_dict(batch_dict_cloned)
         
         # Compute advantages using GRPO with Atropos
         advantages = self._compute_advantages_grpo(batch)
@@ -164,4 +163,4 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
         batch.batch["returns"] = advantages  # GRPO uses advantages as returns
         
         # Continue with standard training
-        return super().training_step(batch)
+        return super().training_step(batch.batch)

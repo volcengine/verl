@@ -172,6 +172,30 @@ Run integration tests:
 pytest recipe/atropos/tests/
 ```
 
+## Scaling to Multi-Node
+
+For multi-node training, configure your environment:
+
+```bash
+# Set Ray cluster head
+export MASTER_ADDR=<head_node_ip>
+export MASTER_PORT=29500
+
+# Launch with Ray cluster
+ray start --head --port=10001  # On head node
+ray start --address=<head_node_ip>:10001  # On worker nodes
+
+# Update config for distributed training
+trainer:
+  ray:
+    runtime_env:
+      working_dir: "."
+    resources:
+      head_node_ip: <head_node_ip>
+```
+
+For SLURM environments, see `examples/slurm/ray_on_slurm.slurm`.
+
 ## Troubleshooting
 
 ### Common Issues
@@ -179,6 +203,7 @@ pytest recipe/atropos/tests/
 1. **Connection Failed**: Ensure Atropos server is running or increase `retry_attempts` / `retry_delay`
 2. **Timeout Errors**: Increase `timeout` in configuration
 3. **Shape Mismatch**: Ensure `response_mask` length matches advantage length returned by Atropos
+4. **Retry Limit Hit**: Check cumulative wait time vs `max_wait_time` setting
 
 ### Debug Mode
 
