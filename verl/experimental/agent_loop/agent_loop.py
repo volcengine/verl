@@ -295,13 +295,18 @@ class AgentLoopWorker:
         else:
             multi_modal_data = [{"image": None} for _ in range(len(raw_prompts))]
 
+        if "tools_kwargs" in batch.non_tensor_batch:
+            tools_kwargs = batch.non_tensor_batch["tools_kwargs"]
+        else:
+            tools_kwargs = [None for _ in range(len(raw_prompts))]
+
         trajectory_info = await get_trajectory_info(
             batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
         )
 
-        for agent_name, messages, trajectory, multi_modal in zip(agent_names, raw_prompts, trajectory_info, multi_modal_data, strict=True):
+        for agent_name, messages, trajectory, multi_modal, tools_kwarg in zip(agent_names, raw_prompts, trajectory_info, multi_modal_data, tools_kwargs, strict=True):
             tasks.append(
-                asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory, image_data=multi_modal.get("image", None)))
+                asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory, image_data=multi_modal.get("image", None), tools_kwargs=tools_kwarg))
             )
         outputs = await asyncio.gather(*tasks)
 
@@ -315,6 +320,7 @@ class AgentLoopWorker:
         sampling_params: dict[str, Any],
         trajectory: dict[str, Any],
         image_data: Optional[list[Any]] = None,
+        tools_kwargs: Optional[dict[str, Any]] = None,
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
             step=trajectory["step"],
@@ -334,7 +340,7 @@ class AgentLoopWorker:
                 server_manager=self.server_manager,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
             )
-            output = await agent_loop.run(messages, sampling_params, image_data=image_data)
+            output = await agent_loop.run(messages, sampling_params, image_data=image_data, tools_kwargs=tools_kwargs)
             return output
 
     def _postprocess(self, inputs: list[AgentLoopOutput]) -> DataProto:

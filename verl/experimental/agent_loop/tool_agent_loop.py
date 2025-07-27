@@ -62,7 +62,13 @@ class ToolAgentLoop(AgentLoopBase):
             cls.system_prompt = cls.processing_class.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
 
     @rollout_trace_op
-    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], image_data: Optional[list[Any]] = None) -> AgentLoopOutput:
+    async def run(
+        self,
+        messages: list[dict[str, Any]],
+        sampling_params: dict[str, Any],
+        image_data: Optional[list[Any]] = None,
+        tools_kwargs: Optional[dict[str, Any]] = None
+    ) -> AgentLoopOutput:
         metrics = {}
         request_id = uuid4().hex
         prompt_ids = await self.loop.run_in_executor(
@@ -108,7 +114,7 @@ class ToolAgentLoop(AgentLoopBase):
             # call tools
             tasks = []
             for tool_call in tool_calls[: self.max_parallel_calls]:
-                tasks.append(self._call_tool(tool_call))
+                tasks.append(self._call_tool(tool_call, tools_kwargs=tools_kwargs))
             with simple_timer("tool_calls", metrics):
                 tool_responses = await asyncio.gather(*tasks)
             if any(isinstance(item, Exception) for item in tool_responses):
@@ -148,7 +154,7 @@ class ToolAgentLoop(AgentLoopBase):
         )
         return output
 
-    async def _call_tool(self, tool_call: FunctionCall) -> dict[str, str]:
+    async def _call_tool(self, tool_call: FunctionCall, tools_kwargs: Optional[dict[str, Any]] = None) -> dict[str, str]:
         """Call tool and return tool response."""
         tool, instance_id = None, None
         try:
@@ -157,7 +163,12 @@ class ToolAgentLoop(AgentLoopBase):
             tool_args = json.loads(tool_call.arguments)
             tool = self.tools[tool_name]
 
-            instance_id = await tool.create()
+            if tools_kwargs:
+                create_kwargs = tools_kwargs[tool_name].get("create_kwargs", {})
+                instance_id = await tool.create(**create_kwargs)
+            else:
+                # make sure the tool indeed does not expect any input
+                instance_id = await tool.create()
             tool_response, _, _ = await tool.execute(instance_id, tool_args)
         except Exception as e:
             logger.exception(f"Error when executing tool: {e}")
