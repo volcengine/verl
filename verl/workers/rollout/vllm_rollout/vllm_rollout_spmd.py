@@ -198,7 +198,7 @@ class vLLMRollout(BaseRollout):
 
         # supporting adding any sampling params from the config file
         for k in config.keys():
-            if hasattr(SamplingParams(), str(k)):
+            if hasattr(SamplingParams(), str(k)) and k != "seed":
                 kwargs[k] = config.get(k)
         kwargs["n"] = 1  # already repeat in ray_trainer
         print(f"kwargs: {kwargs}")
@@ -440,7 +440,7 @@ class vLLMAsyncRollout:
         return address
 
     def _get_free_port(self):
-        ip = ray._private.services.get_node_ip_address()
+        ip = ray.util.get_node_ip_address()
         with socket.socket() as sock:
             sock.bind(("", 0))
             port = sock.getsockname()[1]

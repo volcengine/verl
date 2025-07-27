@@ -18,7 +18,7 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from verl.trainer.config import AlgoConfig, KLControlConfig, PFPPOConfig
+from verl.trainer.config import AlgoConfig, KLControlConfig
 from verl.trainer.ppo.core_algos import (
     compute_gae_advantage_return,
     compute_grpo_outcome_advantage,
@@ -49,7 +49,7 @@ class TestAlgoConfig(unittest.TestCase):
                 "target_kl": 0.05,
             },
             "use_pf_ppo": True,
-            "pf_ppo": {"_target_": "verl.trainer.config.PFPPOConfig", "reweight_method": "max_min", "weight_pow": 3.0},
+            "pf_ppo": {"reweight_method": "max_min", "weight_pow": 3.0},
         }
         self.omega_config = OmegaConf.create(self.config_dict)
 
@@ -86,9 +86,8 @@ class TestAlgoConfig(unittest.TestCase):
         self.assertEqual(config.kl_ctrl.target_kl, 0.05)
 
         # Test PF PPO config
-        self.assertIsInstance(config.pf_ppo, PFPPOConfig)
-        self.assertEqual(config.pf_ppo.reweight_method, "max_min")
-        self.assertEqual(config.pf_ppo.weight_pow, 3.0)
+        self.assertEqual(config.pf_ppo.get("reweight_method"), "max_min")
+        self.assertEqual(config.pf_ppo.get("weight_pow"), 3.0)
 
     def test_default_values(self):
         """Test that default values are properly set."""
@@ -123,7 +122,7 @@ class TestAlgoConfig(unittest.TestCase):
         # Check that nested configs are initialized
         self.assertIsNotNone(minimal_config.kl_ctrl)
         self.assertIsInstance(minimal_config.kl_ctrl, KLControlConfig)
-        self.assertIsNone(minimal_config.pf_ppo)
+        assert not minimal_config.pf_ppo
 
     def test_config_init_from_yaml(self):
         import os
@@ -133,10 +132,9 @@ class TestAlgoConfig(unittest.TestCase):
         with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
             cfg = compose(config_name="ppo_trainer")
         algo_config = omega_conf_to_dataclass(cfg.algorithm)
-        from verl.trainer.config import AlgoConfig, PFPPOConfig
+        from verl.trainer.config import AlgoConfig
 
         assert isinstance(algo_config, AlgoConfig)
-        assert isinstance(algo_config.pf_ppo, PFPPOConfig)
 
 
 class TestAlgoCompute(unittest.TestCase):
@@ -153,7 +151,7 @@ class TestAlgoCompute(unittest.TestCase):
             kl_penalty="kl",
             kl_ctrl=KLControlConfig(type="adaptive", kl_coef=0.002, horizon=5000, target_kl=0.05),
             use_pf_ppo=True,
-            pf_ppo=PFPPOConfig(reweight_method="max_min", weight_pow=3.0),
+            pf_ppo={"reweight_method": "max_min", "weight_pow": 3.0},
         )
 
     def test_advantage_estimator_with_cfg(self):
