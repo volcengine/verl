@@ -88,7 +88,7 @@ def pad_token_sequences(
     max_length: Optional[int] = None
 ) -> torch.Tensor:
     """
-    Pad sequences to same length.
+    Pad sequences to same length using efficient padding.
     
     Args:
         sequences: List of tensors to pad
@@ -101,26 +101,28 @@ def pad_token_sequences(
     if not sequences:
         return torch.empty(0)
     
-    # Find max length
-    if max_length is None:
-        max_length = max(seq.shape[0] for seq in sequences)
+    # Truncate sequences if max_length is specified
+    if max_length is not None:
+        sequences = [seq[:max_length] for seq in sequences]
     
-    # Pad sequences
-    padded = []
-    for seq in sequences:
-        if seq.shape[0] < max_length:
-            padding = torch.full(
-                (max_length - seq.shape[0],) + seq.shape[1:],
-                pad_value,
-                dtype=seq.dtype,
-                device=seq.device
-            )
-            seq = torch.cat([seq, padding], dim=0)
-        elif seq.shape[0] > max_length:
-            seq = seq[:max_length]
-        padded.append(seq)
+    # Use torch.nn.utils.rnn.pad_sequence for efficient padding
+    # Note: pad_sequence expects (sequence_length, *) tensors and returns (max_len, batch_size, *)
+    # We need to transpose to get (batch_size, max_len, *)
+    from torch.nn.utils.rnn import pad_sequence
     
-    return torch.stack(padded)
+    # Ensure all sequences have same number of dimensions
+    if sequences and len(sequences[0].shape) == 1:
+        # 1D sequences - pad_sequence handles this directly
+        padded = pad_sequence(sequences, batch_first=True, padding_value=pad_value)
+    else:
+        # Multi-dimensional sequences - flatten extra dims temporarily
+        original_shape = sequences[0].shape[1:]
+        flat_sequences = [seq.view(seq.shape[0], -1) for seq in sequences]
+        padded_flat = pad_sequence(flat_sequences, batch_first=True, padding_value=pad_value)
+        # Restore original shape
+        padded = padded_flat.view(padded_flat.shape[0], padded_flat.shape[1], *original_shape)
+    
+    return padded
 
 
 def compute_batch_metrics(advantages: torch.Tensor, mask: torch.Tensor) -> Dict[str, float]:

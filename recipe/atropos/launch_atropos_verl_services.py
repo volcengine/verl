@@ -178,7 +178,29 @@ class ServiceLauncher:
         self.processes.append(proc)
 
         # Wait for vLLM to start
-        return self.wait_for_service(vllm_url, "vLLM server", timeout=120)
+        if not self.wait_for_service(vllm_url, "vLLM server", timeout=120):
+            return False
+            
+        # Register inference endpoint with Atropos if supported
+        try:
+            atropos_config = self.config.get("trainer", {}).get("atropos", {})
+            api_url = atropos_config.get("api_url", "http://localhost:9001")
+            
+            # Try to register the endpoint (optional, for future Atropos versions)
+            response = requests.post(
+                f"{api_url}/register_inference_endpoint",
+                json={"url": vllm_url},
+                timeout=5
+            )
+            if response.status_code == 200:
+                logger.info(f"Successfully registered vLLM endpoint {vllm_url} with Atropos")
+            else:
+                logger.debug(f"Endpoint registration not supported by Atropos (status {response.status_code})")
+        except requests.exceptions.RequestException:
+            # Endpoint registration is optional - don't fail if not supported
+            logger.debug("Endpoint registration not supported by this Atropos version")
+            
+        return True
 
     def launch_training(self) -> subprocess.Popen:
         """Launch the VeRL training process."""

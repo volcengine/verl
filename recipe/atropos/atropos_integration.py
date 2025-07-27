@@ -77,7 +77,7 @@ class AtroposEnvironmentClient:
         prompts: List[str],
         responses: List[str], 
         metadata: Optional[Dict[str, Any]] = None,
-        tokenizer = None
+        response_mask: Optional[torch.Tensor] = None
     ) -> Tuple[Optional[torch.Tensor], Dict[str, Any]]:
         """
         Submit responses to Atropos and get token-level advantages.
@@ -86,7 +86,7 @@ class AtroposEnvironmentClient:
             prompts: List of prompt strings
             responses: List of response strings
             metadata: Optional metadata for the batch
-            tokenizer: Tokenizer for converting advantages to token level
+            response_mask: Mask tensor for valid response tokens
             
         Returns:
             Tuple of (advantages tensor, metrics dict)
@@ -98,62 +98,78 @@ class AtroposEnvironmentClient:
             "metadata": metadata or {}
         }
         
-        try:
-            # Submit to Atropos
-            response = self.session.post(
-                f"{self.config.api_url}/evaluate_and_compute_advantages",
-                json=submission_data,
-                timeout=self.config.timeout
-            )
-            
-            if response.status_code != 200:
-                logger.error(f"Atropos API error: {response.status_code} - {response.text}")
-                return None, {}
-            
-            # Parse response
-            result = response.json()
-            advantages = result.get("advantages", [])
-            metrics = result.get("metrics", {})
-            
-            # Convert to tensor if we have tokenizer
-            if tokenizer and advantages:
-                advantage_tensor = self._convert_to_token_level_advantages(
-                    advantages, responses, tokenizer
+        last_error = None
+        
+        # Retry loop with exponential backoff
+        for attempt in range(self.config.retry_attempts):
+            try:
+                # Submit to Atropos
+                response = self.session.post(
+                    f"{self.config.api_url}/evaluate_and_compute_advantages",
+                    json=submission_data,
+                    timeout=self.config.timeout
                 )
-                return advantage_tensor, metrics
-            
-            return advantages, metrics
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to communicate with Atropos: {e}")
-            return None, {}
+                
+                if response.status_code != 200:
+                    error_msg = f"Atropos API error: {response.status_code} - {response.text}"
+                    logger.error(error_msg)
+                    last_error = error_msg
+                    
+                    # Don't retry on client errors (4xx)
+                    if 400 <= response.status_code < 500:
+                        break
+                    
+                    # Wait before retrying on server errors
+                    if attempt < self.config.retry_attempts - 1:
+                        wait_time = self.config.retry_delay * (2 ** attempt)
+                        logger.info(f"Retrying in {wait_time}s... (attempt {attempt + 1}/{self.config.retry_attempts})")
+                        time.sleep(wait_time)
+                    continue
+                
+                # Parse response
+                result = response.json()
+                advantages = result.get("advantages", [])
+                metrics = result.get("metrics", {})
+                
+                # Convert to tensor if we have response_mask  
+                if response_mask is not None and advantages:
+                    advantage_tensor = self._convert_to_token_level_advantages(
+                        advantages, response_mask
+                    )
+                    return advantage_tensor, metrics
+                
+                return advantages, metrics
+                
+            except requests.exceptions.RequestException as e:
+                error_msg = f"Failed to communicate with Atropos: {e}"
+                logger.error(error_msg)
+                last_error = error_msg
+                
+                # Wait before retrying
+                if attempt < self.config.retry_attempts - 1:
+                    wait_time = self.config.retry_delay * (2 ** attempt)
+                    logger.info(f"Retrying in {wait_time}s... (attempt {attempt + 1}/{self.config.retry_attempts})")
+                    time.sleep(wait_time)
+        
+        logger.error(f"All {self.config.retry_attempts} attempts failed. Last error: {last_error}")
+        return None, {}
     
     def _convert_to_token_level_advantages(
         self, 
         advantages: List[float],
-        responses: List[str],
-        tokenizer
+        response_mask: torch.Tensor
     ) -> torch.Tensor:
-        """Convert response-level advantages to token-level"""
-        token_advantages = []
+        """Convert response-level advantages to token-level using response mask"""
+        batch_size, seq_len = response_mask.shape
         
-        for adv, response in zip(advantages, responses):
-            # Tokenize response
-            tokens = tokenizer.encode(response, add_special_tokens=False)
-            # Broadcast advantage to all tokens
-            token_adv = torch.full((len(tokens),), adv, dtype=torch.float32)
-            token_advantages.append(token_adv)
+        # Create tensor to hold token-level advantages
+        token_advantages = torch.zeros(batch_size, seq_len, dtype=torch.float32)
         
-        # Pad to same length
-        max_len = max(len(adv) for adv in token_advantages)
-        padded = []
-        for adv in token_advantages:
-            if len(adv) < max_len:
-                padding = torch.zeros(max_len - len(adv))
-                adv = torch.cat([adv, padding])
-            padded.append(adv)
+        for i, adv in enumerate(advantages):
+            # Broadcast advantage to all valid response tokens
+            token_advantages[i] = adv * response_mask[i].float()
         
-        return torch.stack(padded)
+        return token_advantages
 
 
 class AtroposGRPOComputer:
@@ -197,7 +213,7 @@ class AtroposGRPOComputer:
         
         # Try to get advantages from Atropos
         advantages, metrics = self.client.submit_responses_and_get_advantages(
-            prompt_texts, response_texts, tokenizer=tokenizer
+            prompt_texts, response_texts, response_mask=response_mask
         )
         
         if advantages is not None and self.config.use_advantages:
@@ -205,10 +221,18 @@ class AtroposGRPOComputer:
             logger.info("Using advantages from Atropos environments")
             # Ensure correct shape and device
             if advantages.shape[0] != responses.shape[0]:
-                logger.warning("Advantage shape mismatch, using fallback")
+                logger.warning(f"Advantage batch size mismatch: expected {responses.shape[0]}, got {advantages.shape[0]}")
                 return self._compute_fallback_advantages(
                     scores, response_mask, fallback_estimator
                 )
+            if advantages.shape[1] != response_mask.shape[1]:
+                logger.warning(f"Advantage sequence length mismatch: expected {response_mask.shape[1]}, got {advantages.shape[1]}")
+                return self._compute_fallback_advantages(
+                    scores, response_mask, fallback_estimator
+                )
+            
+            # Move to correct device and dtype
+            advantages = advantages.to(device=responses.device, dtype=responses.dtype)
             return advantages, metrics
         
         # Fallback to standard computation

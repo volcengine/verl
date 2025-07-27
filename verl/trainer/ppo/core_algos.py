@@ -421,6 +421,14 @@ def compute_grpo_atropos_advantage(
     
     if token_level_advantages is not None:
         # Use provided advantages from Atropos
+        # Note: When using token-level overrides from environments, we intentionally
+        # skip epsilon and norm_adv_by_std_in_grpo since the environment has already
+        # computed final advantages that should be used as-is
+        
+        # Validate shape compatibility
+        assert token_level_advantages.shape == response_mask.shape, \
+            f"Shape mismatch: advantages {token_level_advantages.shape} vs response_mask {response_mask.shape}"
+        
         advantages = token_level_advantages * response_mask
         return advantages, advantages
     

@@ -81,9 +81,27 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
         response_mask = batch.batch["response_mask"]
         
         # Get prompts (input_ids minus response)
+        # Calculate prompt length per sample based on response_mask
+        # Find where response starts for each sample
+        batch_size = input_ids.shape[0]
+        prompts = []
+        
+        for i in range(batch_size):
+            # Find first non-zero response token (where response starts)
+            response_start = (response_mask[i] > 0).nonzero(as_tuple=True)[0]
+            if len(response_start) > 0:
+                prompt_len = input_ids.shape[1] - responses.shape[1] + response_start[0].item()
+            else:
+                # No response tokens, use full input as prompt
+                prompt_len = input_ids.shape[1] - responses.shape[1]
+            
+            prompts.append(input_ids[i, :prompt_len])
+        
+        # For decoding, we'll use the original approach but decode per sample
+        # Store original prompts tensor for batch operations
         response_length = responses.shape[1]
         prompt_length = input_ids.shape[1] - response_length
-        prompts = input_ids[:, :prompt_length]
+        prompts_tensor = input_ids[:, :prompt_length]
         
         # Get scores if available
         scores = batch.batch.get("token_level_scores")
@@ -97,7 +115,7 @@ class RayGRPOAtroposTrainer(RayPPOTrainer):
         
         # Submit to Atropos and get advantages
         advantages, metrics = self.grpo_computer.compute_advantages_with_overrides(
-            prompts=prompts,
+            prompts=prompts_tensor,
             responses=responses,
             scores=scores,
             tokenizer=tokenizer,

@@ -170,6 +170,54 @@ def test_advantage_estimator():
     return True
 
 
+def test_fallback_on_api_failure():
+    """Test that fallback works when Atropos API is unavailable."""
+    print("\nTesting fallback on API failure...")
+    
+    # Use a non-existent URL to simulate API failure
+    config = AtroposConfig(
+        api_url="http://localhost:9999",  # Non-existent port
+        timeout=2,
+        retry_attempts=2,  # Reduce for faster test
+        fallback_to_standard=True
+    )
+    
+    try:
+        computer = AtroposGRPOComputer(config)
+        print("✗ Expected connection failure but got success")
+        return False
+    except Exception:
+        # Expected - connection should fail
+        pass
+    
+    # Test that fallback estimator works
+    try:
+        from verl.trainer.ppo.core_algos import compute_grpo_atropos_advantage
+        
+        batch_size = 2
+        response_length = 10
+        
+        token_level_rewards = torch.randn(batch_size, response_length)
+        response_mask = torch.ones(batch_size, response_length)
+        index = torch.arange(batch_size).numpy()
+        
+        # This should work without Atropos (no token_level_advantages provided)
+        advantages, returns = compute_grpo_atropos_advantage(
+            token_level_rewards=token_level_rewards,
+            response_mask=response_mask,
+            index=index,
+            norm_adv_by_std_in_grpo=True
+        )
+        
+        print("✓ Fallback computation successful")
+        print(f"  Advantages shape: {advantages.shape}")
+        return True
+        
+    except Exception as e:
+        print(f"✗ Fallback test failed: {e}")
+        return False
+
+
 def main():
     """Run all tests."""
     print("=" * 60)
@@ -183,7 +231,8 @@ def main():
     tests = [
         ("Atropos Client", test_atropos_client),
         ("GRPO Computer", test_grpo_computer),
-        ("Advantage Estimator", test_advantage_estimator)
+        ("Advantage Estimator", test_advantage_estimator),
+        ("Fallback on API Failure", test_fallback_on_api_failure)
     ]
     
     results = []
