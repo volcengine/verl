@@ -321,8 +321,23 @@ class AgentLoopWorker:
             )
             output = await agent_loop.run(messages, sampling_params)
 
-            # Direct padding after generation
-            # Pad prompt (left padding)
+            # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
+            # prompt_ids: left padded with zeros (e.g., [0,0,0,0,1,2,3,4])
+            # response_ids: right padded with zeros (e.g., [5,6,7,8,0,0,0,0])
+            # input_ids: concatenation of prompt + response
+            # Mask:
+            # For example, if the prompt is [1,2,3,4] and the response is [5,6,7,(tool start)8,9(tool end),10,11,12]
+            # - prompt_attention_mask: 0s for padding, 1s for tokens
+            #   e.g., [0,0,0,0,1,1,1,1]
+            # - response_attention_mask: 0s for padding, 1s for tokens
+            #   e.g., [1,1,1,1,1,1,1,1,1,1,1,0,0,0,0]
+            # attention_mask: concatenation of prompt_attention_mask and response_attention_mask
+            #   e.g., [0,0,0,0,1,1,1,1(prompt),1,1,1,1,1,1,1,1,1,1,1,0,0,0,0(response)]
+            # - response_mask: 1s for LLM generated tokens, 0 for tool response/padding tokens
+            #   e.g., [1,1,1,1,1,1,1,(tool start),0,0(tool end),1,1,0,0,0,0]
+            # - position_ids: sequential positions for tokens, starting at 0
+            #   e.g., [0,0,0,0,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,0,0,0,0]
+
             self.tokenizer.padding_side = "left"
             prompt_output = self.tokenizer.pad(
                 {"input_ids": output.prompt_ids},
@@ -337,7 +352,6 @@ class AgentLoopWorker:
                 prompt_output["input_ids"] = prompt_output["input_ids"].unsqueeze(0)
                 prompt_output["attention_mask"] = prompt_output["attention_mask"].unsqueeze(0)
 
-            # Pad response (right padding)
             self.tokenizer.padding_side = "right"
             response_output = self.tokenizer.pad(
                 {"input_ids": output.response_ids},
@@ -347,12 +361,10 @@ class AgentLoopWorker:
                 return_attention_mask=True,
             )
 
-            # Ensure we have a batch dimension
             if response_output["input_ids"].dim() == 1:
                 response_output["input_ids"] = response_output["input_ids"].unsqueeze(0)
                 response_output["attention_mask"] = response_output["attention_mask"].unsqueeze(0)
 
-            # Pad response mask
             response_mask_output = self.tokenizer.pad(
                 {"input_ids": output.response_mask},
                 padding="max_length",
@@ -361,24 +373,18 @@ class AgentLoopWorker:
                 return_attention_mask=False,
             )
 
-            # Ensure we have a batch dimension
             if response_mask_output["input_ids"].dim() == 1:
                 response_mask_output["input_ids"] = response_mask_output["input_ids"].unsqueeze(0)
 
-            # Apply attention mask to response mask
             response_mask = response_mask_output["input_ids"] * response_output["attention_mask"]
 
-            # Create input_ids and attention_mask
             input_ids = torch.cat([prompt_output["input_ids"], response_output["input_ids"]], dim=1)
             attention_mask = torch.cat([prompt_output["attention_mask"], response_output["attention_mask"]], dim=1)
             position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
 
-            # Add processed tensors to output
             output.processed_tensors = {
                 "prompt_ids": prompt_output["input_ids"],
-                "prompt_attention_mask": prompt_output["attention_mask"],
                 "response_ids": response_output["input_ids"],
-                "response_attention_mask": response_output["attention_mask"],
                 "response_mask": response_mask,
                 "input_ids": input_ids,
                 "attention_mask": attention_mask,
