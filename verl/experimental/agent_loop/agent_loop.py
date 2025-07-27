@@ -409,14 +409,9 @@ class AgentLoopWorker:
             batch_size=len(input_ids),
         )
 
-        # Convert numpy int64 values to standard Python integers to avoid serialization issues
-        num_turns = [int(input.num_turns) for input in inputs]
+        num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
         metrics = [input.metrics.model_dump() for input in inputs]
-        return DataProto(
-            batch=batch,
-            non_tensor_batch={"__num_turns__": np.array(num_turns, dtype=np.int32)},
-            meta_info={"metrics": metrics},
-        )
+        return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
 
 
 async def get_trajectory_info(step, index, validate):
@@ -550,21 +545,21 @@ class AgentLoopManager:
         timing = {}
         t_generate_sequences = np.array([metric["generate_sequences"] for chunk in metrics for metric in chunk])
         t_tool_calls = np.array([metric["tool_calls"] for chunk in metrics for metric in chunk])
-        timing["agent_loop/generate_sequences/min"] = float(t_generate_sequences.min())
-        timing["agent_loop/generate_sequences/max"] = float(t_generate_sequences.max())
-        timing["agent_loop/generate_sequences/mean"] = float(t_generate_sequences.mean())
-        timing["agent_loop/tool_calls/min"] = float(t_tool_calls.min())
-        timing["agent_loop/tool_calls/max"] = float(t_tool_calls.max())
-        timing["agent_loop/tool_calls/mean"] = float(t_tool_calls.mean())
+        timing["agent_loop/generate_sequences/min"] = t_generate_sequences.min()
+        timing["agent_loop/generate_sequences/max"] = t_generate_sequences.max()
+        timing["agent_loop/generate_sequences/mean"] = t_generate_sequences.mean()
+        timing["agent_loop/tool_calls/min"] = t_tool_calls.min()
+        timing["agent_loop/tool_calls/max"] = t_tool_calls.max()
+        timing["agent_loop/tool_calls/mean"] = t_tool_calls.mean()
 
         # batch sequence generation is bounded by the slowest sample
-        slowest = int(np.argmax(t_generate_sequences + t_tool_calls))
+        slowest = np.argmax(t_generate_sequences + t_tool_calls)
         attention_mask = output.batch["attention_mask"][slowest]
-        prompt_length = int(output.batch["prompts"].shape[1])
-        timing["agent_loop/slowest/generate_sequences"] = float(t_generate_sequences[slowest])
-        timing["agent_loop/slowest/tool_calls"] = float(t_tool_calls[slowest])
-        timing["agent_loop/slowest/prompt_length"] = int(attention_mask[:prompt_length].sum().item())
-        timing["agent_loop/slowest/response_length"] = int(attention_mask[prompt_length:].sum().item())
+        prompt_length = output.batch["prompts"].shape[1]
+        timing["agent_loop/slowest/generate_sequences"] = t_generate_sequences[slowest]
+        timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
+        timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
+        timing["agent_loop/slowest/response_length"] = attention_mask[prompt_length:].sum().item()
 
         return timing
 
