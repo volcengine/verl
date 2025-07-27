@@ -31,8 +31,8 @@ The Atropos integration provides:
 
 ### 1. `atropos_integration.py`
 Core integration module with:
-- `AtroposEnvironmentClient`: Handles API communication with Atropos
-- `AtroposGRPOComputer`: Computes advantages with environment overrides
+- `AtroposEnvironmentClient`: Handles API communication with Atropos (exponential-backoff retry, health-check)
+- `AtroposGRPOComputer`: Broadcasts env-level advantages to tokens via `response_mask`, falls back to standard GRPO when needed
 
 ### 2. `grpo_atropos_trainer.py`
 GRPO trainer implementation:
@@ -44,8 +44,8 @@ GRPO trainer implementation:
 Service orchestration script:
 - Automatically launches Atropos environment server
 - Starts vLLM inference workers
-- Manages service lifecycle and cleanup
-- Provides health checks and monitoring
+- **Registers** the vLLM endpoint back to Atropos (if the env supports `/register_inference_endpoint`)
+- Manages service lifecycle, health checks and cleanup
 
 ### 4. `core_algos.py` (modified)
 - Added `grpo_atropos` advantage estimator
@@ -152,10 +152,10 @@ The integration tracks:
 ## Error Handling
 
 The implementation includes:
-- Automatic retry logic for API calls
+- Exponential-backoff retry logic for API calls
 - Fallback to standard GRPO if Atropos unavailable
-- Comprehensive error logging
-- Graceful degradation
+- Comprehensive error logging & early shape-assertions
+- Graceful degradation (training continues on fallback)
 
 ## Development
 
@@ -176,9 +176,9 @@ pytest recipe/atropos/tests/
 
 ### Common Issues
 
-1. **Connection Failed**: Ensure Atropos server is running
+1. **Connection Failed**: Ensure Atropos server is running or increase `retry_attempts` / `retry_delay`
 2. **Timeout Errors**: Increase `timeout` in configuration
-3. **Shape Mismatch**: Check tokenizer compatibility
+3. **Shape Mismatch**: Ensure `response_mask` length matches advantage length returned by Atropos
 
 ### Debug Mode
 
