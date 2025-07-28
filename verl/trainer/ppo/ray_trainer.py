@@ -1096,6 +1096,7 @@ class RayPPOTrainer:
         num_prompt_in_batch = 0
         num_gen_batches = 0
         prompt_bsz = self.config.data.train_batch_size
+        self.reward_step = 0
         
         # Display dynamic filter settings
         if self.config.algorithm.dynamic_filter.enable:
@@ -1188,8 +1189,6 @@ class RayPPOTrainer:
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
-
-
                     if self.use_rm:
                         reward_tensor = self.rm_wg.compute_rm_score(batch)
                         batch = batch.union(reward_tensor)
@@ -1202,6 +1201,27 @@ class RayPPOTrainer:
                             batch.non_tensor_batch.update(
                                 {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
                             )
+                    if self.reward_step <self.global_steps:
+                        self.reward_step += 1
+                        
+                        # update train/reward in metric only once per step using the not filtered batch
+
+                        seq_reward_tensor = batch.batch["token_level_scores"].sum(-1)
+                        mean_seq_reward = seq_reward_tensor.mean().item()
+                        std_seq_reward = seq_reward_tensor.std().item()
+                        max_seq_reward = seq_reward_tensor.max().item()
+                        min_seq_reward = seq_reward_tensor.min().item()
+
+                        metrics.update({
+                            "train/reward/mean": mean_seq_reward,
+                            "train/reward/std": std_seq_reward,
+                            "train/reward/max": max_seq_reward,
+                            "train/reward/min": min_seq_reward,
+                        })
+                        logger.log(data=metrics, step=self.global_steps)
+                        print(f"[DF] Reward: {mean_seq_reward:.4f} ± {std_seq_reward:.4f} (max: {max_seq_reward:.4f}, min: {min_seq_reward:.4f})")
+
+
 
                     if self.config.algorithm.dynamic_filter.enable:
                         # NOTE: When prompts after filtering is less than train batch size,
