@@ -211,7 +211,12 @@ class EngineRegistry:
 
         def decorator(engine_class):
             assert issubclass(engine_class, BaseEngine)
-            cls._engines[key] = engine_class
+            if isinstance(key, list):
+                for k in key:
+                    cls._engines[k] = engine_class
+            else:
+                assert isinstance(key, str)
+                cls._engines[key] = engine_class
             return engine_class
 
         return decorator

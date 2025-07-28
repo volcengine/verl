@@ -74,6 +74,7 @@ from verl.utils.profiler.performance import reduce_timing
 from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from verl.workers.engine import EngineRegistry
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -107,7 +108,7 @@ def get_sharding_strategy(device_mesh):
     return sharding_strategy
 
 
-class ActorWorker(Worker):
+class ActorWorker(Worker, DistProfilerExtension):
     """
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
     or a hybrid engine based on the config.rollout
@@ -116,11 +117,19 @@ class ActorWorker(Worker):
     def __init__(self, config, role, **kwargs):
         debug_print(f"__init__ role: {role}")
         Worker.__init__(self)
-
-        self.config = config
+        # TODO(haibin.lin):
+        # As of now the type of config is DictConfig, if we assign config.profiler with ProfilerConfig,
+        # it will actually convert the ProfilerConfig dataclass back to a DictConfig.
+        # We can still use ProfilerConfig for testing purpose (tests/utils/test_nvtx_profile.py)
+        # as they provides DictConfig-like interface
+        # The benefit of creating the dataclass config is to perform validation during __post_init__
         self.profile_option = kwargs.get("profile_option", None)
-        import torch.distributed
+        profiler_config = omega_conf_to_dataclass(config.get("profiler"))
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, option=self.profile_option)
+        )
 
+        import torch.distributed
         if not torch.distributed.is_initialized():
             rank = int(os.environ.get("RANK", 0))
             world_size = int(os.environ.get("WORLD_SIZE", 1))
@@ -130,6 +139,17 @@ class ActorWorker(Worker):
                 world_size=world_size,
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
+        self.config = config.actor
+
+        self.role = role
+        assert self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
+        self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
+        debug_print(f"config: {config}")
+        debug_print(f"config.actor: {config.actor}")
+        self.engine = EngineRegistry.new(self.config.strategy, self.config)
+
+        raise ValueError
+
 
         # build device mesh for FSDP
         world_size = torch.distributed.get_world_size()
@@ -149,32 +169,19 @@ class ActorWorker(Worker):
         self._lora_rank = self.config.model.get("lora_rank", 0)
         self._is_lora = self._lora_rank > 0
 
-        self.role = role
-        assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
 
-        self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
-        self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
-        self._is_ref = self.role in ["ref", "actor_rollout_ref"]
+        # self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
+        # self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
-        # TODO(haibin.lin):
-        # As of now the type of config is DictConfig, if we assign config.profiler with ProfilerConfig,
-        # it will actually convert the ProfilerConfig dataclass back to a DictConfig.
-        # We can still use ProfilerConfig for testing purpose (tests/utils/test_nvtx_profile.py)
-        # as they provides DictConfig-like interface
-        # The benefit of creating the dataclass config is to perform validation during __post_init__
-        profiler_config = omega_conf_to_dataclass(config.get("profiler"))
-        DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=profiler_config, option=self.profile_option)
-        )
 
         self._is_offload_param = False
         self._is_offload_optimizer = False
         if self._is_actor:
             self._is_offload_param = self.config.actor.fsdp_config.get("param_offload", False)
             self._is_offload_optimizer = self.config.actor.fsdp_config.get("optimizer_offload", False)
-        elif self._is_ref:
-            # TODO: it seems that manual offload is slowly than FSDP offload
-            self._is_offload_param = self.config.ref.fsdp_config.get("param_offload", False)
+        # elif self._is_ref:
+        #     # TODO: it seems that manual offload is slowly than FSDP offload
+        #     self._is_offload_param = self.config.ref.fsdp_config.get("param_offload", False)
 
         # normalize config
         if self._is_actor:
@@ -201,16 +208,16 @@ class ActorWorker(Worker):
                     f"ppo_micro_batch_size_per_gpu {self.config.actor.ppo_micro_batch_size_per_gpu}"
                 )
 
-        # normalize rollout config
-        if self._is_rollout and self.config.rollout.log_prob_micro_batch_size is not None:
-            self.config.rollout.log_prob_micro_batch_size //= (
-                self.device_mesh.size() // self.ulysses_sequence_parallel_size
-            )
-            self.config.rollout.log_prob_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size
-        # normalize ref config
-        if self._is_ref and self.config.ref.log_prob_micro_batch_size is not None:
-            self.config.ref.log_prob_micro_batch_size //= self.device_mesh.size() // self.ulysses_sequence_parallel_size
-            self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
+        # # normalize rollout config
+        # if self._is_rollout and self.config.rollout.log_prob_micro_batch_size is not None:
+        #     self.config.rollout.log_prob_micro_batch_size //= (
+        #         self.device_mesh.size() // self.ulysses_sequence_parallel_size
+        #     )
+        #     self.config.rollout.log_prob_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size
+        # # normalize ref config
+        # if self._is_ref and self.config.ref.log_prob_micro_batch_size is not None:
+        #     self.config.ref.log_prob_micro_batch_size //= self.device_mesh.size() // self.ulysses_sequence_parallel_size
+        #     self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
 
         # raise NotImplementedError
 
@@ -360,9 +367,9 @@ class ActorWorker(Worker):
             is_lora=self.config.model.get("lora_rank", 0) > 0,
         )
 
-        if self._is_rollout and self.config.rollout.name == "hf":
-            # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
-            auto_wrap_policy = None
+        # if self._is_rollout and self.config.rollout.name == "hf":
+        #     # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
+        #     auto_wrap_policy = None
 
         if self.rank == 0:
             print(f"wrap_policy: {auto_wrap_policy}")
@@ -464,7 +471,7 @@ class ActorWorker(Worker):
 
         return actor_module_fsdp, actor_optimizer, actor_lr_scheduler, actor_model_config
 
-        
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         debug_print(f"init_model")
@@ -525,29 +532,29 @@ class ActorWorker(Worker):
                 config=actor_cfg, actor_module=self.actor_module_fsdp, actor_optimizer=self.actor_optimizer
             )
 
-        if self._is_rollout:
-            self.rollout, self.rollout_sharding_manager = self._build_rollout(
-                trust_remote_code=self.config.model.get("trust_remote_code", False)
-            )
+        # if self._is_rollout:
+        #     self.rollout, self.rollout_sharding_manager = self._build_rollout(
+        #         trust_remote_code=self.config.model.get("trust_remote_code", False)
+        #     )
 
-        if self._is_ref:
-            local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
-            self.ref_module_fsdp = self._build_model_optimizer(
-                model_path=local_path,
-                fsdp_config=omega_conf_to_dataclass(self.config.ref.fsdp_config),
-                optim_config=None,
-                override_model_config=override_model_config,
-                use_remove_padding=use_remove_padding,
-                use_fused_kernels=use_fused_kernels,
-                trust_remote_code=self.config.model.get("trust_remote_code", False),
-                use_liger=self.config.model.get("use_liger", False),
-                role="ref",
-            )[0]
-            OmegaConf.set_struct(self.config.ref, True)
-            with open_dict(self.config.ref):
-                self.config.ref.use_remove_padding = use_remove_padding
-                self.config.ref.use_fused_kernels = use_fused_kernels
-            self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
+        # if self._is_ref:
+        #     local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
+        #     self.ref_module_fsdp = self._build_model_optimizer(
+        #         model_path=local_path,
+        #         fsdp_config=omega_conf_to_dataclass(self.config.ref.fsdp_config),
+        #         optim_config=None,
+        #         override_model_config=override_model_config,
+        #         use_remove_padding=use_remove_padding,
+        #         use_fused_kernels=use_fused_kernels,
+        #         trust_remote_code=self.config.model.get("trust_remote_code", False),
+        #         use_liger=self.config.model.get("use_liger", False),
+        #         role="ref",
+        #     )[0]
+        #     OmegaConf.set_struct(self.config.ref, True)
+        #     with open_dict(self.config.ref):
+        #         self.config.ref.use_remove_padding = use_remove_padding
+        #         self.config.ref.use_fused_kernels = use_fused_kernels
+        #     self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
 
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
@@ -559,18 +566,18 @@ class ActorWorker(Worker):
                 checkpoint_config=self.config.actor.checkpoint,
             )
 
-        if not self._is_actor and self._is_rollout:
-            # If ActorRolloutRefWorker is initialized as a standalone rollout,
-            # create a checkpoint manager for FSDP model to allow loading FSDP checkpoints for rollout.
+        # if not self._is_actor and self._is_rollout:
+        #     # If ActorRolloutRefWorker is initialized as a standalone rollout,
+        #     # create a checkpoint manager for FSDP model to allow loading FSDP checkpoints for rollout.
 
-            checkpoint_contents = OmegaConf.create({"load_contents": ["model"], "save_contents": []})
-            self.checkpoint_manager = FSDPCheckpointManager(
-                model=self.actor_module_fsdp,
-                optimizer=None,
-                lr_scheduler=None,
-                processing_class=self.processor if self.processor is not None else self.tokenizer,
-                checkpoint_config=checkpoint_contents,
-            )
+        #     checkpoint_contents = OmegaConf.create({"load_contents": ["model"], "save_contents": []})
+        #     self.checkpoint_manager = FSDPCheckpointManager(
+        #         model=self.actor_module_fsdp,
+        #         optimizer=None,
+        #         lr_scheduler=None,
+        #         processing_class=self.processor if self.processor is not None else self.tokenizer,
+        #         checkpoint_config=checkpoint_contents,
+        #     )
         raise ValueError
         # raise NotImplementedError
 
