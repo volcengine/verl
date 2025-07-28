@@ -483,7 +483,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             from verl.workers.sharding_manager.fsdp_vllm import FSDPVLLMShardingManager
 
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
-            local_path = self.config.model.path
+            local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
             lora_kwargs = (
                 {"lora_kwargs": {"enable_lora": True, "max_loras": 1, "max_lora_rank": self._lora_rank}}
                 if self._is_lora
@@ -581,7 +581,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 optim_config = None
                 fsdp_config = FSDPEngineConfig()
 
-            local_path = self.config.model.path
+            local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
             (
                 self.actor_module_fsdp,
                 self.actor_optimizer,
@@ -1348,7 +1348,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         use_shm = config.model.get("use_shm", False)
         # download the checkpoint from hdfs
-        local_path = config.model.path
+        local_path = copy_to_local(config.model.path, use_shm=use_shm)
 
         if self.config.model.input_tokenizer is None:
             self._do_switch_chat_template = False

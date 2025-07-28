@@ -738,7 +738,6 @@ def _bind_workers_method_to_parent(cls, key, user_defined_cls):
                         f"conflict direct rollout method {method_name} with role {key}"
                     )
                     setattr(cls, method_name, func)
-                    # TODO:
                     print(f"bind role {key} method {method_name} to class {cls}")
                 else:
                     method_name_with_prefix = key + "_" + method_name
