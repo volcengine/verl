@@ -193,7 +193,6 @@ class ExternalZeroMQDistributedExecutor(Executor):
 
         message = pickle.dumps((sent_method, args, kwargs, unique_reply_rank))
         # TODO(haibin.lin): optimize with only necessary ranks
-        # sockets = self.sockets if unique_reply_rank is None else [self.sockets[unique_reply_rank]]
         for socket in self.sockets:
             socket.send(message, zmq.DONTWAIT)
 

@@ -62,7 +62,7 @@ def init_config(n_gpus_per_node) -> DictConfig:
     config.trainer.n_gpus_per_node = n_gpus_per_node
     config.data.train_batch_size = 128
     config.data.return_raw_chat = True
-    config.actor_rollout_ref.model.path = "Qwen2.5-7B-Instruct"
+    config.actor_rollout_ref.model.path = "Qwen/Qwen2.5-7B-Instruct"
     config.actor_rollout_ref.rollout.mode = "async"
     config.actor_rollout_ref.rollout.tensor_model_parallel_size = 1
     # zmq supports pipeline_model_parallel_size > 1
@@ -132,7 +132,7 @@ def perf_rollout(mode, backend, n_gpus_per_node, num_steps):
 
 if __name__ == "__main__":
     num_steps = 1
-    n_gpus_per_node = 4
+    n_gpus_per_node = 8
 
     test_cases = [("sync", "sync"), ("async", "zeromq"), ("async", "ray")]
     for mode, backend in test_cases:
