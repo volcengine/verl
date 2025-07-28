@@ -83,7 +83,7 @@ class BaseModelInitializer(ABC):
             rotary_base=self.hf_config.rope_theta,
             **rope_scaling_args,
             mtp_block_spec=mtp_block_spec,
-            vp_stage=vp_stage,
+            **({} if not self.has_vp_stage else {"vp_stage": vp_stage}),
         )
 
         if post_process and value:

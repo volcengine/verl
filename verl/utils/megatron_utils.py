@@ -911,7 +911,7 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
 
     if config.pipeline_model_parallel_size > 1:
 
-        if config.pipeline_model_parallel_layout:
+        if hasattr(config, "pipeline_model_parallel_layout") and config.pipeline_model_parallel_layout:
             from megatron.core.transformer.enums import LayerType
             offset = config.pipeline_model_parallel_layout.get_layer_offset(
                 layer_type=LayerType.decoder, vp_stage=vp_stage
