@@ -122,10 +122,6 @@ class ExternalRayDistributedExecutor(Executor):
     def check_health(self):
         return
 
-    @property
-    def max_concurrent_batches(self) -> int:
-        return self.parallel_config.pipeline_parallel_size
-
 
 class ExternalZeroMQDistributedExecutor(Executor):
     """An executor that engines are launched by external ray actors."""
