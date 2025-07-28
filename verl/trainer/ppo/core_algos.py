@@ -925,6 +925,9 @@ def compute_policy_loss_gspo(
     seq_lengths = torch.sum(response_mask, dim=-1)
     negative_approx_kl_seq = torch.sum(negative_approx_kl * response_mask, dim=-1) / seq_lengths.clamp(min=1)
     log_seq_importance_ratio = negative_approx_kl_seq.detach().unsqueeze(-1) + log_prob - log_prob.detach()
+
+    # Clamp log_seq_importance_ratio for stability
+    log_seq_importance_ratio = torch.clamp(log_seq_importance_ratio, min=-20.0, max=20.0)
     seq_importance_ratio = torch.exp(log_seq_importance_ratio)
 
     pg_losses1 = -advantages * seq_importance_ratio
