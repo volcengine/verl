@@ -1238,8 +1238,8 @@ class SGLangRollout(BaseRollout):
             uid = prompts.non_tensor_batch["uid"][data_idx] if "uid" in prompts.non_tensor_batch else None
 
             if self._tool_schemas:
-                _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx] or {k: {} for k in self._tool_map}
-                _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in self._tool_map]
+                _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
+                _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in _tools_kwargs.keys()]
                 _input_ids = None
                 _attention_mask = None
             else:
