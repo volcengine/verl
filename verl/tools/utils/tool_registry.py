@@ -19,12 +19,11 @@ import os
 import sys
 from enum import Enum
 
+from benchmax.envs.base_env import BaseEnv
 from omegaconf import OmegaConf
 
 from verl.tools.benchmax_tool import benchmax_env_to_tool_list
 from verl.tools.schemas import OpenAIFunctionToolSchema
-
-from benchmax.envs.base_env import BaseEnv
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -79,6 +78,7 @@ async def initialize_benchmax_environment(env_cls, tool_config) -> list:
         **tool_config.config,
     )
     return benchmax_env_to_tool_list(benchmax_env)
+
 
 def get_tool_class(cls_name):
     module_name, class_name = cls_name.rsplit(".", 1)

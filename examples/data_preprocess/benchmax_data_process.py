@@ -21,12 +21,12 @@ import argparse
 import os
 from importlib import import_module
 from types import ModuleType
-from typing import Type
 
 import datasets
-
 from benchmax.envs.base_env import BaseEnv
+
 from verl.utils.hdfs_io import copy, makedirs
+
 
 def load_class(dotted_path: str) -> BaseEnv:
     """
@@ -36,31 +36,26 @@ def load_class(dotted_path: str) -> BaseEnv:
     try:
         module_path, class_name = dotted_path.rsplit(".", 1)
     except ValueError as exc:
-        raise ImportError(
-            f'"{dotted_path}" doesn’t look like "package.module.Class"'
-        ) from exc
+        raise ImportError(f'"{dotted_path}" doesn’t look like "package.module.Class"') from exc
 
     module: ModuleType = import_module(module_path)
     try:
         cls: BaseEnv = getattr(module, class_name)
     except AttributeError as exc:
-        raise ImportError(
-            f'Module "{module_path}" has no attribute "{class_name}"'
-        ) from exc
+        raise ImportError(f'Module "{module_path}" has no attribute "{class_name}"') from exc
 
     return cls
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--local_dir",
-        required=True,
-        help="Local directory where processed train/test parquet files will be written."
+        "--local_dir", required=True, help="Local directory where processed train/test parquet files will be written."
     )
     parser.add_argument(
         "--dataset_name",
         required=True,
-        help="Identifier of the HuggingFace dataset to load (e.g., 'squad', 'wikitext')."
+        help="Identifier of the HuggingFace dataset to load (e.g., 'squad', 'wikitext').",
     )
     parser.add_argument(
         "--env_path",
@@ -68,15 +63,12 @@ if __name__ == "__main__":
         help=(
             "Dotted path to the BaseEnv subclass to use for preprocessing, "
             "e.g. 'benchmax.envs.wikipedia.wiki_env.WikipediaEnv'."
-        )
+        ),
     )
     parser.add_argument(
         "--prompt_key",
         default="prompt",
-        help=(
-            "Name of the field in the dataset examples that contains the user prompt. "
-            "Defaults to 'prompt'."
-        )
+        help=("Name of the field in the dataset examples that contains the user prompt. Defaults to 'prompt'."),
     )
     parser.add_argument(
         "--ground_truth_key",
@@ -84,21 +76,20 @@ if __name__ == "__main__":
         help=(
             "Name of the field in the dataset examples that contains the expected response. "
             "If omitted or set to an empty string, no ground-truth field will be included."
-        )
+        ),
     )
     parser.add_argument(
         "--hdfs_dir",
         default=None,
         help=(
-            "Optional HDFS target directory. If provided, the output local_dir will be "
-            "copied there after processing."
-        )
+            "Optional HDFS target directory. If provided, the output local_dir will be copied there after processing."
+        ),
     )
 
     args = parser.parse_args()
 
     print(f"Loading {args.dataset_name} dataset...", flush=True)
-    benchmax_cls: Type[BaseEnv] = load_class(args.env_path)
+    benchmax_cls: type[BaseEnv] = load_class(args.env_path)
     dataset, dataset_path = benchmax_cls.load_dataset(args.dataset_name)
     benchmax_env: BaseEnv = benchmax_cls(dataset_path=dataset_path)
     tool_names = [t.name for t in benchmax_env.list_tools()]
@@ -110,43 +101,39 @@ if __name__ == "__main__":
         test_dataset = dataset["test"]
     else:
         if isinstance(dataset, dict):
-            dataset = datasets.concatenate_datasets(
-                [ds for ds in dataset.values()]
-            ).shuffle(seed=42)
-        split = dataset.train_test_split(
-            test_size=0.2, seed=42, shuffle=False
-        )
+            dataset = datasets.concatenate_datasets([ds for ds in dataset.values()]).shuffle(seed=42)
+        split = dataset.train_test_split(test_size=0.2, seed=42, shuffle=False)
         train_dataset = split["train"]
-        test_dataset  = split["test"]
+        test_dataset = split["test"]
 
     def make_map_fn(split):
         def process_fn(example, idx):
             prompt = [
                 {"role": "system", "content": benchmax_cls.system_prompt},
-                {"role": "user", "content": example[args.prompt_key]}
+                {"role": "user", "content": example[args.prompt_key]},
             ]
             example["prompt"] = prompt
             if args.ground_truth_key:
                 example["ground_truth"] = example[args.ground_truth_key]
             # Add everything else to extra_info
             extra_info = {
-                k: v for k, v in example.items()
-                if k not in [
-                    args.prompt_key, args.ground_truth_key,
-                    "init_rollout_args"
-                ]
+                k: v
+                for k, v in example.items()
+                if k not in [args.prompt_key, args.ground_truth_key, "init_rollout_args"]
             }
             create_args = example.get("init_rollout_args", {}) or {"dummy": "dummy"}
             extra_info["tools_kwargs"] = {
                 tool_name: {
                     "create_kwargs": {**create_args},
-                } for tool_name in tool_names
+                }
+                for tool_name in tool_names
             }
 
             example.pop("init_rollout_args")
             # This extra_info is used to pass addition info during reward computation
             example["extra_info"] = extra_info
             return example
+
         return process_fn
 
     train_dataset = train_dataset.map(function=make_map_fn("train"), with_indices=True)

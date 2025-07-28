@@ -47,9 +47,7 @@ def get_benchmax_messages():
 
     expect_turn_0_msg = {
         "role": "assistant",
-        "content": (
-            "I'll search Wikipedia for the article on **France** to confirm its capital."
-        ),
+        "content": ("I'll search Wikipedia for the article on **France** to confirm its capital."),
         "tool_calls": [
             {
                 "type": "function",
@@ -80,9 +78,7 @@ def get_benchmax_messages():
     # ── Turn 1 ───────────────────────────────────────────────────────────────
     expect_turn_1_msg = {
         "role": "assistant",
-        "content": (
-            "The top hit is the article “France”. I'll open that to read its summary."
-        ),
+        "content": ("The top hit is the article “France”. I'll open that to read its summary."),
         "tool_calls": [
             {
                 "type": "function",
@@ -107,10 +103,7 @@ def get_benchmax_messages():
     # ── Turn 2 (final answer) ────────────────────────────────────────────────
     expect_turn_2_msg = {
         "role": "assistant",
-        "content": (
-            "The summary states that France’s capital is **Paris**.\n\n"
-            "<answer>Paris</answer>"
-        ),
+        "content": ("The summary states that France’s capital is **Paris**.\n\n<answer>Paris</answer>"),
     }
 
     # Assemble arrays in the format expected by the evaluator
@@ -119,7 +112,6 @@ def get_benchmax_messages():
     tool_return_array = [tool_return_0_msg, tool_return_1_msg]
 
     return user_prompts, expect_turn_array, tool_return_array
-
 
 
 class TestRolloutWithBenchmaxTools:
@@ -242,9 +234,11 @@ class TestRolloutWithBenchmaxTools:
     @pytest.fixture
     def mock_rollout(self, benchmax_rollout_config, qwen_tokenizer, qwen_model_config):
         """Mock the rollout instance with sampling_params initialized."""
-        with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(
-            SGLangRollout, "_init_inference_engine", return_value=None
-        ), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
+        with (
+            patch.object(SGLangRollout, "_init_distributed_env", return_value=None),
+            patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
+            patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
+        ):
             rollout = SGLangRollout(
                 actor_module="",
                 config=benchmax_rollout_config,
@@ -335,7 +329,7 @@ class TestRolloutWithBenchmaxTools:
 
         mock_rollout._handle_engine_call = MagicMock()
         futures = [asyncio.Future() for i in expect_turn_array]
-        for idx, (i, turn) in enumerate(zip(futures, expect_turn_array)):
+        for idx, (i, turn) in enumerate(zip(futures, expect_turn_array, strict=False)):
             i.set_result(
                 {
                     "text": turn,
@@ -398,7 +392,7 @@ class TestRolloutWithBenchmaxTools:
             req_list.append(MagicMock(wraps=tmp_req, spec=AsyncRolloutRequest))
 
             futures = [asyncio.Future() for _ in expect_turn_array]
-            for idx, (fut, turn) in enumerate(zip(futures, expect_turn_array)):
+            for idx, (fut, turn) in enumerate(zip(futures, expect_turn_array, strict=False)):
                 fut.set_result(
                     {
                         "text": turn,

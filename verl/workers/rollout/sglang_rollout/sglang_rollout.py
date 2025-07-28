@@ -1217,7 +1217,6 @@ class SGLangRollout(BaseRollout):
         if self._engine is not None and self._tp_rank == 0:
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self._engine.flush_cache())
-        
 
         non_tensor_batch = {
             "messages": np.array(messages),
@@ -1230,9 +1229,7 @@ class SGLangRollout(BaseRollout):
         # this is useful for rewards that need to access files or directories.
         first_tool = self._tool_map[list(self._tool_map.keys())[0]]
         if isinstance(first_tool, BenchmaxToolAdapter):
-            workspaces = [
-                first_tool.get_rollout_workspace(req.request_id) for req in sorted_output_req_list
-            ]
+            workspaces = [first_tool.get_rollout_workspace(req.request_id) for req in sorted_output_req_list]
             non_tensor_batch["workspaces"] = np.array(workspaces, dtype=object)
 
         non_tensor_batch = {
