@@ -120,7 +120,6 @@ class _Queue(asyncio.Queue):
     def __init__(self, maxsize=0, blocker: asyncio.Event = None):
         super().__init__(maxsize)
         self.get_counter = 0
-        self.put_counter = 0
         self.blocker: asyncio.Event = blocker
 
     async def get(self):
@@ -131,7 +130,6 @@ class _Queue(asyncio.Queue):
 
     def put_nowait(self, item):
         super().put_nowait(item)
-        self.put_counter += 1
 
 
 class MicroBatchScheduler(ChatCompletionScheduler):
@@ -394,13 +392,8 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         self.active_sample: dict[str, _Sample] = {}
         self.done_sample: dict[str, _Sample] = {}
         self.done_sample_counter = 0
-        self.first_round_keys: dict[str, bool] = {}
-        self.second_round_keys: dict[str, bool] = {}
         self.data_iter_length = 0
         self.batch_counter = 0
-        self.global_data = 0
-        self.put_counter = 0
-        self.requeue_id_counter: dict[str, int] = {}
         logger.info("init stream scheduler")
         super().__init__(
             config,
@@ -670,19 +663,12 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         )
         while counter < batch_size:
             if counter % _print_div == 0:
-                if self.is_sync_batch:
-                    print(
-                        f"[ReorderScheduler] _gather_result counter: {counter}，"
-                        f"batch_size: {batch_size},pending samples: {len(self.pending_sample)},"
-                        f"active_sample: {len(self.active_sample)}, queue size: {self.global_data_queue.qsize()},"
-                        f" queue task: {self.global_data_queue._unfinished_tasks}"
-                    )
-                else:
-                    print(
-                        f"[ReorderScheduler] _gather_result counter: {counter}，batch_size: {batch_size},"
-                        f"pending samples: {len(self.pending_sample)}, active_sample: {len(self.active_sample)}，"
-                        f"done sample: {len(self.done_sample)},queue size: {self.global_data_queue.qsize()} "
-                    )
+                print(
+                    f"[ReorderScheduler] _gather_result counter: {counter}，"
+                    f"batch_size: {batch_size},pending samples: {len(self.pending_sample)},"
+                    f"active_sample: {len(self.active_sample)}, queue size: {self.global_data_queue.qsize()},"
+                    f" queue task: {self.global_data_queue._unfinished_tasks}"
+                )
             rollout_resp: RolloutResp = await self.reduce_data_queue.get()
             # stale generation
             sample = self.all_sample[rollout_resp.request.sample_id]
@@ -764,7 +750,6 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
             f"global_queue_size: {self.global_data_queue.qsize()}"
         )
         for sample_id in list(self.active_sample.keys()):
-            self.requeue_id_counter[sample_id] = 1
             self.active_sample.pop(sample_id)
             _sample: _Sample = self.all_sample.get(sample_id)
             _sample.generation += 1
@@ -880,8 +865,6 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
             # modify prefetch factor to one, so the dataloader will only fetch one batch
             self.max_in_mem_samples = self.batch_size
             self.is_sync_batch = True
-            os.environ["VERL_LOGGING_LEVEL"] = "DEBUG"
-            os.environ["VERL_QUEUE_LOGGING_LEVEL"] = "DEBUG"
             if len(self.pending_sample) >= self.batch_size:
                 # no need to set blocker
                 logger.info(f"[ReorderScheduler] pending samples: {len(self.pending_sample)},skip set blocker")
@@ -892,8 +875,6 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
                 )
                 self.data_loader_blocker.set()
         else:
-            os.environ["VERL_LOGGING_LEVEL"] = "INFO"
-            os.environ["VERL_QUEUE_LOGGING_LEVEL"] = "INFO"
             self.max_in_mem_samples = self.batch_size * self.prefetch_factor
             self.is_sync_batch = False
             self.data_loader_blocker.set()
