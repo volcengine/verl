@@ -136,12 +136,13 @@ if __name__ == "__main__":
                     "init_rollout_args"
                 ]
             }
-            if example.get("init_rollout_args", None):
-                extra_info["tools_kwargs"] = {
-                    tool_name: {
-                        "create_kwargs": {**example.get("init_rollout_args", {})},
-                    } for tool_name in tool_names
-                }
+            create_args = example.get("init_rollout_args", {}) or {"dummy": "dummy"}
+            extra_info["tools_kwargs"] = {
+                tool_name: {
+                    "create_kwargs": {**create_args},
+                } for tool_name in tool_names
+            }
+
             example.pop("init_rollout_args")
             # This extra_info is used to pass addition info during reward computation
             example["extra_info"] = extra_info
