@@ -213,12 +213,24 @@ Actor/Rollout/Reference Policy
   the Huggingface system.
 - ``actor_rollout_ref.model.override_config``: Used to override some of
   the model's original configurations, mainly dropout
-- ``actor_rollout_ref.model.enable_gradient_checkpointing``: Whether to
-  enable gradient checkpointing for the actor
+- ``actor_rollout_ref.model.enable_gradient_checkpointing``: FSDP only, decide
+  Whether to enable gradient checkpointing for the actor,
+  Megatron uses recompute options in ``override_transformer_config`` to set this
 - ``actor_rollout_ref.model.enable_activation_offload``: Whether to enable
   activation offloading for the actor
 - ``actor_rollout_ref.model.trust_remote_code``: Whether to enable loading
   a remote code model
+- ``actor_rollout_ref.model.use_fused_kernels``: Whether to use fused
+  kernels in the model. If set to True, the following parameters will be
+  used.
+  - ``actor_rollout_ref.model.fused_kernel_options.impl_backend``: The
+  implementation backend for fused kernels. Options: "triton" or
+  "torch". Default is "torch".
+  While in megatron, we only support "triton" as the
+  implementation backend, so there is no need for this option.
+- ``actor_rollout_ref.model.use_remove_padding``: Whether to use remove
+  padding in the model. If set to True, the model will remove padding
+  tokens in the input_ids and response_ids. This helps a lot in improving model running efficiency.
 
 **Actor model**
 

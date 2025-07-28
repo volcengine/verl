@@ -50,6 +50,39 @@ class TestProfilerConfig(unittest.TestCase):
             with self.assertRaises(FrozenInstanceError):
                 profiler_config.discrete = False
 
+    def test_frozen_config(self):
+        """Test that modifying frozen keys in ProfilerConfig raises exceptions."""
+        from dataclasses import FrozenInstanceError
+
+        from verl.utils.profiler.config import ProfilerConfig
+
+        # Create a new ProfilerConfig instance
+        config = ProfilerConfig(discrete=True, all_ranks=False, ranks=[0], extra={"key": "value"})
+
+        # Test direct attribute assignment
+        with self.assertRaises(FrozenInstanceError):
+            config.discrete = False
+
+        with self.assertRaises(FrozenInstanceError):
+            config.all_ranks = True
+
+        with self.assertRaises(FrozenInstanceError):
+            config.ranks = [1, 2, 3]
+
+        # Test dictionary-style assignment
+        with self.assertRaises(TypeError):
+            config["discrete"] = False
+
+        with self.assertRaises(TypeError):
+            config["all_ranks"] = True
+
+        with self.assertRaises(TypeError):
+            config["ranks"] = [1, 2, 3]
+
+        assert config["extra"]["key"] == "value"
+        config["extra"]["key"] = "value2"
+        assert config["extra"]["key"] == "value2"
+
 
 class TestNsightSystemsProfiler(unittest.TestCase):
     """Test suite for NsightSystemsProfiler functionality.
@@ -106,9 +139,12 @@ class TestNsightSystemsProfiler(unittest.TestCase):
         def test_func(self, *args, **kwargs):
             return "result"
 
-        with patch("torch.cuda.profiler.start") as mock_start, patch("torch.cuda.profiler.stop") as mock_stop, patch(
-            "verl.utils.profiler.nvtx_profile.mark_start_range"
-        ) as mock_start_range, patch("verl.utils.profiler.nvtx_profile.mark_end_range") as mock_end_range:
+        with (
+            patch("torch.cuda.profiler.start") as mock_start,
+            patch("torch.cuda.profiler.stop") as mock_stop,
+            patch("verl.utils.profiler.nvtx_profile.mark_start_range") as mock_start_range,
+            patch("verl.utils.profiler.nvtx_profile.mark_end_range") as mock_end_range,
+        ):
             result = test_func(mock_self)
             self.assertEqual(result, "result")
             mock_start_range.assert_called_once()
@@ -127,9 +163,12 @@ class TestNsightSystemsProfiler(unittest.TestCase):
         def test_func(self, *args, **kwargs):
             return "result"
 
-        with patch("torch.cuda.profiler.start") as mock_start, patch("torch.cuda.profiler.stop") as mock_stop, patch(
-            "verl.utils.profiler.nvtx_profile.mark_start_range"
-        ) as mock_start_range, patch("verl.utils.profiler.nvtx_profile.mark_end_range") as mock_end_range:
+        with (
+            patch("torch.cuda.profiler.start") as mock_start,
+            patch("torch.cuda.profiler.stop") as mock_stop,
+            patch("verl.utils.profiler.nvtx_profile.mark_start_range") as mock_start_range,
+            patch("verl.utils.profiler.nvtx_profile.mark_end_range") as mock_end_range,
+        ):
             result = test_func(mock_self)
             self.assertEqual(result, "result")
             mock_start_range.assert_called_once()

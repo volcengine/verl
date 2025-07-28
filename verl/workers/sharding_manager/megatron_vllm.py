@@ -32,6 +32,7 @@ from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.device import get_torch_device
 from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, per_tensor_generator
+from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.profiler.performance import simple_timer
 from verl.utils.torch_functional import check_device_is_available
@@ -143,11 +144,11 @@ class MegatronVLLMShardingManager(BaseShardingManager):
     def __enter__(self):
         self.timing = {}
         with simple_timer("reshard", self.timing):
-            get_torch_device().empty_cache()
+            aggressive_empty_cache(force_sync=True)
 
             log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
             if self.offload_param:
-                load_megatron_model_to_gpu(self.actor_module)
+                load_megatron_model_to_gpu(self.actor_module, load_grad=False)
 
             if self.rollout_config.free_cache_engine:
                 if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
@@ -172,7 +173,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
             if self.offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
-            get_torch_device().empty_cache()
+            aggressive_empty_cache(force_sync=True)
 
             if (
                 self.rollout_config.free_cache_engine
@@ -192,7 +193,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         for model in self.actor_module:
             model.train()
 
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
 
         # restore random states
         if self.device_mesh is not None:

@@ -17,7 +17,7 @@ Convert JoeYing/ReTool-SFT to standard multi-turn tool calling messages.
 
 import json
 import re
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import datasets
 from omegaconf import OmegaConf
@@ -25,7 +25,7 @@ from omegaconf import OmegaConf
 code_pattern = re.compile(r"```python(.*?)```", re.DOTALL)
 
 
-def extract_code_message(content: str) -> Tuple[Dict[str, Any], str]:
+def extract_code_message(content: str) -> tuple[dict[str, Any], str]:
     start, stop = "<code>", "</code>"
     i = content.find(start)
     if i == -1:
@@ -54,7 +54,7 @@ def extract_code_message(content: str) -> Tuple[Dict[str, Any], str]:
     return message, content[j + len(stop) :]
 
 
-def extract_answer_message(content: str) -> Tuple[Dict[str, Any], str]:
+def extract_answer_message(content: str) -> tuple[dict[str, Any], str]:
     start, stop = "<answer>", "</answer>"
     i = content.find(start)
     if i == -1:
@@ -70,7 +70,7 @@ def extract_answer_message(content: str) -> Tuple[Dict[str, Any], str]:
     return message, content[j + len(stop) :]
 
 
-def extract_interpreter_message(content: str) -> Tuple[Dict[str, Any], str]:
+def extract_interpreter_message(content: str) -> tuple[dict[str, Any], str]:
     start, stop = "<interpreter>", "</interpreter>"
     i = content.find(start)
     if i == -1:
@@ -86,7 +86,7 @@ def extract_interpreter_message(content: str) -> Tuple[Dict[str, Any], str]:
     return message, content[j + len(stop) :]
 
 
-def process(row: Dict, *, tools: str):
+def process(row: dict, *, tools: str):
     messages = []
 
     # extract problem

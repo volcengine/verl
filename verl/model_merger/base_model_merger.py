@@ -45,6 +45,7 @@ def parse_args():
         action="store_true",
         help="Whether to tie word embedding weights (currently only Megatron supported)",
     )
+    base_op_parser.add_argument("--trust-remote-code", action="store_true", help="Whether to trust remote code")
     base_op_parser.add_argument(
         "--is-value-model",
         action="store_true",
@@ -81,6 +82,26 @@ def parse_args():
 
 @dataclass
 class ModelMergerConfig:
+    """Configuration for model merger operations.
+
+    Args:
+        operation (str): Operation type - 'merge' or 'test'.
+        backend (str): Backend type for the model ('fsdp' or 'megatron').
+        target_dir (Optional[str]): Directory to save the merged huggingface model. Defaults to "tmp".
+        hf_upload_path (Optional[str]): Hugging Face repository ID to upload the model. Defaults to None.
+        private (bool): Whether to upload the model to a private Hugging Face repository. Defaults to False.
+        test_hf_dir (Optional[str]): Path to the reference Hugging Face model directory for testing. Defaults to None.
+        tie_word_embedding (bool): Whether to tie word embedding weights (currently only Megatron
+            supported). Defaults to False.
+        trust_remote_code (bool): Whether to trust remote code. Defaults to False.
+        is_value_model (bool): Whether the model is a value model (currently only Megatron
+            supported). Defaults to False.
+        local_dir (Optional[str]): Path to the saved model checkpoints. Defaults to None.
+        hf_model_config_path (Optional[str]): Path to HuggingFace model configuration files. Defaults to None.
+        hf_upload (bool): Whether to upload to HuggingFace (computed automatically). Not for initialization.
+        use_cpu_initialization (bool): Whether to use CPU initialization for large models. Defaults to False.
+    """
+
     operation: str  # 'merge' or 'test'
     backend: str
     target_dir: Optional[str] = "tmp"
@@ -88,6 +109,7 @@ class ModelMergerConfig:
     private: bool = False
     test_hf_dir: Optional[str] = None
     tie_word_embedding: bool = False
+    trust_remote_code: bool = False
     is_value_model: bool = False
     local_dir: Optional[str] = None
     hf_model_config_path: Optional[str] = None
@@ -107,6 +129,7 @@ def generate_config_from_args(args: argparse.Namespace) -> ModelMergerConfig:
         "operation": args.operation,
         "backend": args.backend,
         "tie_word_embedding": args.tie_word_embedding,
+        "trust_remote_code": args.trust_remote_code,
         "is_value_model": args.is_value_model,
         "local_dir": args.local_dir,
         "hf_model_config_path": os.path.join(args.local_dir, "huggingface"),
@@ -161,7 +184,9 @@ class BaseModelMerger(ABC):
     def __init__(self, config: ModelMergerConfig):
         self.config = config
         self.hf_model_config_path = config.hf_model_config_path
-        self.model_config = AutoConfig.from_pretrained(self.hf_model_config_path)
+        self.model_config = AutoConfig.from_pretrained(
+            self.hf_model_config_path, trust_remote_code=self.config.trust_remote_code
+        )
 
     def get_transformers_auto_model_class(self):
         if "ForTokenClassification" in self.model_config.architectures[0]:
@@ -250,7 +275,9 @@ class BaseModelMerger(ABC):
     def save_hf_model_and_tokenizer(self, state_dict: dict[str, torch.Tensor]):
         auto_model_class = self.get_transformers_auto_model_class()
         with init_empty_weights():
-            model = auto_model_class.from_config(self.model_config, torch_dtype=torch.bfloat16)
+            model = auto_model_class.from_config(
+                self.model_config, torch_dtype=torch.bfloat16, trust_remote_code=self.config.trust_remote_code
+            )
         model.to_empty(device="cpu")
         model = self.patch_model_generation_config(model)
 
@@ -263,8 +290,8 @@ class BaseModelMerger(ABC):
         del state_dict
         del model
 
-        processor = hf_processor(self.hf_model_config_path)
-        tokenizer = hf_tokenizer(self.hf_model_config_path)
+        processor = hf_processor(self.hf_model_config_path, trust_remote_code=self.config.trust_remote_code)
+        tokenizer = hf_tokenizer(self.hf_model_config_path, trust_remote_code=self.config.trust_remote_code)
         if processor is not None:
             print(f"Saving processor to {self.config.target_dir}")
             processor.save_pretrained(self.config.target_dir)

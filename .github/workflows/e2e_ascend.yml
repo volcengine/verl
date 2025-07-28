@@ -72,7 +72,7 @@ jobs:
   test:
     name: verl Ascend test (self-host)
     runs-on: [self-hosted, npu-0]
-    timeout-minutes: 30 # Increase this timeout value as needed
+    timeout-minutes: 40 # Increase this timeout value as needed
     container:
       image: crispig/verl_npu:cann8.1rc1-py3.10-torch2.5.1-vllm-ascend0.7.3.post1-250616
       volumes:

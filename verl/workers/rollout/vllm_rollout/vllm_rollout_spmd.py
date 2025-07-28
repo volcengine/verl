@@ -34,7 +34,7 @@ import threading
 from contextlib import contextmanager
 from copy import deepcopy
 from types import MethodType
-from typing import Any, Dict, List, Union
+from typing import Any
 
 import numpy as np
 import ray
@@ -65,7 +65,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 # NOTE(sgm): add for verl. We can optimize it by making the dataloader yield List[int] without padding.
-def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[int]:
+def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[int]:
     # remove the left padding in the prompt token_id
     # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id
     # is not None else self.llm_engine.tokenizer.eos_token_id
@@ -198,7 +198,7 @@ class vLLMRollout(BaseRollout):
 
         # supporting adding any sampling params from the config file
         for k in config.keys():
-            if hasattr(SamplingParams(), str(k)):
+            if hasattr(SamplingParams(), str(k)) and k != "seed":
                 kwargs[k] = config.get(k)
         kwargs["n"] = 1  # already repeat in ray_trainer
         print(f"kwargs: {kwargs}")
@@ -267,7 +267,7 @@ class vLLMRollout(BaseRollout):
         if "multi_modal_data" in non_tensor_batch:
             vllm_inputs = []
             for raw_prompt_ids, multi_modal_data in zip(
-                non_tensor_batch.pop("raw_prompt_ids"), non_tensor_batch.pop("multi_modal_data")
+                non_tensor_batch.pop("raw_prompt_ids"), non_tensor_batch.pop("multi_modal_data"), strict=True
             ):
                 vllm_inputs.append({"prompt_token_ids": raw_prompt_ids, "multi_modal_data": multi_modal_data})
         else:
@@ -440,7 +440,7 @@ class vLLMAsyncRollout:
         return address
 
     def _get_free_port(self):
-        ip = ray._private.services.get_node_ip_address()
+        ip = ray.util.get_node_ip_address()
         with socket.socket() as sock:
             sock.bind(("", 0))
             port = sock.getsockname()[1]
@@ -456,7 +456,7 @@ class vLLMAsyncRollout:
     def get_zeromq_address(self):
         return self.address
 
-    def init_worker(self, all_kwargs: List[Dict[str, Any]]):
+    def init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
         all_kwargs[0]["local_rank"] = 0
@@ -488,7 +488,7 @@ class vLLMAsyncRollout:
         self.sharding_manager.__enter__()  # pylint: disable=C2801
         self.is_sleep = False
 
-    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
+    def execute_method(self, method: str | bytes, *args, **kwargs):
         if method == "init_worker":
             return self.init_worker(*args, **kwargs)
         elif method == "load_model":

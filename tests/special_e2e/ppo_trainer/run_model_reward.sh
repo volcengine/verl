@@ -88,7 +88,7 @@ python3 -m verl.trainer.main_ppo \
     reward_model.micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console'] \
+    trainer.logger=console \
     trainer.project_name='verl-test' \
     trainer.experiment_name="${exp_name}" \
     trainer.nnodes=1 \

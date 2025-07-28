@@ -1,5 +1,5 @@
-# actor_rollout_ref.rollout.name: hf/vllm/sglang.
-name: vllm
+# actor_rollout_ref.rollout.name: hf/vllm/sglang. The default value will be removed in the future
+name: ???
 
 # sync: LLM, async: AsyncLLM
 mode: sync
@@ -73,7 +73,7 @@ do_sample: True
 # number of responses (i.e. num sample times). > 1 for grpo
 n: 1
 
-# Whether to wake up inference engine in multi-stage. (Wake up model weights first, then resume kv cache)
+# Whether to wake up inference engine in multi-stage to reduce peak memory during training-rollout transition.
 multi_stage_wake_up: false
 
 # Extra inference engine arguments (vllm, sglang).
@@ -140,9 +140,6 @@ multi_turn:
   # null for no interaction
   interaction_config_path: null
 
-  # null for default callback
-  completion_callback: null
-
   # - When set to True, the model's default chat template is used for multi-turn rollout, which typically matches production behavior.
   # - When set to False, the token ids recorded for training are used instead; unlike the default chat template, these always include the model's full output,
   #   which may contain additional content such as reasoning content. This maintains the consistency between training and rollout, but it will lead to longer prompts.
@@ -170,6 +167,18 @@ agent:
   # Number of agent loop workers
   num_workers: 8
 
+  # custom agent loop config path, which should contain list of configs to intialize AgentLoop instances.
+  # https://hydra.cc/docs/advanced/instantiate_objects/overview/
+  #
+  # - name: react_agent
+  #   _target_: recipe.langgraph_agent.react_agent_loop.ReactAgentLoop
+  #   tools: ["get_current_temperature"]
+  # - name: math_expression
+  #   _target_: recipe.langgraph_agent.example.math_expression.MathExpressionReactAgentLoop
+  #   min_terms: 2
+  #   max_terms: 6
+  agent_loop_config_path: null
+
   # custom async server configs
   custom_async_server:
 
@@ -178,3 +187,26 @@ agent:
 
     # Class name of the custom async server class (e.g. AsyncvLLMServer)
     name: null
+
+# Specifies the tensor bucket size (in megabytes) for batch weight updates during rollout operations.
+# This parameter controls the maximum payload size for a single weight update request.
+# Reference: https://github.com/volcengine/verl/pull/2418
+# Currently only supported in SGLang rollout implementations
+# Larger values may improve throughput but increase memory overhead
+# Detailed performance comparison:
+# https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/issues/169#issuecomment-3070686720
+# Default value (512MB) is optimized for typical GPU memory configurations
+# For the best performance of `rebuild_cuda_tensor`, it is recommended to:
+# 1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`
+# 2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
+# when using Tensor Parallelism (TP) >= 8.
+update_weights_bucket_megabytes: 512
+
+# trace rollout data
+trace:
+  
+  # trace backend, support mlflow, weave
+  backend: null
+
+  # whether translate token id to text in output
+  token2text: False
