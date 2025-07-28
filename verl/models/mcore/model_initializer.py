@@ -16,6 +16,7 @@
 
 # use mcore transformer config to initialize the model
 from abc import ABC, abstractmethod
+import inspect
 
 from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec, get_gpt_mtp_block_spec
 from megatron.core.models.gpt.gpt_model import GPTModel
@@ -29,6 +30,7 @@ class BaseModelInitializer(ABC):
     def __init__(self, tfconfig: TransformerConfig, hf_config: PretrainedConfig):
         self.tfconfig = tfconfig
         self.hf_config = hf_config
+        self.has_vp_stage = inspect.signature(get_gpt_decoder_block_spec).parameters.get("vp_stage", None) is not None
 
     @abstractmethod
     def get_transformer_layer_spec(self, vp_stage=None):
@@ -99,7 +101,8 @@ class DenseModel(BaseModelInitializer):
 
     def get_transformer_layer_spec(self, vp_stage=None):
         assert self.tfconfig.normalization == "RMSNorm", "only RMSNorm is supported for now"
-        return get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True, vp_stage=vp_stage)
+        extra_kwargs = {} if not self.has_vp_stage else {"vp_stage": vp_stage}
+        return get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True, **extra_kwargs)
 
 
 class Qwen2MoEModel(BaseModelInitializer):
@@ -107,7 +110,8 @@ class Qwen2MoEModel(BaseModelInitializer):
 
     def get_transformer_layer_spec(self, vp_stage=None):
         assert self.tfconfig.normalization == "RMSNorm", "only RMSNorm is supported for now"
-        transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True, vp_stage=vp_stage)
+        extra_kwargs = {} if not self.has_vp_stage else {"vp_stage": vp_stage}
+        transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True, **extra_kwargs)
 
         # Patch layer spec for shared experts
         for i in range(len(transformer_layer_spec.layer_specs)):
@@ -130,7 +134,8 @@ class MixtralModel(BaseModelInitializer):
 
     def get_transformer_layer_spec(self, vp_stage=None):
         assert self.tfconfig.normalization == "RMSNorm", "only RMSNorm is supported for now"
-        transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True, vp_stage=vp_stage)
+        extra_kwargs = {} if not self.has_vp_stage else {"vp_stage": vp_stage}
+        transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True, **extra_kwargs)
         return transformer_layer_spec
 
     def initialize(self, **kwargs):
@@ -147,7 +152,8 @@ class Qwen3MoEModel(BaseModelInitializer):
 
     def get_transformer_layer_spec(self, vp_stage=None):
         assert self.tfconfig.normalization == "RMSNorm", "only RMSNorm is supported for now"
-        transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True, vp_stage=vp_stage)
+        extra_kwargs = {} if not self.has_vp_stage else {"vp_stage": vp_stage}
+        transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True, **extra_kwargs)
         return transformer_layer_spec
 
     def initialize(self, **kwargs):
@@ -164,7 +170,8 @@ class DeepseekV3Model(BaseModelInitializer):
     """Initializer for DeepseekV3 models."""
 
     def get_transformer_layer_spec(self, vp_stage=None):
-        transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True, vp_stage=vp_stage)
+        extra_kwargs = {} if not self.has_vp_stage else {"vp_stage": vp_stage}
+        transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True, **extra_kwargs)
         return transformer_layer_spec
 
     def get_rope_scaling_args(self) -> dict:
@@ -200,9 +207,8 @@ class Qwen25VLModel(BaseModelInitializer):
     """Initializer for Qwen2.5 VL models."""
 
     def get_transformer_layer_spec(self, vp_stage=None):
-        transformer_layer_spec = get_gpt_decoder_block_spec(
-            self.tfconfig, use_transformer_engine=True, vp_stage=vp_stage
-        )
+        extra_kwargs = {} if not self.has_vp_stage else {"vp_stage": vp_stage}
+        transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True, **extra_kwargs)
         return transformer_layer_spec
 
     def initialize(

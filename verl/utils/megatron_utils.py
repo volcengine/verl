@@ -18,6 +18,7 @@
 
 import gc
 import os
+import inspect
 import warnings
 from typing import Any
 
@@ -29,7 +30,6 @@ from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import ModelType
 from megatron.core.optimizer import ChainedOptimizer, OptimizerConfig
 from megatron.core.transformer import TransformerConfig
-from megatron.core.transformer.enums import LayerType
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
 from transformers import PretrainedConfig
@@ -63,11 +63,13 @@ def get_model(
             "Interleaved schedule not supported for model with both encoder and decoder"
         )
         model = []
+        has_vp_stage = inspect.signature(mpu.is_pipeline_first_stage).parameters.get("vp_stage", None) is not None
         for i in range(mpu.get_virtual_pipeline_model_parallel_world_size()):
             mpu.set_virtual_pipeline_model_parallel_rank(i)
             # Set pre_process and post_process only after virtual rank is set.
-            pre_process = mpu.is_pipeline_first_stage(ignore_virtual=False, vp_stage=i)
-            post_process = mpu.is_pipeline_last_stage(ignore_virtual=False, vp_stage=i)
+            extra_kwargs = {} if not has_vp_stage else {"ignore_virtual": False, "vp_stage": i}
+            pre_process = mpu.is_pipeline_first_stage(**extra_kwargs)
+            post_process = mpu.is_pipeline_last_stage(**extra_kwargs)
             this_model = model_provider_func(pre_process=pre_process, post_process=post_process, vp_stage=i)
             this_model.model_type = model_type
             model.append(this_model)
@@ -899,6 +901,9 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
 
     Extension to https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/transformer/transformer_layer.py::get_transformer_layer_offset
     '''
+
+    has_vp_stage = inspect.signature(parallel_state.is_pipeline_first_stage).parameters.get("vp_stage", None) is not None
+    extra_kwargs = {} if not has_vp_stage else {"ignore_virtual": False, "vp_stage": vp_stage}
     if not parallel_state.is_inside_encoder():
         pp_decoder_start = parallel_state.get_pipeline_model_parallel_decoder_start()
         if pp_decoder_start is not None:
@@ -907,6 +912,7 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
     if config.pipeline_model_parallel_size > 1:
 
         if config.pipeline_model_parallel_layout:
+            from megatron.core.transformer.enums import LayerType
             offset = config.pipeline_model_parallel_layout.get_layer_offset(
                 layer_type=LayerType.decoder, vp_stage=vp_stage
             )
@@ -1038,9 +1044,7 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
                 # Reduce the offset of embedding layer from the total layer number
                 if (
                     config.account_for_embedding_in_pipeline_split
-                    and not parallel_state.is_pipeline_first_stage(
-                        ignore_virtual=False, vp_stage=vp_stage
-                    )
+                    and not parallel_state.is_pipeline_first_stage(**extra_kwargs)
                 ):
                     offset -= 1
             else:
@@ -1049,9 +1053,7 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
                 # Reduce the offset of embedding layer from the total layer number
                 if (
                     config.account_for_embedding_in_pipeline_split
-                    and not parallel_state.is_pipeline_first_stage(
-                        ignore_virtual=False, vp_stage=vp_stage
-                    )
+                    and not parallel_state.is_pipeline_first_stage(**extra_kwargs)
                 ):
                     offset -= 1
     else:
