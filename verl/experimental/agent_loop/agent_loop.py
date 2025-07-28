@@ -285,7 +285,7 @@ class AgentLoopWorker:
 
         for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
             tasks.append(
-                asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory))
+                asyncio.create_task(self._run_agent_loop(agent_name, messages, sampling_params, trajectory))
             )
         outputs = await asyncio.gather(*tasks)
 

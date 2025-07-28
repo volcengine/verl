@@ -1271,7 +1271,7 @@ class SGLangRollout(BaseRollout):
                 rollout_offset=0,
                 request_id=str(uuid4()),
                 state=AsyncRolloutRequestStateEnum.PENDING,
-                messages=raw_prompt.tolist(),
+                messages=raw_prompt,
                 multi_modal_data=multi_modal_data,
                 tool_schemas=_tool_schemas,
                 tools_kwargs=_tools_kwargs,
