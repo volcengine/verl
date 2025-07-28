@@ -14,6 +14,7 @@
 import logging
 import os
 import pickle
+from concurrent.futures import Future
 from typing import Any, Callable, Optional
 
 import ray
@@ -31,6 +32,7 @@ from vllm.inputs import TokensPrompt
 from vllm.outputs import RequestOutput
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.executor.abstract import Executor
+from vllm.v1.outputs import ModelRunnerOutput
 from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl.utils.fs import copy_to_local
@@ -40,7 +42,6 @@ logger = logging.getLogger(__file__)
 
 
 def _get_model_runner_workers(vllm_config, init_ray: bool = True):
-    print("XXX vllm_config", vllm_config)
     assert vllm_config.instance_id is not None, "instance_id must be set for external ray actors."
 
     fields = vllm_config.instance_id.split(":")
@@ -111,7 +112,6 @@ class ExternalRayDistributedExecutor(Executor):
             sent_method = method
         else:
             sent_method = pickle.dumps(method)
-        print("XXX Executing", method, kwargs, flush=True)
         del method
         # ~3ms overhead per schedule step due to SchedulerOutput/ModelRunnerOutput serialization/deserialization.
         outputs = ray.get(
@@ -126,10 +126,12 @@ class ExternalRayDistributedExecutor(Executor):
     def max_concurrent_batches(self) -> int:
         return self.parallel_config.pipeline_parallel_size
 
+
 class ExternalZeroMQDistributedExecutor(Executor):
     """An executor that engines are launched by external ray actors."""
 
     uses_ray: bool = False
+    supports_pp: bool = True
 
     def _init_executor(self) -> None:
         addresses = os.environ["VERL_VLLM_ZMQ_ADDRESSES"].split(",")
@@ -139,7 +141,6 @@ class ExternalZeroMQDistributedExecutor(Executor):
             socket = self.context.socket(zmq.REQ)
             socket.connect(address)
             self.sockets.append(socket)
-        print("XXX self.sockets", self.sockets)
 
         kwargs = dict(
             vllm_config=self.vllm_config,
@@ -152,7 +153,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
 
-        from concurrent.futures import Future, ThreadPoolExecutor
+        from concurrent.futures import ThreadPoolExecutor
 
         # For pipeline parallel, we use a thread pool for asynchronous
         # execute_model.
@@ -160,14 +161,9 @@ class ExternalZeroMQDistributedExecutor(Executor):
         if self.max_concurrent_batches > 1:
             # Note: must use only 1 IO thread to keep dequeue sequence
             # from the response queue
-            # TODO: submit to pool
-            self.io_thread_pool = ThreadPoolExecutor(
-                max_workers=1, thread_name_prefix="zmq_exec_io")
+            self.io_thread_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="zmq_exec_io")
 
         self.output_rank = self._get_output_rank()
-        print("XXX self.output_rank", self.output_rank)
-        self.output_rank = self._get_output_rank()
-
 
     def collective_rpc(
         self,
@@ -178,31 +174,43 @@ class ExternalZeroMQDistributedExecutor(Executor):
         non_block: bool = False,
         unique_reply_rank: Optional[int] = None,
     ) -> list[Any]:
+        """
+        Execute a method on all workers.
+
+        Args:
+            method: The method to execute.
+            timeout: The timeout for the method execution.
+            args: The arguments to pass to the method.
+            kwargs: The keyword arguments to pass to the method.
+            non_block: Whether to execute the method asynchronously.
+            unique_reply_rank: The rank of the worker to receive the reply.
+
+        Returns:
+            A list of outputs from the workers.
+        """
         if isinstance(method, str):
             sent_method = method
         else:
             sent_method = pickle.dumps(method)
         kwargs = {} if kwargs is None else kwargs
-        # if unique_reply_rank is not None:
-        #     kwargs["unique_reply_rank"] = unique_reply_rank
         print("XXX server Executing", method, kwargs, self.sockets, flush=True)
         del method
 
         message = pickle.dumps((sent_method, args, kwargs, unique_reply_rank))
-        sockets = self.sockets if unique_reply_rank is None else [self.sockets[unique_reply_rank]]
-        # selective
+        # TODO(haibin.lin): optimize with only necessary ranks
+        # sockets = self.sockets if unique_reply_rank is None else [self.sockets[unique_reply_rank]]
         for socket in self.sockets:
-            print('XXX sending to socket', socket)
-            socket.send(message) #, zmq.DONTWAIT)
+            socket.send(message, zmq.DONTWAIT)
 
         outputs = []
-        import torch
-        print("XXX torch.cuda.is_available", torch.cuda.is_available(), unique_reply_rank, self.sockets)
-        for socket in sockets:
+        for i, socket in enumerate(self.sockets):
             val = pickle.loads(socket.recv())
+            # non-reply rank
+            if unique_reply_rank != i and val is None:
+                continue
             if non_block:
                 # TODO: use io thread
-                from concurrent.futures import Future
+
                 fut = Future()
                 fut.set_result(val)
                 fut.done()
@@ -217,12 +225,12 @@ class ExternalZeroMQDistributedExecutor(Executor):
 
     def execute_model(
         self,
-        scheduler_output,):
-    # ) -> Union[ModelRunnerOutput, Future[ModelRunnerOutput]]:
+        scheduler_output,
+    ) -> ModelRunnerOutput | Future[ModelRunnerOutput]:
         non_block = self.max_concurrent_batches > 1
-        import vllm.envs as envs
-        output = self.collective_rpc("execute_model",
-                                     args=(scheduler_output, ), unique_reply_rank=self.output_rank, non_block=non_block)#, timeout=envs.VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS)
+        output = self.collective_rpc(
+            "execute_model", args=(scheduler_output,), unique_reply_rank=self.output_rank, non_block=non_block
+        )
         return output[0]
 
     @property
@@ -286,7 +294,6 @@ class AsyncvLLMServer(AsyncServerBase):
 
         tensor_parallel_size = config.get("tensor_model_parallel_size", 1)
         pipeline_parallel_size = config.get("pipeline_model_parallel_size", 1)
-        print("init with pipeline=", pipeline_parallel_size, flush=True)
         max_num_batched_tokens = config.get("max_num_batched_tokens", 8192)
         max_model_len = config.max_model_len if config.max_model_len else config.prompt_length + config.response_length
         self.max_model_len = int(max_model_len)

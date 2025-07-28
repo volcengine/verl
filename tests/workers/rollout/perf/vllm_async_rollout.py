@@ -133,10 +133,11 @@ if __name__ == "__main__":
     num_steps = 1
     n_gpus_per_node = 2
     import os
+
     print("XXX main", os.environ.get("CUDA_VISIBLE_DEVICES"))
 
     # test_cases = [("sync", "sync"), ("async", "zeromq"), ("async", "ray")]
-    test_cases = [("async", "zeromq")] #, ("async", "ray")]
+    test_cases = [("async", "zeromq")]  # , ("async", "ray")]
     # test_cases = [("async", "ray")]
     for mode, backend in test_cases:
         perf_rollout(mode=mode, backend=backend, n_gpus_per_node=n_gpus_per_node, num_steps=num_steps)
