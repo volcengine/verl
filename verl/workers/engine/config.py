@@ -93,37 +93,38 @@ def get_engine_config_for_critic(hydra_config: DictConfig) -> EngineConfig:
         ),
         lora_rank=prev_config.model.lora_rank,
         lora_alpha=prev_config.model.lora_alpha,
-        target_modules=prev_config.model.get("target_modules", None),
-        trust_remote_code=prev_config.model.get("trust_remote_code", False),
+        target_modules=prev_config.model.target_modules,
+        trust_remote_code=prev_config.model.trust_remote_code,
         custom_chat_template=prev_config.model.get("custom_chat_template", None),
-        override_config=prev_config.model.get("override_config", None),
-        use_shm=prev_config.model.get("use_shm", False),
-        enable_gradient_checkpointing=prev_config.model.get("enable_gradient_checkpointing", False),
-        enable_activation_offload=prev_config.model.get("enable_activation_offload", False),
-        use_remove_padding=prev_config.model.get("use_remove_padding", False),
-        external_lib=prev_config.model.get("external_lib", None)
+        override_config=prev_config.model.override_config,
+        use_shm=prev_config.model.use_shm,
+        enable_gradient_checkpointing=prev_config.model.enable_gradient_checkpointing,
+        enable_activation_offload=prev_config.model.enable_activation_offload,
+        use_remove_padding=prev_config.model.use_remove_padding,
+        external_lib=prev_config.model.external_lib
     )
     optim_config = OptimConfig(
         lr=prev_config.optim.lr,
         betas=prev_config.optim.get("betas", (0.9, 0.999)),
-        weight_decay=prev_config.optim.get("weight_decay", 1e-2),
-        total_training_steps=prev_config.optim.get("total_training_steps", 0),
-        lr_warmup_steps=prev_config.optim.get("lr_warmup_steps", -1),
-        lr_warmup_steps_ratio=prev_config.optim.get("lr_warmup_steps_ratio", 0.0),
+        weight_decay=prev_config.optim.weight_decay,
+        total_training_steps=prev_config.optim.total_training_steps,
+        lr_warmup_steps=prev_config.optim.lr_warmup_steps,
+        lr_warmup_steps_ratio=prev_config.optim.lr_warmup_steps_ratio,
         warmup_style=prev_config.optim.get("warmup_style", "constant")
     )
-    raise ValueError
-    return EngineConfig(
+    ret = EngineConfig(
         model=model_config,
         optim=optim_config,
         ppo_mini_batch_size=prev_config.ppo_mini_batch_size,
-        ppo_micro_batch_size=prev_config.get("ppo_micro_batch_size", None),
+        ppo_micro_batch_size=prev_config.ppo_micro_batch_size,
         forward_micro_batch_size=prev_config.forward_micro_batch_size,
-        ppo_micro_batch_size_per_gpu=prev_config.get("ppo_micro_batch_size_per_gpu", None),
-        ulysses_sequence_parallel_size=prev_config.get("ulysses_sequence_parallel_size", 1),
-        strategy=prev_config.get("strategy", "fsdp"),
-        grad_clip=prev_config.get("grad_clip", None),
-        use_dynamic_bsz=prev_config.get("use_dynamic_bsz", False),
-        ppo_max_token_len_per_gpu=prev_config.get("ppo_max_token_len_per_gpu", None),
-        rollout_n=prev_config.get("rollout_n", 1)
+        ppo_micro_batch_size_per_gpu=prev_config.ppo_micro_batch_size_per_gpu,
+        ulysses_sequence_parallel_size=prev_config.ulysses_sequence_parallel_size,
+        strategy=prev_config.strategy,
+        grad_clip=prev_config.grad_clip,
+        use_dynamic_bsz=prev_config.use_dynamic_bsz,
+        ppo_max_token_len_per_gpu=prev_config.ppo_max_token_len_per_gpu,
+        rollout_n=prev_config.rollout_n
     )
+    raise ValueError
+    return ret
