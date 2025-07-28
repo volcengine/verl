@@ -60,17 +60,18 @@ def init_config(n_gpus_per_node) -> DictConfig:
             ],
         )
     config.trainer.n_gpus_per_node = n_gpus_per_node
-    config.data.train_batch_size = 1
+    config.data.train_batch_size = 16
     config.data.return_raw_chat = True
     config.actor_rollout_ref.model.path = "/opt/tiger/Qwen2.5-7B-Instruct"
     config.actor_rollout_ref.rollout.mode = "async"
     config.actor_rollout_ref.rollout.tensor_model_parallel_size = 1
-    config.actor_rollout_ref.rollout.pipeline_model_parallel_size = 2
+    # zmq supports pipeline_model_parallel_size > 1
+    config.actor_rollout_ref.rollout.pipeline_model_parallel_size = 1
     config.actor_rollout_ref.rollout.gpu_memory_utilization = 0.5
     config.actor_rollout_ref.rollout.multi_turn.format = "hermes"
     config.actor_rollout_ref.rollout.prompt_length = 4096
     config.actor_rollout_ref.rollout.response_length = 4096
-    config.actor_rollout_ref.rollout.n = 1
+    config.actor_rollout_ref.rollout.n = 8
 
     return config
 
@@ -131,10 +132,7 @@ def perf_rollout(mode, backend, n_gpus_per_node, num_steps):
 
 if __name__ == "__main__":
     num_steps = 1
-    n_gpus_per_node = 2
-    import os
-
-    print("XXX main", os.environ.get("CUDA_VISIBLE_DEVICES"))
+    n_gpus_per_node = 4
 
     # test_cases = [("sync", "sync"), ("async", "zeromq"), ("async", "ray")]
     test_cases = [("async", "zeromq")]  # , ("async", "ray")]

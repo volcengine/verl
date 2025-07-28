@@ -90,7 +90,6 @@ class vLLMRollout(BaseRollout):
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         pipeline_parallel_size = self.config.get("pipeline_parallel_size", 1)
-        print(f"XXX tensor_parallel_size: {tensor_parallel_size}, pipeline_parallel_size: {pipeline_parallel_size}")
         assert tensor_parallel_size <= torch.distributed.get_world_size(), (
             "tensor parallel size should be less than or equal to the world size"
         )
@@ -457,17 +456,12 @@ class vLLMAsyncRollout:
         while True:
             message = self.socket.recv()
             method, args, kwargs, unique_reply_rank = pickle.loads(message)
-            import os
 
-            print("XXX spmd received..", method, os.environ["RANK"], flush=True)
             result = self.execute_method(method, *args, **kwargs)
-            # if unique_reply_rank is None or unique_reply_rank == int(os.environ["RANK"]):
             if unique_reply_rank is None or unique_reply_rank == self.rpc_rank:
-                print("XXX Sending..", os.environ["RANK"], flush=True)
                 self.socket.send(pickle.dumps(result))
             else:
                 self.socket.send(pickle.dumps(None))
-                print("XXX Done with sending None", flush=True)
 
     def get_zeromq_address(self):
         return self.address

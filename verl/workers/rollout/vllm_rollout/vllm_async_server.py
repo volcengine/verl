@@ -193,7 +193,6 @@ class ExternalZeroMQDistributedExecutor(Executor):
         else:
             sent_method = pickle.dumps(method)
         kwargs = {} if kwargs is None else kwargs
-        print("XXX server Executing", method, kwargs, self.sockets, flush=True)
         del method
 
         message = pickle.dumps((sent_method, args, kwargs, unique_reply_rank))
@@ -202,22 +201,20 @@ class ExternalZeroMQDistributedExecutor(Executor):
         for socket in self.sockets:
             socket.send(message, zmq.DONTWAIT)
 
+        def recv_response(socket: zmq.Socket):
+            val = pickle.loads(socket.recv())
+            return val
+
         outputs = []
         for i, socket in enumerate(self.sockets):
-            val = pickle.loads(socket.recv())
-            # non-reply rank
-            if unique_reply_rank != i and val is None:
-                continue
             if non_block:
-                # TODO: use io thread
-
-                fut = Future()
-                fut.set_result(val)
-                fut.done()
-                outputs.append(fut)
+                val = self.io_thread_pool.submit(recv_response, socket)
             else:
-                outputs.append(val)
-        print("XXX Received..", outputs)
+                val = recv_response(socket)
+            # non-reply rank
+            if unique_reply_rank is not None and unique_reply_rank != i:
+                continue
+            outputs.append(val)
         return outputs
 
     def check_health(self):
