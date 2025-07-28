@@ -63,6 +63,7 @@ from sglang.srt.utils import kill_process_tree
 from sglang.srt.managers.tokenizer_manager import (
     UpdateWeightsFromTensorReqInput,
 )
+from sglang.srt.utils import kill_process_tree, MultiprocessingSerializer
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -130,8 +131,9 @@ def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIME
         other processes have no actual effect.
     """
     p = multiprocessing.Process(target=launch_server, args=(server_args,))
-    if server_args.node_rank != 0 or not first_rank_in_node:
-        print(f"Server process started with PID {p.pid} for node rank {server_args.node_rank}", flush=True)
+    p.start()
+
+    if server_args.node_rank != 0:
         return p
 
     p.start()
@@ -144,6 +146,7 @@ def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIME
 
     # Health check with overall timeout
     start_time = time.time()
+    max_wait_time = 500.0  # 5 minutes max wait
 
     with requests.Session() as session:
         while time.time() - start_time < max_wait_time:
@@ -160,6 +163,7 @@ def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIME
             time.sleep(2)
         else:
             p.terminate()
+            logger.error(f"Server in {base_url} failed to become healthy within timeout period")
             logger.error(f"Server in {base_url} failed to become healthy within timeout period")
             raise TimeoutError("Server failed to become healthy within timeout period")
 
@@ -706,7 +710,9 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
 
     async def update_weights_from_tensor(
         self,
-        req: UpdateWeightsFromTensorReqInput,
+        named_tensors: List[str],
+        load_format: Optional[str] = None,
+        flush_cache: bool = True,
     ) -> Dict[str, Any]:
         """Update model weights from tensor data asynchronously.
 
@@ -720,14 +726,14 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         Returns:
             Dict[str, Any]: Server response containing update status
         """
+        # serialized_named_tensors=[
+        #     MultiprocessingSerializer.serialize(named_tensors) for _ in range(self.server_args.tp_size)
+        # ]
         import base64
-        named_tensors = req.serialized_named_tensors
-        load_format = req.load_format
-        flush_cache = req.flush_cache
 
         serialized_named_tensors = [
-            base64.b64encode(named_tensor).decode("utf-8")
-            for named_tensor in named_tensors
+            base64.b64encode(MultiprocessingSerializer.serialize(named_tensors)).decode("utf-8")
+            for _ in range(self.server_args.tp_size)
         ]
         return await self._make_async_request(
             "update_weights_from_tensor",
@@ -756,7 +762,7 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
             return {}
 
         # Use retry logic with limited attempts to avoid infinite loops
-        for attempt in range(self.max_attempts * 4):  # Allow more retries for cache flush
+        for attempt in range(self.max_retries * 5):  # Allow more retries for cache flush
             try:
                 async with self._get_session() as session:
                     url = f"http://{self.server_args.host}:{self.server_args.port}/flush_cache"
@@ -788,6 +794,10 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         t_start = time.perf_counter()
         logger.info("generate() started")
 
+        """Generate text using the SGLang server asynchronously."""
+        t_start = time.perf_counter()
+        logger.info("generate() started")
+
         payload = {
             "text": prompt,
             "sampling_params": sampling_params,
@@ -801,22 +811,103 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
             "custom_logit_processor": custom_logit_processor,
         }
 
+        t_after_payload = time.perf_counter()
+        print(f"Payload construction took {(t_after_payload - t_start)*1000:.2f} ms")
+
         # Filter out None values
         payload = {k: v for k, v in payload.items() if v is not None}
-        from datetime import datetime
-        now_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # 精确到毫秒
+
+        t_after_filter = time.perf_counter()
+        print(f"Payload filtering took {(t_after_filter - t_after_payload)*1000:.2f} ms")
+
         # Send request
+        print("Sending async HTTP request to /generate...")
         response = await self._make_async_request(
             "generate", payload, timeout=self.timeout, only_master=False
         )
         t_after_request = time.perf_counter()
-
+        print(f"Async request + response took {(t_after_request - t_after_filter)*1000:.2f} ms")
 
         total_time = t_after_request - t_start
-        now_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # 精确到毫秒
-        # print(f"[{now_start} to {now_end}] generate() completed in {total_time*1000:.2f} ms with response length: {len(response['text'])}")
+        print(f"generate() completed in {total_time*1000:.2f} ms with response length: {len(response['text'])}")
 
         return response
+
+    async def init_weights_update_group(
+        self, master_address: str, master_port: int, rank_offset: int, world_size: int, group_name: str, backend: str
+    ) -> Dict[str, Any]:
+        """Initialize a distributed weights update group asynchronously.
+
+        Args:
+            master_address (str): Address of the master node for distributed communication
+            master_port (int): Port of the master node
+            rank_offset (int): Offset for process ranks in the group
+            world_size (int): Total number of processes in the distributed group
+            group_name (str): Name identifier for the process group
+            backend (str): Backend to use for distributed communication (e.g., 'nccl', 'gloo')
+
+        Returns:
+            Dict[str, Any]: Server response indicating group initialization status
+        """
+        return await self._make_async_request(
+            "init_weights_update_group",
+            {
+                "master_address": master_address,
+                "master_port": master_port,
+                "rank_offset": rank_offset,
+                "world_size": world_size,
+                "group_name": group_name,
+                "backend": backend,
+            },
+        )
+
+    async def update_weights_from_distributed(
+        self,
+        names: List[str],
+        dtypes: List[Any],
+        shapes: List[Tuple[int, ...]],
+        group_name: str,
+        flush_cache: bool = False,
+    ) -> Dict[str, Any]:
+        """Update model weights from distributed tensors asynchronously.
+
+        Args:
+            names (List[str]): List of tensor names to update
+            dtypes (List[Any]): List of data types for each tensor (typically torch.dtype)
+            shapes (List[Tuple[int, ...]]): List of tensor shapes
+            group_name (str): Name of the distributed process group
+            flush_cache (bool, optional): Whether to flush cache after updating weights.
+                Defaults to False.
+
+        Returns:
+            Dict[str, Any]: Server response indicating distributed update status
+        """
+        return await self._make_async_request(
+            "update_weights_from_distributed",
+            {
+                "names": names,
+                "dtypes": [str(dtype).replace("torch.", "") for dtype in dtypes],
+                "shapes": shapes,
+                "group_name": group_name,
+                "flush_cache": flush_cache,
+            },
+        )
+
+    async def pause_generation(self) -> Dict[str, Any]:
+        """Pause text generation on the server asynchronously.
+
+        Returns:
+            Dict[str, Any]: Server response indicating pause status
+        """
+        return await self._make_async_request("pause_generation", {})
+
+    async def continue_generation(self) -> Dict[str, Any]:
+        """Continue text generation on the server asynchronously.
+
+        Returns:
+            Dict[str, Any]: Server response indicating continuation status
+        """
+        return await self._make_async_request("continue_generation", {})
 
     async def async_generate(
         self,
