@@ -5,7 +5,7 @@ set -x
 
 # For async rollout mode, dataset should return raw chat.
 rollout_mode="async"
-rollout_name="sglang" # sglang or vllm
+rollout_name="vllm" # sglang or vllm
 if [ "$rollout_mode" = "async" ]; then
     export VLLM_USE_V1=1
     export VLLM_LOGGING_LEVEL="DEBUG"
@@ -18,6 +18,7 @@ python3 -m recipe.reorder_rollout.main_reorder_ppo \
     data.val_files=$HOME/data/gsm8k/test.parquet \
     data.return_raw_chat=$return_raw_chat \
     data.train_batch_size=1024 \
+    actor_rollout_ref.rollout.load_format=auto \
     data.max_prompt_length=8192 \
     data.max_response_length=16384 \
     data.filter_overlong_prompts=True \
@@ -47,7 +48,7 @@ python3 -m recipe.reorder_rollout.main_reorder_ppo \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_grpo_example_gsm8k' \
     trainer.experiment_name='qwen2_7b_reorder_rollout_kl1e-3' \
-    trainer.val_before_train=False \
+    trainer.val_before_train=True \
     trainer.test_freq=20 \
     trainer.n_gpus_per_node=8 \
     trainer.total_training_steps=105 \

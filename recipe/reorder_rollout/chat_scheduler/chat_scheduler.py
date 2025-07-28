@@ -795,7 +795,7 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         )
         print(
             f"current data info: pending_sample: {len(self.pending_sample)}, active_sample: {len(self.active_sample)},"
-            f"done_sample: {len(self.done_sample)}"
+            f"done_sample: {len(self.done_sample)}, data_len: {self.data_iter_length}"
         )
         gen_batch_output = self.handle_agent_loop_output(batch_conversations)
         if not is_last_batch:
@@ -803,7 +803,7 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         self.last_batch_sanity_check(is_last_batch)
         timing = agent_loop_perf([gen_batch_output.meta_info["metrics"]], gen_batch_output)
         gen_batch_output.meta_info = {"timing": timing}
-        return is_last_batch, gen_batch_output, gen_batch, batch
+        return False, gen_batch_output, gen_batch, batch
 
     def handle_agent_loop_output(self, batch_conversations: list[ReduceResp]):
         agent_loop_output_list = [
