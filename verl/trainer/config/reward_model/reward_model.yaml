@@ -12,8 +12,8 @@ strategy: ???
 # model config for reward scoring
 model:
 
-  # Input tokenizer. If the reward model’s chat template is inconsistent with the policy,
-  # we need to first decode to plaintext, then apply the rm’s chat_template.
+  # Input tokenizer. If the reward model's chat template is inconsistent with the policy,
+  # we need to first decode to plaintext, then apply the rm's chat_template.
   # Then score with RM. If chat_templates are consistent, it can be set to null.
   # set this to null if the chat template is identical
   input_tokenizer: ${actor_rollout_ref.model.path}
@@ -68,7 +68,7 @@ sandbox_fusion:
 # profiler configs
 profiler:
 
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+  # hint for the target config dataclass
   _target_: verl.utils.profiler.ProfilerConfig
 
   # True for each task has its own database, False for all tasks in one training step share one database.
