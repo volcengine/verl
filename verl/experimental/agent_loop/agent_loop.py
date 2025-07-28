@@ -17,7 +17,7 @@ import logging
 import os
 import random
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional
 
 import hydra
 import numpy as np
@@ -168,13 +168,13 @@ class AgentLoopBase(ABC):
         cls._class_initialized = True
 
     @abstractmethod
-    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
+    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         """Run agent loop to interact with LLM server and environment.
 
         Args:
             messages (List[Dict[str, Any]]): Input messages.
             sampling_params (Dict[str, Any]): LLM sampling params.
-
+            **kwargs: extra kwargs.
         Returns:
             AgentLoopOutput: Agent loop output.
         """
@@ -270,7 +270,6 @@ class AgentLoopWorker:
         # by default, we assume it's a single turn agent
         if "agent_name" not in batch.non_tensor_batch:
             batch.non_tensor_batch["agent_name"] = np.array(["single_turn_agent"] * len(batch), dtype=object)
-
         tasks = []
         agent_names = batch.non_tensor_batch["agent_name"]
         raw_prompts = batch.non_tensor_batch["raw_prompt"]
@@ -289,7 +288,7 @@ class AgentLoopWorker:
         ):
             tasks.append(
                 asyncio.create_task(
-                    self._run_agent_loop(agent_name, messages.tolist(), sampling_params, tools_kwargs, trajectory)
+                    self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory, tools_kwargs)
                 )
             )
         outputs = await asyncio.gather(*tasks)
@@ -302,8 +301,8 @@ class AgentLoopWorker:
         agent_name: str,
         messages: list[dict[str, Any]],
         sampling_params: dict[str, Any],
-        tools_kwargs: dict[str, Any],
         trajectory: dict[str, Any],
+        tools_kwargs: Optional[dict[str, Any]] = None,
     ) -> AgentLoopOutput:
         with rollout_trace_attr(
             step=trajectory["step"],
@@ -323,7 +322,7 @@ class AgentLoopWorker:
                 server_manager=self.server_manager,
                 tokenizer=self.tokenizer,
             )
-            output = await agent_loop.run(messages, sampling_params, tools_kwargs)
+            output = await agent_loop.run(messages, sampling_params, tools_kwargs=tools_kwargs)
             return output
 
     def _postprocess(self, inputs: list[AgentLoopOutput]) -> DataProto:

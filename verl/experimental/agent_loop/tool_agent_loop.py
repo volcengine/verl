@@ -57,7 +57,7 @@ class ToolAgentLoop(AgentLoopBase):
 
     @rollout_trace_op
     async def run(
-        self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], tools_kwargs: dict[str, Any]
+        self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], **kwargs
     ) -> AgentLoopOutput:
         metrics = {}
         request_id = uuid4().hex
@@ -68,6 +68,7 @@ class ToolAgentLoop(AgentLoopBase):
             ),
         )
         response_mask = []
+        tools_kwargs = kwargs.get("tools_kwargs", {})
 
         user_turns, assistant_turns = 0, 0
         while True:
