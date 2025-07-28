@@ -15,51 +15,40 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
-import copy
 import os
 import socket
 
 import hydra
 import ray
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 
-from verl.trainer.constants_ppo import PPO_RAY_RUNTIME_ENV
+from verl.experimental.dataset.sampler import AbstractSampler
+from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
-from verl.utils.config import omega_conf_to_dataclass
-from verl.utils.dataset.sampler import AbstractSampler
+from verl.utils.device import is_cuda_available
 from verl.utils.import_utils import load_extern_type
 
 
-def trainer_dict_to_dataclass(conf: DictConfig):
-    """Convert specific nested sections of a DictConfig object into dataclass instances.
+@hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
+def main(config):
+    """Main entry point for PPO training with Hydra configuration management.
 
     Args:
-        conf (DictConfig): An instance of DictConfig, typically from the omegaconf library,
-                           representing a configuration dictionary.
-
-    Returns:
-        DictConfig: A deep copy of the input `conf` with specific sections converted to dataclasses.
+        config_dict: Hydra configuration dictionary containing training parameters.
     """
-    # Create a deep copy of the input configuration to avoid modifying the original object
-    config = copy.deepcopy(conf)
-    config.algorithm = omega_conf_to_dataclass(config.algorithm)
-    config.critic.profiler = omega_conf_to_dataclass(config.critic.profiler)
-    config.reward_model.profiler = omega_conf_to_dataclass(config.reward_model.profiler)
-    config.actor_rollout_ref.actor.profiler = omega_conf_to_dataclass(config.actor_rollout_ref.actor.profiler)
-    config.actor_rollout_ref.ref.profiler = omega_conf_to_dataclass(config.actor_rollout_ref.ref.profiler)
-    config.actor_rollout_ref.rollout.profiler = omega_conf_to_dataclass(config.actor_rollout_ref.rollout.profiler)
-    return config
-
-
-@hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
-def main(config_dict):
-    config = trainer_dict_to_dataclass(config_dict)
     run_ppo(config)
 
 
 # Define a function to run the PPO-like training process
 def run_ppo(config) -> None:
+    """Initialize Ray cluster and run distributed PPO training process.
+
+    Args:
+        config: Training configuration object containing all necessary parameters
+                for distributed PPO training including Ray initialization settings,
+                model paths, and training hyperparameters.
+    """
     # Check if Ray is not initialized
     if not ray.is_initialized():
         # Initialize Ray with a local cluster configuration
@@ -67,13 +56,17 @@ def run_ppo(config) -> None:
         # NCCL debug level, VLLM logging level, and allow runtime LoRA updating
         # `num_cpus` specifies the number of CPU cores Ray can use, obtained from the configuration
         ray.init(
-            runtime_env=PPO_RAY_RUNTIME_ENV,
+            runtime_env=get_ppo_ray_runtime_env(),
             num_cpus=config.ray_init.num_cpus,
         )
 
     # Create a remote instance of the TaskRunner class, and
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
-    if config.trainer.get("profile_steps") is not None and len(config.trainer.get("profile_steps", [])) > 0:
+    if (
+        is_cuda_available
+        and config.trainer.get("profile_steps") is not None
+        and len(config.trainer.get("profile_steps", [])) > 0
+    ):
         nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
     else:
@@ -89,7 +82,22 @@ def run_ppo(config) -> None:
 
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
 class TaskRunner:
+    """Ray remote class for executing distributed PPO training tasks.
+
+    This class encapsulates the main training logic and runs as a Ray remote actor
+    to enable distributed execution across multiple nodes and GPUs.
+    """
+
     def run(self, config):
+        """Execute the main PPO training workflow.
+
+        This method sets up the distributed training environment, initializes
+        workers, datasets, and reward functions, then starts the training process.
+
+        Args:
+            config: Training configuration object containing all parameters needed
+                   for setting up and running the PPO training process.
+        """
         # Print the initial configuration. `resolve=True` will evaluate symbolic values.
         from pprint import pprint
 
@@ -98,9 +106,7 @@ class TaskRunner:
         from verl.utils.fs import copy_to_local
 
         print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
-
         pprint(OmegaConf.to_container(config, resolve=True))
-
         OmegaConf.resolve(config)
 
         # Download the checkpoint from HDFS to the local machine.
@@ -117,19 +123,24 @@ class TaskRunner:
         # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
-        # Version validation for vllm.
-        if config.actor_rollout_ref.rollout.name in ["vllm"]:
-            from verl.utils.vllm_utils import is_version_ge
-
-            if config.actor_rollout_ref.model.get("lora_rank", 0) > 0:
-                if not is_version_ge(pkg="vllm", minver="0.7.3"):
-                    raise NotImplementedError("PPO LoRA is not supported before vllm 0.7.3")
-
         # Define worker classes based on the actor strategy.
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             assert config.critic.strategy in {"fsdp", "fsdp2"}
             from verl.single_controller.ray import RayWorkerGroup
-            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
+            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+
+            use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
+            if use_legacy_worker_impl in ["auto", "enable"]:
+                # import warnings
+                # warnings.warn(f"Legacy worker impl is going to be deprecated, will be removed in the future. \
+                #   Please set trainer.use_legacy_worker_impl = false to switch to the new worker implementation.")
+                from verl.workers.fsdp_workers import CriticWorker
+            elif use_legacy_worker_impl == "disable":
+                from verl.workers.roles import CriticWorker
+
+                print("Using new worker implementation")
+            else:
+                raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
 
             actor_rollout_cls = (
                 AsyncActorRolloutRefWorker
@@ -205,8 +216,8 @@ class TaskRunner:
         from verl.utils.dataset.rl_dataset import collate_fn
 
         # Create training and validation datasets.
-        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor)
-        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor)
+        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor, is_train=True)
+        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor, is_train=False)
         train_sampler = create_rl_sampler(config.data, train_dataset)
 
         # Initialize the PPO trainer.
@@ -223,7 +234,6 @@ class TaskRunner:
             val_dataset=val_dataset,
             collate_fn=collate_fn,
             train_sampler=train_sampler,
-            device_name=config.trainer.device,
         )
         # Initialize the workers of the trainer.
         trainer.init_workers()
@@ -231,7 +241,7 @@ class TaskRunner:
         trainer.fit()
 
 
-def create_rl_dataset(data_paths, data_config, tokenizer, processor):
+def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=True):
     """Create a dataset.
 
     Arguments:
@@ -258,6 +268,13 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
                 f"The custom dataset class '{data_config.custom_cls.name}' from "
                 f"'{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset"
             )
+    elif "datagen" in data_config and data_config.datagen.get("path", None) is not None and is_train:
+        # If a data generation strategy is specified, use the DynamicGenDataset class
+        from verl.utils.dataset.dynamicgen_dataset import DynamicGenDataset
+
+        dataset_cls = DynamicGenDataset
+        print("Using DynamicGenDataset for data generation.")
+
     else:
         # Use the default RLHFDataset class if no custom class is specified
         dataset_cls = RLHFDataset
@@ -297,6 +314,11 @@ def create_rl_sampler(data_config, dataset):
             data_config=data_config,
         )
         assert isinstance(sampler, AbstractSampler)
+        assert data_config.get("dataloader_num_workers", 8) == 0, (
+            "If using curriculum, num_workers must be 0 to prevent data caching. "
+            "If the dataloader caches data before the batch is done the "
+            "curriculum sampler won't have the opportunity to reorder it. "
+        )
 
     # Use a sampler to facilitate checkpoint resumption.
     # If shuffling is enabled in the data configuration, create a random sampler.

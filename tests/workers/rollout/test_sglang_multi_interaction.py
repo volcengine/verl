@@ -117,9 +117,11 @@ class TestSGLangMultiInteraction:
 
         try:
             # Mock SGLang engine and initialization methods like the reference test
-            with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(
-                SGLangRollout, "_init_inference_engine", return_value=None
-            ), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
+            with (
+                patch.object(SGLangRollout, "_init_distributed_env", return_value=None),
+                patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
+                patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
+            ):
                 # Create a real tokenizer like the reference test
                 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
                 tokenizer.pad_token = tokenizer.eos_token
@@ -127,6 +129,13 @@ class TestSGLangMultiInteraction:
                 # Mock model config
                 mock_model_config = MagicMock()
                 mock_model_config.max_position_embeddings = 2048
+                # since this is a mock, we can set any rope scaling config
+                # to test the rope_scaling logic at the same time of this test
+                mock_model_config.rope_scaling = {
+                    "factor": 4.0,
+                    "original_max_position_embeddings": 32768,
+                    "type": "yarn",
+                }
 
                 # Create SGLangRollout instance
                 rollout = SGLangRollout(
@@ -165,14 +174,21 @@ class TestSGLangMultiInteraction:
         config, temp_config_path = create_mock_config_with_multi_interactions()
 
         try:
-            with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(
-                SGLangRollout, "_init_inference_engine", return_value=None
-            ), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
+            with (
+                patch.object(SGLangRollout, "_init_distributed_env", return_value=None),
+                patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
+                patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
+            ):
                 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
                 tokenizer.pad_token = tokenizer.eos_token
 
                 mock_model_config = MagicMock()
                 mock_model_config.max_position_embeddings = 2048
+                mock_model_config.rope_scaling = {
+                    "factor": 4.0,
+                    "original_max_position_embeddings": 32768,
+                    "type": "yarn",
+                }
 
                 rollout = SGLangRollout(
                     actor_module="mock_model",
@@ -193,18 +209,18 @@ class TestSGLangMultiInteraction:
                     state=AsyncRolloutRequestStateEnum.INTERACTING,
                     messages=[Message(role="user", content="test message")],
                     interaction_kwargs={"name": "mock_agent2", "test_param": "value"},
-                    input_ids=[],
-                    prompt_ids=[],
-                    response_ids=[],
-                    attention_mask=[],
-                    prompt_attention_mask=[],
-                    response_attention_mask=[],
-                    position_ids=[],
-                    prompt_position_ids=[],
-                    response_position_ids=[],
-                    loss_mask=[],
-                    prompt_loss_mask=[],
-                    response_loss_mask=[],
+                    input_ids=None,
+                    prompt_ids=None,
+                    response_ids=None,
+                    attention_mask=None,
+                    prompt_attention_mask=None,
+                    response_attention_mask=None,
+                    position_ids=None,
+                    prompt_position_ids=None,
+                    response_position_ids=None,
+                    loss_mask=None,
+                    prompt_loss_mask=None,
+                    response_loss_mask=None,
                     reward_scores={},
                     max_prompt_len=32,
                     max_response_len=16,
@@ -270,14 +286,21 @@ class TestSGLangMultiInteraction:
         )
 
         try:
-            with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(
-                SGLangRollout, "_init_inference_engine", return_value=None
-            ), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
+            with (
+                patch.object(SGLangRollout, "_init_distributed_env", return_value=None),
+                patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
+                patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
+            ):
                 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
                 tokenizer.pad_token = tokenizer.eos_token
 
                 mock_model_config = MagicMock()
                 mock_model_config.max_position_embeddings = 2048
+                mock_model_config.rope_scaling = {
+                    "factor": 4.0,
+                    "original_max_position_embeddings": 32768,
+                    "type": "yarn",
+                }
 
                 rollout = SGLangRollout(
                     actor_module="mock_model",
@@ -304,14 +327,21 @@ class TestSGLangMultiInteraction:
         config, temp_config_path = create_mock_config_with_multi_interactions()
 
         try:
-            with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(
-                SGLangRollout, "_init_inference_engine", return_value=None
-            ), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
+            with (
+                patch.object(SGLangRollout, "_init_distributed_env", return_value=None),
+                patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
+                patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
+            ):
                 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
                 tokenizer.pad_token = tokenizer.eos_token
 
                 mock_model_config = MagicMock()
                 mock_model_config.max_position_embeddings = 2048
+                mock_model_config.rope_scaling = {
+                    "factor": 4.0,
+                    "original_max_position_embeddings": 32768,
+                    "type": "yarn",
+                }
 
                 rollout = SGLangRollout(
                     actor_module="mock_model",
@@ -366,14 +396,21 @@ class TestSGLangMultiInteraction:
             }
         )
 
-        with patch.object(SGLangRollout, "_init_distributed_env", return_value=None), patch.object(
-            SGLangRollout, "_init_inference_engine", return_value=None
-        ), patch.object(SGLangRollout, "_init_sampling_params", return_value=None):
+        with (
+            patch.object(SGLangRollout, "_init_distributed_env", return_value=None),
+            patch.object(SGLangRollout, "_init_inference_engine", return_value=None),
+            patch.object(SGLangRollout, "_init_sampling_params", return_value=None),
+        ):
             tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", padding_side="left")
             tokenizer.pad_token = tokenizer.eos_token
 
             mock_model_config = MagicMock()
             mock_model_config.max_position_embeddings = 2048
+            mock_model_config.rope_scaling = {
+                "factor": 4.0,
+                "original_max_position_embeddings": 32768,
+                "type": "yarn",
+            }
 
             rollout = SGLangRollout(
                 actor_module="mock_model",

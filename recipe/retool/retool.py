@@ -13,7 +13,7 @@
 # limitations under the License.
 import logging
 import re
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import datasets
 
@@ -21,6 +21,7 @@ from verl.tools.base_tool import OpenAIFunctionToolSchema
 from verl.tools.sandbox_fusion_tools import SandboxFusionTool
 from verl.utils.dataset import RLHFDataset
 from verl.utils.reward_score import math_dapo
+from verl.utils.rollout_trace import rollout_trace_op
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,8 @@ class CustomSandboxFusionTool(SandboxFusionTool):
         super().__init__(config, tool_schema)
         self.code_pattern = re.compile(r"```python(.*?)```", re.DOTALL)
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    @rollout_trace_op
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         code = parameters["code"]
         matches = self.code_pattern.findall(code)
         if matches:
@@ -79,7 +81,7 @@ class CustomRLHFDataset(RLHFDataset):
 
         print(f"dataset len: {len(self.dataframe)}")
 
-    def map_fn(self, row: Dict, *, data_source: str = None):
+    def map_fn(self, row: dict, *, data_source: str = None):
         if data_source == "Maxwell-Jia/AIME_2024":
             problem, answer = row["Problem"], row["Answer"]
         elif data_source == "yentinglin/aime_2025":
@@ -95,7 +97,7 @@ class CustomRLHFDataset(RLHFDataset):
         }
         return data
 
-    def map_fn2(self, row: Dict):
+    def map_fn2(self, row: dict):
         content = row["prompt"][0]["content"]
         row["prompt"][0]["content"] = content + answer_format
         row["agent_name"] = "tool_agent"

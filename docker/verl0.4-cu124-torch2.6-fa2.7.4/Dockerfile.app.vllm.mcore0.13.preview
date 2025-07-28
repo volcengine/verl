@@ -10,7 +10,7 @@ ENV NODE_OPTIONS=""
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV HF_HUB_ENABLE_HF_TRANSFER="1"
 
-# Install torch-2.6.0+cu126 + vllm-0.8.5.post1
+# Install torch-2.6.0+cu124 + vllm-0.8.5.post1
 # torch-2.6.0+cu124: cxx11abi=False
 # torch-2.6.0+cu126: cxx11abi=True
 # see https://github.com/flashinfer-ai/flashinfer/issues/911
@@ -38,7 +38,48 @@ RUN pip install --resume-retries 999 --no-cache-dir nvidia-cudnn-cu12==9.8.0.87
 RUN export NVTE_FRAMEWORK=pytorch && pip3 install --resume-retries 999 --no-deps --no-cache-dir --no-build-isolation git+https://github.com/NVIDIA/TransformerEngine.git@release_v2.5
 
 # Install Megatron-LM
-RUN pip3 install --no-deps --no-cache-dir --no-build-isolation git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.1
+RUN pip3 install --no-deps --no-cache-dir --no-build-isolation git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.2
 
 # Install mbridge
 RUN pip3 install --no-cache-dir mbridge
+
+# Install DeepEP
+## the dependency of IBGDA
+RUN ln -s /usr/lib/x86_64-linux-gnu/libmlx5.so.1 /usr/lib/x86_64-linux-gnu/libmlx5.so
+
+## Clone and build deepep and deepep-nvshmem
+RUN git clone -b v2.3.1 https://github.com/NVIDIA/gdrcopy.git && \
+    git clone https://github.com/deepseek-ai/DeepEP.git  && \
+    cd DeepEP && git checkout a84a248
+
+# Prepare nvshmem
+RUN wget https://developer.nvidia.com/downloads/assets/secure/nvshmem/nvshmem_src_3.2.5-1.txz && \
+    tar -xvf nvshmem_src_3.2.5-1.txz && mv nvshmem_src deepep-nvshmem && \
+    cd deepep-nvshmem && git apply ../DeepEP/third-party/nvshmem.patch
+
+ENV CUDA_HOME=/usr/local/cuda
+### Set MPI environment variables. Having errors when not set.
+ENV CPATH=/usr/local/mpi/include:$CPATH
+ENV LD_LIBRARY_PATH=/usr/local/mpi/lib:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/usr/local/x86_64-linux-gnu:$LD_LIBRARY_PATH
+ENV GDRCOPY_HOME=/workspace/gdrcopy
+
+## Build deepep-nvshmem
+RUN cd deepep-nvshmem && \
+    NVSHMEM_SHMEM_SUPPORT=0 \
+    NVSHMEM_UCX_SUPPORT=0 \
+    NVSHMEM_USE_NCCL=0 \
+    NVSHMEM_MPI_SUPPORT=0 \
+    NVSHMEM_IBGDA_SUPPORT=1 \
+    NVSHMEM_PMIX_SUPPORT=0 \
+    NVSHMEM_TIMEOUT_DEVICE_POLLING=0 \
+    NVSHMEM_USE_GDRCOPY=1 \
+    cmake -G Ninja -S . -B build/ -DCMAKE_INSTALL_PREFIX=/workspace/deepep-nvshmem/install && cmake --build build/ --target install
+
+ENV NVSHMEM_DIR=/workspace/deepep-nvshmem/install
+ENV LD_LIBRARY_PATH=$NVSHMEM_DIR/lib:$LD_LIBRARY_PATH
+ENV PATH=$NVSHMEM_DIR/bin:$PATH
+
+## Build deepep
+RUN cd DeepEP && \
+    python setup.py install

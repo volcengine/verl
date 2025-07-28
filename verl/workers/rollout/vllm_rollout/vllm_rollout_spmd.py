@@ -34,7 +34,7 @@ import threading
 from contextlib import contextmanager
 from copy import deepcopy
 from types import MethodType
-from typing import Any, Dict, List, Union
+from typing import Any
 
 import numpy as np
 import ray
@@ -65,20 +65,13 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 # NOTE(sgm): add for verl. We can optimize it by making the dataloader yield List[int] without padding.
-def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[int]:
+def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[int]:
     # remove the left padding in the prompt token_id
     # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id
     # is not None else self.llm_engine.tokenizer.eos_token_id
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
-
-
-def _repeat_interleave(value: Union[torch.Tensor, np.ndarray], repeats: int) -> Union[torch.Tensor, List[Any]]:
-    if isinstance(value, torch.Tensor):
-        return value.repeat_interleave(repeats, dim=0)
-    else:
-        return np.repeat(value, repeats, axis=0)
 
 
 class vLLMRollout(BaseRollout):
@@ -124,9 +117,22 @@ class vLLMRollout(BaseRollout):
                 max_position_embeddings = model_hf_config.text_config.max_position_embeddings
             if max_position_embeddings is None:
                 raise ValueError("max_position_embeddings not found in model_hf_config")
-
             assert max_position_embeddings >= config.prompt_length + config.response_length, (
                 "model context length should be greater than total sequence length"
+            )
+        else:
+            # handle type where there's a length extend factor
+            # see https://qwen.readthedocs.io/en/latest/deployment/vllm.html#extended-context-support
+            # for using yarn as an example
+            rope_scaling_factor = rope_scaling_config.get("factor", 1.0)
+
+            assert (
+                model_hf_config.max_position_embeddings * rope_scaling_factor
+                >= config.prompt_length + config.response_length
+            ), (
+                "model context length should be greater than total sequence length, "
+                + f"got rope_scaling_factor={rope_scaling_factor} and "
+                + f"max_position_embeddings={model_hf_config.max_position_embeddings}"
             )
 
         max_model_len = int(config.max_model_len or config.prompt_length + config.response_length)
@@ -192,9 +198,9 @@ class vLLMRollout(BaseRollout):
 
         # supporting adding any sampling params from the config file
         for k in config.keys():
-            if hasattr(SamplingParams(), str(k)):
+            if hasattr(SamplingParams(), str(k)) and k != "seed":
                 kwargs[k] = config.get(k)
-
+        kwargs["n"] = 1  # already repeat in ray_trainer
         print(f"kwargs: {kwargs}")
         self.sampling_params = SamplingParams(**kwargs)
 
@@ -261,7 +267,7 @@ class vLLMRollout(BaseRollout):
         if "multi_modal_data" in non_tensor_batch:
             vllm_inputs = []
             for raw_prompt_ids, multi_modal_data in zip(
-                non_tensor_batch.pop("raw_prompt_ids"), non_tensor_batch.pop("multi_modal_data")
+                non_tensor_batch.pop("raw_prompt_ids"), non_tensor_batch.pop("multi_modal_data"), strict=True
             ):
                 vllm_inputs.append({"prompt_token_ids": raw_prompt_ids, "multi_modal_data": multi_modal_data})
         else:
@@ -340,25 +346,6 @@ class vLLMRollout(BaseRollout):
                     rollout_log_probs, -1, max_length=self.config.response_length
                 ).to(idx.device)
                 rollout_log_probs = rollout_log_probs.to(torch.float32)
-
-            if self.sampling_params.n > 1 and do_sample:
-                idx = _repeat_interleave(idx, self.sampling_params.n)
-                attention_mask = _repeat_interleave(attention_mask, self.sampling_params.n)
-                position_ids = _repeat_interleave(position_ids, self.sampling_params.n)
-                batch_size = batch_size * self.sampling_params.n
-                # NOTE(linjunrong): for multi-turn https://github.com/volcengine/verl/pull/1037
-                if "tools_kwargs" in non_tensor_batch.keys():
-                    non_tensor_batch["tools_kwargs"] = _repeat_interleave(
-                        non_tensor_batch["tools_kwargs"], self.sampling_params.n
-                    )
-                if "interaction_kwargs" in non_tensor_batch.keys():
-                    non_tensor_batch["interaction_kwargs"] = _repeat_interleave(
-                        non_tensor_batch["interaction_kwargs"], self.sampling_params.n
-                    )
-                if "raw_prompt" in non_tensor_batch.keys():
-                    non_tensor_batch["raw_prompt"] = _repeat_interleave(
-                        non_tensor_batch["raw_prompt"], self.sampling_params.n
-                    )
 
             seq = torch.cat([idx, response], dim=-1)
 
@@ -453,7 +440,7 @@ class vLLMAsyncRollout:
         return address
 
     def _get_free_port(self):
-        ip = ray._private.services.get_node_ip_address()
+        ip = ray.util.get_node_ip_address()
         with socket.socket() as sock:
             sock.bind(("", 0))
             port = sock.getsockname()[1]
@@ -469,7 +456,7 @@ class vLLMAsyncRollout:
     def get_zeromq_address(self):
         return self.address
 
-    def init_worker(self, all_kwargs: List[Dict[str, Any]]):
+    def init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
         all_kwargs[0]["local_rank"] = 0
@@ -501,7 +488,7 @@ class vLLMAsyncRollout:
         self.sharding_manager.__enter__()  # pylint: disable=C2801
         self.is_sleep = False
 
-    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
+    def execute_method(self, method: str | bytes, *args, **kwargs):
         if method == "init_worker":
             return self.init_worker(*args, **kwargs)
         elif method == "load_model":

@@ -38,7 +38,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.megatron.seed=42 \
-    actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=2 \
     actor_rollout_ref.ref.megatron.virtual_pipeline_model_parallel_size=2 \
     actor_rollout_ref.ref.megatron.context_parallel_size=2 \
@@ -51,7 +50,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='gsm8k_async_rl' \
     trainer.experiment_name='qwen2.5-3b_function_rm-gsm8k-sgl-multi-w-tool-n8-mcore-v2505201745_seed42' \
     trainer.n_gpus_per_node=8 \

@@ -13,25 +13,26 @@
 # limitations under the License.
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any
 from uuid import uuid4
 
-from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput
+from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
 from verl.utils.profiler import simple_timer
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
+@register("single_turn_agent")
 class SingleTurnAgentLoop(AgentLoopBase):
     """Naive agent loop that only do single turn chat completion."""
 
-    def __init__(self, config, server_manager, tokenizer):
-        super().__init__(config, server_manager, tokenizer)
-        self.prompt_length = config.actor_rollout_ref.rollout.prompt_length
-        self.response_length = config.actor_rollout_ref.rollout.response_length
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.prompt_length = self.config.actor_rollout_ref.rollout.prompt_length
+        self.response_length = self.config.actor_rollout_ref.rollout.response_length
 
-    async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> AgentLoopOutput:
+    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
         metrics = {}
         request_id = uuid4().hex
         prompt_ids = await self.loop.run_in_executor(

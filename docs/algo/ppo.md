@@ -88,7 +88,7 @@ Qwen2.5 training log and commands: [link](https://github.com/eric-haibin-lin/ver
 bash run_gemma.sh
   trainer.n_gpus_per_node=1 \
   actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-  trainer.logger=['console'] \
+  trainer.logger=console \
   critic.model.path=Qwen/Qwen2.5-0.5B-Instruct \
   actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
   data.train_batch_size=256 \

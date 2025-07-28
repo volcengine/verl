@@ -95,7 +95,7 @@ class RaySPPOTrainer(RayPPOTrainer):
         val_dataset: Optional[Dataset] = None,
         collate_fn=None,
         train_sampler: Optional[Sampler] = None,
-        device_name="cuda",
+        device_name=None,
     ):
         self.tokenizer = tokenizer
         self.processor = processor
@@ -115,7 +115,7 @@ class RaySPPOTrainer(RayPPOTrainer):
         self.use_rm = Role.RewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
         self.validation_generations_logger = ValidationGenerationsLogger()
-        self.device_name = device_name
+        self.device_name = device_name if device_name else self.config.trainer.device
 
         # define in-reward KL control
         # kl loss control currently not supported
@@ -185,6 +185,7 @@ class RaySPPOTrainer(RayPPOTrainer):
                     batch_keys=batch_keys_to_pop,
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
                 )
+                gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
                 is_last_step = self.global_steps >= self.total_training_steps
 

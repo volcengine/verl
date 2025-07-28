@@ -13,8 +13,6 @@
 # limitations under the License.
 
 
-from typing import List
-
 from msgspec import field
 from packaging import version as vs
 from vllm.lora.models import LoRAModel
@@ -126,7 +124,7 @@ class VLLMHijack:
             try:
                 supported_lora_modules = self._adapter_manager.supported_lora_modules
                 packed_modules_mapping = self._adapter_manager.packed_modules_mapping
-                expected_lora_modules: List[str] = []
+                expected_lora_modules: list[str] = []
                 for module in supported_lora_modules:
                     if module in packed_modules_mapping:
                         expected_lora_modules.extend(packed_modules_mapping[module])

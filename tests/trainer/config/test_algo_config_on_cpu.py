@@ -18,7 +18,7 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from verl.trainer.config import AlgoConfig, KLControlConfig, PFPPOConfig
+from verl.trainer.config import AlgoConfig, KLControlConfig
 from verl.trainer.ppo.core_algos import (
     compute_gae_advantage_return,
     compute_grpo_outcome_advantage,
@@ -49,20 +49,9 @@ class TestAlgoConfig(unittest.TestCase):
                 "target_kl": 0.05,
             },
             "use_pf_ppo": True,
-            "pf_ppo": {"_target_": "verl.trainer.config.PFPPOConfig", "reweight_method": "max_min", "weight_pow": 3.0},
+            "pf_ppo": {"reweight_method": "max_min", "weight_pow": 3.0},
         }
         self.omega_config = OmegaConf.create(self.config_dict)
-        self.algo_config = AlgoConfig(
-            gamma=0.99,
-            lam=0.95,
-            adv_estimator="gae",
-            norm_adv_by_std_in_grpo=True,
-            use_kl_in_reward=True,
-            kl_penalty="kl",
-            kl_ctrl=KLControlConfig(type="adaptive", kl_coef=0.002, horizon=5000, target_kl=0.05),
-            use_pf_ppo=True,
-            pf_ppo=PFPPOConfig(reweight_method="max_min", weight_pow=3.0),
-        )
 
     def test_dataclass_creation_from_dict(self):
         """Test creating AlgoConfig from dictionary."""
@@ -97,9 +86,8 @@ class TestAlgoConfig(unittest.TestCase):
         self.assertEqual(config.kl_ctrl.target_kl, 0.05)
 
         # Test PF PPO config
-        self.assertIsInstance(config.pf_ppo, PFPPOConfig)
-        self.assertEqual(config.pf_ppo.reweight_method, "max_min")
-        self.assertEqual(config.pf_ppo.weight_pow, 3.0)
+        self.assertEqual(config.pf_ppo.get("reweight_method"), "max_min")
+        self.assertEqual(config.pf_ppo.get("weight_pow"), 3.0)
 
     def test_default_values(self):
         """Test that default values are properly set."""
@@ -125,6 +113,46 @@ class TestAlgoConfig(unittest.TestCase):
         # Test non-existing attribute
         self.assertIsNone(config.get("non_existing"))
         self.assertEqual(config.get("non_existing", "default"), "default")
+
+    def test_post_init_nested_configs(self):
+        """Test that __post_init__ properly initializes nested configs when None."""
+        # Create config without nested configs
+        minimal_config = AlgoConfig(gamma=0.9)
+
+        # Check that nested configs are initialized
+        self.assertIsNotNone(minimal_config.kl_ctrl)
+        self.assertIsInstance(minimal_config.kl_ctrl, KLControlConfig)
+        assert not minimal_config.pf_ppo
+
+    def test_config_init_from_yaml(self):
+        import os
+
+        from hydra import compose, initialize_config_dir
+
+        with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
+            cfg = compose(config_name="ppo_trainer")
+        algo_config = omega_conf_to_dataclass(cfg.algorithm)
+        from verl.trainer.config import AlgoConfig
+
+        assert isinstance(algo_config, AlgoConfig)
+
+
+class TestAlgoCompute(unittest.TestCase):
+    """Test the AlgoConfig dataclass and its integration with core algorithms."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.algo_config = AlgoConfig(
+            gamma=0.99,
+            lam=0.95,
+            adv_estimator="gae",
+            norm_adv_by_std_in_grpo=True,
+            use_kl_in_reward=True,
+            kl_penalty="kl",
+            kl_ctrl=KLControlConfig(type="adaptive", kl_coef=0.002, horizon=5000, target_kl=0.05),
+            use_pf_ppo=True,
+            pf_ppo={"reweight_method": "max_min", "weight_pow": 3.0},
+        )
 
     def test_advantage_estimator_with_cfg(self):
         """Test integration with advantage estimators from core_algos."""
@@ -170,24 +198,6 @@ class TestAlgoConfig(unittest.TestCase):
 
         self.assertEqual(advantages.shape, (batch_size, seq_len))
         self.assertEqual(returns.shape, (batch_size, seq_len))
-
-    def test_post_init_nested_configs(self):
-        """Test that __post_init__ properly initializes nested configs when None."""
-        # Create config without nested configs
-        minimal_config = AlgoConfig(gamma=0.9)
-
-        # Check that nested configs are initialized
-        self.assertIsNotNone(minimal_config.kl_ctrl)
-        self.assertIsInstance(minimal_config.kl_ctrl, KLControlConfig)
-        self.assertIsNone(minimal_config.pf_ppo)
-
-    def test_config_init_from_yaml(self):
-        cfg = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
-        algo_config = omega_conf_to_dataclass(cfg.algorithm)
-        from verl.trainer.config import AlgoConfig, PFPPOConfig
-
-        assert isinstance(algo_config, AlgoConfig)
-        assert isinstance(algo_config.pf_ppo, PFPPOConfig)
 
 
 if __name__ == "__main__":

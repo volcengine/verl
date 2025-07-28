@@ -17,13 +17,14 @@ import logging
 import os
 import random
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Type
+from typing import Any
 
+import hydra
 import numpy as np
 import ray
 import torch
 from cachetools import LRUCache
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel
 from tensordict import TensorDict
 from transformers import AutoTokenizer
@@ -32,6 +33,7 @@ from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
+from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
 from verl.workers.rollout.async_server import async_server_class
 
 logger = logging.getLogger(__file__)
@@ -45,7 +47,7 @@ class AsyncLLMServerManager:
     - Sticky session: send multi-turn chat completions to same server for automatic prefix caching
     """
 
-    def __init__(self, config: DictConfig, server_handles: List[ray.actor.ActorHandle], max_cache_size: int = 10000):
+    def __init__(self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], max_cache_size: int = 10000):
         """Initialize the AsyncLLMServerManager.
 
         Args:
@@ -75,13 +77,14 @@ class AsyncLLMServerManager:
         self.request_id_to_server[request_id] = server
         return server
 
+    @rollout_trace_op
     async def generate(
         self,
         request_id,
         *,
-        prompt_ids: List[int],
-        sampling_params: Dict[str, Any],
-    ) -> List[int]:
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+    ) -> list[int]:
         """Generate tokens from prompt ids.
 
         Args:
@@ -111,11 +114,22 @@ class AgentLoopMetrics(BaseModel):
 class AgentLoopOutput(BaseModel):
     """Agent loop output."""
 
-    prompt_ids: List[int]
-    response_ids: List[int]
-    response_mask: List[int]
+    prompt_ids: list[int]
+    """Prompt token ids."""
+    response_ids: list[int]
+    """Response token ids including LLM generated token, tool response token."""
+    response_mask: list[int]
+    """Response mask, 1 for LLM generated token, 0 for tool response token."""
     num_turns: int = 0
+    """Number of chat turns, including user, assistant, tool."""
     metrics: AgentLoopMetrics
+    """Auxiliary performance metrics"""
+
+
+# make hydra.utils.instantiate happy
+class _DummyConfig:
+    def __init__(self, config: DictConfig) -> None:
+        self.config = config
 
 
 class AgentLoopBase(ABC):
@@ -124,29 +138,37 @@ class AgentLoopBase(ABC):
 
     _class_initialized = False
 
-    def __init__(self, config: DictConfig, server_manager: AsyncLLMServerManager, tokenizer: AutoTokenizer):
-        """Initialize agent loop.
+    def __init__(
+        self, trainer_config: _DummyConfig, server_manager: AsyncLLMServerManager, tokenizer: AutoTokenizer, **kwargs
+    ):
+        """Initialize agent loop, each sample will have its own loop instance.
 
         Args:
-            config (DictConfig): YAML config.
+            trainer_config (_DummyConfig): trainer config.
             server_manager (AsyncLLMServerManager): OpenAI compatible LLM server manager.
             tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
         """
-        self.config = config
+        self.init_class(trainer_config.config, tokenizer, **kwargs)
+        self.config = trainer_config.config
         self.server_manager = server_manager
         self.tokenizer = tokenizer
         self.loop = asyncio.get_running_loop()
-        self.init_class(config, tokenizer)
 
     @classmethod
-    def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer):
-        """Initialize class state shared across all instances."""
+    def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer, **kwargs):
+        """This is used to do heavy initialization work that should shared across all instances. It's only called once.
+
+        Args:
+            config (DictConfig): trainer config.
+            tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
+            **kwargs: extra kwargs from config file passed in by `hydra.utils.instantiate`.
+        """
         if cls._class_initialized:
             return
         cls._class_initialized = True
 
     @abstractmethod
-    async def run(self, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]) -> AgentLoopOutput:
+    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
         """Run agent loop to interact with LLM server and environment.
 
         Args:
@@ -159,11 +181,30 @@ class AgentLoopBase(ABC):
         raise NotImplementedError
 
 
+"""Agent loop registry: key is agent_name, value is a dict of agent loop config
+used by hydra.utils.instantiate to initialize agent loop instance.
+
+https://hydra.cc/docs/advanced/instantiate_objects/overview/
+"""
+_agent_loop_registry: dict[str, dict] = {}
+
+
+def register(agent_name: str):
+    """Register agent loop class."""
+
+    def decorator(subclass: type[AgentLoopBase]) -> type[AgentLoopBase]:
+        fqdn = f"{subclass.__module__}.{subclass.__qualname__}"
+        _agent_loop_registry[agent_name] = {"_target_": fqdn}
+        return subclass
+
+    return decorator
+
+
 @ray.remote
 class AgentLoopWorker:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
-    def __init__(self, config: DictConfig, server_handles: List[ray.actor.ActorHandle]):
+    def __init__(self, config: DictConfig, server_handles: list[ray.actor.ActorHandle]):
         """Initialize agent loop manager.
 
         Args:
@@ -177,6 +218,21 @@ class AgentLoopWorker:
         self.model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
+
+        agent_loop_config_path = config.actor_rollout_ref.rollout.agent.agent_loop_config_path
+        if agent_loop_config_path:
+            agent_loop_configs = OmegaConf.load(agent_loop_config_path)
+            for agent_loop_config in agent_loop_configs:
+                _agent_loop_registry[agent_loop_config.name] = agent_loop_config
+
+        trace_config = config.trainer.get("rollout_trace", {})
+        trace_config = self.config.actor_rollout_ref.rollout.get("trace", {})
+        RolloutTraceConfig.init(
+            self.config.trainer.project_name,
+            self.config.trainer.experiment_name,
+            trace_config.get("backend"),
+            trace_config.get("token2text", False),
+        )
 
     async def generate_sequences(self, batch: DataProto) -> DataProto:
         """Generate sequences from agent loop.
@@ -211,42 +267,60 @@ class AgentLoopWorker:
             sampling_params["top_p"] = config.val_kwargs.top_p
             sampling_params["temperature"] = config.val_kwargs.temperature
 
-        n = 1 if batch.meta_info.get("validate", False) else config.n
-        tasks = []
-
         # by default, we assume it's a single turn agent
         if "agent_name" not in batch.non_tensor_batch:
             batch.non_tensor_batch["agent_name"] = np.array(["single_turn_agent"] * len(batch), dtype=object)
 
-        agent_names = batch.non_tensor_batch["agent_name"].repeat(n, axis=0)
-        raw_prompts = batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0)
-        for agent_name, messages in zip(agent_names, raw_prompts):
-            tasks.append(asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params)))
+        tasks = []
+        agent_names = batch.non_tensor_batch["agent_name"]
+        raw_prompts = batch.non_tensor_batch["raw_prompt"]
+        if "index" in batch.non_tensor_batch:
+            index = batch.non_tensor_batch["index"]
+        else:
+            index = np.arange(len(raw_prompts))
+
+        trajectory_info = await get_trajectory_info(
+            batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
+        )
+
+        for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
+            tasks.append(
+                asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory))
+            )
         outputs = await asyncio.gather(*tasks)
 
         output = self._postprocess(outputs)
         return output
 
     async def _run_agent_loop(
-        self, agent_name: str, messages: List[Dict[str, Any]], sampling_params: Dict[str, Any]
+        self,
+        agent_name: str,
+        messages: list[dict[str, Any]],
+        sampling_params: dict[str, Any],
+        trajectory: dict[str, Any],
     ) -> AgentLoopOutput:
-        agent_loop_class = self.get_agent_loop_class(agent_name)
-        agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer)
-        output = await agent_loop.run(messages, sampling_params)
-        return output
+        with rollout_trace_attr(
+            step=trajectory["step"],
+            sample_index=trajectory["sample_index"],
+            rollout_n=trajectory["rollout_n"],
+            validate=trajectory["validate"],
+            name="agent_loop",
+        ):
+            assert agent_name in _agent_loop_registry, (
+                f"Agent loop {agent_name} not registered, registered agent loops: {_agent_loop_registry.keys()}"
+            )
 
-    def get_agent_loop_class(self, agent_name: str) -> Type[AgentLoopBase]:
-        # TODO: add tool agent registrary
-        from verl.experimental.agent_loop.single_turn_agent_loop import SingleTurnAgentLoop
-        from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop
+            agent_loop_config = _agent_loop_registry[agent_name]
+            agent_loop = hydra.utils.instantiate(
+                config=agent_loop_config,
+                trainer_config=_DummyConfig(config=self.config),
+                server_manager=self.server_manager,
+                tokenizer=self.tokenizer,
+            )
+            output = await agent_loop.run(messages, sampling_params)
+            return output
 
-        if agent_name == "single_turn_agent":
-            return SingleTurnAgentLoop
-        elif agent_name == "tool_agent":
-            return ToolAgentLoop
-        raise ValueError(f"Unknown agent_name: {agent_name}")
-
-    def _postprocess(self, inputs: List[AgentLoopOutput]) -> DataProto:
+    def _postprocess(self, inputs: list[AgentLoopOutput]) -> DataProto:
         # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
         # prompts: left pad
         # responses: right pad
@@ -309,6 +383,28 @@ class AgentLoopWorker:
         num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
         metrics = [input.metrics.model_dump() for input in inputs]
         return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
+
+
+async def get_trajectory_info(step, index, validate):
+    """Get trajectory info.
+
+    Args:
+        step (int): global steps in the trainer.
+        index (list): form datastore extra_info.index column.
+        validate (bool): whether is a validate step.
+
+    Returns:
+        list: trajectory.
+    """
+    trajectory_info = []
+    rollout_n = 0
+    for i in range(len(index)):
+        if i > 0 and index[i - 1] == index[i]:
+            rollout_n += 1
+        else:
+            rollout_n = 0
+        trajectory_info.append({"step": step, "sample_index": index[i], "rollout_n": rollout_n, "validate": validate})
+    return trajectory_info
 
 
 class AgentLoopManager:
@@ -400,7 +496,10 @@ class AgentLoopManager:
             self.wake_up()
         chunkes = prompts.chunk(len(self.agent_loop_workers))
         outputs = ray.get(
-            [worker.generate_sequences.remote(chunk) for worker, chunk in zip(self.agent_loop_workers, chunkes)]
+            [
+                worker.generate_sequences.remote(chunk)
+                for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
+            ]
         )
         output = DataProto.concat(outputs)
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
@@ -413,7 +512,7 @@ class AgentLoopManager:
         output.meta_info = {"timing": timing}
         return output
 
-    def _performance_metrics(self, metrics: List[List[Dict[str, str]]], output: DataProto) -> Dict[str, float]:
+    def _performance_metrics(self, metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:
         timing = {}
         t_generate_sequences = np.array([metric["generate_sequences"] for chunk in metrics for metric in chunk])
         t_tool_calls = np.array([metric["tool_calls"] for chunk in metrics for metric in chunk])

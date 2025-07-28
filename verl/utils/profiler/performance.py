@@ -16,7 +16,7 @@ import datetime
 import inspect
 import logging
 from contextlib import contextmanager
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 import torch
 import torch.distributed as dist
@@ -26,9 +26,25 @@ from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.logger import DecoratorLoggerBase
 
 
-def _get_current_mem_info(unit: str = "GB", precision: int = 2) -> Tuple[str]:
-    """Get current memory usage."""
+def _get_current_mem_info(unit: str = "GB", precision: int = 2) -> tuple[str]:
+    """Get current memory usage.
+
+    Note that CPU device memory info is always 0.
+
+    Args:
+        unit (str, optional): The unit of memory measurement. Defaults to "GB".
+        precision (int, optional): The number of decimal places to round memory values. Defaults to 2.
+
+    Returns:
+        tuple[str]: A tuple containing memory allocated, memory reserved, memory used, and memory total
+        in the specified unit.
+    """
     assert unit in ["GB", "MB", "KB"]
+    device = get_torch_device()
+    # torch.cpu.memory_allocated() does not exist
+    if device == torch.cpu:
+        return "0.00", "0.00", "0.00", "0.00"
+
     divisor = 1024**3 if unit == "GB" else 1024**2 if unit == "MB" else 1024
     mem_allocated = get_torch_device().memory_allocated()
     mem_reserved = get_torch_device().memory_reserved()
@@ -121,7 +137,7 @@ def log_print(ctn: Any):
     print(f"[{current_time}-{file_name}:{line_number}:{function_name}]: {ctn}")
 
 
-def _timer(name: str, timing_raw: Dict[str, float]):
+def _timer(name: str, timing_raw: dict[str, float]):
     """Inner function that handles the core timing logic.
 
     Args:
@@ -136,7 +152,7 @@ def _timer(name: str, timing_raw: Dict[str, float]):
 
 
 @contextmanager
-def simple_timer(name: str, timing_raw: Dict[str, float]):
+def simple_timer(name: str, timing_raw: dict[str, float]):
     """Context manager for basic timing without NVTX markers.
 
     This utility function measures the execution time of code within its context
@@ -155,7 +171,7 @@ def simple_timer(name: str, timing_raw: Dict[str, float]):
 @contextmanager
 def marked_timer(
     name: str,
-    timing_raw: Dict[str, float],
+    timing_raw: dict[str, float],
     color: str = None,
     domain: Optional[str] = None,
     category: Optional[str] = None,
@@ -179,7 +195,7 @@ def marked_timer(
     yield from _timer(name, timing_raw)
 
 
-def reduce_timing(timing_raw: Dict[str, float]) -> Dict[str, float]:
+def reduce_timing(timing_raw: dict[str, float]) -> dict[str, float]:
     """Reduce timing information across all processes.
 
     This function uses distributed communication to gather and sum the timing
