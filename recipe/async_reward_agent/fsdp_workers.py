@@ -1,4 +1,5 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Tencent Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -764,7 +765,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         assert self._is_actor
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
-        
+
         if data.meta_info.get("cal_behav_log_prob", False):
             key = "behav_log_prob"
         else:

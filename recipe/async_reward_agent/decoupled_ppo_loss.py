@@ -1,7 +1,25 @@
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Tencent Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from typing import Optional
+
 import torch
+
 import verl.utils.torch_functional as verl_F
 from verl.trainer.ppo.core_algos import agg_loss
+
 
 def compute_decoupled_policy_loss(
     proximal_log_prob,
@@ -17,14 +35,18 @@ def compute_decoupled_policy_loss(
     behav_imp_weight_cap: Optional[torch.FloatTensor] = None,
 ):
     """
-    Compute the clipped policy objective and related metrics for PPO.
+    Compute the decoupled policy objective and related metrics for PPO.
 
     Adapted from
     https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
+    https://github.com/inclusionAI/AReaL/blob/main/realhf/impl/model/utils/ppo_functional.py#L51
+
 
     Args:
-        old_log_prob (torch.Tensor):
-            Log-probabilities of actions under the old policy, shape (batch_size, response_length).
+        proximal_log_prob (torch.Tensor):
+            Log-probabilities of actions under the proximal policy, shape (batch_size, response_length).
+        behav_log_prob (torch.Tensor):
+            Log-probabilities of actions under the behavior policy, shape (batch_size, response_length).
         log_prob (torch.Tensor):
             Log-probabilities of actions under the current policy, shape (batch_size, response_length).
         advantages (torch.Tensor):
@@ -43,8 +65,10 @@ def compute_decoupled_policy_loss(
             Defaults to 3.0.
         loss_agg_mode (str, optional):
             Aggregation mode for `agg_loss`. Defaults to "token-mean".
-        behav_imp_weight_cap: Optional[torch.FloatTensor] = None:
-            We filter out the tokens where behav_imp_weight exceeds behav_imp_weight_cap when computing the loss, must be > 1.0, use_decoupled_loss must be true
+        behav_imp_weight_cap: (torch.Tensor, optional):
+            Upper bound for behavior importance weights (`behav_imp_weight`).
+            Tokens with weights exceeding this value are excluded from the loss calculation.
+            Must be greater than 1.0. Only applicable when `use_decoupled_loss` is True.
     """
     assert clip_ratio_c > 1.0, (
         "The lower bound of the clip_ratio_c for dual-clip PPO should be greater than 1.0,"
@@ -80,9 +104,7 @@ def compute_decoupled_policy_loss(
     behav_kl = proximal_log_prob - behav_log_prob
     behav_imp_weight = behav_kl.exp()
     if behav_imp_weight_cap is not None:
-        behav_mask = (behav_imp_weight <= behav_imp_weight_cap).logical_and(
-            response_mask
-        )
+        behav_mask = (behav_imp_weight <= behav_imp_weight_cap).logical_and(response_mask)
     else:
         behav_mask = response_mask
     behav_kl = torch.where(behav_mask, behav_kl, 0.0)

@@ -1,6 +1,7 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 # Copyright 2023-2024 SGLang Team
 # Copyright 2025 ModelBest Inc. and/or its affiliates
+# Copyright 2025 Tencent Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +24,7 @@ import os
 import torch
 from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from .decoupled_ppo_loss import compute_decoupled_policy_loss
+
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, get_policy_loss_fn, kl_penalty
@@ -35,6 +36,8 @@ from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_b
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.actor import BasePPOActor
+
+from .decoupled_ppo_loss import compute_decoupled_policy_loss
 
 if is_cuda_available:
     from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
@@ -432,10 +435,12 @@ class DataParallelPPOActor(BasePPOActor):
                             clip_ratio_c=clip_ratio_c,
                             loss_agg_mode=loss_agg_mode,
                         )
-                    
+
                     elif loss_mode == "decoupled":
                         behav_log_prob = data["behav_log_prob"]
-                        behav_imp_weight_cap = torch.ones_like(behav_log_prob) * self.config.policy_loss.get("behav_imp_weight_cap", 5)
+                        behav_imp_weight_cap = torch.ones_like(behav_log_prob) * self.config.policy_loss.get(
+                            "behav_imp_weight_cap", 5
+                        )
                         pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_decoupled_policy_loss(
                             proximal_log_prob=old_log_prob,
                             behav_log_prob=behav_log_prob,
@@ -447,7 +452,7 @@ class DataParallelPPOActor(BasePPOActor):
                             cliprange_high=clip_ratio_high,
                             clip_ratio_c=clip_ratio_c,
                             loss_agg_mode=loss_agg_mode,
-                            behav_imp_weight_cap=behav_imp_weight_cap
+                            behav_imp_weight_cap=behav_imp_weight_cap,
                         )
 
                     else:

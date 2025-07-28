@@ -2,6 +2,7 @@
 # Copyright 2023-2024 SGLang Team
 # Copyright 2025 ModelBest Inc. and/or its affiliates
 # Copyright 2025 Meituan Ltd. and/or its affiliates
+# Copyright 2025 Tencent Ltd. and/or its affiliates
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -55,8 +56,6 @@ from verl.trainer.ppo.ray_trainer import (
     compute_advantage,
     compute_response_mask,
 )
-from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from .reward_agent import RayAsyncRewardAgent
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 from verl.utils.metric import (
@@ -64,6 +63,8 @@ from verl.utils.metric import (
 )
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.tracking import ValidationGenerationsLogger
+
+from .reward_agent import RayAsyncRewardAgent
 
 WorkerType = type[Worker]
 
@@ -466,7 +467,9 @@ class AsyncRewardAgentTrainer:
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
-            test_batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(test_batch.batch))], dtype=object)
+            test_batch.non_tensor_batch["uid"] = np.array(
+                [str(uuid.uuid4()) for _ in range(len(test_batch.batch))], dtype=object
+            )
             # repeat test batch
             test_batch = test_batch.repeat(
                 repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True
@@ -535,7 +538,9 @@ class AsyncRewardAgentTrainer:
             test_batch.meta_info["validate"] = True
             uids = test_batch.non_tensor_batch["uid"]
             for idx in range(len(test_batch)):
-                test_batch.non_tensor_batch["extra_info"][idx].update(group_uid=uids[idx], group_size=self.config.actor_rollout_ref.rollout.val_kwargs.n)
+                test_batch.non_tensor_batch["extra_info"][idx].update(
+                    group_uid=uids[idx], group_size=self.config.actor_rollout_ref.rollout.val_kwargs.n
+                )
 
             # evaluate using reward_function
             result = ray.get(self.reward_agent.compute_reward.remote(test_batch, return_dict=True))
@@ -869,6 +874,7 @@ class AsyncRewardAgentTrainer:
         metrics.update(global_balance_stats)
 
     def _rollout_and_request_rewards(self, continuous_iterator):
+        """Rollout and request rewards from the reward agent for the generated sequences."""
         try:
             epoch, batch_dict = next(continuous_iterator)
         except StopIteration:
@@ -948,12 +954,18 @@ class AsyncRewardAgentTrainer:
             # compute reward model score
             uids = batch.non_tensor_batch["uid"]
             for idx in range(len(batch)):
-                batch.non_tensor_batch["extra_info"][idx].update(group_uid=uids[idx], group_size=self.config.actor_rollout_ref.rollout.n)
-            if self.config.actor_rollout_ref.actor.get("update_pipeline", False):
-                future_reward = ray.get(self.reward_agent.compute_reward_pipeline.remote(batch, group_size=self.config.actor_rollout_ref.rollout.n))
+                batch.non_tensor_batch["extra_info"][idx].update(
+                    group_uid=uids[idx], group_size=self.config.actor_rollout_ref.rollout.n
+                )
+            if self.config.get("update_pipeline", False):
+                future_reward = ray.get(
+                    self.reward_agent.compute_reward_pipeline.remote(
+                        batch, group_size=self.config.actor_rollout_ref.rollout.n
+                    )
+                )
             else:
                 future_reward = self.reward_agent.compute_reward.remote(batch, return_dict=True)
-        
+
         if self.config.actor_rollout_ref.actor.policy_loss.get("loss_mode", "vanilla") == "decoupled":
             print("use decoupled ppo loss")
             with marked_timer("behav_log_prob", timing_raw, color="blue"):
@@ -963,7 +975,7 @@ class AsyncRewardAgentTrainer:
                 behav_log_prob.batch["behav_log_prob"]
                 batch = batch.union(behav_log_prob)
                 batch.meta_info["cal_behav_log_prob"] = False
-        
+
         return batch, metrics, timing_raw, future_reward, epoch
 
     def fit(self):
@@ -1010,8 +1022,8 @@ class AsyncRewardAgentTrainer:
         self.max_steps_duration = 0
 
         continuous_iterator = self._create_continuous_iterator()
-        last_batch, last_metrics, _, last_future_reward, last_epoch = (
-            self._rollout_and_request_rewards(continuous_iterator)
+        last_batch, last_metrics, _, last_future_reward, last_epoch = self._rollout_and_request_rewards(
+            continuous_iterator
         )
 
         while self.global_steps <= self.total_training_steps:
@@ -1090,7 +1102,9 @@ class AsyncRewardAgentTrainer:
                         values = self.critic_wg.compute_values(batch)
                         batch = batch.union(values)
 
-                total_mini_batch_num = self.config.data.train_batch_size // self.config.actor_rollout_ref.actor.ppo_mini_batch_size
+                total_mini_batch_num = (
+                    self.config.data.train_batch_size // self.config.actor_rollout_ref.actor.ppo_mini_batch_size
+                )
                 current_mini_batch_num = 0
                 mini_batch_list = []
                 batch_metrics = defaultdict(list)
@@ -1099,25 +1113,37 @@ class AsyncRewardAgentTrainer:
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list]
-                        if self.config.actor_rollout_ref.actor.get("update_pipeline", False):
-                            fin_mini_batch_idxs, reward_tensor, reward_extra_infos_dict = ray.get(self.reward_agent.get.remote(self.config.actor_rollout_ref.actor.ppo_mini_batch_size * self.config.actor_rollout_ref.rollout.n))
+                        if self.config.get("update_pipeline", False):
+                            fin_mini_batch_idxs, reward_tensor, reward_extra_infos_dict = ray.get(
+                                self.reward_agent.get.remote(
+                                    self.config.actor_rollout_ref.actor.ppo_mini_batch_size
+                                    * self.config.actor_rollout_ref.rollout.n
+                                )
+                            )
                             mini_batch = batch[fin_mini_batch_idxs]
                             mini_batch.meta_info["load_flag"] = current_mini_batch_num == 0
                             current_mini_batch_num += 1
                             mini_batch.meta_info["skip_lr_strategy"] = current_mini_batch_num != total_mini_batch_num
                             mini_batch.meta_info["offload_flag"] = current_mini_batch_num == total_mini_batch_num
-                            mini_batch.meta_info["global_token_num"] = torch.sum(mini_batch.batch["attention_mask"], dim=-1).tolist()
+                            mini_batch.meta_info["global_token_num"] = torch.sum(
+                                mini_batch.batch["attention_mask"], dim=-1
+                            ).tolist()
                             print(f"poll finished mini batch {current_mini_batch_num}/{total_mini_batch_num}")
                         else:
                             reward_dict = ray.get(future_reward)
-                            reward_tensor, reward_extra_infos_dict = reward_dict["reward_tensor"], reward_dict["reward_extra_info"]
+                            reward_tensor, reward_extra_infos_dict = (
+                                reward_dict["reward_tensor"],
+                                reward_dict["reward_extra_info"],
+                            )
                             mini_batch = batch
                             current_mini_batch_num = total_mini_batch_num
                         mini_batch.batch["token_level_scores"] = reward_tensor
 
                         if reward_extra_infos_dict:
-                            mini_batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
-                        
+                            mini_batch.non_tensor_batch.update(
+                                {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
+                            )
+
                         if self.config.trainer.balance_batch:
                             balance_metrics = dict()
                             self._balance_batch(mini_batch, metrics=balance_metrics)

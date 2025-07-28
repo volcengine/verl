@@ -1,16 +1,34 @@
-import ray
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Tencent Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import datetime
 import inspect
+import os
 import threading
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from queue import Queue
-import numpy as np
-import torch
 from dataclasses import dataclass, field
+from queue import Queue
+
+import numpy as np
+import ray
+import torch
+
 from verl import DataProto
-import os
+
 
 def get_custom_reward_fn(config):
     """Load and return a custom reward function from external file.
@@ -62,10 +80,20 @@ def get_custom_reward_fn(config):
 
 @dataclass
 class RewardRequest:
+    """A data class representing a reward request.
+
+    Attributes:
+        group_dict (dict): A dictionary mapping group identifiers to their data and remaining group size.
+        request_data (list): A list of individual reward requests.
+        max_seq_len (int): The maximum sequence length for the request.
+        group_size (int): The size of each group in the request.
+    """
+
     group_dict: dict = field(default_factory=dict)  # 使用 default_factory
     request_data: list = field(default_factory=list)  # 使用 default_factory
     max_seq_len: int = 0
     group_size: int = 0
+
 
 @ray.remote
 class RayAsyncRewardAgent:
@@ -96,13 +124,23 @@ class RayAsyncRewardAgent:
         self.executor.shutdown(wait=True)
 
     def get(self, chunk_size, hook_func=None, **kwargs):
+        """Get rewards from the completed queue.
+
+        Args:
+            chunk_size (int): The number of rewards to retrieve.
+            hook_func (function, optional): A callback function to process the retrieved rewards. Defaults to None.
+            **kwargs: Additional keyword arguments to be passed to the callback function.
+
+        Returns:
+            tuple: A tuple containing the data indices, reward tensor, and reward extra infos dictionary.
+        """
         start_ts = time.time()
         data_idxs, reward_extra_infos_dict = [], dict()
         print(f"wait for {chunk_size} rewards")
         rewards = []
         valid_response_lengths = []
         max_seq_len = 0
-        
+
         while len(data_idxs) < chunk_size:
             if self.completed_queue.empty():
                 time.sleep(0.1)
@@ -125,7 +163,7 @@ class RayAsyncRewardAgent:
         for k, v in reward_extra_infos_dict.items():
             reward_extra_infos_dict[k] = v[index]
         rewards = np.array(rewards)[index]
-        
+
         reward_tensor = torch.zeros(chunk_size, max_seq_len, dtype=torch.float32)
         for i in range(len(rewards)):
             reward_tensor[i, valid_response_lengths[i] - 1] = rewards[i]
@@ -133,7 +171,7 @@ class RayAsyncRewardAgent:
         print(f"'get' starts from {start_ts}, end at {end_ts}, duration {end_ts - start_ts}")
         if hook_func:
             return hook_func(data_idxs, reward_tensor, reward_extra_infos_dict, **kwargs)
-        
+
         return data_idxs, reward_tensor, reward_extra_infos_dict
 
     def proxy_func(self):
@@ -141,11 +179,25 @@ class RayAsyncRewardAgent:
             if not self.pending_queue.empty():
                 start = time.time()
                 request: RewardRequest = self.pending_queue.get()
-                print(f"Total {len(request.request_data)} reward requests, {len(request.group_dict)} groups, group size = {request.group_size}")
+                print(
+                    f"Total {len(request.request_data)} reward requests, "
+                    f"{len(request.group_dict)} groups, "
+                    f"group size = {request.group_size}"
+                )
                 futures = []
                 timestamps, queries, results, latencies, group_uids = [], [], [], [], []
-                for data_source, response_str, ground_truth, extra_info, group_uid, data_idx, valid_response_length in request.request_data:
-                    future = self.executor.submit(self.user_defined_func, data_source, response_str, ground_truth, extra_info)
+                for (
+                    data_source,
+                    response_str,
+                    ground_truth,
+                    extra_info,
+                    group_uid,
+                    data_idx,
+                    valid_response_length,
+                ) in request.request_data:
+                    future = self.executor.submit(
+                        self.user_defined_func, data_source, response_str, ground_truth, extra_info
+                    )
                     future.meta_info = [group_uid, data_idx, valid_response_length, time.time(), response_str]
                     futures.append(future)
 
@@ -183,9 +235,11 @@ class RayAsyncRewardAgent:
                                 rewards.append(reward)
                             valid_response_lengths.append(length)
                             data_idxs.append(idx)
-                        self.completed_queue.put((data_idxs, rewards, valid_response_lengths, request.max_seq_len, reward_extra_info))
+                        self.completed_queue.put(
+                            (data_idxs, rewards, valid_response_lengths, request.max_seq_len, reward_extra_info)
+                        )
                         del request.group_dict[index]
-                
+
                 dur = time.time() - start
                 print(f"Requesting the reward took {dur} seconds")
                 if hasattr(self.agent, "log") and callable(self.agent.log):
@@ -193,7 +247,19 @@ class RayAsyncRewardAgent:
             else:
                 time.sleep(1)
 
-    def compute_reward_pipeline(self, data: DataProto, return_dict=False, group_size=1):
+    def compute_reward_pipeline(self, data: DataProto, group_size=1):
+        """Process a batch of data through the asynchronous reward agent.
+
+        Args:
+            data (DataProto): The input data batch to process.
+            group_size (int, optional): The size of each group in the batch. Defaults to 1.
+
+        Returns:
+            int: The number of processed data items.
+
+        Raises:
+            AssertionError: If the number of data items is not divisible by `group_size`.
+        """
         num = len(data)
         assert num % group_size == 0, "The number of data items must be divisible by group_size"
         index = data.non_tensor_batch["uid"]
@@ -215,8 +281,10 @@ class RayAsyncRewardAgent:
 
             if group_uid not in request.group_dict:
                 request.group_dict[group_uid] = [dict(), group_size]
-            
-            request.request_data.append([data_source, response_str, ground_truth, extra_info, group_uid, data_idx, valid_response_length])
+
+            request.request_data.append(
+                [data_source, response_str, ground_truth, extra_info, group_uid, data_idx, valid_response_length]
+            )
         self.pending_queue.put(request)
         return num
 
@@ -243,7 +311,9 @@ class RayAsyncRewardAgent:
         timestamps, queries, results, latencies, group_uids = [], [], [], [], []
         futures = []
         for idx in range(len(responses_str)):
-            future = self.executor.submit(self.user_defined_func, data_sources[idx], responses_str[idx], ground_truths[idx], extras[idx])
+            future = self.executor.submit(
+                self.user_defined_func, data_sources[idx], responses_str[idx], ground_truths[idx], extras[idx]
+            )
             future.meta_info = [idx, time.time(), responses_str[idx]]
             futures.append(future)
         for future in futures:
@@ -266,8 +336,22 @@ class RayAsyncRewardAgent:
         if hasattr(self.agent, "log") and callable(self.agent.log):
             self.agent.log(timestamps, queries, results, latencies, group_uids)
         return scores
-            
+
     def compute_reward(self, data: DataProto, return_dict=False):
+        """Compute rewards for a batch of data.
+
+        Args:
+            data (DataProto): The input data batch to process.
+            return_dict (bool, optional): Whether to return results as a dictionary. Defaults to False.
+
+        Returns:
+            torch.Tensor or dict: The computed reward tensor or a dictionary
+            containing the reward tensor and extra info.
+
+        Notes:
+            If `rm_scores` is already present in the data batch, it will be returned directly.
+            Otherwise, rewards are computed via the reward model function.
+        """
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if "rm_scores" in data.batch.keys():
             if return_dict:
@@ -305,9 +389,3 @@ class RayAsyncRewardAgent:
             return {"reward_tensor": reward_tensor, "reward_extra_info": reward_extra_info}
         else:
             return reward_tensor
-
-
-
-        
-
-

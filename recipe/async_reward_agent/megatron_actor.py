@@ -1,4 +1,5 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Tencent Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,7 +36,7 @@ from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from omegaconf import OmegaConf
 from torch import nn
-from .decoupled_ppo_loss import compute_decoupled_policy_loss
+
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.device import get_device_id, get_torch_device
@@ -48,6 +49,8 @@ from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import broadcast_dict_tensor
 from verl.workers.actor import BasePPOActor
+
+from .decoupled_ppo_loss import compute_decoupled_policy_loss
 
 __all__ = ["MegatronPPOActor"]
 
@@ -441,7 +444,9 @@ class MegatronPPOActor(BasePPOActor):
 
                 elif loss_mode == "decoupled":
                     behav_log_prob = data["behav_log_prob"]
-                    behav_imp_weight_cap = torch.ones_like(behav_log_prob) * self.config.policy_loss.get("behav_imp_weight_cap", 5)
+                    behav_imp_weight_cap = torch.ones_like(behav_log_prob) * self.config.policy_loss.get(
+                        "behav_imp_weight_cap", 5
+                    )
                     pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_decoupled_policy_loss(
                         proximal_log_prob=old_log_prob,
                         behav_log_prob=behav_log_prob,
@@ -453,7 +458,7 @@ class MegatronPPOActor(BasePPOActor):
                         cliprange_high=clip_ratio_high,
                         clip_ratio_c=clip_ratio_c,
                         loss_agg_mode=loss_agg_mode,
-                        behav_imp_weight_cap=behav_imp_weight_cap
+                        behav_imp_weight_cap=behav_imp_weight_cap,
                     )
 
                 else:
