@@ -1,29 +1,35 @@
 import torch
+from typing import Any
+
+from megatron.core import mpu, tensor_parallel
+from megatron.core.distributed import DistributedDataParallel as DDP
+from megatron.core.distributed import DistributedDataParallelConfig
+from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
+from megatron.core.enums import ModelType
+from megatron.core.transformer import TransformerConfig
+from megatron.core.transformer.module import Float16Module
+from megatron.core.utils import get_attr_wrapped_model
+
+from verl.utils.device import get_device_id
 
 from megatron.core.models.gpt.gpt_layer_specs import (
     get_gpt_layer_with_transformer_engine_spec,
 )
 from megatron.core.models.gpt.gpt_model import GPTModel
 from megatron.core.transformer.transformer_config import TransformerConfig
-from megatron.core import ModelParallelConfig, mpu, tensor_parallel
-from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.training.initialize import _set_random_seed
-from megatron.core.distributed import (
-    DistributedDataParallelConfig,
-)
-from megatron.core.distributed import DistributedDataParallel as DDP
 from typing import List
 from tests.unit_tests.test_utilities import Utils
-from loguru import logger
 from megatron.core.distributed.param_and_grad_buffer import (
     _ParamAndGradBuffer,
 )
+from verl.utils.model import normalize_model_name
+from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
 
 from megatron.core.models.gpt.gpt_model import ModelType
 from megatron.core import parallel_state as mpu
 from megatron.core.transformer import TransformerConfig
-from megatron.core.transformer.module import Float16Module
-from megatron.core.utils import get_attr_wrapped_model
+from loguru import logger
 
 # from verl.utils.device import get_device_id, get_device_name
 
@@ -55,7 +61,9 @@ def get_model(
             # Set pre_process and post_process only after virtual rank is set.
             pre_process = mpu.is_pipeline_first_stage()
             post_process = mpu.is_pipeline_last_stage()
-            this_model = model_provider_func(pre_process=pre_process, post_process=post_process)
+            this_model = model_provider_func(
+                pre_process=pre_process, post_process=post_process
+            )
             this_model.model_type = model_type
             model.append(this_model)
         mpu.set_virtual_pipeline_model_parallel_rank(0)
@@ -83,7 +91,9 @@ def get_model(
                 add_decoder=add_decoder,
             )
         else:
-            model = model_provider_func(pre_process=pre_process, post_process=post_process)
+            model = model_provider_func(
+                pre_process=pre_process, post_process=post_process
+            )
         model.model_type = model_type
 
     if not isinstance(model, list):
@@ -95,7 +105,9 @@ def get_model(
     # are set for all params so the optimizer can use them.
     for model_module in model:
         for param in model_module.parameters():
-            tensor_parallel.set_defaults_if_not_set_tensor_model_parallel_attributes(param)
+            tensor_parallel.set_defaults_if_not_set_tensor_model_parallel_attributes(
+                param
+            )
 
     # Print number of parameters.
     if mpu.get_data_parallel_rank() == 0:
@@ -103,7 +115,12 @@ def get_model(
             " > number of parameters on (tensor, pipeline) model parallel rank ({}, {}): {}".format(
                 mpu.get_tensor_model_parallel_rank(),
                 mpu.get_pipeline_model_parallel_rank(),
-                sum([sum([p.nelement() for p in model_module.parameters()]) for model_module in model]),
+                sum(
+                    [
+                        sum([p.nelement() for p in model_module.parameters()])
+                        for model_module in model
+                    ]
+                ),
             ),
             flush=True,
         )
@@ -148,11 +165,13 @@ def get_model(
 
 def get_named_tensor_buckets(
     expert_buffers: List[_ParamAndGradBuffer],
+    transformer_config,
     bucket_bytes: int,
     num_experts_per_rank: int,
     ep_rank: int,
+    pp_rank: int,
+    vpp_rank: int = 0,
 ):
-    # ) -> List[Tuple[str, torch.Tensor, Tuple[int, int, int]]]:
     """Group tensors into buckets based on a specified size in megabytes.
 
     Args:
@@ -177,57 +196,138 @@ def get_named_tensor_buckets(
         end_index = param_infos[-1][3]
         return expert_buffer.param_data[start_index:end_index]
 
-    def update_param_name(param_name: str):
+    def get_param_info(
+        expert_buffer,
+        param,
+    ):
+        param_name = expert_buffer.param_to_name[param]
         name_prefix, local_expert_id = param_name.split(".weight")
         local_expert_id = int(local_expert_id)
         global_expert_id = num_experts_per_rank * ep_rank + local_expert_id
-        return f"{name_prefix}.weight{global_expert_id}"
+        return (
+            normalize_model_name(
+                f"{name_prefix}.weight{global_expert_id}",
+                pp_rank,
+                vpp_rank,
+                transformer_config,
+            ),
+            param.shape,
+            expert_buffer.param_index_map[param][0],
+            expert_buffer.param_index_map[param][1],
+        )
 
     for expert_buffer in expert_buffers:
         param_infos = []
         current_size = 0
         for param in expert_buffer.params[::-1]:
-            name = update_param_name(expert_buffer.param_to_name[param])
+            param_info = get_param_info(expert_buffer, param)
             tensor_size = param.element_size() * param.numel()
             if current_size + tensor_size > bucket_bytes:
                 if param_infos:
                     yield param_infos, get_flattened_params(expert_buffer, param_infos)
-                param_infos = [
-                    (
-                        name,
-                        param.shape,
-                        expert_buffer.param_index_map[param][0],
-                        expert_buffer.param_index_map[param][1],
-                    )
-                ]
+
+                param_infos = [param_info]
                 current_size = tensor_size
 
             else:
-                param_infos.append(
-                    (
-                        name,
-                        param.shape,
-                        expert_buffer.param_index_map[param][0],
-                        expert_buffer.param_index_map[param][1],
-                    )
-                )
+                param_infos.append(param_info)
                 current_size += tensor_size
 
         if param_infos:
             yield param_infos, get_flattened_params(expert_buffer, param_infos)
 
 
+def broadcast_from_megatron_pp(tensor: torch.Tensor):
+    # tensor is not None only in one of the pp ranks
+    if tensor is not None:
+        shape = tensor.shape
+        dtype = tensor.dtype
+        tensor_parallel = getattr(tensor, "tensor_model_parallel", None)
+        partition_dim = getattr(tensor, "partition_dim", None)
+        tensor_spec = (shape, dtype, tensor_parallel, partition_dim)
+    else:
+        tensor_spec = None
+    tensor_spec_output = [None] * mpu.get_pipeline_model_parallel_world_size()
+    torch.distributed.all_gather_object(
+        object_list=tensor_spec_output,
+        obj=tensor_spec,
+        group=mpu.get_pipeline_model_parallel_group(),
+    )
+    # find the src rank
+    target_tensor_spec = None
+    src_rank = None
+    for rank, tensor_spec in enumerate(tensor_spec_output):
+        if tensor_spec is not None:
+            if target_tensor_spec is None:
+                target_tensor_spec = tensor_spec
+            else:
+                raise ValueError("A tensor exists on two pp ranks")
+            src_rank = rank
+    assert target_tensor_spec is not None
+    if tensor is None:
+        tensor = torch.empty(
+            size=target_tensor_spec[0],
+            dtype=target_tensor_spec[1],
+            device=get_device_id(),
+        )
+        if target_tensor_spec[2] is not None:
+            tensor.tensor_model_parallel = target_tensor_spec[2]
+        if target_tensor_spec[3] is not None:
+            tensor.partition_dim = target_tensor_spec[3]
+
+    global_rank = torch.distributed.get_global_rank(
+        group=mpu.get_pipeline_model_parallel_group(), group_rank=src_rank
+    )
+    torch.distributed.broadcast(
+        tensor=tensor, src=global_rank, group=mpu.get_pipeline_model_parallel_group()
+    )
+    return tensor
+
+
+def broadcast_str_from_megatron_pp(obj: Any):
+    obj_output = [None] * mpu.get_pipeline_model_parallel_world_size()
+    torch.distributed.all_gather_object(
+        object_list=obj_output, obj=obj, group=mpu.get_pipeline_model_parallel_group()
+    )
+
+    src_rank = None
+    target_obj = None
+    for rank, item in enumerate(obj_output):
+        if item is not None:
+            if target_obj is not None:
+                raise ValueError("An object exists on two pp ranks")
+            target_obj = item
+            src_rank = rank
+
+    assert target_obj is not None, "No valid object found to broadcast."
+
+    global_rank = torch.distributed.get_global_rank(
+        group=mpu.get_pipeline_model_parallel_group(), group_rank=src_rank
+    )
+
+    obj_output = [None] * torch.distributed.get_world_size(
+        group=mpu.get_pipeline_model_parallel_group()
+    )
+    obj_output[0] = target_obj
+    torch.distributed.broadcast_object_list(
+        object_list=obj_output,
+        src=global_rank,
+        group=mpu.get_pipeline_model_parallel_group(),
+    )
+
+    return obj_output[0]
+
+
 def get_param(
     param_data: torch.Tensor,
     shape: torch.Size,
     start_index: int,
-    flattened_experts_start_index: int,
+    flattened_experts_start_index: int = 0,
 ):
     end_index = start_index + shape.numel() - flattened_experts_start_index
     assert end_index <= param_data.numel(), "Requested tensor is out of buffer range"
     buffer_tensor = param_data[start_index:end_index]
-    buffer_tensor = buffer_tensor.view(shape)
-    return buffer_tensor
+    return buffer_tensor.view(shape)
 
 
 ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module)
@@ -248,44 +348,150 @@ def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
     return unwrapped_model
 
 
+def apply_offset():
+    pass
+
+
+def get_info_name(infos):
+    def reset_info_list(info_list):
+        start_offset = info_list[0][2]
+
+        def reset(info_tuple):
+            return (
+                info_tuple[0],
+                info_tuple[1],
+                info_tuple[2] - start_offset,
+                info_tuple[3] - start_offset,
+            )
+
+        return list(map(reset, info_list))
+
+    infos_list = list(map(reset_info_list, infos))
+
+    logger.info(infos_list)
+
+
 def bucketed_all_gather_param_generator(
     expert_parallel_buffers,
+    transformer_config,
     num_moe_experts,
-    ep_size,
-    ep_rank,
-    pp_rank,
+    ep_size: int,
+    ep_rank: int,
+    pp_size: int,
+    pp_rank: int,
+    vpp_rank: int,
 ):
     bucket_size = (1 << 30) * 10
-    for experts_param_names, flattened_experts in get_named_tensor_buckets(
+    rank = torch.distributed.get_rank()
+
+    def expert_generator(expert_infos, flattened_params):
+        for param_info, flattened_param in zip(expert_infos, flattened_params):
+            for info in param_info:
+                param_name, shape, start_index, _ = info
+                param = get_param(flattened_param, shape, start_index)
+                logger.debug(f"{param_name=}{param=}")
+
+    for experts_param_infos, flattened_experts in get_named_tensor_buckets(
         expert_parallel_buffers,
+        transformer_config=transformer_config,
         bucket_bytes=bucket_size,
         num_experts_per_rank=num_moe_experts // ep_size,
         ep_rank=ep_rank,
+        pp_rank=pp_rank,
+        vpp_rank=vpp_rank,
     ):
-        all_experts_param_infos = [None for _ in range(ep_size)]
-        all_flattened_experts = [torch.empty_like(flattened_experts) for _ in range(ep_size)]
-        torch.distributed.all_gather_object(
-            all_experts_param_infos,
-            experts_param_names,
-            group=mpu.get_expert_model_parallel_group(),
-        )
-        torch.distributed.all_gather(
-            all_flattened_experts,
-            flattened_experts,
-            group=mpu.get_expert_model_parallel_group(),
-        )
-        for index, flattened_expert in enumerate(all_flattened_experts):
-            expert_infos = all_experts_param_infos[index]
-            flattened_experts_start_index = expert_infos[0][2]
-            for param_name, shape, start_index, _ in expert_infos:
-                expert_weight = get_param(
-                    flattened_expert,
-                    shape,
-                    start_index,
-                    flattened_experts_start_index,
+        for scan_pp_rank in range(pp_size):
+            if scan_pp_rank == pp_rank:
+                all_experts_param_infos = [None for _ in range(ep_size)]
+                torch.distributed.all_gather_object(
+                    all_experts_param_infos,
+                    experts_param_infos,
+                    group=mpu.get_expert_model_parallel_group(),
                 )
-                logger.info(f"{param_name=} {expert_weight=}")
+                if rank == 0:
+                    logger.debug(all_experts_param_infos)
+                    logger.info(f"{flattened_experts.shape=}")
+
+                all_experts_flattened_param = [
+                    torch.empty_like(flattened_experts) for _ in range(ep_size)
+                ]
+                all_experts_flattened_param = torch.zeros(
+                    flattened_experts.numel() * ep_size,
+                    dtype=flattened_experts.dtype,
+                    device=torch.cuda.current_device(),
+                )
+
+                torch.distributed.all_gather_into_tensor(
+                    all_experts_flattened_param,
+                    flattened_experts,
+                    group=mpu.get_expert_model_parallel_group(),
+                )
+            else:
+                all_experts_param_infos = None
+                all_experts_flattened_param = None
+
+            all_experts_param_infos = broadcast_str_from_megatron_pp(
+                all_experts_param_infos
+            )
+            all_experts_flattened_param = broadcast_from_megatron_pp(
+                all_experts_flattened_param
+            )
+            get_info_name(all_experts_param_infos)
+            experts_flattened_param = torch.chunk(
+                all_experts_flattened_param, chunks=ep_size
+            )
+            logger.debug(experts_flattened_param)
+            expert_generator(all_experts_param_infos, experts_flattened_param)
+
     pass
+
+
+def param_generator(
+    param_infos,
+    flattened_param_data,
+    start_from_zero: bool = True,
+):
+    for param_info in param_infos:
+        param_name, shape, start_index, _ = param_info
+        param = get_param(flattened_param_data, shape, start_index)
+
+
+def dense_param_generator(
+    buffers,
+    transformer_config,
+    pp_size: int,
+    pp_rank: int,
+    vpp_rank: int,
+):
+    def get_dense_param_infos(buffer):
+        return [
+            (
+                normalize_model_name(
+                    buffer.param_to_name[param],
+                    pp_rank,
+                    vpp_rank,
+                    transformer_config,
+                ),
+                param.shape,
+                buffer.param_index_map[param][0],
+                buffer.param_index_map[param][1],
+            )
+            for param in buffer.params[::-1]
+        ]
+
+    for buffer in buffers:
+        for scan_pp_rank in range(pp_size):
+            if scan_pp_rank == pp_rank:
+                dense_param_infos = get_dense_param_infos(buffer)
+                flattened_dense_param_data = buffer.param_data
+            else:
+                dense_param_infos = None
+                flattened_dense_param_data = None
+            dense_param_infos = broadcast_str_from_megatron_pp(dense_param_infos)
+            flattened_dense_param_data = broadcast_from_megatron_pp(
+                flattened_dense_param_data
+            )
+            param_generator(dense_param_infos, flattened_dense_param_data)
 
 
 def ddp_all_gather_param_generator(
@@ -300,7 +506,7 @@ class TestMoELayerInit:
         self,
         expert_model_parallel_size,
         pipeline_model_parallel_size,
-        virtual_pipeline_model_parallel_size,
+        virtual_pipeline_model_parallel_size=0,
     ) -> None:
         self.expert_model_parallel_size = expert_model_parallel_size
         self.pipeline_model_parallel_size = pipeline_model_parallel_size
@@ -308,7 +514,7 @@ class TestMoELayerInit:
         Utils.initialize_model_parallel(
             expert_model_parallel_size=expert_model_parallel_size,
             pipeline_model_parallel_size=pipeline_model_parallel_size,
-            virtual_pipeline_model_parallel_size=virtual_pipeline_model_parallel_size,
+            # virtual_pipeline_model_parallel_size=virtual_pipeline_model_parallel_size,
         )
 
     def _get(
@@ -339,19 +545,24 @@ class TestMoELayerInit:
             use_cpu_initialization=False,
             moe_shared_expert_intermediate_size=1024,
             # moe_token_dispatcher_type=moe_token_dispatcher_type,
+            pipeline_model_parallel_size=self.pipeline_model_parallel_size,
             expert_model_parallel_size=self.expert_model_parallel_size,
+            pipeline_dtype=torch.float32,
+            # virtual_pipeline_model_parallel_size=self.virtual_pipeline_model_parallel_size,
             moe_router_topk=4,
             moe_aux_loss_coeff=0.01,
             moe_grouped_gemm=self.grouped_gemm,
             moe_ffn_hidden_size=12288,
             add_bias_linear=False,
         )
-        transformer_layer_spec = get_gpt_layer_with_transformer_engine_spec(
-            num_experts=self.num_moe_experts,
-            moe_grouped_gemm=self.grouped_gemm,
+        self.transformer_config.first_pipeline_num_layers = None
+        self.transformer_config.last_pipeline_num_layers = None
+        transformer_layer_spec = get_gpt_decoder_block_spec(
+            self.transformer_config, use_transformer_engine=True
         )
 
         def megatron_actor_model_provider(pre_process, post_process):
+            vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()
             gpt_model = GPTModel(
                 config=self.transformer_config,
                 transformer_layer_spec=transformer_layer_spec,
@@ -359,6 +570,7 @@ class TestMoELayerInit:
                 max_sequence_length=4,
                 pre_process=pre_process,
                 post_process=post_process,
+                vp_stage=vpp_rank,
             ).cuda()
             return gpt_model
 
@@ -366,30 +578,37 @@ class TestMoELayerInit:
         ep_rank = mpu.get_expert_model_parallel_rank()
         ep_size = mpu.get_expert_model_parallel_world_size()
         pp_rank = mpu.get_pipeline_model_parallel_rank()
+        pp_size = mpu.get_pipeline_model_parallel_world_size()
         actor_module = get_model(
             model_provider_func=megatron_actor_model_provider,
             model_type=ModelType.encoder_or_decoder,
             wrap_with_ddp=True,
         )
         vpp_size = len(actor_module)
-        # model = unwrap_model(actor_module)[0]
-        # for name, _ in model.named_parameters():
-        #     logger.info(f"{pp_rank=} {name=}")
-        for i in range(vpp_size):
-            logger.info(f"{pp_rank=} {actor_module[i]=}")
-        # ddp_config = DistributedDataParallelConfig(
-        #     overlap_grad_reduce=True,
-        #     # bucket_size=10000,
-        #     use_distributed_optimizer=True,
-        # )
-        # ddp_model = DistributedDataParallel(
-        #     self.transformer_config,
-        #     ddp_config=ddp_config,
-        #     module=self.gpt_model,
-        # )
-        # logger.info(
-        #     f"{ ep_size= }{ep_rank=} {mpu.get_data_parallel_world_size()=} {mpu.get_data_parallel_rank()=}"
-        # )
+        for vpp_rank in range(vpp_size):
+            vpp_ddp_module = actor_module[vpp_rank]
+            # expert_parallel_buffers = vpp_ddp_module.expert_parallel_buffers[0]
+            # expert_parallel_buffers = vpp_ddp_module.expert_parallel_buffers
+            # buffers = vpp_ddp_module.buffers[0]
+            dense_param_generator(
+                vpp_ddp_module.buffers,
+                self.transformer_config,
+                pp_size,
+                pp_rank,
+                vpp_rank,
+            )
+
+            bucketed_all_gather_param_generator(
+                expert_parallel_buffers=vpp_ddp_module.expert_parallel_buffers,
+                transformer_config=self.transformer_config,
+                num_moe_experts=self.num_moe_experts,
+                ep_size=ep_size,
+                ep_rank=ep_rank,
+                pp_rank=pp_rank,
+                pp_size=pp_size,
+                vpp_rank=vpp_rank,
+            )
+
 
     def destory(self):
         Utils.destroy_model_parallel()
@@ -397,9 +616,8 @@ class TestMoELayerInit:
 
 if __name__ == "__main__":
     test_moe = TestMoELayerInit(
-        expert_model_parallel_size=4,
+        expert_model_parallel_size=2,
         pipeline_model_parallel_size=2,
-        virtual_pipeline_model_parallel_size=2,
     )
     test_moe.test_te_moe_layer()
     test_moe.destory()
