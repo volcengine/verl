@@ -915,10 +915,9 @@ def compute_policy_loss_gspo(
     """
 
     assert config is not None
-    assert not isinstance(config, ActorConfig)
-    clip_ratio = config.clip_ratio
-    clip_ratio_low = config.clip_ratio_low if config.clip_ratio_low is not None else clip_ratio
-    clip_ratio_high = config.clip_ratio_high if config.clip_ratio_high is not None else clip_ratio
+    assert isinstance(config, ActorConfig)
+    clip_ratio_low = config.clip_ratio_low if config.clip_ratio_low is not None else config.clip_ratio
+    clip_ratio_high = config.clip_ratio_high if config.clip_ratio_high is not None else config.clip_ratio
 
     # compute sequence-level importance ratio
     seq_lengths = torch.sum(response_mask, dim=-1)
@@ -926,20 +925,24 @@ def compute_policy_loss_gspo(
     normalized_old_seq_log_prob = torch.sum(old_log_prob * response_mask, dim=-1) / seq_lengths
     negative_approx_kl_seq = normalized_seq_log_prob - normalized_old_seq_log_prob
     seq_ratio = torch.exp(negative_approx_kl_seq)
+    seq_ratio_sg = seq_ratio.detach()  # stop gradient
 
-    pg_losses1 = -advantages * seq_ratio
-    pg_losses2 = -advantages * torch.clamp(seq_ratio, 1 - clip_ratio_low, 1 + clip_ratio_high)
+    negative_approx_kl = log_prob - old_log_prob
+    negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
+    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+    token_ratio = torch.exp(negative_approx_kl)  # (batch_size, response_length)
+
+    seq_ratio_expanded = seq_ratio_sg.unsqueeze(1)  # (batch_size, 1)
+    combined_ratio = seq_ratio_expanded * token_ratio  # (batch_size, response_length)
+
+    pg_losses1 = -advantages * combined_ratio
+    pg_losses2 = -advantages * torch.clamp(combined_ratio, 1 - clip_ratio_low, 1 + clip_ratio_high)
     pg_losses = torch.maximum(pg_losses1, pg_losses2)
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
     # For compatibility, return zero for pg_clipfrac_lower (not used in standard GSPO)
     pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses1).float(), response_mask)
     pg_clipfrac_lower = torch.tensor(0.0, device=pg_loss.device)
-
-    # compute token-level mean kl divergence metric for compatibility
-    negative_approx_kl = log_prob - old_log_prob
-    negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
-    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
 
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
