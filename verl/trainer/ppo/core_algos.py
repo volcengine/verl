@@ -919,15 +919,14 @@ def compute_policy_loss_gspo(
     clip_ratio_low = config.clip_ratio_low if config.clip_ratio_low is not None else config.clip_ratio
     clip_ratio_high = config.clip_ratio_high if config.clip_ratio_high is not None else config.clip_ratio
 
+    negative_approx_kl = log_prob - old_log_prob
+
     # compute sequence-level importance ratio
     seq_lengths = torch.sum(response_mask, dim=-1)
-    normalized_seq_log_prob = torch.sum(log_prob * response_mask, dim=-1) / seq_lengths
-    normalized_old_seq_log_prob = torch.sum(old_log_prob * response_mask, dim=-1) / seq_lengths
-    negative_approx_kl_seq = normalized_seq_log_prob - normalized_old_seq_log_prob
+    negative_approx_kl_seq = torch.sum(negative_approx_kl * response_mask, dim=-1) / seq_lengths
     seq_ratio = torch.exp(negative_approx_kl_seq)
     seq_ratio_sg = seq_ratio.detach()  # stop gradient
 
-    negative_approx_kl = log_prob - old_log_prob
     negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
     ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
     token_ratio = torch.exp(negative_approx_kl)  # (batch_size, response_length)
