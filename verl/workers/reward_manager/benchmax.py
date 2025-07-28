@@ -77,8 +77,7 @@ class BenchmaxRewardManager:
                 )
 
             reward_tensor[i, valid_response_length - 1] = reward
-            # print("[prompt]", prompt_str)
-            # print("[response]", response_str)
+            print("[response]", response_str)
             print("[ground_truth]", ground_truth)
             print("[reward]", reward)
 
