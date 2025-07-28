@@ -321,6 +321,18 @@ trainer:
   # Timeout (in seconds) for Ray worker to wait for registration
   ray_wait_register_center_timeout: 300
 
+  # Execution mode for Ray worker groups
+  # Options: "all"(default), "all_multithread", "rank_zero"
+  # "all": Execute all workers asynchronously
+  # "all_multithread": Use ThreadPoolExecutor for parallel submission 
+  # "rank_zero": Execute only on rank 0
+  execute_mode: all
+
+  # Thread pool size for all_multithread execution mode
+  # If null, will be calculated as min(8, max(2, total_gpus))
+  # Recommended: set to worker count to avoid blocking
+  execute_thread_pool_size: null
+
   # Device to run training on (e.g., "cuda", "cpu")
   device: cuda
 

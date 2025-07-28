@@ -27,7 +27,8 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Optional
+from typing import Optional, Callable
+from concurrent.futures import ThreadPoolExecutor, Future
 
 import numpy as np
 import ray
@@ -361,6 +362,26 @@ class RayPPOTrainer:
             experiment_name=self.config.trainer.experiment_name,
         )
 
+        # Initialize thread pool for asynchronous reward computation (only when needed)
+        self.reward_thread_pool = None
+        
+        # Initialize thread pool only if launch_reward_fn_sub_thread is enabled
+        if OmegaConf.select(config.reward_model, "launch_reward_fn_sub_thread", default=False):
+            self.reward_thread_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="reward_worker")
+        
+        # Configure global thread pool for remote calls only when execute_mode is multithread
+        execute_mode = OmegaConf.select(config.trainer, "execute_mode", default="all")
+        if execute_mode == "all_multithread":
+            from verl.single_controller.ray.base import global_thread_pool_manager
+            # Get thread pool size from config or calculate automatically
+            global_thread_pool_size = OmegaConf.select(config.trainer, "execute_thread_pool_size", default=None)
+            if global_thread_pool_size is None:
+                # Auto calculate based on total GPU count
+                total_gpus = self.resource_pool_manager.get_n_gpus()
+                global_thread_pool_size = min(8, max(2, total_gpus))
+            global_thread_pool_manager.get_thread_pool(max_workers=global_thread_pool_size)
+        
+
         # if ref_in_actor is True, the reference policy will be actor without lora applied
         self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
 
@@ -383,6 +404,30 @@ class RayPPOTrainer:
 
         self._validate_config()
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
+    
+    def _async_compute_reward_wrapper(self, batch: DataProto, reward_fn: Callable) -> tuple[torch.Tensor, dict]:
+        """
+        Asynchronous reward computation wrapper function that can be safely executed in a sub-thread
+        
+        Args:
+            batch: Input data
+            reward_fn: Reward computation function
+            
+        Returns:
+            tuple: (reward_tensor, reward_extra_infos_dict)
+        """
+        # Ensure proper device setup in sub-thread
+        if hasattr(batch, 'to') and callable(getattr(batch, 'to')):
+            # If batch supports device transfer, ensure execution on CPU
+            batch = batch.to('cpu')
+        
+        # Execute reward computation
+        reward_tensor, reward_extra_infos_dict = compute_reward(batch, reward_fn)
+        
+        if isinstance(reward_tensor, torch.Tensor):
+            reward_tensor = reward_tensor.cpu()
+            
+        return reward_tensor, reward_extra_infos_dict
 
     def _validate_config(self):
         config = self.config
@@ -836,6 +881,11 @@ class RayPPOTrainer:
                 OmegaConf.select(self.config.trainer, "worker_nsight_options")
             )
         wg_kwargs["device_name"] = self.device_name
+        
+        # Configure execute_mode for worker groups
+        if OmegaConf.select(self.config.trainer, "execute_mode") is not None:
+            wg_kwargs["execute_mode"] = self.config.trainer.execute_mode
+            print(f"[WORKER GROUP CONFIG] Using execute_mode: {self.config.trainer.execute_mode}")
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
@@ -849,18 +899,30 @@ class RayPPOTrainer:
 
         if self.use_critic:
             self.critic_wg = all_wg["critic"]
+            # Set execute mode for critic worker group
+            if OmegaConf.select(self.config.trainer, "execute_mode") is not None:
+                self.critic_wg.set_execute_mode(self.config.trainer.execute_mode)
             self.critic_wg.init_model()
 
         if self.use_reference_policy and not self.ref_in_actor:
             self.ref_policy_wg = all_wg["ref"]
+            # Set execute mode for reference policy worker group
+            if OmegaConf.select(self.config.trainer, "execute_mode") is not None:
+                self.ref_policy_wg.set_execute_mode(self.config.trainer.execute_mode)
             self.ref_policy_wg.init_model()
 
         if self.use_rm:
             self.rm_wg = all_wg["rm"]
+            # Set execute mode for reward model worker group
+            if OmegaConf.select(self.config.trainer, "execute_mode") is not None:
+                self.rm_wg.set_execute_mode(self.config.trainer.execute_mode)
             self.rm_wg.init_model()
 
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
         self.actor_rollout_wg = all_wg["actor_rollout"]
+        # Set execute mode for actor rollout worker group
+        if OmegaConf.select(self.config.trainer, "execute_mode") is not None:
+            self.actor_rollout_wg.set_execute_mode(self.config.trainer.execute_mode)
         self.actor_rollout_wg.init_model()
 
         # create async rollout manager and request scheduler
@@ -1028,6 +1090,14 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
+    def print_resource_pool_stats(self):
+        """Print global thread pool statistics"""
+        execute_mode = OmegaConf.select(self.config.trainer, "execute_mode", default="multithread")
+        if execute_mode == "multithread":
+            from verl.single_controller.ray.base import global_thread_pool_manager
+            thread_stats = global_thread_pool_manager.get_stats()
+            print(f"[THREAD POOL STATS] {thread_stats}")
+    
     def fit(self):
         """
         The training loop of PPO.
@@ -1169,13 +1239,21 @@ class RayPPOTrainer:
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
-                    with marked_timer("reward", timing_raw, color="yellow"):
+                    with marked_timer("reward_model", timing_raw, color="yellow"):
                         # compute reward model score
                         if self.use_rm:
                             reward_tensor = self.rm_wg.compute_rm_score(batch)
                             batch = batch.union(reward_tensor)
 
-                        if self.config.reward_model.launch_reward_fn_async:
+                    with marked_timer("reward_compute", timing_raw, color="orange"):
+                        assert not self.config.reward_model.launch_reward_fn_sub_thread or \
+                            not self.config.reward_model.launch_reward_fn_async, \
+                            "Only one of launch_reward_fn_sub_thread and launch_reward_fn_async can be True"
+                        if self.config.reward_model.launch_reward_fn_sub_thread:
+                            future_reward = self.reward_thread_pool.submit(
+                                self._async_compute_reward_wrapper, batch, self.reward_fn
+                            )
+                        elif self.config.reward_model.launch_reward_fn_async:
                             future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
                         else:
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
@@ -1234,8 +1312,15 @@ class RayPPOTrainer:
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list]
-                        if self.config.reward_model.launch_reward_fn_async:
+                        if self.config.reward_model.launch_reward_fn_sub_thread:
+                            # Get result from sub-thread
+                            reward_tensor, reward_extra_infos_dict = future_reward.result()
+                        elif self.config.reward_model.launch_reward_fn_async:
+                            # Get result from Ray remote function
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
+                        else:
+                            # reward_tensor and reward_extra_infos_dict are already computed synchronously
+                            pass
                         batch.batch["token_level_scores"] = reward_tensor
 
                         if reward_extra_infos_dict:
@@ -1380,6 +1465,12 @@ class RayPPOTrainer:
                 if is_last_step:
                     pprint(f"Final validation metrics: {last_val_metrics}")
                     progress_bar.close()
+                    # Clean up reward thread pool if it exists
+                    if self.reward_thread_pool is not None:
+                        self.reward_thread_pool.shutdown(wait=True)
+                    # Clean up global thread pool
+                    from verl.single_controller.ray.base import global_thread_pool_manager
+                    global_thread_pool_manager.shutdown()
                     return
 
                 # this is experimental and may be changed/removed in the future
