@@ -57,7 +57,7 @@ import requests
 from sglang.srt.entrypoints.EngineBase import EngineBase
 from sglang.srt.entrypoints.http_server import launch_server
 from sglang.srt.server_args import ServerArgs
-from sglang.srt.utils import kill_process_tree
+from sglang.srt.utils import kill_process_tree, MultiprocessingSerializer
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -98,7 +98,6 @@ def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIME
     p.start()
 
     if server_args.node_rank != 0:
-        # changyi: 为什么非master节点也要启动进程？
         return p
 
     base_url = server_args.url()
@@ -109,7 +108,7 @@ def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIME
 
     # Health check with overall timeout
     start_time = time.time()
-    max_wait_time = 300.0  # 5 minutes max wait
+    max_wait_time = 500.0  # 5 minutes max wait
 
     with requests.Session() as session:
         while time.time() - start_time < max_wait_time:
@@ -126,6 +125,7 @@ def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIME
             time.sleep(2)
         else:
             p.terminate()
+            logger.error(f"Server in {base_url} failed to become healthy within timeout period")
             raise TimeoutError("Server failed to become healthy within timeout period")
 
         # Ensure cache is ready
@@ -731,7 +731,7 @@ class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
 
     async def update_weights_from_tensor(
         self,
-        serialized_named_tensors: List[str],
+        named_tensors: List[str],
         load_format: Optional[str] = None,
         flush_cache: bool = True,
     ) -> Dict[str, Any]:
@@ -747,6 +747,15 @@ class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
         Returns:
             Dict[str, Any]: Server response containing update status
         """
+        # serialized_named_tensors=[
+        #     MultiprocessingSerializer.serialize(named_tensors) for _ in range(self.server_args.tp_size)
+        # ]
+        import base64
+
+        serialized_named_tensors = [
+            base64.b64encode(MultiprocessingSerializer.serialize(named_tensors)).decode("utf-8")
+            for _ in range(self.server_args.tp_size)
+        ]
         return await self._make_async_request(
             "update_weights_from_tensor",
             {
@@ -774,7 +783,7 @@ class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
             return {}
 
         # Use retry logic with limited attempts to avoid infinite loops
-        for attempt in range(self.max_retries * 2):  # Allow more retries for cache flush
+        for attempt in range(self.max_retries * 5):  # Allow more retries for cache flush
             try:
                 async with self._get_session() as session:
                     url = f"http://{self.server_args.host}:{self.server_args.port}/flush_cache"
@@ -802,35 +811,10 @@ class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
         lora_path: Optional[str] = None,
         custom_logit_processor: Optional[Callable] = None,
     ) -> Dict[str, Any]:
-        """Generate text using the SGLang server asynchronously.
+        """Generate text using the SGLang server asynchronously."""
+        t_start = time.perf_counter()
+        logger.info("generate() started")
 
-        Args:
-            prompt (Optional[str], optional): Text prompt for generation. Defaults to None.
-            sampling_params (Optional[Dict[str, Any]], optional): Parameters controlling
-                text generation sampling. Defaults to None.
-            input_ids (Optional[List[int]], optional): Alternative to prompt, direct token IDs input.
-                Defaults to None.
-            image_data (Optional[Any], optional): Image data for multimodal generation.
-                Defaults to None.
-            return_logprob (bool, optional): Whether to return log probabilities.
-                Defaults to False.
-            logprob_start_len (Optional[int], optional): Starting length for log probability calculation.
-                Defaults to None.
-            top_logprobs_num (Optional[int], optional): Number of top log probabilities to return.
-                Defaults to None.
-            token_ids_logprob (Optional[List[int]], optional): Specific token IDs for
-                log probability calculation. Defaults to None.
-            lora_path (Optional[str], optional): Path to LoRA adapter weights. Defaults to None.
-            custom_logit_processor (Optional[Callable], optional): Custom logit processing function.
-                Defaults to None.
-
-        Returns:
-            Dict[str, Any]: Generated text and associated metadata from the server
-
-        Note:
-            Either prompt or input_ids should be provided, but not both.
-            The response format depends on the server configuration and parameters.
-        """
         payload = {
             "text": prompt,
             "sampling_params": sampling_params,
@@ -843,10 +827,28 @@ class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
             "lora_path": lora_path,
             "custom_logit_processor": custom_logit_processor,
         }
+
+        t_after_payload = time.perf_counter()
+        print(f"Payload construction took {(t_after_payload - t_start)*1000:.2f} ms")
+
         # Filter out None values
         payload = {k: v for k, v in payload.items() if v is not None}
 
-        return await self._make_async_request("generate", payload, timeout=self.timeout, only_master=False)
+        t_after_filter = time.perf_counter()
+        print(f"Payload filtering took {(t_after_filter - t_after_payload)*1000:.2f} ms")
+
+        # Send request
+        print("Sending async HTTP request to /generate...")
+        response = await self._make_async_request(
+            "generate", payload, timeout=self.timeout, only_master=False
+        )
+        t_after_request = time.perf_counter()
+        print(f"Async request + response took {(t_after_request - t_after_filter)*1000:.2f} ms")
+
+        total_time = t_after_request - t_start
+        print(f"generate() completed in {total_time*1000:.2f} ms with response length: {len(response['text'])}")
+
+        return response
 
     async def init_weights_update_group(
         self, master_address: str, master_port: int, rank_offset: int, world_size: int, group_name: str, backend: str
