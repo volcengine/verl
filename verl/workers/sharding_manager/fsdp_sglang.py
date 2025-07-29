@@ -177,7 +177,11 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     async def release_memory(self):
         if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
-            await self.inference_engine.release_memory_occupation()
+            if self.multi_stage_wake_up:
+                await self.inference_engine.release_memory_occupation(tags=["kv_cache", "weights"])
+            else:
+                await self.inference_engine.release_memory_occupation()
+            log_gpu_memory_usage("After release memory occupation in sharding manager", logger=logger)
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
     async def wake_up(self):
