@@ -64,7 +64,7 @@ def init_config(n_gpus_per_node) -> DictConfig:
     config.data.return_raw_chat = True
     config.actor_rollout_ref.model.path = "Qwen/Qwen2.5-7B-Instruct"
     config.actor_rollout_ref.rollout.mode = "async"
-    config.actor_rollout_ref.rollout.tensor_model_parallel_size = 1
+    config.actor_rollout_ref.rollout.tensor_model_parallel_size = 2
     # zmq supports pipeline_model_parallel_size > 1
     config.actor_rollout_ref.rollout.pipeline_model_parallel_size = 1
     config.actor_rollout_ref.rollout.gpu_memory_utilization = 0.9
