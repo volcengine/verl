@@ -52,6 +52,7 @@ def init_predefined_dispatch_mode():
     Dispatch.register("DIRECT_ROLLOUT_METHOD")
     Dispatch.register("REQ_DISTRIBUTION")
 
+
 class Execute(DynamicEnum):
     """Enum class defining different execution modes for distributed computation.
 

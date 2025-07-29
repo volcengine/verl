@@ -22,8 +22,9 @@ import hydra
 import ray
 from omegaconf import OmegaConf
 
-from .sched_ray_trainer import RaySchedTrainer
 from verl.trainer.ppo.reward import load_reward_manager
+
+from .sched_ray_trainer import RaySchedTrainer
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
@@ -40,15 +41,23 @@ def run_ppo(config) -> None:
         # NCCL debug level, VLLM logging level, and allow runtime LoRA updating
         # `num_cpus` specifies the number of CPU cores Ray can use, obtained from the configuration
         ray.init(
-            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN",
-                                       "VLLM_LOGGING_LEVEL": "WARN", "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "true"}},
+            runtime_env={
+                "env_vars": {
+                    "TOKENIZERS_PARALLELISM": "true",
+                    "NCCL_DEBUG": "WARN",
+                    "VLLM_LOGGING_LEVEL": "WARN",
+                    "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "true",
+                }
+            },
             num_cpus=config.ray_init.num_cpus,
         )
 
     # Create a remote instance of the TaskRunner class, and
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
-    if (OmegaConf.select(config.trainer, "profile_steps") is not None 
-        and len(OmegaConf.select(config.trainer, "profile_steps")) > 0):
+    if (
+        OmegaConf.select(config.trainer, "profile_steps") is not None
+        and len(OmegaConf.select(config.trainer, "profile_steps")) > 0
+    ):
         nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
     else:
@@ -81,7 +90,8 @@ class TaskRunner:
         # Download the checkpoint from HDFS to the local machine.
         # `use_shm` determines whether to use shared memory, which could lead to faster model loading if turned on
         local_path = copy_to_local(
-            config.actor_rollout_ref.model.path, use_shm=config.actor_rollout_ref.model.get("use_shm", False))
+            config.actor_rollout_ref.model.path, use_shm=config.actor_rollout_ref.model.get("use_shm", False)
+        )
 
         # Instantiate the tokenizer and processor.
         from verl.utils import hf_processor, hf_tokenizer
@@ -104,11 +114,12 @@ class TaskRunner:
             assert config.critic.strategy in ["fsdp", "fsdp2"]
             from verl.single_controller.ray import RayWorkerGroup
             from verl.workers.fsdp_workers import AsyncActorRolloutRefWorker, CriticWorker
+
             from .fsdp_workers import ActorRolloutRefWorker
 
             actor_rollout_cls = (
-                AsyncActorRolloutRefWorker 
-                if config.actor_rollout_ref.rollout.mode == "async" 
+                AsyncActorRolloutRefWorker
+                if config.actor_rollout_ref.rollout.mode == "async"
                 else ActorRolloutRefWorker
             )
             ray_worker_group_cls = RayWorkerGroup
@@ -119,8 +130,8 @@ class TaskRunner:
             from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
             actor_rollout_cls = (
-                AsyncActorRolloutRefWorker 
-                if config.actor_rollout_ref.rollout.mode == "async" 
+                AsyncActorRolloutRefWorker
+                if config.actor_rollout_ref.rollout.mode == "async"
                 else ActorRolloutRefWorker
             )
             ray_worker_group_cls = NVMegatronRayWorkerGroup
@@ -179,7 +190,6 @@ class TaskRunner:
 
         from verl.utils.dataset.rl_dataset import collate_fn
 
-
         train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor)
         val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor)
         train_sampler = create_rl_sampler(config.data, train_dataset)
@@ -236,7 +246,7 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
             )
     else:
         # Use the default RLHFDataset class if no custom class is specified
-        #dataset_cls = RLHFDataset
+        # dataset_cls = RLHFDataset
         dataset_cls = RLHFDataset
     print(f"Using dataset class: {dataset_cls.__name__}")
 

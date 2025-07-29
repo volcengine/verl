@@ -18,21 +18,21 @@ FSDP PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
+import glob
+import heapq
 import json
 import os
 import uuid
-import heapq
 from collections import defaultdict
+from contextlib import contextmanager
 from copy import deepcopy
 from pprint import pprint
-from typing import Optional, Type, Dict
-from codetiming import Timer
-from contextlib import contextmanager
-import glob
+from typing import Optional
 
 import numpy as np
 import ray
 import torch
+from codetiming import Timer
 from torch.utils.data import Dataset, Sampler
 from tqdm import tqdm
 
@@ -47,19 +47,22 @@ from verl.trainer.ppo.metric_utils import (
     compute_timing_metrics,
     process_validation_metrics,
 )
+from verl.trainer.ppo.ray_trainer import (
+    RayPPOTrainer,
+    ResourcePoolManager,
+    Role,
+    apply_kl_penalty,
+    compute_advantage,
+    compute_response_mask,
+)
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.debug import marked_timer
 from verl.utils.metric import (
     reduce_metrics,
 )
 from verl.utils.seqlen_balancing import karmarkar_karp
-from verl.trainer.ppo.ray_trainer import (
-    RayPPOTrainer, Role, ResourcePoolManager, 
-    apply_kl_penalty, compute_advantage, compute_response_mask
-)
-from verl.utils.debug import marked_timer
-WorkerType = Type[Worker]
 
+WorkerType = type[Worker]
 
 
 def unpad_responses(padded_tensor, pad_token_id):
@@ -77,7 +80,7 @@ def unpad_responses(padded_tensor, pad_token_id):
         padded_list = padded_tensor.tolist()
     else:
         padded_list = padded_tensor
-    
+
     # Reconstruct original responses by removing padding tokens
     unpadded_responses = []
     for padded_response in padded_list:
@@ -89,9 +92,10 @@ def unpad_responses(padded_tensor, pad_token_id):
         except ValueError:
             # No padding found, use the full response
             original_response = padded_response
-        
+
         unpadded_responses.append(original_response)
     return unpadded_responses
+
 
 class ReqScheduler:
     def __init__(self, config):
@@ -99,13 +103,13 @@ class ReqScheduler:
 
         # prompt_ids -> len(reponse)
         self.table: dict[tuple[int], int] = self.load_table()
-    
+
     def load_table(self):
-        ''' 
+        """
         {
             "prompts": [
-                [prompt_token_ids_1], 
-                [prompt_token_ids_2], 
+                [prompt_token_ids_1],
+                [prompt_token_ids_2],
                 ...
             ],
             "lengths": [
@@ -114,12 +118,12 @@ class ReqScheduler:
                 ...
             ],
             "stats": [ // 初始预计算存储，仍可保留便于快速调用
-                {"max": 120, "min": 85, "mean": 97.5, "std": 10.2, "sum": 780}, 
-                {"max": 105, "min": 88, "mean": 94.3, "std": 5.6, "sum": 754}, 
+                {"max": 120, "min": 85, "mean": 97.5, "std": 10.2, "sum": 780},
+                {"max": 105, "min": 88, "mean": 94.3, "std": 5.6, "sum": 754},
                 ...
             ]
         }
-        '''
+        """
         if self.config.seq_dir is None:
             return {}
 
@@ -130,14 +134,14 @@ class ReqScheduler:
         for json_file in json_files:
             filename = os.path.basename(json_file)
             try:
-                with open(json_file, 'r') as f:
+                with open(json_file) as f:
                     data = json.load(f)
-                
+
                 print(f"[ReqScheduler] data keys = {data.keys()} in {filename}")
 
-                ps = data['prompts']
-                ls = data['lengths']
-                for p, length in zip(ps, ls):
+                ps = data["prompts"]
+                ls = data["lengths"]
+                for p, length in zip(ps, ls, strict=False):
                     p = tuple(p)
                     if p not in ans:
                         ans[p] = length
@@ -145,22 +149,21 @@ class ReqScheduler:
             except Exception as e:
                 print(f"[ReqScheduler] Error processing {filename}: {str(e)}")
                 raise e
-                
 
-        agg = self.config.get('agg', 'mean')
-        if agg == 'max':
+        agg = self.config.get("agg", "mean")
+        if agg == "max":
             ans = {k: max(v) for k, v in ans.items()}
-        elif agg == 'min':
+        elif agg == "min":
             ans = {k: min(v) for k, v in ans.items()}
-        elif agg == 'mean':
+        elif agg == "mean":
             ans = {k: int(np.mean(v)) for k, v in ans.items()}
-        elif agg =='median':
+        elif agg == "median":
             ans = {k: int(np.median(v)) for k, v in ans.items()}
-        elif agg == 'sum':
+        elif agg == "sum":
             ans = {k: sum(v) for k, v in ans.items()}
         else:
             raise ValueError(f"Unknown agg {agg}")
-        print(f'[ReqScheduler] Table-Size: {len(ans)=}')
+        print(f"[ReqScheduler] Table-Size: {len(ans)=}")
         return ans
 
     def lookup_table(self, prompt):
@@ -173,43 +176,44 @@ class ReqScheduler:
 
     def update_table(self, raw_prompt_ids, responses):
         new_table = {}
-        for p, r in zip(raw_prompt_ids, responses):
+        for p, r in zip(raw_prompt_ids, responses, strict=False):
             p = tuple(p)
             r = tuple(r)
             if p not in new_table:
                 new_table[p] = []
             new_table[p].append(len(r))
 
-        agg = self.config.get('agg', 'mean')
-        if agg == 'max':
+        agg = self.config.get("agg", "mean")
+        if agg == "max":
             new_table = {k: max(v) for k, v in new_table.items()}
-        elif agg == 'min':
+        elif agg == "min":
             new_table = {k: min(v) for k, v in new_table.items()}
-        elif agg == 'mean':
+        elif agg == "mean":
             new_table = {k: int(np.mean(v)) for k, v in new_table.items()}
-        elif agg =='median':
+        elif agg == "median":
             new_table = {k: int(np.median(v)) for k, v in new_table.items()}
-        elif agg == 'sum':
+        elif agg == "sum":
             new_table = {k: sum(v) for k, v in new_table.items()}
         else:
             raise ValueError(f"Unknown agg {agg}")
-        
+
         for k, v in new_table.items():
             self.table[k] = v
-        print(f'[ReqScheduler] in update_table, Table-Size: {len(self.table)=}')
+        print(f"[ReqScheduler] in update_table, Table-Size: {len(self.table)=}")
 
     def log_seqlen(self, raw_prompt_ids, responses, prefix):
         print(
-            f'[ReqScheduler] in log_seqlen, {type(raw_prompt_ids)},\
-            {type(responses)}, {len(raw_prompt_ids)}, {len(responses)}')
-        assert len(raw_prompt_ids) == len(responses), f'{len(raw_prompt_ids)}, {len(responses)}'
+            f"[ReqScheduler] in log_seqlen, {type(raw_prompt_ids)},\
+            {type(responses)}, {len(raw_prompt_ids)}, {len(responses)}"
+        )
+        assert len(raw_prompt_ids) == len(responses), f"{len(raw_prompt_ids)}, {len(responses)}"
         prompts_dict = {}
         prompts, response = [], []
-        for p, r in zip(raw_prompt_ids, responses):
+        for p, r in zip(raw_prompt_ids, responses, strict=False):
             if tuple(p) not in prompts_dict:
                 prompts_dict[tuple(p)] = []
             prompts_dict[tuple(p)].append(len(r))
-        
+
         for pid in prompts_dict:
             prompts.append(list(pid))
             response.append(prompts_dict[pid])
@@ -219,20 +223,18 @@ class ReqScheduler:
         data_files = glob.glob(f"{log_dir}/{prefix}_*.json")
         file_num = len(data_files) + 1
         output_file = f"{log_dir}/{prefix}_{file_num}.json"
-        with open(output_file, 'w') as f:
-            json.dump({
-                'prompts': prompts, 
-                'lengths': response
-            }, f)
-    
-    def restore_order(self,
-                      gen_batch_output: DataProto,
-                      reqs_idx,
-                      n_samples,
-                    ):
+        with open(output_file, "w") as f:
+            json.dump({"prompts": prompts, "lengths": response}, f)
+
+    def restore_order(
+        self,
+        gen_batch_output: DataProto,
+        reqs_idx,
+        n_samples,
+    ):
         bs = len(gen_batch_output)
-        assert bs % n_samples == 0, f'bs {bs} must be divisible by n_samples {n_samples}'
-        assert bs//n_samples == len(reqs_idx), f'bs//n_samples {bs//n_samples} != len(reqs_idx) {len(reqs_idx)}'
+        assert bs % n_samples == 0, f"bs {bs} must be divisible by n_samples {n_samples}"
+        assert bs // n_samples == len(reqs_idx), f"bs//n_samples {bs // n_samples} != len(reqs_idx) {len(reqs_idx)}"
         print(f"[ReqScheduler] restore_order, {bs=}, {n_samples=}, {len(reqs_idx)=}")
         cnt = 0
         global_idx = [None for _ in range(bs)]
@@ -243,36 +245,37 @@ class ReqScheduler:
                 if idx == group_idx:
                     start_position = i * n_samples
                     end_position = start_position + n_samples
-                    global_idx[start_position: end_position] = [j for j in range(cnt, cnt+n_samples)]
+                    global_idx[start_position:end_position] = [j for j in range(cnt, cnt + n_samples)]
                     cnt += n_samples
             group_idx += 1
 
-        assert len(global_idx) == bs, f'len(global_idx) {len(global_idx)} != bs {bs}'
+        assert len(global_idx) == bs, f"len(global_idx) {len(global_idx)} != bs {bs}"
 
         global_idx = torch.tensor(global_idx)
         gen_batch_output.reorder(global_idx)
 
-    def sched(self, batch_dict: dict,
-            world_size: int,
-            config,
-        ):
+    def sched(
+        self,
+        batch_dict: dict,
+        world_size: int,
+        config,
+    ):
         print(f"[ReqScheduler] sched, {world_size=}, {config=}")
 
         pre_outlens = []
-        for raw_prompt_ids in batch_dict['raw_prompt_ids']:
+        for raw_prompt_ids in batch_dict["raw_prompt_ids"]:
             outlen = self.lookup_table(raw_prompt_ids)
             pre_outlens.append(outlen)
 
         # sched
         tp_size = config.rollout.tensor_model_parallel_size
-        assert world_size % tp_size == 0, f'world_size {world_size} must be divisible by tp_size {tp_size}'
+        assert world_size % tp_size == 0, f"world_size {world_size} must be divisible by tp_size {tp_size}"
         dp_size = world_size // tp_size
         res = self._sched(pre_outlens, dp_size, tp_size)
 
-        batch_dict['reqs_idx'] = res
-        batch_dict['pre_outlens'] = np.array(pre_outlens, dtype=np.int32)
-        
-        
+        batch_dict["reqs_idx"] = res
+        batch_dict["pre_outlens"] = np.array(pre_outlens, dtype=np.int32)
+
     def print_stats(self, outlens, res):
         longest = max(outlens)
         shortest = min(outlens)
@@ -284,7 +287,7 @@ class ReqScheduler:
         for v in res:
             group[v] += 1
         print(f"[ReqScheduler] Group: {group}")
-    
+
     def _sched(self, outlens, dp_size, tp_size):
         algo = self.config.algo
 
@@ -293,22 +296,22 @@ class ReqScheduler:
             if outlen is None:
                 has_none = True
                 break
-        
-        agg = self.config.get('agg', 'mean')
+
+        agg = self.config.get("agg", "mean")
         if has_none:
             print(f"[ReqScheduler] has None, reset {algo} to even_prompt; {agg=}")
-            algo = 'even_prompt'
+            algo = "even_prompt"
 
             for i in range(len(outlens)):
                 outlens[i] = -1
         else:
             print(f"[ReqScheduler] algo: {algo}, {agg=}")
-        
+
         method = getattr(self, algo)
         res = method(outlens, dp_size, tp_size, self.config)
         self.print_stats(outlens, res)
         return res
-    
+
     def dummy(self, outlens, dp_size, tp_size, config):
         res = [0] * (len(outlens) - 1) + [1]
         res = np.array(res, dtype=np.int32)
@@ -320,7 +323,7 @@ class ReqScheduler:
             return np.array([], dtype=np.int32)
         if dp_size <= 0:
             raise ValueError("dp_size must be a positive integer.")
-        
+
         base_prompts_per_dp = num_prompts // dp_size
         remainder_prompts = num_prompts % dp_size
         res = []
@@ -328,10 +331,10 @@ class ReqScheduler:
             num_in_group = base_prompts_per_dp + (1 if i < remainder_prompts else 0)
             res.extend([i] * num_in_group)
         return np.array(res, dtype=np.int32)
-    
+
     def even_token(self, outlens, dp_size, tp_size, config):
         prompt_indices = list(range(len(outlens)))
-        sorted_pairs = sorted(zip(outlens, prompt_indices), reverse=True)
+        sorted_pairs = sorted(zip(outlens, prompt_indices, strict=False), reverse=True)
         heap = [(0, i) for i in range(dp_size)]
         heapq.heapify(heap)
         res = [None] * len(outlens)
@@ -340,7 +343,7 @@ class ReqScheduler:
             res[orig_idx] = group
             heapq.heappush(heap, (total + token_len, group))
         return np.array(res, dtype=np.int32)
-    
+
     def even_token_kk(self, outlens: list[int], dp_size: int, tp_size: int, config):
         """
         Schedules requests to balance the total number of tokens per DP group
@@ -348,13 +351,13 @@ class ReqScheduler:
         """
         if not outlens:
             return np.array([], dtype=np.int32)
-        
+
         print(f"[ReqScheduler] Running Karmarkar-Karp for {len(outlens)} prompts into {dp_size} groups.")
-        
+
         partitions = karmarkar_karp(
-            seqlen_list=outlens, 
-            k_partitions=dp_size, 
-            equal_size=False  # We want to balance sum of tokens, not count of prompts
+            seqlen_list=outlens,
+            k_partitions=dp_size,
+            equal_size=False,  # We want to balance sum of tokens, not count of prompts
         )
 
         res = [None] * len(outlens)
@@ -366,14 +369,14 @@ class ReqScheduler:
 
         return np.array(res, dtype=np.int32)
 
+
 @contextmanager
-def _timer(name: str, timing_raw: Dict[str, float]):
+def _timer(name: str, timing_raw: dict[str, float]):
     with Timer(name=name, logger=None) as timer:
         yield
     if name not in timing_raw:
         timing_raw[name] = 0
     timing_raw[name] += timer.last
-
 
 
 class RaySchedTrainer(RayPPOTrainer):
@@ -423,15 +426,16 @@ class RaySchedTrainer(RayPPOTrainer):
 
         for test_data in self.val_dataloader:
             self.req_scheduler.sched(
-                test_data, self.actor_rollout_wg.world_size, self.config.actor_rollout_ref,
+                test_data,
+                self.actor_rollout_wg.world_size,
+                self.config.actor_rollout_ref,
             )
             print(">> test_data = ", test_data.keys())
             test_batch = DataProto.from_single_dict(test_data)
 
             # repeat test batch
             test_batch = test_batch.repeat(
-                repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, 
-                interleave=True
+                repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True
             )
 
             # we only do validation on rule-based rm
@@ -459,7 +463,7 @@ class RaySchedTrainer(RayPPOTrainer):
                 non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
             )
 
-            test_reqs_idx = test_gen_batch.non_tensor_batch['reqs_idx']
+            test_reqs_idx = test_gen_batch.non_tensor_batch["reqs_idx"]
             test_gen_batch.meta_info = {
                 "eos_token_id": self.tokenizer.eos_token_id,
                 "pad_token_id": self.tokenizer.pad_token_id,
@@ -472,13 +476,11 @@ class RaySchedTrainer(RayPPOTrainer):
             test_gen_batch_padded, _ = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
 
             test_output_gen_batch = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
-            
+
             self.req_scheduler.restore_order(
-                test_output_gen_batch, 
-                test_reqs_idx, 
-                n_samples=self.config.actor_rollout_ref.rollout.val_kwargs.n
+                test_output_gen_batch, test_reqs_idx, n_samples=self.config.actor_rollout_ref.rollout.val_kwargs.n
             )
-            
+
             print("validation generation end")
 
             # Store generated outputs
@@ -529,8 +531,8 @@ class RaySchedTrainer(RayPPOTrainer):
                 n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
                 for metric_name, metric_val in metric2val.items():
                     if (
-                        (var_name == core_var) 
-                        and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"]) 
+                        (var_name == core_var)
+                        and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"])
                         and (f"@{n_max}" in metric_name)
                     ):
                         metric_sec = "val-core"
@@ -583,14 +585,15 @@ class RaySchedTrainer(RayPPOTrainer):
 
         for epoch in range(self.config.trainer.total_epochs):
             for bs_idx, batch_dict in enumerate(self.train_dataloader):
-                self.req_scheduler.sched(batch_dict,
+                self.req_scheduler.sched(
+                    batch_dict,
                     self.actor_rollout_wg.world_size,
                     self.config.actor_rollout_ref,
                 )
 
                 do_profile = (
-                    self.global_steps in self.config.trainer.profile_steps 
-                    if self.config.trainer.profile_steps is not None 
+                    self.global_steps in self.config.trainer.profile_steps
+                    if self.config.trainer.profile_steps is not None
                     else False
                 )
                 if do_profile:
@@ -630,15 +633,15 @@ class RaySchedTrainer(RayPPOTrainer):
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
-                idx = gen_batch.batch['input_ids']  # (bs, prompt_length)
-                reqs_idx = gen_batch.non_tensor_batch['reqs_idx']
-                raw_prompt_ids = gen_batch.non_tensor_batch['raw_prompt_ids'] # (bs, varlen)
-                batch.non_tensor_batch['raw_prompt_ids'] = raw_prompt_ids
+                idx = gen_batch.batch["input_ids"]  # (bs, prompt_length)
+                reqs_idx = gen_batch.non_tensor_batch["reqs_idx"]
+                raw_prompt_ids = gen_batch.non_tensor_batch["raw_prompt_ids"]  # (bs, varlen)
+                batch.non_tensor_batch["raw_prompt_ids"] = raw_prompt_ids
                 print(
-                    f'[BATCH INPUT]: \
+                    f"[BATCH INPUT]: \
                     {idx.shape}, \
                     {gen_batch.non_tensor_batch.keys()=}, \
-                    raw_prompt_ids = {type(raw_prompt_ids)}'
+                    raw_prompt_ids = {type(raw_prompt_ids)}"
                 )
 
                 with marked_timer("step", timing_raw):
@@ -663,7 +666,7 @@ class RaySchedTrainer(RayPPOTrainer):
                             del gen_baseline_batch, gen_baseline_output
 
                     self.req_scheduler.restore_order(
-                        gen_batch_output, 
+                        gen_batch_output,
                         reqs_idx,
                         self.config.actor_rollout_ref.rollout.n,
                     )
@@ -674,19 +677,18 @@ class RaySchedTrainer(RayPPOTrainer):
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
+                    response = batch.batch["responses"]
+                    raw_prompt_ids = batch.non_tensor_batch["raw_prompt_ids"]
 
-                    response = batch.batch['responses']
-                    raw_prompt_ids = batch.non_tensor_batch['raw_prompt_ids']
-                    
                     pad_ids = self.tokenizer.pad_token_id
-                    model = self.config.actor_rollout_ref.model.path.split('/')[-1]
-                    dataset = self.config.data.train_files[0].split('/')[-1]
-                    prefix = f'{dataset}_{model}_E{epoch}B{bs_idx}_data'
+                    model = self.config.actor_rollout_ref.model.path.split("/")[-1]
+                    dataset = self.config.data.train_files[0].split("/")[-1]
+                    prefix = f"{dataset}_{model}_E{epoch}B{bs_idx}_data"
                     unpadded = unpad_responses(response, pad_ids)
                     self.req_scheduler.log_seqlen(
-                        raw_prompt_ids, 
+                        raw_prompt_ids,
                         unpadded,
-                        prefix, 
+                        prefix,
                     )
                     self.req_scheduler.update_table(
                         raw_prompt_ids,
@@ -836,8 +838,8 @@ class RaySchedTrainer(RayPPOTrainer):
 
                     # validate
                     if (
-                        self.val_reward_fn is not None 
-                        and self.config.trainer.test_freq > 0 
+                        self.val_reward_fn is not None
+                        and self.config.trainer.test_freq > 0
                         and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
                     ):
                         with marked_timer("testing", timing_raw, color="green"):
@@ -846,10 +848,9 @@ class RaySchedTrainer(RayPPOTrainer):
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
 
-                    if (
-                        self.config.trainer.save_freq > 0 
-                        and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0)
-                        ):
+                    if self.config.trainer.save_freq > 0 and (
+                        is_last_step or self.global_steps % self.config.trainer.save_freq == 0
+                    ):
                         with marked_timer("save_checkpoint", timing_raw, color="green"):
                             self._save_checkpoint()
 
