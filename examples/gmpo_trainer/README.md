@@ -6,7 +6,7 @@
 This is the official implementaion of paper [***Geometric-Mean Policy Optimization***](https://arxiv.org/abs/2507.20673).
 
 <div align=center>
-<img src="./gmpo_teaser.png" width="100%">
+<img width="3092" height="864" alt="image" src="https://github.com/user-attachments/assets/af4c7e0f-923a-45ef-9bcf-57109b8ee61e" />
 </div>
 
 
