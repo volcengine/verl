@@ -34,7 +34,7 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 from verl.workers.engine import EngineRegistry
-from verl.workers.engine.config import get_engine_config_for_critic
+from verl.workers.engine.config import convert_critic_engine_config
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -50,8 +50,9 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend=get_nccl_backend())
-        self.config = get_engine_config_for_critic(config)
-        self.engine = EngineRegistry.new(self.config.strategy, self.config)
+        self.config = config
+        self.engine_config = convert_critic_engine_config(config)
+        self.engine = EngineRegistry.new(self.config.strategy, self.engine_config)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):

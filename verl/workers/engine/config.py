@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from omegaconf import DictConfig
 from verl.utils.config import omega_conf_to_dataclass
 
@@ -7,10 +7,12 @@ class EngineConfig:
     """Dataclass for Engine configuration."""
     model: 'ModelConfig'
     optim: 'OptimConfig'
+    checkpoint: 'CheckpointConfig'
     ppo_mini_batch_size: int
     ppo_micro_batch_size: int | None
     forward_micro_batch_size: int
     ppo_micro_batch_size_per_gpu: int | None
+    forward_micro_batch_size_per_gpu: int | None
     ulysses_sequence_parallel_size: int = 1
     strategy: str = "fsdp"
     grad_clip: float | None = None
@@ -63,9 +65,13 @@ class SystemConfig:
     mixed_precision: dict | None = None
     offload_policy: bool = False
 
+@dataclass
+class CheckpointConfig:
+    save_contents: list[str]
+    load_contents: list[str]
+    async_save: bool
 
-
-def get_engine_config_for_critic(hydra_config: DictConfig) -> EngineConfig:
+def convert_critic_engine_config(hydra_config: DictConfig) -> EngineConfig:
     """
     Convert a Hydra config to the FSDPEngineConfig dataclass.
 
@@ -119,12 +125,13 @@ def get_engine_config_for_critic(hydra_config: DictConfig) -> EngineConfig:
         ppo_micro_batch_size=prev_config.ppo_micro_batch_size,
         forward_micro_batch_size=prev_config.forward_micro_batch_size,
         ppo_micro_batch_size_per_gpu=prev_config.ppo_micro_batch_size_per_gpu,
+        forward_micro_batch_size_per_gpu=prev_config.forward_micro_batch_size_per_gpu,
         ulysses_sequence_parallel_size=prev_config.ulysses_sequence_parallel_size,
         strategy=prev_config.strategy,
         grad_clip=prev_config.grad_clip,
         use_dynamic_bsz=prev_config.use_dynamic_bsz,
         ppo_max_token_len_per_gpu=prev_config.ppo_max_token_len_per_gpu,
-        rollout_n=prev_config.rollout_n
+        rollout_n=prev_config.rollout_n,
+        checkpoint=prev_config.checkpoint
     )
-    raise ValueError
     return ret

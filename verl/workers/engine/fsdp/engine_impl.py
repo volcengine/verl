@@ -105,10 +105,10 @@ class FSDPEngine(BaseEngine):
 
         fsdp_size = self.config.model.fsdp_config.fsdp_size
         self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=fsdp_size)
-        self.use_remove_padding = config.model.get("use_remove_padding", False)
+        self.use_remove_padding = config.model.use_remove_padding
 
         self.ulysses_device_mesh = None
-        self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
+        self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
             self.ulysses_device_mesh = init_device_mesh(
@@ -143,7 +143,7 @@ class FSDPEngine(BaseEngine):
                 f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be larger than "
                 f"ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
             )
-        self._is_lora = self.config.model.get("lora_rank", 0) > 0
+        self._is_lora = self.config.model.lora_rank > 0
 
     def init_model(self):
         """
@@ -153,7 +153,7 @@ class FSDPEngine(BaseEngine):
         Sets up checkpoint manager and FLOPs counter.
         """
         # This is used to import external_lib into the huggingface systems
-        import_external_libs(self.config.model.get("external_lib", None))
+        import_external_libs(self.config.model.external_lib)
 
         self.module, self.optimizer, self.lr_scheduler = self._build_model_optimizer(self.config)
 
@@ -181,22 +181,22 @@ class FSDPEngine(BaseEngine):
         from verl.utils.model import load_valuehead_model, print_model_size
         from verl.utils.torch_dtypes import PrecisionType
 
-        use_shm = config.model.get("use_shm", False)
+        use_shm = config.model.use_shm
         local_path = copy_to_local(config.model.path, use_shm=use_shm)
         # note that the tokenizer between actor and critic may be different. So override tokenizer info with actor info
         # using random initialized model from any architecture. May not be the same as Actor.
 
         tokenizer_path = copy_to_local(config.model.tokenizer_path, use_shm=use_shm)
-        self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
-        self.processor = hf_processor(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
+        self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.trust_remote_code)
+        self.processor = hf_processor(tokenizer_path, trust_remote_code=config.model.trust_remote_code)
 
-        if self.config.model.get("custom_chat_template", None) is not None:
+        if self.config.model.custom_chat_template is not None:
             if self.processor is not None:
                 self.processor.chat_template = self.config.model.custom_chat_template
             else:
                 self.tokenizer.chat_template = self.config.model.custom_chat_template
 
-        override_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
+        override_config = OmegaConf.to_container(OmegaConf.create(self.config.model.override_config))
         override_config_kwargs = {
             "bos_token_id": self.tokenizer.bos_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
@@ -206,7 +206,7 @@ class FSDPEngine(BaseEngine):
         if self.rank == 0:
             print(f"Engine overriding config {override_config_kwargs}")
 
-        torch_dtype = self.config.model.fsdp_config.get("model_dtype", "fp32")
+        torch_dtype = self.config.model.fsdp_config.model_dtype
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         from transformers import AutoConfig
@@ -214,7 +214,7 @@ class FSDPEngine(BaseEngine):
         model_config = AutoConfig.from_pretrained(
             local_path,
             attn_implementation="flash_attention_2",
-            trust_remote_code=config.model.get("trust_remote_code", False),
+            trust_remote_code=config.model.trust_remote_code,
         )
         model_config.num_labels = 1
         # patch for kimi-vl
@@ -235,7 +235,7 @@ class FSDPEngine(BaseEngine):
                 local_path,
                 torch_dtype,
                 model_config,
-                config.model.get("trust_remote_code", False),
+                config.model.trust_remote_code,
             )
 
             apply_monkey_patch(
@@ -247,7 +247,7 @@ class FSDPEngine(BaseEngine):
             # some parameters may not in torch_dtype
             module.to(torch_dtype)
 
-            if config.model.get("enable_gradient_checkpointing", False):
+            if config.model.enable_gradient_checkpointing:
                 module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
         if self._is_lora:
@@ -269,7 +269,7 @@ class FSDPEngine(BaseEngine):
         self.model_config = model_config
 
         fsdp_config = self.config.model.fsdp_config
-        mixed_precision_config = fsdp_config.get("mixed_precision", None)
+        mixed_precision_config = fsdp_config.mixed_precision
         if mixed_precision_config is not None:
             param_dtype = PrecisionType.to_dtype(mixed_precision_config.get("param_dtype", "bf16"))
             reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "fp32"))
@@ -284,7 +284,7 @@ class FSDPEngine(BaseEngine):
         auto_wrap_policy = get_fsdp_wrap_policy(
             module=module,
             config=self.config.model.fsdp_config.wrap_policy,
-            is_lora=self.config.model.get("lora_rank", 0) > 0,
+            is_lora=self.config.model.lora_rank > 0,
         )
 
         log_gpu_memory_usage("Before FSDP", logger=None)
@@ -330,8 +330,8 @@ class FSDPEngine(BaseEngine):
         else:
             raise NotImplementedError(f"Unknown strategy {config.strategy}")
 
-        if config.model.get("enable_activation_offload", False):
-            enable_gradient_checkpointing = config.model.get("enable_gradient_checkpointing", False)
+        if config.model.enable_activation_offload:
+            enable_gradient_checkpointing = config.model.enable_gradient_checkpointing
             enable_activation_offloading(module, config.strategy, enable_gradient_checkpointing)
 
         log_gpu_memory_usage("After FSDP", logger=None)
@@ -339,15 +339,15 @@ class FSDPEngine(BaseEngine):
         optimizer = optim.AdamW(
             module.parameters(),
             lr=config.optim.lr,
-            betas=config.optim.get("betas", (0.9, 0.999)),
-            weight_decay=config.optim.get("weight_decay", 1e-2),
+            betas=config.optim.betas,
+            weight_decay=config.optim.weight_decay,
         )
 
-        total_steps = config.optim.get("total_training_steps", 0)
-        num_warmup_steps = int(config.optim.get("lr_warmup_steps", -1))
-        warmup_style = config.optim.get("warmup_style", "constant")
+        total_steps = config.optim.total_training_steps
+        num_warmup_steps = int(config.optim.lr_warmup_steps)
+        warmup_style = config.optim.warmup_style
         if num_warmup_steps < 0:
-            num_warmup_steps_ratio = config.optim.get("lr_warmup_steps_ratio", 0.0)
+            num_warmup_steps_ratio = config.optim.lr_warmup_steps_ratio
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
         if self.rank == 0:
