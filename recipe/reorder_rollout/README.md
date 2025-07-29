@@ -111,3 +111,7 @@ we also provide a sync batch script:
 ```bash
 bash ./recipe/reorder_rollout/run_qwen2.5-7b_gsm8k_sync.sh
 ```
+
+## Future Plan
+1. Partial Rollout with Drop Policy: currently we drop all the partial generation result to avoid the staleness issue, we will implement a drop policy to keep the partial generation result, which might improve the performance.
+2. implement TPPO algorithm: https://arxiv.org/pdf/2506.15050 with Partial Rollout.
