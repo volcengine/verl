@@ -5,7 +5,7 @@ nnodes=1
 nproc_per_node=8
 master_addr=
 master_port=
-node_rank=$ARNOLD_ID
+node_rank=${ARNOLD_ID:-0}
 
 project_name=retool
 experiment_name=multiturn-sft-qwen-2.5-7b-instruct
