@@ -115,17 +115,18 @@ class AgentLoopOutput(BaseModel):
     """Agent loop output."""
 
     prompt_ids: list[int]
-    """Prompt token ids."""
+    """Prompt token ids. Is overwritten with padded ids in AgentLoopWorker."""
     response_ids: list[int]
-    """Response token ids including LLM generated token, tool response token."""
+    """Response token ids. Is overwritten with padded ids in AgentLoopWorker."""
     response_mask: list[int]
-    """Response mask, 1 for LLM generated token, 0 for tool response token."""
+    """Response mask. Is overwritten with padded mask in AgentLoopWorker."""
     num_turns: int = 0
     """Number of chat turns, including user, assistant, tool."""
     metrics: AgentLoopMetrics
     """Auxiliary performance metrics"""
-    processed_tensors: dict = None
-    """Pre-processed tensors for batching."""
+
+    # Populated in AgentLoopWorker. Made optional to prevent validation errors.
+    attention_mask: list[int] = None
 
 
 # make hydra.utils.instantiate happy
@@ -377,31 +378,27 @@ class AgentLoopWorker:
                 response_mask_output["input_ids"] = response_mask_output["input_ids"].unsqueeze(0)
 
             response_mask = response_mask_output["input_ids"] * response_output["attention_mask"]
-
-            input_ids = torch.cat([prompt_output["input_ids"], response_output["input_ids"]], dim=1)
             attention_mask = torch.cat([prompt_output["attention_mask"], response_output["attention_mask"]], dim=1)
-            position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
 
-            output.processed_tensors = {
-                "prompt_ids": prompt_output["input_ids"],
-                "response_ids": response_output["input_ids"],
-                "response_mask": response_mask,
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
-                "position_ids": position_ids,
-            }
+            # Overwrite with padded data, converted to lists for safe serialization.
+            output.prompt_ids = prompt_output["input_ids"].squeeze(0).tolist()
+            output.response_ids = response_output["input_ids"].squeeze(0).tolist()
+            output.response_mask = response_mask.squeeze(0).tolist()
+            output.attention_mask = attention_mask.squeeze(0).tolist()
 
             return output
 
     def _postprocess(self, inputs: list[AgentLoopOutput]) -> DataProto:
         """Process the padded outputs from _run_agent_loop and combine them into a batch."""
-        # Extract pre-processed tensors from each output
-        prompt_ids = torch.cat([input.processed_tensors["prompt_ids"] for input in inputs], dim=0)
-        response_ids = torch.cat([input.processed_tensors["response_ids"] for input in inputs], dim=0)
-        response_mask = torch.cat([input.processed_tensors["response_mask"] for input in inputs], dim=0)
-        input_ids = torch.cat([input.processed_tensors["input_ids"] for input in inputs], dim=0)
-        attention_mask = torch.cat([input.processed_tensors["attention_mask"] for input in inputs], dim=0)
-        position_ids = torch.cat([input.processed_tensors["position_ids"] for input in inputs], dim=0)
+        # Convert lists back to tensors and stack them to create a batch.
+        prompt_ids = torch.stack([torch.tensor(i.prompt_ids, dtype=torch.long) for i in inputs], dim=0)
+        response_ids = torch.stack([torch.tensor(i.response_ids, dtype=torch.long) for i in inputs], dim=0)
+        response_mask = torch.stack([torch.tensor(i.response_mask, dtype=torch.long) for i in inputs], dim=0)
+        attention_mask = torch.stack([torch.tensor(i.attention_mask, dtype=torch.long) for i in inputs], dim=0)
+
+        # Derive input_ids and position_ids on the fly.
+        input_ids = torch.cat([prompt_ids, response_ids], dim=1)
+        position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
 
         batch = TensorDict(
             {
@@ -412,7 +409,7 @@ class AgentLoopWorker:
                 "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
                 "position_ids": position_ids,  # [bsz, prompt_length + response_length]
             },
-            batch_size=len(input_ids),
+            batch_size=len(inputs),
         )
 
         num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
