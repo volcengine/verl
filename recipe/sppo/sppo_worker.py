@@ -16,7 +16,7 @@
 import logging
 import os
 
-from omegaconf import open_dict
+from omegaconf import OmegaConf, open_dict
 
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
@@ -43,10 +43,7 @@ class SPPOActorRolloutRefWorker(ActorRolloutRefWorker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
 
-        from omegaconf import OmegaConf
-
-        override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
-
+        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
         use_remove_padding = self.config.model.get("use_remove_padding", False)
         use_fused_kernels = self.config.model.get("use_fused_kernels", False)
 

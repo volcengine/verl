@@ -97,7 +97,7 @@ RUN git clone https://github.com/NVIDIA/apex.git && \
 RUN export NVTE_FRAMEWORK=pytorch && pip3 install --no-deps --no-cache-dir git+https://github.com/NVIDIA/TransformerEngine.git@v2.3
 
 # Install Megatron-LM
-RUN pip3 install --no-deps --no-cache-dir git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.1
+RUN pip3 install --no-deps --no-cache-dir git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.2
 
 # Fix opencv
 RUN pip install opencv-python
