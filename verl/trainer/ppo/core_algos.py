@@ -1096,7 +1096,7 @@ def compute_policy_loss_geo_mean(
             Advantage estimates for each action, shape (batch_size, response_length).
         response_mask (torch.Tensor):
             Mask indicating which tokens to include in the loss, shape (batch_size, response_length).
-        loss_agg_mode (str, optional): 
+        loss_agg_mode (str, optional):
             not used
     """
 
@@ -1124,16 +1124,16 @@ def compute_policy_loss_geo_mean(
     negative_approx_kl_clamp = torch.clamp(negative_approx_kl, -cliprange_low, cliprange_high)
     negative_approx_kl_min = torch.min(sgn_advantage * negative_approx_kl, sgn_advantage * negative_approx_kl_clamp)
     negative_approx_kl_min = sgn_advantage * negative_approx_kl_min
-    
+
     # Geometric-Mean Policy Optimization
     response_mask_sum = response_mask.sum(dim=-1)
     ratio = torch.exp((negative_approx_kl_min * response_mask).sum(dim=-1) / (response_mask_sum + 1e-8))
-    # we only support sequence level advantage for now, 
+    # we only support sequence level advantage for now,
     # otherwise, below would be not consistent with the paper
-    advantage = (advantages * response_mask).sum(dim=-1) / (response_mask_sum + 1e-8) 
+    advantage = (advantages * response_mask).sum(dim=-1) / (response_mask_sum + 1e-8)
     pg_losses = -advantage * ratio
     pg_loss = torch.mean(pg_losses)
-    
+
     # higher: ratio is too large that need clamp to clip_high (when adv > 0)
     clipped = torch.ne(negative_approx_kl, negative_approx_kl_clamp)
     pg_clipfrac = verl_F.masked_mean((clipped * (advantages > 0)).float(), response_mask)
