@@ -1122,7 +1122,8 @@ def compute_policy_loss_geo_mean(
     # Clipping at token-level & Clipping wider
     sgn_advantage = torch.sign(advantages)
     negative_approx_kl_clamp = torch.clamp(negative_approx_kl, -cliprange_low, cliprange_high)
-    negative_approx_kl_min = sgn_advantage * torch.min(sgn_advantage * negative_approx_kl, sgn_advantage * negative_approx_kl_clamp)
+    negative_approx_kl_min = torch.min(sgn_advantage * negative_approx_kl, sgn_advantage * negative_approx_kl_clamp)
+    negative_approx_kl_min = sgn_advantage * negative_approx_kl_min
     
     # Geometric-Mean Policy Optimization
     response_mask_sum = response_mask.sum(dim=-1)
