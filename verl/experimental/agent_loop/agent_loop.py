@@ -284,7 +284,12 @@ class AgentLoopWorker:
         )
 
         for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
-            tasks.append(asyncio.create_task(self._run_agent_loop(agent_name, messages, sampling_params, trajectory)))
+            if not isinstance(messages, list | np.ndarray):
+                raise TypeError(f"messages must be a list or numpy array, got {type(messages)}")
+
+            tasks.append(
+                asyncio.create_task(self._run_agent_loop(agent_name, list(messages), sampling_params, trajectory))
+            )
         outputs = await asyncio.gather(*tasks)
 
         output = self._postprocess(outputs)
