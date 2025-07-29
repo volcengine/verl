@@ -1,5 +1,7 @@
 set -x
 
+export VLLM_USE_V1=1
+
 # ================= data/model/tool =================
 HDFS_ROOT=${HDFS_ROOT:-$PWD}
 DATA_ROOT=${DATA_ROOT:-$PWD}
@@ -7,22 +9,21 @@ DATA_ROOT=${DATA_ROOT:-$PWD}
 dapo_math_17k=$DATA_ROOT/dataset/BytedTsinghua-SIA/DAPO-Math-17k
 aime_2024=$DATA_ROOT/dataset/Maxwell-Jia/AIME_2024
 aime_2025=$DATA_ROOT/dataset/yentinglin/aime_2025
-actor_model_path=$HDFS_ROOT/checkpoint/multiturn-sft-qwen-2.5-32b-instruct/global_step_372
-critic_model_path=$actor_model_path
+model_path=$HDFS_ROOT/checkpoint/multiturn-sft-qwen-2.5-7b-instruct/global_step_372
 
 train_files="['$dapo_math_17k']"
-test_files="['$aime_2025']"
+test_files="['$aime_2025', '$aime_2024']"
 
 # tool
 tool_config_path=recipe/retool/sandbox_fusion_tool_config.yaml
 
 # wandb
-project_name=wuxibin_retool
-experiment_name=qwen2.5-32b_ppo
+project_name=retool
+experiment_name=qwen2.5-7b_dapo
 default_local_dir=$DATA_ROOT/checkpoint/$experiment_name
 
 # ================= algorithm =================
-adv_estimator=gae
+adv_estimator=grpo
 
 use_kl_in_reward=False
 kl_coef=0.0
@@ -32,36 +33,28 @@ kl_loss_coef=0.0
 clip_ratio_low=0.2
 clip_ratio_high=0.28
 
-max_turns=8
+max_turns=16
 max_prompt_length=2048
 max_response_length=16384
 actor_lr=1e-6
-critic_lr=2e-6
-gae_gamma=1.0
-gae_lam=1.0
 
-critic_warmup=20
-
-train_batch_size=1024
-ppo_mini_batch_size=256
+train_batch_size=64
+ppo_mini_batch_size=16
+n_resp_per_prompt=16
 n_resp_per_prompt_val=30
 
 # ================= perfomance =================
 infer_tp=4 # vllm
 train_sp=4 # train
-
 offload=True
 
-actor_max_token_len_per_gpu=$(( (max_prompt_length + max_response_length) * 2 ))
-critic_max_token_len_per_gpu=$(( (max_prompt_length + max_response_length) * 4 ))
-
+actor_max_token_len_per_gpu=$(( (max_prompt_length + max_response_length) * 1 ))
+log_prob_max_token_len_per_gpu=$(( actor_max_token_len_per_gpu * 4 ))
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=$adv_estimator \
     algorithm.use_kl_in_reward=$use_kl_in_reward \
     algorithm.kl_ctrl.kl_coef=$kl_coef \
-    algorithm.gamma=$gae_gamma \
-    algorithm.lam=$gae_lam \
     data.train_files="$train_files" \
     data.val_files="$test_files" \
     data.return_raw_chat=True \
@@ -74,7 +67,7 @@ python3 -m verl.trainer.main_ppo \
     data.custom_cls.name=CustomRLHFDataset \
     custom_reward_function.path=recipe/retool/retool.py \
     custom_reward_function.name=compute_score \
-    actor_rollout_ref.model.path=$actor_model_path \
+    actor_rollout_ref.model.path=$model_path \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.use_kl_loss=$use_kl_loss \
@@ -89,6 +82,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=$train_sp \
     actor_rollout_ref.actor.fsdp_config.param_offload=$offload \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=$offload \
+    actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=$log_prob_max_token_len_per_gpu \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.mode=async \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$infer_tp \
@@ -98,26 +92,18 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.multi_turn.tool_config_path=$tool_config_path \
     actor_rollout_ref.rollout.multi_turn.format=hermes \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.9 \
+    actor_rollout_ref.rollout.n=$n_resp_per_prompt \
     actor_rollout_ref.rollout.val_kwargs.top_p=0.6 \
     actor_rollout_ref.rollout.val_kwargs.temperature=1.0 \
     actor_rollout_ref.rollout.val_kwargs.n=$n_resp_per_prompt_val \
-    critic.optim.lr=$critic_lr \
-    critic.model.use_remove_padding=True \
-    critic.model.path=$critic_model_path \
-    critic.model.enable_gradient_checkpointing=True \
-    critic.ppo_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
-    critic.ulysses_sequence_parallel_size=$train_sp \
-    critic.model.fsdp_config.param_offload=$offload \
-    critic.model.fsdp_config.optimizer_offload=$offload \
-    trainer.critic_warmup=$critic_warmup \
     trainer.logger=['console','wandb'] \
     trainer.project_name=$project_name \
     trainer.experiment_name=$experiment_name \
     trainer.n_gpus_per_node=8 \
     trainer.val_before_train=True \
-    trainer.log_val_generations=100 \
-    trainer.nnodes=2 \
-    trainer.save_freq=30 \
+    trainer.log_val_generations=20 \
+    trainer.nnodes=1 \
+    trainer.save_freq=20 \
     trainer.default_local_dir=$default_local_dir \
-    trainer.test_freq=5 \
+    trainer.test_freq=10 \
     trainer.total_epochs=1 $@

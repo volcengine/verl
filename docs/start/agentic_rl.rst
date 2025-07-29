@@ -88,7 +88,7 @@ Usage Example
     pip install mlflow
 
     # This will download and preprocess the GSM8K dataset into ~/data/gsm8k/ and add the "agent_name" field.
-    bash examples/data_preprocess/gsm8k_tool_agent_loop.py
+    python examples/data_preprocess/gsm8k_tool_agent_loop.py
 
     # Start training with tool calls and enabled mlflow based trace helping to debug the rollout details
     bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_tool_agent_mlflow.sh
