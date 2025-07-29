@@ -34,7 +34,7 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 from verl.workers.engine import EngineRegistry
-from verl.workers.engine.config import convert_critic_engine_config
+from verl.workers.engine.config import normalize_config, engine_config_from_critic
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -50,9 +50,17 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend=get_nccl_backend())
-        self.config = config
-        self.engine_config = convert_critic_engine_config(config)
-        self.engine = EngineRegistry.new(self.config.strategy, self.engine_config)
+
+        # some config might be updated by the engine:
+        # - ppo_micro_batch_size
+        # - ppo_micro_batch_size_per_gpu
+        # - forward_micro_batch_size
+        # - forward_micro_batch_size_per_gpu
+        self.config = omega_conf_to_dataclass(config)
+        # will it be different across actor/critic?
+        self.config = normalize_config(self.config)
+        engine_config = engine_config_from_critic(self.config)
+        self.engine = EngineRegistry.new(self.config.strategy, engine_config)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):

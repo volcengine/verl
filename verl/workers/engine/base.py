@@ -222,6 +222,11 @@ class EngineRegistry:
         return decorator
 
     @classmethod
+    def get_engine_cls(cls, key):
+        assert key in cls._engines, f"Unknown engine: {key}"
+        return cls._engines[key]
+
+    @classmethod
     def new(cls, key, *args, **kwargs):
         """
         Function to create a new training engine instance based on the provided config.

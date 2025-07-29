@@ -87,6 +87,30 @@ class FSDPEngine(BaseEngine):
 
     Supports model sharding, activation/optimizer offloading, LoRA, and sequence parallelism.
     """
+    @classmethod
+    def normalize_config(cls, config):
+        config.ppo_mini_batch_size *= config.rollout_n
+        config.ppo_mini_batch_size //= torch.distributed.get_world_size() // config.ulysses_sequence_parallel_size
+        if config.ppo_micro_batch_size is not None:
+            config.ppo_micro_batch_size //= (
+                torch.distributed.get_world_size() // config.ulysses_sequence_parallel_size
+            )
+            config.forward_micro_batch_size //= (
+                torch.distributed.get_world_size() // config.ulysses_sequence_parallel_size
+            )
+            config.ppo_micro_batch_size_per_gpu = config.ppo_micro_batch_size
+            config.forward_micro_batch_size_per_gpu = config.forward_micro_batch_size
+
+        if config.ppo_micro_batch_size_per_gpu is not None:
+            assert config.ppo_mini_batch_size % config.ppo_micro_batch_size_per_gpu == 0, (
+                f"normalized ppo_mini_batch_size {config.ppo_mini_batch_size} should be divisible by "
+                f"ppo_micro_batch_size_per_gpu {config.ppo_micro_batch_size_per_gpu}"
+            )
+            assert config.ppo_mini_batch_size // config.ppo_micro_batch_size_per_gpu > 0, (
+                f"normalized ppo_mini_batch_size {config.ppo_mini_batch_size} should be larger than "
+                f"ppo_micro_batch_size_per_gpu {config.ppo_micro_batch_size_per_gpu}"
+            )
+        return config
 
     def __init__(self, config: EngineConfig):
         """
@@ -120,29 +144,6 @@ class FSDPEngine(BaseEngine):
         # set FSDP offload params
         self._is_offload_param = self.config.model.fsdp_config.param_offload
         self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
-
-        # normalize config
-        self.config.ppo_mini_batch_size *= self.config.rollout_n
-        self.config.ppo_mini_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
-        if self.config.ppo_micro_batch_size is not None:
-            self.config.ppo_micro_batch_size //= (
-                torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
-            )
-            self.config.forward_micro_batch_size //= (
-                torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
-            )
-            self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
-            self.config.forward_micro_batch_size_per_gpu = self.config.forward_micro_batch_size
-
-        if self.config.ppo_micro_batch_size_per_gpu is not None:
-            assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0, (
-                f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be divisible by "
-                f"ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
-            )
-            assert self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu > 0, (
-                f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be larger than "
-                f"ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
-            )
         self._is_lora = self.config.model.lora_rank > 0
 
     def init_model(self):
