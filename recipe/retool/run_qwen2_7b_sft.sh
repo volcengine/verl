@@ -9,18 +9,14 @@ node_rank=$ARNOLD_ID
 
 project_name=retool
 experiment_name=multiturn-sft-qwen-2.5-7b-instruct
-# HDFS_ROOT=${HDFS_ROOT:-$PWD}
-# DATA_ROOT=${DATA_ROOT:-$PWD}
 
-# TRAIN_DATA=$DATA_ROOT/dataset/wuxibin/ReTool-SFT/data/train-00000-of-00001.parquet
-# EVAL_DATA=$DATA_ROOT/dataset/wuxibin/ReTool-SFT/data/train-00000-of-00001.parquet
-# MODEL_PATH=$HDFS_ROOT/model/Qwen2.5-32B-Instruct
-# SAVE_PATH=$DATA_ROOT/checkpoint/$experiment_name
+HDFS_ROOT=${HDFS_ROOT:-$PWD}
+DATA_ROOT=${DATA_ROOT:-$PWD}
 
-TRAIN_DATA=/mnt/hdfs/zhangchi.usc1992_lf_lq/data/ReTool-SFT/data/train-00000-of-00001.parquet
-EVAL_DATA=/mnt/hdfs/zhangchi.usc1992_lf_lq/data/ReTool-SFT/data/train-00000-of-00001.parquet
-MODEL_PATH=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen2.5-7B-Instruct
-SAVE_PATH=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/open_verl/${project_name}/${experiment_name}
+TRAIN_DATA=$DATA_ROOT/dataset/wuxibin/ReTool-SFT/data/train-00000-of-00001.parquet
+EVAL_DATA=$DATA_ROOT/dataset/wuxibin/ReTool-SFT/data/train-00000-of-00001.parquet
+MODEL_PATH=$HDFS_ROOT/model/Qwen2.5-7B-Instruct
+SAVE_PATH=$DATA_ROOT/checkpoint/$experiment_name
 
 torchrun --nnodes=$nnodes \
      --nproc_per_node=$nproc_per_node \
