@@ -75,6 +75,7 @@ from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 from verl.workers.engine import EngineRegistry
+from verl.workers.engine.config import engine_config_for_actor
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -139,16 +140,46 @@ class ActorWorker(Worker, DistProfilerExtension):
                 world_size=world_size,
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
-        self.config = config.actor
 
         self.role = role
         assert self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
         self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
         debug_print(f"config: {config}")
         debug_print(f"config.actor: {config.actor}")
-        self.engine = EngineRegistry.new(self.config.strategy, self.config)
+        self.config = self.normalize_config(config)
+        debug_print(f"config: {config}")
+        engine_config = engine_config_for_actor(self.config)
+        raise ValueError
+        # self.engine = EngineRegistry.new(self.config.strategy, engine_config)
 
         raise ValueError
+
+    def normalize_config(self, config):
+        # TODO: address this
+        world_size = torch.distributed.get_world_size()
+        config.actor.ppo_mini_batch_size *= config.rollout.n
+        config.actor.ppo_mini_batch_size //= world_size // config.actor.ulysses_sequence_parallel_size
+        assert config.actor.ppo_mini_batch_size > 0, (
+            f"ppo_mini_batch_size {config.actor.ppo_mini_batch_size} should be larger than 0 after "
+            f"normalization"
+        )
+        # micro bsz
+        if config.actor.ppo_micro_batch_size is not None:
+            config.actor.ppo_micro_batch_size //= (
+                world_size // config.actor.ulysses_sequence_parallel_size
+            )
+            config.actor.ppo_micro_batch_size_per_gpu = config.actor.ppo_micro_batch_size
+
+        if config.actor.ppo_micro_batch_size_per_gpu is not None:
+            assert config.actor.ppo_mini_batch_size % config.actor.ppo_micro_batch_size_per_gpu == 0, (
+                f"normalized ppo_mini_batch_size {config.actor.ppo_mini_batch_size} should be divisible by "
+                f"ppo_micro_batch_size_per_gpu {config.actor.ppo_micro_batch_size_per_gpu}"
+            )
+            assert config.actor.ppo_mini_batch_size // config.actor.ppo_micro_batch_size_per_gpu > 0, (
+                f"normalized ppo_mini_batch_size {config.actor.ppo_mini_batch_size} should be larger than "
+                f"ppo_micro_batch_size_per_gpu {config.actor.ppo_micro_batch_size_per_gpu}"
+            )
+        return config
 
 
         # build device mesh for FSDP

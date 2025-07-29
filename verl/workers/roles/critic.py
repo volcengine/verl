@@ -34,7 +34,7 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 from verl.workers.engine import EngineRegistry
-from verl.workers.engine.config import normalize_config, engine_config_from_critic
+from verl.workers.engine.config import engine_config_for_critic
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -58,10 +58,35 @@ class CriticWorker(Worker, DistProfilerExtension):
         # - forward_micro_batch_size_per_gpu
         self.config = omega_conf_to_dataclass(config)
         # will it be different across actor/critic?
-        self.config = normalize_config(self.config)
-        engine_config = engine_config_from_critic(self.config)
+        self.config = self.normalize_config(self.config)
+        engine_config = engine_config_for_critic(self.config)
         self.engine = EngineRegistry.new(self.config.strategy, engine_config)
 
+    @classmethod
+    def normalize_config(self, config):
+        config.ppo_mini_batch_size *= config.rollout_n
+        config.ppo_mini_batch_size //= torch.distributed.get_world_size() // config.ulysses_sequence_parallel_size
+        if config.ppo_micro_batch_size is not None:
+            config.ppo_micro_batch_size //= (
+                torch.distributed.get_world_size() // config.ulysses_sequence_parallel_size
+            )
+            config.forward_micro_batch_size //= (
+                torch.distributed.get_world_size() // config.ulysses_sequence_parallel_size
+            )
+            config.ppo_micro_batch_size_per_gpu = config.ppo_micro_batch_size
+            config.forward_micro_batch_size_per_gpu = config.forward_micro_batch_size
+
+        if config.ppo_micro_batch_size_per_gpu is not None:
+            assert config.ppo_mini_batch_size % config.ppo_micro_batch_size_per_gpu == 0, (
+                f"normalized ppo_mini_batch_size {config.ppo_mini_batch_size} should be divisible by "
+                f"ppo_micro_batch_size_per_gpu {config.ppo_micro_batch_size_per_gpu}"
+            )
+            assert config.ppo_mini_batch_size // config.ppo_micro_batch_size_per_gpu > 0, (
+                f"normalized ppo_mini_batch_size {config.ppo_mini_batch_size} should be larger than "
+                f"ppo_micro_batch_size_per_gpu {config.ppo_micro_batch_size_per_gpu}"
+            )
+        return config
+    
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         self.engine.init_model()

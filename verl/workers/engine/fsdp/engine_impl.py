@@ -87,31 +87,6 @@ class FSDPEngine(BaseEngine):
 
     Supports model sharding, activation/optimizer offloading, LoRA, and sequence parallelism.
     """
-    @classmethod
-    def normalize_config(cls, config):
-        config.ppo_mini_batch_size *= config.rollout_n
-        config.ppo_mini_batch_size //= torch.distributed.get_world_size() // config.ulysses_sequence_parallel_size
-        if config.ppo_micro_batch_size is not None:
-            config.ppo_micro_batch_size //= (
-                torch.distributed.get_world_size() // config.ulysses_sequence_parallel_size
-            )
-            config.forward_micro_batch_size //= (
-                torch.distributed.get_world_size() // config.ulysses_sequence_parallel_size
-            )
-            config.ppo_micro_batch_size_per_gpu = config.ppo_micro_batch_size
-            config.forward_micro_batch_size_per_gpu = config.forward_micro_batch_size
-
-        if config.ppo_micro_batch_size_per_gpu is not None:
-            assert config.ppo_mini_batch_size % config.ppo_micro_batch_size_per_gpu == 0, (
-                f"normalized ppo_mini_batch_size {config.ppo_mini_batch_size} should be divisible by "
-                f"ppo_micro_batch_size_per_gpu {config.ppo_micro_batch_size_per_gpu}"
-            )
-            assert config.ppo_mini_batch_size // config.ppo_micro_batch_size_per_gpu > 0, (
-                f"normalized ppo_mini_batch_size {config.ppo_mini_batch_size} should be larger than "
-                f"ppo_micro_batch_size_per_gpu {config.ppo_micro_batch_size_per_gpu}"
-            )
-        return config
-
     def __init__(self, config: EngineConfig):
         """
         Initialize the FSDPEngine.

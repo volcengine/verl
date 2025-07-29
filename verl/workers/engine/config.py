@@ -12,9 +12,7 @@ class EngineConfig:
     checkpoint: 'CheckpointConfig'
     ppo_mini_batch_size: int
     ppo_micro_batch_size: int
-    forward_micro_batch_size: int
     ppo_micro_batch_size_per_gpu: int
-    forward_micro_batch_size_per_gpu: int
     ulysses_sequence_parallel_size: int
     strategy: str
     grad_clip: float
@@ -78,11 +76,7 @@ class CheckpointConfig:
     async_save: bool
 
 
-def normalize_config(config):
-    return EngineRegistry.get_engine_cls(config.strategy).normalize_config(config)
-
-
-def engine_config_from_critic(critic_config: DictConfig) -> EngineConfig:
+def engine_config_for_critic(critic_config: DictConfig) -> EngineConfig:
     """
     Convert a Hydra config to the FSDPEngineConfig dataclass.
 
@@ -134,9 +128,7 @@ def engine_config_from_critic(critic_config: DictConfig) -> EngineConfig:
         system=system_config,
         ppo_mini_batch_size=critic_config.ppo_mini_batch_size,
         ppo_micro_batch_size=critic_config.ppo_micro_batch_size,
-        forward_micro_batch_size=critic_config.forward_micro_batch_size,
         ppo_micro_batch_size_per_gpu=critic_config.ppo_micro_batch_size_per_gpu,
-        forward_micro_batch_size_per_gpu=critic_config.forward_micro_batch_size_per_gpu,
         ulysses_sequence_parallel_size=critic_config.ulysses_sequence_parallel_size,
         strategy=critic_config.strategy,
         grad_clip=critic_config.grad_clip,
@@ -144,5 +136,69 @@ def engine_config_from_critic(critic_config: DictConfig) -> EngineConfig:
         ppo_max_token_len_per_gpu=critic_config.ppo_max_token_len_per_gpu,
         rollout_n=critic_config.rollout_n,
         checkpoint=critic_config.checkpoint
+    )
+    return ret
+
+
+def engine_config_for_actor(actor_config: DictConfig) -> EngineConfig:
+    """
+    Convert a Hydra config to the FSDPEngineConfig dataclass.
+
+    Args:
+        actor_config (DictConfig): The config from CriticWorker.
+
+    Returns:
+        FSDPEngineConfig: The converted dataclass.
+    """
+    print(actor_config)
+    model_config = ModelConfig(
+        path=actor_config.model.path,
+        tokenizer_path=None,
+        lora_rank=actor_config.model.lora_rank,
+        lora_alpha=actor_config.model.lora_alpha,
+        target_modules=actor_config.model.target_modules,
+        trust_remote_code=actor_config.model.trust_remote_code,
+        custom_chat_template=actor_config.model.get("custom_chat_template", None),
+        override_config=actor_config.model.override_config,
+        use_shm=actor_config.model.use_shm,
+        enable_gradient_checkpointing=actor_config.model.enable_gradient_checkpointing,
+        enable_activation_offload=actor_config.model.enable_activation_offload,
+        use_remove_padding=actor_config.model.use_remove_padding,
+        external_lib=actor_config.model.external_lib
+    )
+    optim_config = OptimConfig(
+        lr=actor_config.actor.optim.lr,
+        betas=actor_config.actor.optim.get("betas", (0.9, 0.999)),
+        weight_decay=actor_config.actor.optim.weight_decay,
+        total_training_steps=actor_config.actor.optim.total_training_steps,
+        lr_warmup_steps=actor_config.actor.optim.lr_warmup_steps,
+        lr_warmup_steps_ratio=actor_config.actor.optim.lr_warmup_steps_ratio,
+        warmup_style=actor_config.actor.optim.get("warmup_style", "constant")
+    )
+    system_config = SystemConfig(
+        fsdp_size=actor_config.actor.fsdp_config.fsdp_size,
+        param_offload=actor_config.actor.fsdp_config.param_offload,
+        optimizer_offload=actor_config.actor.fsdp_config.optimizer_offload,
+        wrap_policy=actor_config.actor.fsdp_config.wrap_policy,
+        forward_prefetch=actor_config.actor.fsdp_config.forward_prefetch,
+        reshard_after_forward=actor_config.actor.fsdp_config.reshard_after_forward,
+        model_dtype=actor_config.actor.fsdp_config.get("model_dtype", "fp32"),
+        mixed_precision=actor_config.actor.fsdp_config.get("mixed_precision", None),
+        offload_policy=actor_config.actor.fsdp_config.offload_policy
+    )
+    ret = EngineConfig(
+        model=model_config,
+        optim=optim_config,
+        system=system_config,
+        ppo_mini_batch_size=actor_config.actor.ppo_mini_batch_size,
+        ppo_micro_batch_size=actor_config.actor.ppo_micro_batch_size,
+        ppo_micro_batch_size_per_gpu=actor_config.actor.ppo_micro_batch_size_per_gpu,
+        ulysses_sequence_parallel_size=actor_config.actor.ulysses_sequence_parallel_size,
+        strategy=actor_config.actor.strategy,
+        grad_clip=actor_config.actor.grad_clip,
+        use_dynamic_bsz=actor_config.actor.use_dynamic_bsz,
+        ppo_max_token_len_per_gpu=actor_config.actor.ppo_max_token_len_per_gpu,
+        rollout_n=actor_config.rollout.n, # different key
+        checkpoint=actor_config.actor.checkpoint
     )
     return ret
