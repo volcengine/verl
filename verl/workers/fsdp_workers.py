@@ -294,7 +294,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             if use_liger:
                 from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
 
-                _apply_liger_kernel_to_instance(model=actor_module)
+                fused_linear_cross_entropy = not use_fused_kernels # use_liger and use_fused_kernels can not be both True
+                _apply_liger_kernel_to_instance(model=actor_module, fused_linear_cross_entropy=fused_linear_cross_entropy)
 
             fused_kernel_options = self.config.model.get("fused_kernel_options", None)
             fused_kernels_backend = (
