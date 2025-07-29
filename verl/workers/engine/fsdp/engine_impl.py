@@ -127,7 +127,7 @@ class FSDPEngine(BaseEngine):
         world_size = torch.distributed.get_world_size()
         from torch.distributed.device_mesh import init_device_mesh
 
-        fsdp_size = self.config.model.fsdp_config.fsdp_size
+        fsdp_size = self.config.system.fsdp_size
         self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=fsdp_size)
         self.use_remove_padding = config.model.use_remove_padding
 
@@ -142,8 +142,8 @@ class FSDPEngine(BaseEngine):
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
 
         # set FSDP offload params
-        self._is_offload_param = self.config.model.fsdp_config.param_offload
-        self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
+        self._is_offload_param = self.config.system.param_offload
+        self._is_offload_optimizer = self.config.system.optimizer_offload
         self._is_lora = self.config.model.lora_rank > 0
 
     def init_model(self):
@@ -207,7 +207,7 @@ class FSDPEngine(BaseEngine):
         if self.rank == 0:
             print(f"Engine overriding config {override_config_kwargs}")
 
-        torch_dtype = self.config.model.fsdp_config.model_dtype
+        torch_dtype = self.config.system.model_dtype
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         from transformers import AutoConfig
@@ -269,7 +269,7 @@ class FSDPEngine(BaseEngine):
 
         self.model_config = model_config
 
-        fsdp_config = self.config.model.fsdp_config
+        fsdp_config = self.config.system
         mixed_precision_config = fsdp_config.mixed_precision
         if mixed_precision_config is not None:
             param_dtype = PrecisionType.to_dtype(mixed_precision_config.get("param_dtype", "bf16"))
@@ -284,7 +284,7 @@ class FSDPEngine(BaseEngine):
 
         auto_wrap_policy = get_fsdp_wrap_policy(
             module=module,
-            config=self.config.model.fsdp_config.wrap_policy,
+            config=self.config.system.wrap_policy,
             is_lora=self.config.model.lora_rank > 0,
         )
 
@@ -304,7 +304,7 @@ class FSDPEngine(BaseEngine):
                 sharding_strategy=sharding_strategy,
                 mixed_precision=mixed_precision,
                 sync_module_states=True,
-                forward_prefetch=self.config.model.fsdp_config.forward_prefetch,
+                forward_prefetch=self.config.system.forward_prefetch,
                 device_mesh=self.device_mesh,
                 cpu_offload=None,
             )
@@ -635,14 +635,14 @@ class FSDPEngine(BaseEngine):
         """
         assert device in ("cuda", "cpu")
         if device == "cuda":
-            if not self.config.model.fsdp_config.param_offload:
+            if not self.config.system.param_offload:
                 if model:
                     load_fsdp_model_to_gpu(self.model_module)
                 if optimizer and self.optimizer is not None:
                     load_fsdp_optimizer(self.optimizer, device)
             gc.collect()
         elif device == "cpu":
-            if not self.config.model.fsdp_config.param_offload:
+            if not self.config.system.param_offload:
                 if model:
                     offload_fsdp_model_to_cpu(self.model_module)
                 if optimizer and self.optimizer is not None:

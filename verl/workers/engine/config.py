@@ -8,6 +8,7 @@ class EngineConfig:
     """Dataclass for Engine configuration."""
     model: 'ModelConfig'
     optim: 'OptimConfig'
+    system: 'SystemConfig'
     checkpoint: 'CheckpointConfig'
     ppo_mini_batch_size: int
     ppo_micro_batch_size: int
@@ -27,7 +28,6 @@ class ModelConfig:
     """Dataclass for model configuration."""
     path: str
     tokenizer_path: str
-    fsdp_config: 'SystemConfig'
     lora_rank: int
     lora_alpha: int
     target_modules: list[str]
@@ -53,6 +53,10 @@ class OptimConfig:
     warmup_style: str
 
 
+# TODO: use inheritance for different backend
+# - FSDPSystemConfig(SystemConfig)
+# - MCoreSystemConfig(SystemConfig)
+
 @dataclass
 class SystemConfig:
     """Dataclass for FSDP system configuration."""
@@ -65,6 +69,7 @@ class SystemConfig:
     model_dtype: str
     mixed_precision: dict
     offload_policy: bool
+
 
 @dataclass
 class CheckpointConfig:
@@ -91,17 +96,6 @@ def engine_config_from_critic(critic_config: DictConfig) -> EngineConfig:
     model_config = ModelConfig(
         path=critic_config.model.path,
         tokenizer_path=critic_config.model.tokenizer_path,
-        fsdp_config=SystemConfig(
-            fsdp_size=critic_config.model.fsdp_config.fsdp_size,
-            param_offload=critic_config.model.fsdp_config.param_offload,
-            optimizer_offload=critic_config.model.fsdp_config.optimizer_offload,
-            wrap_policy=critic_config.model.fsdp_config.wrap_policy,
-            forward_prefetch=critic_config.model.fsdp_config.forward_prefetch,
-            reshard_after_forward=critic_config.model.fsdp_config.reshard_after_forward,
-            model_dtype=critic_config.model.fsdp_config.model_dtype,
-            mixed_precision=critic_config.model.fsdp_config.get("mixed_precision", None),
-            offload_policy=critic_config.model.fsdp_config.offload_policy
-        ),
         lora_rank=critic_config.model.lora_rank,
         lora_alpha=critic_config.model.lora_alpha,
         target_modules=critic_config.model.target_modules,
@@ -123,9 +117,21 @@ def engine_config_from_critic(critic_config: DictConfig) -> EngineConfig:
         lr_warmup_steps_ratio=critic_config.optim.lr_warmup_steps_ratio,
         warmup_style=critic_config.optim.get("warmup_style", "constant")
     )
+    system_config = SystemConfig(
+        fsdp_size=critic_config.model.fsdp_config.fsdp_size,
+        param_offload=critic_config.model.fsdp_config.param_offload,
+        optimizer_offload=critic_config.model.fsdp_config.optimizer_offload,
+        wrap_policy=critic_config.model.fsdp_config.wrap_policy,
+        forward_prefetch=critic_config.model.fsdp_config.forward_prefetch,
+        reshard_after_forward=critic_config.model.fsdp_config.reshard_after_forward,
+        model_dtype=critic_config.model.fsdp_config.model_dtype,
+        mixed_precision=critic_config.model.fsdp_config.get("mixed_precision", None),
+        offload_policy=critic_config.model.fsdp_config.offload_policy
+    )
     ret = EngineConfig(
         model=model_config,
         optim=optim_config,
+        system=system_config,
         ppo_mini_batch_size=critic_config.ppo_mini_batch_size,
         ppo_micro_batch_size=critic_config.ppo_micro_batch_size,
         forward_micro_batch_size=critic_config.forward_micro_batch_size,
