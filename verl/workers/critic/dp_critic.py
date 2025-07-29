@@ -160,7 +160,11 @@ class DataParallelPPOCritic(BasePPOCritic):
         micro_batch_size = data.meta_info["micro_batch_size"]
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
-        select_keys = ["responses", "input_ids", "response_mask", "attention_mask", "position_ids"]
+        select_keys = (
+            ["responses", "input_ids", "response_mask", "attention_mask", "position_ids"]
+            if "response_mask" in data.batch
+            else ["responses", "input_ids", "attention_mask", "position_ids"]
+        )
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
@@ -182,8 +186,9 @@ class DataParallelPPOCritic(BasePPOCritic):
         if use_dynamic_bsz:
             values = restore_dynamic_batch(values, batch_idx_list)
 
-        response_mask = data.batch["response_mask"]
-        values = values * response_mask  # Only action tokens have values
+        if "response_mask" in data.batch:
+            response_mask = data.batch["response_mask"]
+            values = values * response_mask  # Only action tokens have values
         return values
 
     @GPUMemoryLogger(role="dp critic", logger=logger)
