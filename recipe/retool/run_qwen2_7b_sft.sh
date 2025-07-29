@@ -3,8 +3,8 @@ set -x
 
 nnodes=1
 nproc_per_node=8
-master_addr=$ARNOLD_WORKER_0_HOST
-master_port=$ARNOLD_WORKER_0_PORT
+master_addr=
+master_port=
 node_rank=$ARNOLD_ID
 
 project_name=retool
