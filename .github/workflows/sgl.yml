@@ -99,7 +99,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install hf_transfer fastmcp
-          pip3 install -e .[test,gpu,sglang] --no-deps
+          pip3 install -e .[test]
       - name: Download Model to Use
         run: |
           huggingface-cli download 'Qwen/Qwen2-7B-Instruct'
