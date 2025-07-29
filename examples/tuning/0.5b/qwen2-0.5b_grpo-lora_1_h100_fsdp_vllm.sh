@@ -7,9 +7,6 @@ export WANDB_EXP=0.5b-${NOW}
 MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
 
 set -x
-export VLLM_ATTENTION_BACKEND=XFORMERS
-# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 nproc_per_gpu=116
 nnodes=1
 ngpu_per_node=1
@@ -62,7 +59,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.kl_ctrl.kl_coef=0.001 \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name=${WANDB_PROJECT} \
     trainer.experiment_name=${WANDB_EXP} \
     trainer.n_gpus_per_node=1 \

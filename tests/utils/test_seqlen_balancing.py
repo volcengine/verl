@@ -18,13 +18,21 @@ import torch.multiprocessing as mp
 
 from verl import DataProto
 from verl.utils.model import create_random_mask
-from verl.utils.seqlen_balancing import ceildiv, get_reverse_idx, rearrange_micro_batches
+from verl.utils.seqlen_balancing import (
+    ceildiv,
+    get_reverse_idx,
+    prepare_dynamic_batch,
+    rearrange_micro_batches,
+    restore_dynamic_batch,
+)
 
 
 def test_seqlen_balancing():
     input_ids = torch.randint(low=0, high=10, size=(20, 100))
 
-    attention_mask = create_random_mask(input_ids=input_ids, max_ratio_of_left_padding=0.1, max_ratio_of_valid_token=0.9, min_ratio_of_valid_token=0.5)
+    attention_mask = create_random_mask(
+        input_ids=input_ids, max_ratio_of_left_padding=0.1, max_ratio_of_valid_token=0.9, min_ratio_of_valid_token=0.5
+    )
     data = {"input_ids": input_ids, "attention_mask": attention_mask}
     dataproto = DataProto.from_single_dict(data)
     micro_batches, micro_bsz_idx_lst = rearrange_micro_batches(dataproto.batch, max_token_len=300)
@@ -36,6 +44,20 @@ def test_seqlen_balancing():
     reverse_idx_map = torch.tensor(reverse_idx_map)
     new_batch = batch[reverse_idx_map]
     torch.testing.assert_close(new_batch, dataproto.batch)
+
+
+def test_dynamic_batch():
+    input_ids = torch.randint(low=0, high=10, size=(20, 100))
+
+    attention_mask = create_random_mask(
+        input_ids=input_ids, max_ratio_of_left_padding=0.1, max_ratio_of_valid_token=0.9, min_ratio_of_valid_token=0.5
+    )
+    data = {"input_ids": input_ids, "attention_mask": attention_mask}
+    dataproto = DataProto.from_single_dict(data)
+    micro_batches, micro_bsz_idx_lst = prepare_dynamic_batch(dataproto, max_token_len=300)
+    input_ids = torch.cat([micro_batch.batch["input_ids"] for micro_batch in micro_batches], dim=0)
+    input_ids = restore_dynamic_batch(input_ids, micro_bsz_idx_lst)
+    torch.testing.assert_close(input_ids, dataproto.batch["input_ids"])
 
 
 def _worker(rank, world_size, init_method, max_token_len, use_same_dp, min_mb):
@@ -100,6 +122,60 @@ def _worker(rank, world_size, init_method, max_token_len, use_same_dp, min_mb):
     torch.testing.assert_close(reconstructed, batch)
 
     dist.destroy_process_group()
+
+
+def test_dataproto_split_uneven():
+    """Test DataProto.split with uneven splits"""
+    # Create test data with 10 items
+    input_ids = torch.randint(low=0, high=10, size=(10, 5))
+    attention_mask = torch.ones(10, 5)
+    data = {"input_ids": input_ids, "attention_mask": attention_mask}
+    dataproto = DataProto.from_single_dict(data)
+
+    # Test split with size 3 (should create chunks of [3, 3, 3, 1])
+    splits = dataproto.split(3)
+    assert len(splits) == 4
+    assert len(splits[0]) == 3
+    assert len(splits[1]) == 3
+    assert len(splits[2]) == 3
+    assert len(splits[3]) == 1
+
+    reconstructed = DataProto.concat(splits)
+    torch.testing.assert_close(reconstructed.batch["input_ids"], dataproto.batch["input_ids"])
+    torch.testing.assert_close(reconstructed.batch["attention_mask"], dataproto.batch["attention_mask"])
+
+    # Test split with size equal to length (should create one chunk)
+    splits = dataproto.split(10)
+    assert len(splits) == 1
+    assert len(splits[0]) == 10
+
+    # Test split with size larger than length (should create one chunk with all data)
+    splits = dataproto.split(15)
+    assert len(splits) == 1
+    assert len(splits[0]) == 10
+
+    # Test with non-tensor batch data
+    import numpy as np
+
+    data_with_non_tensor = {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "labels": np.array([f"label_{i}" for i in range(10)], dtype=object),
+    }
+    dataproto_with_non_tensor = DataProto.from_single_dict(data_with_non_tensor)
+
+    splits = dataproto_with_non_tensor.split(3)
+    assert len(splits) == 4
+    assert len(splits[0]) == 3
+    assert len(splits[1]) == 3
+    assert len(splits[2]) == 3
+    assert len(splits[3]) == 1
+
+    # Verify non-tensor data integrity
+    reconstructed = DataProto.concat(splits)
+    np.testing.assert_array_equal(
+        reconstructed.non_tensor_batch["labels"], dataproto_with_non_tensor.non_tensor_batch["labels"]
+    )
 
 
 def test_seqlen_balancing_distributed_params(tmp_path):

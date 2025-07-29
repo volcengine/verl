@@ -1,5 +1,7 @@
 # Proximal Policy Optimization (PPO)
 
+Last updated: 06/19/2025.
+
 Proximal Policy Optimization (PPO) is a family of policy gradient methods for reinforcement learning, proposed by OpenAI in 2017. PPO strikes a balance between simplicity, stability, and performance, making it one of the most widely used algorithms in modern RL applications, including large-scale language model fine-tuning.
 
 Traditional policy gradient methods like REINFORCE or Vanilla Policy Gradient suffer from:
@@ -37,7 +39,7 @@ Most critic configs are similar to those of actors. Note that the critic model i
 
 - `actor_rollout_ref.actor.ppo_epochs`: Number of epochs for PPO updates on one set of sampled trajectories for actor
 
-- `actor_rollout_ref.actor.ppo_epochs`: Number of epochs for PPO updates on one set of sampled trajectories for critic
+- `critic.ppo_epochs`: Number of epochs for PPO updates on one set of sampled trajectories for critic. Defaults to `actor_rollout_ref.actor.ppo_epochs`
 
 - `algorithm.gemma`: discount factor
 
@@ -86,7 +88,7 @@ Qwen2.5 training log and commands: [link](https://github.com/eric-haibin-lin/ver
 bash run_gemma.sh
   trainer.n_gpus_per_node=1 \
   actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-  trainer.logger=['console'] \
+  trainer.logger=console \
   critic.model.path=Qwen/Qwen2.5-0.5B-Instruct \
   actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
   data.train_batch_size=256 \

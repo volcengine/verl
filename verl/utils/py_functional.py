@@ -20,14 +20,15 @@ import multiprocessing
 import os
 import queue  # Import the queue module for exception type hint
 import signal
+from contextlib import contextmanager
 from functools import wraps
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple
+from typing import Any, Callable, Iterator, Optional
 
 
 # --- Top-level helper for multiprocessing timeout ---
 # This function MUST be defined at the top level to be pickleable
-def _mp_target_wrapper(target_func: Callable, mp_queue: multiprocessing.Queue, args: Tuple, kwargs: Dict[str, Any]):
+def _mp_target_wrapper(target_func: Callable, mp_queue: multiprocessing.Queue, args: tuple, kwargs: dict[str, Any]):
     """
     Internal wrapper function executed in the child process.
     Calls the original target function and puts the result or exception into the queue.
@@ -124,11 +125,16 @@ def timeout_limit(seconds: float, use_signals: bool = False):
                 except queue.Empty as err:
                     exitcode = process.exitcode
                     if exitcode is not None and exitcode != 0:
-                        raise RuntimeError(f"Child process exited with error (exitcode: {exitcode}) before returning result.") from err
+                        raise RuntimeError(
+                            f"Child process exited with error (exitcode: {exitcode}) before returning result."
+                        ) from err
                     else:
                         # Should have timed out if queue is empty after join unless process died unexpectedly
                         # Update function name in error message if needed (optional but good practice)
-                        raise TimeoutError(f"Operation timed out or process finished unexpectedly without result (exitcode: {exitcode}).") from err
+                        raise TimeoutError(
+                            f"Operation timed out or process finished unexpectedly without result "
+                            f"(exitcode: {exitcode})."
+                        ) from err
                 finally:
                     q.close()
                     q.join_thread()
@@ -138,7 +144,7 @@ def timeout_limit(seconds: float, use_signals: bool = False):
     return decorator
 
 
-def union_two_dict(dict1: Dict, dict2: Dict):
+def union_two_dict(dict1: dict, dict2: dict):
     """Union two dict. Will throw an error if there is an item not the same object with the same key.
 
     Args:
@@ -156,7 +162,7 @@ def union_two_dict(dict1: Dict, dict2: Dict):
     return dict1
 
 
-def append_to_dict(data: Dict, new_data: Dict):
+def append_to_dict(data: dict, new_data: dict):
     """Append values from new_data to lists in data.
 
     For each key in new_data, this function appends the corresponding value to a list
@@ -225,7 +231,7 @@ class DynamicEnumMeta(type):
 
 
 class DynamicEnum(metaclass=DynamicEnumMeta):
-    _registry: Dict[str, "DynamicEnum"] = {}
+    _registry: dict[str, "DynamicEnum"] = {}
     _next_value: int = 0
 
     def __init__(self, name: str, value: int):
@@ -267,13 +273,44 @@ class DynamicEnum(metaclass=DynamicEnumMeta):
         return cls._registry.get(name.upper())
 
 
+@contextmanager
+def temp_env_var(key: str, value: str):
+    """Context manager for temporarily setting an environment variable.
+
+    This context manager ensures that environment variables are properly set and restored,
+    even if an exception occurs during the execution of the code block.
+
+    Args:
+        key: Environment variable name to set
+        value: Value to set the environment variable to
+
+    Yields:
+        None
+
+    Example:
+        >>> with temp_env_var("MY_VAR", "test_value"):
+        ...     # MY_VAR is set to "test_value"
+        ...     do_something()
+        ... # MY_VAR is restored to its original value or removed if it didn't exist
+    """
+    original = os.environ.get(key)
+    os.environ[key] = value
+    try:
+        yield
+    finally:
+        if original is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = original
+
+
 def convert_to_regular_types(obj):
     """Convert Hydra configs and other special types to regular Python types."""
     from omegaconf import DictConfig, ListConfig
 
-    if isinstance(obj, (ListConfig, DictConfig)):
+    if isinstance(obj, ListConfig | DictConfig):
         return {k: convert_to_regular_types(v) for k, v in obj.items()} if isinstance(obj, DictConfig) else list(obj)
-    elif isinstance(obj, (list, tuple)):
+    elif isinstance(obj, list | tuple):
         return [convert_to_regular_types(x) for x in obj]
     elif isinstance(obj, dict):
         return {k: convert_to_regular_types(v) for k, v in obj.items()}

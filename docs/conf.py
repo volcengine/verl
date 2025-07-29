@@ -49,6 +49,7 @@ extensions = [
     "sphinx.ext.autosummary",
     "sphinx.ext.autosectionlabel",
     "sphinx.ext.napoleon",
+    "sphinx.ext.viewcode",
 ]
 # Use Google style docstrings instead of NumPy docstrings.
 napoleon_google_docstring = True
@@ -92,6 +93,14 @@ html_static_path = ["_static"]
 # Add the JavaScript file
 html_js_files = [
     "js/runllm-widget.js",
+    "js/resizable-sidebar.js",
 ]
 
-exclude_patterns = ["README.md", "README_vllm0.7.md"]
+# Add custom CSS file for full-width layout
+html_css_files = [
+    "custom.css",
+]
+
+exclude_patterns += ["README.md", "README_vllm0.7.md"]
+
+suppress_warnings = ["ref.duplicate", "ref.myst"]

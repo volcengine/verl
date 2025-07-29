@@ -14,8 +14,6 @@ else
     echo "Model directory ${MODEL_PATH} already exists, skip downloading."
 fi
 
-# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 
 BATCH_SIZE=16
 EXP_NAME="qwen2.5_0.5b_grpo_lora"
@@ -56,7 +54,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_grpo_example_gsm8k' \
     trainer.experiment_name=${EXP_NAME} \
     trainer.n_gpus_per_node=8 \
@@ -67,7 +65,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.total_epochs=1 $@
 
 # step 2. merge model
-python3 scripts/model_merger.py merge \
+python3 -m verl.model_merger merge \
     --backend fsdp \
     --local_dir checkpoints/verl_grpo_example_gsm8k/${EXP_NAME}/global_step_1/actor/ \
     --target_dir checkpoints/verl_grpo_example_gsm8k/${EXP_NAME}/global_step_1/actor/hf

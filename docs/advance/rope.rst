@@ -1,6 +1,8 @@
 RoPE Scaling override
 =======================================
 
+Last updated: 05/14/2025.
+
 Some models such as `Qwen/Qwen2.5-7B-Instruct <https://huggingface.co/Qwen/Qwen2.5-7B-Instruct#processing-long-texts>`_ support RoPE Scaling but don't have it defined in their config.json file.
 For example, this model supports this configuration:
 

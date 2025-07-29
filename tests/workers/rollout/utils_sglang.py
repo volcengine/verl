@@ -43,7 +43,7 @@ def are_lists_similar(a, b, threshold=10):
         return False
     total_length = 0
     total_diff = 0
-    for s1, s2 in zip(a, b):
+    for s1, s2 in zip(a, b, strict=True):
         max_len = max(len(s1), len(s2))
         total_length += max_len
         total_diff += levenshtein(s1, s2)
@@ -96,7 +96,9 @@ def prepare_inputs(tokenizer, prompts, max_prompt_length):
     pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
     tokenized = tokenizer(prompts, return_tensors="pt", padding=True)
     input_ids = pad_sequence_to_length(tokenized["input_ids"], max_prompt_length, pad_token_id, left_pad=True)
-    attention_mask = pad_sequence_to_length(tokenized["attention_mask"], max_prompt_length, pad_token_id=0, left_pad=True)
+    attention_mask = pad_sequence_to_length(
+        tokenized["attention_mask"], max_prompt_length, pad_token_id=0, left_pad=True
+    )
     position_ids = compute_position_id_with_mask(attention_mask)
     position_ids = pad_sequence_to_length(position_ids, max_prompt_length, pad_token_id=0, left_pad=True)
     return input_ids, attention_mask, position_ids
@@ -120,7 +122,14 @@ def generate_hf_output(model, input_ids, attention_mask, tokenizer, max_response
     return tokenizer.batch_decode(response)
 
 
-def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_config_path):
+def get_rollout_config(
+    max_response_length,
+    max_prompt_length,
+    dtype,
+    tensor_parallel_size,
+    tool_config_path=None,
+    interaction_config_path=None,
+):
     sampling_params = dict(
         n=1,
         temperature=0,
@@ -138,9 +147,10 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
     rollout_config = OmegaConf.create(
         {
             "name": "sglang",
+            "mode": "sync",
             "load_format": "dummy_dtensor",
             "enforce_eager": False,
-            "free_cache_engine": False,
+            "free_cache_engine": True,
             "dtype": dtype,
             "gpu_memory_utilization": 0.5,
             "ignore_eos": False,
@@ -148,12 +158,16 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
             "prompt_length": max_prompt_length,
             "response_length": max_response_length,
             "tensor_model_parallel_size": tensor_parallel_size,
+            # set to 128MB only for testing
+            "update_weights_bucket_megabytes": 128,
             "multi_turn": {
-                "max_turns": 4,
+                "max_assistant_turns": 4,
+                "max_user_turns": 4,
                 "enable": True,
                 "tool_config_path": tool_config_path,
+                "interaction_config_path": interaction_config_path,
                 "use_inference_chat_template": False,
-                "enable_tokenization_sanity_check": True,
+                "tokenization_sanity_check_mode": "strict",
             },
             "max_model_len": None,
             **sampling_params,

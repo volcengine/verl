@@ -15,8 +15,6 @@
 Adapted from Cruise.
 """
 
-from typing import Union
-
 import torch
 
 HALF_LIST = [16, "16", "fp16", "float16", torch.float16]
@@ -40,7 +38,7 @@ class PrecisionType:
     MIXED = "mixed"
 
     @staticmethod
-    def supported_type(precision: Union[str, int]) -> bool:
+    def supported_type(precision: str | int) -> bool:
         return any(x == precision for x in PrecisionType)
 
     @staticmethod

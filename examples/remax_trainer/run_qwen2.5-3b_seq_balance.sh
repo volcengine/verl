@@ -3,8 +3,6 @@ set -x
 export HF_DATASETS_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 
-# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
-# export VLLM_ATTENTION_BACKEND=XFORMERS
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=remax \
@@ -34,7 +32,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.kl_penalty=kl \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_remax_example_gsm8k' \
     trainer.experiment_name='qwen2.5_3b_function_rm_kl1e-3' \
     trainer.val_before_train=False \

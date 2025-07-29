@@ -43,16 +43,28 @@ def _fsdp_activation_offloading_test(rank, world_size, rendezvous_file, strategy
     config = Qwen2Config(num_hidden_layers=4)
 
     with torch.device("cuda"):
-        model = AutoModelForCausalLM.from_config(config=config, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
+        model = AutoModelForCausalLM.from_config(
+            config=config, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2"
+        )
         model = model.to(device="cuda")
 
     # Wrap model with FSDP
     mixed_precision = MixedPrecision(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, buffer_dtype=torch.float32)
 
     if strategy == "fsdp":
-        model = FSDP(model, use_orig_params=False, device_id=torch.cuda.current_device(), sharding_strategy=ShardingStrategy.FULL_SHARD, mixed_precision=mixed_precision, device_mesh=device_mesh, auto_wrap_policy=get_fsdp_wrap_policy(module=model))
+        model = FSDP(
+            model,
+            use_orig_params=False,
+            device_id=torch.cuda.current_device(),
+            sharding_strategy=ShardingStrategy.FULL_SHARD,
+            mixed_precision=mixed_precision,
+            device_mesh=device_mesh,
+            auto_wrap_policy=get_fsdp_wrap_policy(module=model),
+        )
     else:
-        mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, cast_forward_inputs=True)
+        mp_policy = MixedPrecisionPolicy(
+            param_dtype=torch.bfloat16, reduce_dtype=torch.float32, cast_forward_inputs=True
+        )
         fsdp_kwargs = {
             "mesh": device_mesh,
             "mp_policy": mp_policy,
@@ -64,7 +76,9 @@ def _fsdp_activation_offloading_test(rank, world_size, rendezvous_file, strategy
 
     # Create checkpoint manager
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    checkpoint_manager = FSDPCheckpointManager(model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, tokenizer=tokenizer)
+    checkpoint_manager = FSDPCheckpointManager(
+        model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, tokenizer=tokenizer
+    )
 
     # Generate sample input
     batch_size = 2

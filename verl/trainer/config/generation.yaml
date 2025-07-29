@@ -34,13 +34,13 @@ rollout:
   max_num_seqs: 1024
   log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
   log_prob_micro_batch_size_per_gpu: 8
-  # for fire vllm rollout
-  use_fire_sampling: False # enable FIRE https://arxiv.org/abs/2410.21236
   # for hf rollout
   do_sample: True
   disable_log_stats: True
   enable_chunked_prefill: True
   n: 1
+  # support logging rollout prob for debugging purpose
+  calculate_log_probs: False
 actor:
   strategy: fsdp  # This is for backward-compatibility
   ulysses_sequence_parallel_size: 1 # sp size

@@ -1,6 +1,5 @@
 set -x
 
-#export VLLM_ATTENTION_BACKEND=XFORMERS
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -31,7 +30,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','tensorboard'] \
+    trainer.logger='["console","tensorboard"]' \
     trainer.project_name='verl_example' \
     trainer.experiment_name='smol135m_grpo' \
     trainer.val_before_train=True \

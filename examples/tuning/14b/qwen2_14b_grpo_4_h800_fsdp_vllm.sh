@@ -1,7 +1,5 @@
 set -x
 
-#export VLLM_ATTENTION_BACKEND=XFORMERS
-
 gsm8k_train_path=$HOME/data/rlhf/gsm8k/train.parquet
 gsm8k_test_path=$HOME/data/rlhf/math/test.parquet
 model_path=Qwen/Qwen2.5-Coder-14B-Instruct
@@ -39,7 +37,7 @@ PYTHONPATH=/opt/tiger/open_verl python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_grpo_example_gsm8k' \
     trainer.experiment_name='qwen2_14b_function_rm' \
     trainer.n_gpus_per_node=4 \

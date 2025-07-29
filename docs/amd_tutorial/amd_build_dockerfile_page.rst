@@ -1,6 +1,8 @@
 Getting started with AMD (ROCM Kernel)
 =====================================================
 
+Last updated: 07/06/2025.
+
 Author: `Yusheng Su <https://yushengsu-thu.github.io/>`_
 
 Setup
@@ -14,40 +16,267 @@ docker/Dockerfile.rocm
 
 .. code-block:: bash
 
-    # Build the docker in the repo dir:
-    # docker build -f docker/Dockerfile.rocm -t verl-rocm .
-    # docker images # you can find your built docker
+    FROM "rlfoundation.azurecr.io/rocm6.3.4:vllm-0.8.5-numa-patch-ubuntu-22.04"
+
+    SHELL ["/bin/bash", "-ceuxo", "pipefail"]
+
+    ENV MAX_JOBS=512
+
+    ENV PATH="/usr/local/python3.12/bin:$PATH"
+    RUN ln -sf /usr/bin/python3.12 /usr/bin/python && \
+        ln -sf /usr/bin/pip3.12 /usr/bin/pip
+
+    ############################################
+    RUN apt-get update
+    RUN apt-get install -y pkg-config liblzma-dev
+    ############################################
+
+    ###########################################
+    ##########Install TransformerEngine########
+    ###########################################
+    WORKDIR /workspace/
+    # transformer-engine install
+    # https://github.com/ROCm/TransformerEngine
+    RUN rm -rf TransformerEngine 
+    RUN git clone --recursive https://github.com/ROCm/TransformerEngine.git
+    WORKDIR /workspace/TransformerEngine
+    git checkout 236178e5
+    # git checkout bb061ade
+    # git checkout 864405c
+    ENV NVTE_FRAMEWORK=pytorch 
+    ENV NVTE_ROCM_ARCH=gfx942 
+    ENV NVTE_USE_HIPBLASLT=1
+    ENV NVTE_USE_ROCM=1  
+    # export CMAKE_PREFIX_PATH="/opt/rocm:/opt/rocm/hip:/usr/local:/usr:${CMAKE_PREFIX_PATH:-}"
+    ENV CMAKE_PREFIX_PATH="/opt/rocm:/opt/rocm/hip:/usr/local:/usr"
+    RUN MAX_JOBS=$(MAX_JOBS) pip install . -vvv 
+    WORKDIR /workspace/
+    ###########################################
+    ###########################################
+    ###########################################
 
 
-    # Support - Traing: fsdp; Inference: vllm
-    # FROM rocm/vllm:rocm6.2_mi300_ubuntu20.04_py3.9_vllm_0.6.4
-    # Support - Traing: fsdp; Inference: vllm, sglang
-    FROM lmsysorg/sglang:v0.4.6.post5-rocm630
 
-    # Set working directory
-    # WORKDIR $PWD/app
 
-    # Set environment variables
+
+    ####################################################################################
+    ################Install vllm - sglang require vllm 0.6.7 dependency#################
+    ####################################################################################
+    #### Require vllm 0.6.7 - checkout 113274a0
+    WORKDIR /workspace/
+    RUN rm -rf vllm
+    RUN pip uninstall -y vllm
+    # Refer to here (down-grade vllm to 0.6.3): https://docs.vllm.ai/en/v0.6.3/getting_started/amd-installation.html
+    RUN git clone https://github.com/ROCm/vllm.git
+    # git clone https://github.com/vllm-project/vllm.git
+    WORKDIR /workspace/vllm
+    RUN git checkout 113274a0
     ENV PYTORCH_ROCM_ARCH="gfx90a;gfx942"
+    #ENV MAX_JOBS=512
+    ENV MAX_JOBS=${MAX_JOBS}
+    RUN pip install "boto3>=1.26.0"
+    RUN pip install setuptools_scm
+    # will add src into py. You can delete the repo
+    RUN python3 setup.py install
+    WORKDIR /workspace/
+    ####################################################################################
+    ####################################################################################
+    ####################################################################################
 
+
+
+    ###########################################
+    ############For hack docker################
+    ###########################################
+    RUN pip install setuptools==75.8.0
+    ###########################################
+    ###########################################
+    ###########################################
+
+
+
+    ###########################################
+    ############build sgalng###################
+    ###########################################
+    # Set environment variables
+    ENV BASE_DIR=/sgl-workspace
+    ENV BUILD_TYPE=all
+    ENV SGL_REPO=https://github.com/sgl-project/sglang
+    ENV SGL_BRANCH=v0.4.6.post5
+    ENV TRITON_REPO=https://github.com/ROCm/triton.git
+    ENV TRITON_COMMIT=improve_fa_decode_3.0.0
+    ENV AITER_REPO=https://github.com/ROCm/aiter.git
+    ENV AITER_COMMIT=v0.1.2
+    # v0.1.2 version - commit id: 9d11f47
+    # ENV AITER_COMMIT=9d11f47
+    ENV HIP_FORCE_DEV_KERNARG=1
+    ENV HSA_NO_SCRATCH_RECLAIM=1
+    ENV SGLANG_SET_CPU_AFFINITY=1
+    ENV SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN=1
+    ENV NCCL_MIN_NCHANNELS=112
+    ENV MOE_PADDING=1
+    ENV VLLM_FP8_PADDING=1
+    ENV VLLM_FP8_ACT_PADDING=1
+    ENV VLLM_FP8_WEIGHT_PADDING=1
+    ENV VLLM_FP8_REDUCE_CONV=1
+    ENV TORCHINDUCTOR_MAX_AUTOTUNE=1
+    ENV TORCHINDUCTOR_MAX_AUTOTUNE_POINTWISE=1
+    ENV HIPCC_COMPILE_FLAGS_APPEND="--offload-arch=gfx942"
+    ENV AMDGPU_TARGETS=gfx942
+    ENV ROCM_ARCH=gfx942
+    ENV PYTORCH_ROCM_ARCH="gfx90a;gfx942"
+    # Switch to working directory
+    WORKDIR /sgl-workspace
+    # Clean and create directory
+    RUN rm -rf /sgl-workspace && mkdir -p /sgl-workspace
+
+    # Clone and build sglang
+    RUN git clone ${SGL_REPO} \
+        && cd sglang \
+        && git checkout ${SGL_BRANCH} || echo "Using default branch" \
+        && cd sgl-kernel \
+        && rm -f pyproject.toml \
+        && mv pyproject_rocm.toml pyproject.toml \
+        && python setup_rocm.py install \
+        && cd .. \
+        && if [ "$BUILD_TYPE" = "srt" ]; then \
+            python -m pip --no-cache-dir install -e "python[srt_hip]"; \
+        else \
+            python -m pip --no-cache-dir install -e "python[all_hip]"; \
+        fi \
+        && cd /sgl-workspace \
+        && cp -r /sgl-workspace/sglang /sglang \
+        && python -m pip cache purge
+
+    # Install common Python packages
+    RUN pip install IPython orjson python-multipart torchao pybind11
+    # Rebuild Triton
+    RUN pip uninstall -y triton || true \
+        && git clone ${TRITON_REPO} \
+        && cd triton \
+        && git checkout ${TRITON_COMMIT} \
+        && cd python \
+        && python3 setup.py install \
+        && cd /sgl-workspace
+    # ENV HIPCC_COMPILE_FLAGS_APPEND="--offload-arch=gfx942 --amdgpu-lower-module-lds-strategy=1"
+    # ENV HIPCC_COMPILE_FLAGS_APPEND="--offload-arch=gfx942"
+
+    # Build aiter
+    #version: Commit 9d11f47
+        # && git checkout ${AITER_COMMIT} \
+    RUN pip uninstall -y aiter || true
+    RUN git clone ${AITER_REPO} \
+        && cd aiter \
+        && git checkout ${AITER_COMMIT} \
+        && git submodule sync \
+        && git submodule update --init --recursive \
+        && PREBUILD_KERNELS=1 GPU_ARCHS=gfx942 python3 setup.py install \
+        && cd /sgl-workspace
+
+    # Copy MI300X config 
+    RUN find /sgl-workspace/sglang/python/sglang/srt/layers/quantization/configs/ \
+            /sgl-workspace/sglang/python/sglang/srt/layers/moe/fused_moe_triton/configs/ \
+            -type f -name '*MI300X*' | \
+            xargs -I {} sh -c 'vf_config=$(echo "$1" | sed "s/MI300X/MI300X_VF/"); cp "$1" "$vf_config"' -- {}
+
+    # Environment setup complete.
+    RUN echo "Environment setup complete."
+
+    WORKDIR /workspace/
+    ###########################################
+    ###########################################
+    ###########################################
+
+
+
+
+
+
+    ###########################################
+    ###############vllm v0.8.5#################
+    ###########################################
+    WORKDIR /workspace/
+
+    ENV VLLM_TARGET_DEVICE=rocm 
+    ENV ROCM_PATH=/opt/rocm 
+    ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.8.5.dev
+    # Find the repo path in: DockerFile/Dockerfile.rocm_yang
+    # RUN git clone https://github.com/RLFoundation/vllm-patch.git
+    RUN pip uninstall -y vllm || true
+    RUN rm -rf vllm-patch
+    RUN git clone https://github.com/RLFoundation/vllm-patch.git \
+        && cd vllm-patch \
+        && git checkout v0.8.5-sleep-numa \
+        && rm -rf build/ dist/ *.egg-info \
+        && ln -sf /opt/rocm/lib/libamdhip64.so /usr/lib/libamdhip64.so \
+        && SETUPTOOLS_SCM_PRETEND_VERSION=0.8.5.dev PYTORCH_ROCM_ARCH="gfx90a;gfx942" MAX_JOBS=${MAX_JOBS} python3 setup.py install
+        # RUN SETUPTOOLS_SCM_PRETEND_VERSION=0.8.5.dev PYTORCH_ROCM_ARCH="gfx90a;gfx942" MAX_JOBS=${MAX_JOBS} python3 setup.py develop
+    WORKDIR /workspace/
+    ###########################################
+    ###########################################
+    ###########################################
+
+
+
+
+    #########################################
+    #### Install megatron-core###############
+    #########################################
+    RUN pip uninstall -y megatron-core && \
+        git clone https://github.com/yushengsu-thu/Megatron-LM-amd_version.git && \
+        cd Megatron-LM-amd_version && \
+        pip install -vvv -e . && \
+        cd /workspace/
+    #########################################
+    #########################################
+    #########################################
+
+
+
+
+    #######################################
+    ################apex###################
+    #######################################
+    WORKDIR /workspace/
+    RUN pip uninstall -y apex && \
+        git clone git@github.com:ROCm/apex.git && \
+        cd apex && \
+        python setup.py install && \
+        cd /workspace/ 
+    #######################################
+    #######################################
+    #######################################
+
+
+    ################################################################################
+    ###########################Add torch_memory_saver###############################
+    ################################################################################
+    # Set environment variables
     ENV HIPCC_COMPILE_FLAGS_APPEND="--amdgpu-target=gfx90a;gfx942 -D__HIP_PLATFORM_AMD__"
     ENV CFLAGS="-D__HIP_PLATFORM_AMD__"
     ENV CXXFLAGS="-D__HIP_PLATFORM_AMD__"
+    RUN pip install "git+https://github.com/YangWang92/torch_memory_saver_numa.git@numa"
+    ################################################################################
+    ################################################################################
+    ################################################################################
 
-    # Install vllm
-    RUN pip uninstall -y vllm && \
-        rm -rf vllm && \
-        git clone -b v0.6.3 https://github.com/vllm-project/vllm.git && \
-        cd vllm && \
-        MAX_JOBS=$(nproc) python3 setup.py install && \
-        cd .. && \
-        rm -rf vllm
 
-    # Copy the entire project directory
-    COPY . .
 
-    # Install dependencies
-    RUN pip install "tensordict<0.6" --no-deps && \
+    ########################################
+    ######Install ray#######################
+    ########################################
+    # need to add this patch: https://github.com/ray-project/ray/pull/53531/files
+    RUN pip uninstall ray -y
+    RUN pip install "ray[data,train,tune,serve]>=2.47.0" 
+    ########################################
+    ########################################
+    ########################################
+
+
+    ##########################################
+    #######Install other dependencies#########
+    ##########################################
+    RUN pip install "tensordict==0.6.2" --no-deps && \
         pip install accelerate \
         codetiming \
         datasets \
@@ -59,16 +288,21 @@ docker/Dockerfile.rocm
         peft \
         "pyarrow>=15.0.0" \
         pylatexenc \
-        "ray[data,train,tune,serve]>=2.45.0" \
         torchdata \
-        transformers \
         wandb \
         orjson \
-        pybind11 && \
-        pip install -e . --no-deps
+        pybind11
+        
+    WORKDIR /workspace/
+    RUN git clone https://github.com/volcengine/verl.git && \
+        cd verl && \
+        pip install -e . 
+    ##########################################
+    ##########################################
+    ##########################################
 
-    # Install torch_memory_saver
-    RUN pip install git+https://github.com/ExtremeViscent/torch_memory_saver.git --no-deps
+    WORKDIR /workspace/
+    CMD ["/usr/bin/bash"]
 
 
 Build the image:
@@ -76,7 +310,20 @@ Build the image:
 
 .. code-block:: bash
 
-    docker build -t verl-rocm .
+    docker docker/build -t verl-rocm .
+
+Run the container
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Note: You can pull the docker from this DockerHub: [RLSys Foundation](https://hub.docker.com/u/yushengsuthu)
+Pull the image:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+    docker pull yushengsuthu/verl:verl-0.4.1_ubuntu-22.04_rocm6.3.4-numa-patch_vllm0.8.5_sglang0.4.6.post4
+
+    docker tag yushengsuthu/verl:verl-0.4.1_ubuntu-22.04_rocm6.3.4-numa-patch_vllm0.8.5_sglang0.4.6.post4 verl-rocm:latest
 
 Run the container
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -109,7 +356,7 @@ Example
 -------
 
 Due to to special setting in AMD (ROCM) torch, 
-1. If your ``ray>=2.45.0`` (default), you need to set ``RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES`` when starting ray in verl's RLHF training.
+1. If your ``ray>=2.45.0`` (default), you need to set ``RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES`` when starting ray in verl's RLHF training and add this [patch](https://github.com/ray-project/ray/pull/53531/files).
 2. If your ``ray<2.45.0``, you need to set ``RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES`` when starting ray in verl's RLHF training.
 Inference ``$ENGINE`` can be ``vllm`` or ``sglang``. We choose ``vllm`` as default in the following examples.
 
@@ -124,6 +371,8 @@ PPO
     YOUR_RUN_NAME=r1-training_ppo-upstream 
     # export HYDRA_FULL_ERROR=1
 
+    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    
     # [ray] < 2.45.0
     #export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
 
@@ -156,11 +405,10 @@ PPO
      critic.model.path=$MODEL_PATH \
      critic.ppo_micro_batch_size_per_gpu=4 \
      algorithm.kl_ctrl.kl_coef=0.001 \
-     trainer.logger=['console'] \
+     trainer.logger=console \
      trainer.project_name=$YOUR_PROJECT_NAME \
      trainer.experiment_name=$YOUR_RUN_NAME \
      trainer.val_before_train=False \
-     trainer.default_hdfs_dir=null \
      trainer.n_gpus_per_node=$GPUS_PER_NODE \
      trainer.nnodes=1 \
      trainer.save_freq=10 \
@@ -176,6 +424,8 @@ GRPO
     YOUR_RUN_NAME=r1-training_grpo-upstream
     # export HYDRA_FULL_ERROR=1
     # export FSDP_VERBOSE=1 
+
+    #export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
     # [ray] < 2.45.0
     #export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
@@ -217,7 +467,7 @@ GRPO
         actor_rollout_ref.ref.fsdp_config.param_offload=False \
         algorithm.kl_ctrl.kl_coef=0.001 \
         trainer.critic_warmup=0 \
-        trainer.logger=['console'] \
+        trainer.logger=console \
         trainer.project_name=$YOUR_PROJECT_NAME \
         trainer.experiment_name=$YOUR_RUN_NAME \
         trainer.n_gpus_per_node=$GPUS_PER_NODE \
@@ -302,6 +552,9 @@ slurm_script.sh
     export TOKENIZERS_PARALLELISM=false
     export HSA_NO_SCRATCH_RECLAIM=1
     ##########################################################################
+
+    ## Assign using GPUs
+    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
     ### For rocm and training script
     # [ray] < 2.45.0
@@ -405,8 +658,6 @@ slurm_script.sh
     echo "IP Head: $ip_head"
 
     # make sure we set environment variables before Ray initialization
-    # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
-    # export VLLM_ATTENTION_BACKEND=XFORMERS
 
     # Print out all env variables
     printenv
@@ -524,7 +775,7 @@ slurm_script.sh
         critic.model.fsdp_config.optimizer_offload=False \
         algorithm.kl_ctrl.kl_coef=0.0001 \
         trainer.critic_warmup=0 \
-        trainer.logger=['console','wandb'] \
+        trainer.logger='["console","wandb"]' \
         trainer.project_name='verl_example' \
         trainer.experiment_name='Qwen2.5-32B-Instruct_function_rm' \
         trainer.n_gpus_per_node=${SLURM_GPUS_PER_NODE} \

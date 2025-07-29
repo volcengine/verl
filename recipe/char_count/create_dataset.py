@@ -157,7 +157,9 @@ if __name__ == "__main__":
         rl_train_dataset["prompt"].append(prompt_with_template)
         rl_train_dataset["data_source"].append("char_count")
         rl_train_dataset["ability"].append("other")
-        rl_train_dataset["reward_model"].append({"style": "rule", "ground_truth": remove_boxed(last_boxed_only_string(response))})
+        rl_train_dataset["reward_model"].append(
+            {"style": "rule", "ground_truth": remove_boxed(last_boxed_only_string(response))}
+        )
         rl_train_dataset["extra_info"].append({"response": response})
 
     for o in test_output:
@@ -173,7 +175,9 @@ if __name__ == "__main__":
         rl_test_dataset["prompt"].append(prompt_with_template)
         rl_test_dataset["data_source"].append("char_count")
         rl_test_dataset["ability"].append("other")
-        rl_test_dataset["reward_model"].append({"style": "rule", "ground_truth": remove_boxed(last_boxed_only_string(response))})
+        rl_test_dataset["reward_model"].append(
+            {"style": "rule", "ground_truth": remove_boxed(last_boxed_only_string(response))}
+        )
         rl_test_dataset["extra_info"].append({"response": response})
 
     rl_train_dataset = pd.DataFrame(data=rl_train_dataset)
