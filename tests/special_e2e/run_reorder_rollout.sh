@@ -19,10 +19,10 @@ python3 -m recipe.reorder_rollout.main_reorder_ppo \
     data.return_raw_chat=$return_raw_chat \
     data.train_batch_size=1024 \
     data.max_prompt_length=8192 \
-    data.max_response_length=16384 \
+    data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    actor_rollout_ref.model.path=Qwen/Qwen2-7B-Instruct \
+    actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
