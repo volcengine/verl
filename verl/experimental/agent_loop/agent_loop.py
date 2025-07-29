@@ -25,7 +25,7 @@ import ray
 import torch
 from cachetools import LRUCache
 from omegaconf import DictConfig, OmegaConf
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
 from transformers import AutoTokenizer
 
@@ -115,18 +115,29 @@ class AgentLoopOutput(BaseModel):
     """Agent loop output."""
 
     prompt_ids: list[int]
-    """Prompt token ids. Is overwritten with padded ids in AgentLoopWorker."""
+    """Prompt token ids."""
     response_ids: list[int]
-    """Response token ids. Is overwritten with padded ids in AgentLoopWorker."""
+    """Response token ids including LLM generated token, tool response token."""
     response_mask: list[int]
-    """Response mask. Is overwritten with padded mask in AgentLoopWorker."""
+    """Response mask, 1 for LLM generated token, 0 for tool response token."""
     num_turns: int = 0
     """Number of chat turns, including user, assistant, tool."""
     metrics: AgentLoopMetrics
-    """Auxiliary performance metrics"""
 
-    # Populated in AgentLoopWorker. Made optional to prevent validation errors.
-    attention_mask: list[int] = None
+
+class _InternalAgentLoopOutput(AgentLoopOutput):
+    """Internal agent loop output with padded sequences."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    prompt_ids: torch.Tensor
+    """Padded prompt token ids."""
+    response_ids: torch.Tensor
+    """Padded response token ids."""
+    response_mask: torch.Tensor
+    """Padded response mask."""
+    attention_mask: torch.Tensor
+    """Padded attention mask."""
 
 
 # make hydra.utils.instantiate happy
@@ -301,7 +312,7 @@ class AgentLoopWorker:
         messages: list[dict[str, Any]],
         sampling_params: dict[str, Any],
         trajectory: dict[str, Any],
-    ) -> AgentLoopOutput:
+    ) -> _InternalAgentLoopOutput:
         with rollout_trace_attr(
             step=trajectory["step"],
             sample_index=trajectory["sample_index"],
@@ -347,8 +358,6 @@ class AgentLoopWorker:
                 return_tensors="pt",
                 return_attention_mask=True,
             )
-
-            # Ensure we have a batch dimension
             if prompt_output["input_ids"].dim() == 1:
                 prompt_output["input_ids"] = prompt_output["input_ids"].unsqueeze(0)
                 prompt_output["attention_mask"] = prompt_output["attention_mask"].unsqueeze(0)
@@ -361,7 +370,6 @@ class AgentLoopWorker:
                 return_tensors="pt",
                 return_attention_mask=True,
             )
-
             if response_output["input_ids"].dim() == 1:
                 response_output["input_ids"] = response_output["input_ids"].unsqueeze(0)
                 response_output["attention_mask"] = response_output["attention_mask"].unsqueeze(0)
@@ -373,30 +381,30 @@ class AgentLoopWorker:
                 return_tensors="pt",
                 return_attention_mask=False,
             )
-
             if response_mask_output["input_ids"].dim() == 1:
                 response_mask_output["input_ids"] = response_mask_output["input_ids"].unsqueeze(0)
 
             response_mask = response_mask_output["input_ids"] * response_output["attention_mask"]
+
             attention_mask = torch.cat([prompt_output["attention_mask"], response_output["attention_mask"]], dim=1)
 
-            # Overwrite with padded data, converted to lists for safe serialization.
-            output.prompt_ids = prompt_output["input_ids"].squeeze(0).tolist()
-            output.response_ids = response_output["input_ids"].squeeze(0).tolist()
-            output.response_mask = response_mask.squeeze(0).tolist()
-            output.attention_mask = attention_mask.squeeze(0).tolist()
+            return _InternalAgentLoopOutput(
+                prompt_ids=prompt_output["input_ids"],
+                response_ids=response_output["input_ids"],
+                response_mask=response_mask,
+                attention_mask=attention_mask,
+                num_turns=output.num_turns,
+                metrics=output.metrics,
+            )
 
-            return output
-
-    def _postprocess(self, inputs: list[AgentLoopOutput]) -> DataProto:
+    def _postprocess(self, inputs: list[_InternalAgentLoopOutput]) -> DataProto:
         """Process the padded outputs from _run_agent_loop and combine them into a batch."""
         # Convert lists back to tensors and stack them to create a batch.
-        prompt_ids = torch.stack([torch.tensor(i.prompt_ids, dtype=torch.long) for i in inputs], dim=0)
-        response_ids = torch.stack([torch.tensor(i.response_ids, dtype=torch.long) for i in inputs], dim=0)
-        response_mask = torch.stack([torch.tensor(i.response_mask, dtype=torch.long) for i in inputs], dim=0)
-        attention_mask = torch.stack([torch.tensor(i.attention_mask, dtype=torch.long) for i in inputs], dim=0)
+        prompt_ids = torch.cat([input.prompt_ids for input in inputs], dim=0)
+        response_ids = torch.cat([input.response_ids for input in inputs], dim=0)
+        response_mask = torch.cat([input.response_mask for input in inputs], dim=0)
+        attention_mask = torch.cat([input.attention_mask for input in inputs], dim=0)
 
-        # Derive input_ids and position_ids on the fly.
         input_ids = torch.cat([prompt_ids, response_ids], dim=1)
         position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
 
