@@ -24,8 +24,22 @@ Recent advancements, such as Group Relative Policy Optimization (GRPO), have enh
 
 ## 3. Code Usage
 
+The key configurations are:
+```
+clip_ratio_low=0.4
+clip_ratio_high=0.4
+loss_mode=geo_mean
+```
+
+To get started quickly, run:
 ```
 bash examples/gmpo_trainer/run_qwen2_5-7b_math.sh
+```
+
+GMPO can be combined with other methods such as DAPO (experimental - not fully tested):
+```
+bash examples/gmpo_trainer/test_dapo_7b_math.sh 
+bash examples/gmpo_trainer/test_dapo_qwen3_30b_math.sh
 ```
 
 ## 4. Contacts
