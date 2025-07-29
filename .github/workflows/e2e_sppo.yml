@@ -77,10 +77,7 @@ jobs:
           pip3 install -e .[test,gpu,sglang] --no-deps
       - name: Prepare MATH dataset
         run: |
-          python3 examples/data_preprocess/math_dataset.py --local_dir ./data/math
-      - name: Prepare Model checkpoint
-        run: |
-          huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct --local-dir ./models/Qwen2.5-0.5B-Instruct
+          python3 examples/data_preprocess/math_dataset.py
       - name: Running the E2E test with the SPPO algorithm
         run: |
           ray stop --force

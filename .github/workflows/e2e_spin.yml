@@ -77,12 +77,9 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test,gpu,sglang] --no-deps
-      - name: Prepare gsm8k dataset
+      - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py --local_dir ./data/gsm8k
-      - name: Prepare Model checkpoint
-        run: |
-          huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct --local-dir ./models/Qwen2.5-0.5B-Instruct
+          python3 examples/data_preprocess/gsm8k.py
       - name: Running the E2E test with the spin algorithm
         run: |
           ray stop --force
