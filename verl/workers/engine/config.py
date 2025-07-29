@@ -10,16 +10,16 @@ class EngineConfig:
     optim: 'OptimConfig'
     checkpoint: 'CheckpointConfig'
     ppo_mini_batch_size: int
-    ppo_micro_batch_size: int | None
+    ppo_micro_batch_size: int
     forward_micro_batch_size: int
-    ppo_micro_batch_size_per_gpu: int | None
-    forward_micro_batch_size_per_gpu: int | None
-    ulysses_sequence_parallel_size: int = 1
-    strategy: str = "fsdp"
-    grad_clip: float | None = None
-    use_dynamic_bsz: bool = False
-    ppo_max_token_len_per_gpu: int | None = None
-    rollout_n: int = 1
+    ppo_micro_batch_size_per_gpu: int
+    forward_micro_batch_size_per_gpu: int
+    ulysses_sequence_parallel_size: int
+    strategy: str
+    grad_clip: float
+    use_dynamic_bsz: bool
+    ppo_max_token_len_per_gpu: int
+    rollout_n: int
 
 
 @dataclass
@@ -28,29 +28,29 @@ class ModelConfig:
     path: str
     tokenizer_path: str
     fsdp_config: 'SystemConfig'
-    lora_rank: int = 0
-    lora_alpha: int | None = None
-    target_modules: list[str] | None = None
-    trust_remote_code: bool = False
-    custom_chat_template: str | None = None
-    override_config: dict | None = None
-    use_shm: bool = False
-    enable_gradient_checkpointing: bool = False
-    enable_activation_offload: bool = False
-    use_remove_padding: bool = False
-    external_lib: str | None = None
+    lora_rank: int
+    lora_alpha: int
+    target_modules: list[str]
+    trust_remote_code: bool
+    custom_chat_template: str
+    override_config: dict
+    use_shm: bool
+    enable_gradient_checkpointing: bool
+    enable_activation_offload: bool
+    use_remove_padding: bool
+    external_lib: str
 
 
 @dataclass
 class OptimConfig:
     """Dataclass for optimizer configuration."""
     lr: float
-    betas: tuple[float, float] = (0.9, 0.999)
-    weight_decay: float = 1e-2
-    total_training_steps: int = 0
-    lr_warmup_steps: int = -1
-    lr_warmup_steps_ratio: float = 0.0
-    warmup_style: str = "constant"
+    betas: tuple[float, float]
+    weight_decay: float
+    total_training_steps: int
+    lr_warmup_steps: int
+    lr_warmup_steps_ratio: float
+    warmup_style: str
 
 
 @dataclass
@@ -62,9 +62,9 @@ class SystemConfig:
     wrap_policy: dict
     forward_prefetch: bool
     reshard_after_forward: bool
-    model_dtype: str = "fp32"
-    mixed_precision: dict | None = None
-    offload_policy: bool = False
+    model_dtype: str
+    mixed_precision: dict
+    offload_policy: bool
 
 @dataclass
 class CheckpointConfig:
