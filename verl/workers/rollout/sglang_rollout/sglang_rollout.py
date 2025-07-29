@@ -1221,8 +1221,7 @@ class SGLangRollout(BaseRollout):
         non_tensor_batch = {
             "messages": np.array(messages),
             "reward_scores": np.array(reward_scores),
-            "uid": np.array([req.uid for req in sorted_output_req_list]),
-            "multi_modal_inputs": np.array(multi_modal_inputs, dtype=object),
+            "request_id": np.array(request_ids),
         }
 
         # if benchmax tool, get workspace dirs as well
@@ -1231,12 +1230,6 @@ class SGLangRollout(BaseRollout):
         if isinstance(first_tool, BenchmaxToolAdapter):
             workspaces = [first_tool.get_rollout_workspace(req.request_id) for req in sorted_output_req_list]
             non_tensor_batch["workspaces"] = np.array(workspaces, dtype=object)
-
-        non_tensor_batch = {
-            "messages": np.array(messages),
-            "reward_scores": np.array(reward_scores),
-            "request_id": np.array(request_ids),
-        }
 
         is_multimodal = isinstance(self.processing_class, ProcessorMixin) and (
             hasattr(self.processing_class, "image_processor") or hasattr(self.model_hf_config, "vision_config")
