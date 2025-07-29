@@ -80,7 +80,7 @@ jobs:
       - name: Install the current repository and upgrade to latest transformers/flash_attn
         run: |
           pip3 install --no-deps -e .[test]
-          pip3 install --upgrade transformers
+          pip3 install --upgrade transformers==4.53.3
       - name: Running rmpad model tests on 8 L20 GPUs + flash_attn 2.5.8
         run: |
           pytest -s tests/models/test_transformer.py
@@ -138,7 +138,7 @@ jobs:
       - name: Install the current repository and upgrade to latest transformers/flash_attn
         run: |
           pip3 install --no-deps -e .[test]
-          pip3 install --upgrade transformers
+          pip3 install --upgrade transformers==4.53.3
       - name: Running FSDP2 rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
           STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/special_distributed/test_fsdp_ckpt.py

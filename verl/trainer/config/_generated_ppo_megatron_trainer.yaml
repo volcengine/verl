@@ -121,7 +121,7 @@ actor_rollout_ref:
       save_path: null
     load_weight: true
   rollout:
-    name: vllm
+    name: ???
     mode: sync
     temperature: 1.0
     top_k: -1
@@ -166,7 +166,6 @@ actor_rollout_ref:
       max_tool_response_length: 256
       tool_response_truncate_side: middle
       interaction_config_path: null
-      completion_callback: null
       use_inference_chat_template: false
       tokenization_sanity_check_mode: strict
       format: hermes
@@ -207,6 +206,8 @@ trainer:
   npu_profile:
     options:
       save_path: ./profiler_data
+      roles:
+      - all
       level: level1
       with_memory: false
       record_shapes: false
