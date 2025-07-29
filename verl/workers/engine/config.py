@@ -18,7 +18,6 @@ class EngineConfig:
     grad_clip: float
     use_dynamic_bsz: bool
     ppo_max_token_len_per_gpu: int
-    rollout_n: int
 
 
 @dataclass
@@ -76,6 +75,85 @@ class CheckpointConfig:
     async_save: bool
 
 
+def get_model_config(config):
+    model_config = ModelConfig(
+        path=config.path,
+        tokenizer_path=config.get("tokenizer_path", None),
+        lora_rank=config.lora_rank,
+        lora_alpha=config.lora_alpha,
+        target_modules=config.target_modules,
+        trust_remote_code=config.trust_remote_code,
+        custom_chat_template=config.get("custom_chat_template", None),
+        override_config=config.override_config,
+        use_shm=config.use_shm,
+        enable_gradient_checkpointing=config.enable_gradient_checkpointing,
+        enable_activation_offload=config.enable_activation_offload,
+        use_remove_padding=config.use_remove_padding,
+        external_lib=config.external_lib
+    )
+    return model_config
+
+
+def get_optim_config(config):
+    optim_config = OptimConfig(
+        lr=config.lr,
+        betas=config.get("betas", (0.9, 0.999)),
+        weight_decay=config.weight_decay,
+        total_training_steps=config.total_training_steps,
+        lr_warmup_steps=config.lr_warmup_steps,
+        lr_warmup_steps_ratio=config.lr_warmup_steps_ratio,
+        warmup_style=config.get("warmup_style", "constant")
+    )
+    return optim_config
+
+
+def get_system_config(config):
+    system_config = SystemConfig(
+        fsdp_size=config.fsdp_size,
+        param_offload=config.param_offload,
+        optimizer_offload=config.optimizer_offload,
+        wrap_policy=config.wrap_policy,
+        forward_prefetch=config.forward_prefetch,
+        reshard_after_forward=config.reshard_after_forward,
+        model_dtype=config.get("model_dtype", "f32"),
+        mixed_precision=config.get("mixed_precision", None),
+        offload_policy=config.offload_policy
+    )
+    return system_config
+
+
+def get_checkpoint_config(config):
+    checkpoint_config = CheckpointConfig(
+        save_contents=config.save_contents,
+        load_contents=config.load_contents,
+        async_save=config.async_save
+    )
+    return checkpoint_config
+
+
+def get_engine_config(config,
+                      model_config,
+                      optim_config,
+                      system_config,
+                      checkpoint_config):
+    engine_config = EngineConfig(
+        model=model_config,
+        optim=optim_config,
+        system=system_config,
+        checkpoint=checkpoint_config,
+        ppo_mini_batch_size=config.ppo_mini_batch_size,
+        ppo_micro_batch_size=config.ppo_micro_batch_size,
+        ppo_micro_batch_size_per_gpu=config.ppo_micro_batch_size_per_gpu,
+        ulysses_sequence_parallel_size=config.ulysses_sequence_parallel_size,
+        strategy=config.strategy,
+        grad_clip=config.grad_clip,
+        use_dynamic_bsz=config.use_dynamic_bsz,
+        ppo_max_token_len_per_gpu=config.ppo_max_token_len_per_gpu
+    )
+    return engine_config
+
+
+
 def engine_config_for_critic(critic_config: DictConfig) -> EngineConfig:
     """
     Convert a Hydra config to the FSDPEngineConfig dataclass.
@@ -87,56 +165,16 @@ def engine_config_for_critic(critic_config: DictConfig) -> EngineConfig:
         FSDPEngineConfig: The converted dataclass.
     """
     print(critic_config)
-    model_config = ModelConfig(
-        path=critic_config.model.path,
-        tokenizer_path=critic_config.model.tokenizer_path,
-        lora_rank=critic_config.model.lora_rank,
-        lora_alpha=critic_config.model.lora_alpha,
-        target_modules=critic_config.model.target_modules,
-        trust_remote_code=critic_config.model.trust_remote_code,
-        custom_chat_template=critic_config.model.get("custom_chat_template", None),
-        override_config=critic_config.model.override_config,
-        use_shm=critic_config.model.use_shm,
-        enable_gradient_checkpointing=critic_config.model.enable_gradient_checkpointing,
-        enable_activation_offload=critic_config.model.enable_activation_offload,
-        use_remove_padding=critic_config.model.use_remove_padding,
-        external_lib=critic_config.model.external_lib
-    )
-    optim_config = OptimConfig(
-        lr=critic_config.optim.lr,
-        betas=critic_config.optim.get("betas", (0.9, 0.999)),
-        weight_decay=critic_config.optim.weight_decay,
-        total_training_steps=critic_config.optim.total_training_steps,
-        lr_warmup_steps=critic_config.optim.lr_warmup_steps,
-        lr_warmup_steps_ratio=critic_config.optim.lr_warmup_steps_ratio,
-        warmup_style=critic_config.optim.get("warmup_style", "constant")
-    )
-    system_config = SystemConfig(
-        fsdp_size=critic_config.model.fsdp_config.fsdp_size,
-        param_offload=critic_config.model.fsdp_config.param_offload,
-        optimizer_offload=critic_config.model.fsdp_config.optimizer_offload,
-        wrap_policy=critic_config.model.fsdp_config.wrap_policy,
-        forward_prefetch=critic_config.model.fsdp_config.forward_prefetch,
-        reshard_after_forward=critic_config.model.fsdp_config.reshard_after_forward,
-        model_dtype=critic_config.model.fsdp_config.model_dtype,
-        mixed_precision=critic_config.model.fsdp_config.get("mixed_precision", None),
-        offload_policy=critic_config.model.fsdp_config.offload_policy
-    )
-    ret = EngineConfig(
-        model=model_config,
-        optim=optim_config,
-        system=system_config,
-        ppo_mini_batch_size=critic_config.ppo_mini_batch_size,
-        ppo_micro_batch_size=critic_config.ppo_micro_batch_size,
-        ppo_micro_batch_size_per_gpu=critic_config.ppo_micro_batch_size_per_gpu,
-        ulysses_sequence_parallel_size=critic_config.ulysses_sequence_parallel_size,
-        strategy=critic_config.strategy,
-        grad_clip=critic_config.grad_clip,
-        use_dynamic_bsz=critic_config.use_dynamic_bsz,
-        ppo_max_token_len_per_gpu=critic_config.ppo_max_token_len_per_gpu,
-        rollout_n=critic_config.rollout_n,
-        checkpoint=critic_config.checkpoint
-    )
+    model_config = get_model_config(critic_config.model)
+    optim_config = get_optim_config(critic_config.optim)
+    system_config = get_system_config(critic_config.model.fsdp_config)
+    ckpt_config = get_checkpoint_config(critic_config.checkpoint)
+
+    ret = get_engine_config(critic_config,
+                            model_config,
+                            optim_config,
+                            system_config,
+                            ckpt_config)
     return ret
 
 
@@ -151,54 +189,14 @@ def engine_config_for_actor(actor_config: DictConfig) -> EngineConfig:
         FSDPEngineConfig: The converted dataclass.
     """
     print(actor_config)
-    model_config = ModelConfig(
-        path=actor_config.model.path,
-        tokenizer_path=None,
-        lora_rank=actor_config.model.lora_rank,
-        lora_alpha=actor_config.model.lora_alpha,
-        target_modules=actor_config.model.target_modules,
-        trust_remote_code=actor_config.model.trust_remote_code,
-        custom_chat_template=actor_config.model.get("custom_chat_template", None),
-        override_config=actor_config.model.override_config,
-        use_shm=actor_config.model.use_shm,
-        enable_gradient_checkpointing=actor_config.model.enable_gradient_checkpointing,
-        enable_activation_offload=actor_config.model.enable_activation_offload,
-        use_remove_padding=actor_config.model.use_remove_padding,
-        external_lib=actor_config.model.external_lib
-    )
-    optim_config = OptimConfig(
-        lr=actor_config.actor.optim.lr,
-        betas=actor_config.actor.optim.get("betas", (0.9, 0.999)),
-        weight_decay=actor_config.actor.optim.weight_decay,
-        total_training_steps=actor_config.actor.optim.total_training_steps,
-        lr_warmup_steps=actor_config.actor.optim.lr_warmup_steps,
-        lr_warmup_steps_ratio=actor_config.actor.optim.lr_warmup_steps_ratio,
-        warmup_style=actor_config.actor.optim.get("warmup_style", "constant")
-    )
-    system_config = SystemConfig(
-        fsdp_size=actor_config.actor.fsdp_config.fsdp_size,
-        param_offload=actor_config.actor.fsdp_config.param_offload,
-        optimizer_offload=actor_config.actor.fsdp_config.optimizer_offload,
-        wrap_policy=actor_config.actor.fsdp_config.wrap_policy,
-        forward_prefetch=actor_config.actor.fsdp_config.forward_prefetch,
-        reshard_after_forward=actor_config.actor.fsdp_config.reshard_after_forward,
-        model_dtype=actor_config.actor.fsdp_config.get("model_dtype", "fp32"),
-        mixed_precision=actor_config.actor.fsdp_config.get("mixed_precision", None),
-        offload_policy=actor_config.actor.fsdp_config.offload_policy
-    )
-    ret = EngineConfig(
-        model=model_config,
-        optim=optim_config,
-        system=system_config,
-        ppo_mini_batch_size=actor_config.actor.ppo_mini_batch_size,
-        ppo_micro_batch_size=actor_config.actor.ppo_micro_batch_size,
-        ppo_micro_batch_size_per_gpu=actor_config.actor.ppo_micro_batch_size_per_gpu,
-        ulysses_sequence_parallel_size=actor_config.actor.ulysses_sequence_parallel_size,
-        strategy=actor_config.actor.strategy,
-        grad_clip=actor_config.actor.grad_clip,
-        use_dynamic_bsz=actor_config.actor.use_dynamic_bsz,
-        ppo_max_token_len_per_gpu=actor_config.actor.ppo_max_token_len_per_gpu,
-        rollout_n=actor_config.rollout.n, # different key
-        checkpoint=actor_config.actor.checkpoint
-    )
+    model_config = get_model_config(actor_config.model)
+    optim_config = get_optim_config(actor_config.actor.optim)
+    system_config = get_system_config(actor_config.actor.fsdp_config)
+    ckpt_config = get_checkpoint_config(actor_config.actor.checkpoint)
+
+    ret = get_engine_config(actor_config.actor,
+                            model_config,
+                            optim_config,
+                            system_config,
+                            ckpt_config)
     return ret
