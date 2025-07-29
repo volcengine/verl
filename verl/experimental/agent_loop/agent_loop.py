@@ -123,6 +123,7 @@ class AgentLoopOutput(BaseModel):
     num_turns: int = 0
     """Number of chat turns, including user, assistant, tool."""
     metrics: AgentLoopMetrics
+    """Auxiliary performance metrics"""
 
 
 class _InternalAgentLoopOutput(AgentLoopOutput):
