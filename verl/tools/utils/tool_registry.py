@@ -122,7 +122,6 @@ def initialize_tools_from_config(tools_config_file):
                 loop = asyncio.get_event_loop()
                 benchmax_tools = loop.run_until_complete(initialize_benchmax_environment(tool_cls, tool_config))
                 tool_list.extend(benchmax_tools)
-                break
             case _:
                 raise NotImplementedError
     return tool_list

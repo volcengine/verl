@@ -129,7 +129,7 @@ if __name__ == "__main__":
                 for tool_name in tool_names
             }
 
-            example.pop("init_rollout_args")
+            example.pop("init_rollout_args", None)
             # This extra_info is used to pass addition info during reward computation
             example["extra_info"] = extra_info
             return example
