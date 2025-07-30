@@ -41,6 +41,7 @@ def init_config() -> DictConfig:
     config.actor_rollout_ref.rollout.n = 4
     config.actor_rollout_ref.rollout.agent.num_workers = 2
 
+    config.actor_rollout_ref.actor.use_dynamic_bsz = True
     # test sleep/wake_up with fsdp offload
     config.actor_rollout_ref.actor.fsdp_config.param_offload = True
     config.actor_rollout_ref.actor.fsdp_config.optimizer_offload = True
