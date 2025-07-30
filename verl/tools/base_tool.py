@@ -58,7 +58,7 @@ class BaseTool:
             return instance_id
 
     @rollout_trace_op
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[dict, float, dict]:
         """Execute the tool.
 
         Args:
@@ -70,7 +70,7 @@ class BaseTool:
             tool_reward_score: The step reward score of the tool.
             tool_metrics: The metrics of the tool.
         """
-        return "Updated the tool state.", 0.0, {}
+        return {"text": "Updated the tool state."}, 0.0, {}
 
     async def calc_reward(self, instance_id: str, **kwargs) -> float:
         """Calculate the reward of the tool.
