@@ -19,8 +19,10 @@ import os
 import sys
 from enum import Enum
 
+from benchmax.envs.base_env import BaseEnv
 from omegaconf import OmegaConf
 
+from verl.tools.benchmax_tool import benchmax_env_to_tool_list
 from verl.tools.schemas import OpenAIFunctionToolSchema
 
 logger = logging.getLogger(__file__)
@@ -30,6 +32,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class ToolType(Enum):
     NATIVE = "native"
     MCP = "mcp"
+    BENCHMAX = "benchmax"
 
 
 async def initialize_mcp_tool(tool_cls, tool_config) -> list:
@@ -62,6 +65,19 @@ async def initialize_mcp_tool(tool_cls, tool_config) -> list:
         )
         tool_list.append(tool)
     return tool_list
+
+
+async def initialize_benchmax_environment(env_cls, tool_config) -> list:
+    """Initialize a benchmax environment and return a list of verl compatible tools."""
+    print(f"Initializing benchmax environment with config: {tool_config.config}")
+    if not issubclass(env_cls, BaseEnv):
+        raise TypeError("tool_cls must subclass BaseEnv when using Benchmax")
+    tool_config.config.pop("type")
+    print("initializing benchmax environment with config:", tool_config.config, env_cls)
+    benchmax_env = env_cls(
+        **tool_config.config,
+    )
+    return benchmax_env_to_tool_list(benchmax_env)
 
 
 def get_tool_class(cls_name):
@@ -102,6 +118,10 @@ def initialize_tools_from_config(tools_config_file):
                 loop = asyncio.get_event_loop()
                 mcp_tools = loop.run_until_complete(initialize_mcp_tool(tool_cls, tool_config))
                 tool_list.extend(mcp_tools)
+            case ToolType.BENCHMAX:
+                loop = asyncio.get_event_loop()
+                benchmax_tools = loop.run_until_complete(initialize_benchmax_environment(tool_cls, tool_config))
+                tool_list.extend(benchmax_tools)
             case _:
                 raise NotImplementedError
     return tool_list

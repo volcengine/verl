@@ -1,0 +1,7 @@
+# Example Benchmax Tool Config
+tools:
+  # Class name points to benchmax class. This is expected to be a subclass of envs.BaseEnv
+  - class_name: benchmax.envs.wikipedia.math_env.MathEnv
+    config:
+      type: benchmax
+      # Specify initialization args for Sandbox here e.g. api_keys

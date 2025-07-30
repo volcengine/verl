@@ -98,7 +98,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install hf_transfer fastmcp
+          pip3 install hf_transfer fastmcp benchmax
           pip3 install -e .[test,gpu,sglang] --no-deps
       - name: Download Model to Use
         run: |
@@ -134,6 +134,10 @@ jobs:
         run: |
           cd tests/workers/rollout
           pytest -s test_sglang_async_rollout_mcp_tools.py
+      - name: Test the latest SGLang Rollout async with benchmax integration
+        run: |
+          cd tests/workers/rollout
+          pytest -s test_sglang_async_rollout_benchmax.py
       - name: Test the latest SGLang Rollout async with agent loop
         run: |
           ROLLOUT_NAME=sglang pytest -svvv tests/experimental/agent_loop/test_basic_agent_loop.py
