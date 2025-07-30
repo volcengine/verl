@@ -191,6 +191,7 @@ def _pre_process_inputs(
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
     return prompt_token_ids[non_pad_index:]
 
+
 def _extract_logprob_from_output(output):
     """
     extract log_prob from single sglang inference output
@@ -199,12 +200,13 @@ def _extract_logprob_from_output(output):
     def _map_each_response(resp):
         input_token_logprobs = resp["meta_info"]["input_token_logprobs"]
         log_probs, output_token_ids = zip(
-            *[(log_prob, token_ids) for log_prob, token_ids, _ in input_token_logprobs[1:]]
+            *[(log_prob, token_ids) for log_prob, token_ids, _ in input_token_logprobs[1:]], strict=False
         )
         return torch.tensor(output_token_ids), torch.tensor(log_probs)
 
     output_token_ids, log_probs = _map_each_response(output)
     return output_token_ids, log_probs
+
 
 # NOTE(linjunrong): adhoc
 def _post_process_outputs(processing_class, output):
@@ -1008,7 +1010,7 @@ class SGLangRollout(BaseRollout):
         if self.config.calculate_log_probs:
             # 把input_ids输入sglang内生成一遍，并设置max_new_tokens=0，以生成log_probs
             debug_sampling_params = {**self.sampling_params}
-            debug_sampling_params['max_new_tokens'] = 0
+            debug_sampling_params["max_new_tokens"] = 0
             output = await self._engine.async_generate(
                 prompt=None,
                 input_ids=_req.input_ids,
@@ -1159,9 +1161,9 @@ class SGLangRollout(BaseRollout):
         multi_modal_inputs.append(req.multi_modal_inputs)
         request_ids.append(req.request_id)
         if self.config.calculate_log_probs:
-                # extract output log_probs
-                output_logprobs.append(req.rollout_log_probs[-len(req.response_ids) :])
-                rollout_output_token_ids.append(req.output_token_ids[-len(req.response_ids) :])
+            # extract output log_probs
+            output_logprobs.append(req.rollout_log_probs[-len(req.response_ids) :])
+            rollout_output_token_ids.append(req.output_token_ids[-len(req.response_ids) :])
         prompt_ids = pad_sequence(
             prompt_ids,
             batch_first=True,
@@ -1236,7 +1238,6 @@ class SGLangRollout(BaseRollout):
             rollout_output_token_ids = pad_sequence_to_length(
                 rollout_output_token_ids, pad_token_id=self.pad_token_id, max_seq_len=response_ids.shape[-1]
             ).to(tgt_device)
-
 
         input_ids = torch.cat((prompt_ids, response_ids), dim=-1)
         attention_mask = torch.cat((prompt_attention_mask, response_attention_mask), dim=-1)

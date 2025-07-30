@@ -1188,9 +1188,8 @@ class RayPPOTrainer:
                         if "rollout_log_probs" in batch.batch.keys():
                             # TODO: we may want to add diff of probs too.
                             from verl.utils.debug.metrics import calculate_debug_metrics
-                            metrics.update(
-                                calculate_debug_metrics(batch)
-                            )
+
+                            metrics.update(calculate_debug_metrics(batch))
 
                     if self.use_reference_policy:
                         # compute reference log_prob
