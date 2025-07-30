@@ -433,7 +433,7 @@ class SGLangRollout(BaseRollout):
         tp_size_per_node = self._tp_size // nnodes
         node_rank = self._tp_rank // tp_size_per_node
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0
-        attention_backend=attention_backend if attention_backend is not None else "fa3",
+        attention_backend = self.config.get("attention_backend", "fa3")
 
         if first_rank_in_node:
             rank = dist.get_rank()
