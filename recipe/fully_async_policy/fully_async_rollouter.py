@@ -115,7 +115,8 @@ class RolloutController:
             }
 
 
-class Rollouter:
+@ray.remote
+class FullyAsyncRollouter:
     """
     异步样本生成器，负责持续生成训练样本并放入MessageQueue
     基于OneStepOffRayTrainer的成熟实现改进
