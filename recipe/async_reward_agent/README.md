@@ -194,7 +194,7 @@ A typical flowchart for request, computation, and reward tensor collection is as
 
 <div style="width:60%;height:auto">
 
-```{mermaid} 
+```mermaid
 sequenceDiagram
     participant Controller
     participant RayAsyncRewardAgent

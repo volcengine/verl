@@ -189,7 +189,7 @@ class RayAsyncRewardAgent:
 
 <div style="width:60%;height:auto">
 
-```{mermaid} 
+```mermaid 
 sequenceDiagram
     participant Controller
     participant RayAsyncRewardAgent
