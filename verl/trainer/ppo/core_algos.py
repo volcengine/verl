@@ -919,10 +919,7 @@ def compute_policy_loss_gspo(
     clip_ratio_low = config.clip_ratio_low if config.clip_ratio_low is not None else config.clip_ratio
     clip_ratio_high = config.clip_ratio_high if config.clip_ratio_high is not None else config.clip_ratio
 
-    # Calculate log ratio for each token: log(π_θ(y_i,t|x,y_i,<t)/π_θold(y_i,t|x,y_i,<t))
     negative_approx_kl = log_prob - old_log_prob
-    # Clamp negative_approx_kl for numerical stability
-    negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
 
     # compute sequence-level importance ratio:
     # si(θ) = (π_θ(yi|x)/π_θold(yi|x))^(1/|yi|) =
@@ -934,6 +931,7 @@ def compute_policy_loss_gspo(
     # s_i,t(θ) = sg[s_i(θ)] · π_θ(y_i,t|x, y_i,<t) / sg[π_θ(y_i,t|x, y_i,<t)]
     # In log space: log(s_i,t(θ)) = sg[log(s_i(θ))] + log_prob - sg[log_prob]
     log_seq_importance_ratio = negative_approx_kl_seq.detach().unsqueeze(-1) + log_prob - log_prob.detach()
+    log_seq_importance_ratio = torch.clamp(log_seq_importance_ratio, max=10.0)  # clamp for numerical stability
 
     # finaly exp() to remove log
     seq_importance_ratio = torch.exp(log_seq_importance_ratio)
