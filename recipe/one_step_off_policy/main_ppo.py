@@ -23,57 +23,17 @@ import hydra
 import ray
 from omegaconf import OmegaConf
 
-from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
 from verl.trainer.ppo.reward import load_reward_manager
 
 from .ray_trainer import OneStepOffRayTrainer
 
 
-@hydra.main(config_path="config", config_name="one_step_off_ppo_trainer", version_base=None)
-def main(config):
-    run_ppo(config)
-
-
-# Define a function to run the PPO-like training process
-def run_ppo(config) -> None:
-    # Check if Ray is not initialized
-    if not ray.is_initialized():
-        # Initialize Ray with a local cluster configuration
-        # Set environment variables in the runtime environment to control tokenizer parallelism,
-        # NCCL debug level, VLLM logging level, and allow runtime LoRA updating
-        # `num_cpus` specifies the number of CPU cores Ray can use, obtained from the configuration
-        ray.init(
-            runtime_env=get_ppo_ray_runtime_env(),
-            num_cpus=config.ray_init.num_cpus,
-        )
-
-    # Create a remote instance of the TaskRunner class, and
-    # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
-    if (
-        OmegaConf.select(config.trainer, "profile_steps") is not None
-        and len(OmegaConf.select(config.trainer, "profile_steps")) > 0
-    ):
-        nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
-        runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
-    else:
-        runner = TaskRunner.remote()
-    ray.get(runner.run.remote(config))
-
-    # [Optional] get the path of the timeline trace file from the configuration, default to None
-    # This file is used for performance analysis
-    timeline_json_file = config.ray_init.get("timeline_json_file", None)
-    if timeline_json_file:
-        ray.timeline(filename=timeline_json_file)
-
-
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
-class TaskRunner:
+class OneStepOffTaskRunner:
     def run(self, config):
         # Print the initial configuration. `resolve=True` will evaluate symbolic values.
         from pprint import pprint
-
-        from omegaconf import OmegaConf
 
         from verl.utils.fs import copy_to_local
 
@@ -172,7 +132,7 @@ class TaskRunner:
         # finally, we combine all the rewards together
         # The reward type depends on the tag of the data
         if config.reward_model.enable:
-            if config.reward_model.strategy in ["fsdp2"]:
+            if config.reward_model.strategy == "fsdp2":
                 from verl.workers.fsdp_workers import RewardModelWorker
             elif config.reward_model.strategy == "megatron":
                 from verl.workers.megatron_workers import RewardModelWorker
@@ -222,6 +182,13 @@ class TaskRunner:
         trainer.init_workers()
         # Start the training process.
         trainer.fit()
+
+
+@hydra.main(config_path="config", config_name="one_step_off_ppo_trainer", version_base=None)
+def main(config):
+    from verl.trainer.main_ppo import run_ppo
+
+    run_ppo(config)
 
 
 if __name__ == "__main__":
