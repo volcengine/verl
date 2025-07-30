@@ -660,14 +660,14 @@ class SGLangRollout(BaseRollout):
                 {"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch.pop("raw_prompt_ids")
             ]
 
-        # Ensure token IDs are lists or numpy arrays
         for input_data in sglang_inputs:
-            if isinstance(input_data["prompt_token_ids"], np.ndarray):
-                input_data["prompt_token_ids"] = input_data["prompt_token_ids"].tolist()
-            elif not isinstance(input_data["prompt_token_ids"], list):
+            # Ensure token IDs are lists or numpy arrays
+            if not isinstance(input_data["prompt_token_ids"], list | np.ndarray):
                 raise TypeError(
                     f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}"
                 )
+
+            input_data["prompt_token_ids"] = list(input_data["prompt_token_ids"])
 
         # Extract token IDs and image data for SGLang Engine
         idx_list = [input_data["prompt_token_ids"] for input_data in sglang_inputs]
@@ -1266,12 +1266,15 @@ class SGLangRollout(BaseRollout):
             else:
                 _interaction_kwargs = {}
 
+            if not isinstance(raw_prompt, list | np.ndarray):
+                raise TypeError(f"raw_prompt must be a list or numpy array, got {type(raw_prompt)}")
+
             req = AsyncRolloutRequest(
                 batch_data_id=data_idx,
                 rollout_offset=0,
                 request_id=str(uuid4()),
                 state=AsyncRolloutRequestStateEnum.PENDING,
-                messages=raw_prompt.tolist(),
+                messages=list(raw_prompt),
                 multi_modal_data=multi_modal_data,
                 tool_schemas=_tool_schemas,
                 tools_kwargs=_tools_kwargs,
