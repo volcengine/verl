@@ -43,18 +43,18 @@ could do whatever user wants, such as
 .. code:: python
 
    class AgentLoopBase(ABC):
-        @abstractmethod
-        async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
-            """Run agent loop to interact with LLM server and environment.
+       @abstractmethod
+       async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
+           """Run agent loop to interact with LLM server and environment.
 
-            Args:
-                sampling_params (Dict[str, Any]): LLM sampling params.
-                **kwargs: dataset fields from `verl.utils.dataset.RLHFDataset`.
+           Args:
+               sampling_params (Dict[str, Any]): LLM sampling params.
+               **kwargs: dataset fields from `verl.utils.dataset.RLHFDataset`.
 
-            Returns:
-                AgentLoopOutput: Agent loop output.
-            """
-            raise NotImplementedError
+           Returns:
+               AgentLoopOutput: Agent loop output.
+           """
+           raise NotImplementedError
 
 After running user defined loop, run method should return ``AgentLoopOutput``, including prompt token ids,
 response token ids, and response mask.
