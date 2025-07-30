@@ -22,7 +22,8 @@ from omegaconf import DictConfig
 from transformers.utils import get_json_schema
 
 from tests.experimental.agent_loop.agent_utils import init_agent_loop_manager
-from verl.experimental.agent_loop.agent_loop import get_trajectory_info
+from verl.experimental.agent_loop.agent_loop import AgentLoopOutput, get_trajectory_info
+from verl.experimental.agent_loop.single_turn_agent_loop import SingleTurnAgentLoop
 from verl.protocol import DataProto
 from verl.tools.base_tool import BaseTool, OpenAIFunctionToolSchema
 from verl.utils import hf_tokenizer
@@ -163,6 +164,60 @@ class WeatherToolWithData(BaseTool):
             return json.dumps(result), 0, {}
         except Exception as e:
             return str(e), 0, {}
+
+
+class PaddingAgentLoop(SingleTurnAgentLoop):
+    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
+        original_output = await super().run(messages, sampling_params)
+
+        # unique qwen2.5 sequence: <tool_call></tool_call><|im_end|>
+        original_output.response_ids += [151657, 151658, 151645]
+        original_output.response_mask += [1] * 3
+
+        return original_output
+
+
+def test_custom_agent(init_config):
+    ray.init(
+        runtime_env={
+            "env_vars": {
+                "TOKENIZERS_PARALLELISM": "true",
+                "NCCL_DEBUG": "WARN",
+                "VLLM_LOGGING_LEVEL": "INFO",
+                "VLLM_USE_V1": "1",
+            }
+        }
+    )
+
+    # =========================== 1. Init rollout manager ===========================
+    n = 2
+    init_config.actor_rollout_ref.rollout.n = n
+    init_config.actor_rollout_ref.rollout.agent.custom_agent_loop = (
+        "tests.experimental.agent_loop.test_basic_agent_loop.PaddingAgentLoop"
+    )
+    agent_loop_manager = init_agent_loop_manager(init_config)
+
+    # =========================== 2. Generate sequences  ===========================
+    raw_prompts = [
+        [
+            {"role": "user", "content": "What is 2+2?"},
+        ],
+    ]
+    batch = DataProto(
+        non_tensor_batch={
+            "raw_prompt": np.array([np.array(prompt) for prompt in raw_prompts], dtype=object),
+        },
+    )
+    batch = batch.repeat(n)
+    result = agent_loop_manager.generate_sequences(prompts=batch)
+    assert len(result) == len(raw_prompts) * n
+
+    responses = result.batch["responses"]
+    response_mask = result.batch["response_mask"]
+
+    for i in range(len(responses)):
+        valid_tokens = responses[i][response_mask[i].bool()]
+        assert valid_tokens[-3:].tolist() == [151657, 151658, 151645]
 
 
 def test_tool_agent(init_config):

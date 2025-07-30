@@ -13,6 +13,7 @@
 # limitations under the License.
 import asyncio
 import heapq
+import importlib
 import logging
 import os
 import random
@@ -319,6 +320,38 @@ class AgentLoopWorker:
             )
             output = await agent_loop.run(messages, sampling_params)
             return output
+
+    def get_agent_loop_class(self, agent_name: str) -> type[AgentLoopBase]:
+        """Get the appropriate agent loop class based on agent name.
+
+        Factory method that returns the correct agent loop class implementation
+        for the specified agent type.
+
+        Args:
+            agent_name (str): Name of the agent type ('single_turn_agent' or 'tool_agent').
+
+        Returns:
+            Type[AgentLoopBase]: Agent loop class corresponding to the agent name.
+
+        Raises:
+            ValueError: If the agent_name is not recognized.
+        """
+        from verl.experimental.agent_loop.single_turn_agent_loop import SingleTurnAgentLoop
+        from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop
+
+        # ignore agent_name if custom_agent_loop is defined in config
+        cfg_agent = self.config.actor_rollout_ref.rollout.agent.get("custom_agent_loop")
+        if cfg_agent:
+            module_path, class_name = cfg_agent.rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            return getattr(module, class_name)
+
+        if agent_name == "single_turn_agent":
+            return SingleTurnAgentLoop
+        elif agent_name == "tool_agent":
+            return ToolAgentLoop
+
+        raise ValueError(f"Unknown agent_name: {agent_name}")
 
     def _postprocess(self, inputs: list[AgentLoopOutput]) -> DataProto:
         # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py

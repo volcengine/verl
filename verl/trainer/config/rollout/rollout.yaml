@@ -187,6 +187,9 @@ agent:
 
     # Class name of the custom async server class (e.g. AsyncvLLMServer)
     name: null
+  
+  # custom agent loop config (e.g. my_pkg.MyCustomAgentLoop)
+  custom_agent_loop: null
 
 # Specifies the tensor bucket size (in megabytes) for batch weight updates during rollout operations.
 # This parameter controls the maximum payload size for a single weight update request.
