@@ -630,6 +630,7 @@ class RayPPOTrainer:
 
         # Lists to collect samples for the table
         sample_inputs = []
+        sample_uids = []
         sample_outputs = []
         sample_scores = []
         sample_turns = []
@@ -637,6 +638,11 @@ class RayPPOTrainer:
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
 
+            #set uid for sample group
+            test_batch.non_tensor_batch["uid"] = np.array(
+                        [str(uuid.uuid4()) for _ in range(len(test_batch.batch))], dtype=object
+                    )
+            
             # repeat test batch
             test_batch = test_batch.repeat(
                 repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True
@@ -651,6 +657,7 @@ class RayPPOTrainer:
             # TODO: Can we keep special tokens except for padding tokens?
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
             sample_inputs.extend(input_texts)
+            sample_uids.extend(list(test_batch.non_tensor_batch["uid"]))
 
             batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
             non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
@@ -743,7 +750,7 @@ class RayPPOTrainer:
 
         data_sources = np.concatenate(data_source_lst, axis=0)
 
-        data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
+        data_src2var2metric2val = process_validation_metrics(data_sources, sample_uids, reward_extra_infos_dict)
         metric_dict = {}
         for data_source, var2metric2val in data_src2var2metric2val.items():
             core_var = "acc" if "acc" in var2metric2val else "reward"
