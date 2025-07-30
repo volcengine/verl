@@ -61,7 +61,7 @@ Application Image
 
 From this version, we divide images built for vLLM and SGLang as the divergence of dependent packages like Pytorch and FlashInfer.
 
-There are four types of application images available:
+There are 2 types of application images available:
 
 - **vLLM with FSDP and Megatron**: ``verlai/verl:app-verl0.5-vllm0.9.1-mcore0.12.2-te2.2``
 - **SGLang with FSDP and Megatron**: ``verlai/verl:app-verl0.5-sglang0.4.9.post4-mcore0.12.2-te2.2``
