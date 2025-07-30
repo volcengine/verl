@@ -108,7 +108,7 @@ def rollout_trace_attr(sample_index=None, step=None, rollout_n=None, name="rollo
     attributes = {}
     if backend:
         if sample_index is not None:
-            attributes["sample_index"] = sample_index
+            attributes["sample_index"] = int(sample_index)
         if step is not None:
             attributes["step"] = step
         if rollout_n is not None:
