@@ -325,7 +325,6 @@ jobs:
       [
         setup,
         e2e_ppo_trainer_megatron-deepseek,
-        e2e_ppo_trainer_megatron-qwen3,
         e2e_ppo_trainer_megatron-different-train-infer-tp-qwen-tie-embedding,
         e2e_ppo_trainer_megatron-qwen-override-transformer-config,
         e2e_ppo_trainer_megatron-deepseek-override-transformer-config,
