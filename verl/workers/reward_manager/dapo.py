@@ -19,7 +19,7 @@ import torch
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register
-
+from verl.workers.reward_manager.custom_reward import custom_compute_score
 
 @register("dapo")
 class DAPORewardManager:
@@ -29,14 +29,14 @@ class DAPORewardManager:
         self,
         tokenizer,
         num_examine,
-        compute_score=None,
+        compute_score=custom_compute_score,
         reward_fn_key="data_source",
         max_resp_len=None,
         overlong_buffer_cfg=None,
     ) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
-        self.compute_score = compute_score or default_compute_score
+        self.compute_score = custom_compute_score
         self.reward_fn_key = reward_fn_key
         self.overlong_buffer_cfg = overlong_buffer_cfg
         self.max_resp_len = max_resp_len
@@ -91,7 +91,8 @@ class DAPORewardManager:
 
             extra_info = data_item.non_tensor_batch.get("extra_info", None)
 
-            result = self.compute_score(
+            result = custom_compute_score(
+                prompt_str=prompt_str,
                 data_source=data_source,
                 solution_str=response_str,
                 ground_truth=ground_truth,
