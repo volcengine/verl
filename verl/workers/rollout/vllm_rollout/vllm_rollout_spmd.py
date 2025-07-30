@@ -26,12 +26,12 @@ When working with Megatron:
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
+import getpass
 import logging
 import os
 import pickle
 import socket
 import threading
-import getpass
 from contextlib import contextmanager
 from copy import deepcopy
 from types import MethodType
