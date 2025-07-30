@@ -357,7 +357,8 @@ class RayAsyncRewardAgent:
             If `rm_scores` is already present in the data batch, it will be returned directly.
             Otherwise, rewards are computed via the reward model function.
         """
-        # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
+        # If there is rm score, we directly return rm score. Otherwise, we
+        # compute via rm_score_fn
         if "rm_scores" in data.batch.keys():
             if return_dict:
                 return {"reward_tensor": data.batch["rm_scores"]}

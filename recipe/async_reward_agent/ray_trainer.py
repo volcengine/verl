@@ -128,7 +128,8 @@ class AsyncRewardAgentTrainer:
         assert self.hybrid_engine, "Currently, only support hybrid engine"
 
         if self.hybrid_engine:
-            assert Role.ActorRollout in role_worker_mapping, f"{role_worker_mapping.keys()=}"
+            assert Role.ActorRollout in role_worker_mapping, f"{
+                role_worker_mapping.keys()=}"
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
@@ -138,7 +139,8 @@ class AsyncRewardAgentTrainer:
         self.device_name = device_name if device_name else self.config.trainer.device
         self.validation_generations_logger = ValidationGenerationsLogger()
 
-        # if ref_in_actor is True, the reference policy will be actor without lora applied
+        # if ref_in_actor is True, the reference policy will be actor without
+        # lora applied
         self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
 
         # define in-reward KL control
@@ -195,7 +197,8 @@ class AsyncRewardAgentTrainer:
         )
 
         # A helper function to check "micro_batch_size" vs "micro_batch_size_per_gpu"
-        # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
+        # We throw an error if the user sets both. The new convention is
+        # "..._micro_batch_size_per_gpu".
         def check_mutually_exclusive(mbs, mbs_per_gpu, name: str):
             """Validate mutually exclusive micro batch size configuration options.
 
@@ -242,14 +245,16 @@ class AsyncRewardAgentTrainer:
             )
 
             if self.use_reference_policy:
-                # reference: log_prob_micro_batch_size vs. log_prob_micro_batch_size_per_gpu
+                # reference: log_prob_micro_batch_size vs.
+                # log_prob_micro_batch_size_per_gpu
                 check_mutually_exclusive(
                     config.actor_rollout_ref.ref.log_prob_micro_batch_size,
                     config.actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu,
                     "actor_rollout_ref.ref",
                 )
 
-            #  The rollout section also has log_prob_micro_batch_size vs. log_prob_micro_batch_size_per_gpu
+            # The rollout section also has log_prob_micro_batch_size vs.
+            # log_prob_micro_batch_size_per_gpu
             check_mutually_exclusive(
                 config.actor_rollout_ref.rollout.log_prob_micro_batch_size,
                 config.actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu,
@@ -302,7 +307,8 @@ class AsyncRewardAgentTrainer:
                 assert config.critic.ppo_mini_batch_size % config.critic.ppo_micro_batch_size == 0
                 assert config.critic.ppo_micro_batch_size * sp_size >= n_gpus
 
-        # Check if use_remove_padding is enabled when using sequence parallelism for fsdp
+        # Check if use_remove_padding is enabled when using sequence
+        # parallelism for fsdp
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"} and (
             config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1) > 1
             or config.actor_rollout_ref.ref.get("ulysses_sequence_parallel_size", 1) > 1
@@ -659,7 +665,9 @@ class AsyncRewardAgentTrainer:
         # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
         # you should not use `create_colocated_worker_cls`.
         # Instead, directly pass different resource pool to different worker groups.
-        # See https://github.com/volcengine/verl/blob/master/examples/ray/tutorial.ipynb for more information.
+        # See
+        # https://github.com/volcengine/verl/blob/master/examples/ray/tutorial.ipynb
+        # for more information.
         all_wg = {}
         wg_kwargs = {}  # Setting up kwargs for RayWorkerGroup
         if OmegaConf.select(self.config.trainer, "ray_wait_register_center_timeout") is not None:
@@ -696,7 +704,8 @@ class AsyncRewardAgentTrainer:
             self.rm_wg = all_wg["rm"]
             self.rm_wg.init_model()
 
-        # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
+        # we should create rollout at the end so that vllm can have a better
+        # estimation of kv cache memory
         self.actor_rollout_wg = all_wg["actor_rollout"]
         self.actor_rollout_wg.init_model()
 
@@ -871,7 +880,8 @@ class AsyncRewardAgentTrainer:
         else:
             dp_size = self.actor_rollout_wg.world_size
         global_partition_lst = get_seqlen_balanced_partitions(global_seqlen_lst, k_partitions=dp_size, equal_size=True)
-        # reorder based on index. The data will be automatically equally partitioned by dispatch function
+        # reorder based on index. The data will be automatically equally
+        # partitioned by dispatch function
         global_idx = torch.tensor([j for partition in global_partition_lst for j in partition])
         batch.reorder(global_idx)
         global_balance_stats = log_seqlen_unbalance(
@@ -1232,7 +1242,8 @@ class AsyncRewardAgentTrainer:
                             last_val_metrics = val_metrics
                     metrics.update(val_metrics)
 
-                # Check if the ESI (Elastic Server Instance)/training plan is close to expiration.
+                # Check if the ESI (Elastic Server Instance)/training plan is
+                # close to expiration.
                 esi_close_to_expiration = should_save_ckpt_esi(
                     max_steps_duration=self.max_steps_duration,
                     redundant_time=self.config.trainer.esi_redundant_time,
@@ -1243,7 +1254,8 @@ class AsyncRewardAgentTrainer:
                 # 1. The save frequency is set to a positive value.
                 # 2. It's the last training step.
                 # 3. The current step number is a multiple of the save frequency.
-                # 4. The ESI(Elastic Server Instance)/training plan is close to expiration.
+                # 4. The ESI(Elastic Server Instance)/training plan is close to
+                # expiration.
                 if self.config.trainer.save_freq > 0 and (
                     is_last_step or self.global_steps % self.config.trainer.save_freq == 0 or esi_close_to_expiration
                 ):
@@ -1271,7 +1283,8 @@ class AsyncRewardAgentTrainer:
             n_gpus = self.resource_pool_manager.get_n_gpus()
             metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
 
-            # this is experimental and may be changed/removed in the future in favor of a general-purpose one
+            # this is experimental and may be changed/removed in the future in
+            # favor of a general-purpose one
             if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):
                 self.train_dataloader.sampler.update(batch=batch)
 

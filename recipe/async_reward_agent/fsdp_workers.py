@@ -158,7 +158,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # it will actually convert the ProfilerConfig dataclass back to a DictConfig.
         # We can still use ProfilerConfig for testing purpose (tests/utils/test_nvtx_profile.py)
         # as they provides DictConfig-like interface
-        # The benefit of creating the dataclass config is to perform validation during __post_init__
+        # The benefit of creating the dataclass config is to perform validation
+        # during __post_init__
         profiler_config = omega_conf_to_dataclass(config.get("profiler"))
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=profiler_config, option=self.profile_option)
@@ -236,7 +237,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         local_path = model_path
 
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
-        # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
+        # TODO(zhangchi.usc1992): 1. support create from random initialized
+        # model. 2. Support init with FSDP directly
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
         self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
 
@@ -311,7 +313,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 fused_kernels_backend=fused_kernels_backend,
             )
 
-            # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
+            # some parameters may not in torch_dtype. TODO(zhangchi.usc1992)
+            # remove this after we switch to fsdp2
             actor_module.to(torch_dtype)
 
             if enable_gradient_checkpointing:
@@ -319,7 +322,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             if self._is_lora:
                 print("Applying LoRA to actor module")
                 actor_module.enable_input_require_grads()
-                # Convert config to regular Python types before creating PEFT model
+                # Convert config to regular Python types before creating PEFT
+                # model
                 lora_config = {
                     "task_type": TaskType.CAUSAL_LM,
                     "r": self.config.model.lora_rank,
@@ -356,7 +360,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         )
 
         if self._is_rollout and self.config.rollout.name == "hf":
-            # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
+            # TODO(zhangchi.usc1992, shengguangming) fix me. Current,
+            # auto_wrap_policy causes HFRollout to hang in Gemma
             auto_wrap_policy = None
 
         if self.rank == 0:
@@ -367,7 +372,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # TODO: add transformer policy
         # We force reference policy to use CPUOffload to save memory.
-        # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
+        # We force turn off CPUOffload for actor because it causes incorrect
+        # results when using grad accumulation
         cpu_offload = None if role == "actor" else CPUOffload(offload_params=True)
         fsdp_strategy = self.config.actor.strategy
         if fsdp_strategy == "fsdp":
@@ -653,7 +659,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         if not self._is_actor and self._is_rollout:
             # If ActorRolloutRefWorker is initialized as a standalone rollout,
-            # create a checkpoint manager for FSDP model to allow loading FSDP checkpoints for rollout.
+            # create a checkpoint manager for FSDP model to allow loading FSDP
+            # checkpoints for rollout.
 
             checkpoint_contents = OmegaConf.create({"load_contents": ["model"], "save_contents": []})
             self.checkpoint_manager = FSDPCheckpointManager(
@@ -986,7 +993,8 @@ class CriticWorker(Worker, DistProfilerExtension):
         use_shm = config.model.get("use_shm", False)
         local_path = copy_to_local(config.model.path, use_shm=use_shm)
         # note that the tokenizer between actor and critic may be different. So override tokenizer info with actor info
-        # using random initialized model from any architecture. May not be the same as Actor.
+        # using random initialized model from any architecture. May not be the
+        # same as Actor.
 
         tokenizer_path = copy_to_local(config.model.tokenizer_path, use_shm=use_shm)
         self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
@@ -1096,7 +1104,8 @@ class CriticWorker(Worker, DistProfilerExtension):
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
-        # Note: We force turn off CPUOffload for critic because it causes incorrect results when using grad accumulation
+        # Note: We force turn off CPUOffload for critic because it causes
+        # incorrect results when using grad accumulation
         if config.strategy == "fsdp":
             critic_module = FSDP(
                 critic_module,
@@ -1365,7 +1374,8 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
         model_config.num_labels = 1
 
-        # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
+        # note that we have to create model in fp32. Otherwise, the optimizer
+        # is in bf16, which is incorrect
         init_context = get_init_weight_context_manager(
             use_meta_tensor=not model_config.tie_word_embeddings, mesh=self.device_mesh
         )
@@ -1447,7 +1457,8 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             attention_mask = micro_batch["attention_mask"]
             position_ids = micro_batch["position_ids"]
             if position_ids.dim() == 3:  # qwen2vl mrope
-                position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
+                # (bsz, 3, seqlen) -> (3, bsz, seqlen)
+                position_ids = position_ids.transpose(0, 1)
 
             if self.use_remove_padding:
                 input_ids_rmpad, indices, *_ = unpad_input(
@@ -1473,7 +1484,8 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                         input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size
                     )
 
-                # only pass input_ids and position_ids to enable flash_attn_varlen
+                # only pass input_ids and position_ids to enable
+                # flash_attn_varlen
                 output = self.reward_module(
                     input_ids=input_ids_rmpad, attention_mask=None, position_ids=position_ids_rmpad, use_cache=False
                 )
@@ -1553,7 +1565,8 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 # for debugging purpose
                 print(f"Switch template. chat: {prompt_with_chat_template}")
 
-            # the maximum length is actually determined by the reward model itself
+            # the maximum length is actually determined by the reward model
+            # itself
             max_length = self.config.get("max_length", src_max_length)
             if max_length is None:
                 max_length = src_max_length
@@ -1629,7 +1642,8 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 scores = scores[revert_indices]
 
             token_level_scores = self._expand_to_token_level(data, scores)
-            # Note that this is only the scores, may not be the final rewards used to train RL
+            # Note that this is only the scores, may not be the final rewards
+            # used to train RL
             output = DataProto.from_dict(tensors={"rm_scores": token_level_scores})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
@@ -1642,7 +1656,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         return output
 
 
-# ================================= Async related workers =================================
+# ================================= Async related workers ================
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     def _build_rollout(self, trust_remote_code=False):
         rollout, rollout_sharding_manager = super()._build_rollout(trust_remote_code)

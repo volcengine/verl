@@ -395,7 +395,8 @@ class MegatronPPOActor(BasePPOActor):
 
         def loss_func(output, data, meta_info):
             # For memory efficiency
-            # We move calculation of entropy to compute_log_probs, forward_only == True
+            # We move calculation of entropy to compute_log_probs, forward_only
+            # == True
             device = output["log_probs"].device
             metrics = {}
             if forward_only:
@@ -590,7 +591,8 @@ class MegatronPPOActor(BasePPOActor):
         batch_generator = make_batch_generator(micro_batches, vpp_size=len(self.actor_module))
 
         # TODO: we may use the new schedule instead
-        # for flash-attn: (seq_len, batch_size, hidden_size) = (mbs*seq_len, 1, hidden_size)
+        # for flash-attn: (seq_len, batch_size, hidden_size) = (mbs*seq_len, 1,
+        # hidden_size)
         if mpu.get_pipeline_model_parallel_world_size() > 1:
             losses_reduced = forward_backward_func(
                 forward_step_func=forward_step,
@@ -641,9 +643,11 @@ class MegatronPPOActor(BasePPOActor):
         for data in dataloader:
             data.to(get_device_id())
             self.actor_optimizer.zero_grad()
-            # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
+            # use use_contiguous_buffers_in_local_ddp and no
+            # overlap_dp_param_comm
             for chunk in self.actor_module:
-                # if use distributed optimizer, zero grad buffer will be handled by optimizer
+                # if use distributed optimizer, zero grad buffer will be
+                # handled by optimizer
                 chunk.zero_grad_buffer()
 
             calculate_entropy = self.config.entropy_coeff != 0
@@ -664,8 +668,10 @@ class MegatronPPOActor(BasePPOActor):
             )
             metric_micro_batch = metric_micro_batch["output"]
             for metric in metric_micro_batch:
-                # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask
-                append_to_dict(metrics, metric[0])  # append the metric from this micro-batch to global metrics.
+                # Note that o[0] is metrics, o[1] is entropy, o[2] is
+                # response_mask
+                # append the metric from this micro-batch to global metrics.
+                append_to_dict(metrics, metric[0])
 
             update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step()
             data = {"actor/grad_norm": grad_norm}

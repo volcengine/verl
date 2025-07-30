@@ -51,7 +51,8 @@ class TaskRunner:
             config: Training configuration object containing all parameters needed
                    for setting up and running the PPO training process.
         """
-        # Print the initial configuration. `resolve=True` will evaluate symbolic values.
+        # Print the initial configuration. `resolve=True` will evaluate
+        # symbolic values.
         from pprint import pprint
 
         from omegaconf import OmegaConf
@@ -86,7 +87,8 @@ class TaskRunner:
             if use_legacy_worker_impl in ["auto", "enable"]:
                 # import warnings
                 # warnings.warn(f"Legacy worker impl is going to be deprecated, will be removed in the future. \
-                #   Please set trainer.use_legacy_worker_impl = false to switch to the new worker implementation.")
+                # Please set trainer.use_legacy_worker_impl = false to switch
+                # to the new worker implementation.")
                 from verl.workers.fsdp_workers import CriticWorker
             elif use_legacy_worker_impl == "disable":
                 from verl.workers.roles import CriticWorker
@@ -225,7 +227,8 @@ def run_ppo(config) -> None:
         )
 
     # Create a remote instance of the TaskRunner class, and
-    # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
+    # Execute the `run` method of the TaskRunner instance remotely and wait
+    # for it to complete
     if (
         is_cuda_available
         and config.trainer.get("profile_steps") is not None
