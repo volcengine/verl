@@ -462,7 +462,7 @@ class SGLangRollout(BaseRollout):
                 # log_requests_level=2,
                 # max_running_requests=1,
                 mm_attention_backend="fa3",
-                attention_backend=attention_backend if attention_backend is not None else "fa3",
+                attention_backend=attention_backend,
                 # In async mode, we want token in token out.
                 skip_tokenizer_init=self.config.mode == "async",
             )
