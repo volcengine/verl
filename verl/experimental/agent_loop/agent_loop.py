@@ -303,7 +303,7 @@ class AgentLoopWorker:
             batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
         )
         # extract multi-modal data if available
-        multi_modal_data = batch.non_tensor_batch.get("multi_modal_data", [None] * len(raw_prompts))
+        multi_modal_data = batch.non_tensor_batch.get("multi_modal_data", [{"image": None}] * len(raw_prompts))
 
         for agent_name, messages, trajectory, image_data in zip(
             agent_names, raw_prompts, trajectory_info, multi_modal_data, strict=True
