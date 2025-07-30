@@ -13,75 +13,203 @@
 # limitations under the License.
 
 import logging
+import os
+import signal
+import socket
 import threading
 import time
-import os
-import socket
+from pprint import pprint
 
 import hydra
 import ray
 from omegaconf import OmegaConf
 
-from recipe.fully_async_policy.RollouterActor import RollouterActor
-from verl.experimental.dataset.sampler import AbstractSampler
-from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer
-from verl.trainer.ppo.reward import load_reward_manager
-from verl.utils.device import is_cuda_available
-from verl.utils.import_utils import load_extern_type
-
-import hydra
-import ray
-
+from recipe.fully_async_policy.fully_async_rollouter import FullyAsyncRollouter
+from recipe.fully_async_policy.fully_async_trainer import FullyAsyncTrainer
 from recipe.fully_async_policy.message_queue import MessageQueue, MessageQueueClient
-from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler, run_ppo
+from recipe.fully_async_policy.param_sync import AsyncParameterSynchronizer
+from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 from verl.trainer.ppo.reward import load_reward_manager
-from verl.utils.dataset.rl_dataset import collate_fn
-
-from fully_async_trainer import FullyAsyncTrainer
+from verl.utils.fs import copy_to_local
 
 logger = logging.getLogger(__name__)
 
 
 def setup_logging():
     """设置日志配置"""
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(), logging.FileHandler("fully_async_training.log")],
+    )
 
 
-@ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
-class FullyAsyncTaskRunner:
-    """Ray remote class for executing distributed PPO training tasks.
-
-    This class encapsulates the main training logic and runs as a Ray remote actor
-    to enable distributed execution across multiple nodes and GPUs.
+def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
     """
+    创建资源池管理器
+
+    Args:
+        config: 配置对象
+        roles: 需要创建资源池的角色列表
+
+    Returns:
+        ResourcePoolManager: 资源池管理器
+    """
+    # 构建资源池规格
+    resource_pool_spec = {}
+    mapping = {}
+
+    # Actor/Critic资源池（训练相关）
+    if any(role in roles for role in [Role.Actor, Role.Critic, Role.RefPolicy, Role.RewardModel]):
+        assert config.trainer.n_gpus_per_node > 0, "config.trainer.n_gpus_per_node must be greater than 0"
+        assert config.trainer.nnodes > 0, "config.trainer.nnodes must be greater than 0"
+
+        trainer_pool = [config.trainer.n_gpus_per_node] * config.trainer.nnodes
+        resource_pool_spec["trainer_pool"] = trainer_pool
+
+        # 训练相关角色映射到同一个资源池
+        for role in [Role.Actor, Role.Critic, Role.RefPolicy, Role.RewardModel]:
+            if role in roles:
+                mapping[role] = "trainer_pool"
+
+    # Rollout资源池
+    if Role.Rollout in roles:
+        assert config.rollout.n_gpus_per_node > 0, "config.rollout.n_gpus_per_node must be greater than 0"
+        assert config.rollout.nnodes > 0, "config.rollout.nnodes must be greater than 0"
+
+        rollout_pool = [config.rollout.n_gpus_per_node] * config.rollout.nnodes
+        resource_pool_spec["rollout_pool"] = rollout_pool
+        mapping[Role.Rollout] = "rollout_pool"
+
+    logger.info(f"Resource pool specification: {resource_pool_spec}")
+    logger.info(f"Role mapping: {mapping}")
+
+    return ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
+
+
+def create_role_worker_mapping(config):
+    """
+    创建角色到worker类的映射
+
+    Args:
+        config: 配置对象
+
+    Returns:
+        dict: 角色到worker类的映射
+    """
+    # 根据策略选择worker类
+    if config.actor_rollout_ref.actor.strategy == "fsdp2":
+        assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+        from recipe.one_step_off_policy.fsdp_workers import (
+            ActorRolloutRefWorker,
+            AsyncActorRolloutRefWorker,
+            CriticWorker,
+            RolloutWorker,
+        )
+        from verl.single_controller.ray import RayWorkerGroup
+
+        actor_rollout_cls = (
+            AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
+        )
+        ray_worker_group_cls = RayWorkerGroup
+
+    elif config.actor_rollout_ref.actor.strategy == "megatron":
+        assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+        from recipe.one_step_off_policy.megatron_workers import (
+            ActorRolloutRefWorker,
+            AsyncActorRolloutRefWorker,
+            CriticWorker,
+            RolloutWorker,
+        )
+        from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
+
+        actor_rollout_cls = (
+            AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
+        )
+        ray_worker_group_cls = NVMegatronRayWorkerGroup
+
+    else:
+        raise NotImplementedError(f"Unsupported strategy: {config.actor_rollout_ref.actor.strategy}")
+
+    role_worker_mapping = {
+        Role.Actor: ray.remote(actor_rollout_cls),
+        Role.Rollout: ray.remote(RolloutWorker),
+        Role.Critic: ray.remote(CriticWorker),
+    }
+
+    # 添加reward model（如果启用）
+    if config.reward_model.enable:
+        if config.reward_model.strategy == "fsdp2":
+            from verl.workers.fsdp_workers import RewardModelWorker
+        elif config.reward_model.strategy == "megatron":
+            from verl.workers.megatron_workers import RewardModelWorker
+        else:
+            raise NotImplementedError(f"Unsupported reward model strategy: {config.reward_model.strategy}")
+
+        role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+
+    # 添加reference policy（如果需要KL loss或reward）
+    if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+        role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+
+    return role_worker_mapping, ray_worker_group_cls
+
+
+@ray.remote(num_cpus=1)
+class FullyAsyncTaskRunner:
+    """
+    Ray remote class for executing distributed PPO training tasks.
+    """
+
+    def __init__(self):
+        self.running = False
+        self.components = {}
+        self.shutdown_event = threading.Event()
 
     def run(self, config):
         """运行完全异步的PPO训练"""
         setup_logging()
-
         logger.info("Starting fully async PPO training...")
-        # 创建数据集和采样器
-        logger.info("Creating dataset and sampler...")
-        from verl.utils import hf_processor, hf_tokenizer
+        # 设置信号处理
+        self._setup_signal_handlers()
+        # 初始化基础组件
+        self._initialize_components(config)
+        # 启动训练流程
+        self._run_training_loop()
 
-        # Print the initial configuration. `resolve=True` will evaluate symbolic values.
-        from pprint import pprint
+        self._cleanup_resources()
 
-        from omegaconf import OmegaConf
+    def _setup_signal_handlers(self):
+        """设置信号处理器"""
 
-        from verl.utils.fs import copy_to_local
+        def signal_handler(signum, frame):
+            logger.info(f"Received signal {signum}, initiating shutdown...")
+            self.running = False
+            self.shutdown_event.set()
 
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
+    def _initialize_components(self, config) -> None:
+        """
+        初始化所有组件
+
+        Args:
+            config: 配置对象
+
+        Returns:
+            bool: 是否初始化成功
+        """
+        # 打印配置信息
         print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
         pprint(OmegaConf.to_container(config, resolve=True))
         OmegaConf.resolve(config)
 
-        # Download the checkpoint from HDFS to the local machine.
-        # `use_shm` determines whether to use shared memory, which could lead to faster model loading if turned on
+        # 初始化模型路径和tokenizer
+        logger.info("Initializing model and tokenizer...")
         local_path = copy_to_local(
             config.actor_rollout_ref.model.path, use_shm=config.actor_rollout_ref.model.get("use_shm", False)
         )
-
         # Instantiate the tokenizer and processor.
         from verl.utils import hf_processor, hf_tokenizer
 
@@ -90,195 +218,314 @@ class FullyAsyncTaskRunner:
         # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
-        # Define worker classes based on the actor strategy.
-        if config.actor_rollout_ref.actor.strategy == "fsdp2":
-            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.single_controller.ray import RayWorkerGroup
+        self.components["tokenizer"] = tokenizer
+        self.components["processor"] = processor
 
-            from recipe.one_step_off_policy.fsdp_workers import (
-                ActorRolloutRefWorker,
-                AsyncActorRolloutRefWorker,
-                CriticWorker,
-                RolloutWorker,
-            )
+        # 创建worker映射和资源池
+        logger.info("Creating worker mapping and resource pools...")
+        role_worker_mapping, ray_worker_group_cls = create_role_worker_mapping(config)
+        self.components["role_worker_mapping"] = role_worker_mapping
+        self.components["ray_worker_group_cls"] = ray_worker_group_cls
 
-            actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
-            )
-            ray_worker_group_cls = RayWorkerGroup
+        # 创建数据集
+        logger.info("Creating datasets...")
+        from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
+        from verl.utils.dataset.rl_dataset import collate_fn
 
-        elif config.actor_rollout_ref.actor.strategy == "megatron":
-            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
+        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor)
+        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor)
+        train_sampler = create_rl_sampler(config.data, train_dataset)
 
-            from recipe.one_step_off_policy.megatron_workers import (
-                ActorRolloutRefWorker,
-                AsyncActorRolloutRefWorker,
-                CriticWorker,
-                RolloutWorker,
-            )
+        self.components["train_dataset"] = train_dataset
+        self.components["val_dataset"] = val_dataset
+        self.components["train_sampler"] = train_sampler
+        self.components["collate_fn"] = collate_fn
 
-            actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
-            )
-            ray_worker_group_cls = NVMegatronRayWorkerGroup
-
-        else:
-            raise NotImplementedError
-
-        from recipe.one_step_off_policy.ray_trainer import ResourcePoolManager, Role
-
-        role_worker_mapping = {
-            Role.Actor: ray.remote(actor_rollout_cls),
-            Role.Rollout: ray.remote(RolloutWorker),
-            Role.Critic: ray.remote(CriticWorker),
-        }
-
-        global_pool_id = "actor_pool"
-        rollout_pool_id = "rollout_pool"
-
-        assert config.trainer.n_gpus_per_node > 0, "config.trainer.n_gpus_per_node must be greater than 0"
-        assert config.trainer.nnodes > 0, "config.trainer.nnodes must be greater than 0"
-        assert config.rollout.n_gpus_per_node > 0, "config.rollout.n_gpus_per_node must be greater than 0"
-        assert config.rollout.nnodes > 0, "config.rollout.nnodes must be greater than 0"
-
-        actor_pool = [config.trainer.n_gpus_per_node] * config.trainer.nnodes
-        rollout_pool = [config.rollout.n_gpus_per_node] * config.rollout.nnodes
-
-        resource_pool_spec = {
-            "actor_pool": actor_pool,
-            "rollout_pool": rollout_pool,
-        }
-        mapping = {
-            Role.Actor: global_pool_id,
-            Role.Rollout: rollout_pool_id,
-            Role.Critic: global_pool_id,
-        }
-        print(f"resource_pool_spec: {resource_pool_spec}")
-        # We should adopt a multi-source reward function here:
-        # - for rule-based rm, we directly call a reward score
-        # - for model-based rm, we call a model
-        # - for code related prompt, we send to a sandbox if there are test cases
-        # finally, we combine all the rewards together
-        # The reward type depends on the tag of the data
-        if config.reward_model.enable:
-            if config.reward_model.strategy == "fsdp2":
-                from verl.workers.fsdp_workers import RewardModelWorker
-            elif config.reward_model.strategy == "megatron":
-                from verl.workers.megatron_workers import RewardModelWorker
-            else:
-                raise NotImplementedError
-            role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
-            mapping[Role.RewardModel] = global_pool_id
-
-        # Add a reference policy worker if KL loss or KL reward is used.
-        if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
-            role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
-            mapping[Role.RefPolicy] = global_pool_id
-
-        # Load the reward manager for training and validation.
+        # 创建奖励函数
+        logger.info("Loading reward functions...")
         reward_fn = load_reward_manager(
             config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
         )
         val_reward_fn = load_reward_manager(
             config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {})
         )
-        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
+        self.components["reward_fn"] = reward_fn
+        self.components["val_reward_fn"] = val_reward_fn
 
-        from verl.utils.dataset.rl_dataset import collate_fn
-
-        # Create training and validation datasets.
-        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor)
-        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor)
-        train_sampler = create_rl_sampler(config.data, train_dataset)
-
-        # 1. 创建MessageQueue
+        # 创建MessageQueue
         logger.info("Creating MessageQueue...")
-        # todo max_queue_size auto compute
         max_queue_size = config.async_training.get("max_queue_size", 1000)
         message_queue = MessageQueue.remote(config, max_queue_size)
         message_queue_client = MessageQueueClient(message_queue)
 
-        # 2. 创建Rollouter Actor
+        self.components["message_queue"] = message_queue
+        self.components["message_queue_client"] = message_queue_client
+
+        # 创建Rollouter
         logger.info("Creating Rollouter...")
-        rollouter_actor = RollouterActor.remote(
+        self._create_rollouter(config)
+
+        # 创建Trainer
+        logger.info("Creating FullyAsyncTrainer...")
+        self._create_trainer(config)
+
+        # 设置参数同步
+        logger.info("Setting up parameter synchronization...")
+        param_synchronizer = AsyncParameterSynchronizer(
             config=config,
-            tokenizer=tokenizer,
-            role_worker_mapping={Role.Rollout: role_worker_mapping[Role.Rollout]},
+            actor_wg=self.components["trainer"].actor_wg,
+            rollouter=self.components["rollouter"],
+        )
+        self.components["param_synchronizer"] = param_synchronizer
+        logger.info("All components initialized successfully")
+
+    def _create_rollouter(self, config) -> None:
+        """创建Rollouter"""
+        rollouter = FullyAsyncRollouter.remote(
+            config=config,
+            tokenizer=self.components["tokenizer"],
+            role_worker_mapping={Role.Rollout: self.components["role_worker_mapping"][Role.Rollout]},
             resource_pool_manager=create_resource_pool_manager(config, roles=[Role.Rollout]),
-            ray_worker_group_cls=RayWorkerGroup,
-            processor=processor,
-            train_dataset=train_dataset,
-            collate_fn=collate_fn,
-            train_sampler=train_sampler,
+            ray_worker_group_cls=self.components["ray_worker_group_cls"],
+            processor=self.components["processor"],
+            train_dataset=self.components["train_dataset"],
+            collate_fn=self.components["collate_fn"],
+            train_sampler=self.components["train_sampler"],
             device_name=config.trainer.device,
         )
 
         # 初始化Rollouter
-        ray.get(rollouter_actor.init_workers.remote())
-        ray.get(rollouter_actor.set_message_queue_client.remote(message_queue_client))
+        init_future = rollouter.init_workers.remote()
+        ray.get(init_future, timeout=60.0)
 
-        # 3. 创建Trainer
-        logger.info("Creating FullyAsyncTrainer...")
+        set_queue_future = rollouter.set_message_queue_client.remote(self.components["message_queue_client"])
+        ray.get(set_queue_future, timeout=10.0)
+
+        self.components["rollouter"] = rollouter
+        logger.info("Rollouter created and initialized successfully")
+
+    def _create_trainer(self, config) -> None:
+        """创建Trainer"""
+        # 创建trainer角色映射（排除Rollout）
         trainer_role_mapping = {
-            role: worker_cls for role, worker_cls in role_worker_mapping.items() if role != Role.Rollout
+            role: worker_cls
+            for role, worker_cls in self.components["role_worker_mapping"].items()
+            if role != Role.Rollout
         }
 
-        # 创建奖励函数
-        reward_fn, val_reward_fn = load_reward_manager(config, tokenizer)
-
-        trainer = FullyAsyncTrainer(
+        trainer = FullyAsyncTrainer.remote(
             config=config,
-            tokenizer=tokenizer,
+            tokenizer=self.components["tokenizer"],
             role_worker_mapping=trainer_role_mapping,
             resource_pool_manager=create_resource_pool_manager(config, roles=list(trainer_role_mapping.keys())),
-            ray_worker_group_cls=RayWorkerGroup,
-            processor=processor,
-            reward_fn=reward_fn,
-            val_reward_fn=val_reward_fn,
-            train_dataset=train_dataset,
-            val_dataset=val_dataset,
-            collate_fn=collate_fn,
-            train_sampler=train_sampler,
+            ray_worker_group_cls=self.components["ray_worker_group_cls"],
+            processor=self.components["processor"],
+            reward_fn=self.components["reward_fn"],
+            val_reward_fn=self.components["val_reward_fn"],
+            train_dataset=self.components["train_dataset"],
+            val_dataset=self.components["val_dataset"],
+            collate_fn=self.components["collate_fn"],
+            train_sampler=self.components["train_sampler"],
             device_name=config.trainer.device,
         )
 
         # 初始化Trainer
         trainer.init_workers()
-        trainer.set_message_queue_client(message_queue_client)
-        trainer.set_rollouter_actor(rollouter_actor)
+        trainer.set_message_queue_client(self.components["message_queue_client"])
+        trainer.set_rollouter(self.components["rollouter"])
 
-        # 4. 设置参数同步
-        logger.info("Setting up parameter synchronization...")
-        # param_synchronizer = AsyncParameterSynchronizer(
-        #     config=config, actor_wg=trainer.actor_wg, rollouter_actor=rollouter_actor
-        # )
+        self.components["trainer"] = trainer
+        logger.info("FullyAsyncTrainer created and initialized successfully")
 
-        # 5. 启动Rollouter（在后台线程中）
+    def _run_training_loop(self):
+        """运行训练循环"""
+        self.running = True
+
         logger.info("Starting Rollouter in background...")
+        rollouter_future = self.components["rollouter"].fit.remote()
+        time.sleep(2.0)
+        trainer_future = self.components["trainer"].fit.remote()
+        self._monitor_components()
+        ray.get(rollouter_future)
+        ray.get(trainer_future)
 
-        def run_rollouter():
+        logger.info("Training completed or interrupted")
+
+    def _run_rollouter(self):
+        try:
+            ray.get(self.components["rollouter"].fit.remote())
+        except Exception as e:
+            logger.error(f"Rollouter error: {e}")
+            self.running = False
+            self.shutdown_event.set()
+
+    def _run_trainer(self):
+        """运行trainer"""
+        try:
+            self.components["trainer"].fit()
+        except Exception as e:
+            logger.error(f"Trainer error: {e}")
+        finally:
+            self.running = False
+            self.shutdown_event.set()
+
+    def _monitor_components(self):
+        """监控组件状态"""
+        logger.info("Starting component monitoring...")
+
+        last_stats_time = time.time()
+        stats_interval = 60.0  # 60秒报告一次统计
+
+        while self.running and not self.shutdown_event.is_set():
             try:
-                ray.get(rollouter_actor.fit.remote())
+                # 等待一段时间或直到收到停止信号
+                if self.shutdown_event.wait(timeout=10.0):
+                    break
+
+                # 定期报告统计信息
+                current_time = time.time()
+                if current_time - last_stats_time >= stats_interval:
+                    self._log_component_statistics()
+                    last_stats_time = current_time
+
+                # 检查组件健康状态
+                self._check_component_health()
+
             except Exception as e:
-                logger.error(f"Rollouter error: {e}")
+                logger.error(f"Error in component monitoring: {e}")
 
-        rollouter_thread = threading.Thread(target=run_rollouter, daemon=True)
-        rollouter_thread.start()
+        logger.info("Component monitoring stopped")
 
-        # 6. 启动Trainer（主线程）
-        logger.info("Starting FullyAsyncTrainer...")
-        trainer.fit()
+    def _log_component_statistics(self):
+        """记录组件统计信息"""
+        try:
+            # 获取Trainer统计
+            trainer_stats = self.components["trainer"].get_statistics()
+
+            # 获取Rollouter统计
+            rollouter_stats = ray.get(self.components["rollouter"].get_statistics.remote(), timeout=5.0)
+
+            # 获取队列统计
+            queue_stats = self.components["message_queue_client"].get_statistics()
+
+            logger.info("=== Component Statistics ===")
+            logger.info(
+                f"Trainer - Steps: {trainer_stats['global_steps']}, "
+                f"Samples: {trainer_stats['processed_samples']}, "
+                f"Param version: {trainer_stats['current_param_version']}"
+            )
+
+            logger.info(
+                f"Rollouter - Generated: {rollouter_stats['total_generated_samples']}, "
+                f"Dropped: {rollouter_stats['dropped_stale_samples']}, "
+                f"Errors: {rollouter_stats['generation_errors']}"
+            )
+
+            logger.info(
+                f"Queue - Size: {queue_stats['queue_size']}, "
+                f"Produced: {queue_stats['total_produced']}, "
+                f"Consumed: {queue_stats['total_consumed']}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error getting component statistics: {e}")
+
+    def _check_component_health(self):
+        """检查组件健康状态"""
+        try:
+            # 检查trainer是否仍在运行
+            if hasattr(self.components["trainer"], "global_steps"):
+                current_steps = self.components["trainer"].global_steps
+                # 可以添加更多健康检查逻辑
+                print(current_steps)
+
+            # 检查rollouter是否仍在运行
+            rollouter_stats = ray.get(self.components["rollouter"].get_statistics.remote(), timeout=5.0)
+
+            if not rollouter_stats["is_running"]:
+                logger.warning("Rollouter is not running!")
+                # 可以尝试重启或报告错误
+
+        except Exception as e:
+            logger.warning(f"Health check failed: {e}")
+
+    def _cleanup_resources(self):
+        """清理资源"""
+        logger.info("Cleaning up resources...")
+
+        try:
+            # 停止Rollouter
+            if "rollouter" in self.components:
+                logger.info("Shutting down Rollouter...")
+                try:
+                    shutdown_future = self.components["rollouter"].shutdown.remote()
+                    ray.get(shutdown_future, timeout=10.0)
+                except Exception as e:
+                    logger.warning(f"Error shutting down Rollouter: {e}")
+
+            # 清理MessageQueue
+            if "message_queue_client" in self.components:
+                logger.info("Cleaning up MessageQueue...")
+                try:
+                    self.components["message_queue_client"].shutdown()
+                except Exception as e:
+                    logger.warning(f"Error cleaning up MessageQueue: {e}")
+
+            # 清理参数同步器
+            if "param_synchronizer" in self.components:
+                logger.info("Cleaning up parameter synchronizer...")
+                # TODO: 添加参数同步器的清理逻辑
+
+            logger.info("Resource cleanup completed")
+
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+
+    def get_training_status(self) -> dict:
+        """获取训练状态"""
+        if not self.running or "trainer" not in self.components:
+            return {"status": "not_running"}
+
+        try:
+            trainer_stats = self.components["trainer"].get_statistics()
+            rollouter_stats = ray.get(self.components["rollouter"].get_statistics.remote(), timeout=5.0)
+
+            return {
+                "status": "running",
+                "trainer_stats": trainer_stats,
+                "rollouter_stats": rollouter_stats,
+            }
+        except Exception as e:
+            logger.error(f"Error getting training status: {e}")
+            return {"status": "error", "error": str(e)}
 
 
 @hydra.main(config_path="config", config_name="fully_async_ppo_trainer", version_base=None)
 def main(config):
     """主入口函数"""
-    run_ppo(config, FullyAsyncTaskRunner)
+    from verl.trainer.main_ppo import run_ppo
+
+    # 确保异步训练配置存在
+    if not hasattr(config, "async_training"):
+        # 设置默认异步训练配置
+        config.async_training = OmegaConf.create(
+            {
+                "freshness_threshold": 3,
+                "max_staleness_allowed": 5,
+                "max_queue_size": 1000,
+                "min_batch_count": 1,
+                "batch_timeout": 30.0,
+                "generation_timeout": 30.0,
+                "batch_generation_interval": 0.1,
+                "max_sync_retries": 3,
+                "sync_timeout": 30.0,
+                "sync_retry_delay": 1.0,
+            }
+        )
+        logger.info("Using default async training configuration")
+
+    logger.info("Starting fully async PPO training with improved architecture")
+    run_ppo(config, task_runner_class=FullyAsyncTaskRunner)
 
 
 if __name__ == "__main__":
