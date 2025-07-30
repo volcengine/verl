@@ -118,7 +118,7 @@ verl is fast with:
    advance/rollout_trace.rst
    advance/one_step_off
    advance/agent_loop
-   
+
 .. toctree::
    :maxdepth: 1
    :caption: Hardware Support
