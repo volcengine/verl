@@ -26,6 +26,7 @@ When working with Megatron:
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
+import getpass
 import logging
 import os
 import pickle
@@ -423,10 +424,10 @@ class vLLMAsyncRollout:
         socket_type = "ipc" if tensor_parallel_size <= local_world_size else "tcp"
 
         # File lock to prevent multiple workers listen to same port
-        with FileLock("/tmp/verl_vllm_zmq.lock"):
+        with FileLock(f"/tmp/verl_vllm_zmq_{getpass.getuser()}.lock"):
             if socket_type == "ipc":
                 pid = os.getpid()
-                address = f"ipc:///tmp/verl_vllm_zmq_{pid}.ipc"
+                address = f"ipc:///tmp/verl_vllm_zmq_{pid}_{getpass.getuser()}.ipc"
             else:
                 ip, port = self._get_free_port()
                 address = f"tcp://{ip}:{port}"
