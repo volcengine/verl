@@ -191,7 +191,6 @@ def _pre_process_inputs(
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
     return prompt_token_ids[non_pad_index:]
 
-
 def _extract_logprob_from_output(output):
     """
     extract log_prob from single sglang inference output
@@ -1121,6 +1120,7 @@ class SGLangRollout(BaseRollout):
         if self.config.calculate_log_probs:
             output_logprobs = []
             rollout_output_token_ids = []
+
         for req in sorted_output_req_list:
             assert req.state == AsyncRolloutRequestStateEnum.COMPLETED, f"Request {req.request_id} is not completed"
             assert (
@@ -1164,6 +1164,7 @@ class SGLangRollout(BaseRollout):
             # extract output log_probs
             output_logprobs.append(req.rollout_log_probs[-len(req.response_ids) :])
             rollout_output_token_ids.append(req.output_token_ids[-len(req.response_ids) :])
+
         prompt_ids = pad_sequence(
             prompt_ids,
             batch_first=True,
