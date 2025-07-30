@@ -433,6 +433,7 @@ class SGLangRollout(BaseRollout):
         tp_size_per_node = self._tp_size // nnodes
         node_rank = self._tp_rank // tp_size_per_node
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0
+        attention_backend = self.config.engine_kwargs.sglang.attention_backend
 
         if first_rank_in_node:
             rank = dist.get_rank()
@@ -461,7 +462,7 @@ class SGLangRollout(BaseRollout):
                 # log_requests_level=2,
                 # max_running_requests=1,
                 mm_attention_backend="fa3",
-                attention_backend="fa3",
+                attention_backend=attention_backend if attention_backend is not None else "fa3",
                 # In async mode, we want token in token out.
                 skip_tokenizer_init=self.config.mode == "async",
             )
