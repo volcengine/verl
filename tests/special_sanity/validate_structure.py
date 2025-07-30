@@ -86,7 +86,7 @@ def main() -> None:
     parser.add_argument(
         "--allow-files",
         nargs="*",
-        default=["tests/test_protocol_on_cpu.py"],
+        default=["tests/test_protocol_on_cpu.py", "tests/test_base_config_on_cpu.py"],
         help="Extra top-level test folders that are exempt from the rule",
     )
     args = parser.parse_args()

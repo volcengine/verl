@@ -39,7 +39,7 @@ Most critic configs are similar to those of actors. Note that the critic model i
 
 - `critic.ppo_epochs`: Number of epochs for PPO updates on one set of sampled trajectories for critic. Defaults to `actor_rollout_ref.actor.ppo_epochs`
 
-- `algorithm.gemma`: discount factor
+- `algorithm.gamma`: discount factor
 
 - `algorithm.lam`: The lambda term that trades off between bias and variance in the GAE estimator
 
@@ -86,7 +86,7 @@ Qwen2.5 training log and commands: [link](https://github.com/eric-haibin-lin/ver
 bash run_gemma.sh
   trainer.n_gpus_per_node=1 \
   actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-  trainer.logger=['console'] \
+  trainer.logger=console \
   critic.model.path=Qwen/Qwen2.5-0.5B-Instruct \
   actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
   data.train_batch_size=256 \

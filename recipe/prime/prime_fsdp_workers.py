@@ -17,6 +17,7 @@ import warnings
 
 import torch
 import torch.distributed
+from omegaconf import OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 
 from verl import DataProto
@@ -25,7 +26,6 @@ from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_local_path_from_hdfs
@@ -39,6 +39,7 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_optimizer,
 )
 from verl.utils.import_utils import import_external_libs
+from verl.utils.profiler import log_gpu_memory_usage
 from verl.workers.fsdp_workers import create_device_mesh, get_sharding_strategy
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
@@ -98,9 +99,7 @@ class PRIMERewardModelWorker(Worker):
         tokenizer_path = copy_local_path_from_hdfs(config.model.tokenizer_path)
         self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
 
-        from omegaconf import OmegaConf
-
-        override_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
+        override_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
         override_config_kwargs = {
             "bos_token_id": self.tokenizer.bos_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,

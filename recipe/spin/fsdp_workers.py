@@ -22,7 +22,7 @@ import psutil
 import torch
 import torch.distributed
 from codetiming import Timer
-from omegaconf import open_dict
+from omegaconf import OmegaConf, open_dict
 from torch.distributed.device_mesh import init_device_mesh
 
 import verl.utils.torch_functional as verl_F
@@ -31,7 +31,6 @@ from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
@@ -46,6 +45,7 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
+from verl.utils.profiler import log_gpu_memory_usage
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
@@ -83,10 +83,7 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
 
-        from omegaconf import OmegaConf
-
-        override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
-
+        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
         use_remove_padding = self.config.model.get("use_remove_padding", False)
         use_fused_kernels = self.config.model.get("use_fused_kernels", False)
 
@@ -276,9 +273,9 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
             metrics["perf/mfu/actor"] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
 
             # --- LR Scheduler Step ---
-            self.actor_lr_scheduler.step()
             lr = self.actor_lr_scheduler.get_last_lr()[0]
             metrics["actor/lr"] = lr
+            self.actor_lr_scheduler.step()
 
             log_gpu_memory_usage("After update policy (DPO via PPO path)", logger=logger)
 
@@ -409,7 +406,7 @@ class RewardModelWorker(Worker):
     def _forward_micro_batch(self, micro_batch):
         from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 
-        from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
+        from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs
 
         with torch.no_grad(), torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
@@ -443,7 +440,7 @@ class RewardModelWorker(Worker):
 
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
-                    reward_rmpad = gather_outpus_and_unpad(
+                    reward_rmpad = gather_outputs_and_unpad(
                         reward_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size
                     )
 

@@ -14,6 +14,7 @@
 
 import os
 
+import pytest
 import torch
 from torch.distributed.fsdp import CPUOffload, MixedPrecision
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -54,7 +55,7 @@ def are_lists_similar(a, b):
     total_length = 0
     total_diff = 0
 
-    for s1, s2 in zip(a, b):
+    for s1, s2 in zip(a, b, strict=True):
         max_len = max(len(s1), len(s2))
         total_length += max_len
         diff = levenshtein(s1, s2)
@@ -67,6 +68,7 @@ def are_lists_similar(a, b):
     return percentage_difference <= 15
 
 
+@pytest.mark.skip("https://github.com/vllm-project/vllm/issues/16993")
 def test_vllm_spmd():
     assert torch.cuda.device_count() >= 2, "At least 2 GPUs is required to run tp+dp tests."
     local_rank, rank, world_size = initialize_global_process_group()

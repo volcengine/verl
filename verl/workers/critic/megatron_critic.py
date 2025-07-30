@@ -31,9 +31,9 @@ from torch import nn
 
 from verl import DataProto
 from verl.trainer.ppo import core_algos
-from verl.utils.debug import GPUMemoryLogger
 from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
+from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import broadcast_dict_tensor, masked_mean
@@ -84,9 +84,6 @@ class MegatronPPOCritic(BasePPOCritic):
         assert config.get("ulysses_sequence_parallel_size", 1) == 1
         if config.shuffle:
             assert config.data_loader_seed is not None, "If shuffle dataloader, seed must be manually set"
-        if config.megatron.tensor_model_parallel_size == 1:
-            print("[Warining] Because critic tp size == 1, set sp to False")
-            config.megatron.sequence_parallel = False
         self.config = config
 
     @GPUMemoryLogger("megatron critic", logger=logger)

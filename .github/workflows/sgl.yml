@@ -87,8 +87,10 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: 1
       SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK: "True"
+      NCCL_SHM_DISABLE: "1"
+      NCCL_P2P_DISABLE: "1"
     container:
-      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.0-te2.3
+      image: verlai/verl:app-verl0.5-sglang0.4.8-mcore0.12.2-te2.2
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -102,6 +104,7 @@ jobs:
         run: |
           huggingface-cli download 'Qwen/Qwen2-7B-Instruct'
           huggingface-cli download 'Qwen/Qwen2.5-0.5B'
+          huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct
           export HF_HUB_OFFLINE=1
       - name: Test the latest SGLang
         run: |
@@ -131,4 +134,11 @@ jobs:
         run: |
           cd tests/workers/rollout
           pytest -s test_sglang_async_rollout_mcp_tools.py
+      - name: Test the latest SGLang Rollout async with agent loop
+        run: |
+          ROLLOUT_NAME=sglang pytest -svvv tests/experimental/agent_loop/test_basic_agent_loop.py
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests
+      - name: Test the latest SGLang Rollout async with multimodal delta
+        run: |
+          cd tests/workers/rollout
+          pytest -s test_sglang_async_rollout_multimodal_delta.py

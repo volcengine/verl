@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Any, Dict, Optional, Type
+from typing import Any, Optional
 
 import numpy as np
 import ray
@@ -44,26 +44,13 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
     reduce_metrics,
 )
+from verl.trainer.ppo.ray_trainer import Role
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 
-WorkerType = Type[Worker]
-
-
-class Role(Enum):
-    """
-    To create more roles dynamically, you can subclass Role and add new members
-    """
-
-    Actor = 0
-    Rollout = 1
-    ActorRollout = 2
-    Critic = 3
-    RefPolicy = 4
-    RewardModel = 5
-    ActorRolloutRef = 6
+WorkerType = type[Worker]
 
 
 class AdvantageEstimator(str, Enum):
@@ -142,7 +129,7 @@ class ResourcePoolManager:
                 )
 
 
-def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
+def _compute_response_info(batch: DataProto) -> dict[str, Any]:
     """Placeholder: Computes prompt and response lengths."""
     try:
         # Assuming 'prompts' and 'responses' keys exist after generation/union
@@ -189,7 +176,7 @@ def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
 
 
 # --- Modified Metric Function ---
-def compute_dpo_data_metrics(batch: DataProto) -> Dict[str, Any]:
+def compute_dpo_data_metrics(batch: DataProto) -> dict[str, Any]:
     """
     Computes and returns metrics relevant for the DPO-like process.
     Assumes 'batch' contains results after generation and preference marking,
@@ -354,7 +341,7 @@ def compute_onlineDPO_pref(data: DataProto):
 
 
 @contextmanager
-def _timer(name: str, timing_raw: Dict[str, float]):
+def _timer(name: str, timing_raw: dict[str, float]):
     with Timer(name=name, logger=None) as timer:
         yield
     timing_raw[name] = timer.last
@@ -381,7 +368,7 @@ class RaySPINTrainer:
         val_dataset: Optional[Dataset] = None,
         collate_fn=None,
         train_sampler: Optional[Sampler] = None,
-        device_name="cuda",
+        device_name=None,
     ):
         # assert get_torch_device().is_available(), 'cuda must be available on driver'
 
@@ -404,7 +391,7 @@ class RaySPINTrainer:
         self.ray_worker_group_cls = ray_worker_group_cls
         self.validation_generations_logger = ValidationGenerationsLogger()
         self.async_rollout_mode = False
-        self.device_name = device_name
+        self.device_name = device_name if device_name else self.config.trainer.device
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
@@ -522,7 +509,7 @@ class RaySPINTrainer:
                 assert config.critic.ppo_micro_batch_size * sp_size >= n_gpus
 
         # Check if use_remove_padding is enabled when using sequence parallelism for fsdp
-        if config.actor_rollout_ref.actor.strategy == "fsdp":
+        if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             if (
                 config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1) > 1
                 or config.actor_rollout_ref.ref.get("ulysses_sequence_parallel_size", 1) > 1
@@ -531,7 +518,7 @@ class RaySPINTrainer:
                     "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
                 )
 
-        if self.use_critic and config.critic.strategy == "fsdp":
+        if self.use_critic and config.critic.strategy in {"fsdp", "fsdp2"}:
             if config.critic.get("ulysses_sequence_parallel_size", 1) > 1:
                 assert config.critic.model.use_remove_padding, (
                     "When using sequence parallelism for critic, you must enable `use_remove_padding`."
@@ -634,7 +621,7 @@ class RaySPINTrainer:
         import numpy as np
 
         # Create tuples of (input, output, score) and sort by input text
-        samples = list(zip(inputs, outputs, scores))
+        samples = list(zip(inputs, outputs, scores, strict=True))
         samples.sort(key=lambda x: x[0])  # Sort by input text
 
         # Use fixed random seed for deterministic shuffling
@@ -820,13 +807,13 @@ class RaySPINTrainer:
         wg_kwargs = {}  # Setting up kwargs for RayWorkerGroup
         if OmegaConf.select(self.config.trainer, "ray_wait_register_center_timeout") is not None:
             wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
+        wg_kwargs["device_name"] = self.device_name
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
             wg_dict = self.ray_worker_group_cls(
                 resource_pool=resource_pool,
                 ray_cls_with_init=worker_dict_cls,
-                device_name=self.device_name,
                 **wg_kwargs,
             )
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
@@ -1118,6 +1105,9 @@ class RaySPINTrainer:
                         gen_batch = batch.pop(
                             batch_keys=pop_batch_keys,
                             non_tensor_batch_keys=pop_non_tensor_keys,
+                        )
+                        gen_batch = gen_batch.repeat(
+                            repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
                         )
                         # (Add Debug prints for gen_batch if needed)
 
@@ -1412,7 +1402,7 @@ class RaySPINTrainer:
                     postfix_metrics = {
                         k: f"{v:.3f}" if isinstance(v, float) else v
                         for k, v in metrics.items()
-                        if isinstance(v, (int, float))
+                        if isinstance(v, int | float)
                     }
                     progress_bar.set_postfix(postfix_metrics)
 

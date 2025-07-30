@@ -1,0 +1,82 @@
+# Format checks enforced on CI:
+# 1. Comments must appear above each field.
+# 2. There must be a blank line between each field.
+# 3. Inline comments (after a field on the same line) are not allowed.
+# 4. Indentation level is respected for nested fields.
+
+# defaults specify the default config from each component
+defaults:
+
+  # dp actor config, inheriting from trainer/config/actor/actor.yaml
+  - actor
+
+  # load the reference default config, then apply the fields in the current yaml
+  - _self_
+
+# Target class for this configuration
+_target_: verl.workers.config.FSDPActorConfig
+
+# TODO(haibin.lin): switch to fsdp2
+strategy: fsdp
+
+# Gradient clipping for actor updates, specific to the strategy.
+grad_clip: 1.0
+
+# Sequence parallelism size for Ulysses-style model parallelism
+# oc.select: the default val for ref.ulysses_sequence_parallel_size
+ulysses_sequence_parallel_size: 1
+
+# calculate entropy with chunking to reduce memory peak
+entropy_from_logits_with_chunking: False
+
+# recompute entropy
+entropy_checkpointing: False
+
+# optimizer configs
+optim:
+
+  # Target class for this configuration
+  _target_: verl.workers.config.FSDPOptimizerConfig
+
+  # Minimum LR ratio for cosine schedule
+  min_lr_ratio: 0.0
+
+  # Number of cosine cycles in LR schedule
+  num_cycles: 0.5
+
+  # LR warmup style: "constant" or "cosine"
+  warmup_style: constant
+
+# configs for FSDP
+fsdp_config:
+
+  # Target class for this configuration
+  _target_: verl.workers.config.FSDPEngineConfig
+
+  # policy for wrapping the model
+  wrap_policy:
+
+    # Minimum number of parameters to trigger wrapping a layer with FSDP
+    min_num_params: 0
+
+  # Whether to offload model parameters to CPU (trades speed for memory)
+  param_offload: false
+
+  # Whether to offload optimizer state to CPU
+  optimizer_offload: false
+
+  # Only for FSDP2: offload param/grad/optimizer during train
+  offload_policy: false
+
+  # Only for FSDP2: Reshard after forward pass to reduce memory footprint
+  reshard_after_forward: true
+
+  # Number of GPUs in each FSDP shard group; -1 means auto
+  fsdp_size: -1
+
+  # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
+  # before the current forward computation.
+  forward_prefetch: False
+
+# Whether to remove padding tokens in inputs during training
+use_remove_padding: ${oc.select:actor_rollout_ref.model.use_remove_padding,false}

@@ -5,14 +5,14 @@ datasets
 dill
 flash-attn
 hydra-core
-numpy
+numpy<2.0.0
 pandas
 peft
 pyarrow>=19.0.0
 pybind11
 pylatexenc
 ray[default]>=2.10
-tensordict<=0.6.2
+tensordict>=0.8.0,<=0.9.1,!=0.9.0
 torchdata
 torchvision
 transformers
