@@ -86,7 +86,6 @@ common_params=(
     trainer.nnodes=1
     trainer.n_gpus_per_node=${n_gpus_training}
     custom_reward_function.path=${reward_file} \
-    custom_reward_function.name=Gsm8kAgent \
     reward_model.reward_manager=batch \
     reward_model.launch_reward_fn_async=True \
     +update_pipeline=True
@@ -109,6 +108,7 @@ if [ "${ACTOR_STRATEGY}" == "fsdp2" ]; then
         actor_rollout_ref.actor.fsdp_config.param_offload=${actor_offload} \
         actor_rollout_ref.actor.fsdp_config.optimizer_offload=${actor_offload} \
         actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
+        custom_reward_function.name=Gsm8kAgent \
         actor_rollout_ref.ref.fsdp_config.param_offload=${ref_offload} $@
 
 elif [ "${ACTOR_STRATEGY}" == "megatron" ]; then
@@ -134,6 +134,7 @@ elif [ "${ACTOR_STRATEGY}" == "megatron" ]; then
         actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
         actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=${train_pp} \
         actor_rollout_ref.ref.megatron.tensor_model_parallel_size=${train_tp} \
+        custom_reward_function.name=compute_score_per_sample \
         actor_rollout_ref.ref.megatron.param_offload=${ref_offload} $@
 else
     echo "Error: Unknown strategy ${ACTOR_STRATEGY}. Please use 'fsdp2' or 'megatron'"

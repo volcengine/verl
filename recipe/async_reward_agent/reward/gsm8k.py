@@ -50,7 +50,7 @@ def extract_solution(solution_str, method="strict"):
     return final_answer
 
 
-def compute_score(data_source, solution_str: str, ground_truth: str, extra_info=None) -> float:
+def compute_score(data_source, solution_str: str, ground_truth: str, extra_info=None, latency=40) -> float:
     """The scoring function for GSM8k.
 
     Reference: Trung, Luong, et al. "Reft: Reasoning with reinforced fine-tuning." Proceedings of the 62nd Annual
@@ -62,9 +62,10 @@ def compute_score(data_source, solution_str: str, ground_truth: str, extra_info=
         method: the method to extract the solution, choices are 'strict' and 'flexible'
         format_score: the score for the format
         score: the score for the correct answer
+        latency: the latency of the request
     """
     answer = extract_solution(solution_str=solution_str)
-    sleep_time = random.uniform(0, 40)
+    sleep_time = random.uniform(1, latency)
     time.sleep(sleep_time)
     if answer is None:
         return 0
@@ -73,6 +74,11 @@ def compute_score(data_source, solution_str: str, ground_truth: str, extra_info=
             return 1.0
         else:
             return 0.0
+
+
+def compute_score_per_sample(data_source, solution_str: str, ground_truth: str, extra_info=None):
+    score = compute_score(data_source, solution_str, ground_truth, extra_info)
+    return score, solution_str, f"score: {score}"
 
 
 def compute_batch_scores(data_sources, solution_strs, ground_truths, extra_infos=None):
@@ -103,7 +109,7 @@ def compute_batch_scores(data_sources, solution_strs, ground_truths, extra_infos
 
 class Gsm8kAgent:
     def __init__(self):
-        pass
+        self.latency = 40
 
     def compute_score(
         self,
@@ -112,5 +118,5 @@ class Gsm8kAgent:
         ground_truth: str,
         extra_info: Optional[dict] = None,
     ) -> tuple[float, str, str]:
-        score = compute_score(data_source, solution_str, ground_truth, extra_info)
+        score = compute_score(data_source, solution_str, ground_truth, extra_info, latency=self.latency)
         return score, solution_str, f"score: {score}"

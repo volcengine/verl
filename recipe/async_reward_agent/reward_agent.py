@@ -106,15 +106,15 @@ class RayAsyncRewardAgent:
         self.running = True
         self.proxy_thread = threading.Thread(target=self.proxy_func)
         self.proxy_thread.start()
-        self.futures = []
         self.reward_fn_key = config.data.reward_fn_key
         # Try to get a custom reward function based on the configuration
         compute_score = get_custom_reward_fn(config)
         if inspect.isclass(compute_score):
             self.agent = compute_score()
             self.user_defined_func = self.agent.compute_score
-            print(f"Bind the agent func: {self.agent.compute_score.__name__}")
+            print(f"Bind the agent: {self.agent.__class__.__name__}")
         else:
+            self.agent = None
             self.user_defined_func = compute_score
             print(f"Bind the func: {compute_score.__name__}")
 
@@ -147,7 +147,7 @@ class RayAsyncRewardAgent:
                 continue
             data_idxs_, rewards_, valid_response_lengths_, max_seq_len_, reward_extra_info = self.completed_queue.get()
             data_idxs.extend(data_idxs_)
-            if hasattr(self.agent, "post_process_scores") and callable(self.agent.post_process_scores):
+            if self.agent and hasattr(self.agent, "post_process_scores") and callable(self.agent.post_process_scores):
                 rewards_ = self.agent.post_process_scores(rewards_)
             rewards.extend(rewards_)
             valid_response_lengths.extend(valid_response_lengths_)
@@ -242,7 +242,7 @@ class RayAsyncRewardAgent:
 
                 dur = time.time() - start
                 print(f"Requesting the reward took {dur} seconds")
-                if hasattr(self.agent, "log") and callable(self.agent.log):
+                if self.agent and hasattr(self.agent, "log") and callable(self.agent.log):
                     self.agent.log(timestamps, queries, results, latencies, group_uids)
             else:
                 time.sleep(1)
@@ -328,12 +328,16 @@ class RayAsyncRewardAgent:
             groups[uid][idx] = score
             if len(groups[uid]) == extras[idx]["group_size"]:
                 values = list(groups[uid].values())
-                if hasattr(self.agent, "post_process_scores") and callable(self.agent.post_process_scores):
+                if (
+                    self.agent
+                    and hasattr(self.agent, "post_process_scores")
+                    and callable(self.agent.post_process_scores)
+                ):
                     values = self.agent.post_process_scores(values)
                 for i, k in enumerate(groups[uid].keys()):
                     scores[k] = values[i]
 
-        if hasattr(self.agent, "log") and callable(self.agent.log):
+        if self.agent and hasattr(self.agent, "log") and callable(self.agent.log):
             self.agent.log(timestamps, queries, results, latencies, group_uids)
         return scores
 

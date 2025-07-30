@@ -849,6 +849,10 @@ class AsyncRewardAgentTrainer:
     def _create_continuous_iterator(self):
         """
         Create a continuous data iterator across epoch
+
+        Adapted from
+        https://github.com/volcengine/verl/blob/main/recipe/one_step_off_policy/ray_trainer.py#L303
+
         """
         for epoch in range(self.config.trainer.total_epochs):
             iterator = iter(self.train_dataloader)
