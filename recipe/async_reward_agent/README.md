@@ -1,3 +1,18 @@
+<!-- The below code in this distribution has been modified by Tencent ("Tencent Modifications"). 
+All Tencent Modifications are Copyright (C) Tencent.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License. -->
+
 # Recipe: Asynchronous Reward Agent with Update Pipeline and One Step Off Policy Training
 
 **Author:**  `haolinyan@tencent.com`
@@ -227,7 +242,7 @@ As shown in the figure below, current framework requires waiting until all rewar
 
 The ​update pipeline strategy​ leverages ``RayAsyncRewardAgent`` to asynchronously collect rewards and update the model. It employs a pipelined approach by repeatedly calling the ``get`` method, each time retrieving one mini-batch of data and immediately updating the model. This process continues until all data in the ​global batch​ has been used for updates.
 
-![](./assets/imges/update_pipeline.png)
+![](./assets/imges/update_pipeline.svg)
 
 The main code changes are as follows:  
 

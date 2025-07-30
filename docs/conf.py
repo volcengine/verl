@@ -50,7 +50,6 @@ extensions = [
     "sphinx.ext.autosectionlabel",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
-    "sphinxcontrib.mermaid",
 ]
 # Use Google style docstrings instead of NumPy docstrings.
 napoleon_google_docstring = True

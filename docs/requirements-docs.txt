@@ -3,8 +3,7 @@ recommonmark
 myst_parser
 # markdown table support
 sphinx-markdown-tables
-# mermaid support
-sphinxcontrib-mermaid
+
 
 # theme default rtd
 

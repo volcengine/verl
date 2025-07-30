@@ -1,3 +1,18 @@
+<!-- The below code in this distribution has been modified by Tencent ("Tencent Modifications"). 
+All Tencent Modifications are Copyright (C) Tencent.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License. -->
+
 # 方案：基于流水线更新与单步离线策略训练的异步奖励代理机制
 
 **作者：** `haolinyan@tencent.com`
@@ -222,7 +237,7 @@ sequenceDiagram
 
 流水线更新策略利用``RayAsyncRewardAgent``异步收集奖励并及时更新模型。它采用流水线方式，通过反复调用``get``方法，每次获取一个`mini-batch`数据并立即更新模型。该过程持续进行，直到全局批次中的所有数据都用于更新。
 
-![](./assets/imges/update_pipeline.png)
+![](./assets/imges/update_pipeline.svg)
 
 主要代码修改如下：
 
