@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import threading
 import time
 import uuid
@@ -23,6 +24,8 @@ import ray
 import zmq
 from filelock import FileLock
 from omegaconf import DictConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -40,7 +43,8 @@ class BatchSample:
 @ray.remote(num_cpus=1)
 class MessageQueue:
     """
-    基于ZeroMQ的异步消息队列，用于Rollouter和Trainer之间的通信
+    简化的Ray-based异步消息队列，用于Rollouter和Trainer之间的通信
+    去掉了ZeroMQ的复杂性，使用更可靠的Ray机制
     """
 
     def __init__(self, config: DictConfig, max_queue_size: int = 1000):
@@ -49,7 +53,7 @@ class MessageQueue:
         self.queue = deque(maxlen=max_queue_size)
         self.current_param_version = 0
 
-        # 安全地获取配置值，避免递归问题
+        # 安全地获取配置值
         try:
             if hasattr(config, "async_training") and config.async_training is not None:
                 self.freshness_threshold = getattr(config.async_training, "freshness_threshold", 3)
@@ -69,14 +73,21 @@ class MessageQueue:
 
         # Threading for message handling
         self.running = True
+
+        # 线程安全
         self.lock = threading.RLock()
         self.consumer_waiting = False
         self.consumer_condition = threading.Condition(self.lock)
 
-        # Statistics
+        # 统计信息
         self.total_produced = 0
         self.total_consumed = 0
         self.dropped_samples = 0
+
+        logger.info(
+            f"MessageQueue initialized with max_queue_size={max_queue_size},"
+            "freshness_threshold={self.freshness_threshold}"
+        )
 
     def _setup_zmq(self):
         """设置ZeroMQ socket"""
@@ -113,6 +124,7 @@ class MessageQueue:
             staleness = self.current_param_version - param_version
             if staleness >= self.freshness_threshold:
                 self.dropped_samples += 1
+                logger.debug(f"Dropped stale sample: staleness={staleness}, threshold={self.freshness_threshold}")
                 return False
 
             sample = BatchSample(
@@ -128,7 +140,7 @@ class MessageQueue:
             if len(self.queue) >= self.max_queue_size:
                 removed = self.queue.popleft()
                 self.dropped_samples += 1
-                print(f"Queue full, dropped sample {removed.batch_id}")
+                logger.warning(f"Queue full, dropped sample {removed.batch_id}")
 
             self.queue.append(sample)
             self.total_produced += 1
@@ -136,6 +148,9 @@ class MessageQueue:
             # 通知等待的消费者
             if self.consumer_waiting:
                 self.consumer_condition.notify()
+
+            if self.total_produced % 100 == 0:
+                logger.debug(f"MessageQueue stats: produced={self.total_produced}, queue_size={len(self.queue)}")
 
             return True
 
@@ -174,7 +189,9 @@ class MessageQueue:
     def update_param_version(self, version: int):
         """更新当前参数版本"""
         with self.lock:
+            old_version = self.current_param_version
             self.current_param_version = version
+            logger.debug(f"Parameter version updated from {old_version} to {version}")
 
     def get_queue_size(self) -> int:
         """获取当前队列长度"""
@@ -191,12 +208,15 @@ class MessageQueue:
                 "dropped_samples": self.dropped_samples,
                 "current_param_version": self.current_param_version,
                 "freshness_threshold": self.freshness_threshold,
+                "max_queue_size": self.max_queue_size,
             }
 
     def clear_queue(self):
         """清空队列"""
         with self.lock:
+            cleared_count = len(self.queue)
             self.queue.clear()
+            logger.info(f"Cleared {cleared_count} samples from queue")
 
     def shutdown(self):
         """关闭消息队列"""
@@ -205,6 +225,34 @@ class MessageQueue:
             self.socket.close()
         if self.context:
             self.context.term()
+
+    def get_memory_usage(self) -> dict:
+        """获取内存使用统计"""
+        with self.lock:
+            # 估算队列中样本的内存使用
+            import sys
+
+            total_size = 0
+            sample_count = len(self.queue)
+
+            if sample_count > 0:
+                # 估算单个样本的大小（简化估算）
+                sample = list(self.queue)[0]
+                try:
+                    sample_size = sys.getsizeof(sample)
+                    if hasattr(sample.data, "batch") and hasattr(sample.data.batch, "__len__"):
+                        # 如果有batch信息，估算数据大小
+                        batch_size = len(sample.data.batch)
+                        sample_size += batch_size * 1000  # 粗略估算每个batch条目1KB
+                    total_size = sample_size * sample_count
+                except Exception:
+                    total_size = sample_count * 10000  # 粗略估算每个样本10KB
+
+            return {
+                "queue_samples": sample_count,
+                "estimated_memory_bytes": total_size,
+                "estimated_memory_mb": total_size / (1024 * 1024),
+            }
 
     def get_address(self) -> str:
         """获取ZeroMQ地址"""
@@ -244,3 +292,7 @@ class MessageQueueClient:
     def shutdown(self):
         """关闭队列"""
         ray.get(self.queue_actor.shutdown.remote())
+
+    def get_memory_usage(self) -> dict:
+        """获取内存使用统计"""
+        return ray.get(self.queue_actor.get_memory_usage.remote())

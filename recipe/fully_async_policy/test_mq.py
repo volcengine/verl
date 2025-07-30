@@ -227,6 +227,7 @@ class TestMessageQueueActor:
             "dropped_samples",
             "current_param_version",
             "freshness_threshold",
+            "max_queue_size",
         }
         assert set(stats.keys()) == expected_keys
         assert isinstance(stats["queue_size"], int)
