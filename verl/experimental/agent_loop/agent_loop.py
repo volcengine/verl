@@ -240,7 +240,6 @@ class AgentLoopWorker:
             for agent_loop_config in agent_loop_configs:
                 _agent_loop_registry[agent_loop_config.name] = agent_loop_config
 
-        trace_config = config.trainer.get("rollout_trace", {})
         trace_config = self.config.actor_rollout_ref.rollout.get("trace", {})
         RolloutTraceConfig.init(
             self.config.trainer.project_name,
