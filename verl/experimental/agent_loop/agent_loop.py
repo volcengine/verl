@@ -92,6 +92,7 @@ class AsyncLLMServerManager:
             request_id (str): request id for sticky session.
             prompt_ids (List[int]): List of prompt token ids.
             sampling_params (Dict[str, Any]): Sampling parameters for the chat completion.
+            image_data (Optional[List[Any]], optional): Optional image data for multi-modal input. Defaults to None.
 
         Returns:
             List[int]: List of generated token ids.
@@ -182,6 +183,8 @@ class AgentLoopBase(ABC):
         Args:
             messages (List[Dict[str, Any]]): Input messages.
             sampling_params (Dict[str, Any]): LLM sampling params.
+            image_data (Optional[List[Any]], optional): Optional image data for multi-modal input. Defaults to None.
+            tools_kwargs (Optional[Dict[str, Any]], optional): Optional tool kwargs for tool calls.
 
         Returns:
             AgentLoopOutput: Agent loop output.
