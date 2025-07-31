@@ -21,7 +21,7 @@ limitations under the License. -->
 
 ### 研究背景
 
-强化学习（RL）的训练效果高度依赖奖励机制的设计，在真实业务场景中，尤其是训练初期，由于高质量规则和奖励模型的构建难度较大，传统基于规则或简单奖励模型的方法往往难以提供有效的学习信号，导致训练效率低下、策略偏差等问题。因此当前的RL系统需要更加灵活与高效的奖励评估机制；通过API化远程服务将奖励评估机制与模型训练过程解耦，是一种更具灵活性和可扩展性的方案。这种方案支持多样化评估方法的灵活集成，例如基于大语言模型的评分（LLM-as-a-Judge）、结合已有领域知识的检索增强生成（RAG）评估，以及多维度指标（如安全性、创造性和事实准确性）的综合评判。不仅能有效规避因奖励函数过于简化而可能导致的策略偏差（Reward Hacking），还能在训练初期高效积累高质量奖励数据，为后续策略优化奠定基础。此外，该方案支持奖励评估服务的独立迭代升级以及多训练任务间的资源共享，显著提升了系统的可拓展性。
+强化学习（RL）的训练效果高度依赖于奖励机制的设计，在真实业务场景中，尤其是训练初期，由于高质量规则和奖励模型的构建难度较大，传统基于规则或简单奖励模型的方法往往难以提供有效的学习信号，导致训练效率低下、策略偏差等问题。因此当前的RL系统需要更加灵活与高效的奖励评估机制；通过API化远程服务将奖励评估机制与模型训练过程解耦，是一种更具灵活性和可扩展性的方案。这种方案支持多样化评估方法的灵活集成，例如基于大语言模型的评分（LLM-as-a-Judge）、结合已有领域知识的检索增强生成（RAG）评估，以及多维度指标（如安全性、创造性和事实准确性）的综合评判。不仅能有效规避因奖励函数过于简化而可能导致的策略偏差（Reward Hacking），还能在训练初期高效积累高质量奖励数据，为后续策略优化奠定基础。此外，该方案支持奖励评估服务的独立迭代升级以及多训练任务间的资源共享，显著提升了系统的可拓展性。
 
 然而，在这种奖励评估-训练解耦的方案中，现有的verl框架存在两个关键问题
 
@@ -34,9 +34,9 @@ limitations under the License. -->
 针对上述问题，我们设计实现了**异步奖励代理**，允许开发者自定义单条响应的奖励函数，由代理负责并发请求的发起与全生命周期管理。该设计使我们能对前述通信瓶颈进行调度优化。具体我们采用**单步离线策略**与**流水线更新**两种策略实现通信与计算的有效重叠：
 
 1. **单步离线策略**：不同于[美团](https://verl.readthedocs.io/en/latest/advance/one_step_off.html)实现的"One Step Off Async Trainer"，我们使用 colcated 模式，通过将下一步rollout的计算时间与当前奖励请求等待时间重叠，提升训练效率。
-2. **流水线更新**：现有方法需等待全局批次所有奖励收集完成后才进行模型更新，导致GPU长时间闲置。为克服该低效问题，我们采用流水线执行策略，将全局批次划分为多个mini-batch，实现异步奖励收集与模型更新的并发处理，有效重叠通信延迟与计算时间。
+2. **流水线更新**：现有方法需等待全局批次所有奖励收集完成后才进行模型更新，导致GPU长时间闲置。为解决该问题，我们将全局批次划分为多个mini-batch，实现基于流水线的异步奖励收集与模型更新的并发处理，有效重叠通信延迟与计算时间。
 
-通过这两种策略，我们利用计算时间覆盖了通信等待时间，显著提升了训练效率。在GSM8K模拟实验中，我们证实：当异步奖励代理配合单步离线策略和流水线更新策略使用时，相比基线方案可有效缩短30%的训练时间。
+通过这两种策略，我们利用计算时间覆盖了通信等待时间，显著提升了训练效率。在GSM8K模拟实验中，我们证实：当异步奖励代理配合单步离线策略和流水线更新策略使用时，相比基线方案可有效缩短 **30.85%** 的训练时间。
 
 ![](./assets/imges/async_reward_agent.svg)
 
@@ -51,19 +51,19 @@ limitations under the License. -->
 - **Rollout 引擎**：vLLM  
 
 实验结果如下所示: 
-- 所提方案达到了与开源社区现有结果相当的训练精度。  
-- 通过结合流水线更新与单步离线策略，相较于基线方法，总训练时间最高可减少**30.4%**。  
+- 提出的方案达到了与开源社区现有结果相当的训练精度。  
+- 通过结合流水线更新与单步离线策略，相较于基线方法，总训练时间最高可减少 **30.85%** 。  
 
 | Backend | Strategy                 | Model        | Training Time | Accuracy (last/max) | Log                                                                  |
 |------------------|----------------------------------|--------------|---------------|---------------------|----------------------------------------------------------------------------------|
 | Megatron         | baseline (from community) | Qwen2-7B-Instruct     | -             | 89.61 / 89.61       | [Log](https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b_math_megatron.log) |
 | Megatron         | baseline                         | Qwen2-7B-Instruct     | 17h53m        | 89.08 / 89.92       | [Log](./assets/tensorboard/gsm8k_qwen2_7b_base)                                                             |
 | FSDP             | baseline                         | Qwen2-7B-Instruct     | 18h24m        | 89.54 / 89.92       | [Log](./assets/tensorboard/q7b_fsdp_base)                                                                   |
-| Megatron         | update pipeline + one-step off-policy | Qwen2-7B-Instruct | **12h22m** (-30.4%) | 89.61 / 90.04       | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)                                                          |
+| Megatron         | update pipeline + one-step off-policy | Qwen2-7B-Instruct | **12h22m** (-30.85%) | 89.61 / 90.04       | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)                                                          |
 | FSDP             | update pipeline + one-step off-policy | Qwen2-7B-Instruct | **13h10m** (-28.44%) | 88.86 / 89.99       | [Log](./assets/tensorboard/q7b_fsdp_off_ppl)                                                                |
 | FSDP             | baseline                         | Qwen2.5-3B-Instruct   | 17h23m        | 87.87 / 88.10       | [Log](./assets/tensorboard/q3b_fsdp_base)                                                                   |
 | Megatron         | baseline                         | Qwen2.5-3B-Instruct   | 17h07m        | 88.02 / 88.02       | [Log](./assets/tensorboard/q3b_mcore_base)                                                                  |
-| FSDP             | update pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h15m** (-23.78%) | 88.93 / 88.93       | [Log](./assets/tensorboard/q3b_fsdp_off_ppl)                                                                |
+| FSDP             | update pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h15m** (-23.08%) | 88.93 / 88.93       | [Log](./assets/tensorboard/q3b_fsdp_off_ppl)                                                                |
 | Megatron         | update pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h10m** (-23.08%) | 87.19 / 88.40       | [Log](./assets/tensorboard/q3b_mcore_off_ppl)
 
 我们通过进一步实验验证了以下两个方面：(1) 流水线更新与单步离线策略对训练效率的独立贡献；(2) 解耦PPO损失函数（如[论文](https://arxiv.org/pdf/2505.24298)所述，用于缓解离线策略训练中的策略不一致性问题）对训练效率及模型性能的影响。  
@@ -74,16 +74,16 @@ limitations under the License. -->
 | Backend   | Strategy                              |  Model       | Training Time      | Accuracy (last/max) | Log                     |
 |------------|---------------------------------------|------------|----------------|----------------|------------------------------|
 | Megatron   | baseline                              | Qwen2-7B-Instruct   | 17h53m         | 89.08/89.92    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_base)          |
-| Megatron   | one-step off-policy                   | Qwen2-7B-Instruct   | 13h23m (-24.7%) | 88.93/89.54    | [Log](./assets/tensorboard/q7b_mcore_off)                |
-| Megatron   | update pipeline                       | Qwen2-7B-Instruct   | 15h41m (-12.0%) | 89.31/89.99    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_async)         |
-| Megatron   | update pipeline + one-step off-policy | Qwen2-7B-Instruct   | 12h22m (-30.4%) | 89.61/90.04    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)       |
-| Megatron   | update pipeline + one-step off-policy + decoupled ppo loss | Qwen2-7B-Instruct | 12h21m (-30.4%) | 89.01/89.69    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl_behav) |
+| Megatron   | one-step off-policy                   | Qwen2-7B-Instruct   | 13h23m (-25.16%) | 88.93/89.54    | [Log](./assets/tensorboard/q7b_mcore_off)                |
+| Megatron   | update pipeline                       | Qwen2-7B-Instruct   | 15h41m (-12.30%) | 89.31/89.99    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_async)         |
+| Megatron   | update pipeline + one-step off-policy | Qwen2-7B-Instruct   | 12h22m (-30.85%) | 89.61/90.04    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)       |
+| Megatron   | update pipeline + one-step off-policy + decoupled ppo loss | Qwen2-7B-Instruct | 12h21m (-30.94%) | 89.01/89.69    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl_behav) |
 
 
 ## 实现方案
 
 ### 奖励计算代理
-我们设计了`RayAsyncRewardAgent`对象。当`controller`进程通过Ray异步调用`compute_reward_pipeline`方法发起全局批次请求时，该函数会将预处理后的请求提交至`pending_queue`并立即返回请求数量。
+我们设计了`RayAsyncRewardAgent`对象。当`controller`进程通过Ray异步调用`compute_reward_pipeline`方法发起一个``global batch``数量的请求时，该函数会将预处理后的请求提交至`pending_queue`并立即返回请求数量。
 
 ```python
 @ray.remote
@@ -358,72 +358,152 @@ sequenceDiagram
 ## 使用方法
 
 ### 奖励函数配置示例
-开发者需要自定义奖励函数，每次为一个回复生成一个评分，例如：
-```python  
-def compute_score(self,  
-                    data_source: Any,  
-                    solution_str: str,  
-                    ground_truth: str,  
-                    extra_info: Optional[dict] = None  
-                    ) -> Tuple[float, str, str]:  
-        """  
-        计算并返回回复的评分  
 
-        参数说明:  
+用户可以通过两种方式灵活集成**远程奖励服务**（如LLM-as-a-Judge评分、RAG增强评分、基于规则+模型的混合评分等）：
+1. 无状态函数——适用于一次性、无上下文的评分  
+2. 有状态类——当需要缓存、令牌管理、会话上下文或批量后处理时
+
+以下是两种模式的示例，重点展示调用OpenAI API作为LLM-as-a-Judge的用法。
+```python
+# --------------------------------------------------
+# 1. 无状态函数 (compute_score)
+# --------------------------------------------------
+def compute_score(
+    data_source: Any,
+    solution_str: str,
+    ground_truth: str,
+    extra_info: Optional[dict] = None,
+) -> Tuple[float, str, str]:
+    """
+    无状态评分函数，每次调用都是独立的HTTP请求，用于单次评分。
+
+    参数:  
+        data_source: 数据源对象  
+        solution_str: 待评分的回复字符串  
+        ground_truth: 标准答案  
+        extra_info: 额外信息字典（可选）  
+
+    返回:  
+        包含三个元素的元组:  
+        - 评分值 (float)  
+        - 发起评分的提示词字符串 (str)  
+        - 评分解释字符串 (str)  
+    """
+    system_prompt = ...
+    prompt = ...
+
+    client = OpenAI(
+        api_key = "你的OpenAI API密钥",
+        base_url = "自定义基础URL",
+    )
+    
+    try:
+        resp = client.chat.completions.create(
+            model = "gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        score_str = resp.choices[0].message.content.strip()
+        score = float(score_str)
+    except Exception as e:
+        # 回退方案：基于规则的评分或0分
+        score = 0.0
+        explanation = f"LLM评分失败: {e}"
+    else:
+        explanation = f"LLM评分返回 {score}"
+
+    return score, prompt, explanation
+
+# --------------------------------------------------
+# 2. 有状态类
+# --------------------------------------------------
+class RewardAgent:
+    """
+    此示例展示：
+    - 多次请求共享OpenAI client对象
+    - 在compute_score中重复使用
+    - 可选的post_process_scores用于平滑或异常值处理
+    """
+
+    def __init__(self):
+        # 初始化远程客户端
+        self.client = OpenAI(
+            api_key = "你的OpenAI API密钥",
+            base_url = "自定义基础URL")
+        self.system_prompt = ...
+
+    def compute_score(
+        self,
+        data_source: Any,
+        solution_str: str,
+        ground_truth: str,
+        extra_info: Optional[dict] = None,
+    ) -> tuple[float, str, str]:
+        """
+        有状态评分函数，
+
+        参数:  
             data_source: 数据源对象  
-            solution_str: 待评分的回复字符串  
+            solution_str: 待评分的解决方案字符串  
             ground_truth: 标准答案  
             extra_info: 额外信息字典（可选）  
 
-        返回值:  
+        返回:  
             包含三个元素的元组:  
-            - 评分值（浮点数）  
-            - 原始回复字符串  
-            - 评分说明字符串  
-        """  
-        ...  
-        score = ...  
-        return score, solution_str, f"得分: {score}"  
-```  
+            - 评分值 (float)  
+            - 发起评分的提示词字符串 (str)  
+            - 评分解释字符串 (str)  
+        """
+        prompt = ...
+       
+        try:
+            resp = self.client.chat.completions.create(
+                model = "gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            score_str = resp.choices[0].message.content.strip()
+            score = float(score_str)
+        except Exception as e:
+            # 回退方案：基于规则的评分或-1.0分
+            score = -1.0
+            explanation = f"LLM评分失败: {e}"
+        else:
+            explanation = f"LLM评分返回 {score}"
 
-然后在训练配置中指定函数名称和文件路径：  
-```bash  
-custom_reward_function.path=${reward_file} \  
-custom_reward_function.name=compute_score  
-```  
+        return score, prompt, explanation
 
-对于需要在评估过程中维护有状态的元数据（如用户ID、令牌等）的场景，``RayAsyncRewardAgent``支持通过自定义类（而不仅是函数）来实现，只需将类名传入上述`custom_reward_function.name`参数。例如：  
-```python  
-class Gsm8kAgent:  
-    def __init__(self):  
-        self.latency = 40  # 人工模拟延迟
+    def post_process_scores(self, rewards: list[float]) -> list[float]:
+        """
+        对整组评分进行后处理，例如：
+        - 用组均值替换NaN/-1异常值
 
-    def compute_score(  
-        self,  
-        data_source: Any,  
-        solution_str: str,  
-        ground_truth: str,  
-        extra_info: Optional[dict] = None,  
-    ) -> tuple[float, str, str]:  
-        score = compute_score(data_source, solution_str, ground_truth, extra_info, latency=self.latency)  
-        return score, solution_str, f"得分: {score}"  
-```  
-```bash  
-custom_reward_function.path=${reward_file} \  
-custom_reward_function.name=Gsm8kAgent  
-```  
+        参数:  
+            rewards: 待处理的评分列表  
+        
+        返回:  
+            处理后的评分列表  
 
-当需要对组内评分进行后处理时（例如用组平均分数填充异常/无效分数），可通过实现`post_process_scores`方法来自定义后处理逻辑：  
-```python  
-class Gsm8kAgent:  
-    def __init__(self):  
-        pass  
-    def post_process_scores(self, rewards: List[float]) -> List[float]:  
-        """评分后处理方法"""  
-        ...  
-        return scores  
+        说明：
+            这是一个可选的处理步骤，当一个组内的分数完成请求时，
+            RayAsyncRewardAgent会自动调用该函数
+        """
+        arr = np.array(rewards, dtype=float)
+        mean_score = np.nanmean(arr)
+        processed = np.where(np.isnan(arr) | (arr < 0), mean_score, arr)
+        return processed.tolist()
 ```
 
+然后在训练配置中指定函数/类名和文件路径：  
+```bash  
+custom_reward_function.path=${reward_file} \  
+# 或RewardAgent
+custom_reward_function.name=compute_score  
+```
 ## FSDP2 配置示例
 ```shell
 python3 -m recipe.async_reward_agent.main_ppo \

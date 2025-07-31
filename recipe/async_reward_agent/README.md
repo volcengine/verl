@@ -43,7 +43,7 @@ To address these issues, we designed and implemented an **asynchronous reward ag
 1. **One-step off-policy**: Unlike the "One Step Off Async Trainer" implemented by [Meituan](https://verl.readthedocs.io/en/latest/advance/one_step_off.html), we reverted to the colocated design. This approach overlaps the computation time of the next-step rollout with the waiting time for current reward requests, thereby improving training efficiency.
 2. **Update pipeline**: The existing method necessitates waiting for all rewards in the global batch to be collected before performing model updates, resulting in prolonged GPU idle time. To overcome this inefficiency, we implement a pipelined execution strategy that divides the global batch into mini-batches. This approach enables concurrent processing of asynchronous reward collection and model updates, effectively overlapping communication latency with computation.
 
-These strategies mitigate latency by overlapping waiting time with computation, significantly improving training efficiency. In simulated experiments on the **GSM8K** benchmark, we demonstrate that the asynchronous reward agent, when combined with **one-step off-policy** and **update pipeline**, reduces training time by **30.4%** compared to the baseline.  
+These strategies mitigate latency by overlapping waiting time with computation, significantly improving training efficiency. In simulated experiments on the **GSM8K** benchmark, we demonstrate that the asynchronous reward agent, when combined with **one-step off-policy** and **update pipeline**, reduces training time by **30.85%** compared to the baseline.  
 
 ![](./assets/imges/async_reward_agent.svg)
 
@@ -59,18 +59,18 @@ These strategies mitigate latency by overlapping waiting time with computation, 
 
 The experimental results demonstrate the following key findings:
 - The proposed solution achieves comparable training accuracy to existing open-source results in the community.
-- By incorporating the update pipeline and one-step off-policy strategies, we observe a reduction of up to 30.4% in total training time relative to the baseline.
+- By incorporating the update pipeline and one-step off-policy strategies, we observe a reduction of up to **30.85%** in total training time relative to the baseline.
 
 | Backend | Strategy                 | Model        | Training Time | Accuracy (last/max) | Log                                                                  |
 |------------------|----------------------------------|--------------|---------------|---------------------|----------------------------------------------------------------------------------|
 | Megatron         | baseline (from community) | Qwen2-7B-Instruct     | -             | 89.61 / 89.61       | [Log](https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b_math_megatron.log) |
 | Megatron         | baseline                         | Qwen2-7B-Instruct     | 17h53m        | 89.08 / 89.92       | [Log](./assets/tensorboard/gsm8k_qwen2_7b_base)                                                             |
 | FSDP             | baseline                         | Qwen2-7B-Instruct     | 18h24m        | 89.54 / 89.92       | [Log](./assets/tensorboard/q7b_fsdp_base)                                                                   |
-| Megatron         | update pipeline + one-step off-policy | Qwen2-7B-Instruct | **12h22m** (-30.4%) | 89.61 / 90.04       | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)                                                          |
+| Megatron         | update pipeline + one-step off-policy | Qwen2-7B-Instruct | **12h22m** (-30.85%) | 89.61 / 90.04       | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)                                                          |
 | FSDP             | update pipeline + one-step off-policy | Qwen2-7B-Instruct | **13h10m** (-28.44%) | 88.86 / 89.99       | [Log](./assets/tensorboard/q7b_fsdp_off_ppl)                                                                |
 | FSDP             | baseline                         | Qwen2.5-3B-Instruct   | 17h23m        | 87.87 / 88.10       | [Log](./assets/tensorboard/q3b_fsdp_base)                                                                   |
 | Megatron         | baseline                         | Qwen2.5-3B-Instruct   | 17h07m        | 88.02 / 88.02       | [Log](./assets/tensorboard/q3b_mcore_base)                                                                  |
-| FSDP             | update pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h15m** (-23.78%) | 88.93 / 88.93       | [Log](./assets/tensorboard/q3b_fsdp_off_ppl)                                                                |
+| FSDP             | update pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h15m** (-23.08%) | 88.93 / 88.93       | [Log](./assets/tensorboard/q3b_fsdp_off_ppl)                                                                |
 | Megatron         | update pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h10m** (-23.08%) | 87.19 / 88.40       | [Log](./assets/tensorboard/q3b_mcore_off_ppl)
 
 We performed additional evaluations to examine: (1) the individual contributions of the update pipeline and one-step off-policy strategies to training efficiency, and (2) the effects of the decoupled PPO loss (proposed in the [paper](https://arxiv.org/pdf/2505.24298) to mitigate policy inconsistency in off-policy training) on both training efficiency and model performance.
@@ -81,10 +81,10 @@ We performed additional evaluations to examine: (1) the individual contributions
 | Backend   | Strategy                              |  Model       | Training Time      | Accuracy (last/max) | Log                     |
 |------------|---------------------------------------|------------|----------------|----------------|------------------------------|
 | Megatron   | baseline                              | Qwen2-7B-Instruct   | 17h53m         | 89.08/89.92    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_base)          |
-| Megatron   | one-step off-policy                   | Qwen2-7B-Instruct   | 13h23m (-24.7%) | 88.93/89.54    | [Log](./assets/tensorboard/q7b_mcore_off)                |
-| Megatron   | update pipeline                       | Qwen2-7B-Instruct   | 15h41m (-12.0%) | 89.31/89.99    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_async)         |
-| Megatron   | update pipeline + one-step off-policy | Qwen2-7B-Instruct   | 12h22m (-30.4%) | 89.61/90.04    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)       |
-| Megatron   | update pipeline + one-step off-policy + decoupled ppo loss | Qwen2-7B-Instruct | 12h21m (-30.4%) | 89.01/89.69    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl_behav) |
+| Megatron   | one-step off-policy                   | Qwen2-7B-Instruct   | 13h23m (-25.16%) | 88.93/89.54    | [Log](./assets/tensorboard/q7b_mcore_off)                |
+| Megatron   | update pipeline                       | Qwen2-7B-Instruct   | 15h41m (-12.30%) | 89.31/89.99    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_async)         |
+| Megatron   | update pipeline + one-step off-policy | Qwen2-7B-Instruct   | 12h22m (-30.85%) | 89.61/90.04    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)       |
+| Megatron   | update pipeline + one-step off-policy + decoupled ppo loss | Qwen2-7B-Instruct | 12h21m (-30.94%) | 89.01/89.69    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl_behav) |
 
 ## Implementation
 
@@ -364,17 +364,91 @@ The modifications to the `fit` function are as follows. Before the iteration beg
 ## Usage
 
 ### Reward Function Configuration Example
-Developers need to customize a reward function to evaluate each individual response at a time,
-for example:  
-```python  
-def compute_score(self,  
-                    data_source: Any,  
-                    solution_str: str,  
-                    ground_truth: str,  
-                    extra_info: Optional[dict] = None  
-                    ) -> Tuple[float, str, str]:  
-        """  
-        Calculate and return the score of the solution.  
+
+Users can flexibly integrate a **remote reward service** (such as LLM-as-a-Judge, RAG-enhanced scoring, hybrid rule-based + model scoring, etc) in two ways:
+1. Stateless function – for one-shot, context-free scoring.  
+2. Stateful class – when you need caching, token management, session context, or batch post-processing.
+
+Below are examples for both patterns, focusing on calling the OpenAI API as an LLM-as-a-Judge.
+```python
+# --------------------------------------------------
+# 1. Stateless Function (compute_score)
+# --------------------------------------------------
+def compute_score(
+    data_source: Any,
+    solution_str: str,
+    ground_truth: str,
+    extra_info: Optional[dict] = None,
+) -> Tuple[float, str, str]:
+    """
+    Stateless scoring function, every call is an independent HTTP request for a single scoring request.
+
+    Parameters:  
+            data_source: Data source object  
+            solution_str: Solution string to be scored  
+            ground_truth: Standard answer  
+            extra_info: Extra information dictionary (optional)  
+
+    Returns:  
+        A tuple containing three elements:  
+        - Score value (float)  
+        - Request prompt string (str)  
+        - Score explanation string (str)  
+    """
+    system_prompt = ...
+    prompt = ...
+
+    client = OpenAI(
+        api_key = "your OpenAI API key",
+        base_url = "custom base url",
+    )
+    
+    try:
+        resp = client.chat.completions.create(
+            model = "gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        score_str = resp.choices[0].message.content.strip()
+        score = float(score_str)
+    except Exception as e:
+        # Fallback: rule-based score or 0
+        score = 0.0
+        explanation = f"LLM judge failed: {e}"
+    else:
+        explanation = f"LLM judge returned {score}"
+
+    return score, prompt, explanation
+
+# --------------------------------------------------
+# 2. Stateful Class
+# --------------------------------------------------
+class RewardAgent:
+    """
+    This example shows:
+    - Initializing the OpenAI client once
+    - Re-using it in compute_score
+    - Optional post_process_scores for smoothing or outlier handling
+    """
+
+    def __init__(self):
+        # Initialize any remote client
+        self.client = OpenAI(
+            api_key = "your OpenAI API key",
+            base_url = "custom base url")
+        self.system_prompt = ...
+
+    def compute_score(
+        self,
+        data_source: Any,
+        solution_str: str,
+        ground_truth: str,
+        extra_info: Optional[dict] = None,
+    ) -> tuple[float, str, str]:
+        """
+        Stateful scoring function,
 
         Parameters:  
             data_source: Data source object  
@@ -387,48 +461,56 @@ def compute_score(self,
             - Score value (float)  
             - Original solution string (str)  
             - Score explanation string (str)  
-        """  
-        ...  
-        score = ...  
-        return score, solution_str, f"score: {score}"  
-```  
+        """
+        prompt = ...
+       
+        try:
+            resp = self.client.chat.completions.create(
+                model = "gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            score_str = resp.choices[0].message.content.strip()
+            score = float(score_str)
+        except Exception as e:
+            # Fallback: rule-based score or -1.0
+            score = -1.0
+            explanation = f"LLM judge failed: {e}"
+        else:
+            explanation = f"LLM judge returned {score}"
 
-Then, specify the function name and file path into the following training configuration:  
+        return score, prompt, explanation
+
+    def post_process_scores(self, rewards: list[float]) -> list[float]:
+        """
+        Post-process an entire group of scores, e.g.:
+        - Replace NaN / -1 outliers with the group mean
+
+        Parameters:  
+            rewards: A list of scores to be processed  
+        
+        Returns:  
+            A list of processed scores  
+
+        Note:
+            This is an optional processing step that will be automatically invoked by RayAsyncRewardAgent
+            when a group of scores is ready for processing.
+        """
+        arr = np.array(rewards, dtype=float)
+        mean_score = np.nanmean(arr)
+        processed = np.where(np.isnan(arr) | (arr < 0), mean_score, arr)
+        return processed.tolist()
+```
+
+Then, specify the function/class name and file path into the following training configuration:  
 ```bash  
 custom_reward_function.path=${reward_file} \  
+# or RewardAgent
 custom_reward_function.name=compute_score  
 ```  
 
-For cases where stateful metadata (e.g., userId, token, etc.) needs to be maintained during the evaluation process, the ``RayAsyncRewardAgent`` supports using a custom class (instead of just a function) by passing it to the `custom_reward_function.name` parameter mentioned above. For example: 
-```python  
-class Gsm8kAgent:  
-    def __init__(self):  
-        self.latency = 40  
-
-    def compute_score(  
-        self,  
-        data_source: Any,  
-        solution_str: str,  
-        ground_truth: str,  
-        extra_info: Optional[dict] = None,  
-    ) -> tuple[float, str, str]:  
-        score = compute_score(data_source, solution_str, ground_truth, extra_info, latency=self.latency)  
-        return score, solution_str, f"score: {score}"  
-```  
-```bash  
-custom_reward_function.path=${reward_file} \  
-custom_reward_function.name=Gsm8kAgent  
-```  
-
-For cases where rewards need to be post-processed on a group basis, such as filling in abnormal or invalid scores with the group's average score, the `post_process_scores` method can be implemented with custom post-processing logic:  
-```python  
-class Gsm8kAgent:  
-    def __init__(self):  
-        pass  
-    def post_process_scores(self, rewards: List[float]) -> List[float]:  
-        ...  
-        return scores  
-```
 ### FSDP2 Configuration Example
 ```shell
 python3 -m recipe.async_reward_agent.main_ppo \
@@ -458,10 +540,10 @@ python3 -m recipe.async_reward_agent.main_ppo \
 ```
 
 ## Functional Support
-| Category           | Support Situation                                                                                               |
+| Category           | Supported Situations                                                                                            |
 |--------------------|-----------------------------------------------------------------------------------------------------------------|
-| train engine       | FSDP2  <br/> Megatron                                                                                           |
-| rollout engine     | vLLM                                                                                                            |
+| Train Engine       | FSDP2  <br/> Megatron                                                                                           |
+| Rollout Engine     | vLLM                                                                                                            |
 | AdvantageEstimator | GRPO                                                                                  |
 
 > Note:​​ Support for additional advanced estimators—including GRPO_PASSK, REINFORCE_PLUS_PLUS, RLOO, OPO, REINFORCE_PLUS_PLUS_BASELINE, and GPG—is currently under testing.
