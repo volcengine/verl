@@ -83,12 +83,12 @@ def calculate_debug_metrics(data: DataProto) -> dict:
     rollout_old_log_probs = data.batch["rollout_log_probs"]
     actor_old_log_probs = data.batch["old_log_probs"]
     if "response_mask" in data.batch:
-        logger.debug("loss mask found, use it to mask log probs")
+        logger.debug("response mask found, use it to mask log probs")
         log_prob_mask = data.batch["response_mask"]
     elif "attention_mask" in data.batch:
         log_prob_mask = data.batch["attention_mask"]
     else:
-        logger.warning(f"no loss mask found, use all log probs, {(data.batch.keys())=}")
+        logger.warning(f"no mask info found, use all log probs, {(data.batch.keys())=}")
     responses = data.batch["responses"]
     response_length = responses.size(1)
 
