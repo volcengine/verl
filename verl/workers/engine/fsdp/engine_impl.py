@@ -174,7 +174,7 @@ class FSDPEngine(BaseEngine):
         from torch.distributed.fsdp import MixedPrecision
         from transformers import AutoConfig
 
-        from verl.utils.model import load_valuehead_model, print_model_size
+        from verl.utils.model import load_valuehead_model, print_model_size, update_model_config
         from verl.utils.torch_dtypes import PrecisionType
 
         ############## tokenizer ##############
