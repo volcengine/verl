@@ -18,6 +18,7 @@ import logging
 import os
 import warnings
 
+import numpy as np
 import psutil
 import torch
 import torch.distributed
@@ -483,11 +484,13 @@ class RewardModelWorker(Worker):
         rm_attention_mask = []
 
         for i in range(data.batch.batch_size[0]):
+            if not isinstance(data.non_tensor_batch["raw_prompt"][i], list | np.ndarray):
+                raise TypeError(
+                    f"raw_prompt must be a list or numpy array, got {type(data.non_tensor_batch['raw_prompt'][i])}"
+                )
+
             # extract raw prompt
-            if isinstance(data.non_tensor_batch["raw_prompt"][i], list):
-                chat: list = data.non_tensor_batch["raw_prompt"][i]
-            else:
-                chat: list = data.non_tensor_batch["raw_prompt"][i].tolist()
+            chat: list = list(data.non_tensor_batch["raw_prompt"][i])
 
             # extract response
             response_ids = data.batch["responses"][i]
