@@ -1,0 +1,682 @@
+
+# ------------------- Data Configuration -------------------
+data:
+  # Tokenizer class or path. If null, it will be inferred from the model.
+  tokenizer: null
+  # Whether to use shared memory for data loading.
+  use_shm: False
+  # Training set parquet files.
+  train_files: ~/data/rlhf/gsm8k/train.parquet
+  # Validation set parquet files.
+  val_files: ~/data/rlhf/gsm8k/test.parquet
+  # The field in the dataset where the prompt is located.
+  prompt_key: prompt
+  # The field used to select the reward function.
+  reward_fn_key: data_source
+  # Maximum prompt length.
+  max_prompt_length: 512
+  # Maximum response length.
+  max_response_length: 512
+  # Batch size for one training iteration.
+  train_batch_size: 1024
+  # Batch size used during validation.
+  val_batch_size: null
+  # Whether to return original input_ids without chat template.
+  return_raw_input_ids: True
+  # Whether to return the original chat (prompt) without applying chat template.
+  return_raw_chat: True
+  # Whether to return the full prompt with chat template.
+  return_full_prompt: False
+  # Whether to shuffle the data in the dataloader.
+  shuffle: True
+  
+  # Number of dataloader workers.
+  dataloader_num_workers: 8
+  # Whether to shuffle the validation set.
+  validation_shuffle: False
+  # Whether to filter overlong prompts.
+  filter_overlong_prompts: False
+  # Number of workers for filtering overlong prompts.
+  filter_overlong_prompts_workers: 1
+  # Truncation strategy for overlong inputs.
+  truncation: error
+  # Key for image data in multi-modal datasets.
+  image_key: images
+  # Key for video data in multi-modal datasets.
+  video_key: videos
+  # Whether to trust remote code from Hugging Face models.
+  trust_remote_code: False
+  # Optional: specify a custom dataset class.
+  custom_cls:
+    path: null
+    name: null
+  # Whether to return multi-modal inputs in the dataset.
+  return_multi_modal_inputs: True
+  # Settings related to data sampler.
+  sampler:
+    class_path: null
+    class_name: null
+  # Data generation configuration.
+  datagen:
+    path: null
+    name: null
+# ------------------- Actor, Rollout, and Reference Model Configuration -------------------
+actor_rollout_ref:
+  # Whether it's a hybrid engine, currently only supports hybrid engine.
+  hybrid_engine: True
+  # Common configs for the model.
+  model:
+    # Huggingface model path.
+    path: ~/models/deepseek-llm-7b-chat
+    
+    # Custom chat template for the model.
+    custom_chat_template: null
+    # Whether to use shared memory (SHM) for model loading.
+    use_shm: False
+    # Additional Python packages for model/tokenizer registration.
+    external_lib: null
+    # Override model's original configurations.
+    override_config: {}
+    # Enable gradient checkpointing.
+    enable_gradient_checkpointing: True
+    # Enable activation offloading.
+    enable_activation_offload: False
+    # Whether to remove padding tokens during training.
+    use_remove_padding: False
+    # LoRA rank (set to >0 to enable).
+    lora_rank: 0
+    # LoRA scaling factor.
+    lora_alpha: 16
+    # Target modules for LoRA application.
+    target_modules: all-linear
+    
+    # Exclude modules from LoRA application.
+    exclude_modules: null
+    # Whether to use Liger for layer fusion.
+    use_liger: False
+    # Whether to use custom fused kernels.
+    use_fused_kernels: False
+    
+    # Options for fused kernels.
+    fused_kernel_options:
+      impl_backend: torch
+    # Whether to trust remote code for loading.
+    trust_remote_code: False
+  # Config for the Actor model (PPO training part).
+  actor:
+    _target_: verl.workers.config.FSDPActorConfig
+    # Distributed strategy: fsdp or fsdp2.
+    strategy: fsdp
+    # Mini-batch size for PPO updates.
+    ppo_mini_batch_size: 256
+    # Mini-batch size for PPO updates.
+    ppo_micro_batch_size: null
+    # Local per-GPU micro batch size.
+    ppo_micro_batch_size_per_gpu: null
+    # Whether to use dynamic batching (sequence packing).
+    use_dynamic_bsz: False
+    # Max tokens per GPU for dynamic batching.
+    ppo_max_token_len_per_gpu: 16384
+    # PPO clip ratio.
+    clip_ratio: 0.2
+    clip_ratio_low: 0.2
+    clip_ratio_high: 0.2
+    clip_ratio_c: 3.0
+    # Policy loss configuration.
+    policy_loss:
+      loss_mode: "vanilla"
+      clip_cov_ratio: 0.0002
+      clip_cov_lb: 1.0
+      clip_cov_ub: 5.0
+      kl_cov_ratio: 0.0002
+      ppo_kl_coef: 0.1
+    # Loss aggregation mode.
+    loss_agg_mode: "token-mean"
+    # Entropy regularization coefficient.
+    entropy_coeff: 0
+    # Whether to use KL loss (for GRPO).
+    use_kl_loss: False
+    kl_loss_coef: 0.001
+    kl_loss_type: low_var_kl
+    
+    # Whether to use torch.compile().
+    use_torch_compile: True
+    # Number of PPO epochs per batch.
+    ppo_epochs: 1
+    # Shuffle data within PPO epochs.
+    shuffle: False
+    
+    # Gradient clipping value.
+    grad_clip: 1.0
+    # Sequence parallelism size.
+    ulysses_sequence_parallel_size: 1
+    
+    # Entropy calculation options.
+    entropy_from_logits_with_chunking: False
+    entropy_checkpointing: False
+    
+    # Checkpoint configuration.
+    checkpoint:
+      save_contents: ['model', 'optimizer', 'extra']
+      load_contents: ${.save_contents}
+    # Optimizer configuration.
+    optim:
+      lr: 1e-6
+      lr_warmup_steps: -1
+      lr_warmup_steps_ratio: 0.0
+      min_lr_ratio: 0.0
+      num_cycles: 0.5
+      warmup_style: constant
+      total_training_steps: -1
+      weight_decay: 0.01
+    # FSDP-specific configuration.
+    fsdp_config:
+      wrap_policy:
+        min_num_params: 0
+      param_offload: False
+      optimizer_offload: False
+      offload_policy: False
+      reshard_after_forward: True
+      fsdp_size: -1
+      forward_prefetch: False
+  # Config for the Reference model.
+  ref:
+    # Distributed strategy (mirrors actor).
+    strategy: ${actor_rollout_ref.actor.strategy}
+    # Whether to use torch.compile().
+    use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
+    
+    # Per-GPU micro-batch size for log_prob calculation.
+    log_prob_micro_batch_size_per_gpu: null
+    # Whether to use dynamic batching for log_prob.
+    log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+    # Max tokens per GPU for dynamic batching in log_prob.
+    log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
+    # Sequence parallelism size.
+    ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size}
+    # Entropy calculation options.
+    entropy_from_logits_with_chunking: False
+    entropy_checkpointing: False
+    # FSDP-specific configuration.
+    fsdp_config:
+      wrap_policy:
+        min_num_params: 0
+      param_offload: False
+      reshard_after_forward: True
+      forward_prefetch: False
+      fsdp_size: -1 # Inherited from dp_actor, but good to have.
+  # Config for the Rollout engine (inference).
+  rollout:
+    # Inference engine name: vllm, hf, sglang.
+    name: vllm
+    # Inference mode: sync or async.
+    mode: sync
+    
+    # Sampling temperature.
+    temperature: 1.0
+    # Top-K sampling.
+    top_k: -1
+    
+    # Top-P sampling.
+    top_p: 1.0
+    # Prompt and response length limits.
+    prompt_length: ${data.max_prompt_length}
+    response_length: ${data.max_response_length}
+    # Data type for inference.
+    dtype: bfloat16
+    # GPU memory utilization for KV cache.
+    gpu_memory_utilization: 0.5
+    # Whether to ignore EOS token.
+    ignore_eos: False
+    
+    # Disable CUDA graph optimizations.
+    enforce_eager: True
+    # Free KV cache after each request.
+    free_cache_engine: True
+    
+    # Tensor parallelism size.
+    tensor_model_parallel_size: 2
+    # Max tokens in a batch for the engine.
+    max_num_batched_tokens: 8192
+    # Max model length supported.
+    max_model_len: null
+    # Max concurrent sequences.
+    max_num_seqs: 1024
+    log_prob_micro_batch_size: null
+    # Per-GPU micro-batch size for log_prob.
+    log_prob_micro_batch_size_per_gpu: null
+    # Dynamic batching for log_prob.
+    log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+    # Max tokens per GPU for log_prob.
+    log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
+    # Disable logging stats from engine.
+    disable_log_stats: True
+    # Enable chunked prefill for higher throughput.
+    enable_chunked_prefill: True
+    # Model weights loading format.
+    load_format: dummy_dtensor
+    
+    # Memory-saving loading for huge models.
+    layered_summon: False
+    # Whether to sample or use greedy decoding.
+    do_sample: True
+    # Number of responses per prompt.
+    n: 1
+    
+    # Multi-stage wake up for inference engine.
+    multi_stage_wake_up: False
+    # Extra arguments for specific engines.
+    engine_kwargs:
+      vllm:
+        swap_space: null
+        disable_mm_preprocessor_cache: False
+      sglang:
+        attention_backend: null
+    # Specific sampling parameters for validation.
+    val_kwargs:
+      top_k: -1
+      top_p: 1.0
+      temperature: 0
+      n: 1
+      do_sample: False
+    # Multi-turn conversation settings.
+    multi_turn:
+      enable: False
+      max_assistant_turns: null
+      tool_config_path: null
+      max_user_turns: null
+      max_parallel_calls: 1
+      max_tool_response_length: 256
+      tool_response_truncate_side: middle
+      interaction_config_path: null
+      completion_callback: null
+      use_inference_chat_template: False
+      tokenization_sanity_check_mode: strict
+      format: hermes
+    # Calculate log probabilities during rollout.
+    calculate_log_probs: False
+    
+    # Agent loop based rollout configs.
+    agent:
+      num_workers: 8
+      custom_async_server:
+        path: null
+        name: null
+        
+    # Trace rollout data.
+    trace:
+      backend: null
+      token2text: False
+  # Profiler configuration.
+  profiler:
+    _target_: verl.utils.profiler.ProfilerConfig
+    discrete: False
+    all_ranks: False
+    ranks: []
+# ------------------- Critic Model Configuration -------------------
+critic:
+  _target_: verl.workers.config.FSDPCriticConfig
+  # Number of rollouts per update.
+  rollout_n: ${actor_rollout_ref.rollout.n}
+  # Distributed strategy.
+  strategy: fsdp
+  # Optimizer configuration.
+  optim:
+    lr: 1e-5
+    lr_warmup_steps_ratio: 0.0
+    min_lr_ratio: null
+    warmup_style: constant
+    total_training_steps: -1
+    weight_decay: 0.01
+  # Critic model specific configuration.
+  model:
+    # Model path.
+    path: ~/models/deepseek-llm-7b-chat
+    
+    # Tokenizer path.
+    tokenizer_path: ${actor_rollout_ref.model.path}
+    
+    # Use shared memory.
+    use_shm: False
+    # Override model's internal config.
+    override_config: {}
+    # External libraries.
+    external_lib: ${actor_rollout_ref.model.external_lib}
+    # Enable gradient checkpointing.
+    enable_gradient_checkpointing: True
+    # Enable activation offloading.
+    enable_activation_offload: False
+    # Use remove padding optimization.
+    use_remove_padding: False
+    # Trust remote code.
+    trust_remote_code: ${actor_rollout_ref.model.trust_remote_code}
+    # LoRA configuration.
+    lora_rank: 0
+    lora_alpha: 16
+    target_modules: all-linear
+    
+    # FSDP-specific configuration.
+    fsdp_config:
+      wrap_policy:
+        min_num_params: 0
+      param_offload: False
+      optimizer_offload: False
+      offload_policy: False
+      reshard_after_forward: True
+      fsdp_size: -1
+      forward_prefetch: False
+  # PPO mini-batch size.
+  ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
+  ppo_micro_batch_size: null
+  # Per-GPU micro-batch size for PPO.
+  ppo_micro_batch_size_per_gpu: null
+  # Per-GPU micro-batch size for forward pass.
+  forward_micro_batch_size_per_gpu: ${critic.ppo_micro_batch_size_per_gpu}
+  # Whether to use dynamic batching.
+  use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+  # Max tokens per GPU for PPO.
+  ppo_max_token_len_per_gpu: 32768
+  # Max tokens per GPU for forward pass.
+  forward_max_token_len_per_gpu: ${critic.ppo_max_token_len_per_gpu}
+  # Sequence parallelism size.
+  ulysses_sequence_parallel_size: 1
+  
+  # Number of PPO epochs.
+  ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
+  # Whether to shuffle data.
+  shuffle: ${actor_rollout_ref.actor.shuffle}
+  # Gradient clipping value.
+  grad_clip: 1.0
+  # Value function clipping range.
+  cliprange_value: 0.5
+  # Loss aggregation mode.
+  loss_agg_mode: ${actor_rollout_ref.actor.loss_agg_mode}
+  # Checkpoint configuration.
+  checkpoint:
+    save_contents: ['model', 'optimizer', 'extra']
+    load_contents: ${.save_contents}
+  
+  # Profiler configuration.
+  profiler:
+    _target_: verl.utils.profiler.ProfilerConfig
+    discrete: False
+    all_ranks: False
+    ranks: []
+# ------------------- Reward Model Configuration -------------------
+reward_model:
+  # Whether to enable the reward model.
+  enable: False
+  # Distributed strategy.
+  strategy: fsdp
+  micro_batch_size: null
+  # Per-GPU micro-batch size for forward pass.
+  micro_batch_size_per_gpu: null
+  # Max sequence length for reward model.
+  max_length: null
+  # Sequence parallelism size.
+  ulysses_sequence_parallel_size: 1
+  # Whether to use dynamic batching.
+  use_dynamic_bsz: ${critic.use_dynamic_bsz}
+  # Max tokens per GPU for forward pass.
+  forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
+  # Reward manager type.
+  reward_manager: naive
+  
+  # Launch custom reward function asynchronously.
+  launch_reward_fn_async: False
+  # Sandbox fusion for code execution rewards.
+  sandbox_fusion:
+    url: null
+    max_concurrent: 64
+    memory_limit_mb: 1024
+  # Reward model specific configuration.
+  model:
+    # Tokenizer for input.
+    input_tokenizer: ${actor_rollout_ref.model.path}
+    # Model path.
+    path: ~/models/FsfairX-LLaMA3-RM-v0.1
+    # Use shared memory.
+    use_shm: False
+    # External libraries.
+    external_lib: ${actor_rollout_ref.model.external_lib}
+    # Use remove padding optimization.
+    use_remove_padding: False
+    # Use fused kernels.
+    use_fused_kernels: ${actor_rollout_ref.model.use_fused_kernels}
+    # Trust remote code.
+    trust_remote_code: False
+    # Data processor for reward model inputs/outputs.
+    data_processer:
+      path: examples/reward_model/reward_process.py
+      preprocess_fn_name: reward_preprocess
+      postprocess_fn_name: reward_postprocess
+    # FSDP-specific configuration.
+    fsdp_config:
+      wrap_policy:
+        min_num_params: 0
+      param_offload: False
+      reshard_after_forward: True
+      fsdp_size: -1
+      forward_prefetch: False
+      
+    # --- IMPORTANT: Rollout config is now nested under model ---
+    rollout:
+      # Whether to enable rollout for the reward model.
+      enable: False
+      
+      # Inference engine name.
+      name: vllm
+      
+      # Inference mode.
+      mode: sync
+      
+      # Sampling temperature.
+      temperature: 0
+      
+      # Top-K sampling.
+      top_k: -1
+      
+      # Top-P sampling.
+      top_p: 1.0
+      
+      # Prompt and response length.
+      prompt_length: ${oc.select:data.max_prompt_length,512}
+      response_length: ${oc.select:data.max_response_length,512}
+      
+      # Data type.
+      dtype: bfloat16
+      
+      # GPU memory utilization.
+      gpu_memory_utilization: 0.5
+      
+      # Ignore EOS token.
+      ignore_eos: False
+      
+      # Disable CUDA graph.
+      enforce_eager: True
+      
+      # Free KV cache.
+      free_cache_engine: True
+      # Model loading format.
+      load_format: dummy_dtensor
+      # Layered summon for large models.
+      layered_summon: False
+      # Tensor parallelism size.
+      tensor_model_parallel_size: 1
+      
+      # Max tokens in a batch.
+      max_num_batched_tokens: 8192
+      
+      # Max model length.
+      max_model_len: null
+      
+      # Max concurrent sequences.
+      max_num_seqs: 1024
+      
+      # Log prob calculation settings.
+      log_prob_micro_batch_size_per_gpu: null
+      log_prob_use_dynamic_bsz: ${oc.select:actor_rollout_ref.actor.use_dynamic_bsz,false}
+      log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_token_len_per_gpu,16384}
+      # Disable logging stats.
+      disable_log_stats: True
+      
+      # Enable chunked prefill.
+      enable_chunked_prefill: True
+      # Do sample.
+      do_sample: False
+      # Number of responses.
+      n: 1
+      # Multi-stage wake up.
+      multi_stage_wake_up: False
+      calculate_log_probs: False
+      
+      # Extra engine arguments.
+      engine_kwargs:
+        vllm:
+          swap_space: null
+          disable_mm_preprocessor_cache: False
+        sglang:
+          attention_backend: null
+      # Validation kwargs.
+      val_kwargs:
+        top_k: -1
+        top_p: 1.0
+        temperature: 0
+        n: 1
+        do_sample: False
+      
+      # Trace config.
+      trace:
+        backend: null
+        token2text: False
+  # Profiler configuration.
+  profiler:
+    _target_: verl.utils.profiler.ProfilerConfig
+    discrete: False
+    all_ranks: False
+    ranks: []
+# ------------------- Custom Reward Function -------------------
+custom_reward_function:
+  # Path to the file containing the function.
+  path: null
+  
+  # Name of the function.
+  name: compute_score
+# ------------------- Algorithm Configuration -------------------
+algorithm:
+  _target_: verl.trainer.config.AlgoConfig
+  gamma: 1.0
+  lam: 1.0
+  adv_estimator: gae
+  norm_adv_by_std_in_grpo: True
+  use_kl_in_reward: False
+  kl_penalty: kl
+  kl_ctrl:
+    _target_: verl.trainer.config.KLControlConfig
+    type: fixed
+    kl_coef: 0.001
+    horizon: 10000
+    target_kl: 0.1
+  use_pf_ppo: False
+  pf_ppo:
+    _target_: verl.trainer.config.PFPPOConfig
+    reweight_method: pow
+    weight_pow: 2.0
+# ------------------- Trainer Configuration -------------------
+trainer:
+  # Whether to balance batch sizes.
+  balance_batch: True
+  # Number of training epochs.
+  total_epochs: 30
+  # Total training steps (overrides epochs if set).
+  total_training_steps: null
+  # Steps to profile.
+  profile_steps: null
+  # NSight options for the controller.
+  controller_nsight_options:
+    trace: "cuda,nvtx,cublas,ucx"
+    cuda-memory-usage: "true"
+    cuda-graph-trace: "graph"
+  # NSight options for workers.
+  worker_nsight_options:
+    trace: "cuda,nvtx,cublas,ucx"
+    cuda-memory-usage: "true"
+    cuda-graph-trace: "graph"
+    capture-range: "cudaProfilerApi"
+    capture-range-end: null
+    kill: none
+    
+  # NPU profiling settings.
+  npu_profile:
+    _target_: verl.trainer.config.NPUProfileConfig
+    enable: false
+    profile_steps: null
+    profile_type: Canno
+    options:
+      save_path: ./profiler_data
+      level: level1
+      with_memory: False
+      record_shapes: False
+      with_npu: True
+      with_cpu: True
+      with_module: False
+      with_stack: False
+      analysis: True
+      
+  # Project name for logging.
+  project_name: verl_examples
+  # Experiment name for logging.
+  experiment_name: gsm8k
+  # Logging backends.
+  logger: ['console', 'wandb']
+  # Number of validation generations to log.
+  log_val_generations: 0
+  # Directory for rollout data.
+  rollout_data_dir: null
+  # Directory for validation data.
+  validation_data_dir: null
+  # Number of nodes.
+  nnodes: 1
+  # GPUs per node.
+  n_gpus_per_node: 8
+  # Checkpoint save frequency.
+  save_freq: -1
+  # ESI redundant time for safe checkpointing.
+  esi_redundant_time: 0
+  
+  # Resume mode.
+  resume_mode: auto
+  # Path to resume from.
+  resume_from_path: null
+  # Validate before training starts.
+  val_before_train: True
+  
+  # Run validation only.
+  val_only: False
+  # Validation frequency.
+  test_freq: -1
+  # Critic warmup iterations.
+  critic_warmup: 0
+  # Default HDFS directory.
+  default_hdfs_dir: null
+  # Delete local checkpoints after loading.
+  del_local_ckpt_after_load: False
+  # Default local directory for checkpoints.
+  default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
+  # Tensorboard log directory.
+  tensorboard_dir: ${trainer.default_local_dir}
+  # Max actor checkpoints to keep.
+  max_actor_ckpt_to_keep: null
+  # Max critic checkpoints to keep.
+  max_critic_ckpt_to_keep: null
+  # Timeout for Ray worker registration.
+  ray_wait_register_center_timeout: 300
+  # Training device.
+  device: cuda
+# ------------------- Ray Initialization -------------------
+ray_init:
+  # Number of CPUs for Ray.
+  num_cpus: null
+  
+  # Path for Ray timeline JSON.
+  timeline_json_file: null

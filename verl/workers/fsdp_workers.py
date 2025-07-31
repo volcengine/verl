@@ -22,7 +22,6 @@ import warnings
 from dataclasses import asdict
 from typing import Any
 
-import numpy as np
 import psutil
 import torch
 import torch.distributed
@@ -73,8 +72,11 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing
 from verl.utils.py_functional import convert_to_regular_types
-from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+
+from verl.workers.rollout import HFRollout
+import importlib.util
+import sys
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -211,7 +213,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     def _build_model_optimizer(
         self,
         model_path,
-        fsdp_config: FSDPEngineConfig,
+        fsdp_config,
         optim_config,
         override_model_config,
         use_remove_padding=False,
@@ -380,8 +382,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 mixed_precision=mixed_precision,
                 sync_module_states=True,
                 device_mesh=self.device_mesh,
-                use_orig_params=fsdp_config.get("use_orig_params", False),
-                forward_prefetch=fsdp_config.get("forward_prefetch", False),
+                use_orig_params=self.config.actor.fsdp_config.get("use_orig_params", False),
+                forward_prefetch=self.config.actor.fsdp_config.get("forward_prefetch", False),
             )
         elif fsdp_strategy == "fsdp2":
             assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
@@ -568,7 +570,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
 
-        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
+        override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
+
         use_remove_padding = self.config.model.get("use_remove_padding", False)
         use_shm = self.config.model.get("use_shm", False)
         use_fused_kernels = self.config.model.get("use_fused_kernels", False)
@@ -577,10 +580,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # we need the model for actor and rollout
             if self._is_actor:
                 optim_config = self.config.actor.optim
-                fsdp_config = omega_conf_to_dataclass(self.config.actor.fsdp_config)
+                fsdp_config = self.config.actor.fsdp_config
             else:
                 optim_config = None
-                fsdp_config = FSDPEngineConfig()
+                fsdp_config = OmegaConf.create()
 
             local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
             (
@@ -615,9 +618,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 log_gpu_memory_usage("After offload actor optimizer during init", logger=logger)
 
         if self._is_actor:
-            actor_cfg = omega_conf_to_dataclass(self.config.actor)
+            OmegaConf.set_struct(self.config.actor, True)
+            with open_dict(self.config.actor):
+                self.config.actor.use_remove_padding = use_remove_padding
+                self.config.actor.use_fused_kernels = use_fused_kernels
             self.actor = DataParallelPPOActor(
-                config=actor_cfg, actor_module=self.actor_module_fsdp, actor_optimizer=self.actor_optimizer
+                config=self.config.actor, actor_module=self.actor_module_fsdp, actor_optimizer=self.actor_optimizer
             )
 
         if self._is_rollout:
@@ -629,7 +635,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
             self.ref_module_fsdp = self._build_model_optimizer(
                 model_path=local_path,
-                fsdp_config=omega_conf_to_dataclass(self.config.ref.fsdp_config),
+                fsdp_config=self.config.ref.fsdp_config,
                 optim_config=None,
                 override_model_config=override_model_config,
                 use_remove_padding=use_remove_padding,
@@ -914,16 +920,18 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
 
 class CriticWorker(Worker, DistProfilerExtension):
-    def __init__(self, config: FSDPCriticConfig):
+    def __init__(self, config):
         Worker.__init__(self)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler")))
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
+        )
         import torch.distributed
 
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(), init_method=os.environ.get("DIST_INIT_METHOD", None)
             )
-        self.config: FSDPCriticConfig = config
+        self.config = config
 
         # build device mesh for Ulysses Sequence Parallel
         world_size = torch.distributed.get_world_size()
@@ -992,7 +1000,11 @@ class CriticWorker(Worker, DistProfilerExtension):
                 self.processor.chat_template = self.config.model.custom_chat_template
             else:
                 self.tokenizer.chat_template = self.config.model.custom_chat_template
-        override_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
+
+        override_config = self.config.model.get("override_config", OmegaConf.create())
+        if not override_config or isinstance(override_config, dict):
+            override_config = OmegaConf.create(override_config)
+        override_config = OmegaConf.to_container(override_config)
         override_config_kwargs = {
             "bos_token_id": self.tokenizer.bos_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
@@ -1158,14 +1170,8 @@ class CriticWorker(Worker, DistProfilerExtension):
                 optimizer=critic_optimizer, num_warmup_steps=num_warmup_steps
             )
         elif warmup_style == "cosine":
-            min_lr_ratio = config.optim.get("min_lr_ratio", 0.0)
-            num_cycles = config.optim.get("num_cycles", 0.5)
             critic_lr_scheduler = get_cosine_schedule_with_warmup(
-                optimizer=critic_optimizer,
-                num_warmup_steps=num_warmup_steps,
-                num_training_steps=total_steps,
-                min_lr_ratio=min_lr_ratio,
-                num_cycles=num_cycles,
+                optimizer=critic_optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=total_steps
             )
         else:
             raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
@@ -1342,12 +1348,57 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             self.config.micro_batch_size //= torch.distributed.get_world_size()
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
+        # for causal llm rollout
+        self.use_rollout = self.config.model.rollout.enable
+        if self.use_rollout:
+            processor_config = self.config.model.get("data_processer", {})
+            # default value for lower version if user forget to set `processor_path`
+            # but raise Exception for user setting `processor_path` to None
+            processor_path = processor_config.get("path", "examples/reward_model/reward_process.py")
+            pre_fn_name = processor_config.get("preprocess_fn_name", "reward_preprocess")
+            post_fn_name = processor_config.get("postprocess_fn_name", "reward_postprocess")
+
+            self.reward_preprocess_fn = self._load_reward_processor(
+                processor_path, pre_fn_name)
+            self.reward_postprocess_fn = self._load_reward_processor(
+                processor_path, post_fn_name)
+            
+
+    def _load_reward_processor(self, file_path: str, function_name: str):
+        """
+        Dynamically loads a function from a specified file path.
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Reward processor file '{file_path}' not found.")
+
+        # Create a unique module name to avoid conflicts
+        module_name = f"verl.custom_reward_processor.{os.path.basename(file_path).replace('.py', '')}"
+
+        spec = importlib.util.spec_from_file_location(module_name, file_path)
+        if spec is None:
+            raise RuntimeError(f"Could not create module spec from '{file_path}'.")
+
+        module = importlib.util.module_from_spec(spec)
+        try:
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+        except Exception as e:
+            raise RuntimeError(f"Error loading module from '{file_path}': {e}") from e
+
+        if not hasattr(module, function_name):
+            raise AttributeError(f"Reward function '{function_name}' not found in '{file_path}'.")
+
+        print(f"Successfully loaded custom reward function '{function_name}' from '{file_path}'")
+        return getattr(module, function_name)
+
     def _build_model(self, config):
         # the following line is necessary
         from torch.distributed.fsdp import CPUOffload
-        from transformers import AutoConfig, AutoModelForTokenClassification
+        from transformers import AutoConfig
+        from verl.utils.model import get_generation_config, print_model_size
 
         use_shm = config.model.get("use_shm", False)
+        trust_remote_code = config.model.get("trust_remote_code", False)
         # download the checkpoint from hdfs
         local_path = copy_to_local(config.model.path, use_shm=use_shm)
 
@@ -1357,11 +1408,14 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             self._do_switch_chat_template = True
             input_tokenizer_local_path = copy_to_local(config.model.input_tokenizer, use_shm=use_shm)
             self.input_tokenizer = hf_tokenizer(
-                input_tokenizer_local_path, trust_remote_code=config.model.get("trust_remote_code", False)
+                input_tokenizer_local_path, trust_remote_code=trust_remote_code
             )
-            self.tokenizer = hf_tokenizer(local_path, trust_remote_code=config.model.get("trust_remote_code", False))
+            self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+            self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
+        
+        if self.use_rollout:
+            self.generation_config = get_generation_config(local_path, trust_remote_code=trust_remote_code)
 
-        trust_remote_code = config.model.get("trust_remote_code", False)
         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
         model_config.num_labels = 1
 
@@ -1372,14 +1426,25 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            model_config.classifier_dropout = 0.0
-            reward_module = AutoModelForTokenClassification.from_pretrained(
-                pretrained_model_name_or_path=local_path,
-                config=model_config,
-                torch_dtype=torch.bfloat16,
-                attn_implementation="flash_attention_2",
-                trust_remote_code=trust_remote_code,
-            )
+            if not self.use_rollout:
+                from transformers import AutoModelForTokenClassification
+                model_config.classifier_dropout = 0.0
+                reward_module = AutoModelForTokenClassification.from_pretrained(
+                    pretrained_model_name_or_path=local_path,
+                    config=model_config,
+                    torch_dtype=torch.bfloat16,
+                    attn_implementation="flash_attention_2",
+                    trust_remote_code=trust_remote_code,
+                )
+            else:
+                from transformers import AutoModelForCausalLM
+                reward_module = AutoModelForCausalLM.from_pretrained(
+                    pretrained_model_name_or_path=local_path, 
+                    config=model_config,
+                    torch_dtype=config.model.rollout.dtype, 
+                    attn_implementation="flash_attention_2",
+                    trust_remote_code=trust_remote_code,
+                )
 
             apply_monkey_patch(
                 model=reward_module,
@@ -1389,7 +1454,15 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
             reward_module.to(torch.bfloat16)
 
+        if self.rank == 0:
+            print_model_size(reward_module)
+        log_gpu_memory_usage(f"After init reward model from HF AutoModel", logger=logger)
+
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
+
+        if self.use_rollout and self.config.model.rollout.name == "hf":
+            # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
+            auto_wrap_policy = None
 
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
@@ -1420,13 +1493,117 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             fsdp2_load_full_state_dict(reward_module, full_state, fsdp_mesh, cpu_offload)
         else:
             raise NotImplementedError(f"Unknown strategy: {config.strategy}")
-        return reward_module
+        
+        log_gpu_memory_usage(f"After init reward model FSDP init", logger=logger)
+
+        return reward_module, model_config
+    
+    def _build_rollout(self, trust_remote_code=False):
+        from torch.distributed.device_mesh import init_device_mesh
+
+        # TODO(sgm): support FSDP hybrid shard for larger model
+        infer_tp = self.config.model.rollout.tensor_model_parallel_size
+        dp = self.world_size // infer_tp
+        assert self.world_size % infer_tp == 0, (
+            f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
+        )
+        rollout_device_mesh = init_device_mesh(
+            device_name, mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
+        )
+        rollout_name = self.config.model.rollout.name
+        if rollout_name == "hf":
+            from verl.workers.rollout import HFRollout
+            from verl.workers.sharding_manager.base import BaseShardingManager
+
+            rollout = HFRollout(module=self.reward_module, config=self.config.rollout)
+            rollout_sharding_manager = BaseShardingManager()
+            # TODO: a sharding manager that do nothing?
+
+        elif rollout_name == "vllm":
+            from verl.workers.rollout.vllm_rollout import vLLMRollout
+            from verl.workers.sharding_manager.fsdp_vllm import FSDPVLLMShardingManager
+
+            log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
+            local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
+
+            from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
+
+            vllm_rollout_cls = vLLMRollout if self.config.model.rollout.mode == "sync" else vLLMAsyncRollout
+            rollout = vllm_rollout_cls(
+                model_path=local_path,
+                config=self.config.model.rollout,
+                tokenizer=self.tokenizer,
+                model_hf_config=self.model_config,
+                device_mesh=rollout_device_mesh,
+                trust_remote_code=trust_remote_code,
+            )
+
+            log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
+            full_params = torch.distributed.get_world_size() == 1
+            rollout_sharding_manager = FSDPVLLMShardingManager(
+                module=self.reward_module,
+                inference_engine=rollout.inference_engine,
+                model_config=self.model_config,
+                rollout_config=self.config.model.rollout,
+                full_params=full_params,
+                device_mesh=rollout_device_mesh,
+                offload_param=self.config.model.fsdp_config.param_offload,
+                load_format=self.config.model.rollout.load_format,
+                layered_summon=self.config.model.rollout.get("layered_summon", False),
+            )
+            log_gpu_memory_usage("After building sharding manager", logger=logger)
+
+        elif rollout_name == "sglang":
+            from verl.workers.rollout.sglang_rollout import SGLangRollout
+
+            # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to
+            # SGLang's model_runner would check CUDA device capability. However, due to verl's setting,
+            # the main process of ray can not find any CUDA device, which would potentially lead to:
+            # "RuntimeError: No CUDA GPUs are available".
+            # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and
+            # we import it here use the abs path.
+            # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
+            from verl.workers.sharding_manager.fsdp_sglang import FSDPSGLangShardingManager
+
+            local_path = copy_to_local(self.config.model.path)
+            log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
+            rollout = SGLangRollout(
+                actor_module=local_path,
+                config=self.config.model.rollout,
+                processing_class=self.processor if self.processor is not None else self.tokenizer,
+                model_hf_config=self.model_config,
+                trust_remote_code=trust_remote_code,
+            )
+            log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
+
+            if torch.distributed.get_world_size() == 1:
+                self.config.rollout.load_format = "dummy_hf"
+            rollout_sharding_manager = FSDPSGLangShardingManager(
+                module=self.reward_module,
+                inference_engine=rollout._engine,
+                model_config=self.model_config,
+                rollout_config=self.config.model.rollout,
+                full_params="hf" in self.config.model.rollout.load_format,
+                device_mesh=rollout_device_mesh,
+                offload_param=self.config.model.fsdp_config.param_offload,
+                multi_stage_wake_up=self.config.model.rollout.multi_stage_wake_up,
+            )
+            log_gpu_memory_usage("After building sharding manager", logger=logger)
+
+        else:
+            raise NotImplementedError(f"Rollout name: {self.config.model.name} is not supported")
+
+        return rollout, rollout_sharding_manager
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
-        self.reward_module = self._build_model(config=self.config)
+        self.reward_module, self.model_config = self._build_model(config=self.config)
+        if self.use_rollout:
+            self.rollout_engine, self.rollout_sharding_manager = self._build_rollout(
+                trust_remote_code=self.config.model.get("trust_remote_code", False)
+            )
 
     def _forward_micro_batch(self, micro_batch):
         if is_cuda_available:
@@ -1582,17 +1759,86 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         return DataProto.from_dict(rm_inputs)
 
+    def _forward_rollout_micro_batch(self, micro_batch) -> DataProto:
+        meta_info = {
+            'pad_token_id': self.tokenizer.pad_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id, 
+            "do_sample": self.config.model.rollout.get("do_sample", True),
+            "validate": True, 
+        }
+        generate_prompt = DataProto(
+            batch = micro_batch,
+            meta_info = meta_info,
+        )
+        with torch.no_grad():
+            if isinstance(self.rollout_engine, HFRollout):
+                generated_output_data_proto = self.rollout_engine.generate_sequences(
+                    prompts=generate_prompt
+                )
+            else:
+                generated_output_data_proto = self.rollout_engine.generate_sequences(
+                    prompts=generate_prompt,
+                    generation_config=self.generation_config
+                )
+            # Clear KV cache (important for vLLM)
+            get_torch_device().empty_cache()
+
+        return generated_output_data_proto
+    
+    def _chats_to_ids(self, chats, src_max_len) -> DataProto:
+        rm_input_ids = []
+        rm_attention_mask = []
+
+        for i, chat in enumerate(chats):
+            prompt_with_chat_template = self.tokenizer.apply_chat_template(
+                chat, add_generation_prompt=True, tokenize=False
+            )
+
+            if self.rank == 0 and i == 0:
+                # for debugging purpose
+                print(f"Switch template. chat: {prompt_with_chat_template}")
+
+            # the maximum length is actually determined by the reward model itself
+            max_length = self.config.get("max_length", src_max_len)
+            if max_length is None:
+                max_length = src_max_len
+
+            model_inputs = self.tokenizer(prompt_with_chat_template, return_tensors="pt", add_special_tokens=False)
+            input_ids, attention_mask = verl_F.postprocess_data(
+                input_ids=model_inputs["input_ids"],
+                attention_mask=model_inputs["attention_mask"],
+                max_length=max_length,
+                pad_token_id=self.tokenizer.pad_token_id,
+                left_pad=True,  # left padding
+                truncation=self.config.get("truncation", "left"),
+            )  # truncate from the right
+            rm_input_ids.append(input_ids)
+            rm_attention_mask.append(attention_mask)
+
+        rm_input_ids = torch.cat(rm_input_ids, dim=0)
+        rm_attention_mask = torch.cat(rm_attention_mask, dim=0)
+        rm_position_ids = compute_position_id_with_mask(rm_attention_mask)
+        rm_inputs = {"input_ids": rm_input_ids, "attention_mask": rm_attention_mask, "position_ids": rm_position_ids}
+        return DataProto.from_dict(rm_inputs)
+
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
         import itertools
 
         from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
+        extra_data = None
 
         # Support all hardwares
         data = data.to(get_device_id())
         if self._do_switch_chat_template:
-            rm_data = self._switch_chat_template(data)
+            if self.use_rollout:
+                chats, extra_data = self.reward_preprocess_fn(data, self.tokenizer)
+                rm_data = self._chats_to_ids(
+                    chats, data.batch["attention_mask"].shape[-1]
+                )
+            else:
+                rm_data = self._switch_chat_template(data)
         else:
             rm_input_ids = data.batch["input_ids"]
             rm_attention_mask = data.batch["attention_mask"]
@@ -1607,20 +1853,39 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         # Support all hardwares
         rm_data.batch = rm_data.batch.to(get_device_id())
 
+        # if we have a rollout engine, there is no need for ulysses
+        if self.use_rollout:
+            current_sharding_manager = self.rollout_sharding_manager
+        else:
+            current_sharding_manager = self.ulysses_sharding_manager
+
         # perform forward computation
-        with self.ulysses_sharding_manager:
-            rm_data = self.ulysses_sharding_manager.preprocess_data(data=rm_data)
-            data = self.ulysses_sharding_manager.preprocess_data(data=data)
+        with current_sharding_manager:
+            rm_data = current_sharding_manager.preprocess_data(data=rm_data)
+            data = current_sharding_manager.preprocess_data(data=data)
+            if extra_data:
+                extra_data = current_sharding_manager.preprocess_data(data=extra_data)
 
             use_dynamic_bsz = self.config.use_dynamic_bsz
             if use_dynamic_bsz:
                 max_token_len = self.config.forward_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                 micro_batches, indices = rearrange_micro_batches(batch=rm_data.batch, max_token_len=max_token_len)
+                if extra_data:
+                    extra_data, _ = rearrange_micro_batches(batch=extra_data.batch, max_token_len=max_token_len)
             else:
                 micro_batches = rm_data.batch.split(self.config.micro_batch_size_per_gpu)
+                if extra_data:
+                    extra_data = extra_data.batch.split(self.config.micro_batch_size_per_gpu)
             output = []
-            for micro_batch in micro_batches:
-                rm_score = self._forward_micro_batch(micro_batch)
+            for idx, micro_batch in enumerate(micro_batches):
+                if self.use_rollout:
+                    output_proto = self._forward_rollout_micro_batch(micro_batch)
+                    if extra_data:
+                        rm_score = self.reward_postprocess_fn(output_proto, self.tokenizer, extra_data[idx])
+                    else:
+                        rm_score = self.reward_postprocess_fn(output_proto, self.tokenizer)
+                else:
+                    rm_score = self._forward_micro_batch(micro_batch)
                 output.append(rm_score)
             scores = torch.cat(output, dim=0)  # (batch_size)
 
@@ -1633,7 +1898,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             token_level_scores = self._expand_to_token_level(data, scores)
             # Note that this is only the scores, may not be the final rewards used to train RL
             output = DataProto.from_dict(tensors={"rm_scores": token_level_scores})
-            output = self.ulysses_sharding_manager.postprocess_data(data=output)
+            output = current_sharding_manager.postprocess_data(data=output)
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module
