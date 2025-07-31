@@ -173,7 +173,8 @@ class ActorWorker(Worker, DistProfilerExtension):
                                             optim_config,
                                             system_config,
                                             ckpt_config,
-                                            rollout_n=actor_config.rollout.n)
+                                            rollout_n=actor_config.rollout.n,
+                                            infer_micro_batch_size_per_gpu=actor_config.rollout.log_prob_micro_batch_size_per_gpu)
         return ret
 
     def normalize_config(self, config):

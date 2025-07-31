@@ -10,10 +10,8 @@ class EngineConfig:
     system: 'SystemConfig'
     checkpoint: 'CheckpointConfig'
     ppo_mini_batch_size: int
-    ppo_micro_batch_size: int
-    forward_micro_batch_size: int
-    ppo_micro_batch_size_per_gpu: int
-    forward_micro_batch_size_per_gpu: int
+    train_micro_batch_size_per_gpu: int
+    infer_micro_batch_size_per_gpu: int
     ulysses_sequence_parallel_size: int
     strategy: str
     grad_clip: float
@@ -139,24 +137,23 @@ def get_engine_config(config,
                       optim_config,
                       system_config,
                       checkpoint_config,
-                      rollout_n):
+                      rollout_n,
+                      infer_micro_batch_size_per_gpu):
     engine_config = EngineConfig(
         model=model_config,
         optim=optim_config,
         system=system_config,
         checkpoint=checkpoint_config,
         ppo_mini_batch_size=config.ppo_mini_batch_size,
-        ppo_micro_batch_size=config.ppo_micro_batch_size,
-        forward_micro_batch_size=config.get("forward_micro_batch_size", None),                  # no such config for actor
-        ppo_micro_batch_size_per_gpu=config.ppo_micro_batch_size_per_gpu,
-        forward_micro_batch_size_per_gpu=config.get("forward_micro_batch_size_per_gpu", None),  # no such config for actor
+        train_micro_batch_size_per_gpu=config.ppo_micro_batch_size_per_gpu,
+        infer_micro_batch_size_per_gpu=infer_micro_batch_size_per_gpu,
         ulysses_sequence_parallel_size=config.ulysses_sequence_parallel_size,
         strategy=config.strategy,
         grad_clip=config.grad_clip,
         use_dynamic_bsz=config.use_dynamic_bsz,
         ppo_max_token_len_per_gpu=config.ppo_max_token_len_per_gpu,
         forward_max_token_len_per_gpu=config.get("forward_max_token_len_per_gpu", None),        # no such config for actor
-        rollout_n=rollout_n
+        rollout_n=rollout_n,
     )
     return engine_config
 

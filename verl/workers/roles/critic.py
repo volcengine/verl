@@ -52,13 +52,13 @@ class CriticWorker(Worker, DistProfilerExtension):
             torch.distributed.init_process_group(backend=get_nccl_backend())
 
         self.config = omega_conf_to_dataclass(config)
+        assert self.config.ppo_micro_batch_size is None and \
+            self.config.forward_micro_batch_size is None, \
+            "new engine implementation does not support ppo_micro_batch_size and forward_micro_batch_size"
+        
         engine_config = self.create_engine_config(self.config)
         self.engine = EngineRegistry.new(self.config.strategy, engine_config)
 
-        # calculate mini batch size
-        self.mini_bsz = config.ppo_mini_batch_size
-        self.mini_bsz = self.mini_bsz * config.rollout_n
-        self.mini_bsz = self.mini_bsz // self.engine.get_data_parallel_size()
 
 
     def create_engine_config(self, critic_config):
@@ -73,7 +73,8 @@ class CriticWorker(Worker, DistProfilerExtension):
                                             optim_config,
                                             system_config,
                                             ckpt_config,
-                                            rollout_n=critic_config.rollout_n)
+                                            rollout_n=critic_config.rollout_n,
+                                            infer_micro_batch_size_per_gpu=critic_config.forward_micro_batch_size_per_gpu)
         return ret
 
     
@@ -158,14 +159,17 @@ class CriticWorker(Worker, DistProfilerExtension):
                 batch = data.select(batch_keys=select_keys).batch
                 has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
 
+                # calculate mini batch size
+                mini_bsz = self.config.ppo_mini_batch_size * self.config.rollout_n
+                mini_bsz = mini_bsz // self.engine.get_data_parallel_size()
                 # Split to make minibatch iterator for updating the actor
                 # See PPO paper for details. https://arxiv.org/abs/1707.06347
                 if has_multi_modal_inputs:
-                    num_mini_batches = data.batch.batch_size[0] // self.mini_bsz
+                    num_mini_batches = data.batch.batch_size[0] // mini_bsz
                     non_tensor_select_keys = ["multi_modal_inputs"]
                     dataloader = data.select(select_keys, non_tensor_select_keys).chunk(num_mini_batches)
                 else:
-                    dataloader = batch.split(self.mini_bsz)
+                    dataloader = batch.split(mini_bsz)
 
                 for epoch in range(self.config.ppo_epochs):
                     for batch_idx, mini_batch in enumerate(dataloader):
