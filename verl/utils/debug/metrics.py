@@ -61,6 +61,25 @@ def calculate_log_prob_diff(log_probs1: torch.Tensor, log_probs2: torch.Tensor, 
 
 
 def calculate_debug_metrics(data: DataProto) -> dict:
+    """
+    calculate rollout vs actor logprobs diff, for debugging purpose
+
+    Args:
+        data: DataProto
+            the data batch to calculate
+            rollout_log_probs: log_probs record when rollout forward tokens
+            old_log_probs(actor log probs): log_probs record when actor forward tokens
+            loss_mask or attention_mask: to mask unrelated token
+            responses: the response tokens, for calculating size
+    Returns:
+        dict: metrics
+            "training/rollout_probs_diff_valid": 1->input is valid, 0->input is invalid
+            "training/rollout_probs_diff_max": max value of logprob diff of rollout vs. actor
+            "training/rollout_probs_diff_mean": mean value of logprob diff of rollout vs. actor
+            "training/rollout_probs_diff_std": std value of logprob diff of rollout vs. actor
+            "training/rollout_actor_probs_pearson_corr": logprob's pearson corrcoef of rollout vs. actor, reference to https://arxiv.org/pdf/2506.13585
+    """
+
     rollout_old_log_probs = data.batch["rollout_log_probs"]
     actor_old_log_probs = data.batch["old_log_probs"]
     if "loss_mask" in data.batch:
