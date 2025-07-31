@@ -439,7 +439,7 @@ class SGLangRollout(BaseRollout):
         node_rank = self._tp_rank // tp_size_per_node
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0
         engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {})
-        attention_backend = engine_kwargs.get('attention_backend', None)
+        attention_backend = engine_kwargs.get("attention_backend", None)
 
         if first_rank_in_node:
             rank = dist.get_rank()
