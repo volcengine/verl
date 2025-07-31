@@ -67,6 +67,7 @@ from verl.utils.fsdp_utils import (
     load_fsdp_optimizer,
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
+    get_shard_placement_fn
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
@@ -400,6 +401,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 "mp_policy": mp_policy,
                 "offload_policy": cpu_offload,
                 "reshard_after_forward": fsdp_config.reshard_after_forward,
+                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1])
             }
             full_state = actor_module.state_dict()
             apply_fsdp2(actor_module, fsdp_kwargs, fsdp_config)
@@ -828,8 +830,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module
-        if self.world_size > 1 and fsdp_version(self.ref_policy.actor_module) == 1:
-            self.ref_policy.actor_module._handle.reshard(True)
+        if self.world_size > 1:
+            if fsdp_version(self.ref_policy.actor_module) == 1:
+                self.ref_policy.actor_module._handle.reshard(True)
+            elif fsdp_version(self.ref_policy.actor_module) == 2:
+                self.ref_policy.actor_module.shard()
 
         return output
 
@@ -1121,6 +1126,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 "mp_policy": mp_policy,
                 "offload_policy": offload_policy,
                 "reshard_after_forward": fsdp_config.reshard_after_forward,
+                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1])
             }
             full_state = critic_module.state_dict()
             apply_fsdp2(critic_module, fsdp_kwargs, fsdp_config)
@@ -1414,6 +1420,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 "mesh": fsdp_mesh,
                 "offload_policy": cpu_offload,
                 "reshard_after_forward": config.model.fsdp_config.reshard_after_forward,
+                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1])
             }
             full_state = reward_module.state_dict()
             apply_fsdp2(reward_module, fsdp_kwargs, config.model.fsdp_config)
