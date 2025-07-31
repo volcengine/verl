@@ -417,6 +417,9 @@ class SGLangRollout(BaseRollout):
         if self.config.multi_turn.max_user_turns is None:
             self.config.multi_turn.max_user_turns = self.config.max_model_len // 3
 
+        if self.config.multi_turn.final_summary is None:
+            self.config.multi_turn.final_summary = False
+
     def _init_inference_engine(self, trust_remote_code, actor_module, port):
         # initialize the inference engine
         nnodes = -(-self._tp_size // len(self.visible_devices_set))
@@ -983,6 +986,38 @@ class SGLangRollout(BaseRollout):
 
         if current_turns >= self.config.multi_turn.max_assistant_turns:
             finish_reason_type = FinishReasonTypeEnum.STOP
+            
+            if self.config.multi_turn.final_summary:
+                # Check if the last assistant message contains <answer> tags
+                last_assistant_message = None
+                for msg in reversed(_req.messages):
+                    if msg.role == "assistant":
+                        last_assistant_message = msg
+                        break
+                
+                # If no answer tags found in the last assistant message, add a final prompt
+                if last_assistant_message is not None and "<answer>" not in last_assistant_message.content:
+                    
+                    logger.info(f"Request {_req.request_id}: Max turns reached but no <answer> tags found. Adding final prompt.")
+                    
+                    # Add a user message requesting the final answer
+                    final_prompt = self.config.multi_turn.summary_prompt
+                    _req.add_user_message(self.processing_class, final_prompt)
+                    
+                    try:
+                        # Generate one final response
+                        final_output = await self._handle_engine_call(_req, request_sampling_params, image_data=image_data)
+                        final_content = final_output["text"]
+                        final_finish_reason = FinishReasonTypeEnum.from_str(final_output["meta_info"]["finish_reason"]["type"])
+                        
+                        _req.add_assistant_message(self.processing_class, final_content)
+                        
+                        logger.info(f"Request {_req.request_id}: Generated final response with finish reason: {final_finish_reason}")
+                        
+                        finish_reason_type = final_finish_reason
+
+                    except Exception as e:
+                        logger.warning(f"Request {_req.request_id}: Failed to generate final response: {e}")
 
         # Calculate the reward for each tool
         async def calc_reward_and_release_fn(name: str, tool: BaseTool):
