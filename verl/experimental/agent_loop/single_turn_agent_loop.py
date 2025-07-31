@@ -16,8 +16,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from verl.experimental.agent_loop.agent_loop import (AgentLoopBase,
-                                                     AgentLoopOutput, register)
+from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
 from verl.utils.profiler import simple_timer
 
 logger = logging.getLogger(__file__)
@@ -35,7 +34,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
 
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         messages = list(kwargs["raw_prompt"])
-        
+
         metrics = {}
         request_id = uuid4().hex
         prompt_ids = await self.loop.run_in_executor(
