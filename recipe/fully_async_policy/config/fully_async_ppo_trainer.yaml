@@ -6,131 +6,32 @@ defaults:
   - ppo_trainer
   - _self_
 
-# 完全异步训练的特殊配置
+# ============= 完全异步训练配置 (Fully Async Training Config) =============
+
 async_training:
-  # 新鲜度阈值，超过此版本差异的样本会被丢弃
-  freshness_threshold: 3
+  # 新鲜度控制 (Freshness Control)
+  freshness_threshold: 3              # 样本新鲜度阈值
+  max_staleness_allowed: 5            # 最大允许的样本陈旧度
 
-  # 最大允许的新鲜度差异，rollout会暂停生成
-  max_staleness_allowed: 5
+  # 队列管理 (Queue Management)
+  max_queue_size: 1000               # 消息队列最大大小
+  min_batch_count: 1                 # 每次获取的最小batch数量
+  batch_timeout: 30.0                # 获取batch的超时时间(秒)
 
-  # MessageQueue的最大队列大小
-  max_queue_size: 1000
+  # 生成控制 (Generation Control)
+  generation_timeout: 30.0           # 单次生成的超时时间(秒)
+  batch_generation_interval: 0.1     # batch生成间隔(秒)
 
-  # 最小batch数量，trainer会等待至少这么多batch
-  min_batch_count: 1
+  # 参数同步 (Parameter Synchronization)
+  max_sync_retries: 3                # 参数同步最大重试次数
+  sync_timeout: 30.0                 # 同步超时时间(秒)
+  sync_retry_delay: 1.0              # 重试延迟时间(秒)
 
-  # 获取batch的超时时间（秒）
-  batch_timeout: 30.0
-
-# 重写默认的训练配置
-actor_rollout_ref:
-  hybrid_engine: false
-  rollout:
-    # 异步模式
-    mode: async
-
-    # rollout专用的GPU数量
-    n_gpus: 4
-
-    # 使用vLLM异步rollout
-    name: vllm
-
-    # 其他rollout参数
-    temperature: 1.0
-    top_k: -1
-    top_p: 1.0
-    tensor_model_parallel_size: 2
-    gpu_memory_utilization: 0.6
-    max_num_batched_tokens: 8192
-    free_cache_engine: true
-    enforce_eager: true
-
-# 训练器配置
-trainer:
-  # 总训练步数
-  total_training_steps: 1000
-
-  # 设备
-  device: cuda
-
-  # 保存频率
-  save_freq: 100
-
-  # 验证频率
-  val_freq: 50
-
-  # 日志配置
-  logger: '["console", "wandb"]'
-  project_name: "fully_async_ppo"
-  experiment_name: "test_async_training"
-
-# 数据配置
-data:
-  # 训练batch大小
-  train_batch_size: 128
-
-  # 数据文件路径
-  train_files: "~/data/train.parquet"
-  val_files: "~/data/val.parquet"
-
-  # 序列长度
-  max_prompt_length: 1024
-  max_response_length: 1024
-
-# 算法配置
-algorithm:
-  # 优势估计器
-  adv_estimator: gae
-
-  # PPO参数
-  cliprange: 0.2
-  cliprange_value: 0.2
-  vf_coeff: 0.1
-  entropy_coeff: 0.01
-
-  # KL相关
-  kl_coeff: 0.1
-  adaptive_kl: true
-  target_kl: 0.01
-
-# 模型配置
-actor_rollout_ref:
-  model:
-    # 模型路径
-    path: "Qwen/Qwen2-7B-Instruct"
-
-    # 使用LoRA
-    lora_rank: 64
-    lora_alpha: 128
-    lora_dropout: 0.1
-
-  actor:
-    # Actor优化器
-    optim:
-      lr: 1e-6
-      weight_decay: 0.01
-
-    # FSDP配置
-    fsdp_config:
-      fsdp_size: -1
-      param_offload: false
-      optimizer_offload: false
-
-    # PPO配置
-    ppo_mini_batch_size: 32
-    use_dynamic_bsz: true
-
-# Critic配置
-critic:
-  model:
-    path: "Qwen/Qwen2-7B-Instruct"
-
-  optim:
-    lr: 1e-5
-    weight_decay: 0.01
-
-  fsdp_config:
-    fsdp_size: -1
-    param_offload: false
+# Rollout配置
+rollout:
+  nnodes: 1                          # Number of nodes used in the rollout
+  n_gpus_per_node: 8                 # Number of GPUs per node
+  mode: async                        # rollout模式: sync, async
+  name: vllm                         # rollout引擎: vllm, sglang
+  n: 4                               # 每个prompt生成的响应数量
 
