@@ -19,7 +19,7 @@ import torch
 
 from verl import DataProto
 from verl.workers.reward_manager import register
-from verl.workers.reward_manager.abstract import AbstractRewardManager, RewardFn
+from verl.workers.reward_manager.abstract import AbstractRewardManager, RawRewardFn
 
 
 @register("batch")
@@ -35,7 +35,9 @@ class BatchRewardManager(AbstractRewardManager):
         reward_kwargs (dict): The keyword arguments to pass to the reward function.
     """
 
-    def __init__(self, tokenizer, num_examine, compute_score: RewardFn, reward_fn_key="data_source", **reward_kwargs):
+    def __init__(
+        self, tokenizer, num_examine, compute_score: RawRewardFn, reward_fn_key="data_source", **reward_kwargs
+    ):
         self.tokenizer = tokenizer
         self.num_examine = num_examine
         self.compute_score = compute_score

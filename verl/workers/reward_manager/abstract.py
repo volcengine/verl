@@ -21,7 +21,7 @@ import torch
 
 from verl.protocol import DataProto
 
-RewardFn = Callable[..., Any]
+RawRewardFn = Callable[..., Any]
 
 
 class AbstractRewardManager(ABC):
@@ -30,7 +30,7 @@ class AbstractRewardManager(ABC):
         self,
         tokenizer: Any,
         num_examine: int,
-        compute_score: RewardFn | None,
+        compute_score: RawRewardFn | None,
         reward_fn_key: str = "data_source",
         **kwargs: Any,
     ):
@@ -40,6 +40,6 @@ class AbstractRewardManager(ABC):
     def __call__(
         self,
         data: DataProto,
-        return_dict: bool,
+        return_dict: bool = False,
     ) -> torch.Tensor | dict[str, Any]:
         pass
