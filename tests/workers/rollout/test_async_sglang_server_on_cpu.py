@@ -22,14 +22,13 @@ from omegaconf import DictConfig
     "sys.modules",
     {
         "verl.workers.rollout.sglang_rollout.sglang_rollout": MagicMock(SGLangRollout=MagicMock()),
-        "verl.workers.rollout.chat_scheduler": MagicMock(ChatCompletionScheduler=MagicMock()),
         "fastapi": MagicMock(FastAPI=MagicMock()),
         "uvicorn": MagicMock(FastAPI=MagicMock()),
         "starlette.requests": MagicMock(Request=MagicMock()),
         "starlette.responses": MagicMock(JSONResponse=MagicMock()),
     },
 )
-class TestAsyncSglangServer:
+class TestAsyncSGLangServer:
     @pytest.fixture
     def server_config(self):
         return DictConfig({"actor_rollout_ref": {"rollout": {"tensor_model_parallel_size": 2}}})

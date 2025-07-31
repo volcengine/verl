@@ -1,5 +1,5 @@
 # actor_rollout_ref.rollout.name: hf/vllm/sglang. The default value will be removed in the future
-name: vllm
+name: ???
 
 # sync: LLM, async: AsyncLLM
 mode: sync
@@ -73,7 +73,7 @@ do_sample: True
 # number of responses (i.e. num sample times). > 1 for grpo
 n: 1
 
-# Whether to wake up inference engine in multi-stage. (Wake up model weights first, then resume kv cache)
+# Whether to wake up inference engine in multi-stage to reduce peak memory during training-rollout transition.
 multi_stage_wake_up: false
 
 # Extra inference engine arguments (vllm, sglang).
@@ -139,9 +139,6 @@ multi_turn:
 
   # null for no interaction
   interaction_config_path: null
-
-  # null for default callback
-  completion_callback: null
 
   # - When set to True, the model's default chat template is used for multi-turn rollout, which typically matches production behavior.
   # - When set to False, the token ids recorded for training are used instead; unlike the default chat template, these always include the model's full output,
