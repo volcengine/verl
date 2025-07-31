@@ -1165,12 +1165,12 @@ class SGLangRollout(BaseRollout):
             response_loss_mask.append(req.response_loss_mask.to(tgt_device).squeeze(0))
             messages.append({"messages": req.messages})
             reward_scores.append(req.reward_scores)
-        multi_modal_inputs.append(req.multi_modal_inputs)
-        request_ids.append(req.request_id)
-        if self.config.calculate_log_probs:
-            # extract output log_probs
-            output_logprobs.append(req.rollout_log_probs[-len(req.response_ids) :])
-            rollout_output_token_ids.append(req.output_token_ids[-len(req.response_ids) :])
+            multi_modal_inputs.append(req.multi_modal_inputs)
+            request_ids.append(req.request_id)
+            if self.config.calculate_log_probs:
+                # extract output log_probs
+                output_logprobs.append(req.rollout_log_probs[-len(req.response_ids) :])
+                rollout_output_token_ids.append(req.output_token_ids[-len(req.response_ids) :])
 
         prompt_ids = pad_sequence(
             prompt_ids,
