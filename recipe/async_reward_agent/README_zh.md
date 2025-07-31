@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. -->
 
-# 方案：基于流水线更新与单步离线策略训练的异步奖励代理机制
+# 方案：基于小批次流水线更新与单步离线策略训练的异步奖励代理机制
 
 **作者：** `haolinyan@tencent.com`
 
@@ -31,12 +31,12 @@ limitations under the License. -->
 
 ### 解决方案
 
-针对上述问题，我们设计实现了**异步奖励代理**，允许开发者自定义单条响应的奖励函数，由代理负责并发请求的发起与全生命周期管理。该设计使我们能对前述通信瓶颈进行调度优化。具体我们采用**单步离线策略**与**流水线更新**两种策略实现通信与计算的有效重叠：
+针对上述问题，我们设计实现了**异步奖励代理**，允许开发者自定义单条响应的奖励函数，由代理负责并发请求的发起与全生命周期管理。该设计使我们能对前述通信瓶颈进行调度优化。具体我们采用**单步离线策略**与**小批次流水线更新**两种策略实现通信与计算的有效重叠：
 
 1. **单步离线策略**：不同于[美团](https://verl.readthedocs.io/en/latest/advance/one_step_off.html)实现的"One Step Off Async Trainer"，我们使用 colcated 模式，通过将下一步rollout的计算时间与当前奖励请求等待时间重叠，提升训练效率。
-2. **流水线更新**：现有方法需等待全局批次所有奖励收集完成后才进行模型更新，导致GPU长时间闲置。为解决该问题，我们将全局批次划分为多个mini-batch，实现基于流水线的异步奖励收集与模型更新的并发处理，有效重叠通信延迟与计算时间。
+2. **小批次流水线更新**：现有方法需等待全局批次所有奖励收集完成后才进行模型更新，导致GPU长时间闲置。为解决该问题，我们将全局批次划分为多个mini-batch，实现基于流水线的异步奖励收集与模型更新的并发处理，有效重叠通信延迟与计算时间。
 
-通过这两种策略，我们利用计算时间覆盖了通信等待时间，显著提升了训练效率。在GSM8K模拟实验中，我们证实：当异步奖励代理配合单步离线策略和流水线更新策略使用时，相比基线方案可有效缩短 **30.85%** 的训练时间。
+通过这两种策略，我们利用计算时间覆盖了通信等待时间，显著提升了训练效率。在GSM8K模拟实验中，我们证实：当异步奖励代理配合单步离线策略和小批次流水线更新策略使用时，相比基线方案可有效缩短 **30.85%** 的训练时间。
 
 ![](./assets/imges/async_reward_agent.svg)
 
@@ -52,32 +52,32 @@ limitations under the License. -->
 
 实验结果如下所示: 
 - 提出的方案达到了与开源社区现有结果相当的训练精度。  
-- 通过结合流水线更新与单步离线策略，相较于基线方法，总训练时间最高可减少 **30.85%** 。  
+- 通过结合小批次流水线更新与单步离线策略，相较于基线方法，总训练时间最高可减少 **30.85%** 。  
 
 | Backend | Strategy                 | Model        | Training Time | Accuracy (last/max) | Log                                                                  |
 |------------------|----------------------------------|--------------|---------------|---------------------|----------------------------------------------------------------------------------|
 | Megatron         | baseline (from community) | Qwen2-7B-Instruct     | -             | 89.61 / 89.61       | [Log](https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b_math_megatron.log) |
 | Megatron         | baseline                         | Qwen2-7B-Instruct     | 17h53m        | 89.08 / 89.92       | [Log](./assets/tensorboard/gsm8k_qwen2_7b_base)                                                             |
 | FSDP             | baseline                         | Qwen2-7B-Instruct     | 18h24m        | 89.54 / 89.92       | [Log](./assets/tensorboard/q7b_fsdp_base)                                                                   |
-| Megatron         | update pipeline + one-step off-policy | Qwen2-7B-Instruct | **12h22m** (-30.85%) | 89.61 / 90.04       | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)                                                          |
-| FSDP             | update pipeline + one-step off-policy | Qwen2-7B-Instruct | **13h10m** (-28.44%) | 88.86 / 89.99       | [Log](./assets/tensorboard/q7b_fsdp_off_ppl)                                                                |
+| Megatron         | mini-batch pipeline + one-step off-policy | Qwen2-7B-Instruct | **12h22m** (-30.85%) | 89.61 / 90.04       | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)                                                          |
+| FSDP             | mini-batch pipeline + one-step off-policy | Qwen2-7B-Instruct | **13h10m** (-28.44%) | 88.86 / 89.99       | [Log](./assets/tensorboard/q7b_fsdp_off_ppl)                                                                |
 | FSDP             | baseline                         | Qwen2.5-3B-Instruct   | 17h23m        | 87.87 / 88.10       | [Log](./assets/tensorboard/q3b_fsdp_base)                                                                   |
 | Megatron         | baseline                         | Qwen2.5-3B-Instruct   | 17h07m        | 88.02 / 88.02       | [Log](./assets/tensorboard/q3b_mcore_base)                                                                  |
-| FSDP             | update pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h15m** (-23.08%) | 88.93 / 88.93       | [Log](./assets/tensorboard/q3b_fsdp_off_ppl)                                                                |
-| Megatron         | update pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h10m** (-23.08%) | 87.19 / 88.40       | [Log](./assets/tensorboard/q3b_mcore_off_ppl)
+| FSDP             | mini-batch pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h15m** (-23.08%) | 88.93 / 88.93       | [Log](./assets/tensorboard/q3b_fsdp_off_ppl)                                                                |
+| Megatron         | mini-batch pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h10m** (-23.08%) | 87.19 / 88.40       | [Log](./assets/tensorboard/q3b_mcore_off_ppl)
 
-我们通过进一步实验验证了以下两个方面：(1) 流水线更新与单步离线策略对训练效率的独立贡献；(2) 解耦PPO损失函数（如[论文](https://arxiv.org/pdf/2505.24298)所述，用于缓解离线策略训练中的策略不一致性问题）对训练效率及模型性能的影响。  
+我们通过进一步实验验证了以下两个方面：(1) 小批次流水线更新与单步离线策略对训练效率的独立贡献；(2) 解耦PPO损失函数（如[论文](https://arxiv.org/pdf/2505.24298)所述，用于缓解离线策略训练中的策略不一致性问题）对训练效率及模型性能的影响。  
 
-- **策略效果对比**：相较于流水线更新策略，单步离线策略方法实现了更高的计算-通信时间重叠率，因而显著提升了整体训练效率。  
+- **策略效果对比**：相较于小批次流水线更新策略，单步离线策略方法实现了更高的计算-通信时间重叠率，因而显著提升了整体训练效率。  
 - **损失函数分析**：在单步离线策略设定下，近端策略优化（PPO）目标函数本身通过约束目标限制了两次连续更新的策略间的分布偏差。因此，相较于基线方法，采用解耦PPO损失并未观察到明显的性能提升。  
 
 | Backend   | Strategy                              |  Model       | Training Time      | Accuracy (last/max) | Log                     |
 |------------|---------------------------------------|------------|----------------|----------------|------------------------------|
 | Megatron   | baseline                              | Qwen2-7B-Instruct   | 17h53m         | 89.08/89.92    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_base)          |
 | Megatron   | one-step off-policy                   | Qwen2-7B-Instruct   | 13h23m (-25.16%) | 88.93/89.54    | [Log](./assets/tensorboard/q7b_mcore_off)                |
-| Megatron   | update pipeline                       | Qwen2-7B-Instruct   | 15h41m (-12.30%) | 89.31/89.99    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_async)         |
-| Megatron   | update pipeline + one-step off-policy | Qwen2-7B-Instruct   | 12h22m (-30.85%) | 89.61/90.04    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)       |
-| Megatron   | update pipeline + one-step off-policy + decoupled ppo loss | Qwen2-7B-Instruct | 12h21m (-30.94%) | 89.01/89.69    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl_behav) |
+| Megatron   | mini-batch pipeline                       | Qwen2-7B-Instruct   | 15h41m (-12.30%) | 89.31/89.99    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_async)         |
+| Megatron   | mini-batch pipeline + one-step off-policy | Qwen2-7B-Instruct   | 12h22m (-30.85%) | 89.61/90.04    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)       |
+| Megatron   | mini-batch pipeline + one-step off-policy + decoupled ppo loss | Qwen2-7B-Instruct | 12h21m (-30.94%) | 89.01/89.69    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl_behav) |
 
 
 ## 实现方案
@@ -232,12 +232,12 @@ sequenceDiagram
 
 </div>
 
-### 流水线更新
+### 小批次流水线更新
 如下图所示，当前框架需要等待全局批次`global batch`中的所有奖励返回后才能继续更新模型，这会导致GPU长时间空闲。数据加载器随后将`global batch`拆分为多个`mini-batch`进行多次模型更新。
 
-流水线更新策略利用``RayAsyncRewardAgent``异步收集奖励并及时更新模型。它采用流水线方式，通过反复调用``get``方法，每次获取一个`mini-batch`数据并立即更新模型。该过程持续进行，直到全局批次中的所有数据都用于更新。
+小批次流水线更新策略利用``RayAsyncRewardAgent``异步收集奖励并及时更新模型。它采用流水线方式，通过反复调用``get``方法，每次获取一个`mini-batch`数据并立即更新模型。该过程持续进行，直到全局批次中的所有数据都用于更新。
 
-![](./assets/imges/update_pipeline.svg)
+![](./assets/imges/minibatch_pipeline.svg)
 
 主要代码修改如下：
 
@@ -259,7 +259,7 @@ sequenceDiagram
                     with marked_timer("adv", timing_raw, color="brown"):
                         # 结合基于规则的奖励模型
                         reward_extra_infos_dict: dict[str, list]
-                        if self.config.get("update_pipeline", False):
+                        if self.config.get("mini_batch_pipeline", False):
 +                            # 阻塞等待获取一个mini-batch的奖励值
 +                            fin_mini_batch_idxs, reward_tensor, reward_extra_infos_dict = ray.get(
 +                                self.reward_agent.get.remote(
@@ -320,8 +320,8 @@ sequenceDiagram
                     group_uid=uids[idx], group_size=self.config.actor_rollout_ref.rollout.n  
                 )  
             # 2. 调用异步奖励计算函数  
-            if self.config.get("update_pipeline", False):  
-                # 流水线更新策略，非阻塞模式  
+            if self.config.get("mini_batch_pipeline", False):  
+                # 小批次流水线更新策略，非阻塞模式  
                 future_reward = ray.get(  
                     self.reward_agent.compute_reward_pipeline.remote(  
                         batch, group_size=self.config.actor_rollout_ref.rollout.n  
@@ -513,8 +513,8 @@ python3 -m recipe.async_reward_agent.main_ppo \
     custom_reward_function.name=${reward_function_name} \  # 奖励函数名称
     reward_model.reward_manager=batch \ 
     reward_model.launch_reward_fn_async=True \ 
-    # 启用流水线更新策略
-    +update_pipeline=True
+    # 启用小批次流水线更新策略
+    +mini_batch_pipeline=True
 ```
 
 ## Megatron 配置示例
@@ -527,8 +527,8 @@ python3 -m recipe.async_reward_agent.main_ppo \
     custom_reward_function.name=${reward_function_name} \  # 奖励函数名称
     reward_model.reward_manager=batch \  
     reward_model.launch_reward_fn_async=True \  
-    # 启用流水线更新策略
-    +update_pipeline=True
+    # 启用小批次流水线更新策略
+    +mini_batch_pipeline=True
 ```
 
 ## 功能支持情况

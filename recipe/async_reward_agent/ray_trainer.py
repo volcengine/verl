@@ -974,7 +974,7 @@ class AsyncRewardAgentTrainer:
                 batch.non_tensor_batch["extra_info"][idx].update(
                     group_uid=uids[idx], group_size=self.config.actor_rollout_ref.rollout.n
                 )
-            if self.config.get("update_pipeline", False):
+            if self.config.get("mini_batch_pipeline", False):
                 future_reward = ray.get(
                     self.reward_agent.compute_reward_pipeline.remote(
                         batch, group_size=self.config.actor_rollout_ref.rollout.n
@@ -1130,7 +1130,7 @@ class AsyncRewardAgentTrainer:
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list]
-                        if self.config.get("update_pipeline", False):
+                        if self.config.get("mini_batch_pipeline", False):
                             fin_mini_batch_idxs, reward_tensor, reward_extra_infos_dict = ray.get(
                                 self.reward_agent.get.remote(
                                     self.config.actor_rollout_ref.actor.ppo_mini_batch_size

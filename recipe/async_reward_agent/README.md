@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. -->
 
-# Recipe: Asynchronous Reward Agent with Update Pipeline and One Step Off Policy Training
+# Recipe: Asynchronous Reward Agent with Mini-batch Pipeline and One Step Off Policy Training
 
 **Author:**  `haolinyan@tencent.com`
 
@@ -38,12 +38,12 @@ However, under this reward-training decoupled paradigm, the existing verl framew
 
 ### Solution
 
-To address these issues, we designed and implemented an **asynchronous reward agent**, which allows developers to customize the reward function for individual responses. The agent is responsible for initiating concurrent requests and managing the lifecycle of all requests. This design enables us to optimize scheduling for the aforementioned communication bottlenecks. Specifically, we employ two strategies—**one-step off-policy** and **update pipeline**—to achieve effective overlap between communication and computation:  
+To address these issues, we designed and implemented an **asynchronous reward agent**, which allows developers to customize the reward function for individual responses. The agent is responsible for initiating concurrent requests and managing the lifecycle of all requests. This design enables us to optimize scheduling for the aforementioned communication bottlenecks. Specifically, we employ two strategies—**one-step off-policy** and **mini-batch pipeline**—to achieve effective overlap between communication and computation:  
 
 1. **One-step off-policy**: Unlike the "One Step Off Async Trainer" implemented by [Meituan](https://verl.readthedocs.io/en/latest/advance/one_step_off.html), we reverted to the colocated design. This approach overlaps the computation time of the next-step rollout with the waiting time for current reward requests, thereby improving training efficiency.
-2. **Update pipeline**: The existing method necessitates waiting for all rewards in the global batch to be collected before performing model updates, resulting in prolonged GPU idle time. To overcome this inefficiency, we implement a pipelined execution strategy that divides the global batch into mini-batches. This approach enables concurrent processing of asynchronous reward collection and model updates, effectively overlapping communication latency with computation.
+2. **Mini-batch pipeline**: The existing method necessitates waiting for all rewards in the global batch to be collected before performing model updates, resulting in prolonged GPU idle time. To overcome this inefficiency, we implement a pipelined execution strategy that divides the global batch into mini-batches. This approach enables concurrent processing of asynchronous reward collection and model updates, effectively overlapping communication latency with computation.
 
-These strategies mitigate latency by overlapping waiting time with computation, significantly improving training efficiency. In simulated experiments on the **GSM8K** benchmark, we demonstrate that the asynchronous reward agent, when combined with **one-step off-policy** and **update pipeline**, reduces training time by **30.85%** compared to the baseline.  
+These strategies mitigate latency by overlapping waiting time with computation, significantly improving training efficiency. In simulated experiments on the **GSM8K** benchmark, we demonstrate that the asynchronous reward agent, when combined with **one-step off-policy** and **mini-batch pipeline**, reduces training time by **30.85%** compared to the baseline.  
 
 ![](./assets/imges/async_reward_agent.svg)
 
@@ -59,32 +59,32 @@ These strategies mitigate latency by overlapping waiting time with computation, 
 
 The experimental results demonstrate the following key findings:
 - The proposed solution achieves comparable training accuracy to existing open-source results in the community.
-- By incorporating the update pipeline and one-step off-policy strategies, we observe a reduction of up to **30.85%** in total training time relative to the baseline.
+- By incorporating the mini-batch pipeline and one-step off-policy strategies, we observe a reduction of up to **30.85%** in total training time relative to the baseline.
 
 | Backend | Strategy                 | Model        | Training Time | Accuracy (last/max) | Log                                                                  |
 |------------------|----------------------------------|--------------|---------------|---------------------|----------------------------------------------------------------------------------|
 | Megatron         | baseline (from community) | Qwen2-7B-Instruct     | -             | 89.61 / 89.61       | [Log](https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b_math_megatron.log) |
 | Megatron         | baseline                         | Qwen2-7B-Instruct     | 17h53m        | 89.08 / 89.92       | [Log](./assets/tensorboard/gsm8k_qwen2_7b_base)                                                             |
 | FSDP             | baseline                         | Qwen2-7B-Instruct     | 18h24m        | 89.54 / 89.92       | [Log](./assets/tensorboard/q7b_fsdp_base)                                                                   |
-| Megatron         | update pipeline + one-step off-policy | Qwen2-7B-Instruct | **12h22m** (-30.85%) | 89.61 / 90.04       | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)                                                          |
-| FSDP             | update pipeline + one-step off-policy | Qwen2-7B-Instruct | **13h10m** (-28.44%) | 88.86 / 89.99       | [Log](./assets/tensorboard/q7b_fsdp_off_ppl)                                                                |
+| Megatron         | mini-batch pipeline + one-step off-policy | Qwen2-7B-Instruct | **12h22m** (-30.85%) | 89.61 / 90.04       | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)                                                          |
+| FSDP             | mini-batch pipeline + one-step off-policy | Qwen2-7B-Instruct | **13h10m** (-28.44%) | 88.86 / 89.99       | [Log](./assets/tensorboard/q7b_fsdp_off_ppl)                                                                |
 | FSDP             | baseline                         | Qwen2.5-3B-Instruct   | 17h23m        | 87.87 / 88.10       | [Log](./assets/tensorboard/q3b_fsdp_base)                                                                   |
 | Megatron         | baseline                         | Qwen2.5-3B-Instruct   | 17h07m        | 88.02 / 88.02       | [Log](./assets/tensorboard/q3b_mcore_base)                                                                  |
-| FSDP             | update pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h15m** (-23.08%) | 88.93 / 88.93       | [Log](./assets/tensorboard/q3b_fsdp_off_ppl)                                                                |
-| Megatron         | update pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h10m** (-23.08%) | 87.19 / 88.40       | [Log](./assets/tensorboard/q3b_mcore_off_ppl)
+| FSDP             | mini-batch pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h15m** (-23.08%) | 88.93 / 88.93       | [Log](./assets/tensorboard/q3b_fsdp_off_ppl)                                                                |
+| Megatron         | mini-batch pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h10m** (-23.08%) | 87.19 / 88.40       | [Log](./assets/tensorboard/q3b_mcore_off_ppl)
 
-We performed additional evaluations to examine: (1) the individual contributions of the update pipeline and one-step off-policy strategies to training efficiency, and (2) the effects of the decoupled PPO loss (proposed in the [paper](https://arxiv.org/pdf/2505.24298) to mitigate policy inconsistency in off-policy training) on both training efficiency and model performance.
+We performed additional evaluations to examine: (1) the individual contributions of the mini-batch pipeline and one-step off-policy strategies to training efficiency, and (2) the effects of the decoupled PPO loss (proposed in the [paper](https://arxiv.org/pdf/2505.24298) to mitigate policy inconsistency in off-policy training) on both training efficiency and model performance.
 
-- Compared to the update pipeline strategy, the one-step off-policy approach achieves higher communication time overlap ratio, thereby significantly improving overall training efficiency.
+- Compared to the mini-batch pipeline strategy, the one-step off-policy approach achieves higher communication time overlap ratio, thereby significantly improving overall training efficiency.
 - In the one-step off-policy setting, the proximal policy optimization (PPO) objective inherently enforces a constraint that limits the divergence between consecutive policy updates. Consequently, we do not observe a marked improvement in performance with the decoupled PPO loss compared to the baseline.
 
 | Backend   | Strategy                              |  Model       | Training Time      | Accuracy (last/max) | Log                     |
 |------------|---------------------------------------|------------|----------------|----------------|------------------------------|
 | Megatron   | baseline                              | Qwen2-7B-Instruct   | 17h53m         | 89.08/89.92    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_base)          |
 | Megatron   | one-step off-policy                   | Qwen2-7B-Instruct   | 13h23m (-25.16%) | 88.93/89.54    | [Log](./assets/tensorboard/q7b_mcore_off)                |
-| Megatron   | update pipeline                       | Qwen2-7B-Instruct   | 15h41m (-12.30%) | 89.31/89.99    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_async)         |
-| Megatron   | update pipeline + one-step off-policy | Qwen2-7B-Instruct   | 12h22m (-30.85%) | 89.61/90.04    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)       |
-| Megatron   | update pipeline + one-step off-policy + decoupled ppo loss | Qwen2-7B-Instruct | 12h21m (-30.94%) | 89.01/89.69    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl_behav) |
+| Megatron   | mini-batch pipeline                       | Qwen2-7B-Instruct   | 15h41m (-12.30%) | 89.31/89.99    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_async)         |
+| Megatron   | mini-batch pipeline + one-step off-policy | Qwen2-7B-Instruct   | 12h22m (-30.85%) | 89.61/90.04    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)       |
+| Megatron   | mini-batch pipeline + one-step off-policy + decoupled ppo loss | Qwen2-7B-Instruct | 12h21m (-30.94%) | 89.01/89.69    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl_behav) |
 
 ## Implementation
 
@@ -237,12 +237,12 @@ sequenceDiagram
 
 </div>
 
-### Update Pipeline
+### Mini-batch Pipeline
 As shown in the figure below, current framework requires waiting until all rewards in the ​global batch​ are returned, resulting in prelonged GPU idle time. The data loader then splits the batch into multiple ​mini-batches​ for multi-iteration model updates.
 
-The ​update pipeline strategy​ leverages ``RayAsyncRewardAgent`` to asynchronously collect rewards and update the model. It employs a pipelined approach by repeatedly calling the ``get`` method, each time retrieving one mini-batch of data and immediately updating the model. This process continues until all data in the ​global batch​ has been used for updates.
+The ​mini-batch pipeline strategy​ leverages ``RayAsyncRewardAgent`` to asynchronously collect rewards and update the model. It employs a pipelined approach by repeatedly calling the ``get`` method, each time retrieving one mini-batch of data and immediately updating the model. This process continues until all data in the ​global batch​ has been used for updates.
 
-![](./assets/imges/update_pipeline.svg)
+![](./assets/imges/minibatch_pipeline.svg)
 
 The main code changes are as follows:  
 
@@ -264,7 +264,7 @@ The main code changes are as follows:
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list]
-                        if self.config.get("update_pipeline", False):
+                        if self.config.get("mini_batch_pipeline", False):
 +                            # Block and wait for the reward values of a mini-batch
 +                            fin_mini_batch_idxs, reward_tensor, reward_extra_infos_dict = ray.get(
 +                                self.reward_agent.get.remote(
@@ -325,7 +325,7 @@ We encapsulate the `rollout` and the process of initiating reward requests into 
                     group_uid=uids[idx], group_size=self.config.actor_rollout_ref.rollout.n  
                 )  
             # 2. Call the asynchronous reward computation function  
-            if self.config.get("update_pipeline", False):  
+            if self.config.get("mini_batch_pipeline", False):  
                 # Pipeline update strategy, non-blocking  
                 future_reward = ray.get(  
                     self.reward_agent.compute_reward_pipeline.remote(  
@@ -520,8 +520,8 @@ python3 -m recipe.async_reward_agent.main_ppo \
     custom_reward_function.name=${reward_function_name} \
     reward_model.reward_manager=batch \
     reward_model.launch_reward_fn_async=True \
-    # enable update pipeline strategy
-    +update_pipeline=True
+    # enable mini-batch pipeline strategy
+    +mini_batch_pipeline=True
 ```
 
 ### Megatron Configuration Example
@@ -534,8 +534,8 @@ python3 -m recipe.async_reward_agent.main_ppo \
     custom_reward_function.name=${reward_function_name} \
     reward_model.reward_manager=batch \
     reward_model.launch_reward_fn_async=True \
-    # enable update pipeline strategy
-    +update_pipeline=True
+    # enable mini-batch pipeline strategy
+    +mini_batch_pipeline=True
     
 ```
 

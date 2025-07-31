@@ -105,7 +105,7 @@ common_params=(
     custom_reward_function.path=${reward_file} \
     reward_model.reward_manager=batch \
     reward_model.launch_reward_fn_async=True \
-    +update_pipeline=True
+    +mini_batch_pipeline=True
 )
 
 if [ "${ACTOR_STRATEGY}" == "fsdp2" ]; then
