@@ -188,7 +188,7 @@ class OneStepOffTaskRunner:
 def main(config):
     from verl.trainer.main_ppo import run_ppo
 
-    run_ppo(config)
+    run_ppo(config, OneStepOffTaskRunner)
 
 
 if __name__ == "__main__":
