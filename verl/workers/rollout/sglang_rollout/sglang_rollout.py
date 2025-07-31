@@ -191,6 +191,7 @@ def _pre_process_inputs(
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
     return prompt_token_ids[non_pad_index:]
 
+
 def _extract_logprob_from_output(output):
     """
     extract log_prob from single sglang inference output
