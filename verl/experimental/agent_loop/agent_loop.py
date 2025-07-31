@@ -17,7 +17,7 @@ import logging
 import os
 import random
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 import hydra
 import numpy as np
@@ -33,7 +33,8 @@ from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
-from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
+from verl.utils.rollout_trace import (RolloutTraceConfig, rollout_trace_attr,
+                                      rollout_trace_op)
 from verl.workers.rollout.async_server import async_server_class
 
 logger = logging.getLogger(__file__)
@@ -183,7 +184,6 @@ class AgentLoopBase(ABC):
         cls._class_initialized = True
 
     @abstractmethod
-
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         """Run agent loop to interact with LLM server and environment.
 
@@ -295,12 +295,10 @@ class AgentLoopWorker:
             batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
         )
 
-
         tasks = []
         for i in range(len(batch)):
             kwargs = {k: v[i] for k, v in batch.non_tensor_batch.items()}
             tasks.append(asyncio.create_task(self._run_agent_loop(sampling_params, trajectory_info[i], **kwargs)))
-            
         outputs = await asyncio.gather(*tasks)
 
         output = self._postprocess(outputs)
@@ -332,7 +330,6 @@ class AgentLoopWorker:
                 server_manager=self.server_manager,
                 tokenizer=self.tokenizer,
             )
-            
             output = await agent_loop.run(sampling_params, **kwargs)
 
             # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
