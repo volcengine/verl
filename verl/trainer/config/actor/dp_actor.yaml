@@ -13,6 +13,9 @@ defaults:
   # load the reference default config, then apply the fields in the current yaml
   - _self_
 
+# Target class for this configuration
+_target_: verl.workers.config.FSDPActorConfig
+
 # TODO(haibin.lin): switch to fsdp2
 strategy: fsdp
 
@@ -32,8 +35,8 @@ entropy_checkpointing: False
 # optimizer configs
 optim:
 
-  # Warmup steps; negative value delegates to lr_warmup_steps_ratio
-  lr_warmup_steps: -1
+  # Target class for this configuration
+  _target_: verl.workers.config.FSDPOptimizerConfig
 
   # Minimum LR ratio for cosine schedule
   min_lr_ratio: 0.0
@@ -46,6 +49,9 @@ optim:
 
 # configs for FSDP
 fsdp_config:
+
+  # Target class for this configuration
+  _target_: verl.workers.config.FSDPEngineConfig
 
   # policy for wrapping the model
   wrap_policy:
@@ -71,3 +77,6 @@ fsdp_config:
   # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
   # before the current forward computation.
   forward_prefetch: False
+
+# Whether to remove padding tokens in inputs during training
+use_remove_padding: ${oc.select:actor_rollout_ref.model.use_remove_padding,false}

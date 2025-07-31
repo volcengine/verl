@@ -5,6 +5,7 @@
 
 actor_rollout_ref:
   actor:
+    _target_: verl.workers.config.FSDPActorConfig
     strategy: fsdp
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null
@@ -15,6 +16,7 @@ actor_rollout_ref:
     clip_ratio_low: 0.2
     clip_ratio_high: 0.2
     policy_loss:
+      _target_: verl.workers.config.PolicyLossConfig
       loss_mode: vanilla
       clip_cov_ratio: 0.0002
       clip_cov_lb: 1.0
@@ -31,25 +33,30 @@ actor_rollout_ref:
     ppo_epochs: 1
     shuffle: false
     checkpoint:
+      _target_: verl.trainer.config.CheckpointConfig
       save_contents:
       - model
       - optimizer
       - extra
       load_contents: ${.save_contents}
+      async_save: false
     optim:
       lr: 1.0e-06
       lr_warmup_steps_ratio: 0.0
       total_training_steps: -1
       weight_decay: 0.01
       lr_warmup_steps: -1
+      _target_: verl.workers.config.FSDPOptimizerConfig
       min_lr_ratio: 0.0
       num_cycles: 0.5
       warmup_style: constant
+    use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
     grad_clip: 1.0
     ulysses_sequence_parallel_size: 1
     entropy_from_logits_with_chunking: false
     entropy_checkpointing: false
     fsdp_config:
+      _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
         min_num_params: 0
       param_offload: false
@@ -58,6 +65,7 @@ actor_rollout_ref:
       reshard_after_forward: true
       fsdp_size: -1
       forward_prefetch: false
+    use_remove_padding: ${oc.select:actor_rollout_ref.model.use_remove_padding,false}
   ref:
     strategy: ${actor_rollout_ref.actor.strategy}
     use_torch_compile: ${oc.select:actor_rollout_ref.actor.use_torch_compile,true}
@@ -66,16 +74,17 @@ actor_rollout_ref:
     log_prob_use_dynamic_bsz: ${oc.select:actor_rollout_ref.actor.use_dynamic_bsz,false}
     log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_token_len_per_gpu,16384}
     fsdp_config:
+      _target_: verl.workers.config.FSDPEngineConfig
+      wrap_policy:
+        min_num_params: 0
       param_offload: false
       reshard_after_forward: true
       forward_prefetch: false
-      wrap_policy:
-        min_num_params: 0
     ulysses_sequence_parallel_size: ${oc.select:actor_rollout_ref.actor.ulysses_sequence_parallel_size,1}
     entropy_from_logits_with_chunking: false
     entropy_checkpointing: false
   rollout:
-    name: vllm
+    name: ???
     mode: sync
     temperature: 1.0
     top_k: -1
@@ -120,7 +129,6 @@ actor_rollout_ref:
       max_tool_response_length: 256
       tool_response_truncate_side: middle
       interaction_config_path: null
-      completion_callback: null
       use_inference_chat_template: false
       tokenization_sanity_check_mode: strict
       format: hermes
@@ -166,6 +174,8 @@ trainer:
   npu_profile:
     options:
       save_path: ./profiler_data
+      roles:
+      - all
       level: level1
       with_memory: false
       record_shapes: false
@@ -249,13 +259,17 @@ data:
     path: null
     name: null
 critic:
+  _target_: verl.workers.config.FSDPCriticConfig
   rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
   strategy: fsdp
+  enable: null
   optim:
+    lr: 1.0e-05
     lr_warmup_steps_ratio: 0.0
     total_training_steps: -1
     weight_decay: 0.01
-    lr: 1.0e-05
+    lr_warmup_steps: -1
+    _target_: verl.workers.config.FSDPOptimizerConfig
     min_lr_ratio: null
     warmup_style: constant
   model:
@@ -264,11 +278,13 @@ critic:
     override_config: {}
     external_lib: ${oc.select:actor_rollout_ref.model.external_lib,null}
     trust_remote_code: ${oc.select:actor_rollout_ref.model.trust_remote_code,false}
+    _target_: verl.workers.config.FSDPCriticModelCfg
     use_shm: false
     enable_gradient_checkpointing: true
     enable_activation_offload: false
     use_remove_padding: false
     fsdp_config:
+      _target_: verl.workers.config.FSDPEngineConfig
       param_offload: false
       optimizer_offload: false
       offload_policy: false
@@ -291,17 +307,18 @@ critic:
   cliprange_value: 0.5
   loss_agg_mode: ${oc.select:actor_rollout_ref.actor.loss_agg_mode,token-mean}
   checkpoint:
+    _target_: verl.trainer.config.CheckpointConfig
     save_contents:
     - model
     - optimizer
     - extra
     load_contents: ${.save_contents}
+    async_save: false
   profiler:
     _target_: verl.utils.profiler.ProfilerConfig
     discrete: false
     all_ranks: false
     ranks: []
-  _target_: verl.trainer.config.FSDPCriticConfig
   forward_micro_batch_size: ${oc.select:.ppo_micro_batch_size,null}
   forward_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size_per_gpu,null}
   ulysses_sequence_parallel_size: 1
@@ -318,6 +335,7 @@ reward_model:
     use_remove_padding: false
     use_fused_kernels: ${actor_rollout_ref.model.use_fused_kernels}
     fsdp_config:
+      _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
         min_num_params: 0
       param_offload: false
@@ -360,7 +378,6 @@ algorithm:
     target_kl: 0.1
   use_pf_ppo: false
   pf_ppo:
-    _target_: verl.trainer.config.PFPPOConfig
     reweight_method: pow
     weight_pow: 2.0
 ray_init:

@@ -58,7 +58,6 @@ trainer:
   total_training_steps: null
   logger: [ 'console', 'wandb' ]
   seed: 1
-
   save_freq: -1
   test_freq: -1
   nnodes: 1

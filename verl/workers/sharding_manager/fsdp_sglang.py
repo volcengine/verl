@@ -22,7 +22,11 @@ import torch
 import torch.distributed as dist
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.model_executor.model_runner import LocalSerializedTensor
-from sglang.srt.utils import MultiprocessingSerializer
+
+try:
+    from sglang.srt.utils import TorchPatchMultiprocessingSerializer as MultiprocessingSerializer
+except ImportError:
+    from sglang.srt.utils import MultiprocessingSerializer
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
@@ -173,7 +177,11 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     async def release_memory(self):
         if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
-            await self.inference_engine.release_memory_occupation()
+            if self.multi_stage_wake_up:
+                await self.inference_engine.release_memory_occupation(tags=["kv_cache", "weights"])
+            else:
+                await self.inference_engine.release_memory_occupation()
+            log_gpu_memory_usage("After release memory occupation in sharding manager", logger=logger)
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
     async def wake_up(self):

@@ -18,7 +18,7 @@ import os
 
 import torch
 import torch.distributed
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.debug import (
@@ -26,7 +26,6 @@ from verl.utils.debug import (
 )
 from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.fs import copy_to_local
-from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 from verl.workers.megatron_workers import ActorRolloutRefWorker as ARRWorker
 from verl.workers.megatron_workers import CriticWorker, RewardModelWorker
 
@@ -74,6 +73,8 @@ class ActorRolloutRefWorker(ARRWorker):
             inference_model = (
                 self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             )
+            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+
             patch_vllm_moe_model_weight_loader(inference_model)
         for key, shape, dtype in self._weights_info:
             if self._is_actor:
@@ -119,11 +120,9 @@ class RolloutWorker(ActorRolloutRefWorker):
 
             importlib.import_module(self.config.model.external_lib)
 
-        from omegaconf import OmegaConf
-
         from verl.utils.torch_dtypes import PrecisionType
 
-        override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
+        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
         override_transformer_config = {}
         self.param_dtype = torch.bfloat16
         self.dtype = PrecisionType.to_dtype(self.param_dtype)

@@ -265,13 +265,16 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             hf_config_tokenizer_path = os.path.join(local_path, "huggingface")
             local_mkdir_safe(hf_config_tokenizer_path)
             model_config = unwrap_model.config
+            generation_config = None
             if unwrap_model.can_generate() and hasattr(model_config, "name_or_path") and model_config.name_or_path:
-                # Some model's name_or_path is empty if not initialized from pretrained,
-                # in this cases, we don't save generation config.
-                generation_config = GenerationConfig.from_pretrained(model_config.name_or_path)
-                generation_config.save_pretrained(hf_config_tokenizer_path)
-            else:
-                generation_config = None
+                try:
+                    # Some model's name_or_path is empty if not initialized from pretrained,
+                    # in this cases, we don't save generation config.
+                    generation_config = GenerationConfig.from_pretrained(model_config.name_or_path)
+                    generation_config.save_pretrained(hf_config_tokenizer_path)
+                except Exception:
+                    # if the generation config isn't available, we don't save it
+                    pass
 
             model_config.save_pretrained(hf_config_tokenizer_path)
             self.processing_class.save_pretrained(hf_config_tokenizer_path)

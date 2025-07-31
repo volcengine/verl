@@ -38,7 +38,6 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
-from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 from verl.workers.fsdp_workers import ActorRolloutRefWorker as ARRWorker
 from verl.workers.fsdp_workers import CriticWorker
 
@@ -71,6 +70,8 @@ class ActorRolloutRefWorker(ARRWorker):
             inference_model = (
                 self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             )
+            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+
             patch_vllm_moe_model_weight_loader(inference_model)
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
@@ -139,7 +140,7 @@ class RolloutWorker(ActorRolloutRefWorker):
     def init_model(self):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
-        override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
+        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
 
         use_shm = self.config.model.get("use_shm", False)
         local_path = copy_to_local(self.config.model.path, use_shm=use_shm)

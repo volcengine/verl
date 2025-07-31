@@ -1,11 +1,22 @@
+# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+_target_: verl.workers.config.CriticConfig
+
 # Number of rollouts per update (mirrors actor rollout_n)
 rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
 
 # fsdp or fsdp2 strategy used for critic model training
 strategy: ???
 
+# whether to enable the critic worker.
+# by default it is only enabled if advantage estimator is gae
+# set it to True manually if you always want to enable critic worker
+enable: null
+
 # optimizer configs
 optim:
+
+  # Learning rate
+  lr: 1e-5
 
   # Warmup steps ratio; total steps will be injected at runtime
   lr_warmup_steps_ratio: 0.0
@@ -15,6 +26,10 @@ optim:
 
   # Weight decay
   weight_decay: 0.01
+
+  # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
+  lr_warmup_steps: -1
+
 
 # model config for the critic
 model:
@@ -67,6 +82,9 @@ loss_agg_mode: ${oc.select:actor_rollout_ref.actor.loss_agg_mode,token-mean}
 # checkpoint configs
 checkpoint:
 
+  # Target dataclass for this configuration
+  _target_: verl.trainer.config.CheckpointConfig
+
   # What to include in saved checkpoints
   # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
   save_contents: ['model', 'optimizer', 'extra']
@@ -74,11 +92,14 @@ checkpoint:
   # What to include when loading checkpoints
   load_contents: ${.save_contents}
 
+  # Whether to save checkpoints asynchronously. Only effective for Megatron as of now.
+  async_save: False
+
 # profiler configs
 # the corresponding dataclass is verl.utils.profiler.ProfilerConfig.
 profiler:
 
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.utils.profiler.ProfilerConfig
 
   # True for each task has its own database, False for all tasks in one training step share one database.
@@ -89,6 +110,3 @@ profiler:
 
   # The ranks that will be profiled. [] or [0,1,...]
   ranks: []
-
-# Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-_target_: verl.trainer.config.CriticConfig

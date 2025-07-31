@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from omegaconf import OmegaConf
 
@@ -30,13 +30,16 @@ class TestDataclass:
 class TestTrainConfig:
     batch_size: int
     model: TestDataclass
+    override_config: dict = field(default_factory=dict)
 
 
 _cfg_str = """train_config:
+  _target_: tests.utils.test_config_on_cpu.TestTrainConfig
   batch_size: 32
   model:
     hidden_size: 768
-    activation: relu"""
+    activation: relu
+  override_config: {}"""
 
 
 class TestConfigOnCPU(unittest.TestCase):

@@ -192,6 +192,7 @@ def sync_rollout_weights(self):
         inference_model = (
             self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
         )
+        from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
         patch_vllm_moe_model_weight_loader(inference_model)
     # Model parameters are broadcast tensor-by-tensor from actor to rollout
     for key, shape, dtype in self._weights_info:
