@@ -112,6 +112,9 @@ jobs:
       - name: Install torchviison
         run: |
           pip install torchvision==0.20.1+cpu --index-url https://download.pytorch.org/whl/cpu
+      - name: Uninstall Triton
+        run: |
+          pip uninstall -y triton
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
