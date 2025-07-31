@@ -101,7 +101,7 @@ class TestRollouterComponents(unittest.TestCase):
 
     def setUp(self):
         """设置测试环境"""
-        from .rollouter import RolloutController
+        from .fully_async_rollouter import RolloutController
 
         self.controller = RolloutController()
 
