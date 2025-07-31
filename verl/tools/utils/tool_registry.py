@@ -114,8 +114,6 @@ def initialize_tools_from_config(tools_config_file):
                 )
                 tool_list.append(tool)
             case ToolType.MCP:
-                # loop = asyncio.get_event_loop()
-                # mcp_tools = loop.run_until_complete(initialize_mcp_tool(tool_cls, tool_config))
                 mcp_tools = run_coroutine(initialize_mcp_tool(tool_cls, tool_config))
                 tool_list.extend(mcp_tools)
             case _:
