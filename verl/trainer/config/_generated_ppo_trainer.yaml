@@ -188,6 +188,7 @@ trainer:
   total_epochs: 30
   total_training_steps: null
   profile_steps: null
+  profile_continuous_steps: false
   controller_nsight_options:
     trace: cuda,nvtx,cublas,ucx
     cuda-memory-usage: 'true'
