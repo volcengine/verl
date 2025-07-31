@@ -116,7 +116,7 @@ def get_system_config(config):
         wrap_policy=config.wrap_policy,
         forward_prefetch=config.forward_prefetch,
         reshard_after_forward=config.reshard_after_forward,
-        model_dtype=config.get("model_dtype", "f32"),
+        model_dtype=config.get("model_dtype", "fp32"),
         mixed_precision=config.get("mixed_precision", None),
         offload_policy=config.offload_policy
     )

@@ -147,21 +147,10 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         self.config = config
         engine_config = self.create_engine_config(self.config)
-        raise ValueError
-        # self.engine = EngineRegistry.new(self.config.strategy, engine_config)
-        raise ValueError
-
+        self.engine = EngineRegistry.new(self.config.actor.strategy, engine_config)
     
+
     def create_engine_config(self, actor_config):
-        """
-        Convert a Hydra config to the FSDPEngineConfig dataclass.
-
-        Args:
-            actor_config (DictConfig): The config from CriticWorker.
-
-        Returns:
-            FSDPEngineConfig: The converted dataclass.
-        """
         print(actor_config)
         model_config = engine_cfg.get_model_config(actor_config.model)
         optim_config = engine_cfg.get_optim_config(actor_config.actor.optim)
@@ -177,103 +166,6 @@ class ActorWorker(Worker, DistProfilerExtension):
                                             infer_micro_batch_size_per_gpu=actor_config.rollout.log_prob_micro_batch_size_per_gpu)
         return ret
 
-    def normalize_config(self, config):
-        # TODO: address this
-        world_size = torch.distributed.get_world_size()
-        config.actor.ppo_mini_batch_size *= config.rollout.n
-        config.actor.ppo_mini_batch_size //= world_size // config.actor.ulysses_sequence_parallel_size
-        assert config.actor.ppo_mini_batch_size > 0, (
-            f"ppo_mini_batch_size {config.actor.ppo_mini_batch_size} should be larger than 0 after "
-            f"normalization"
-        )
-        # micro bsz
-        if config.actor.ppo_micro_batch_size is not None:
-            config.actor.ppo_micro_batch_size //= (
-                world_size // config.actor.ulysses_sequence_parallel_size
-            )
-            config.actor.ppo_micro_batch_size_per_gpu = config.actor.ppo_micro_batch_size
-
-        if config.actor.ppo_micro_batch_size_per_gpu is not None:
-            assert config.actor.ppo_mini_batch_size % config.actor.ppo_micro_batch_size_per_gpu == 0, (
-                f"normalized ppo_mini_batch_size {config.actor.ppo_mini_batch_size} should be divisible by "
-                f"ppo_micro_batch_size_per_gpu {config.actor.ppo_micro_batch_size_per_gpu}"
-            )
-            assert config.actor.ppo_mini_batch_size // config.actor.ppo_micro_batch_size_per_gpu > 0, (
-                f"normalized ppo_mini_batch_size {config.actor.ppo_mini_batch_size} should be larger than "
-                f"ppo_micro_batch_size_per_gpu {config.actor.ppo_micro_batch_size_per_gpu}"
-            )
-        return config
-
-
-        # build device mesh for FSDP
-        world_size = torch.distributed.get_world_size()
-        # TODO(sgm): support FSDP hybrid shard for larger model
-        self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=self.config.actor.fsdp_config.fsdp_size)
-
-        # build device mesh for Ulysses Sequence Parallel
-        self.ulysses_device_mesh = None
-        self.ulysses_sequence_parallel_size = self.config.actor.get("ulysses_sequence_parallel_size", 1)
-        dp = world_size // self.ulysses_sequence_parallel_size
-        if self.ulysses_sequence_parallel_size > 1:
-            self.ulysses_device_mesh = init_device_mesh(
-                device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"]
-            )
-
-        self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
-        self._lora_rank = self.config.model.get("lora_rank", 0)
-        self._is_lora = self._lora_rank > 0
-
-
-        # self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
-        # self._is_ref = self.role in ["ref", "actor_rollout_ref"]
-
-
-        self._is_offload_param = False
-        self._is_offload_optimizer = False
-        if self._is_actor:
-            self._is_offload_param = self.config.actor.fsdp_config.get("param_offload", False)
-            self._is_offload_optimizer = self.config.actor.fsdp_config.get("optimizer_offload", False)
-        # elif self._is_ref:
-        #     # TODO: it seems that manual offload is slowly than FSDP offload
-        #     self._is_offload_param = self.config.ref.fsdp_config.get("param_offload", False)
-
-        # normalize config
-        if self._is_actor:
-            self.config.actor.ppo_mini_batch_size *= self.config.rollout.n
-            self.config.actor.ppo_mini_batch_size //= self.device_mesh.size() // self.ulysses_sequence_parallel_size
-            assert self.config.actor.ppo_mini_batch_size > 0, (
-                f"ppo_mini_batch_size {self.config.actor.ppo_mini_batch_size} should be larger than 0 after "
-                f"normalization"
-            )
-            # micro bsz
-            if self.config.actor.ppo_micro_batch_size is not None:
-                self.config.actor.ppo_micro_batch_size //= (
-                    self.device_mesh.size() // self.ulysses_sequence_parallel_size
-                )
-                self.config.actor.ppo_micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size
-
-            if self.config.actor.ppo_micro_batch_size_per_gpu is not None:
-                assert self.config.actor.ppo_mini_batch_size % self.config.actor.ppo_micro_batch_size_per_gpu == 0, (
-                    f"normalized ppo_mini_batch_size {self.config.actor.ppo_mini_batch_size} should be divisible by "
-                    f"ppo_micro_batch_size_per_gpu {self.config.actor.ppo_micro_batch_size_per_gpu}"
-                )
-                assert self.config.actor.ppo_mini_batch_size // self.config.actor.ppo_micro_batch_size_per_gpu > 0, (
-                    f"normalized ppo_mini_batch_size {self.config.actor.ppo_mini_batch_size} should be larger than "
-                    f"ppo_micro_batch_size_per_gpu {self.config.actor.ppo_micro_batch_size_per_gpu}"
-                )
-
-        # # normalize rollout config
-        # if self._is_rollout and self.config.rollout.log_prob_micro_batch_size is not None:
-        #     self.config.rollout.log_prob_micro_batch_size //= (
-        #         self.device_mesh.size() // self.ulysses_sequence_parallel_size
-        #     )
-        #     self.config.rollout.log_prob_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size
-        # # normalize ref config
-        # if self._is_ref and self.config.ref.log_prob_micro_batch_size is not None:
-        #     self.config.ref.log_prob_micro_batch_size //= self.device_mesh.size() // self.ulysses_sequence_parallel_size
-        #     self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
-
-        # raise NotImplementedError
 
     def _build_model_optimizer(
         self,
@@ -298,46 +190,46 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         assert role in ["actor", "ref"]
 
-        log_gpu_memory_usage(f"Before init {role} from HF AutoModel", logger=logger)
-        local_path = model_path
+        # log_gpu_memory_usage(f"Before init {role} from HF AutoModel", logger=logger)
+        # local_path = model_path
 
-        # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
-        # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
-        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
-        self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
+        # # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
+        # # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
+        # self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+        # self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
 
-        if self.config.model.get("custom_chat_template", None) is not None:
-            if self.processor is not None:
-                self.processor.chat_template = self.config.model.custom_chat_template
-            else:
-                self.tokenizer.chat_template = self.config.model.custom_chat_template
+        # if self.config.model.get("custom_chat_template", None) is not None:
+        #     if self.processor is not None:
+        #         self.processor.chat_template = self.config.model.custom_chat_template
+        #     else:
+        #         self.tokenizer.chat_template = self.config.model.custom_chat_template
 
-        torch_dtype = fsdp_config.get("model_dtype", None)
-        if torch_dtype is None:
-            torch_dtype = torch.float32 if self._is_actor else torch.bfloat16
-        else:
-            torch_dtype = PrecisionType.to_dtype(torch_dtype)
+        # torch_dtype = fsdp_config.get("model_dtype", None)
+        # if torch_dtype is None:
+        #     torch_dtype = torch.float32 if self._is_actor else torch.bfloat16
+        # else:
+        #     torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
-        # override model kwargs
-        actor_model_config = AutoConfig.from_pretrained(
-            local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
-        )
+        # # override model kwargs
+        # actor_model_config = AutoConfig.from_pretrained(
+        #     local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+        # )
 
         # patch for kimi-vl
-        if getattr(actor_model_config, "model_type", None) == "kimi_vl":
-            actor_model_config.text_config.topk_method = "greedy"
+        # if getattr(actor_model_config, "model_type", None) == "kimi_vl":
+        #     actor_model_config.text_config.topk_method = "greedy"
 
-        self.generation_config = get_generation_config(local_path, trust_remote_code=trust_remote_code)
+        # self.generation_config = get_generation_config(local_path, trust_remote_code=trust_remote_code)
 
-        override_config_kwargs = {
-            "bos_token_id": self.tokenizer.bos_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
-            "pad_token_id": self.tokenizer.pad_token_id,
-        }
-        override_config_kwargs.update(override_model_config)
-        update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
-        if self.rank == 0:
-            print(f"Model config after override: {actor_model_config}")
+        # override_config_kwargs = {
+        #     "bos_token_id": self.tokenizer.bos_token_id,
+        #     "eos_token_id": self.tokenizer.eos_token_id,
+        #     "pad_token_id": self.tokenizer.pad_token_id,
+        # }
+        # override_config_kwargs.update(override_model_config)
+        # update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
+        # if self.rank == 0:
+        #     print(f"Model config after override: {actor_model_config}")
 
         # NOTE(fix me): tie_word_embedding causes meta_tensor init to hang
         init_context = get_init_weight_context_manager(
@@ -529,6 +421,8 @@ class ActorWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         debug_print(f"init_model")
+        self.engine.init_model()
+        raise ValueError
         from verl.workers.actor import DataParallelPPOActor
 
         # This is used to import external_lib into the huggingface systems

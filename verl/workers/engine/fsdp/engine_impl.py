@@ -120,6 +120,10 @@ class FSDPEngine(BaseEngine):
         self.mini_bsz = config.ppo_mini_batch_size
         self.mini_bsz = self.mini_bsz * config.rollout_n
         self.mini_bsz = self.mini_bsz // dp
+        assert self.mini_bsz > 0, (
+            f"mini_bsz {self.mini_bsz} should be larger than 0 after "
+            f"normalization"
+        )
 
         if self.config.train_micro_batch_size_per_gpu is not None:
             assert self.mini_bsz % self.config.train_micro_batch_size_per_gpu == 0, (
@@ -168,24 +172,45 @@ class FSDPEngine(BaseEngine):
         # the following line is necessary
         from torch import optim
         from torch.distributed.fsdp import MixedPrecision
+        from transformers import AutoConfig
 
         from verl.utils.model import load_valuehead_model, print_model_size
         from verl.utils.torch_dtypes import PrecisionType
 
+        ############## tokenizer ##############
         use_shm = config.model.use_shm
         local_path = copy_to_local(config.model.path, use_shm=use_shm)
         # note that the tokenizer between actor and critic may be different. So override tokenizer info with actor info
         # using random initialized model from any architecture. May not be the same as Actor.
-
-        tokenizer_path = copy_to_local(config.model.tokenizer_path, use_shm=use_shm)
+        if config.model.tokenizer_path is not None:
+            tokenizer_path = copy_to_local(config.model.tokenizer_path, use_shm=use_shm)
+        else:
+            tokenizer_path = local_path
         self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.trust_remote_code)
         self.processor = hf_processor(tokenizer_path, trust_remote_code=config.model.trust_remote_code)
+
 
         if self.config.model.custom_chat_template is not None:
             if self.processor is not None:
                 self.processor.chat_template = self.config.model.custom_chat_template
             else:
                 self.tokenizer.chat_template = self.config.model.custom_chat_template
+
+
+        torch_dtype = self.config.system.model_dtype
+        torch_dtype = PrecisionType.to_dtype(torch_dtype)
+
+        ############## model config ##############
+        model_config = AutoConfig.from_pretrained(
+            local_path,
+            attn_implementation="flash_attention_2",
+            trust_remote_code=config.model.trust_remote_code,
+        )
+        # TODO: behavior difference between actor and critic
+        model_config.num_labels = 1
+        # patch for kimi-vl
+        if getattr(model_config, "model_type", None) == "kimi_vl":
+            model_config.text_config.topk_method = "greedy"
 
         override_config = OmegaConf.to_container(OmegaConf.create(self.config.model.override_config))
         override_config_kwargs = {
@@ -196,25 +221,14 @@ class FSDPEngine(BaseEngine):
         override_config_kwargs.update(override_config)
         if self.rank == 0:
             print(f"Engine overriding config {override_config_kwargs}")
+        update_model_config(model_config, override_config_kwargs=override_config_kwargs)
 
-        torch_dtype = self.config.system.model_dtype
-        torch_dtype = PrecisionType.to_dtype(torch_dtype)
-
-        from transformers import AutoConfig
-
-        model_config = AutoConfig.from_pretrained(
-            local_path,
-            attn_implementation="flash_attention_2",
-            trust_remote_code=config.model.trust_remote_code,
-        )
-        model_config.num_labels = 1
-        # patch for kimi-vl
-        if getattr(model_config, "model_type", None) == "kimi_vl":
-            model_config.text_config.topk_method = "greedy"
 
         init_context = get_init_weight_context_manager(
             use_meta_tensor=not model_config.tie_word_embeddings, mesh=self.device_mesh
         )
+
+        raise ValueError
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
