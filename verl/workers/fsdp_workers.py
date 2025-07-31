@@ -61,13 +61,13 @@ from verl.utils.fsdp_utils import (
     fsdp_version,
     get_fsdp_wrap_policy,
     get_init_weight_context_manager,
+    get_shard_placement_fn,
     init_fn,
     layered_summon_lora_params,
     load_fsdp_model_to_gpu,
     load_fsdp_optimizer,
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
-    get_shard_placement_fn
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
@@ -401,7 +401,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 "mp_policy": mp_policy,
                 "offload_policy": cpu_offload,
                 "reshard_after_forward": fsdp_config.reshard_after_forward,
-                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1])
+                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1]),
             }
             full_state = actor_module.state_dict()
             apply_fsdp2(actor_module, fsdp_kwargs, fsdp_config)
@@ -1126,7 +1126,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 "mp_policy": mp_policy,
                 "offload_policy": offload_policy,
                 "reshard_after_forward": fsdp_config.reshard_after_forward,
-                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1])
+                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1]),
             }
             full_state = critic_module.state_dict()
             apply_fsdp2(critic_module, fsdp_kwargs, fsdp_config)
@@ -1420,7 +1420,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 "mesh": fsdp_mesh,
                 "offload_policy": cpu_offload,
                 "reshard_after_forward": config.model.fsdp_config.reshard_after_forward,
-                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1])
+                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1]),
             }
             full_state = reward_module.state_dict()
             apply_fsdp2(reward_module, fsdp_kwargs, config.model.fsdp_config)

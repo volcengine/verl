@@ -502,23 +502,24 @@ def apply_fsdp2(model, fsdp_kwargs, config):
 
     for idx, module in enumerate(modules):
         if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
-            print(f'wrap module {module.__class__.__name__}')
+            print(f"wrap module {module.__class__.__name__}")
         fully_shard(module, **fsdp_kwargs)
 
     if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
-        print(f'wrap module {module.__class__.__name__}')
+        print(f"wrap module {module.__class__.__name__}")
     fully_shard(model, **fsdp_kwargs)  # fsdp2 will not reshard_after_forward for root module
-
 
 
 def get_shard_placement_fn(fsdp_size):
     """Choose the dimension that can divide fsdp_size to avoid padding"""
+
     def shard_placement_fn(param):
         shape = list(param.shape)
         for i in range(len(shape)):
             if shape[i] % fsdp_size == 0:
                 return Shard(i)
         return Shard(0)
+
     return shard_placement_fn
 
 
