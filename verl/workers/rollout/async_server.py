@@ -15,7 +15,6 @@ import asyncio
 import logging
 import os
 import socket
-import threading
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from typing import Any, Optional
@@ -23,13 +22,8 @@ from typing import Any, Optional
 import fastapi
 import ray
 import uvicorn
-from omegaconf import DictConfig
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-
-from verl.protocol import DataProto
-from verl.single_controller.ray.base import RayWorkerGroup
-from verl.workers.rollout.chat_scheduler import ChatCompletionScheduler
 
 logger = logging.getLogger(__file__)
 
@@ -116,133 +110,6 @@ class AsyncServerBase(ABC):
     async def sleep(self):
         """Sleep engine to offload model weights and discard kv cache."""
         raise NotImplementedError
-
-
-class AsyncLLMServerManager:
-    """AsyncLLMServerManager manage a group of vllm instances, i.e AsyncvLLMServer."""
-
-    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup):
-        """Initialize AsyncLLMServerManager.
-
-        Args:
-            config: DictConfig, actor_rollout_ref config.
-            worker_group: RayWorkerGroup, worker group of AsyncActorRolloutRefWorker.
-        """
-        self.full_config = config
-        self.config = config.actor_rollout_ref
-        self.worker_group = worker_group
-
-        self.rollout_tp_size = self.config.rollout.tensor_model_parallel_size
-        self.rollout_dp_size = self.worker_group.world_size // self.rollout_tp_size
-
-        register_center = ray.get_actor(f"{self.worker_group.name_prefix}_register_center")
-        workers_info = ray.get(register_center.get_worker_info.remote())
-        assert len(workers_info) == self.worker_group.world_size
-
-        self.async_llm_servers = [None] * self.rollout_dp_size
-        self.server_addresses = [None] * self.rollout_dp_size
-
-        if self.config.rollout.agent.custom_async_server:
-            server_class = async_server_class(
-                rollout_backend=self.config.rollout.name,
-                rollout_backend_module=self.config.rollout.agent.custom_async_server.path,
-                rollout_backend_class=self.config.rollout.agent.custom_async_server.name,
-            )
-        else:
-            server_class = async_server_class(rollout_backend=self.config.rollout.name)
-
-        # Start all server instances, restart if address already in use.
-        unready_dp_ranks = set(range(self.rollout_dp_size))
-        while len(unready_dp_ranks) > 0:
-            servers = {
-                rollout_dp_rank: server_class.options(
-                    # make sure AsyncvLLMServer colocates with its corresponding workers
-                    scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
-                        node_id=workers_info[rollout_dp_rank * self.rollout_tp_size],
-                        soft=False,
-                    ),
-                    name=f"async_llm_server_{rollout_dp_rank}",
-                ).remote(config, self.rollout_dp_size, rollout_dp_rank, self.worker_group.name_prefix)
-                for rollout_dp_rank in unready_dp_ranks
-            }
-
-            for rollout_dp_rank, server in servers.items():
-                try:
-                    address = ray.get(server.get_server_address.remote())
-                    self.server_addresses[rollout_dp_rank] = address
-                    self.async_llm_servers[rollout_dp_rank] = server
-                    unready_dp_ranks.remove(rollout_dp_rank)
-                except Exception:
-                    ray.kill(server)
-                    print(f"rollout server {rollout_dp_rank} failed, maybe address already in use, restarting...")
-
-        # All server instances are ready, init AsyncLLM engine.
-        ray.get([server.init_engine.remote() for server in self.async_llm_servers])
-
-        # Init user provided chat scheduler in sperate thread.
-        self.chat_scheduler: ChatCompletionScheduler = None
-        self.chat_scheduler_exception: Exception = None
-        self.chat_scheduler_loop = None
-        self.chat_scheduler_ready = threading.Event()
-        self.chat_scheduler_thread = threading.Thread(target=self._init_chat_scheduler, daemon=True)
-        self.chat_scheduler_thread.start()
-        self.chat_scheduler_ready.wait()
-
-    def _init_chat_scheduler(self):
-        self.chat_scheduler_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.chat_scheduler_loop)
-
-        try:
-            self.chat_scheduler = ChatCompletionScheduler(
-                config=self.full_config,
-                server_addresses=self.server_addresses,
-            )
-        except Exception as e:
-            logger.exception(f"chat_scheduler init error: {e}")
-            self.chat_scheduler_exception = e
-        finally:
-            self.chat_scheduler_ready.set()
-        self.chat_scheduler_loop.run_forever()
-
-    def wake_up(self):
-        """Wake up all vllm instances."""
-        if self.config.rollout.free_cache_engine:
-            ray.get([server.wake_up.remote() for server in self.async_llm_servers])
-
-    def sleep(self):
-        """Sleep all vllm instances."""
-        if self.config.rollout.free_cache_engine:
-            ray.get([server.sleep.remote() for server in self.async_llm_servers])
-
-    def submit_chat_completions(
-        self,
-        messages: list[dict[str, str]],
-        sampling_params: dict[str, Any],
-    ):
-        """Submit a chat completion request to chat scheduler and wait until it is done.
-        To submit multiple requests in parallel, please use `generate_sequences` instead.
-
-        Args: same as ChatCompletionScheduler.submit_chat_completions.
-        """
-        assert self.chat_scheduler is not None, "chat scheduler is not initialized."
-        future = asyncio.run_coroutine_threadsafe(
-            self.chat_scheduler._submit_chat_completions_semaphore(
-                messages=messages,
-                request_id=None,
-                sampling_params=sampling_params,
-            ),
-            self.chat_scheduler_loop,
-        )
-        future.result()
-
-    def generate_sequences(self, prompts: DataProto, **sampling_params) -> DataProto:
-        """Generate multiple sequences in parallel via chat scheduler."""
-        assert self.chat_scheduler is not None, "chat scheduler is not initialized."
-
-        future = asyncio.run_coroutine_threadsafe(
-            self.chat_scheduler.generate_sequences(prompts, **sampling_params), self.chat_scheduler_loop
-        )
-        return future.result()
 
 
 def async_server_class(

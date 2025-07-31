@@ -22,7 +22,6 @@ from omegaconf import DictConfig
     "sys.modules",
     {
         "verl.workers.rollout.sglang_rollout.sglang_rollout": MagicMock(SGLangRollout=MagicMock()),
-        "verl.workers.rollout.chat_scheduler": MagicMock(ChatCompletionScheduler=MagicMock()),
         "fastapi": MagicMock(FastAPI=MagicMock()),
         "uvicorn": MagicMock(FastAPI=MagicMock()),
         "starlette.requests": MagicMock(Request=MagicMock()),

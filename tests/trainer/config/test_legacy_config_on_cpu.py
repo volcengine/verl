@@ -24,6 +24,7 @@ _BREAKING_CHANGES = [
     "critic.optim.lr",  # mcore critic lr init value 1e-6 -> 1e-5
     "actor_rollout_ref.actor.optim.lr_warmup_steps",  # None -> -1
     "critic.optim.lr_warmup_steps",  # None -> -1
+    "actor_rollout_ref.rollout.name",  # vllm -> ???
 ]
 
 
