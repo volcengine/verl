@@ -14,6 +14,7 @@
 
 import logging
 import time
+import warnings
 from pprint import pprint
 
 import numpy as np
@@ -59,24 +60,45 @@ class FullyAsyncTrainer(RayPPOTrainer):
     """
 
     def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-        train_dataset: Dataset | None = None,
-        val_dataset: Dataset | None = None,
-        collate_fn=None,
-        train_sampler: Sampler | None = None,
-        device_name="cuda",
+            self,
+            config,
+            tokenizer,
+            role_worker_mapping: dict[Role, WorkerType],
+            resource_pool_manager: ResourcePoolManager,
+            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+            processor=None,
+            reward_fn=None,
+            val_reward_fn=None,
+            train_dataset: Optional[Dataset] = None,
+            val_dataset: Optional[Dataset] = None,
+            collate_fn=None,
+            train_sampler: Optional[Sampler] = None,
+            device_name=None,
     ):
-        self.config = config
+        """
+        Initialize distributed PPO trainer with Ray backend.
+        Note that this trainer runs on the driver process on a single CPU/GPU node.
+
+        Args:
+            config: Configuration object containing training parameters.
+            tokenizer: Tokenizer used for encoding and decoding text.
+            role_worker_mapping (dict[Role, WorkerType]): Mapping from roles to worker classes.
+            resource_pool_manager (ResourcePoolManager): Manager for Ray resource pools.
+            ray_worker_group_cls (RayWorkerGroup, optional): Class for Ray worker groups. Defaults to RayWorkerGroup.
+            processor: Optional data processor, used for multimodal data
+            reward_fn: Function for computing rewards during training.
+            val_reward_fn: Function for computing rewards during validation.
+            train_dataset (Optional[Dataset], optional): Training dataset. Defaults to None.
+            val_dataset (Optional[Dataset], optional): Validation dataset. Defaults to None.
+            collate_fn: Function to collate data samples into batches.
+            train_sampler (Optional[Sampler], optional): Sampler for the training dataset. Defaults to None.
+            device_name (str, optional): Device name for training (e.g., "cuda", "cpu"). Defaults to None.
+        """
+
+        # Store the tokenizer for text processing
         self.tokenizer = tokenizer
         self.processor = processor
+        self.config = config
         self.reward_fn = reward_fn
         self.val_reward_fn = val_reward_fn
 
@@ -85,87 +107,55 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
-        self.ray_worker_group_cls = ray_worker_group_cls
-        self.device_name = device_name
-        self.validation_generations_logger = ValidationGenerationsLogger()
-
-        # 数据相关
-        self.train_dataset = train_dataset
-        self.val_dataset = val_dataset
-        self.collate_fn = collate_fn
-        self.train_sampler = train_sampler
-
-        # 角色配置 - 参考OneStepOffRayTrainer的配置
         self.use_reference_policy = Role.RefPolicy in role_worker_mapping
         self.use_rm = Role.RewardModel in role_worker_mapping
+        self.ray_worker_group_cls = ray_worker_group_cls
+        self.device_name = device_name if device_name else self.config.trainer.device
+        self.validation_generations_logger = ValidationGenerationsLogger(
+            project_name=self.config.trainer.project_name,
+            experiment_name=self.config.trainer.experiment_name,
+        )
+
+        # if ref_in_actor is True, the reference policy will be actor without lora applied
         self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
 
-        # KL控制器
-        if config.algorithm.use_kl_in_reward:
-            self.kl_ctrl_in_reward = core_algos.get_kl_controller(config.algorithm.kl_ctrl)
+        # define in-reward KL control
+        # kl loss control currently not suppoorted
+        if self.config.algorithm.use_kl_in_reward:
+            self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
-        # 确定是否使用critic - 参考OneStepOffRayTrainer的逻辑
-        if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
+        if config.critic.enable is not None:
+            self.use_critic = bool(config.critic.enable)
+        elif self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
             self.use_critic = True
-        elif self.config.algorithm.adv_estimator in [
-            AdvantageEstimator.GRPO,
-            AdvantageEstimator.GRPO_PASSK,
-            AdvantageEstimator.REINFORCE_PLUS_PLUS,
-            # AdvantageEstimator.REMAX, # TODO:REMAX advantage estimator is not yet supported in one_step_off_policy
-            AdvantageEstimator.RLOO,
-            AdvantageEstimator.OPO,
-            AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE,
-            AdvantageEstimator.GPG,
-        ]:
-            self.use_critic = False
         else:
-            raise NotImplementedError(f"Unsupported advantage estimator: {self.config.algorithm.adv_estimator}")
-
-        # Worker groups
-        self.actor_wg = None
-        self.critic_wg = None
-        self.ref_policy_wg = None
-        self.rm_wg = None
-
-        # 训练状态
-        self.global_steps = 0
-        self.current_param_version = 0
-        self.total_training_steps = config.trainer.total_training_steps
-
-        # MessageQueue客户端
-        self.message_queue_client = None
-
-        # 与Rollouter的通信
-        self.rollouter_actor = None
-
-        # 统计信息
-        self.processed_samples = 0
-        self.stale_samples_processed = 0
-        self.param_sync_count = 0
+            warnings.warn(
+                "Disabled critic as algorithm.adv_estimator != gae. "
+                "If it is not intended, please set critic.enable=True",
+                stacklevel=2,
+            )
+            self.use_critic = False
 
         self._validate_config()
-
-    def _validate_config(self):
-        """验证配置"""
-        required_configs = ["trainer.total_training_steps", "algorithm.adv_estimator", "data.train_batch_size"]
-
-        for config_path in required_configs:
-            if not OmegaConf.select(self.config, config_path):
-                raise ValueError(f"Missing required config: {config_path}")
+        self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """设置消息队列客户端"""
         self.message_queue_client = message_queue_client
 
-    def set_rollouter_actor(self, rollouter_actor):
-        """设置Rollouter Actor的引用"""
-        self.rollouter_actor = rollouter_actor
+    def _validate(self):
+        """执行验证 - 参考OneStepOffRayTrainer的验证逻辑"""
+        return None
 
     def init_workers(self):
-        """初始化训练workers - 参考OneStepOffRayTrainer的实现"""
-        logger.info("Initializing FullyAsyncTrainer workers...")
+        """Initialize distributed training workers using Ray backend.
 
+        Creates:
+        1. Ray resource pools from configuration
+        2. Worker groups for each role (actor, critic, etc.)
+        """
         self.resource_pool_manager.create_resource_pool()
+
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
 
         # 创建actor worker
@@ -244,36 +234,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         logger.info("FullyAsyncTrainer workers initialized successfully")
 
-    def _load_checkpoint(self):
-        """加载检查点"""
-        # TODO: 实现检查点加载逻辑
-        logger.info("Checkpoint loading not implemented yet")
-
-    def _validate(self):
-        """执行验证 - 参考OneStepOffRayTrainer的验证逻辑"""
-        if self.val_reward_fn is None:
-            return None
-
-        # TODO: 实现完整的验证逻辑
-        logger.info("Running validation...")
-        val_metrics = {"val_reward": 0.0}  # 简化的验证指标
-        return val_metrics
-
-    def _save_checkpoint(self):
-        """保存检查点"""
-        # TODO: 实现检查点保存逻辑
-        logger.info("Checkpoint saving not implemented yet")
-
-    def _dump_generations(self, inputs, outputs, scores, reward_extra_infos_dict, dump_path):
-        """保存生成结果"""
-        # TODO: 实现生成结果保存逻辑
-        logger.debug(f"Dumping generations to {dump_path}")
-
-    def _balance_batch(self, batch: DataProto, metrics: dict):
-        """平衡batch中的有效token数量 - 参考OneStepOffRayTrainer的实现"""
-        # TODO: 实现batch平衡逻辑
-        pass
-
     def _sync_parameters_to_rollouter(self):
         """同步参数到Rollouter - 改进的同步机制"""
         if self.rollouter_actor is None:
@@ -332,12 +292,17 @@ class FullyAsyncTrainer(RayPPOTrainer):
         }
 
     def fit(self):
-        """主训练循环 - 基于OneStepOffRayTrainer的成熟实现"""
+        """
+        The training loop of PPO.
+        The driver process only need to call the compute functions of the worker group through RPC
+        to construct the PPO dataflow.
+        The light-weight advantage computation is done on the driver process.
+        """
         from omegaconf import OmegaConf
 
         from verl.utils.tracking import Tracking
 
-        logger_tracker = Tracking(
+        logger = Tracking(
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
             default_backend=self.config.trainer.logger,
@@ -346,101 +311,90 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         self.global_steps = 0
 
-        # 加载检查点
+        # load checkpoint before doing anything
         self._load_checkpoint()
 
-        # 初始验证
+        # perform validation before training
+        # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
             val_metrics = self._validate()
-            if val_metrics:
-                pprint(f"Initial validation metrics: {val_metrics}")
-                logger_tracker.log(data=val_metrics, step=self.global_steps)
+            assert val_metrics, f"{val_metrics=}"
+            pprint(f"Initial validation metrics: {val_metrics}")
+            logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
                 return
 
-        # 进度条
-        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Async Training")
+        # add tqdm
+        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
 
+        # we start from step 1
         self.global_steps += 1
         last_val_metrics = None
 
-        if self.message_queue_client is None:
-            raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
+        # across epoch iterator
+        continuous_iterator = self._create_continuous_iterator()
 
-        logger.info("Starting fully async training loop...")
+        # Start the first asynchronous generation task.
+        batch_data_future = self._async_gen_next_batch(continuous_iterator)
 
-        while self.global_steps <= self.total_training_steps:
-            # 性能分析
+        while batch_data_future is not None:
+            metrics = {}
+            timing_raw = {}
+
             do_profile = (
                 self.global_steps in self.config.trainer.profile_steps
                 if self.config.trainer.profile_steps is not None
                 else False
             )
+            with marked_timer("start_profile", timing_raw):
+                self._start_profiling(do_profile)
 
-            if do_profile:
-                self.actor_wg.start_profile()
-                if self.use_reference_policy and not self.ref_in_actor:
-                    self.ref_policy_wg.start_profile()
-                if self.use_critic:
-                    self.critic_wg.start_profile()
-                if self.use_rm:
-                    self.rm_wg.start_profile()
-
-            metrics = {}
-            timing_raw = {}
             is_last_step = self.global_steps >= self.total_training_steps
 
             with marked_timer("step", timing_raw):
-                # 从队列获取样本
-                with marked_timer("get_batch_from_queue", timing_raw, color="blue"):
-                    min_batch_count = self.config.async_training.get("min_batch_count", 1)
-                    batch_timeout = self.config.async_training.get("batch_timeout", 30.0)
+                # wait for the previous batch
+                with marked_timer("wait_prev_gen", timing_raw, color="red"):
+                    epoch, batch, gen_batch_output = batch_data_future.get()
+                    timing_raw.update(gen_batch_output.meta_info["timing"])
+                    gen_batch_output.meta_info.pop("timing", None)
 
-                    batch_samples = self.message_queue_client.get_samples(
-                        min_batch=min_batch_count, timeout=batch_timeout
-                    )
+                # asys next generation (with syns weights from actor to rollout)
+                with marked_timer("sync_rollout_weights", timing_raw, color="purple"):
+                    if not is_last_step:
+                        batch_data_future = self._async_gen_next_batch(continuous_iterator)
 
-                    if batch_samples is None:
-                        logger.warning("Timeout waiting for batch samples, retrying...")
-                        time.sleep(1.0)
-                        continue
+                batch.non_tensor_batch["uid"] = np.array(
+                    [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
+                )
+                # repeat to align with repeated responses in rollout
+                batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                batch = batch.union(gen_batch_output)
 
-                # 处理获取的样本
-                with marked_timer("process_batch_samples", timing_raw, color="cyan"):
-                    batch = self._process_batch_samples(batch_samples)
-
-                    # 计算样本新鲜度指标
-                    freshness_metrics = self._compute_sample_freshness_metrics(batch_samples)
-                    metrics.update(freshness_metrics)
-
-                    logger.info(
-                        f"Processing batch: {len(batch_samples)} samples, "
-                        f"avg_age={freshness_metrics['freshness/avg_sample_age']:.1f}, "
-                        f"max_age={freshness_metrics['freshness/max_sample_age']}"
-                    )
-
-                # 添加响应掩码 - 参考OneStepOffRayTrainer
-                batch.batch["response_mask"] = compute_response_mask(batch)
-
-                # 平衡batch
+                if "response_mask" not in batch.batch.keys():
+                    batch.batch["response_mask"] = compute_response_mask(batch)
+                # Balance the number of valid tokens across DP ranks.
+                # NOTE: This usually changes the order of data in the `batch`,
+                # which won't affect the advantage calculation (since it's based on uid),
+                # but might affect the loss calculation (due to the change of mini-batching).
+                # TODO: Decouple the DP balancing and mini-batching.
                 if self.config.trainer.balance_batch:
                     self._balance_batch(batch, metrics=metrics)
 
-                # 计算全局有效token数量
+                # compute global_valid tokens
                 batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
-                # 计算奖励 - 参考OneStepOffRayTrainer的实现
                 with marked_timer("reward", timing_raw, color="yellow"):
+                    # compute reward model score
                     if self.use_rm:
                         reward_tensor = self.rm_wg.compute_rm_score(batch)
                         batch = batch.union(reward_tensor)
 
-                    if self.config.reward_model.get("launch_reward_fn_async", False):
+                    if self.config.reward_model.launch_reward_fn_async:
                         future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
                     else:
                         reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
-                # 计算旧的log probabilities - 参考OneStepOffRayTrainer
+                # recompute old_log_probs
                 with marked_timer("old_log_prob", timing_raw, color="blue"):
                     old_log_prob = self.actor_wg.compute_log_prob(batch)
                     entropys = old_log_prob.batch["entropys"]
@@ -452,8 +406,32 @@ class FullyAsyncTrainer(RayPPOTrainer):
                     old_log_prob.batch.pop("entropys")
                     batch = batch.union(old_log_prob)
 
-                # 计算reference log probabilities
+                    if "rollout_log_probs" in batch.batch.keys():
+                        # TODO: we may want to add diff of probs too.
+                        rollout_old_log_probs = batch.batch["rollout_log_probs"]
+                        actor_old_log_probs = batch.batch["old_log_probs"]
+                        attention_mask = batch.batch["attention_mask"]
+                        responses = batch.batch["responses"]
+                        response_length = responses.size(1)
+                        response_mask = attention_mask[:, -response_length:]
+
+                        rollout_probs = torch.exp(rollout_old_log_probs)
+                        actor_probs = torch.exp(actor_old_log_probs)
+                        rollout_probs_diff = torch.abs(rollout_probs - actor_probs)
+                        rollout_probs_diff = torch.masked_select(rollout_probs_diff, response_mask.bool())
+                        rollout_probs_diff_max = torch.max(rollout_probs_diff)
+                        rollout_probs_diff_mean = torch.mean(rollout_probs_diff)
+                        rollout_probs_diff_std = torch.std(rollout_probs_diff)
+                        metrics.update(
+                            {
+                                "training/rollout_probs_diff_max": rollout_probs_diff_max.detach().item(),
+                                "training/rollout_probs_diff_mean": rollout_probs_diff_mean.detach().item(),
+                                "training/rollout_probs_diff_std": rollout_probs_diff_std.detach().item(),
+                            }
+                        )
+
                 if self.use_reference_policy:
+                    # compute reference log_prob
                     with marked_timer("ref", timing_raw, color="olive"):
                         if not self.ref_in_actor:
                             ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
@@ -461,22 +439,23 @@ class FullyAsyncTrainer(RayPPOTrainer):
                             ref_log_prob = self.actor_wg.compute_ref_log_prob(batch)
                         batch = batch.union(ref_log_prob)
 
-                # 计算values
+                # compute values
                 if self.use_critic:
                     with marked_timer("values", timing_raw, color="cyan"):
                         values = self.critic_wg.compute_values(batch)
                         batch = batch.union(values)
 
-                # 处理奖励和优势计算
                 with marked_timer("adv", timing_raw, color="brown"):
-                    if self.config.reward_model.get("launch_reward_fn_async", False):
+                    # we combine with rule-based rm
+                    reward_extra_infos_dict: dict[str, list]
+                    if self.config.reward_model.launch_reward_fn_async:
                         reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                     batch.batch["token_level_scores"] = reward_tensor
 
                     if reward_extra_infos_dict:
                         batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
-                    # 应用KL惩罚
+                    # compute rewards. apply_kl_penalty if available
                     if self.config.algorithm.use_kl_in_reward:
                         batch, kl_metrics = apply_kl_penalty(
                             batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty
@@ -485,8 +464,11 @@ class FullyAsyncTrainer(RayPPOTrainer):
                     else:
                         batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
-                    # 计算优势
-                    norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)
+                    # compute advantages, executed on the driver process
+
+                    norm_adv_by_std_in_grpo = self.config.algorithm.get(
+                        "norm_adv_by_std_in_grpo", True
+                    )  # GRPO adv normalization factor
 
                     batch = compute_advantage(
                         batch,
@@ -498,32 +480,34 @@ class FullyAsyncTrainer(RayPPOTrainer):
                         config=self.config.algorithm,
                     )
 
-                # 更新critic
+                # update critic
                 if self.use_critic:
                     with marked_timer("update_critic", timing_raw, color="pink"):
                         critic_output = self.critic_wg.update_critic(batch)
                     critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
                     metrics.update(critic_output_metrics)
 
-                # 更新actor
+                # implement critic warmup
                 if self.config.trainer.critic_warmup <= self.global_steps:
+                    # update actor
                     with marked_timer("update_actor", timing_raw, color="red"):
                         batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
                         actor_output = self.actor_wg.update_actor(batch)
                     actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                     metrics.update(actor_output_metrics)
 
-                    # 同步参数到Rollouter
-                    with marked_timer("sync_params", timing_raw, color="purple"):
-                        self._sync_parameters_to_rollouter()
-
-                # 记录rollout生成
+                # Log rollout generations if enabled
                 rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
                 if rollout_data_dir:
                     with marked_timer("dump_rollout_generations", timing_raw, color="green"):
                         inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
                         outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
                         scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
+                        if "request_id" in batch.non_tensor_batch:
+                            reward_extra_infos_dict.setdefault(
+                                "request_id",
+                                batch.non_tensor_batch["request_id"].tolist(),
+                            )
                         self._dump_generations(
                             inputs=inputs,
                             outputs=outputs,
@@ -532,97 +516,80 @@ class FullyAsyncTrainer(RayPPOTrainer):
                             dump_path=rollout_data_dir,
                         )
 
-                # 验证
+                # validate
                 if (
-                    self.val_reward_fn is not None
-                    and self.config.trainer.test_freq > 0
-                    and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+                        self.val_reward_fn is not None
+                        and self.config.trainer.test_freq > 0
+                        and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
                 ):
                     with marked_timer("testing", timing_raw, color="green"):
-                        val_metrics = self._validate()
+                        val_metrics: dict = self._validate()
                         if is_last_step:
                             last_val_metrics = val_metrics
-                            print(last_val_metrics)
-                    if val_metrics:
-                        metrics.update(val_metrics)
+                    metrics.update(val_metrics)
 
-                # 保存检查点
+                # Check if the ESI (Elastic Server Instance)/training plan is close to expiration.
+                esi_close_to_expiration = should_save_ckpt_esi(
+                    max_steps_duration=self.max_steps_duration,
+                    redundant_time=self.config.trainer.esi_redundant_time,
+                )
+                # Check if the conditions for saving a checkpoint are met.
+                # The conditions include a mandatory condition (1) and
+                # one of the following optional conditions (2/3/4):
+                # 1. The save frequency is set to a positive value.
+                # 2. It's the last training step.
+                # 3. The current step number is a multiple of the save frequency.
+                # 4. The ESI(Elastic Server Instance)/training plan is close to expiration. q
                 if self.config.trainer.save_freq > 0 and (
-                    is_last_step or self.global_steps % self.config.trainer.save_freq == 0
+                        is_last_step
+                        or self.global_steps % self.config.trainer.save_freq == 0
+                        or esi_close_to_expiration
                 ):
+                    if esi_close_to_expiration:
+                        print("Force saving checkpoint: ESI instance expiration approaching.")
                     with marked_timer("save_checkpoint", timing_raw, color="green"):
                         self._save_checkpoint()
 
-            # 收集指标 - 参考OneStepOffRayTrainer的指标收集
+            with marked_timer("stop_profile", timing_raw):
+                self._stop_profiling(do_profile)
+
+            steps_duration = timing_raw["step"]
+            self.max_steps_duration = max(self.max_steps_duration, steps_duration)
+
+            # training metrics
             metrics.update(
                 {
                     "training/global_step": self.global_steps,
-                    "training/param_version": self.current_param_version,
-                    "training/param_sync_count": self.param_sync_count,
+                    "training/epoch": epoch,
                 }
             )
-
-            # 数据和性能指标
+            # collect metrics
             metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
             metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
-
+            # TODO: implement actual tflpo and theoretical tflpo
             n_gpus = self.resource_pool_manager.get_n_gpus()
             metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
 
-            # 队列状态指标
-            queue_size = self.message_queue_client.get_queue_size()
-            queue_stats = self.message_queue_client.get_statistics()
-            metrics.update(
-                {
-                    "queue/size": queue_size,
-                    "queue/total_produced": queue_stats["total_produced"],
-                    "queue/total_consumed": queue_stats["total_consumed"],
-                    "queue/dropped_samples": queue_stats["dropped_samples"],
-                }
-            )
+            # this is experimental and may be changed/removed in the future in favor of a general-purpose one
+            if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):
+                self.train_dataloader.sampler.update(batch=batch)
 
-            # 记录日志
-            logger_tracker.log(data=metrics, step=self.global_steps)
+            # TODO: make a canonical logger that supports various backend
+            logger.log(data=metrics, step=self.global_steps)
 
-            # 更新进度条
             progress_bar.update(1)
-            progress_bar.set_postfix(
-                {
-                    "reward": f"{metrics.get('reward/mean', 0):.3f}",
-                    "kl": f"{metrics.get('actor/approx_kl', 0):.3f}",
-                    "queue_size": queue_size,
-                    "param_ver": self.current_param_version,
-                    "avg_age": f"{metrics.get('freshness/avg_sample_age', 0):.1f}",
-                }
-            )
-
-            if do_profile:
-                self.actor_wg.stop_profile()
-                if self.use_reference_policy and not self.ref_in_actor:
-                    self.ref_policy_wg.stop_profile()
-                if self.use_critic:
-                    self.critic_wg.stop_profile()
-                if self.use_rm:
-                    self.rm_wg.stop_profile()
-
             self.global_steps += 1
-            self.processed_samples += len(batch_samples)
 
             if is_last_step:
-                break
+                pprint(f"Final validation metrics: {last_val_metrics}")
+                progress_bar.close()
+                return
 
-        progress_bar.close()
-        logger.info(f"Training completed after {self.global_steps} steps")
-
-        # 最终验证
-        if self.val_reward_fn is not None:
-            val_metrics = self._validate()
-            if val_metrics:
-                pprint(f"Final validation metrics: {val_metrics}")
-                logger_tracker.log(data=val_metrics, step=self.global_steps)
-
-        # 最终检查点保存
-        self._save_checkpoint()
+            # this is experimental and may be changed/removed in the future
+            # in favor of a general-purpose data buffer pool
+            if hasattr(self.train_dataset, "on_batch_end"):
+                # The dataset may be changed after each training batch
+                self.train_dataset.on_batch_end(batch=batch)
 
     def get_statistics(self) -> dict:
         """获取训练统计信息"""

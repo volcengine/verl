@@ -105,7 +105,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         val_dataset: Dataset | None = None,
         collate_fn=None,
         train_sampler: Sampler | None = None,
-        device_name="cuda",
+        device_name=None,
     ):
         """
         Initialize distributed PPO trainer with Ray backend.
@@ -143,8 +143,11 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self.use_reference_policy = Role.RefPolicy in role_worker_mapping
         self.use_rm = Role.RewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
-        self.device_name = device_name
-        self.validation_generations_logger = ValidationGenerationsLogger()
+        self.device_name = device_name if device_name else self.config.trainer.device
+        self.validation_generations_logger = ValidationGenerationsLogger(
+            project_name=self.config.trainer.project_name,
+            experiment_name=self.config.trainer.experiment_name,
+        )
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied
         self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
@@ -286,7 +289,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
 
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
-        if self.config.actor_rollout_ref.rollout.mode == "async" and self._is_rollout:
+        if self.config.actor_rollout_ref.rollout.mode == "async":
             from verl.workers.rollout.async_server import AsyncLLMServerManager
 
             self.async_rollout_mode = True
