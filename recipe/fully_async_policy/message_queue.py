@@ -18,21 +18,19 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, List
 
 import ray
-import zmq
-from filelock import FileLock
 from omegaconf import DictConfig
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class BatchSample:
+class QueueSample:
     """单个batch样本，包含参数版本和新鲜度信息"""
 
-    batch_id: str
+    id: str
     epoch: int
     data: Any
     param_version: int
@@ -40,11 +38,10 @@ class BatchSample:
     rollout_metadata: dict[str, Any]
 
 
-@ray.remote(num_cpus=1)
+@ray.remote(num_cpus=10, max_concurrency=10)
 class MessageQueue:
     """
     简化的Ray-based异步消息队列，用于Rollouter和Trainer之间的通信
-    去掉了ZeroMQ的复杂性，使用更可靠的Ray机制
     """
 
     def __init__(self, config: DictConfig, max_queue_size: int = 1000):
@@ -56,27 +53,17 @@ class MessageQueue:
         # 安全地获取配置值
         try:
             if hasattr(config, "async_training") and config.async_training is not None:
-                self.freshness_threshold = getattr(config.async_training, "freshness_threshold", 3)
+                self.staleness_threshold = getattr(config.async_training, "staleness_threshold", 3)
             else:
-                self.freshness_threshold = 3
+                self.staleness_threshold = 3
         except (AttributeError, RecursionError):
-            self.freshness_threshold = 3
-
-        # ZeroMQ setup
-        self.context = None
-        self.socket = None
-        self.address = None
-        try:
-            self._setup_zmq()
-        except Exception as e:
-            print(f"Warning: ZeroMQ setup failed: {e}. Queue will work without ZeroMQ.")
+            self.staleness_threshold = 3
 
         # Threading for message handling
         self.running = True
 
         # 线程安全
         self.lock = threading.RLock()
-        self.consumer_waiting = False
         self.consumer_condition = threading.Condition(self.lock)
 
         # 统计信息
@@ -86,35 +73,19 @@ class MessageQueue:
 
         logger.info(
             f"MessageQueue initialized with max_queue_size={max_queue_size},"
-            "freshness_threshold={self.freshness_threshold}"
+            "staleness_threshold={self.staleness_threshold}"
         )
 
-    def _setup_zmq(self):
-        """设置ZeroMQ socket"""
-        with FileLock("/tmp/verl_message_queue.lock"):
-            # 初始化 ZeroMQ context
-            self.context = zmq.Context()
-
-            # 使用TCP socket
-            import socket as sock
-
-            with sock.socket() as s:
-                s.bind(("", 0))
-                port = s.getsockname()[1]
-
-            self.address = f"tcp://127.0.0.1:{port}"
-            self.socket = self.context.socket(zmq.PAIR)
-            self.socket.bind(self.address)
-
-    def put_batch(self, epoch: int, batch: Any, param_version: int, rollout_metadata: dict[str, Any] = None) -> bool:
+    def put_samples(self, epoch: int, samples: List[Any], param_version: int,
+                    rollout_metadata_list: List[dict[str, Any]] = None) -> bool:
         """
         放入一个batch样本到队列
 
         Args:
             epoch: 当前epoch
-            batch: 样本数据
+            samples: 样本数据
             param_version: 参数版本号
-            rollout_metadata: rollout相关的元数据
+            rollout_metadata_list: rollout相关的元数据
 
         Returns:
             bool: 是否成功放入队列
@@ -122,62 +93,67 @@ class MessageQueue:
         with self.lock:
             # 检查新鲜度
             staleness = self.current_param_version - param_version
-            if staleness >= self.freshness_threshold:
+            if staleness >= self.staleness_threshold:
                 self.dropped_samples += 1
-                logger.debug(f"Dropped stale sample: staleness={staleness}, threshold={self.freshness_threshold}")
+                logger.debug(f"Dropped stale sample: staleness={staleness}, threshold={self.staleness_threshold}")
                 return False
 
-            sample = BatchSample(
-                batch_id=str(uuid.uuid4()),
-                epoch=epoch,
-                data=batch,
-                param_version=param_version,
-                timestamp=time.time(),
-                rollout_metadata=rollout_metadata or {},
-            )
+            # 处理 rollout_metadatas 为 None 的情况
+            if rollout_metadata_list is None:
+                rollout_metadata_list = [{}] * len(samples)
 
-            # 如果队列满了，移除最旧的样本
-            if len(self.queue) >= self.max_queue_size:
-                removed = self.queue.popleft()
-                self.dropped_samples += 1
-                logger.warning(f"Queue full, dropped sample {removed.batch_id}")
+            if len(rollout_metadata_list) != len(samples):
+                logger.warning(
+                    f"len(rollout_metadata_list):{len(rollout_metadata_list)} != len(samples:{len(samples)}")
+                return False
 
-            self.queue.append(sample)
-            self.total_produced += 1
+            for sample, meta in zip(samples, rollout_metadata_list):
+                queue_sample = QueueSample(
+                    id=str(uuid.uuid4()),
+                    epoch=epoch,
+                    data=sample,
+                    param_version=param_version,
+                    timestamp=time.time(),
+                    rollout_metadata=meta or {},
+                )
+
+                # 如果队列满了，移除最旧的样本，一般不会发生
+                if len(self.queue) >= self.max_queue_size:
+                    removed = self.queue.popleft()
+                    self.dropped_samples += 1
+                    logger.warning(f"Queue full, dropped sample {removed.id}")
+
+                self.queue.append(queue_sample)
+                self.total_produced += 1
 
             # 通知等待的消费者
-            if self.consumer_waiting:
-                self.consumer_condition.notify()
+            self.consumer_condition.notify()
 
             if self.total_produced % 100 == 0:
                 logger.debug(f"MessageQueue stats: produced={self.total_produced}, queue_size={len(self.queue)}")
 
             return True
 
-    def get_batch(self, min_batch_count: int = 1, timeout: float = 30.0) -> Optional[list[BatchSample]]:
+    def get_samples(self, min_batch: int = 1) -> list[QueueSample]:
         """
-        从队列获取batch样本
+        从队列获取batch样本，一直等待直到有足够样本
 
         Args:
-            min_batch_count: 最小batch数量
-            timeout: 超时时间（秒）
+            min_batch: sample数量满足min_batch，一次性获取
 
         Returns:
-            Optional[List[BatchSample]]: 获取的样本列表，如果超时返回None
+            List[QueueSample]: 获取的样本列表
         """
         with self.lock:
-            start_time = time.time()
+            while len(self.queue) < min_batch and self.running:
+                self.consumer_condition.wait()
 
-            while len(self.queue) < min_batch_count:
-                if time.time() - start_time > timeout:
-                    return None
-
-                self.consumer_waiting = True
-                self.consumer_condition.wait(timeout=1.0)
-                self.consumer_waiting = False
+            # 如果队列已关闭且没有足够样本，返回空列表
+            if not self.running and len(self.queue) < min_batch:
+                return []
 
             # 获取指定数量的样本
-            batch_count = min(min_batch_count, len(self.queue))
+            batch_count = min(min_batch, len(self.queue))
             samples = []
             for _ in range(batch_count):
                 if self.queue:
@@ -207,7 +183,7 @@ class MessageQueue:
                 "total_consumed": self.total_consumed,
                 "dropped_samples": self.dropped_samples,
                 "current_param_version": self.current_param_version,
-                "freshness_threshold": self.freshness_threshold,
+                "staleness_threshold": self.staleness_threshold,
                 "max_queue_size": self.max_queue_size,
             }
 
@@ -220,11 +196,11 @@ class MessageQueue:
 
     def shutdown(self):
         """关闭消息队列"""
-        self.running = False
-        if self.socket:
-            self.socket.close()
-        if self.context:
-            self.context.term()
+        with self.lock:  # 修正：需要加锁
+            self.running = False
+            # 通知所有等待的线程，让它们能够退出
+            self.consumer_condition.notify_all()
+        logger.info("MessageQueue shutdown")
 
     def get_memory_usage(self) -> dict:
         """获取内存使用统计"""
@@ -254,10 +230,6 @@ class MessageQueue:
                 "estimated_memory_mb": total_size / (1024 * 1024),
             }
 
-    def get_address(self) -> str:
-        """获取ZeroMQ地址"""
-        return self.address
-
 
 class MessageQueueClient:
     """MessageQueue的客户端，用于与MessageQueue Actor通信"""
@@ -265,13 +237,13 @@ class MessageQueueClient:
     def __init__(self, queue_actor: Any):
         self.queue_actor = queue_actor
 
-    def put_batch(self, epoch: int, batch: Any, param_version: int, rollout_metadata: dict[str, Any] = None) -> bool:
+    def put_batch(self, epoch: int, batch: List[Any], param_version: int, rollout_metadata_list: List[dict[str, Any]] = None) -> bool:
         """放入batch到队列"""
-        return ray.get(self.queue_actor.put_batch.remote(epoch, batch, param_version, rollout_metadata))
+        return ray.get(self.queue_actor.put_samples.remote(epoch, batch, param_version, rollout_metadata_list))
 
-    def get_batch(self, min_batch_count: int = 1, timeout: float = 30.0) -> Optional[list[BatchSample]]:
-        """从队列获取batch"""
-        return ray.get(self.queue_actor.get_batch.remote(min_batch_count, timeout))
+    def get_batch(self, min_batch_count: int = 1) -> list[QueueSample]:
+        """从队列获取batch，一直等待直到有足够样本"""
+        return ray.get(self.queue_actor.get_samples.remote(min_batch_count))
 
     def update_param_version(self, version: int):
         """更新参数版本"""

@@ -23,7 +23,7 @@ from omegaconf import OmegaConf
 from torch.utils.data import Dataset, Sampler
 from tqdm import tqdm
 
-from recipe.fully_async_policy.message_queue import BatchSample, MessageQueueClient
+from recipe.fully_async_policy.message_queue import QueueSample, MessageQueueClient
 from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
@@ -298,7 +298,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
             self.current_param_version -= 1  # 回滚版本号
             raise
 
-    def _process_batch_samples(self, batch_samples: list[BatchSample]) -> DataProto:
+    def _process_batch_samples(self, batch_samples: list[QueueSample]) -> DataProto:
         """处理从队列获取的batch样本 - 改进的批处理逻辑"""
         if not batch_samples:
             raise ValueError("Empty batch samples")
@@ -316,7 +316,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
             logger.error(f"Failed to merge batch samples: {e}")
             raise
 
-    def _compute_sample_freshness_metrics(self, batch_samples: list[BatchSample]) -> dict:
+    def _compute_sample_freshness_metrics(self, batch_samples: list[QueueSample]) -> dict:
         """计算样本新鲜度指标"""
         sample_ages = [self.current_param_version - sample.param_version for sample in batch_samples]
         current_time = time.time()
@@ -396,8 +396,8 @@ class FullyAsyncTrainer(RayPPOTrainer):
                     min_batch_count = self.config.async_training.get("min_batch_count", 1)
                     batch_timeout = self.config.async_training.get("batch_timeout", 30.0)
 
-                    batch_samples = self.message_queue_client.get_batch(
-                        min_batch_count=min_batch_count, timeout=batch_timeout
+                    batch_samples = self.message_queue_client.get_samples(
+                        min_batch=min_batch_count, timeout=batch_timeout
                     )
 
                     if batch_samples is None:

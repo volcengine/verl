@@ -10,7 +10,7 @@ defaults:
 
 async_training:
   # 新鲜度控制 (Freshness Control)
-  freshness_threshold: 3              # 样本新鲜度阈值
+  staleness_threshold: 3              # 样本新鲜度阈值
   max_staleness_allowed: 5            # 最大允许的样本陈旧度
 
   # 队列管理 (Queue Management)

@@ -40,7 +40,7 @@ class TestMessageQueue(unittest.TestCase):
         config = OmegaConf.create(
             {
                 "async_training": {
-                    "freshness_threshold": 3,
+                    "staleness_threshold": 3,
                     "max_staleness_allowed": 5,
                 }
             }
@@ -147,7 +147,7 @@ def test_integration():
         config = OmegaConf.create(
             {
                 "async_training": {
-                    "freshness_threshold": 3,
+                    "staleness_threshold": 3,
                     "max_staleness_allowed": 5,
                 }
             }

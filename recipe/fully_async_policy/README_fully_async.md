@@ -96,7 +96,7 @@
 ```yaml
 async_training:
   # 新鲜度控制
-  freshness_threshold: 3              # 样本新鲜度阈值
+  staleness_threshold: 3              # 样本新鲜度阈值
   max_staleness_allowed: 5            # 最大允许的样本陈旧度
 
   # 队列管理
@@ -144,7 +144,7 @@ python fully_async_main.py --config-path /path/to/config --config-name my_config
 ```python
 # 在配置文件中自定义异步训练参数
 async_training:
-  freshness_threshold: 5
+  staleness_threshold: 5
   max_queue_size: 2000
   generation_timeout: 60.0
 ```
@@ -196,7 +196,7 @@ async_training:
    - 调整 `batch_generation_interval`
 
 2. **样本过期严重**
-   - 调整 `freshness_threshold`
+   - 调整 `staleness_threshold`
    - 检查参数同步频率
    - 监控 `stale_samples_ratio`
 

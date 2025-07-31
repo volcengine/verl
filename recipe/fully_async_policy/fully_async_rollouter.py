@@ -154,7 +154,7 @@ class FullyAsyncRollouter:
 
         # 新鲜度控制 - 改进的配置管理
         async_config = config.async_training
-        self.freshness_threshold = async_config.get("freshness_threshold", 3)
+        self.staleness_threshold = async_config.get("staleness_threshold", 3)
         self.max_staleness_allowed = async_config.get("max_staleness_allowed", 5)
         self.generation_timeout = async_config.get("generation_timeout", 30.0)
         self.batch_generation_interval = async_config.get("batch_generation_interval", 0.1)
@@ -190,7 +190,7 @@ class FullyAsyncRollouter:
         required_configs = [
             "data.train_batch_size",
             "actor_rollout_ref.rollout.n",
-            "async_training.freshness_threshold",
+            "async_training.staleness_threshold",
         ]
 
         for config_path in required_configs:
@@ -428,7 +428,7 @@ class FullyAsyncRollouter:
                 return True
 
             # 如果队列太满，也暂停生成
-            max_queue_size = self.freshness_threshold * self.config.data.train_batch_size
+            max_queue_size = self.staleness_threshold * self.config.data.train_batch_size
             if queue_size >= max_queue_size:
                 logger.debug(f"Should pause due to full queue: size={queue_size}, max={max_queue_size}")
                 return True
@@ -532,9 +532,9 @@ class FullyAsyncRollouter:
                     }
 
                     # 放入队列
-                    success = self.message_queue_client.put_batch(
+                    success = self.message_queue_client.put_samples(
                         epoch=epoch,
-                        batch=generated_batch,
+                        sample=generated_batch,
                         param_version=self.current_param_version,
                         rollout_metadata=rollout_metadata,
                     )

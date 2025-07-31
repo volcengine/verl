@@ -510,7 +510,7 @@ def main(config):
         # 设置默认异步训练配置
         config.async_training = OmegaConf.create(
             {
-                "freshness_threshold": 3,
+                "staleness_threshold": 3,
                 "max_staleness_allowed": 5,
                 "max_queue_size": 1000,
                 "min_batch_count": 1,
