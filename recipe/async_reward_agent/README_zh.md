@@ -363,7 +363,7 @@ sequenceDiagram
 1. 无状态函数——适用于一次性、无上下文的评分  
 2. 有状态类——当需要缓存、令牌管理、会话上下文或批量后处理时
 
-以下是两种模式的示例，重点展示调用OpenAI API作为LLM-as-a-Judge的用法。
+以下是两种模式的示例，重点展示调用 OpenAI-style API 作为 LLM-as-a-Judge 的用法:
 ```python
 # --------------------------------------------------
 # 1. 无状态函数 (compute_score)
@@ -393,7 +393,7 @@ def compute_score(
     prompt = ...
 
     client = OpenAI(
-        api_key = "你的OpenAI API密钥",
+        api_key = "你的API密钥",
         base_url = "自定义基础URL",
     )
     
@@ -422,16 +422,16 @@ def compute_score(
 class RewardAgent:
     """
     此示例展示：
-    - 多次请求共享OpenAI client对象
-    - 在compute_score中重复使用
-    - 可选的post_process_scores用于平滑或异常值处理
+    - 多次请求共享 OpenAI-style client 对象
+    - 在 compute_score 中重复使用
+    - 可选的 post_process_scores 用于平滑或异常值处理
     """
 
     def __init__(self):
         # 初始化远程客户端
         self.client = OpenAI(
-            api_key = "你的OpenAI API密钥",
-            base_url = "自定义基础URL")
+            api_key = "你的 API 密钥",
+            base_url = "自定义基础 URL")
         self.system_prompt = ...
 
     def compute_score(

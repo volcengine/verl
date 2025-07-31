@@ -369,7 +369,7 @@ Users can flexibly integrate a **remote reward service** (such as LLM-as-a-Judge
 1. Stateless function – for one-shot, context-free scoring.  
 2. Stateful class – when you need caching, token management, session context, or batch post-processing.
 
-Below are examples for both patterns, focusing on calling the OpenAI API as an LLM-as-a-Judge.
+Below are examples for both patterns, focusing on calling an OpenAI-style API as an LLM-as-a-Judge.
 ```python
 # --------------------------------------------------
 # 1. Stateless Function (compute_score)
@@ -399,7 +399,7 @@ def compute_score(
     prompt = ...
 
     client = OpenAI(
-        api_key = "your OpenAI API key",
+        api_key = "your API key",
         base_url = "custom base url",
     )
     
@@ -428,7 +428,7 @@ def compute_score(
 class RewardAgent:
     """
     This example shows:
-    - Initializing the OpenAI client once
+    - Initializing the OpenAI-style client once
     - Re-using it in compute_score
     - Optional post_process_scores for smoothing or outlier handling
     """
@@ -436,7 +436,7 @@ class RewardAgent:
     def __init__(self):
         # Initialize any remote client
         self.client = OpenAI(
-            api_key = "your OpenAI API key",
+            api_key = "your API key",
             base_url = "custom base url")
         self.system_prompt = ...
 
