@@ -34,7 +34,7 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 from verl.workers.engine import EngineRegistry
-from verl.workers.engine.config import engine_config_for_critic
+import verl.workers.engine.config as engine_cfg
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -51,41 +51,31 @@ class CriticWorker(Worker, DistProfilerExtension):
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend=get_nccl_backend())
 
-        # some config might be updated by the engine:
-        # - ppo_micro_batch_size
-        # - ppo_micro_batch_size_per_gpu
-        # - forward_micro_batch_size
-        # - forward_micro_batch_size_per_gpu
         self.config = omega_conf_to_dataclass(config)
-        # will it be different across actor/critic?
-        self.config = self.normalize_config(self.config)
-        engine_config = engine_config_for_critic(self.config)
+        engine_config = self.create_engine_config(self.config)
         self.engine = EngineRegistry.new(self.config.strategy, engine_config)
 
-    @classmethod
-    def normalize_config(self, config):
-        config.ppo_mini_batch_size *= config.rollout_n
-        config.ppo_mini_batch_size //= torch.distributed.get_world_size() // config.ulysses_sequence_parallel_size
-        if config.ppo_micro_batch_size is not None:
-            config.ppo_micro_batch_size //= (
-                torch.distributed.get_world_size() // config.ulysses_sequence_parallel_size
-            )
-            config.forward_micro_batch_size //= (
-                torch.distributed.get_world_size() // config.ulysses_sequence_parallel_size
-            )
-            config.ppo_micro_batch_size_per_gpu = config.ppo_micro_batch_size
-            config.forward_micro_batch_size_per_gpu = config.forward_micro_batch_size
+        # calculate mini batch size
+        self.mini_bsz = config.ppo_mini_batch_size
+        self.mini_bsz = self.mini_bsz * config.rollout_n
+        self.mini_bsz = self.mini_bsz // self.engine.get_data_parallel_size()
 
-        if config.ppo_micro_batch_size_per_gpu is not None:
-            assert config.ppo_mini_batch_size % config.ppo_micro_batch_size_per_gpu == 0, (
-                f"normalized ppo_mini_batch_size {config.ppo_mini_batch_size} should be divisible by "
-                f"ppo_micro_batch_size_per_gpu {config.ppo_micro_batch_size_per_gpu}"
-            )
-            assert config.ppo_mini_batch_size // config.ppo_micro_batch_size_per_gpu > 0, (
-                f"normalized ppo_mini_batch_size {config.ppo_mini_batch_size} should be larger than "
-                f"ppo_micro_batch_size_per_gpu {config.ppo_micro_batch_size_per_gpu}"
-            )
-        return config
+
+    def create_engine_config(self, critic_config):
+        print(critic_config)
+        model_config = engine_cfg.get_model_config(critic_config.model)
+        optim_config = engine_cfg.get_optim_config(critic_config.optim)
+        system_config = engine_cfg.get_system_config(critic_config.model.fsdp_config)
+        ckpt_config = engine_cfg.get_checkpoint_config(critic_config.checkpoint)
+
+        ret = engine_cfg.get_engine_config(critic_config,
+                                            model_config,
+                                            optim_config,
+                                            system_config,
+                                            ckpt_config,
+                                            rollout_n=critic_config.rollout_n)
+        return ret
+
     
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -106,10 +96,6 @@ class CriticWorker(Worker, DistProfilerExtension):
     def compute_values(self, data: DataProto):
         # Support all hardwares
         data = data.to(get_device_id())
-        micro_batch_size = self.config.forward_micro_batch_size_per_gpu
-        data.meta_info["micro_batch_size"] = micro_batch_size
-        data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
-        data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
 
         with self.engine.eval_mode():
             data = self.engine.shard_data(data=data)
@@ -140,12 +126,6 @@ class CriticWorker(Worker, DistProfilerExtension):
             cliprange_value=self.config.cliprange_value,
             loss_agg_mode=self.config.loss_agg_mode,
         )
-        if self.config.use_dynamic_bsz:
-            # relative to the dynamic bsz
-            loss = vf_loss * (len(batch) / self.config.ppo_mini_batch_size)
-        else:
-            gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
-            loss = vf_loss / gradient_accumulation
 
         micro_batch_metrics = {
             "critic/vf_loss": vf_loss.detach().item(),
@@ -153,7 +133,7 @@ class CriticWorker(Worker, DistProfilerExtension):
             "critic/vpred_mean": masked_mean(values, response_mask).detach().item(),
         }
 
-        return loss, micro_batch_metrics
+        return vf_loss, micro_batch_metrics
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="pink")
@@ -181,11 +161,11 @@ class CriticWorker(Worker, DistProfilerExtension):
                 # Split to make minibatch iterator for updating the actor
                 # See PPO paper for details. https://arxiv.org/abs/1707.06347
                 if has_multi_modal_inputs:
-                    num_mini_batches = data.batch.batch_size[0] // self.config.ppo_mini_batch_size
+                    num_mini_batches = data.batch.batch_size[0] // self.mini_bsz
                     non_tensor_select_keys = ["multi_modal_inputs"]
                     dataloader = data.select(select_keys, non_tensor_select_keys).chunk(num_mini_batches)
                 else:
-                    dataloader = batch.split(self.config.ppo_mini_batch_size)
+                    dataloader = batch.split(self.mini_bsz)
 
                 for epoch in range(self.config.ppo_epochs):
                     for batch_idx, mini_batch in enumerate(dataloader):

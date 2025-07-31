@@ -75,7 +75,7 @@ from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 from verl.workers.engine import EngineRegistry
-from verl.workers.engine.config import engine_config_for_actor
+import verl.workers.engine.config as engine_cfg
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -144,15 +144,37 @@ class ActorWorker(Worker, DistProfilerExtension):
         self.role = role
         assert self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
         self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
-        debug_print(f"config: {config}")
-        debug_print(f"config.actor: {config.actor}")
-        self.config = self.normalize_config(config)
-        debug_print(f"config: {config}")
-        engine_config = engine_config_for_actor(self.config)
+
+        self.config = config
+        engine_config = self.create_engine_config(self.config)
         raise ValueError
         # self.engine = EngineRegistry.new(self.config.strategy, engine_config)
-
         raise ValueError
+
+    
+    def create_engine_config(self, actor_config):
+        """
+        Convert a Hydra config to the FSDPEngineConfig dataclass.
+
+        Args:
+            actor_config (DictConfig): The config from CriticWorker.
+
+        Returns:
+            FSDPEngineConfig: The converted dataclass.
+        """
+        print(actor_config)
+        model_config = engine_cfg.get_model_config(actor_config.model)
+        optim_config = engine_cfg.get_optim_config(actor_config.actor.optim)
+        system_config = engine_cfg.get_system_config(actor_config.actor.fsdp_config)
+        ckpt_config = engine_cfg.get_checkpoint_config(actor_config.actor.checkpoint)
+
+        ret = engine_cfg.get_engine_config(actor_config.actor,
+                                            model_config,
+                                            optim_config,
+                                            system_config,
+                                            ckpt_config,
+                                            rollout_n=actor_config.rollout.n)
+        return ret
 
     def normalize_config(self, config):
         # TODO: address this

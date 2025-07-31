@@ -108,13 +108,43 @@ class FSDPEngine(BaseEngine):
 
         self.ulysses_device_mesh = None
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
-        dp = world_size // self.ulysses_sequence_parallel_size
+        dp = self.get_data_parallel_size()
         if self.ulysses_sequence_parallel_size > 1:
             self.ulysses_device_mesh = init_device_mesh(
                 device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"]
             )
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
+
+        # update engine's member instead of config
+        self.mini_bsz = config.ppo_mini_batch_size
+
+        self.micro_bsz = config.ppo_micro_batch_size
+        self.forward_micro_bsz = config.forward_micro_batch_size
+
+        self.micro_bsz_per_gpu = config.ppo_micro_batch_size_per_gpu
+        self.forward_micro_bsz_per_gpu = config.forward_micro_batch_size_per_gpu
+
+        # normalize config
+        self.mini_bsz = self.mini_bsz * config.rollout_n
+        self.mini_bsz = self.mini_bsz // dp
+
+        if self.micro_bsz is not None:
+            self.micro_bsz //= dp
+            self.forward_micro_bsz //= dp
+
+            self.micro_bsz_per_gpu = self.micro_bsz
+            self.forward_micro_bsz_per_gpu = self.forward_micro_bsz
+
+        if self.micro_bsz_per_gpu is not None:
+            assert self.mini_bsz % self.micro_bsz_per_gpu == 0, (
+                f"normalized ppo_mini_batch_size {self.mini_bsz} should be divisible by "
+                f"ppo_micro_batch_size_per_gpu {self.micro_bsz_per_gpu}"
+            )
+            assert self.mini_bsz // self.micro_bsz_per_gpu > 0, (
+                f"normalized ppo_mini_batch_size {self.mini_bsz} should be larger than "
+                f"ppo_micro_batch_size_per_gpu {self.micro_bsz_per_gpu}"
+            )
 
         # set FSDP offload params
         self._is_offload_param = self.config.system.param_offload
@@ -370,13 +400,10 @@ class FSDPEngine(BaseEngine):
         """
         return self.ulysses_sharding_manager.postprocess_data(data)
 
-    def get_default_ctx(self):
-        use_value_head_model = hasattr(self.module, "v_head")
-        ctx = {
-            "use_value_head_model": use_value_head_model,
-            "ulysses_sequence_parallel_size": self.ulysses_sequence_parallel_size,
-        }
-        return ctx
+
+    def get_data_parallel_size(self):
+        return torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+    
 
     def _forward_micro_batch(self, micro_batch):
         multi_modal_inputs = {}
@@ -473,11 +500,20 @@ class FSDPEngine(BaseEngine):
             dict[str, torch.Tensor]: A dictionary containing the predictions for the entire batch.
         """
         assert self.mode == "eval"
-        micro_batch_size = data.meta_info["micro_batch_size"]
+
+        micro_batch_size = self.micro_bsz_per_gpu
+        max_token_len = self.config.forward_max_token_len_per_gpu
+        use_dynamic_bsz = self.config.use_dynamic_bsz
+        # data.meta_info["micro_batch_size"] = micro_batch_size
+        # data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
+        # data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
+
+        # micro_batch_size = data.meta_info["micro_batch_size"]
+
         select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
         batch = data.select(batch_keys=select_keys).batch
-        use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+        print(f"micro_batch_size: {micro_batch_size}")
 
         if has_multi_modal_inputs:
             num_micro_batches = data.batch.batch_size[0] // micro_batch_size
@@ -485,11 +521,11 @@ class FSDPEngine(BaseEngine):
             micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
         elif use_dynamic_bsz:
             # split using dynamic bsz
-            max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
+            max_token_len = max_token_len * self.ulysses_sequence_parallel_size
             micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
         else:
             micro_batches = batch.split(micro_batch_size)
-
+    
         preds_list = {}
         for micro_batch in micro_batches:
             if isinstance(micro_batch, DataProto):
@@ -541,15 +577,13 @@ class FSDPEngine(BaseEngine):
         select_keys = ["input_ids", "responses", "response_mask", "attention_mask", "position_ids"]
         if "multi_modal_inputs" in mini_batch:
             non_tensor_select_keys = ["multi_modal_inputs"]
-            num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
+            num_micro_batches = mini_batch.batch.batch_size[0] // self.micro_bsz_per_gpu
             micro_batches = mini_batch.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
-            self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
         elif self.config.use_dynamic_bsz:
             max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
             micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
         else:
-            micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
-            self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+            micro_batches = mini_batch.split(self.micro_bsz_per_gpu)
 
         mini_batch_metrics = {}
         for micro_batch in micro_batches:
@@ -560,8 +594,17 @@ class FSDPEngine(BaseEngine):
                 micro_batch = micro_batch.to(get_device_id())  # critic device is cpu when using offload
 
             preds = self._forward_micro_batch(micro_batch)
-            loss, micro_batch_metrics = loss_fn(micro_batch, preds)
+            vf_loss, micro_batch_metrics = loss_fn(micro_batch, preds)
             append_to_dict(mini_batch_metrics, micro_batch_metrics)
+
+            # calculate loss
+            if self.config.use_dynamic_bsz:
+                # relative to the dynamic bsz
+                loss = vf_loss * (len(micro_batch) / self.mini_bsz)
+            else:
+                gradient_accumulation = self.mini_bsz // self.micro_bsz_per_gpu
+                loss = vf_loss / gradient_accumulation
+                
             loss.backward()
 
         return mini_batch_metrics

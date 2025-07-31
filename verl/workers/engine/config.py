@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from omegaconf import DictConfig
 from verl.utils.config import omega_conf_to_dataclass
-from .base import EngineRegistry
 
 @dataclass
 class EngineConfig:
@@ -12,12 +11,16 @@ class EngineConfig:
     checkpoint: 'CheckpointConfig'
     ppo_mini_batch_size: int
     ppo_micro_batch_size: int
+    forward_micro_batch_size: int
     ppo_micro_batch_size_per_gpu: int
+    forward_micro_batch_size_per_gpu: int
     ulysses_sequence_parallel_size: int
     strategy: str
     grad_clip: float
     use_dynamic_bsz: bool
     ppo_max_token_len_per_gpu: int
+    forward_max_token_len_per_gpu: int
+    rollout_n: int
 
 
 @dataclass
@@ -135,7 +138,8 @@ def get_engine_config(config,
                       model_config,
                       optim_config,
                       system_config,
-                      checkpoint_config):
+                      checkpoint_config,
+                      rollout_n):
     engine_config = EngineConfig(
         model=model_config,
         optim=optim_config,
@@ -143,39 +147,19 @@ def get_engine_config(config,
         checkpoint=checkpoint_config,
         ppo_mini_batch_size=config.ppo_mini_batch_size,
         ppo_micro_batch_size=config.ppo_micro_batch_size,
+        forward_micro_batch_size=config.get("forward_micro_batch_size", None),                  # no such config for actor
         ppo_micro_batch_size_per_gpu=config.ppo_micro_batch_size_per_gpu,
+        forward_micro_batch_size_per_gpu=config.get("forward_micro_batch_size_per_gpu", None),  # no such config for actor
         ulysses_sequence_parallel_size=config.ulysses_sequence_parallel_size,
         strategy=config.strategy,
         grad_clip=config.grad_clip,
         use_dynamic_bsz=config.use_dynamic_bsz,
-        ppo_max_token_len_per_gpu=config.ppo_max_token_len_per_gpu
+        ppo_max_token_len_per_gpu=config.ppo_max_token_len_per_gpu,
+        forward_max_token_len_per_gpu=config.get("forward_max_token_len_per_gpu", None),        # no such config for actor
+        rollout_n=rollout_n
     )
     return engine_config
 
-
-
-def engine_config_for_critic(critic_config: DictConfig) -> EngineConfig:
-    """
-    Convert a Hydra config to the FSDPEngineConfig dataclass.
-
-    Args:
-        critic_config (DictConfig): The config from CriticWorker.
-
-    Returns:
-        FSDPEngineConfig: The converted dataclass.
-    """
-    print(critic_config)
-    model_config = get_model_config(critic_config.model)
-    optim_config = get_optim_config(critic_config.optim)
-    system_config = get_system_config(critic_config.model.fsdp_config)
-    ckpt_config = get_checkpoint_config(critic_config.checkpoint)
-
-    ret = get_engine_config(critic_config,
-                            model_config,
-                            optim_config,
-                            system_config,
-                            ckpt_config)
-    return ret
 
 
 def engine_config_for_actor(actor_config: DictConfig) -> EngineConfig:
