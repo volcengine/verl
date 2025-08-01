@@ -73,7 +73,7 @@ class MCPBaseTool(BaseTool):
 
         logger.debug(f"Tool result for instance {instance_id} with tool {self.name}: {call_tool_result.content}")
         result, metadata = self._parse_tool_result(call_tool_result.content)
-        metadata["api_request_error"] += err_msg
+        metadata["api_request_error"] = None if not err_msg else err_msg
         return result, metadata
 
     @rollout_trace_op

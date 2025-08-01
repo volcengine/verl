@@ -31,7 +31,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 class Geo3kTool(BaseTool):
     """A demo tool for calculating the reward of geo3k.
-    - `to_openai_function_tool_schema`: return the tool schema in OpenAI format.
+    - `get_openai_tool_schema`: return the tool schema in OpenAI format.
     - `create`: create a tool instance for a trajectory.
     - `execute`: execute the tool.
     - `calc_reward`: calculate the reward respect to tool state.

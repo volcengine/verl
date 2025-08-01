@@ -74,7 +74,7 @@ jobs:
     runs-on: [self-hosted, npu-0]
     timeout-minutes: 40 # Increase this timeout value as needed
     container:
-      image: crispig/verl_npu:cann8.1rc1-py3.10-torch2.5.1-vllm-ascend0.7.3.post1-250616
+      image: crispig/verl_npu:cann8.1rc1-py3.10-torch2.5.1-vllm-ascend0.7.3.post1-mindspeed0121-250731
       volumes:
         - /usr/local/dcmi:/usr/local/dcmi
         - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
@@ -112,6 +112,9 @@ jobs:
       - name: Install torchviison
         run: |
           pip install torchvision==0.20.1+cpu --index-url https://download.pytorch.org/whl/cpu
+      - name: Uninstall Triton
+        run: |
+          pip uninstall -y triton
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
