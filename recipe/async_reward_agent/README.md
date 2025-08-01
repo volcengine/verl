@@ -15,7 +15,7 @@ limitations under the License. -->
 
 # Recipe: Asynchronous Reward Agent with Mini-batch Pipeline and One Step Off Policy Training
 
-**Author:**  `haolinyan@tencent.com`
+**Authors from**: WeChat KaLM team, Tencent.
 
 ## Introduction
 

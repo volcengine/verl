@@ -15,7 +15,7 @@ limitations under the License. -->
 
 # 方案：基于小批次流水线更新与单步离线策略训练的异步奖励代理机制
 
-**作者：** `haolinyan@tencent.com`
+**作者：** 腾讯微信KaLM团队
 
 ## 引言
 
