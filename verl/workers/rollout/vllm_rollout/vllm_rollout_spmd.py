@@ -91,6 +91,7 @@ class vLLMRollout(BaseRollout):
         self.config = config
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
+        pipeline_parallel_size = self.config.get("pipeline_parallel_size", 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), (
             "tensor parallel size should be less than or equal to the world size"
         )
@@ -168,6 +169,7 @@ class vLLMRollout(BaseRollout):
             model=model_path,
             enable_sleep_mode=config.free_cache_engine,
             tensor_parallel_size=tensor_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
             distributed_executor_backend="external_launcher",
             dtype=config.dtype,
             enforce_eager=config.enforce_eager,
@@ -414,14 +416,20 @@ class vLLMAsyncRollout:
         self.inference_engine: WorkerWrapperBase = None
         self.sharding_manager = None
         self.is_sleep = False
+        tensor_parallel_size = self.config.tensor_model_parallel_size
+        pipeline_parallel_size = self.config.pipeline_model_parallel_size
+        self.model_parallel_size = tensor_parallel_size * pipeline_parallel_size
         self.address = self._init_zeromq()
+        self.rank = int(os.environ["RANK"])
+        self.local_rank = int(os.environ["LOCAL_RANK"])
+        self.rpc_rank = self.rank % self.model_parallel_size
 
     def _init_zeromq(self) -> str:
         tensor_parallel_size = self.config.tensor_model_parallel_size
 
         # single node: ipc, multi nodes: tcp
         local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
-        socket_type = "ipc" if tensor_parallel_size <= local_world_size else "tcp"
+        socket_type = "ipc" if self.model_parallel_size <= local_world_size else "tcp"
 
         # File lock to prevent multiple workers listen to same port
         with FileLock(f"/tmp/verl_vllm_zmq_{getpass.getuser()}.lock"):
@@ -450,19 +458,38 @@ class vLLMAsyncRollout:
     def _loop_forever(self):
         while True:
             message = self.socket.recv()
-            method, args, kwargs = pickle.loads(message)
+            method, args, kwargs, unique_reply_rank = pickle.loads(message)
+
             result = self.execute_method(method, *args, **kwargs)
-            self.socket.send(pickle.dumps(result))
+            if unique_reply_rank is None or unique_reply_rank == self.rpc_rank:
+                self.socket.send(pickle.dumps(result))
+            else:
+                self.socket.send(pickle.dumps(None))
 
     def get_zeromq_address(self):
         return self.address
 
     def init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
+<<<<<<< HEAD
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
         all_kwargs[0]["local_rank"] = 0 if not ray_noset_visible_devices() else int(os.environ.get("RAY_LOCAL_RANK", 0))
         self.vllm_config = all_kwargs[0]["vllm_config"]
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
+=======
+        vllm_config = all_kwargs[0]["vllm_config"]
+        mp_size = vllm_config.parallel_config.tensor_parallel_size * vllm_config.parallel_config.pipeline_parallel_size
+        assert mp_size == self.model_parallel_size
+
+        while len(all_kwargs) < mp_size:
+            all_kwargs.append(all_kwargs[-1])
+        all_kwargs[self.rpc_rank]["rank"] = self.rank
+        # set local_rank to 0 as ray sets CUDA_VISIBLE_DEVICES to a single device
+        all_kwargs[self.rpc_rank]["local_rank"] = 0
+
+        self.vllm_config = all_kwargs[self.rpc_rank]["vllm_config"]
+        self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config, rpc_rank=self.rpc_rank)
+>>>>>>> bac2374 (add vllm pipeline parallel support for zmq executor)
         self.inference_engine.init_worker(all_kwargs)
 
     def load_model(self, *args, **kwargs):
