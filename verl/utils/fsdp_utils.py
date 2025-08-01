@@ -501,12 +501,12 @@ def apply_fsdp2(model, fsdp_kwargs, config):
             modules.append(module)
 
     for idx, module in enumerate(modules):
-        if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
-            print(f"wrap module {module.__class__.__name__}")
+        # if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
+        #     print(f"wrap module {module.__class__.__name__}")
         fully_shard(module, **fsdp_kwargs)
 
-    if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
-        print(f"wrap module {module.__class__.__name__}")
+    # if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
+    #     print(f"wrap module {model.__class__.__name__}")
     fully_shard(model, **fsdp_kwargs)  # fsdp2 will not reshard_after_forward for root module
 
 
