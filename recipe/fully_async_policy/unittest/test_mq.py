@@ -11,15 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import os
 import threading
 import time
 from unittest.mock import Mock
 
 import pytest
 import ray
-from recipe.fully_async_policy.message_queue import QueueSample, MessageQueue, MessageQueueClient
 from omegaconf import DictConfig
+
+from recipe.fully_async_policy.message_queue import MessageQueue, MessageQueueClient, QueueSample
 
 
 @pytest.fixture

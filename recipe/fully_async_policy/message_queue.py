@@ -18,7 +18,7 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Optional, List
+from typing import Any
 
 import ray
 from omegaconf import DictConfig
@@ -77,7 +77,7 @@ class MessageQueue:
         )
 
     def put_samples(
-        self, epoch: int, samples: List[Any], param_version: int, rollout_metadata_list: List[dict[str, Any]] = None
+            self, epoch: int, samples: list[Any], param_version: int, rollout_metadata_list: list[dict[str, Any]] = None
     ) -> bool:
         """
         放入一个batch样本到队列
@@ -107,7 +107,7 @@ class MessageQueue:
                 logger.warning(f"len(rollout_metadata_list):{len(rollout_metadata_list)} != len(samples:{len(samples)}")
                 return False
 
-            for sample, meta in zip(samples, rollout_metadata_list):
+            for sample, meta in zip(samples, rollout_metadata_list, strict=False):
                 queue_sample = QueueSample(
                     id=str(uuid.uuid4()),
                     epoch=epoch,
@@ -238,7 +238,7 @@ class MessageQueueClient:
         self.queue_actor = queue_actor
 
     def put_batch(
-        self, epoch: int, batch: List[Any], param_version: int, rollout_metadata_list: List[dict[str, Any]] = None
+            self, epoch: int, batch: list[Any], param_version: int, rollout_metadata_list: list[dict[str, Any]] = None
     ) -> bool:
         """放入batch到队列"""
         return ray.get(self.queue_actor.put_samples.remote(epoch, batch, param_version, rollout_metadata_list))

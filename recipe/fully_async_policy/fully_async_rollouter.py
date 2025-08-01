@@ -11,25 +11,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import logging
 import threading
 import time
-import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
 
-import numpy as np
 import ray
 from omegaconf import OmegaConf
 from torch.utils.data import Dataset, Sampler
+from tqdm import tqdm
 
 from recipe.fully_async_policy.message_queue import MessageQueueClient
-from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
-from verl.single_controller.ray.base import create_colocated_worker_cls
-from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role, WorkerType, RayPPOTrainer
+from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
 from verl.utils.debug import marked_timer
+from verl.utils.tracking import ValidationGenerationsLogger
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +42,7 @@ class RolloutController:
         self.lock = threading.RLock()
         self.pause_count = 0
 
-    def pause(self, timeout: Optional[float] = None) -> bool:
+    def pause(self, timeout: float | None = None) -> bool:
         """
         暂停rollout
 
@@ -115,7 +111,7 @@ class RolloutController:
             }
 
 
-@ray.remote
+@ray.remote(num_cpus=10, max_concurrency=10)
 class FullyAsyncRollouter(RayPPOTrainer):
     """
     异步样本生成器，负责持续生成训练样本并放入MessageQueue
@@ -123,20 +119,20 @@ class FullyAsyncRollouter(RayPPOTrainer):
     """
 
     def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-        train_dataset: Optional[Dataset] = None,
-        val_dataset: Optional[Dataset] = None,
-        collate_fn=None,
-        train_sampler: Optional[Sampler] = None,
-        device_name=None,
+            self,
+            config,
+            tokenizer,
+            role_worker_mapping: dict[Role, WorkerType],
+            resource_pool_manager: ResourcePoolManager,
+            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+            processor=None,
+            reward_fn=None,
+            val_reward_fn=None,
+            train_dataset: Dataset | None = None,
+            val_dataset: Dataset | None = None,
+            collate_fn=None,
+            train_sampler: Sampler | None = None,
+            device_name=None,
     ):
         """
         Initialize distributed PPO trainer with Ray backend.
@@ -170,8 +166,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
-        self.use_reference_policy = Role.RefPolicy in role_worker_mapping
-        self.use_rm = Role.RewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name if device_name else self.config.trainer.device
         self.validation_generations_logger = ValidationGenerationsLogger(
@@ -179,25 +173,11 @@ class FullyAsyncRollouter(RayPPOTrainer):
             experiment_name=self.config.trainer.experiment_name,
         )
 
-        # if ref_in_actor is True, the reference policy will be actor without lora applied
-        self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
-
-        # define in-reward KL control
-        # kl loss control currently not suppoorted
-        if self.config.algorithm.use_kl_in_reward:
-            self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
-
-        if config.critic.enable is not None:
-            self.use_critic = bool(config.critic.enable)
-        elif self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
-            self.use_critic = True
-        else:
-            warnings.warn(
-                "Disabled critic as algorithm.adv_estimator != gae. "
-                "If it is not intended, please set critic.enable=True",
-                stacklevel=2,
-            )
-            self.use_critic = False
+        self.ref_in_actor = False
+        self.kl_ctrl_in_reward = False
+        self.use_critic = False
+        self.use_reference_policy = False
+        self.use_rm = False
 
         self._validate_config()
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
@@ -212,7 +192,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.staleness_threshold = async_config.get("staleness_threshold", 3)
         self.max_staleness_allowed = async_config.get("max_staleness_allowed", 5)
         self.generation_timeout = async_config.get("generation_timeout", 30.0)
-        self.batch_generation_interval = async_config.get("batch_generation_interval", 0.1)
 
         # 统计信息
         self.total_generated_samples = 0
@@ -239,91 +218,50 @@ class FullyAsyncRollouter(RayPPOTrainer):
         """设置消息队列客户端"""
         self.message_queue_client = message_queue_client
 
-    def _validate(self):
-        """执行验证 - 参考OneStepOffRayTrainer的验证逻辑"""
-        return None
+    def set_parameter_synchronizer(self, param_synchronizer):
+        """设置参数同步器"""
+        self.param_synchronizer = param_synchronizer
 
     def _validate_config(self):
-        """验证配置"""
-        required_configs = [
-            "data.train_batch_size",
-            "actor_rollout_ref.rollout.n",
-            "async_training.staleness_threshold",
-        ]
-
-        for config_path in required_configs:
-            if not OmegaConf.select(self.config, config_path):
-                logger.warning(f"Missing recommended config: {config_path}")
-
         # 验证异步训练配置
         if not hasattr(self.config, "async_training"):
             raise ValueError("Missing async_training configuration")
 
     def init_workers(self):
-        """初始化rollout workers - 参考OneStepOffRayTrainer的实现"""
+        """初始化rollout workers"""
         logger.info("Initializing Rollouter workers...")
-
-        self.resource_pool_manager.create_resource_pool()
-        self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
-
-        # 只创建rollout worker
-        resource_pool = self.resource_pool_manager.get_resource_pool(Role.Rollout)
-        role_cls = RayClassWithInitArgs(
-            cls=self.role_worker_mapping[Role.Rollout],
-            config=self.config.actor_rollout_ref,
-            role="rollout",
-        )
-        self.resource_pool_to_cls[resource_pool]["rollout"] = role_cls
-
-        # 初始化WorkerGroup
-        all_wg = {}
-        wg_kwargs = {}
-        if OmegaConf.select(self.config.trainer, "ray_wait_register_center_timeout") is not None:
-            wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
-        if OmegaConf.select(self.config.trainer, "profile_steps") is not None:
-            wg_kwargs["profile_steps"] = OmegaConf.select(self.config.trainer, "profile_steps")
-            if OmegaConf.select(self.config.trainer, "worker_nsight_options") is not None:
-                wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
-                    OmegaConf.select(self.config.trainer, "worker_nsight_options")
-                )
-
-        for resource_pool, class_dict in self.resource_pool_to_cls.items():
-            worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
-            wg_dict = self.ray_worker_group_cls(
-                resource_pool=resource_pool,
-                ray_cls_with_init=worker_dict_cls,
-                device_name=self.device_name,
-                **wg_kwargs,
-            )
-            spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
-            all_wg.update(spawn_wg)
+        self._init_resource_pools()
 
         self.rollout_wg = all_wg["rollout"]
         self.rollout_wg.init_model()
 
-        # 初始化异步rollout管理器（如果需要）
-        if self.async_rollout_mode:
-            self._init_async_rollout_manager()
+    def _create_actor_rollout_classes(self):
+        # only create rollout
+        for role in [Role.Rollout]:
+            resource_pool = self.resource_pool_manager.get_resource_pool(role)
+            role_cls = RayClassWithInitArgs(
+                cls=self.role_worker_mapping[role],
+                config=self.config.actor_rollout_ref,
+                role=str(role),
+            )
+            self.resource_pool_to_cls[resource_pool][str(role)] = role_cls
 
-        logger.info("Rollouter workers initialized successfully")
+    def _init_models(self):
+        self.rollout_wg = self.all_wg[str(Role.Rollout)]
+        self.rollout_wg.init_model()
+        self.actor_rollout_wg = self.rollout_wg
 
     def _init_async_rollout_manager(self):
-        """初始化异步rollout管理器"""
-        try:
-            from verl.workers.rollout.async_server import AsyncLLMServerManager
+        # create async rollout manager and request scheduler
+        self.async_rollout_mode = False
+        if self.config.actor_rollout_ref.rollout.mode == "async":
+            from verl.experimental.agent_loop import AgentLoopManager
 
-            self.async_rollout_manager = AsyncLLMServerManager(
+            self.async_rollout_mode = True
+            self.async_rollout_manager = AgentLoopManager(
                 config=self.config,
-                worker_group=self.rollout_wg,
+                worker_group=self.actor_rollout_wg,
             )
-            logger.info("Async rollout manager initialized")
-        except Exception as e:
-            logger.warning(f"Failed to initialize async rollout manager: {e}")
-            self.async_rollout_mode = False
-
-    def set_parameter_synchronizer(self, param_synchronizer):
-        """设置参数同步器"""
-        self.param_synchronizer = param_synchronizer
 
     def update_rollout_weights(self, param_version: int) -> bool:
         """
@@ -468,143 +406,117 @@ class FullyAsyncRollouter(RayPPOTrainer):
             logger.error(f"Error checking pause conditions: {e}")
             return True  # 出错时暂停生成
 
-    def _generate_batch(self, epoch: int, batch_dict: dict) -> Optional[DataProto]:
-        """生成单个batch的样本 - 改进的生成逻辑"""
-        try:
-            batch = DataProto.from_single_dict(batch_dict)
-
-            # 处理batch用于生成 - 参考OneStepOffRayTrainer的处理逻辑
-            batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
-            non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
-
-            # 处理多模态数据和其他可选字段
-            optional_keys = ["multi_modal_data", "raw_prompt", "tools_kwargs", "interaction_kwargs"]
-            for key in optional_keys:
-                if key in batch.non_tensor_batch:
-                    non_tensor_batch_keys_to_pop.append(key)
-
-            gen_batch = batch.pop(
-                batch_keys=batch_keys_to_pop,
-                non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
-            )
-
-            # 重复生成多个响应 - 参考OneStepOffRayTrainer
-            n_repeats = self.config.actor_rollout_ref.rollout.n
-            gen_batch = gen_batch.repeat(repeat_times=n_repeats, interleave=True)
-
-            # 执行生成
-            if self.async_rollout_mode:
-                # 异步生成
-                gen_batch_output = ray.get(
-                    self.rollout_wg.async_generate_sequences.remote(gen_batch), timeout=self.generation_timeout
-                )
-            else:
-                # 同步生成
-                gen_batch_output = ray.get(
-                    self.rollout_wg.generate_sequences.remote(gen_batch), timeout=self.generation_timeout
-                )
-
-            # 添加UID - 确保每个样本有唯一标识
-            batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
-
-            # 重复原始batch以对齐生成的响应
-            batch = batch.repeat(repeat_times=n_repeats, interleave=True)
-
-            # 合并数据
-            final_batch = batch.union(gen_batch_output)
-
-            # 添加rollout metadata
-            final_batch.meta_info["rollout_param_version"] = self.current_param_version
-            final_batch.meta_info["generation_timestamp"] = time.time()
-
-            return final_batch
-
-        except Exception as e:
-            logger.error(f"Error generating batch: {e}")
-            self.generation_errors += 1
-            return None
-
-    def _generation_loop(self):
-        """主要的生成循环 - 改进的循环逻辑"""
-        logger.info("Starting generation loop...")
-
-        try:
-            continuous_iterator = self._create_continuous_iterator()
-
-            for epoch, batch_dict in continuous_iterator:
-                if not self.running:
-                    break
-
-                # 等待如果被暂停
-                if not self.rollout_controller.wait_if_paused(timeout=1.0):
-                    if not self.running:
-                        break
-                    continue
-
-                # 检查是否应该暂停生成
-                if self._should_pause_generation():
-                    time.sleep(self.batch_generation_interval)
-                    continue
-
-                # 生成样本
-                timing_raw = {}
-                with marked_timer("generate_batch", timing_raw):
-                    generated_batch = self._generate_batch(epoch, batch_dict)
-
-                if generated_batch is not None:
-                    # 准备rollout metadata
-                    rollout_metadata = {
-                        "timing": timing_raw,
-                        "generation_timestamp": time.time(),
-                        "rollout_param_version": self.current_param_version,
-                        "epoch": epoch,
-                    }
-
-                    # 放入队列
-                    success = self.message_queue_client.put_samples(
-                        epoch=epoch,
-                        sample=generated_batch,
-                        param_version=self.current_param_version,
-                        rollout_metadata=rollout_metadata,
-                    )
-
-                    if success:
-                        self.total_generated_samples += 1
-                        if self.total_generated_samples % 10 == 0:
-                            logger.info(
-                                f"Generated {self.total_generated_samples} batches, "
-                                f"param_version={self.current_param_version}, "
-                                f"errors={self.generation_errors}"
-                            )
-                    else:
-                        self.dropped_stale_samples += 1
-                        if self.dropped_stale_samples % 5 == 0:
-                            logger.warning(f"Dropped stale samples: {self.dropped_stale_samples}")
-
-                # 控制生成频率
-                if self.batch_generation_interval > 0:
-                    time.sleep(self.batch_generation_interval)
-
-        except Exception as e:
-            logger.error(f"Generation loop error: {e}")
-        finally:
-            logger.info("Generation loop finished")
-
     def fit(self):
-        """开始异步生成样本 - 改进的主运行逻辑"""
-        logger.info("Starting Rollouter...")
+        """开始异步生成样本 - 改进的主运行逻辑
+        主要的生成循环
 
+        循环入口，需要
+        1. running 判断
+        4. 中断判断
+        3. 新鲜度判断
+
+        生成样本过程中，需要
+        1. running 判断
+        2. 中断判断
+        """
+
+        from verl.utils.tracking import Tracking
+
+        logger = Tracking(
+            project_name=self.config.trainer.project_name,
+            experiment_name=self.config.trainer.experiment_name,
+            default_backend=self.config.trainer.logger,
+            config=OmegaConf.to_container(self.config, resolve=True),
+        )
+        logger.info("Starting Rollouter...")
         if self.message_queue_client is None:
             raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
-
+        if self.param_synchronizer is None:
+            raise ValueError("param_synchronizer client not set. Call set_parameter_synchronizer() first.")
         self.running = True
 
         # 在单独的线程中运行生成循环
-        self.generation_thread = threading.Thread(target=self._generation_loop, daemon=True)
-        self.generation_thread.start()
+        self.report_thread = threading.Thread(target=self._report_loop, daemon=True)
+        self.report_thread.start()
 
-        logger.info("Rollouter started successfully")
+        self.global_steps = 0
 
+        # load checkpoint before doing anything
+        self._load_checkpoint()
+
+        # perform validation before training
+        # currently, we only support validation using the reward_function.
+        if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
+            val_metrics = self._validate()
+            assert val_metrics, f"{val_metrics=}"
+            pprint(f"Initial validation metrics: {val_metrics}")
+            logger.log(data=val_metrics, step=self.global_steps)
+            if self.config.trainer.get("val_only", False):
+                return
+
+        # add tqdm
+        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
+
+        # we start from step 1
+        self.global_steps += 1
+        last_val_metrics = None
+        self.max_steps_duration = 0
+
+        continuous_iterator = self._create_continuous_iterator()
+        for epoch, batch_dict in continuous_iterator:
+            if not self.running:
+                break
+            # 等待如果被暂停
+            if not self.rollout_controller.wait_if_paused(timeout=1.0):
+                if not self.running:
+                    break
+
+            # 检查是否应该暂停生成
+            self._should_pause_generation()
+
+            metrics = {}
+            timing_raw = {}
+            batch, gen_batch = self._prepare_generate_batch(batch_dict)
+            is_last_step = self.global_steps >= self.total_training_steps
+
+            # generate a batch
+            with marked_timer("gen", timing_raw, color="red"):
+                if not self.async_rollout_mode:
+                    gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                else:
+                    gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
+                timing_raw.update(gen_batch_output.meta_info["timing"])
+                gen_batch_output.meta_info.pop("timing", None)
+
+            if gen_batch_output is not None:
+                # 准备rollout metadata
+                rollout_metadata = {
+                    "timing": timing_raw,
+                    "generation_timestamp": time.time(),
+                    "rollout_param_version": self.current_param_version,
+                    "epoch": epoch,
+                }
+                # 放入队列
+                success = self.message_queue_client.put_samples(
+                    epoch=epoch,
+                    sample=gen_batch_output,
+                    param_version=self.current_param_version,
+                    rollout_metadata=rollout_metadata,
+                )
+                if success:
+                    self.total_generated_samples += 1
+                    if self.total_generated_samples % 10 == 0:
+                        logger.info(
+                            f"Generated {self.total_generated_samples} batches, "
+                            f"param_version={self.current_param_version}, "
+                            f"errors={self.generation_errors}"
+                        )
+                else:
+                    self.dropped_stale_samples += 1
+                    if self.dropped_stale_samples % 5 == 0:
+                        logger.warning(f"Dropped stale samples: {self.dropped_stale_samples}")
+
+    def _report_loop(self):
         try:
             # 主线程保持运行，处理控制信号和状态监控
             last_stats_time = time.time()

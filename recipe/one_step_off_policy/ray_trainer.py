@@ -76,20 +76,20 @@ class OneStepOffRayTrainer(RayPPOTrainer):
     # TODO: support each role have individual ray_worker_group_cls,
     # i.e., support different backend of different role
     def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-        train_dataset: Dataset | None = None,
-        val_dataset: Dataset | None = None,
-        collate_fn=None,
-        train_sampler: Sampler | None = None,
-        device_name=None,
+            self,
+            config,
+            tokenizer,
+            role_worker_mapping: dict[Role, WorkerType],
+            resource_pool_manager: ResourcePoolManager,
+            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+            processor=None,
+            reward_fn=None,
+            val_reward_fn=None,
+            train_dataset: Dataset | None = None,
+            val_dataset: Dataset | None = None,
+            collate_fn=None,
+            train_sampler: Sampler | None = None,
+            device_name=None,
     ):
         """
         Initialize distributed PPO trainer with Ray backend.
@@ -164,17 +164,14 @@ class OneStepOffRayTrainer(RayPPOTrainer):
 
     def _create_actor_rollout_classes(self):
         # create actor and rollout
-        if not self.hybrid_engine:
-            for role in [Role.Actor, Role.Rollout]:
-                resource_pool = self.resource_pool_manager.get_resource_pool(role)
-                role_cls = RayClassWithInitArgs(
-                    cls=self.role_worker_mapping[role],
-                    config=self.config.actor_rollout_ref,
-                    role=str(role),
-                )
-                self.resource_pool_to_cls[resource_pool][str(role)] = role_cls
-        else:
-            raise NotImplementedError
+        for role in [Role.Actor, Role.Rollout]:
+            resource_pool = self.resource_pool_manager.get_resource_pool(role)
+            role_cls = RayClassWithInitArgs(
+                cls=self.role_worker_mapping[role],
+                config=self.config.actor_rollout_ref,
+                role=str(role),
+            )
+            self.resource_pool_to_cls[resource_pool][str(role)] = role_cls
 
     def _init_models(self):
         if self.use_critic:
