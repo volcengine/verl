@@ -1092,8 +1092,8 @@ class RayPPOTrainer:
 
     def print_resource_pool_stats(self):
         """Print global thread pool statistics"""
-        execute_mode = OmegaConf.select(self.config.trainer, "execute_mode", default="multithread")
-        if execute_mode == "multithread":
+        execute_mode = OmegaConf.select(self.config.trainer, "execute_mode", default="all")
+        if execute_mode == "all_multithread":
             from verl.single_controller.ray.base import global_thread_pool_manager
             thread_stats = global_thread_pool_manager.get_stats()
             print(f"[THREAD POOL STATS] {thread_stats}")
