@@ -72,12 +72,12 @@ class OptimConfig(BaseConfig):
     num_cycles: float
 
 
+# use_orig_params=fsdp_config.get("use_orig_params", False),
+# forward_prefetch=fsdp_config.get("forward_prefetch", False),
 
 # TODO: use inheritance for different backend
 # - FSDPSystemConfig(SystemConfig)
 # - MCoreSystemConfig(SystemConfig)
-
-
 
 """
 Current offload policy logistic
@@ -91,11 +91,6 @@ fsdp2:
 - critic: depend on offload_policy
 - ref: force to be CPUOffload(pin_memory=True)
 """
-
-
-                # use_orig_params=fsdp_config.get("use_orig_params", False),
-                # forward_prefetch=fsdp_config.get("forward_prefetch", False),
-
 @dataclass(frozen=True)
 class SystemConfig(BaseConfig):
     """Dataclass for FSDP system configuration."""
@@ -133,9 +128,9 @@ def get_model_config(config):
         enable_activation_offload=config.enable_activation_offload,
         use_remove_padding=config.use_remove_padding,
         external_lib=config.external_lib,
-        use_liger=config.use_liger,
-        use_fused_kernels=config.use_fused_kernels,
-        fused_kernel_options=config.fused_kernel_options,
+        use_liger=config.get("use_liger", False),                       # different behaivior between actor and config
+        use_fused_kernels=config.get("use_fused_kernels", False),       # different behaivior between actor and config
+        fused_kernel_options=config.get("fused_kernel_options", None),  # different behaivior between actor and config
     )
     return model_config
 

@@ -424,7 +424,7 @@ class FSDPEngine(BaseEngine):
 
         torch.distributed.barrier()
         if self.rank == 0:
-            print_model_size(module)        
+            print_model_size(module)
         log_gpu_memory_usage(f"After init model from HF AutoModel", logger=logger)
 
         log_gpu_memory_usage("Before FSDP", logger=None)
