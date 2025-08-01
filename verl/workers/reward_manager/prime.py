@@ -15,7 +15,7 @@
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import psutil
 import torch
@@ -148,7 +148,7 @@ class PrimeRewardManager(AbstractRewardManager):
         data.batch["acc"] = torch.tensor(scores, dtype=torch.float32, device=prompt_ids.device)
         return scores
 
-    def __call__(self, data: DataProto, return_dict: bool = False):
+    def __call__(self, data: DataProto, return_dict: bool = False) -> torch.Tensor | dict[str, Any]:
         """We will expand this function gradually based on the available datasets"""
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
