@@ -19,12 +19,13 @@ import random
 from abc import ABC, abstractmethod
 from typing import Any
 
+import hydra
 import numpy as np
 import ray
 import torch
 from cachetools import LRUCache
-from omegaconf import DictConfig
-from pydantic import BaseModel
+from omegaconf import DictConfig, OmegaConf
+from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
 from transformers import AutoTokenizer
 
@@ -114,10 +115,36 @@ class AgentLoopOutput(BaseModel):
     """Agent loop output."""
 
     prompt_ids: list[int]
+    """Prompt token ids."""
     response_ids: list[int]
+    """Response token ids including LLM generated token, tool response token."""
     response_mask: list[int]
+    """Response mask, 1 for LLM generated token, 0 for tool response token."""
     num_turns: int = 0
+    """Number of chat turns, including user, assistant, tool."""
     metrics: AgentLoopMetrics
+    """Auxiliary performance metrics"""
+
+
+class _InternalAgentLoopOutput(AgentLoopOutput):
+    """Internal agent loop output with padded sequences."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    prompt_ids: torch.Tensor
+    """Padded prompt token ids."""
+    response_ids: torch.Tensor
+    """Padded response token ids."""
+    response_mask: torch.Tensor
+    """Padded response mask."""
+    attention_mask: torch.Tensor
+    """Padded attention mask."""
+
+
+# make hydra.utils.instantiate happy
+class _DummyConfig:
+    def __init__(self, config: DictConfig) -> None:
+        self.config = config
 
 
 class AgentLoopBase(ABC):
@@ -126,39 +153,66 @@ class AgentLoopBase(ABC):
 
     _class_initialized = False
 
-    def __init__(self, config: DictConfig, server_manager: AsyncLLMServerManager, tokenizer: AutoTokenizer):
-        """Initialize agent loop.
+    def __init__(
+        self, trainer_config: _DummyConfig, server_manager: AsyncLLMServerManager, tokenizer: AutoTokenizer, **kwargs
+    ):
+        """Initialize agent loop, each sample will have its own loop instance.
 
         Args:
-            config (DictConfig): YAML config.
+            trainer_config (_DummyConfig): trainer config.
             server_manager (AsyncLLMServerManager): OpenAI compatible LLM server manager.
             tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
         """
-        self.config = config
+        self.init_class(trainer_config.config, tokenizer, **kwargs)
+        self.config = trainer_config.config
         self.server_manager = server_manager
         self.tokenizer = tokenizer
         self.loop = asyncio.get_running_loop()
-        self.init_class(config, tokenizer)
 
     @classmethod
-    def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer):
-        """Initialize class state shared across all instances."""
+    def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer, **kwargs):
+        """This is used to do heavy initialization work that should shared across all instances. It's only called once.
+
+        Args:
+            config (DictConfig): trainer config.
+            tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
+            **kwargs: extra kwargs from config file passed in by `hydra.utils.instantiate`.
+        """
         if cls._class_initialized:
             return
         cls._class_initialized = True
 
     @abstractmethod
-    async def run(self, messages: list[dict[str, Any]], sampling_params: dict[str, Any]) -> AgentLoopOutput:
+    async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         """Run agent loop to interact with LLM server and environment.
 
         Args:
-            messages (List[Dict[str, Any]]): Input messages.
             sampling_params (Dict[str, Any]): LLM sampling params.
+            **kwargs: dataset fields from `verl.utils.dataset.RLHFDataset`.
 
         Returns:
             AgentLoopOutput: Agent loop output.
         """
         raise NotImplementedError
+
+
+"""Agent loop registry: key is agent_name, value is a dict of agent loop config
+used by hydra.utils.instantiate to initialize agent loop instance.
+
+https://hydra.cc/docs/advanced/instantiate_objects/overview/
+"""
+_agent_loop_registry: dict[str, dict] = {}
+
+
+def register(agent_name: str):
+    """Register agent loop class."""
+
+    def decorator(subclass: type[AgentLoopBase]) -> type[AgentLoopBase]:
+        fqdn = f"{subclass.__module__}.{subclass.__qualname__}"
+        _agent_loop_registry[agent_name] = {"_target_": fqdn}
+        return subclass
+
+    return decorator
 
 
 @ray.remote
@@ -180,11 +234,16 @@ class AgentLoopWorker:
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
 
-        trace_config = config.trainer.get("rollout_trace", {})
+        agent_loop_config_path = config.actor_rollout_ref.rollout.agent.agent_loop_config_path
+        if agent_loop_config_path:
+            agent_loop_configs = OmegaConf.load(agent_loop_config_path)
+            for agent_loop_config in agent_loop_configs:
+                _agent_loop_registry[agent_loop_config.name] = agent_loop_config
 
+        trace_config = self.config.actor_rollout_ref.rollout.get("trace", {})
         RolloutTraceConfig.init(
-            config.trainer.project_name,
-            config.trainer.experiment_name,
+            self.config.trainer.project_name,
+            self.config.trainer.experiment_name,
             trace_config.get("backend"),
             trace_config.get("token2text", False),
         )
@@ -226,20 +285,19 @@ class AgentLoopWorker:
         if "agent_name" not in batch.non_tensor_batch:
             batch.non_tensor_batch["agent_name"] = np.array(["single_turn_agent"] * len(batch), dtype=object)
 
-        tasks = []
-        agent_names = batch.non_tensor_batch["agent_name"]
-        raw_prompts = batch.non_tensor_batch["raw_prompt"]
         if "index" in batch.non_tensor_batch:
             index = batch.non_tensor_batch["index"]
         else:
-            index = np.arange(len(raw_prompts))
+            index = np.arange(len(batch))
 
-        trajectory_info = await get_trajectory_info(batch.meta_info.get("global_steps", -1), index)
+        trajectory_info = await get_trajectory_info(
+            batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
+        )
 
-        for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
-            tasks.append(
-                asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory))
-            )
+        tasks = []
+        for i in range(len(batch)):
+            kwargs = {k: v[i] for k, v in batch.non_tensor_batch.items()}
+            tasks.append(asyncio.create_task(self._run_agent_loop(sampling_params, trajectory_info[i], **kwargs)))
         outputs = await asyncio.gather(*tasks)
 
         output = self._postprocess(outputs)
@@ -247,90 +305,105 @@ class AgentLoopWorker:
 
     async def _run_agent_loop(
         self,
-        agent_name: str,
-        messages: list[dict[str, Any]],
         sampling_params: dict[str, Any],
         trajectory: dict[str, Any],
-    ) -> AgentLoopOutput:
+        *,
+        agent_name: str,
+        **kwargs,
+    ) -> _InternalAgentLoopOutput:
         with rollout_trace_attr(
-            step=trajectory["step"], sample_index=trajectory["sample_index"], rollout_n=trajectory["rollout_n"]
+            step=trajectory["step"],
+            sample_index=trajectory["sample_index"],
+            rollout_n=trajectory["rollout_n"],
+            validate=trajectory["validate"],
+            name="agent_loop",
         ):
-            agent_loop_class = self.get_agent_loop_class(agent_name)
-            agent_loop = agent_loop_class(self.config, self.server_manager, self.tokenizer)
-            output = await agent_loop.run(messages, sampling_params)
-            return output
+            assert agent_name in _agent_loop_registry, (
+                f"Agent loop {agent_name} not registered, registered agent loops: {_agent_loop_registry.keys()}"
+            )
 
-    def get_agent_loop_class(self, agent_name: str) -> type[AgentLoopBase]:
-        """Get the appropriate agent loop class based on agent name.
+            agent_loop_config = _agent_loop_registry[agent_name]
+            agent_loop = hydra.utils.instantiate(
+                config=agent_loop_config,
+                trainer_config=_DummyConfig(config=self.config),
+                server_manager=self.server_manager,
+                tokenizer=self.tokenizer,
+            )
+            output = await agent_loop.run(sampling_params, **kwargs)
 
-        Factory method that returns the correct agent loop class implementation
-        for the specified agent type.
+            # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
+            # prompt_ids: left padded with zeros (e.g., [0,0,0,0,1,2,3,4])
+            # response_ids: right padded with zeros (e.g., [5,6,7,8,0,0,0,0])
+            # input_ids: concatenation of prompt + response
+            # Mask:
+            # For example, if the prompt is [1,2,3,4] and the response is [5,6,7,(tool start)8,9(tool end),10,11,12]
+            # - prompt_attention_mask: 0s for padding, 1s for tokens
+            #   e.g., [0,0,0,0,1,1,1,1]
+            # - response_attention_mask: 0s for padding, 1s for tokens
+            #   e.g., [1,1,1,1,1,1,1,1,1,1,1,0,0,0,0]
+            # attention_mask: concatenation of prompt_attention_mask and response_attention_mask
+            #   e.g., [0,0,0,0,1,1,1,1(prompt),1,1,1,1,1,1,1,1,1,1,1,0,0,0,0(response)]
+            # - response_mask: 1s for LLM generated tokens, 0 for tool response/padding tokens
+            #   e.g., [1,1,1,1,1,1,1,(tool start),0,0(tool end),1,1,0,0,0,0]
+            # - position_ids: sequential positions for tokens, starting at 0
+            #   e.g., [0,0,0,0,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,0,0,0,0]
 
-        Args:
-            agent_name (str): Name of the agent type ('single_turn_agent' or 'tool_agent').
+            self.tokenizer.padding_side = "left"
+            prompt_output = self.tokenizer.pad(
+                {"input_ids": output.prompt_ids},
+                padding="max_length",
+                max_length=self.config.actor_rollout_ref.rollout.prompt_length,
+                return_tensors="pt",
+                return_attention_mask=True,
+            )
+            if prompt_output["input_ids"].dim() == 1:
+                prompt_output["input_ids"] = prompt_output["input_ids"].unsqueeze(0)
+                prompt_output["attention_mask"] = prompt_output["attention_mask"].unsqueeze(0)
 
-        Returns:
-            Type[AgentLoopBase]: Agent loop class corresponding to the agent name.
+            self.tokenizer.padding_side = "right"
+            response_output = self.tokenizer.pad(
+                {"input_ids": output.response_ids},
+                padding="max_length",
+                max_length=self.config.actor_rollout_ref.rollout.response_length,
+                return_tensors="pt",
+                return_attention_mask=True,
+            )
+            if response_output["input_ids"].dim() == 1:
+                response_output["input_ids"] = response_output["input_ids"].unsqueeze(0)
+                response_output["attention_mask"] = response_output["attention_mask"].unsqueeze(0)
 
-        Raises:
-            ValueError: If the agent_name is not recognized.
-        """
-        # TODO: add tool agent registrary
-        from verl.experimental.agent_loop.single_turn_agent_loop import SingleTurnAgentLoop
-        from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop
+            response_mask_output = self.tokenizer.pad(
+                {"input_ids": output.response_mask},
+                padding="max_length",
+                max_length=self.config.actor_rollout_ref.rollout.response_length,
+                return_tensors="pt",
+                return_attention_mask=False,
+            )
+            if response_mask_output["input_ids"].dim() == 1:
+                response_mask_output["input_ids"] = response_mask_output["input_ids"].unsqueeze(0)
 
-        if agent_name == "single_turn_agent":
-            return SingleTurnAgentLoop
-        elif agent_name == "tool_agent":
-            return ToolAgentLoop
-        raise ValueError(f"Unknown agent_name: {agent_name}")
+            response_mask = response_mask_output["input_ids"] * response_output["attention_mask"]
 
-    def _postprocess(self, inputs: list[AgentLoopOutput]) -> DataProto:
-        # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
-        # prompts: left pad
-        # responses: right pad
-        # input_ids: prompt + response
-        # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
-        # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
+            attention_mask = torch.cat([prompt_output["attention_mask"], response_output["attention_mask"]], dim=1)
 
-        # prompts
-        self.tokenizer.padding_side = "left"
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.prompt_ids} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.prompt_length,
-            return_tensors="pt",
-            return_attention_mask=True,
-        )
-        prompt_ids, prompt_attention_mask = outputs["input_ids"], outputs["attention_mask"]
+            return _InternalAgentLoopOutput(
+                prompt_ids=prompt_output["input_ids"],
+                response_ids=response_output["input_ids"],
+                response_mask=response_mask,
+                attention_mask=attention_mask,
+                num_turns=output.num_turns,
+                metrics=output.metrics,
+            )
 
-        # responses
-        self.tokenizer.padding_side = "right"
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.response_ids} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.response_length,
-            return_tensors="pt",
-            return_attention_mask=True,
-        )
-        response_ids, response_attention_mask = outputs["input_ids"], outputs["attention_mask"]
-
-        # response_mask
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.response_mask} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.response_length,
-            return_tensors="pt",
-            return_attention_mask=False,
-        )
-        response_mask = outputs["input_ids"]
-        assert response_ids.shape == response_mask.shape, (
-            f"mismatch in response_ids and response_mask shape: {response_ids.shape} vs {response_mask.shape}"
-        )
-        response_mask = response_mask * response_attention_mask
+    def _postprocess(self, inputs: list[_InternalAgentLoopOutput]) -> DataProto:
+        """Process the padded outputs from _run_agent_loop and combine them into a batch."""
+        # Convert lists back to tensors and stack them to create a batch.
+        prompt_ids = torch.cat([input.prompt_ids for input in inputs], dim=0)
+        response_ids = torch.cat([input.response_ids for input in inputs], dim=0)
+        response_mask = torch.cat([input.response_mask for input in inputs], dim=0)
+        attention_mask = torch.cat([input.attention_mask for input in inputs], dim=0)
 
         input_ids = torch.cat([prompt_ids, response_ids], dim=1)
-        attention_mask = torch.cat([prompt_attention_mask, response_attention_mask], dim=1)
         position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
 
         batch = TensorDict(
@@ -342,7 +415,7 @@ class AgentLoopWorker:
                 "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
                 "position_ids": position_ids,  # [bsz, prompt_length + response_length]
             },
-            batch_size=len(input_ids),
+            batch_size=len(inputs),
         )
 
         num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
@@ -350,8 +423,17 @@ class AgentLoopWorker:
         return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
 
 
-async def get_trajectory_info(step, index):
-    """Get the trajectory info (step, sample_index, rollout_n) asynchrously"""
+async def get_trajectory_info(step, index, validate):
+    """Get trajectory info.
+
+    Args:
+        step (int): global steps in the trainer.
+        index (list): form datastore extra_info.index column.
+        validate (bool): whether is a validate step.
+
+    Returns:
+        list: trajectory.
+    """
     trajectory_info = []
     rollout_n = 0
     for i in range(len(index)):
@@ -359,7 +441,7 @@ async def get_trajectory_info(step, index):
             rollout_n += 1
         else:
             rollout_n = 0
-        trajectory_info.append({"step": step, "sample_index": index[i], "rollout_n": rollout_n})
+        trajectory_info.append({"step": step, "sample_index": index[i], "rollout_n": rollout_n, "validate": validate})
     return trajectory_info
 
 

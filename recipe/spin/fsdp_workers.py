@@ -18,11 +18,12 @@ import logging
 import os
 import warnings
 
+import numpy as np
 import psutil
 import torch
 import torch.distributed
 from codetiming import Timer
-from omegaconf import open_dict
+from omegaconf import OmegaConf, open_dict
 from torch.distributed.device_mesh import init_device_mesh
 
 import verl.utils.torch_functional as verl_F
@@ -83,10 +84,7 @@ class SPINRolloutRefWorker(ActorRolloutRefWorker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
 
-        from omegaconf import OmegaConf
-
-        override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
-
+        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
         use_remove_padding = self.config.model.get("use_remove_padding", False)
         use_fused_kernels = self.config.model.get("use_fused_kernels", False)
 
@@ -409,7 +407,7 @@ class RewardModelWorker(Worker):
     def _forward_micro_batch(self, micro_batch):
         from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 
-        from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
+        from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs
 
         with torch.no_grad(), torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
@@ -443,7 +441,7 @@ class RewardModelWorker(Worker):
 
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
-                    reward_rmpad = gather_outpus_and_unpad(
+                    reward_rmpad = gather_outputs_and_unpad(
                         reward_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size
                     )
 
@@ -486,11 +484,13 @@ class RewardModelWorker(Worker):
         rm_attention_mask = []
 
         for i in range(data.batch.batch_size[0]):
+            if not isinstance(data.non_tensor_batch["raw_prompt"][i], list | np.ndarray):
+                raise TypeError(
+                    f"raw_prompt must be a list or numpy array, got {type(data.non_tensor_batch['raw_prompt'][i])}"
+                )
+
             # extract raw prompt
-            if isinstance(data.non_tensor_batch["raw_prompt"][i], list):
-                chat: list = data.non_tensor_batch["raw_prompt"][i]
-            else:
-                chat: list = data.non_tensor_batch["raw_prompt"][i].tolist()
+            chat: list = list(data.non_tensor_batch["raw_prompt"][i])
 
             # extract response
             response_ids = data.batch["responses"][i]

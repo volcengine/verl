@@ -160,10 +160,20 @@ def compute_reward(data: DataProto, reward_fn):
 
 
 @ray.remote(num_cpus=1)
-def compute_reward_async(data: DataProto, config, tokenizer):
+def compute_reward_async(data: DataProto, config=None, tokenizer=None, reward_fn=None):
     """
     Load the reward manager and compute the reward for a batch of data.
     This is meant to be run in a separate Ray worker.
     """
-    reward_fn = load_reward_manager(config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {}))
+    if reward_fn is None:
+        assert config is not None and tokenizer is not None, (
+            "config and tokenizer must not be None when reward_fn is None"
+        )
+        import warnings
+
+        warnings.warn("using config and tokenizer with compute_reward_async is deprecated", stacklevel=2)
+        reward_fn = load_reward_manager(
+            config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
+        )
+
     return compute_reward(data, reward_fn)

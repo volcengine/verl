@@ -23,7 +23,7 @@ import ray
 from omegaconf import OmegaConf
 
 from verl.experimental.dataset.sampler import AbstractSampler
-from verl.trainer.constants_ppo import PPO_RAY_RUNTIME_ENV
+from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.device import is_cuda_available
@@ -56,7 +56,7 @@ def run_ppo(config) -> None:
         # NCCL debug level, VLLM logging level, and allow runtime LoRA updating
         # `num_cpus` specifies the number of CPU cores Ray can use, obtained from the configuration
         ray.init(
-            runtime_env=PPO_RAY_RUNTIME_ENV,
+            runtime_env=get_ppo_ray_runtime_env(),
             num_cpus=config.ray_init.num_cpus,
         )
 
@@ -64,9 +64,12 @@ def run_ppo(config) -> None:
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
     if (
         is_cuda_available
-        and OmegaConf.select(config.trainer, "profile_steps") is not None
-        and len(OmegaConf.select(config.trainer, "profile_steps")) > 0
+        and config.trainer.get("profile_steps") is not None
+        and len(config.trainer.get("profile_steps", [])) > 0
     ):
+        from verl.utils.import_utils import is_nvtx_available
+
+        assert is_nvtx_available(), "nvtx is not available in CUDA platform. Please 'pip3 install nvtx'"
         nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
     else:
@@ -106,9 +109,7 @@ class TaskRunner:
         from verl.utils.fs import copy_to_local
 
         print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
-
         pprint(OmegaConf.to_container(config, resolve=True))
-
         OmegaConf.resolve(config)
 
         # Download the checkpoint from HDFS to the local machine.
@@ -125,19 +126,24 @@ class TaskRunner:
         # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
-        # Version validation for vllm.
-        if config.actor_rollout_ref.rollout.name in ["vllm"]:
-            from verl.utils.vllm_utils import is_version_ge
-
-            if config.actor_rollout_ref.model.get("lora_rank", 0) > 0:
-                if not is_version_ge(pkg="vllm", minver="0.7.3"):
-                    raise NotImplementedError("PPO LoRA is not supported before vllm 0.7.3")
-
         # Define worker classes based on the actor strategy.
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             assert config.critic.strategy in {"fsdp", "fsdp2"}
             from verl.single_controller.ray import RayWorkerGroup
-            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
+            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+
+            use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
+            if use_legacy_worker_impl in ["auto", "enable"]:
+                # import warnings
+                # warnings.warn(f"Legacy worker impl is going to be deprecated, will be removed in the future. \
+                #   Please set trainer.use_legacy_worker_impl = false to switch to the new worker implementation.")
+                from verl.workers.fsdp_workers import CriticWorker
+            elif use_legacy_worker_impl == "disable":
+                from verl.workers.roles import CriticWorker
+
+                print("Using new worker implementation")
+            else:
+                raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
 
             actor_rollout_cls = (
                 AsyncActorRolloutRefWorker
@@ -231,7 +237,6 @@ class TaskRunner:
             val_dataset=val_dataset,
             collate_fn=collate_fn,
             train_sampler=train_sampler,
-            device_name=config.trainer.device,
         )
         # Initialize the workers of the trainer.
         trainer.init_workers()

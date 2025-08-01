@@ -67,7 +67,7 @@ SUPPORTED_LANGUAGES = [
 def call_sandbox_api(
     sandbox_fusion_url: str,
     code: str,
-    stdin: str,
+    stdin: Optional[str],
     compile_timeout: int,
     run_timeout: int,
     memory_limit_mb: int,
@@ -259,9 +259,9 @@ def _execute_user_function():
             # Attempt to instantiate and get method.
             # Errors (e.g., Solution not a class, instantiation fails, method missing)
             # will be caught by the broad except block below.
-            _solution_instance = _Solution_class() 
+            _solution_instance = _Solution_class()
             _target_callable = getattr(_solution_instance, _SANDBOX_FN_NAME)
-        
+
         if not _target_callable:
             sys.stderr.write(f"WrapperError: Function or method '{{_SANDBOX_FN_NAME}}' not found.\\n")
             return None, True # result, error_occurred
@@ -286,10 +286,11 @@ if __name__ == '__main__':
             print(str(_result))
     # Optional: To explicitly exit with an error code if the sandbox relies on it
     # else:
-    #    sys.exit(1) 
+    #    sys.exit(1)
 """
         current_generation_code = wrapper_code
 
+    stdin = None if stdin_data is None else str(stdin_data)
     try:
         if concurrent_semaphore:
             # logger.debug(f"Case {case_index + 1}: Attempting to acquire semaphore.")
@@ -298,7 +299,7 @@ if __name__ == '__main__':
                 api_response, error_msg = call_sandbox_api(
                     sandbox_fusion_url=sandbox_fusion_url,
                     code=current_generation_code,
-                    stdin=str(stdin_data),
+                    stdin=stdin,
                     compile_timeout=timeout,
                     run_timeout=timeout,
                     memory_limit_mb=memory_limit_mb,
@@ -309,7 +310,7 @@ if __name__ == '__main__':
             api_response, error_msg = call_sandbox_api(
                 sandbox_fusion_url=sandbox_fusion_url,
                 code=current_generation_code,
-                stdin=str(stdin_data),
+                stdin=stdin,
                 compile_timeout=timeout,
                 run_timeout=timeout,
                 memory_limit_mb=memory_limit_mb,
@@ -322,8 +323,8 @@ if __name__ == '__main__':
 
     metadata = {
         "case_index": case_index,
-        "input": str(stdin_data),
-        "expected_output": str(expected_output),
+        "input": stdin,
+        "expected_output": str(expected_output) if expected_output else None,
         "api_request_error": error_msg,
         "api_response": None,
         "status": "unknown",
@@ -346,7 +347,7 @@ if __name__ == '__main__':
         # Log code and input only on error for brevity
         generation_to_log = generation[:200] + "..." if len(generation) > 200 else generation
         logger.error(f"Case {case_index}: code: {generation_to_log}")
-        logger.error(f"Case {case_index}: input: {str(stdin_data)}")
+        logger.error(f"Case {case_index}: input: {stdin}")
     elif api_response:
         # --- Add debug logging ---
         logger.debug(f"Case {case_index}: API Response: {api_response}")
@@ -423,7 +424,7 @@ if __name__ == '__main__':
             if run_result and metadata["run_status"] == "Finished":
                 actual_output = metadata["stdout"] if metadata["stdout"] is not None else ""
                 # Note: Output might contain trailing newlines, need normalization
-                if str(actual_output).rstrip("\n") == str(expected_output).rstrip("\n"):
+                if expected_output is None or str(actual_output).rstrip("\n") == str(expected_output).rstrip("\n"):
                     result_status = True
                     metadata["status"] = "success"
                 else:
@@ -483,6 +484,7 @@ def check_correctness(
     expected_outputs = in_outs["outputs"]
     fn_name = in_outs.get("fn_name")
     num_cases = len(inputs)
+    assert_cases = in_outs.get("assert_case", [""] * num_cases)  # Default to empty strings if not provided
     results = [None] * num_cases  # Initialize with placeholders
     metadata_list = [None] * num_cases  # Initialize with placeholders
 
@@ -493,6 +495,13 @@ def check_correctness(
     if len(inputs) != len(expected_outputs):
         logger.warning(f"Mismatch between number of inputs ({len(inputs)}) and outputs ({len(expected_outputs)}).")
         # Return error based on the number of inputs provided
+        return [-1] * num_cases, [{"error": "Input/output count mismatch", "case_index": i} for i in range(num_cases)]
+
+    # If assert_cases is provided, it overrides inputs and outputs
+    if len(assert_cases) != num_cases:
+        logger.warning(
+            f"Mismatch between number of assert cases ({len(assert_cases)}) and inputs/outputs ({num_cases})."
+        )
         return [-1] * num_cases, [{"error": "Input/output count mismatch", "case_index": i} for i in range(num_cases)]
 
     first_compile_error_index = -1
@@ -507,7 +516,7 @@ def check_correctness(
                 stdin_data,
                 expected_outputs[i],
                 sandbox_fusion_url,
-                generation,
+                generation + "\n\n" + assert_cases[i],  # Append assert case to generation
                 timeout,
                 memory_limit_mb,
                 language,
@@ -539,7 +548,7 @@ def check_correctness(
                 metadata_list[index] = {
                     "case_index": index,
                     "input": str(inputs[index]),
-                    "expected_output": str(expected_outputs[index]),
+                    "expected_output": str(expected_outputs[index]) if expected_outputs[index] else None,
                     "api_request_error": f"Internal execution error: {exc}",
                     "status": "internal_error",
                 }
@@ -558,7 +567,7 @@ def check_correctness(
                     metadata_list[i] = {
                         "case_index": i,
                         "input": str(inputs[i]),
-                        "expected_output": str(expected_outputs[i]),
+                        "expected_output": str(expected_outputs[i]) if expected_outputs[i] else None,
                         "api_request_error": None,
                         "status": "compile_error_skipped",  # Indicate skipped due to prior compile error
                     }

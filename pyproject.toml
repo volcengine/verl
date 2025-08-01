@@ -66,6 +66,25 @@ ignore = [
 ]
 
 # -------------------------------
+# tool.mypy - typechecking config
+# -------------------------------
+[tool.mypy]
+pretty            = true
+ignore_missing_imports = true
+explicit_package_bases = true
+follow_imports = "skip"
+
+# Blanket silence
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+"verl.trainer.config.algorithm",
+"verl.trainer.ppo.core_algos",
+]
+ignore_errors = false
+
+# -------------------------------
 # tool.setuptools - Additional config
 # -------------------------------
 [tool.setuptools]

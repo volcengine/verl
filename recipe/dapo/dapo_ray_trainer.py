@@ -67,6 +67,7 @@ class RayDAPOTrainer(RayPPOTrainer):
         )
 
         self.global_steps = 0
+        self.gen_steps = 0
 
         # load checkpoint before doing anything
         self._load_checkpoint()
@@ -86,7 +87,16 @@ class RayDAPOTrainer(RayPPOTrainer):
 
         # we start from step 1
         self.global_steps += 1
+        self.gen_steps += 1
         last_val_metrics = None
+
+        prev_step_profile = False
+        curr_step_profile = (
+            self.global_steps in self.config.trainer.profile_steps
+            if self.config.trainer.profile_steps is not None
+            else False
+        )
+        next_step_profile = False
 
         timing_raw = defaultdict(float)
         batch = None
@@ -96,20 +106,12 @@ class RayDAPOTrainer(RayPPOTrainer):
             for batch_dict in self.train_dataloader:
                 metrics = {}
 
-                do_profile = (
-                    self.global_steps in self.config.trainer.profile_steps
-                    if self.config.trainer.profile_steps is not None
-                    else False
-                )
                 with marked_timer("start_profile", timing_raw):
-                    if do_profile:
-                        self.actor_rollout_wg.start_profile()
-                        if self.use_reference_policy:
-                            self.ref_policy_wg.start_profile()
-                        if self.use_critic:
-                            self.critic_wg.start_profile()
-                        if self.use_rm:
-                            self.rm_wg.start_profile()
+                    self._start_profiling(
+                        not prev_step_profile and curr_step_profile
+                        if self.config.trainer.profile_continuous_steps
+                        else curr_step_profile
+                    )
 
                 new_batch: DataProto = DataProto.from_single_dict(batch_dict)
                 num_gen_batches += 1
@@ -126,7 +128,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                     )
                 gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
-                is_last_step = self.global_steps >= self.total_training_steps
+                is_last_step = self.gen_steps >= self.total_training_steps
 
                 with marked_timer("step", timing_raw):
                     # generate a batch
@@ -244,6 +246,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                             if max_num_gen_batches <= 0 or num_gen_batches < max_num_gen_batches:
                                 print(f"{num_gen_batches=}. Keep generating...")
                                 progress_bar.update(1)
+                                self.gen_steps += 1
                                 continue
                             else:
                                 raise ValueError(
@@ -341,14 +344,18 @@ class RayDAPOTrainer(RayPPOTrainer):
                             self._save_checkpoint()
 
                 with marked_timer("stop_profile", timing_raw):
-                    if do_profile:
-                        self.actor_rollout_wg.stop_profile()
-                        if self.use_reference_policy:
-                            self.ref_policy_wg.stop_profile()
-                        if self.use_critic:
-                            self.critic_wg.stop_profile()
-                        if self.use_rm:
-                            self.rm_wg.stop_profile()
+                    next_step_profile = (
+                        self.global_steps + 1 in self.config.trainer.profile_steps
+                        if self.config.trainer.profile_steps is not None
+                        else False
+                    )
+                    self._stop_profiling(
+                        curr_step_profile and not next_step_profile
+                        if self.config.trainer.profile_continuous_steps
+                        else curr_step_profile
+                    )
+                    prev_step_profile = curr_step_profile
+                    curr_step_profile = next_step_profile
 
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
@@ -373,3 +380,4 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                 progress_bar.update(1)
                 self.global_steps += 1
+                self.gen_steps += 1

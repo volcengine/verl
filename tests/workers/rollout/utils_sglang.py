@@ -158,6 +158,8 @@ def get_rollout_config(
             "prompt_length": max_prompt_length,
             "response_length": max_response_length,
             "tensor_model_parallel_size": tensor_parallel_size,
+            # set to 128MB only for testing
+            "update_weights_bucket_megabytes": 128,
             "multi_turn": {
                 "max_assistant_turns": 4,
                 "max_user_turns": 4,
