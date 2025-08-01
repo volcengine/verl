@@ -56,7 +56,7 @@ class WorkerHelper:
             sock.bind(("", 0))
             return sock.getsockname()[1]
 
-    def get_availale_master_addr_port(self):
+    def get_available_master_addr_port(self):
         return self._get_node_ip().strip("[]"), str(self._get_free_port())
 
 
@@ -101,7 +101,7 @@ class Worker(WorkerHelper):
         assert isinstance(rank, int), f"rank must be int, instead of {type(rank)}"
 
         if rank == 0:
-            master_addr, master_port = self.get_availale_master_addr_port()
+            master_addr, master_port = self.get_available_master_addr_port()
             rank_zero_info = {
                 "MASTER_ADDR": master_addr,
                 "MASTER_PORT": master_port,
