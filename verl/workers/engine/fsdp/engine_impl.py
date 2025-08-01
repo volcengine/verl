@@ -413,25 +413,33 @@ class FSDPEngine(BaseEngine):
     def _build_model_optimizer(self, config):
         from verl.utils.model import print_model_size
 
+        # Copy model files to local storage (with shared memory option for efficiency)
         local_path = copy_to_local(config.model.path, use_shm=self.config.model.use_shm)
 
+        # Initialize tokenizer and processor from the local model path
         self.tokenizer, self.processor = self._build_tokenizer(local_path)
         
+        # Create and configure model architecture settings
         self.model_config = self._build_model_config(local_path)
+        # Load base model with specified configuration and dtype
         module = self._build_module(local_path, self.model_config)
+        # Apply LoRA adapters if low-rank adaptation is enabled
         if self._is_lora:
             module = self._build_lora_module(module)
 
+        # Synchronize all distributed processes before proceeding
         torch.distributed.barrier()
         if self.rank == 0:
             print_model_size(module)
         log_gpu_memory_usage(f"After init model from HF AutoModel", logger=logger)
 
         log_gpu_memory_usage("Before FSDP", logger=None)
+        # Wrap model with FSDP for distributed training (sharding, mixed precision, etc.)
         module = self._build_fsdp_module(module)
         log_gpu_memory_usage("After FSDP", logger=None)
-
+        # Initialize optimizer with model parameters and config settings
         optimizer = self._build_optimizer(module)
+        # Create learning rate scheduler with warmup and decay settings
         lr_scheduler = self._build_lr_scheduler(optimizer)
 
         return module, optimizer, lr_scheduler
