@@ -723,7 +723,7 @@ class RayWorkerGroup(WorkerGroup):
             thread_pool = global_thread_pool_manager.get_thread_pool()
         except Exception as e:
             print(f"[WARNING] Global thread pool not available, falling back to sync execution: {e}")
-            return self.execute_all_sync(method_name, *args, **kwargs)
+            return self.execute_all_async(method_name, *args, **kwargs)
             
         if all(isinstance(arg, list) for arg in args) and all(isinstance(kwarg, list) for kwarg in kwargs.values()):
             if all(len(arg) == length for arg in args) and all(len(kwarg) == length for kwarg in kwargs.values()):
