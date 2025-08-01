@@ -89,6 +89,7 @@ def calculate_debug_metrics(data: DataProto) -> dict:
         log_prob_mask = data.batch["attention_mask"]
     else:
         logger.warning(f"no mask info found, use all log probs, {(data.batch.keys())=}")
+        log_prob_mask = torch.ones_like(rollout_old_log_probs)
     responses = data.batch["responses"]
     response_length = responses.size(1)
 
