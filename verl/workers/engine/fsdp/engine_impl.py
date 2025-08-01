@@ -308,8 +308,6 @@ class FSDPEngine(BaseEngine):
             is_lora=self.config.model.lora_rank > 0,
         )
 
-        log_gpu_memory_usage("Before FSDP", logger=None)
-
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
@@ -429,6 +427,7 @@ class FSDPEngine(BaseEngine):
             print_model_size(module)        
         log_gpu_memory_usage(f"After init model from HF AutoModel", logger=logger)
 
+        log_gpu_memory_usage("Before FSDP", logger=None)
         module = self._build_fsdp_module(module)
         log_gpu_memory_usage("After FSDP", logger=None)
 

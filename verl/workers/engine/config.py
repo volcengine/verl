@@ -10,8 +10,7 @@ Basic idea:
 - unmutable
 """
 
-
-@dataclass
+@dataclass(frozen=True)
 class BaseConfig:
     def get(self, key: str, default_value: Any = None) -> Any:
         if key in {f.name for f in fields(self)}:
@@ -19,7 +18,7 @@ class BaseConfig:
         return default_value
 
 
-@dataclass
+@dataclass(frozen=True)
 class EngineConfig(BaseConfig):
     """Dataclass for Engine configuration."""
     model: 'ModelConfig'
@@ -38,7 +37,7 @@ class EngineConfig(BaseConfig):
     rollout_n: int
 
 
-@dataclass
+@dataclass(frozen=True)
 class ModelConfig(BaseConfig):
     """Dataclass for model configuration."""
     path: str
@@ -59,7 +58,7 @@ class ModelConfig(BaseConfig):
     fused_kernel_options: dict
 
 
-@dataclass
+@dataclass(frozen=True)
 class OptimConfig(BaseConfig):
     """Dataclass for optimizer configuration."""
     lr: float
@@ -97,7 +96,7 @@ fsdp2:
                 # use_orig_params=fsdp_config.get("use_orig_params", False),
                 # forward_prefetch=fsdp_config.get("forward_prefetch", False),
 
-@dataclass
+@dataclass(frozen=True)
 class SystemConfig(BaseConfig):
     """Dataclass for FSDP system configuration."""
     fsdp_size: int
@@ -112,7 +111,7 @@ class SystemConfig(BaseConfig):
     use_orig_params: bool
 
 
-@dataclass
+@dataclass(frozen=True)
 class CheckpointConfig(BaseConfig):
     save_contents: list[str]
     load_contents: list[str]
