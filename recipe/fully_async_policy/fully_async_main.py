@@ -343,7 +343,6 @@ class FullyAsyncTaskRunner:
 
         logger.info("Starting Rollouter in background...")
         rollouter_future = self.components["rollouter"].fit.remote()
-        time.sleep(2.0)
         trainer_future = self.components["trainer"].fit.remote()
         self._monitor_components()
         ray.get(rollouter_future)

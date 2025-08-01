@@ -28,7 +28,7 @@ from recipe.fully_async_policy.message_queue import MessageQueueClient
 from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
-from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role, WorkerType
+from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role, WorkerType, RayPPOTrainer
 from verl.utils.debug import marked_timer
 
 logger = logging.getLogger(__name__)
@@ -116,7 +116,7 @@ class RolloutController:
 
 
 @ray.remote
-class FullyAsyncRollouter:
+class FullyAsyncRollouter(RayPPOTrainer):
     """
     异步样本生成器，负责持续生成训练样本并放入MessageQueue
     基于OneStepOffRayTrainer的成熟实现改进
@@ -130,23 +130,78 @@ class FullyAsyncRollouter:
         resource_pool_manager: ResourcePoolManager,
         ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
         processor=None,
-        train_dataset: Dataset | None = None,
+        reward_fn=None,
+        val_reward_fn=None,
+        train_dataset: Optional[Dataset] = None,
+        val_dataset: Optional[Dataset] = None,
         collate_fn=None,
-        train_sampler: Sampler | None = None,
-        device_name="cuda",
+        train_sampler: Optional[Sampler] = None,
+        device_name=None,
     ):
-        self.config = config
+        """
+        Initialize distributed PPO trainer with Ray backend.
+        Note that this trainer runs on the driver process on a single CPU/GPU node.
+
+        Args:
+            config: Configuration object containing training parameters.
+            tokenizer: Tokenizer used for encoding and decoding text.
+            role_worker_mapping (dict[Role, WorkerType]): Mapping from roles to worker classes.
+            resource_pool_manager (ResourcePoolManager): Manager for Ray resource pools.
+            ray_worker_group_cls (RayWorkerGroup, optional): Class for Ray worker groups. Defaults to RayWorkerGroup.
+            processor: Optional data processor, used for multimodal data
+            reward_fn: Function for computing rewards during training.
+            val_reward_fn: Function for computing rewards during validation.
+            train_dataset (Optional[Dataset], optional): Training dataset. Defaults to None.
+            val_dataset (Optional[Dataset], optional): Validation dataset. Defaults to None.
+            collate_fn: Function to collate data samples into batches.
+            train_sampler (Optional[Sampler], optional): Sampler for the training dataset. Defaults to None.
+            device_name (str, optional): Device name for training (e.g., "cuda", "cpu"). Defaults to None.
+        """
+
+        # Store the tokenizer for text processing
         self.tokenizer = tokenizer
         self.processor = processor
+        self.config = config
+        self.reward_fn = reward_fn
+        self.val_reward_fn = val_reward_fn
+
+        self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
+        assert not self.hybrid_engine
+
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
+        self.use_reference_policy = Role.RefPolicy in role_worker_mapping
+        self.use_rm = Role.RewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
-        self.device_name = device_name
+        self.device_name = device_name if device_name else self.config.trainer.device
+        self.validation_generations_logger = ValidationGenerationsLogger(
+            project_name=self.config.trainer.project_name,
+            experiment_name=self.config.trainer.experiment_name,
+        )
 
-        # 数据相关
-        self.train_dataset = train_dataset
-        self.collate_fn = collate_fn
-        self.train_sampler = train_sampler
+        # if ref_in_actor is True, the reference policy will be actor without lora applied
+        self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
+
+        # define in-reward KL control
+        # kl loss control currently not suppoorted
+        if self.config.algorithm.use_kl_in_reward:
+            self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
+
+        if config.critic.enable is not None:
+            self.use_critic = bool(config.critic.enable)
+        elif self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
+            self.use_critic = True
+        else:
+            warnings.warn(
+                "Disabled critic as algorithm.adv_estimator != gae. "
+                "If it is not intended, please set critic.enable=True",
+                stacklevel=2,
+            )
+            self.use_critic = False
+
+        self._validate_config()
+        self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
+        self.message_queue_client = None
 
         # Rollout控制
         self.rollout_controller = RolloutController()
@@ -180,10 +235,13 @@ class FullyAsyncRollouter:
         self.sync_in_progress = False
         self.sync_lock = threading.Lock()
 
-        # 异步rollout模式
-        self.async_rollout_mode = config.actor_rollout_ref.rollout.mode == "async"
+    def set_message_queue_client(self, message_queue_client: MessageQueueClient):
+        """设置消息队列客户端"""
+        self.message_queue_client = message_queue_client
 
-        self._validate_config()
+    def _validate(self):
+        """执行验证 - 参考OneStepOffRayTrainer的验证逻辑"""
+        return None
 
     def _validate_config(self):
         """验证配置"""
@@ -262,10 +320,6 @@ class FullyAsyncRollouter:
         except Exception as e:
             logger.warning(f"Failed to initialize async rollout manager: {e}")
             self.async_rollout_mode = False
-
-    def set_message_queue_client(self, message_queue_client: MessageQueueClient):
-        """设置消息队列客户端"""
-        self.message_queue_client = message_queue_client
 
     def set_parameter_synchronizer(self, param_synchronizer):
         """设置参数同步器"""
@@ -370,39 +424,14 @@ class FullyAsyncRollouter:
             logger.error(f"Parameter sync execution failed: {e}")
             return False
 
-    def _create_dataloader(self):
-        """创建数据加载器"""
-        from torch.utils.data import DataLoader
-
-        if self.train_dataset is None:
-            raise ValueError("Training dataset not provided")
-
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.config.data.train_batch_size,
-            sampler=self.train_sampler,
-            collate_fn=self.collate_fn,
-            num_workers=self.config.data.get("dataloader_num_workers", 0),
-            drop_last=True,
-            pin_memory=True,  # 改进内存管理
-        )
-
     def _create_continuous_iterator(self):
-        """创建连续的数据迭代器"""
-        dataloader = self._create_dataloader()
-
-        epoch = 0
-        while self.running:
-            try:
-                for batch_dict in dataloader:
-                    if not self.running:
-                        return
-                    yield epoch, batch_dict
-                epoch += 1
-            except Exception as e:
-                logger.error(f"Error in data iterator: {e}")
-                time.sleep(1.0)  # 避免快速重试
-                continue
+        """
+        Create a continuous data iterator across epoch
+        """
+        for epoch in range(self.config.trainer.total_epochs):
+            iterator = iter(self.train_dataloader)
+            for batch_dict in iterator:
+                yield epoch, batch_dict
 
     def _should_pause_generation(self) -> bool:
         """

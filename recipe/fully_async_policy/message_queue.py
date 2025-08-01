@@ -76,8 +76,9 @@ class MessageQueue:
             "staleness_threshold={self.staleness_threshold}"
         )
 
-    def put_samples(self, epoch: int, samples: List[Any], param_version: int,
-                    rollout_metadata_list: List[dict[str, Any]] = None) -> bool:
+    def put_samples(
+        self, epoch: int, samples: List[Any], param_version: int, rollout_metadata_list: List[dict[str, Any]] = None
+    ) -> bool:
         """
         放入一个batch样本到队列
 
@@ -103,8 +104,7 @@ class MessageQueue:
                 rollout_metadata_list = [{}] * len(samples)
 
             if len(rollout_metadata_list) != len(samples):
-                logger.warning(
-                    f"len(rollout_metadata_list):{len(rollout_metadata_list)} != len(samples:{len(samples)}")
+                logger.warning(f"len(rollout_metadata_list):{len(rollout_metadata_list)} != len(samples:{len(samples)}")
                 return False
 
             for sample, meta in zip(samples, rollout_metadata_list):
@@ -237,7 +237,9 @@ class MessageQueueClient:
     def __init__(self, queue_actor: Any):
         self.queue_actor = queue_actor
 
-    def put_batch(self, epoch: int, batch: List[Any], param_version: int, rollout_metadata_list: List[dict[str, Any]] = None) -> bool:
+    def put_batch(
+        self, epoch: int, batch: List[Any], param_version: int, rollout_metadata_list: List[dict[str, Any]] = None
+    ) -> bool:
         """放入batch到队列"""
         return ray.get(self.queue_actor.put_samples.remote(epoch, batch, param_version, rollout_metadata_list))
 

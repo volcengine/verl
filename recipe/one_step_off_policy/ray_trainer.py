@@ -27,7 +27,6 @@ from torch.utils.data import Dataset, Sampler
 from tqdm import tqdm
 
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
-from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator
 from verl.trainer.ppo.ray_trainer import (
@@ -163,94 +162,35 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self.actor_rollout_wg = self.actor_wg
         return ret
 
-    def init_workers(self):
-        """Initialize distributed training workers using Ray backend.
-
-        Creates:
-        1. Ray resource pools from configuration
-        2. Worker groups for each role (actor, critic, etc.)
-        """
-        self.resource_pool_manager.create_resource_pool()
-
-        self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
-
+    def _create_actor_rollout_classes(self):
         # create actor and rollout
-        for role, role_name in [(Role.Actor, "actor"), (Role.Rollout, "rollout")]:
-            resource_pool = self.resource_pool_manager.get_resource_pool(role)
-            role_cls = RayClassWithInitArgs(
-                cls=self.role_worker_mapping[role],
-                config=self.config.actor_rollout_ref,
-                role=role_name,
-            )
-            self.resource_pool_to_cls[resource_pool][role_name] = role_cls
+        if not self.hybrid_engine:
+            for role in [Role.Actor, Role.Rollout]:
+                resource_pool = self.resource_pool_manager.get_resource_pool(role)
+                role_cls = RayClassWithInitArgs(
+                    cls=self.role_worker_mapping[role],
+                    config=self.config.actor_rollout_ref,
+                    role=str(role),
+                )
+                self.resource_pool_to_cls[resource_pool][str(role)] = role_cls
+        else:
+            raise NotImplementedError
 
-        # create critic
+    def _init_models(self):
         if self.use_critic:
-            resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
-            critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=self.config.critic)
-            self.resource_pool_to_cls[resource_pool]["critic"] = critic_cls
-
-        # create reference policy if needed
-        if self.use_reference_policy:
-            resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
-            ref_policy_cls = RayClassWithInitArgs(
-                self.role_worker_mapping[Role.RefPolicy],
-                config=self.config.actor_rollout_ref,
-                role="ref",
-                profile_option=self.config.trainer.npu_profile.options,
-            )
-            self.resource_pool_to_cls[resource_pool]["ref"] = ref_policy_cls
-
-        # create a reward model if reward_fn is None
-        if self.use_rm:
-            # we create a RM here
-            resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-            rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model)
-            self.resource_pool_to_cls[resource_pool]["rm"] = rm_cls
-
-        # initialize WorkerGroup
-        # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
-        # you should not use `create_colocated_worker_cls`.
-        # Instead, directly pass different resource pool to different worker groups.
-        # See https://github.com/volcengine/verl/blob/master/examples/ray/tutorial.ipynb for more information.
-        all_wg = {}
-        wg_kwargs = {}  # Setting up kwargs for RayWorkerGroup
-        if OmegaConf.select(self.config.trainer, "ray_wait_register_center_timeout") is not None:
-            wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
-        if OmegaConf.select(self.config.trainer, "profile_steps") is not None:
-            wg_kwargs["profile_steps"] = OmegaConf.select(self.config.trainer, "profile_steps")
-            assert OmegaConf.select(self.config.trainer, "worker_nsight_options") is not None, (
-                "worker_nsight_options must be set when profile_steps is set"
-            )
-            wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
-                OmegaConf.select(self.config.trainer, "worker_nsight_options")
-            )
-
-        for resource_pool, class_dict in self.resource_pool_to_cls.items():
-            worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
-            wg_dict = self.ray_worker_group_cls(
-                resource_pool=resource_pool,
-                ray_cls_with_init=worker_dict_cls,
-                device_name=self.device_name,
-                **wg_kwargs,
-            )
-            spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
-            all_wg.update(spawn_wg)
-
-        if self.use_critic:
-            self.critic_wg = all_wg["critic"]
+            self.critic_wg = self.all_wg[str(Role.Critic)]
             self.critic_wg.init_model()
 
         if self.use_reference_policy and not self.ref_in_actor:
-            self.ref_policy_wg = all_wg["ref"]
+            self.ref_policy_wg = self.all_wg[str(Role.RefPolicy)]
             self.ref_policy_wg.init_model()
 
         if self.use_rm:
-            self.rm_wg = all_wg["rm"]
+            self.rm_wg = self.all_wg[str(Role.RewardModel)]
             self.rm_wg.init_model()
 
-        self.actor_wg = all_wg["actor"]
-        self.rollout_wg = all_wg["rollout"]
+        self.actor_wg = self.all_wg[str(Role.Actor)]
+        self.rollout_wg = self.all_wg[str(Role.Rollout)]
         self.actor_wg.init_model()
         self.rollout_wg.init_model()
         self.actor_rollout_wg = self.actor_wg  # to be compatible with the functions that not be modified
@@ -268,21 +208,9 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         )
         self.sync_rollout_weights()
 
-        # create async rollout manager and request scheduler
-        self.async_rollout_mode = False
-        if self.config.actor_rollout_ref.rollout.mode == "async":
-            from verl.workers.rollout.async_server import AsyncLLMServerManager
-
-            self.async_rollout_mode = True
-            self.async_rollout_manager = AsyncLLMServerManager(
-                config=self.config,
-                worker_group=self.rollout_wg,
-            )
-
     def sync_rollout_weights(self):
-        if not self.hybrid_engine:
-            self.actor_wg.sync_rollout_weights()
-            ray.get(self.rollout_wg.sync_rollout_weights())
+        self.actor_wg.sync_rollout_weights()
+        ray.get(self.rollout_wg.sync_rollout_weights())
 
     def _create_continuous_iterator(self):
         """
@@ -318,7 +246,6 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         to construct the PPO dataflow.
         The light-weight advantage computation is done on the driver process.
         """
-        from omegaconf import OmegaConf
 
         from verl.utils.tracking import Tracking
 

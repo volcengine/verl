@@ -79,6 +79,40 @@ class Role(Enum):
     RewardModel = 5
     ActorRolloutRef = 6
 
+    def __str__(self):
+        """返回与代码中一致的字符串表示"""
+        return self._get_role_string()
+
+    def _get_role_string(self):
+        """获取角色对应的字符串名称"""
+        role_mapping = {
+            Role.Actor: "actor",
+            Role.Rollout: "rollout",
+            Role.ActorRollout: "actor_rollout",
+            Role.Critic: "critic",
+            Role.RefPolicy: "ref",
+            Role.RewardModel: "rm",
+            Role.ActorRolloutRef: "actor_rollout_ref",
+        }
+        return role_mapping.get(self, self.name.lower())
+
+    @classmethod
+    def from_string(cls, name: str):
+        """从字符串创建Role实例"""
+        string_mapping = {
+            "actor": cls.Actor,
+            "rollout": cls.Rollout,
+            "actor_rollout": cls.ActorRollout,
+            "critic": cls.Critic,
+            "ref": cls.RefPolicy,
+            "rm": cls.RewardModel,
+            "actor_rollout_ref": cls.ActorRolloutRef,
+        }
+        role = string_mapping.get(name.lower())
+        if role is None:
+            raise ValueError(f"No Role found for string: {name}")
+        return role
+
 
 @dataclass
 class ResourcePoolManager:
@@ -776,48 +810,65 @@ class RayPPOTrainer:
         1. Ray resource pools from configuration
         2. Worker groups for each role (actor, critic, etc.)
         """
-        self.resource_pool_manager.create_resource_pool()
+        self._init_resource_pools()
+        self._create_worker_classes()
+        self._init_worker_groups()
+        self._init_models()
+        self._init_async_rollout_manager()
 
+    def _init_resource_pools(self):
+        self.resource_pool_manager.create_resource_pool()
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
 
+    def _create_worker_classes(self):
+        self._create_actor_rollout_classes()
+        self._create_critic_class()
+        self._create_reference_policy_class()
+        self._create_reward_model_class()
+
+    def _create_actor_rollout_classes(self):
         # create actor and rollout
         if self.hybrid_engine:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.ActorRollout)
             actor_rollout_cls = RayClassWithInitArgs(
                 cls=self.role_worker_mapping[Role.ActorRollout],
                 config=self.config.actor_rollout_ref,
-                role="actor_rollout",
+                role=str(Role.ActorRollout),
                 profile_option=self.config.trainer.npu_profile.options,
             )
-            self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
+            self.resource_pool_to_cls[resource_pool][str(Role.ActorRollout)] = actor_rollout_cls
         else:
             raise NotImplementedError
 
+    def _create_critic_class(self):
         # create critic
         if self.use_critic:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
             critic_cfg = omega_conf_to_dataclass(self.config.critic)
             critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=critic_cfg)
-            self.resource_pool_to_cls[resource_pool]["critic"] = critic_cls
+            self.resource_pool_to_cls[resource_pool][str(Role.Critic)] = critic_cls
 
+    def _create_reference_policy_class(self):
         # create reference policy if needed
         if self.use_reference_policy:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
             ref_policy_cls = RayClassWithInitArgs(
                 self.role_worker_mapping[Role.RefPolicy],
                 config=self.config.actor_rollout_ref,
-                role="ref",
+                role=str(Role.RefPolicy),
                 profile_option=self.config.trainer.npu_profile.options,
             )
-            self.resource_pool_to_cls[resource_pool]["ref"] = ref_policy_cls
+            self.resource_pool_to_cls[resource_pool][str(Role.RefPolicy)] = ref_policy_cls
 
+    def _create_reward_model_class(self):
         # create a reward model if reward_fn is None
         if self.use_rm:
             # we create a RM here
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
             rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model)
-            self.resource_pool_to_cls[resource_pool]["rm"] = rm_cls
+            self.resource_pool_to_cls[resource_pool][str(Role.RewardModel)] = rm_cls
 
+    def _init_worker_groups(self):
         # initialize WorkerGroup
         # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
         # you should not use `create_colocated_worker_cls`.
@@ -846,23 +897,26 @@ class RayPPOTrainer:
             )
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)
+        self.all_wg = all_wg
 
+    def _init_models(self):
         if self.use_critic:
-            self.critic_wg = all_wg["critic"]
+            self.critic_wg = self.all_wg[str(Role.Critic)]
             self.critic_wg.init_model()
 
         if self.use_reference_policy and not self.ref_in_actor:
-            self.ref_policy_wg = all_wg["ref"]
+            self.ref_policy_wg = self.all_wg[str(Role.RefPolicy)]
             self.ref_policy_wg.init_model()
 
         if self.use_rm:
-            self.rm_wg = all_wg["rm"]
+            self.rm_wg = self.all_wg[str(Role.RewardModel)]
             self.rm_wg.init_model()
 
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
-        self.actor_rollout_wg = all_wg["actor_rollout"]
+        self.actor_rollout_wg = self.all_wg[Role.ActorRollout]
         self.actor_rollout_wg.init_model()
 
+    def _init_async_rollout_manager(self):
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
         if self.config.actor_rollout_ref.rollout.mode == "async":

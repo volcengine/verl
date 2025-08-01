@@ -67,10 +67,7 @@ class TestMessageQueue:
         metadata_list = [{"test": "data1"}, {"test": "data2"}]
 
         result = message_queue_client.put_batch(
-            epoch=1,
-            batch=samples,
-            param_version=1,
-            rollout_metadata_list=metadata_list
+            epoch=1, batch=samples, param_version=1, rollout_metadata_list=metadata_list
         )
 
         assert result is True
@@ -88,12 +85,7 @@ class TestMessageQueue:
         """测试不提供metadata时的处理"""
         samples = [mock_data_proto, mock_data_proto]
 
-        result = message_queue_client.put_batch(
-            epoch=1,
-            batch=samples,
-            param_version=1,
-            rollout_metadata_list=None
-        )
+        result = message_queue_client.put_batch(epoch=1, batch=samples, param_version=1, rollout_metadata_list=None)
 
         assert result is True
         queue_size = message_queue_client.get_queue_size()
@@ -105,10 +97,7 @@ class TestMessageQueue:
         metadata_list = [{"test": "data1"}]  # 长度不匹配
 
         result = message_queue_client.put_batch(
-            epoch=1,
-            batch=samples,
-            param_version=1,
-            rollout_metadata_list=metadata_list
+            epoch=1, batch=samples, param_version=1, rollout_metadata_list=metadata_list
         )
 
         assert result is False  # 应该失败
@@ -126,7 +115,7 @@ class TestMessageQueue:
             epoch=1,
             batch=samples,
             param_version=2,  # 5-2=3, 达到阈值
-            rollout_metadata_list=None
+            rollout_metadata_list=None,
         )
 
         assert result is False
@@ -140,12 +129,7 @@ class TestMessageQueue:
         # 填满队列（最大容量10）
         for i in range(6):  # 每次放入2个，总共12个，超过最大容量10
             samples = [mock_data_proto, mock_data_proto]
-            message_queue_client.put_batch(
-                epoch=1,
-                batch=samples,
-                param_version=1,
-                rollout_metadata_list=None
-            )
+            message_queue_client.put_batch(epoch=1, batch=samples, param_version=1, rollout_metadata_list=None)
 
         # 队列大小应该保持在最大值
         queue_size = message_queue_client.get_queue_size()
@@ -160,12 +144,7 @@ class TestMessageQueue:
         # 先放入一些samples
         samples = [mock_data_proto, mock_data_proto, mock_data_proto]
         metadata_list = [{"index": 0}, {"index": 1}, {"index": 2}]
-        message_queue_client.put_batch(
-            epoch=1,
-            batch=samples,
-            param_version=1,
-            rollout_metadata_list=metadata_list
-        )
+        message_queue_client.put_batch(epoch=1, batch=samples, param_version=1, rollout_metadata_list=metadata_list)
 
         # 获取2个samples
         retrieved_samples = message_queue_client.get_batch(min_batch_count=2)
@@ -194,12 +173,7 @@ class TestMessageQueue:
         def put_samples_later():
             time.sleep(0.5)  # 延迟放入
             samples = [mock_data_proto, mock_data_proto]
-            message_queue_client.put_batch(
-                epoch=1,
-                batch=samples,
-                param_version=1,
-                rollout_metadata_list=None
-            )
+            message_queue_client.put_batch(epoch=1, batch=samples, param_version=1, rollout_metadata_list=None)
 
         # 启动消费者线程
         consumer_thread = threading.Thread(target=get_samples)
@@ -225,12 +199,7 @@ class TestMessageQueue:
         """测试清空队列"""
         # 先添加一些样本
         samples = [mock_data_proto, mock_data_proto, mock_data_proto]
-        message_queue_client.put_batch(
-            epoch=1,
-            batch=samples,
-            param_version=1,
-            rollout_metadata_list=None
-        )
+        message_queue_client.put_batch(epoch=1, batch=samples, param_version=1, rollout_metadata_list=None)
 
         # 清空队列
         message_queue_client.clear_queue()
@@ -244,12 +213,7 @@ class TestMessageQueue:
         assert message_queue_client.get_queue_size() == 0
 
         samples = [mock_data_proto]
-        message_queue_client.put_batch(
-            epoch=1,
-            batch=samples,
-            param_version=1,
-            rollout_metadata_list=None
-        )
+        message_queue_client.put_batch(epoch=1, batch=samples, param_version=1, rollout_metadata_list=None)
         assert message_queue_client.get_queue_size() == 1
 
     def test_get_statistics(self, message_queue_client):
@@ -274,12 +238,7 @@ class TestMessageQueue:
         """测试获取内存使用统计"""
         # 添加一些样本
         samples = [mock_data_proto, mock_data_proto]
-        message_queue_client.put_batch(
-            epoch=1,
-            batch=samples,
-            param_version=1,
-            rollout_metadata_list=None
-        )
+        message_queue_client.put_batch(epoch=1, batch=samples, param_version=1, rollout_metadata_list=None)
 
         memory_stats = message_queue_client.get_memory_usage()
 
@@ -328,12 +287,7 @@ class TestConcurrency:
             def producer():
                 for i in range(50):
                     samples = [mock_data_proto, mock_data_proto]
-                    result = client.put_batch(
-                        epoch=i,
-                        batch=samples,
-                        param_version=1,
-                        rollout_metadata_list=None
-                    )
+                    result = client.put_batch(epoch=i, batch=samples, param_version=1, rollout_metadata_list=None)
                     results.append(("put", result))
                     time.sleep(0.1)
 
