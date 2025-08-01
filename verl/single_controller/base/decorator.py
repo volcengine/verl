@@ -447,19 +447,12 @@ def get_predefined_execute_fn(execute_mode):
     Note that here we only asks execute_all and execute_rank_zero to be implemented
     Leave the choice of how these two functions handle argument 'blocking' to users
     """
-    # Support string configuration
     if isinstance(execute_mode, str):
-        execute_mode = execute_mode.upper()
-        if execute_mode == "ALL_MULTITHREAD":
-            return {"execute_fn_name": "execute_all_multithread_submit"}
-        elif execute_mode == "RANK_ZERO":
-            return {"execute_fn_name": "execute_rank_zero"}
-        elif execute_mode == "ALL":
-            return {"execute_fn_name": "execute_all"}
-        else:
+        try:
+            execute_mode = Execute[execute_mode.upper()]
+        except KeyError:
             raise ValueError(f"Unknown execute_mode: {execute_mode}")
-    
-    # Original enum support
+
     predefined_execute_mode_fn = {
         Execute.ALL: {"execute_fn_name": "execute_all"},
         Execute.RANK_ZERO: {"execute_fn_name": "execute_rank_zero"},
