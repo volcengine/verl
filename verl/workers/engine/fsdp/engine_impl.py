@@ -140,6 +140,7 @@ class FSDPEngine(BaseEngine):
         self._is_offload_optimizer = self.config.system.optimizer_offload
         self._is_lora = self.config.model.lora_rank > 0
 
+
     def init_model(self):
         """
         Build the model, optimizer, and learning rate scheduler under FSDP.
@@ -168,43 +169,32 @@ class FSDPEngine(BaseEngine):
             checkpoint_contents=self.config.checkpoint,
         )
 
-    def _build_model_optimizer(self, config):
-        # the following line is necessary
-        from torch import optim
-        from torch.distributed.fsdp import CPUOffload, MixedPrecision
-        from transformers import AutoConfig
-
-        from verl.utils.model import load_valuehead_model, print_model_size, update_model_config
-        from verl.utils.torch_dtypes import PrecisionType
-
-        ############## tokenizer ##############
-        use_shm = config.model.use_shm
-        local_path = copy_to_local(config.model.path, use_shm=use_shm)
+    def _build_tokenizer(self, local_path):
+        use_shm = self.config.model.use_shm
         # note that the tokenizer between actor and critic may be different. So override tokenizer info with actor info
         # using random initialized model from any architecture. May not be the same as Actor.
-        if config.model.tokenizer_path is not None:
-            tokenizer_path = copy_to_local(config.model.tokenizer_path, use_shm=use_shm)
+        if self.config.model.tokenizer_path is not None:
+            tokenizer_path = copy_to_local(self.config.model.tokenizer_path, use_shm=use_shm)
         else:
             tokenizer_path = local_path
-        self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.trust_remote_code)
-        self.processor = hf_processor(tokenizer_path, trust_remote_code=config.model.trust_remote_code)
-
+        tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=self.config.model.trust_remote_code)
+        processor = hf_processor(tokenizer_path, trust_remote_code=self.config.model.trust_remote_code)
 
         if self.config.model.custom_chat_template is not None:
-            if self.processor is not None:
-                self.processor.chat_template = self.config.model.custom_chat_template
+            if processor is not None:
+                processor.chat_template = self.config.model.custom_chat_template
             else:
-                self.tokenizer.chat_template = self.config.model.custom_chat_template
+                tokenizer.chat_template = self.config.model.custom_chat_template
+        return tokenizer, processor
 
 
-        torch_dtype = self.config.system.model_dtype
-        torch_dtype = PrecisionType.to_dtype(torch_dtype)
-
-        ############## model config ##############
+    def _build_model_config(self, local_path):
+        from transformers import AutoConfig
+        from verl.utils.model import update_model_config
         model_config = AutoConfig.from_pretrained(
             local_path,
             attn_implementation="flash_attention_2",
-            trust_remote_code=config.model.trust_remote_code,
+            trust_remote_code=self.config.model.trust_remote_code,
         )
         # TODO: behavior difference between actor and critic
         model_config.num_labels = 1
@@ -222,7 +212,14 @@ class FSDPEngine(BaseEngine):
         if self.rank == 0:
             print(f"Engine overriding config {override_config_kwargs}")
         update_model_config(model_config, override_config_kwargs=override_config_kwargs)
+        return model_config
 
+
+    def _build_module(self, local_path, model_config):
+        from verl.utils.model import load_valuehead_model
+        from verl.utils.torch_dtypes import PrecisionType
+        torch_dtype = self.config.system.model_dtype
+        torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         init_context = get_init_weight_context_manager(
             use_meta_tensor=not model_config.tie_word_embeddings, mesh=self.device_mesh
@@ -239,7 +236,7 @@ class FSDPEngine(BaseEngine):
                 local_path,
                 torch_dtype,
                 model_config,
-                config.model.trust_remote_code,
+                self.config.model.trust_remote_code,
             )
 
             use_liger=self.config.model.use_liger
@@ -266,28 +263,31 @@ class FSDPEngine(BaseEngine):
             # some parameters may not in torch_dtype
             module.to(torch_dtype)
 
-            if config.model.enable_gradient_checkpointing:
+            if self.config.model.enable_gradient_checkpointing:
                 module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        return module
 
-        if self._is_lora:
-            print("Applying LoRA to the module")
-            module.enable_input_require_grads()
-            # Convert config to regular Python types before creating PEFT model
-            lora_config = {
-                "task_type": TaskType.CAUSAL_LM,
-                "r": self.config.model.lora_rank,
-                "lora_alpha": self.config.model.lora_alpha,
-                "target_modules": convert_to_regular_types(self.config.model.target_modules),
-                "bias": "none",
-            }
-            module = get_peft_model(module, LoraConfig(**lora_config))
 
-        torch.distributed.barrier()
-        if self.rank == 0:
-            print_model_size(module)        
-        log_gpu_memory_usage(f"After init model from HF AutoModel", logger=logger)
+    def _build_lora_module(self, module):
+        print("Applying LoRA to the module")
+        module.enable_input_require_grads()
+        # Convert config to regular Python types before creating PEFT model
+        lora_config = {
+            "task_type": TaskType.CAUSAL_LM,
+            "r": self.config.model.lora_rank,
+            "lora_alpha": self.config.model.lora_alpha,
+            "target_modules": convert_to_regular_types(self.config.model.target_modules),
+            "exclude_modules": convert_to_regular_types(self.config.model.exclude_modules),
+            "bias": "none",
+        }
+        module = get_peft_model(module, LoraConfig(**lora_config))
+        return module
 
-        self.model_config = model_config
+
+    def _build_fsdp_module(self, module):
+        from verl.utils.torch_dtypes import PrecisionType
+        from torch.distributed.fsdp import CPUOffload, MixedPrecision
+
 
         fsdp_config = self.config.system
         mixed_precision_config = fsdp_config.mixed_precision
@@ -314,7 +314,7 @@ class FSDPEngine(BaseEngine):
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
         # Note: We force turn off CPUOffload because it causes incorrect results when using grad accumulation
-        if config.strategy == "fsdp":
+        if self.config.strategy == "fsdp":
             # cpu_offload:
             # - actor: None
             # - critic: None
@@ -337,9 +337,9 @@ class FSDPEngine(BaseEngine):
                 device_mesh=self.device_mesh,
                 forward_prefetch=self.config.system.forward_prefetch,
                 use_orig_params=self.config.system.use_orig_params,
-                cpu_offload=None,
+                cpu_offload=cpu_offload,
             )
-        elif config.strategy == "fsdp2":
+        elif self.config.strategy == "fsdp2":
             # - actor: offload_policy
             # - critic: offload_policy
             # - ref: CPUOffloadPolicy(pin_memory=True)
@@ -363,28 +363,33 @@ class FSDPEngine(BaseEngine):
             apply_fsdp2(module, fsdp_kwargs, fsdp_config)
             fsdp2_load_full_state_dict(module, full_state, fsdp_mesh, offload_policy)
         else:
-            raise NotImplementedError(f"Unknown strategy {config.strategy}")
+            raise NotImplementedError(f"Unknown strategy {self.config.strategy}")
 
-        if config.model.enable_activation_offload:
-            enable_gradient_checkpointing = config.model.enable_gradient_checkpointing
-            enable_activation_offloading(module, config.strategy, enable_gradient_checkpointing)
+        if self.config.model.enable_activation_offload:
+            enable_gradient_checkpointing = self.config.model.enable_gradient_checkpointing
+            enable_activation_offloading(module, self.config.strategy, enable_gradient_checkpointing)
+        return module
 
-        log_gpu_memory_usage("After FSDP", logger=None)
 
+    def _build_optimizer(self, module):
+        from torch import optim
         optimizer = optim.AdamW(
             module.parameters(),
-            lr=config.optim.lr,
-            betas=config.optim.betas,
-            weight_decay=config.optim.weight_decay,
+            lr=self.config.optim.lr,
+            betas=self.config.optim.betas,
+            weight_decay=self.config.optim.weight_decay,
         )
+        return optimizer
 
-        total_steps = config.optim.total_training_steps
-        num_warmup_steps = int(config.optim.lr_warmup_steps)
-        warmup_style = config.optim.warmup_style
-        min_lr_ratio = config.optim.min_lr_ratio
-        num_cycles = config.optim.num_cycles
+
+    def _build_lr_scheduler(self, optimizer):
+        total_steps = self.config.optim.total_training_steps
+        num_warmup_steps = int(self.config.optim.lr_warmup_steps)
+        warmup_style = self.config.optim.warmup_style
+        min_lr_ratio = self.config.optim.min_lr_ratio
+        num_cycles = self.config.optim.num_cycles
         if num_warmup_steps < 0:
-            num_warmup_steps_ratio = config.optim.lr_warmup_steps_ratio
+            num_warmup_steps_ratio = self.config.optim.lr_warmup_steps_ratio
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
         if self.rank == 0:
@@ -404,8 +409,34 @@ class FSDPEngine(BaseEngine):
             )
         else:
             raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
+        return lr_scheduler
+
+
+    def _build_model_optimizer(self, config):
+        from verl.utils.model import print_model_size
+
+        local_path = copy_to_local(config.model.path, use_shm=self.config.model.use_shm)
+
+        self.tokenizer, self.processor = self._build_tokenizer(local_path)
+        
+        self.model_config = self._build_model_config(local_path)
+        module = self._build_module(local_path, self.model_config)
+        if self._is_lora:
+            module = self._build_lora_module(module)
+
+        torch.distributed.barrier()
+        if self.rank == 0:
+            print_model_size(module)        
+        log_gpu_memory_usage(f"After init model from HF AutoModel", logger=logger)
+
+        module = self._build_fsdp_module(module)
+        log_gpu_memory_usage("After FSDP", logger=None)
+
+        optimizer = self._build_optimizer(module)
+        lr_scheduler = self._build_lr_scheduler(optimizer)
 
         return module, optimizer, lr_scheduler
+
 
     def train_mode(self):
         """

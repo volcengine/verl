@@ -3,7 +3,15 @@ from omegaconf import DictConfig
 from verl.utils.config import omega_conf_to_dataclass
 from typing import Any
 
+"""
+Basic idea:
+- unify the config feed into the engine by different workers like Actor/Critic
+- no default value
+- unmutable
+"""
 
+
+@dataclass
 class BaseConfig:
     def get(self, key: str, default_value: Any = None) -> Any:
         if key in {f.name for f in fields(self)}:
