@@ -55,6 +55,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         assert self.config.ppo_micro_batch_size is None and \
             self.config.forward_micro_batch_size is None, \
             "new engine implementation does not support ppo_micro_batch_size and forward_micro_batch_size"
+        # if strategy is fsdp, offload_config should be None
         
         engine_config = self.create_engine_config(self.config)
         self.engine = EngineRegistry.new(self.config.strategy, engine_config)

@@ -1,9 +1,18 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, fields
 from omegaconf import DictConfig
 from verl.utils.config import omega_conf_to_dataclass
+from typing import Any
+
+
+class BaseConfig:
+    def get(self, key: str, default_value: Any = None) -> Any:
+        if key in {f.name for f in fields(self)}:
+            return getattr(self, key)
+        return default_value
+
 
 @dataclass
-class EngineConfig:
+class EngineConfig(BaseConfig):
     """Dataclass for Engine configuration."""
     model: 'ModelConfig'
     optim: 'OptimConfig'
@@ -22,7 +31,7 @@ class EngineConfig:
 
 
 @dataclass
-class ModelConfig:
+class ModelConfig(BaseConfig):
     """Dataclass for model configuration."""
     path: str
     tokenizer_path: str
@@ -37,10 +46,13 @@ class ModelConfig:
     enable_activation_offload: bool
     use_remove_padding: bool
     external_lib: str
+    use_liger: bool
+    use_fused_kernels: bool
+    fused_kernel_options: dict
 
 
 @dataclass
-class OptimConfig:
+class OptimConfig(BaseConfig):
     """Dataclass for optimizer configuration."""
     lr: float
     betas: tuple[float, float]
@@ -49,28 +61,51 @@ class OptimConfig:
     lr_warmup_steps: int
     lr_warmup_steps_ratio: float
     warmup_style: str
+    min_lr_ratio: float
+    num_cycles: float
+
 
 
 # TODO: use inheritance for different backend
 # - FSDPSystemConfig(SystemConfig)
 # - MCoreSystemConfig(SystemConfig)
 
+
+
+"""
+Current offload policy logistic
+
+fsdp:
+- actor: force to False
+- critic: force to False
+- ref: force to be CPUOffload(offload_params=True)
+fsdp2:
+- actor: depend on offload_policy
+- critic: depend on offload_policy
+- ref: force to be CPUOffload(pin_memory=True)
+"""
+
+
+                # use_orig_params=fsdp_config.get("use_orig_params", False),
+                # forward_prefetch=fsdp_config.get("forward_prefetch", False),
+
 @dataclass
-class SystemConfig:
+class SystemConfig(BaseConfig):
     """Dataclass for FSDP system configuration."""
     fsdp_size: int
     param_offload: bool
     optimizer_offload: bool
     wrap_policy: dict
-    forward_prefetch: bool
     reshard_after_forward: bool
     model_dtype: str
     mixed_precision: dict
     offload_policy: bool
+    forward_prefetch: bool
+    use_orig_params: bool
 
 
 @dataclass
-class CheckpointConfig:
+class CheckpointConfig(BaseConfig):
     save_contents: list[str]
     load_contents: list[str]
     async_save: bool
@@ -90,10 +125,15 @@ def get_model_config(config):
         enable_gradient_checkpointing=config.enable_gradient_checkpointing,
         enable_activation_offload=config.enable_activation_offload,
         use_remove_padding=config.use_remove_padding,
-        external_lib=config.external_lib
+        external_lib=config.external_lib,
+        use_liger=config.use_liger,
+        use_fused_kernels=config.use_fused_kernels,
+        fused_kernel_options=config.fused_kernel_options,
     )
     return model_config
 
+            # min_lr_ratio = config.optim.get("min_lr_ratio", 0.0)
+            # num_cycles = config.optim.get("num_cycles", 0.5)
 
 def get_optim_config(config):
     optim_config = OptimConfig(
@@ -103,7 +143,9 @@ def get_optim_config(config):
         total_training_steps=config.total_training_steps,
         lr_warmup_steps=config.lr_warmup_steps,
         lr_warmup_steps_ratio=config.lr_warmup_steps_ratio,
-        warmup_style=config.get("warmup_style", "constant")
+        warmup_style=config.get("warmup_style", "constant"),
+        min_lr_ratio=config.min_lr_ratio,
+        num_cycles=config.num_cycles
     )
     return optim_config
 
@@ -114,11 +156,12 @@ def get_system_config(config):
         param_offload=config.param_offload,
         optimizer_offload=config.optimizer_offload,
         wrap_policy=config.wrap_policy,
-        forward_prefetch=config.forward_prefetch,
         reshard_after_forward=config.reshard_after_forward,
         model_dtype=config.get("model_dtype", "fp32"),
         mixed_precision=config.get("mixed_precision", None),
-        offload_policy=config.offload_policy
+        offload_policy=config.offload_policy,
+        forward_prefetch=config.forward_prefetch,
+        use_orig_params=config.get("use_orig_params", False)
     )
     return system_config
 
@@ -158,26 +201,5 @@ def get_engine_config(config,
     return engine_config
 
 
-
-def engine_config_for_actor(actor_config: DictConfig) -> EngineConfig:
-    """
-    Convert a Hydra config to the FSDPEngineConfig dataclass.
-
-    Args:
-        actor_config (DictConfig): The config from CriticWorker.
-
-    Returns:
-        FSDPEngineConfig: The converted dataclass.
-    """
-    print(actor_config)
-    model_config = get_model_config(actor_config.model)
-    optim_config = get_optim_config(actor_config.actor.optim)
-    system_config = get_system_config(actor_config.actor.fsdp_config)
-    ckpt_config = get_checkpoint_config(actor_config.actor.checkpoint)
-
-    ret = get_engine_config(actor_config.actor,
-                            model_config,
-                            optim_config,
-                            system_config,
-                            ckpt_config)
-    return ret
+def check_config_for_engine():
+    pass

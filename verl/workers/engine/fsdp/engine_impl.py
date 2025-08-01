@@ -171,7 +171,7 @@ class FSDPEngine(BaseEngine):
     def _build_model_optimizer(self, config):
         # the following line is necessary
         from torch import optim
-        from torch.distributed.fsdp import MixedPrecision
+        from torch.distributed.fsdp import CPUOffload, MixedPrecision
         from transformers import AutoConfig
 
         from verl.utils.model import load_valuehead_model, print_model_size, update_model_config
@@ -228,8 +228,7 @@ class FSDPEngine(BaseEngine):
             use_meta_tensor=not model_config.tie_word_embeddings, mesh=self.device_mesh
         )
 
-        raise ValueError
-
+        # TODO(ziheng): need to recheck
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             model_config.classifier_dropout = 0.0
@@ -243,10 +242,25 @@ class FSDPEngine(BaseEngine):
                 config.model.trust_remote_code,
             )
 
+            use_liger=self.config.model.use_liger
+            # Apply Liger kernel to the model if use_liger is set to True
+            if use_liger:
+                from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
+
+                _apply_liger_kernel_to_instance(model=module)
+
+            fused_kernel_options = self.config.model.fused_kernel_options
+            fused_kernels_backend = (
+                fused_kernel_options.get("impl_backend", None) if fused_kernel_options is not None else None
+            )
+
+            use_fused_kernels = self.config.model.use_fused_kernels
             apply_monkey_patch(
                 model=module,
                 use_remove_padding=self.use_remove_padding,
                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
+                use_fused_kernels=use_fused_kernels,
+                fused_kernels_backend=fused_kernels_backend
             )
 
             # some parameters may not in torch_dtype
@@ -268,8 +282,10 @@ class FSDPEngine(BaseEngine):
             }
             module = get_peft_model(module, LoraConfig(**lora_config))
 
+        torch.distributed.barrier()
         if self.rank == 0:
-            print_model_size(module)
+            print_model_size(module)        
+        log_gpu_memory_usage(f"After init model from HF AutoModel", logger=logger)
 
         self.model_config = model_config
 
@@ -299,20 +315,34 @@ class FSDPEngine(BaseEngine):
 
         # Note: We force turn off CPUOffload because it causes incorrect results when using grad accumulation
         if config.strategy == "fsdp":
+            # cpu_offload:
+            # - actor: None
+            # - critic: None
+            # - ref: CPUOffload(offload_params=True)
+
+            # We force reference policy to use CPUOffload to save memory.
+            # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
+            cpu_offload = None
+            if self.config.system.offload_policy:
+                cpu_offload = CPUOffload(offload_params=True)
+            
             module = FSDP(
                 module,
                 param_init_fn=init_fn,
-                use_orig_params=False,
                 auto_wrap_policy=auto_wrap_policy,
                 device_id=get_device_id(),
                 sharding_strategy=sharding_strategy,
                 mixed_precision=mixed_precision,
                 sync_module_states=True,
-                forward_prefetch=self.config.system.forward_prefetch,
                 device_mesh=self.device_mesh,
+                forward_prefetch=self.config.system.forward_prefetch,
+                use_orig_params=self.config.system.use_orig_params,
                 cpu_offload=None,
             )
         elif config.strategy == "fsdp2":
+            # - actor: offload_policy
+            # - critic: offload_policy
+            # - ref: CPUOffloadPolicy(pin_memory=True)
             assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
             mp_policy = MixedPrecisionPolicy(
                 param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True
@@ -351,6 +381,8 @@ class FSDPEngine(BaseEngine):
         total_steps = config.optim.total_training_steps
         num_warmup_steps = int(config.optim.lr_warmup_steps)
         warmup_style = config.optim.warmup_style
+        min_lr_ratio = config.optim.min_lr_ratio
+        num_cycles = config.optim.num_cycles
         if num_warmup_steps < 0:
             num_warmup_steps_ratio = config.optim.lr_warmup_steps_ratio
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
@@ -364,7 +396,11 @@ class FSDPEngine(BaseEngine):
             lr_scheduler = get_constant_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=num_warmup_steps)
         elif warmup_style == "cosine":
             lr_scheduler = get_cosine_schedule_with_warmup(
-                optimizer=optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=total_steps
+                optimizer=optimizer,
+                num_warmup_steps=num_warmup_steps,
+                num_training_steps=total_steps,
+                min_lr_ratio=min_lr_ratio,
+                num_cycles=num_cycles
             )
         else:
             raise NotImplementedError(f"Warmup style {warmup_style} is not supported")

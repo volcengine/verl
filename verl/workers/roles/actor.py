@@ -141,6 +141,8 @@ class ActorWorker(Worker, DistProfilerExtension):
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
 
+        # if strategy is fsdp, offload_config should be None
+
         self.role = role
         assert self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
         self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
@@ -231,146 +233,146 @@ class ActorWorker(Worker, DistProfilerExtension):
         # if self.rank == 0:
         #     print(f"Model config after override: {actor_model_config}")
 
-        # NOTE(fix me): tie_word_embedding causes meta_tensor init to hang
-        init_context = get_init_weight_context_manager(
-            use_meta_tensor=not actor_model_config.tie_word_embeddings, mesh=self.device_mesh
-        )
+        # # NOTE(fix me): tie_word_embedding causes meta_tensor init to hang
+        # init_context = get_init_weight_context_manager(
+        #     use_meta_tensor=not actor_model_config.tie_word_embeddings, mesh=self.device_mesh
+        # )
 
-        with init_context(), warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
-                actor_module_class = AutoModelForVision2Seq
-            else:
-                actor_module_class = AutoModelForCausalLM
+        # with init_context(), warnings.catch_warnings():
+        #     warnings.simplefilter("ignore")
+        #     if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
+        #         actor_module_class = AutoModelForVision2Seq
+        #     else:
+        #         actor_module_class = AutoModelForCausalLM
 
-            actor_module = actor_module_class.from_pretrained(
-                pretrained_model_name_or_path=local_path,
-                torch_dtype=torch_dtype,
-                config=actor_model_config,
-                trust_remote_code=trust_remote_code,
-            )
+        #     actor_module = actor_module_class.from_pretrained(
+        #         pretrained_model_name_or_path=local_path,
+        #         torch_dtype=torch_dtype,
+        #         config=actor_model_config,
+        #         trust_remote_code=trust_remote_code,
+        #     )
 
-            # Apply Liger kernel to the model if use_liger is set to True
-            if use_liger:
-                from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
+        #     # Apply Liger kernel to the model if use_liger is set to True
+        #     if use_liger:
+        #         from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
 
-                _apply_liger_kernel_to_instance(model=actor_module)
+        #         _apply_liger_kernel_to_instance(model=actor_module)
 
-            fused_kernel_options = self.config.model.get("fused_kernel_options", None)
-            fused_kernels_backend = (
-                fused_kernel_options.get("impl_backend", None) if fused_kernel_options is not None else None
-            )
+        #     fused_kernel_options = self.config.model.get("fused_kernel_options", None)
+        #     fused_kernels_backend = (
+        #         fused_kernel_options.get("impl_backend", None) if fused_kernel_options is not None else None
+        #     )
 
-            apply_monkey_patch(
-                model=actor_module,
-                use_remove_padding=use_remove_padding,
-                ulysses_sp_size=self.ulysses_sequence_parallel_size,
-                use_fused_kernels=use_fused_kernels,
-                fused_kernels_backend=fused_kernels_backend,
-            )
+        #     apply_monkey_patch(
+        #         model=actor_module,
+        #         use_remove_padding=use_remove_padding,
+        #         ulysses_sp_size=self.ulysses_sequence_parallel_size,
+        #         use_fused_kernels=use_fused_kernels,
+        #         fused_kernels_backend=fused_kernels_backend,
+        #     )
 
-            # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
-            actor_module.to(torch_dtype)
+        #     # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
+        #     actor_module.to(torch_dtype)
 
-            if enable_gradient_checkpointing:
-                actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-            if self._is_lora:
-                print("Applying LoRA to actor module")
-                actor_module.enable_input_require_grads()
-                # Convert config to regular Python types before creating PEFT model
-                lora_config = {
-                    "task_type": TaskType.CAUSAL_LM,
-                    "r": self.config.model.lora_rank,
-                    "lora_alpha": self.config.model.lora_alpha,
-                    "target_modules": convert_to_regular_types(self.config.model.target_modules),
-                    "exclude_modules": convert_to_regular_types(self.config.model.exclude_modules),
-                    "bias": "none",
-                }
-                actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
-        torch.distributed.barrier()
+        #     if enable_gradient_checkpointing:
+        #         actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        #     if self._is_lora:
+        #         print("Applying LoRA to actor module")
+        #         actor_module.enable_input_require_grads()
+        #         # Convert config to regular Python types before creating PEFT model
+        #         lora_config = {
+        #             "task_type": TaskType.CAUSAL_LM,
+        #             "r": self.config.model.lora_rank,
+        #             "lora_alpha": self.config.model.lora_alpha,
+        #             "target_modules": convert_to_regular_types(self.config.model.target_modules),
+        #             "exclude_modules": convert_to_regular_types(self.config.model.exclude_modules),
+        #             "bias": "none",
+        #         }
+        #         actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
+        # torch.distributed.barrier()
 
-        if self.rank == 0:
-            print_model_size(actor_module)
+        # if self.rank == 0:
+        #     print_model_size(actor_module)
 
-        log_gpu_memory_usage(f"After init {role} from HF AutoModel", logger=logger)
+        # log_gpu_memory_usage(f"After init {role} from HF AutoModel", logger=logger)
 
-        # We wrap FSDP for rollout as well
-        mixed_precision_config = fsdp_config.get("mixed_precision", None)
-        if mixed_precision_config is not None:
-            param_dtype = PrecisionType.to_dtype(mixed_precision_config.get("param_dtype", "bf16"))
-            reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "fp32"))
-            buffer_dtype = PrecisionType.to_dtype(mixed_precision_config.get("buffer_dtype", "fp32"))
-        else:
-            param_dtype = torch.bfloat16
-            reduce_dtype = torch.float32
-            buffer_dtype = torch.float32
+        # # We wrap FSDP for rollout as well
+        # mixed_precision_config = fsdp_config.get("mixed_precision", None)
+        # if mixed_precision_config is not None:
+        #     param_dtype = PrecisionType.to_dtype(mixed_precision_config.get("param_dtype", "bf16"))
+        #     reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "fp32"))
+        #     buffer_dtype = PrecisionType.to_dtype(mixed_precision_config.get("buffer_dtype", "fp32"))
+        # else:
+        #     param_dtype = torch.bfloat16
+        #     reduce_dtype = torch.float32
+        #     buffer_dtype = torch.float32
 
-        mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
+        # mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
 
-        auto_wrap_policy = get_fsdp_wrap_policy(
-            module=actor_module,
-            config=fsdp_config.get("wrap_policy", None),
-            is_lora=self.config.model.get("lora_rank", 0) > 0,
-        )
+        # auto_wrap_policy = get_fsdp_wrap_policy(
+        #     module=actor_module,
+        #     config=fsdp_config.get("wrap_policy", None),
+        #     is_lora=self.config.model.get("lora_rank", 0) > 0,
+        # )
 
         # if self._is_rollout and self.config.rollout.name == "hf":
         #     # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
         #     auto_wrap_policy = None
 
-        if self.rank == 0:
-            print(f"wrap_policy: {auto_wrap_policy}")
+        # if self.rank == 0:
+        #     print(f"wrap_policy: {auto_wrap_policy}")
 
-        fsdp_mesh = self.device_mesh
-        sharding_strategy = get_sharding_strategy(fsdp_mesh)
+        # fsdp_mesh = self.device_mesh
+        # sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
-        # TODO: add transformer policy
-        # We force reference policy to use CPUOffload to save memory.
-        # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
-        cpu_offload = None if role == "actor" else CPUOffload(offload_params=True)
-        fsdp_strategy = self.config.actor.strategy
-        if fsdp_strategy == "fsdp":
-            actor_module_fsdp = FSDP(
-                actor_module,
-                cpu_offload=cpu_offload,
-                param_init_fn=init_fn,
-                auto_wrap_policy=auto_wrap_policy,
-                device_id=get_device_id(),
-                sharding_strategy=sharding_strategy,  # zero3
-                mixed_precision=mixed_precision,
-                sync_module_states=True,
-                device_mesh=self.device_mesh,
-                use_orig_params=fsdp_config.get("use_orig_params", False),
-                forward_prefetch=fsdp_config.get("forward_prefetch", False),
-            )
-        elif fsdp_strategy == "fsdp2":
-            assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
-            mp_policy = MixedPrecisionPolicy(
-                param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True
-            )
-            if role == "actor" and fsdp_config.offload_policy:
-                cpu_offload = CPUOffloadPolicy(pin_memory=True)
-                self._is_offload_param = False
-                self._is_offload_optimizer = False
-            else:
-                cpu_offload = None if role == "actor" else CPUOffloadPolicy(pin_memory=True)
+        # # TODO: add transformer policy
+        # # We force reference policy to use CPUOffload to save memory.
+        # # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
+        # cpu_offload = None if role == "actor" else CPUOffload(offload_params=True)
+        # fsdp_strategy = self.config.actor.strategy
+        # if fsdp_strategy == "fsdp":
+        #     actor_module_fsdp = FSDP(
+        #         actor_module,
+        #         cpu_offload=cpu_offload,
+        #         param_init_fn=init_fn,
+        #         auto_wrap_policy=auto_wrap_policy,
+        #         device_id=get_device_id(),
+        #         sharding_strategy=sharding_strategy,  # zero3
+        #         mixed_precision=mixed_precision,
+        #         sync_module_states=True,
+        #         device_mesh=self.device_mesh,
+        #         use_orig_params=fsdp_config.get("use_orig_params", False),
+        #         forward_prefetch=fsdp_config.get("forward_prefetch", False),
+        #     )
+        # elif fsdp_strategy == "fsdp2":
+        #     assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
+        #     mp_policy = MixedPrecisionPolicy(
+        #         param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True
+        #     )
+        #     if role == "actor" and fsdp_config.offload_policy:
+        #         cpu_offload = CPUOffloadPolicy(pin_memory=True)
+        #         self._is_offload_param = False
+        #         self._is_offload_optimizer = False
+        #     else:
+        #         cpu_offload = None if role == "actor" else CPUOffloadPolicy(pin_memory=True)
 
-            fsdp_kwargs = {
-                "mesh": fsdp_mesh,
-                "mp_policy": mp_policy,
-                "offload_policy": cpu_offload,
-                "reshard_after_forward": fsdp_config.reshard_after_forward,
-            }
-            full_state = actor_module.state_dict()
-            apply_fsdp2(actor_module, fsdp_kwargs, fsdp_config)
-            fsdp2_load_full_state_dict(actor_module, full_state, fsdp_mesh, cpu_offload)
-            actor_module_fsdp = actor_module
-        else:
-            raise NotImplementedError(f"not implement {fsdp_strategy}")
+        #     fsdp_kwargs = {
+        #         "mesh": fsdp_mesh,
+        #         "mp_policy": mp_policy,
+        #         "offload_policy": cpu_offload,
+        #         "reshard_after_forward": fsdp_config.reshard_after_forward,
+        #     }
+        #     full_state = actor_module.state_dict()
+        #     apply_fsdp2(actor_module, fsdp_kwargs, fsdp_config)
+        #     fsdp2_load_full_state_dict(actor_module, full_state, fsdp_mesh, cpu_offload)
+        #     actor_module_fsdp = actor_module
+        # else:
+        #     raise NotImplementedError(f"not implement {fsdp_strategy}")
 
-        if enable_activation_offload:
-            enable_activation_offloading(actor_module_fsdp, fsdp_strategy, enable_gradient_checkpointing)
+        # if enable_activation_offload:
+        #     enable_activation_offloading(actor_module_fsdp, fsdp_strategy, enable_gradient_checkpointing)
 
-        log_gpu_memory_usage(f"After {role} FSDP init", logger=logger)
+        # log_gpu_memory_usage(f"After {role} FSDP init", logger=logger)
 
         # TODO: add more optimizer args into config
         if role == "actor" and optim_config is not None:
