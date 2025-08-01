@@ -99,7 +99,7 @@ jobs:
       image: verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.1
       options: --gpus all --shm-size=10g
     steps:
-      - uses: actions/checkout@58d698e04b5e3eeb6da93213415912864b58088c 
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
       - name: Install the current repository
@@ -128,7 +128,7 @@ jobs:
       image: verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.1
       options: --gpus all --shm-size=10g
     steps:
-      - uses: actions/checkout@58d698e04b5e3eeb6da93213415912864b58088c 
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 
         with:
           fetch-depth: 0
       - name: Install the current repository
