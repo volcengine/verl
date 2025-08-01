@@ -78,6 +78,7 @@ class ToolAgentLoop(AgentLoopBase):
             ),
         )
         response_mask = []
+        tools_kwargs = kwargs.get("tools_kwargs", {})
 
         if len(prompt_ids)==1 and isinstance(prompt_ids[0], list):
             # `processor.apply_chat_template` returns [{}], while `tokenizer.apply_chat_template` returns {} for an input of batch size 1
@@ -114,7 +115,7 @@ class ToolAgentLoop(AgentLoopBase):
             # call tools
             tasks = []
             for tool_call in tool_calls[: self.max_parallel_calls]:
-                tasks.append(self._call_tool(tool_call, tools_kwargs=tools_kwargs))
+                tasks.append(self._call_tool(tool_call, tools_kwargs))
             with simple_timer("tool_calls", metrics):
                 tool_responses = await asyncio.gather(*tasks)
             if any(isinstance(item, Exception) for item in tool_responses):
@@ -154,7 +155,7 @@ class ToolAgentLoop(AgentLoopBase):
         )
         return output
 
-    async def _call_tool(self, tool_call: FunctionCall, tools_kwargs: Optional[dict[str, Any]] = None) -> dict[str, str]:
+    async def _call_tool(self, tool_call: FunctionCall, tools_kwargs: dict[str, Any]) -> dict[str, str]:
         """Call tool and return tool response."""
         tool, instance_id = None, None
         try:
@@ -162,13 +163,8 @@ class ToolAgentLoop(AgentLoopBase):
             tool_name = tool_call.name
             tool_args = json.loads(tool_call.arguments)
             tool = self.tools[tool_name]
-
-            if tools_kwargs:
-                create_kwargs = tools_kwargs[tool_name].get("create_kwargs", {})
-                instance_id = await tool.create(**create_kwargs)
-            else:
-                # make sure the tool indeed does not expect any input
-                instance_id = await tool.create()
+            kwargs = tools_kwargs.get(tool_name, {})
+            instance_id = await tool.create(create_kwargs=kwargs.get("create_kwargs", {}))
             tool_response, _, _ = await tool.execute(instance_id, tool_args)
         except Exception as e:
             logger.exception(f"Error when executing tool: {e}")
