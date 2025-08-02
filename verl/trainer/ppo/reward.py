@@ -12,14 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib.util
 import multiprocessing
 import os
+import sys
+import warnings
 from functools import partial
+from typing import Any, Optional
 
 import ray
+import torch
+from omegaconf import DictConfig
 
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
+from verl.workers.reward_manager import get_reward_manager_cls
+from verl.workers.reward_manager.abstract import AbstractRewardManager, RawRewardFn
 
 
 def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
@@ -31,7 +39,7 @@ def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
     return raw_fn(*args, **merged_kwargs)
 
 
-def get_custom_reward_fn(config):
+def get_custom_reward_fn(config: DictConfig) -> Optional[RawRewardFn]:
     """Load and return a custom reward function from external file.
 
     Dynamically imports a reward function from a specified file path and wraps
@@ -50,8 +58,6 @@ def get_custom_reward_fn(config):
         RuntimeError: If there's an error loading the module from file.
         AttributeError: If the specified function name isn't found in the module.
     """
-    import importlib.util
-    import sys
 
     reward_fn_config = config.get("custom_reward_function") or {}
     file_path = reward_fn_config.get("path")
@@ -62,14 +68,17 @@ def get_custom_reward_fn(config):
         raise FileNotFoundError(f"Reward function file '{file_path}' not found.")
 
     spec = importlib.util.spec_from_file_location("custom_module", file_path)
+    assert spec is not None
     module = importlib.util.module_from_spec(spec)
     try:
         sys.modules["custom_module"] = module
+        assert spec.loader is not None
         spec.loader.exec_module(module)
     except Exception as e:
         raise RuntimeError(f"Error loading module from '{file_path}': {e}") from e
 
     function_name = reward_fn_config.get("name")
+    assert function_name is not None
     if not hasattr(module, function_name):
         raise AttributeError(f"Reward function '{function_name}' not found in '{file_path}'.")
 
@@ -81,7 +90,9 @@ def get_custom_reward_fn(config):
     return partial(_call_with_kwargs, raw_fn, reward_kwargs)
 
 
-def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
+def load_reward_manager(
+    config: DictConfig, tokenizer: Any, num_examine: int, **reward_kwargs: Any
+) -> AbstractRewardManager:
     """
     Load and initialize a reward manager based on the configuration.
 
@@ -94,7 +105,6 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
     Returns:
         An instance of the specified reward manager class.
     """
-    from verl.workers.reward_manager import get_reward_manager_cls
 
     # The list of pre-defined reward managers are defined in `verl/workers/reward_manager/`:
     # naive: NaiveRewardManager
@@ -138,7 +148,7 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
     )
 
 
-def compute_reward(data: DataProto, reward_fn):
+def compute_reward(data: DataProto, reward_fn: AbstractRewardManager) -> tuple[torch.Tensor, dict[str, Any]]:
     """
     Compute reward for a batch of data.
     Args:
@@ -169,7 +179,6 @@ def compute_reward_async(data: DataProto, config=None, tokenizer=None, reward_fn
         assert config is not None and tokenizer is not None, (
             "config and tokenizer must not be None when reward_fn is None"
         )
-        import warnings
 
         warnings.warn("using config and tokenizer with compute_reward_async is deprecated", stacklevel=2)
         reward_fn = load_reward_manager(
