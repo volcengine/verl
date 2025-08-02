@@ -26,7 +26,7 @@ from verl.tools.base_tool import BaseTool
 from verl.utils.reward_score.sandbox_fusion.utils import _process_single_case
 from verl.utils.rollout_trace import rollout_trace_op
 
-from .schemas import OpenAIFunctionToolSchema
+from .schemas import OpenAIFunctionToolSchema, ToolResponse
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -152,7 +152,9 @@ class SandboxFusionTool(BaseTool):
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
 
-    async def create(self, instance_id: Optional[str] = None, ground_truth: Optional[str] = None, **kwargs) -> str:
+    async def create(
+        self, instance_id: Optional[str] = None, ground_truth: Optional[str] = None, **kwargs
+    ) -> tuple[str, ToolResponse]:
         if instance_id is None:
             instance_id = str(uuid4())
         self._instance_dict[instance_id] = {
@@ -160,10 +162,10 @@ class SandboxFusionTool(BaseTool):
             "ground_truth": ground_truth,
             "reward": [],
         }
-        return instance_id
+        return instance_id, ToolResponse()
 
     @rollout_trace_op
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
         code = parameters.get("code", "")
         timeout = parameters.get("timeout", self.default_timeout)
         language = parameters.get("language", self.default_language)
@@ -172,7 +174,7 @@ class SandboxFusionTool(BaseTool):
 
         result = await self.execution_pool.execute.remote(self.execute_code, instance_id, code, timeout, language)
         # sandbox has no score or metrics, use Nones
-        return result, None, None
+        return ToolResponse(text=result), None, None
 
     def execute_code(self, instance_id, code, timeout=30, language="python"):
         result_status, metadata = _process_single_case(
@@ -182,9 +184,9 @@ class SandboxFusionTool(BaseTool):
         if metadata["run_status"] == "Finished":
             actual_output = metadata["stdout"] + metadata["stderr"]
             logger.debug(f"actual_output from sandbox fusion: {actual_output},{instance_id}")
-            return actual_output
+            return ToolResponse(text=actual_output)
         else:
-            return "no stdout here"
+            return ToolResponse(text="no stdout here")
 
     async def calc_reward(self, instance_id: str, **kwargs) -> str:
         return self._instance_dict[instance_id]["reward"]

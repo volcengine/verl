@@ -144,8 +144,8 @@ class ToolAgentLoop(AgentLoopBase):
             tool_args = json.loads(tool_call.arguments)
             tool = self.tools[tool_name]
             kwargs = tools_kwargs.get(tool_name, {})
-            instance_id = await tool.create(create_kwargs=kwargs.get("create_kwargs", {}))
-            tool_response, _, _ = await tool.execute(instance_id, tool_args)
+            instance_id, _ = await tool.create(create_kwargs=kwargs.get("create_kwargs", {}))
+            tool_execution_response, _, _ = await tool.execute(instance_id, tool_args)
         except Exception as e:
             logger.exception(f"Error when executing tool: {e}")
             return e
@@ -153,16 +153,17 @@ class ToolAgentLoop(AgentLoopBase):
             if tool and instance_id:
                 await tool.release(instance_id)
 
-        if len(tool_response) > self.max_tool_response_length:
+        tool_response_text = tool_execution_response.text
+        if tool_response_text and len(tool_response_text) > self.max_tool_response_length:
             if self.tool_response_truncate_side == "left":
-                tool_response = tool_response[: self.max_tool_response_length] + "...(truncated)"
+                tool_response_text = tool_response_text[: self.max_tool_response_length] + "...(truncated)"
             elif self.tool_response_truncate_side == "right":
-                tool_response = "(truncated)..." + tool_response[-self.max_tool_response_length :]
+                tool_response_text = "(truncated)..." + tool_response_text[-self.max_tool_response_length :]
             else:
                 length = self.max_tool_response_length // 2
-                tool_response = tool_response[:length] + "...(truncated)..." + tool_response[-length:]
+                tool_response_text = tool_response_text[:length] + "...(truncated)..." + tool_response_text[-length:]
 
         return {
             "role": "tool",
-            "content": tool_response,
+            "content": tool_response_text,
         }

@@ -89,7 +89,7 @@ def get_sandbox_fusion_messages():
 
     tool_return_0_msg = {
         "role": "tool",
-        "content": """3""",
+        "content": [{"type": "text", "text": """3"""}],
     }
 
     expect_turn_1_msg = {
@@ -117,7 +117,7 @@ def get_sandbox_fusion_messages():
 
     tool_return_1_msg = {
         "role": "tool",
-        "content": """149""",
+        "content": [{"type": "text", "text": """149"""}],
     }
     expect_turn_2_msg = {
         "role": "assistant",

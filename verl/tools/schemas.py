@@ -15,7 +15,7 @@
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class OpenAIFunctionPropertySchema(BaseModel):
@@ -87,3 +87,32 @@ class OpenAIFunctionToolCall(BaseModel):
     id: str
     type: Literal["function"] = "function"
     function: OpenAIFunctionCallSchema
+
+
+class ToolResponse(BaseModel):
+    """The response from a tool execution."""
+
+    text: str | None = None
+    image: list[Any] | None = None
+    video: list[Any] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def initialize_request(cls, values):
+        if "image" in values and not isinstance(values["image"], list):
+            raise ValueError(
+                f"Image must be a list, but got {type(values['image'])}. Please check the tool.execute(). "
+                f"For single images, wrap in a list: [image]. "
+                f"Example: {{'image': [img1]}} or {{'image': [img1, img2, ...]}}."
+            )
+        if "video" in values and not isinstance(values["video"], list):
+            raise ValueError(
+                f"Video must be a list, but got {type(values['video'])}. Please check the tool.execute(). "
+                f"For single videos, wrap in a list: [video]. "
+                f"Example: {{'video': [video1]}} or {{'video': [video1, video2, ...]}}."
+            )
+
+        return values
+
+    def is_empty(self) -> bool:
+        return self.text is None and self.image is None and self.video is None

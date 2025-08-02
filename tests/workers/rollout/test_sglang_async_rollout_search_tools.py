@@ -75,8 +75,11 @@ def get_search_messages():
     }
 
     # Mock search tool responses
-    tool_return_0_msg = {"role": "tool", "content": "Today's weather in Beijing is sunny."}
-    tool_return_1_msg = {"role": "tool", "content": "Tomorrow's weather in Beijing is cloudy."}
+    tool_return_0_msg = {"role": "tool", "content": [{"type": "text", "text": "Today's weather in Beijing is sunny."}]}
+    tool_return_1_msg = {
+        "role": "tool",
+        "content": [{"type": "text", "text": "Tomorrow's weather in Beijing is cloudy."}],
+    }
 
     user_prompts = [user_prompt]
     expect_turn_array = [expect_turn_0_msg, expect_turn_1_msg, expect_turn_2_msg]
