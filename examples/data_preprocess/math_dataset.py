@@ -16,6 +16,7 @@ Preprocess the MATH-lighteval dataset to parquet format
 """
 
 import argparse
+import json
 import os
 
 import datasets
@@ -74,7 +75,13 @@ if __name__ == "__main__":
 
     train_dataset.to_parquet(os.path.join(local_dir, "train.parquet"))
     test_dataset.to_parquet(os.path.join(local_dir, "test.parquet"))
-
+    # Save one example as JSON for reference
+    example = train_dataset[0]
+    with open(os.path.join(local_dir, "train_example.json"), "w") as f:
+        json.dump(example, f, indent=2)
+    example = test_dataset[0]
+    with open(os.path.join(local_dir, "test_example.json"), "w") as f:
+        json.dump(example, f, indent=2)
     if hdfs_dir is not None:
         makedirs(hdfs_dir)
 
