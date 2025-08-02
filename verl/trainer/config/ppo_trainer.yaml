@@ -203,6 +203,11 @@ trainer:
   # The steps that will be profiled. null means no profiling. null or [1,2,5,...]
   profile_steps: null
 
+  # Whether to combine continuous steps into one database.
+  ## If True, worker.profiler.discrete must be False, [1,2] in one, [5] in another.
+  ## If False, [1] in one, [2] in another, [5] in another.
+  profile_continuous_steps: False
+
   # controller Nvidia Nsight Systems Options. Must set when profile_steps is not None.
   ## reference https://docs.nvidia.com/nsight-systems/UserGuide/index.html
   ## reference https://docs.ray.io/en/latest/ray-observability/user-guides/profiling.html
