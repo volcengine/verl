@@ -51,6 +51,7 @@ class BaseTool:
 
         Returns:
             The instance id of the tool.
+            tool_creation_metadata: The metadata of the tool when creating the instance.
         """
         if instance_id is None:
             return str(uuid4()), {}
