@@ -410,7 +410,7 @@ class AsyncRolloutRequest(BaseModel):
         processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
         contents: list[ToolResponse],
     ) -> None:
-        if not contents:
+        if not contents or all(content.is_empty() for content in contents):
             return
         # We also handle the case when tool returns image
         # We require the processing of the image and video to be done at tool.execute() level
