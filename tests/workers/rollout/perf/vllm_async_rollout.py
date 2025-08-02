@@ -45,7 +45,7 @@ from verl.utils.dataset import RLHFDataset
 from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
 
 
-def init_config(n_gpus_per_node) -> DictConfig:
+def init_config(n_gpus_per_node, pp_size=1) -> DictConfig:
     import os
 
     from hydra import compose, initialize_config_dir
@@ -62,9 +62,11 @@ def init_config(n_gpus_per_node) -> DictConfig:
     config.trainer.n_gpus_per_node = n_gpus_per_node
     config.data.train_batch_size = 128
     config.data.return_raw_chat = True
-    config.actor_rollout_ref.model.path = "Qwen/Qwen2.5-7B-Instruct"
+    config.actor_rollout_ref.model.path = "Qwen/Qwen2.5-0.5B-Instruct"
     config.actor_rollout_ref.rollout.mode = "async"
+    config.actor_rollout_ref.rollout.name = "vllm"
     config.actor_rollout_ref.rollout.tensor_model_parallel_size = 2
+    config.actor_rollout_ref.rollout.pipeline_model_parallel_size = pp_size
     config.actor_rollout_ref.rollout.gpu_memory_utilization = 0.9
     config.actor_rollout_ref.rollout.multi_turn.format = "hermes"
     config.actor_rollout_ref.rollout.prompt_length = 4096
@@ -104,8 +106,8 @@ def initialize(config, backend) -> tuple[AgentLoopManager | RayWorkerGroup, Stat
     return server, dataloader
 
 
-def perf_rollout(mode, backend, n_gpus_per_node, num_steps):
-    config = init_config(n_gpus_per_node)
+def perf_rollout(mode, backend, pp_size, n_gpus_per_node, num_steps):
+    config = init_config(n_gpus_per_node, pp_size=pp_size)
     config.actor_rollout_ref.rollout.mode = mode
     agent_loop_manager, dataloader = initialize(config, backend)
 
@@ -119,7 +121,7 @@ def perf_rollout(mode, backend, n_gpus_per_node, num_steps):
         gen_batch = agent_loop_manager.generate_sequences(batch)
         t_end = time.time()
         print(
-            f"[DEBUG] backend: {backend}, n_gpus_per_node: {n_gpus_per_node}, batch_size: {len(gen_batch)}, "
+            f"[DEBUG] backend: {backend}, pp_size: {pp_size}, n_gpus_per_node: {n_gpus_per_node}, batch_size: {len(gen_batch)}, "
             f"step: {step}, step_time: {t_end - t_start:.2f} secs"
         )
         if step + 1 >= num_steps:
@@ -133,6 +135,6 @@ if __name__ == "__main__":
     n_gpus_per_node = 8
 
     # test_cases = [("sync", "sync"), ("async", "zeromq"), ("async", "ray")]
-    test_cases = [("async", "zeromq"), ("async", "ray")]
-    for mode, backend in test_cases:
-        perf_rollout(mode=mode, backend=backend, n_gpus_per_node=n_gpus_per_node, num_steps=num_steps)
+    test_cases = [("async", "zeromq", 1), ("async", "zeromq", 2), ("async", "ray", 1)]
+    for mode, backend, pp_size in test_cases:
+        perf_rollout(mode=mode, backend=backend, pp_size=pp_size, n_gpus_per_node=n_gpus_per_node, num_steps=num_steps)
