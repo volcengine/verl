@@ -84,6 +84,7 @@ class ExternalRayDistributedExecutor(Executor):
     """An executor that engines are launched by external ray actors."""
 
     uses_ray: bool = False
+    supports_pp: bool = False
 
     def _init_executor(self) -> None:
         self.workers = _get_model_runner_workers(vllm_config=self.vllm_config, init_ray=True)
