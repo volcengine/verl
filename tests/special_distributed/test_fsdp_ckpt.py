@@ -28,18 +28,20 @@ from verl.utils.fsdp_utils import MixedPrecisionPolicy, apply_fsdp2
 
 
 def create_random_input_ids(batch_size, seq_len, vocab_size):
-    from verl.utils.model import create_random_mask, compute_position_id_with_mask
     from flash_attn.bert_padding import unpad_input
+
+    from verl.utils.model import compute_position_id_with_mask, create_random_mask
 
     input_ids = torch.randint(0, vocab_size, (batch_size, seq_len), device="cuda")
 
-    attention_mask = create_random_mask(input_ids, max_ratio_of_left_padding=0.1, min_ratio_of_valid_token=0.5, max_ratio_of_valid_token=0.7)
+    attention_mask = create_random_mask(
+        input_ids, max_ratio_of_left_padding=0.1, min_ratio_of_valid_token=0.5, max_ratio_of_valid_token=0.7
+    )
     position_ids = compute_position_id_with_mask(attention_mask)
 
     input_ids = unpad_input(input_ids.unsqueeze(-1), attention_mask)[0].transpose(0, 1)
     position_ids = unpad_input(position_ids.unsqueeze(-1), attention_mask)[0].transpose(0, 1)
     return input_ids, position_ids
-
 
 
 def test_fsdp_ckpt(strategy="fsdp"):
