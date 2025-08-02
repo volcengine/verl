@@ -858,7 +858,7 @@ def per_tensor_generator(
                     merge_params = [merge_params]
                 converted_names, converted_params = weight_converter.convert_param(name, merge_params)
 
-                yield from zip(converted_names, converted_params, strict=True)
+                yield from zip(converted_names, [param.detach() for param in converted_params], strict=True)
             continue
 
         # tp all gather
@@ -885,7 +885,7 @@ def per_tensor_generator(
             infer_params = [infer_params]
         converted_names, converted_params = weight_converter.convert_param(cur_name, infer_params)
 
-        yield from zip(converted_names, converted_params, strict=True)
+        yield from zip(converted_names, [param.detach() for param in converted_params], strict=True)
 
 
 def get_transformer_layer_offset(pipeline_rank, vp_rank, config: TransformerConfig):
