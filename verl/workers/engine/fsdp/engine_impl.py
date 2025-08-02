@@ -65,9 +65,19 @@ from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_in
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 if is_cuda_available:
-    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
+    from flash_attn.bert_padding import (
+        index_first_axis,
+        pad_input,
+        rearrange,
+        unpad_input,
+    )
 elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
+    from transformers.integrations.npu_flash_attention import (
+        index_first_axis,
+        pad_input,
+        rearrange,
+        unpad_input,
+    )
 
 from ..base import BaseEngine, EngineRegistry
 from .utils import create_device_mesh, get_sharding_strategy
@@ -118,12 +128,15 @@ class FSDPEngine(BaseEngine):
 
         # set FSDP offload params
         self._is_offload_param = self.config.model.fsdp_config.param_offload
-        self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
+        self._is_offload_optimizer = self.config.model.fsdp_config.get("optimizer_offload", False)
 
         # normalize config
-        self.config.ppo_mini_batch_size *= self.config.rollout_n
-        self.config.ppo_mini_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
-        if self.config.ppo_micro_batch_size is not None:
+        if self.config.get("ppo_mini_batch_size", None):
+            self.config.ppo_mini_batch_size *= self.config.rollout_n
+            self.config.ppo_mini_batch_size //= (
+                torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+            )
+        if self.config.get("ppo_micro_batch_size", None):
             self.config.ppo_micro_batch_size //= (
                 torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
             )
@@ -133,7 +146,7 @@ class FSDPEngine(BaseEngine):
             self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
             self.config.forward_micro_batch_size_per_gpu = self.config.forward_micro_batch_size
 
-        if self.config.ppo_micro_batch_size_per_gpu is not None:
+        if self.config.get("ppo_micro_batch_size_per_gpu", None) and self.config.get("ppo_mini_batch_size", None):
             assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0, (
                 f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be divisible by "
                 f"ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
@@ -142,9 +155,13 @@ class FSDPEngine(BaseEngine):
                 f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be larger than "
                 f"ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
             )
+
+        if self.config.get("micro_batch_size", None):
+            self.config.micro_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+            self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
         self._is_lora = self.config.model.get("lora_rank", 0) > 0
 
-    def init_model(self):
+    def init_model(self, build_optim=True):
         """
         Build the model, optimizer, and learning rate scheduler under FSDP.
 
@@ -154,7 +171,7 @@ class FSDPEngine(BaseEngine):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
 
-        self.module, self.optimizer, self.lr_scheduler = self._build_model_optimizer(self.config)
+        self.module, self.optimizer, self.lr_scheduler = self._build_model_optimizer(self.config, build_optim)
 
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.module)
@@ -169,10 +186,10 @@ class FSDPEngine(BaseEngine):
             optimizer=self.optimizer,
             lr_scheduler=self.lr_scheduler,
             processing_class=self.processor if self.processor is not None else self.tokenizer,
-            checkpoint_contents=self.config.checkpoint,
+            checkpoint_contents=self.config.get("checkpoint", None),
         )
 
-    def _build_model_optimizer(self, config):
+    def _build_model_optimizer(self, config, build_optim=True):
         # the following line is necessary
         from torch import optim
         from torch.distributed.fsdp import MixedPrecision
@@ -185,7 +202,17 @@ class FSDPEngine(BaseEngine):
         # note that the tokenizer between actor and critic may be different. So override tokenizer info with actor info
         # using random initialized model from any architecture. May not be the same as Actor.
 
-        tokenizer_path = copy_to_local(config.model.tokenizer_path, use_shm=use_shm)
+        # for reward model with different tokenizer
+        if config.model.get("input_tokenizer", None):
+            input_tokenizer_path = copy_to_local(config.model.input_tokenizer, use_shm=use_shm)
+            self.input_tokenizer = hf_tokenizer(
+                input_tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False)
+            )
+
+        if config.model.get("tokenizer_path", None):
+            tokenizer_path = copy_to_local(config.model.tokenizer_path, use_shm=use_shm)
+        else:
+            tokenizer_path = copy_to_local(config.model.path, use_shm=use_shm)
         self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
         self.processor = hf_processor(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
 
@@ -335,33 +362,40 @@ class FSDPEngine(BaseEngine):
 
         log_gpu_memory_usage("After FSDP", logger=None)
 
-        optimizer = optim.AdamW(
-            module.parameters(),
-            lr=config.optim.lr,
-            betas=config.optim.get("betas", (0.9, 0.999)),
-            weight_decay=config.optim.get("weight_decay", 1e-2),
-        )
-
-        total_steps = config.optim.get("total_training_steps", 0)
-        num_warmup_steps = int(config.optim.get("lr_warmup_steps", -1))
-        warmup_style = config.optim.get("warmup_style", "constant")
-        if num_warmup_steps < 0:
-            num_warmup_steps_ratio = config.optim.get("lr_warmup_steps_ratio", 0.0)
-            num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
-
-        if self.rank == 0:
-            print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
-
-        from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
-
-        if warmup_style == "constant":
-            lr_scheduler = get_constant_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=num_warmup_steps)
-        elif warmup_style == "cosine":
-            lr_scheduler = get_cosine_schedule_with_warmup(
-                optimizer=optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=total_steps
+        if build_optim:
+            optimizer = optim.AdamW(
+                module.parameters(),
+                lr=config.optim.lr,
+                betas=config.optim.get("betas", (0.9, 0.999)),
+                weight_decay=config.optim.get("weight_decay", 1e-2),
             )
+
+            total_steps = config.optim.get("total_training_steps", 0)
+            num_warmup_steps = int(config.optim.get("lr_warmup_steps", -1))
+            warmup_style = config.optim.get("warmup_style", "constant")
+            if num_warmup_steps < 0:
+                num_warmup_steps_ratio = config.optim.get("lr_warmup_steps_ratio", 0.0)
+                num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
+
+            if self.rank == 0:
+                print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
+
+            from verl.utils.torch_functional import (
+                get_constant_schedule_with_warmup,
+                get_cosine_schedule_with_warmup,
+            )
+
+            if warmup_style == "constant":
+                lr_scheduler = get_constant_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=num_warmup_steps)
+            elif warmup_style == "cosine":
+                lr_scheduler = get_cosine_schedule_with_warmup(
+                    optimizer=optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=total_steps
+                )
+            else:
+                raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
         else:
-            raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
+            optimizer = None
+            lr_scheduler = None
 
         return module, optimizer, lr_scheduler
 

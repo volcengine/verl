@@ -126,13 +126,14 @@ class TaskRunner:
         # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
+        use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
+
         # Define worker classes based on the actor strategy.
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             assert config.critic.strategy in {"fsdp", "fsdp2"}
             from verl.single_controller.ray import RayWorkerGroup
             from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 
-            use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
             if use_legacy_worker_impl in ["auto", "enable"]:
                 # import warnings
                 # warnings.warn(f"Legacy worker impl is going to be deprecated, will be removed in the future. \
@@ -194,7 +195,14 @@ class TaskRunner:
         # The reward type depends on the tag of the data
         if config.reward_model.enable:
             if config.reward_model.strategy in {"fsdp", "fsdp2"}:
-                from verl.workers.fsdp_workers import RewardModelWorker
+                if use_legacy_worker_impl in ["auto", "enable"]:
+                    from verl.workers.fsdp_workers import RewardModelWorker
+                elif use_legacy_worker_impl == "disable":
+                    from verl.workers.roles import RewardModelWorker
+
+                    print("Using new RewardModelWorker implementation")
+                else:
+                    raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
             elif config.reward_model.strategy == "megatron":
                 from verl.workers.megatron_workers import RewardModelWorker
             else:
