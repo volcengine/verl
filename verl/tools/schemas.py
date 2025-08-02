@@ -15,7 +15,7 @@
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class OpenAIFunctionPropertySchema(BaseModel):
@@ -96,23 +96,20 @@ class ToolResponse(BaseModel):
     image: list[Any] | None = None
     video: list[Any] | None = None
 
-    def to_dict(self) -> dict[str, Any] | str:
-        """Convert to dict format for backward compatibility.
+    @model_validator(mode="before")
+    @classmethod
+    def initialize_request(cls, values):
+        if "image" in values and not isinstance(values["image"], list):
+            raise ValueError(
+                f"Image must be a list, but got {type(values['image'])}. Please check the tool.execute(). "
+                f"For single images, wrap in a list: [image]. "
+                f"Example: {{'image': [img1]}} or {{'image': [img1, img2, ...]}}."
+            )
+        if "video" in values and not isinstance(values["video"], list):
+            raise ValueError(
+                f"Video must be a list, but got {type(values['video'])}. Please check the tool.execute(). "
+                f"For single videos, wrap in a list: [video]. "
+                f"Example: {{'video': [video1]}} or {{'video': [video1, video2, ...]}}."
+            )
 
-        Returns:
-            If only text is present, returns the text string.
-            Otherwise, returns a dict with non-None fields.
-        """
-        result = {}
-        if self.text is not None:
-            result["text"] = self.text
-        if self.image is not None:
-            result["image"] = self.image
-        if self.video is not None:
-            result["video"] = self.video
-
-        # If only text is present, return just the text string for backward compatibility
-        if len(result) == 1 and "text" in result:
-            return self.text
-
-        return result
+        return values
