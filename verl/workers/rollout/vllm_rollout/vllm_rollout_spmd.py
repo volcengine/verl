@@ -425,8 +425,6 @@ class vLLMAsyncRollout:
         self.rpc_rank = self.rank % self.model_parallel_size
 
     def _init_zeromq(self) -> str:
-        tensor_parallel_size = self.config.tensor_model_parallel_size
-
         # single node: ipc, multi nodes: tcp
         local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
         socket_type = "ipc" if self.model_parallel_size <= local_world_size else "tcp"
