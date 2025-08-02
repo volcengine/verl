@@ -114,6 +114,7 @@ actor_rollout_ref:
         disable_mm_preprocessor_cache: false
       sglang:
         attention_backend: null
+        token_out: false
     val_kwargs:
       top_k: -1
       top_p: 1.0

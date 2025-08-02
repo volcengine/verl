@@ -94,6 +94,9 @@ engine_kwargs:
     # The attention backend for sglang engine. Options: flashinfer, triton, flashmla, null for default.
     attention_backend: null
 
+    # Whether to use token in token out for sglang engine.
+    token_out: False
+
 # Sampling parameters used during validation.
 val_kwargs:
 
