@@ -220,6 +220,7 @@ trainer:
   total_epochs: 30
   total_training_steps: null
   profile_steps: null
+  profile_continuous_steps: false
   project_name: verl_examples
   experiment_name: gsm8k
   logger:

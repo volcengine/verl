@@ -15,7 +15,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
@@ -57,14 +57,9 @@ class ToolAgentLoop(AgentLoopBase):
         cls.system_prompt = tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
 
     @rollout_trace_op
-    async def run(
-        self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], image_data: Optional[list[Any]] = None
-    ) -> AgentLoopOutput:
-        import copy
-
-        # create a deep copy to avoid modifying shared data across async tasks
-        image_data = copy.deepcopy(image_data) if image_data is not None else None
-
+    async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
+        messages = list(kwargs["raw_prompt"])
+        image_data = kwargs.get("multi_modal_data", {}).get("image", None)
         metrics = {}
         request_id = uuid4().hex
         if self.processor is not None:
@@ -85,6 +80,7 @@ class ToolAgentLoop(AgentLoopBase):
             )
 
         response_mask = []
+        tools_kwargs = kwargs.get("tools_kwargs", {})
 
         user_turns, assistant_turns = 0, 0
         while True:
@@ -116,7 +112,7 @@ class ToolAgentLoop(AgentLoopBase):
             # call tools
             tasks = []
             for tool_call in tool_calls[: self.max_parallel_calls]:
-                tasks.append(self._call_tool(tool_call, image_data))
+                tasks.append(self._call_tool(tool_call, tools_kwargs))
             with simple_timer("tool_calls", metrics):
                 tool_responses = await asyncio.gather(*tasks)
             if any(isinstance(item, Exception) for item in tool_responses):
@@ -165,7 +161,7 @@ class ToolAgentLoop(AgentLoopBase):
         )
         return output
 
-    async def _call_tool(self, tool_call: FunctionCall, image_data: Optional[list[Any]] = None) -> dict[str, str]:
+    async def _call_tool(self, tool_call: FunctionCall, tools_kwargs: dict[str, Any]) -> dict[str, str]:
         """Call tool and return tool response."""
         tool, instance_id = None, None
         try:
@@ -173,11 +169,8 @@ class ToolAgentLoop(AgentLoopBase):
             tool_name = tool_call.name
             tool_args = json.loads(tool_call.arguments)
             tool = self.tools[tool_name]
-
-            if tool_name == "image_zoom_in_tool" and image_data is not None:
-                instance_id = await tool.create(instance_id=instance_id, image=image_data[0])
-            else:
-                instance_id = await tool.create()
+            kwargs = tools_kwargs.get(tool_name, {})
+            instance_id = await tool.create(create_kwargs=kwargs.get("create_kwargs", {}))
             tool_response, _, _ = await tool.execute(instance_id, tool_args)
         except Exception as e:
             logger.warning(f"Error when executing tool: {e}")
@@ -192,7 +185,6 @@ class ToolAgentLoop(AgentLoopBase):
         image_response = tool_response.get("image", None)
         text_response = tool_response.get("text", "")
         if image_response:
-            image_data.append(image_response[0])
             return {"role": "tool", "content": [{"type": "image"}, {"type": "text", "text": text_response}]}
         else:
             return {

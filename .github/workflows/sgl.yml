@@ -90,7 +90,7 @@ jobs:
       NCCL_SHM_DISABLE: "1"
       NCCL_P2P_DISABLE: "1"
     container:
-      image: verlai/verl:app-verl0.5-sglang0.4.8-mcore0.12.2-te2.2
+      image: verlai/verl:app-verl0.5-sglang0.4.9.post6-mcore0.12.2-te2.2
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -99,7 +99,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install hf_transfer fastmcp
-          pip3 install -e .[test,gpu,sglang] --no-deps
+          pip3 install -e .[test]
       - name: Download Model to Use
         run: |
           huggingface-cli download 'Qwen/Qwen2-7B-Instruct'
