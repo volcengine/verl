@@ -16,6 +16,7 @@ from .critic import *  # noqa
 from .actor import *  # noqa
 from .engine import *  # noqa
 from .optimizer import *  # noqa
-from . import actor, critic, engine, optimizer
+from .reward_model import *  # noqa
+from . import actor, critic, engine, optimizer, reward_model
 
-__all__ = actor.__all__ + critic.__all__ + engine.__all__ + optimizer.__all__
+__all__ = actor.__all__ + critic.__all__ + engine.__all__ + optimizer.__all__ + reward_model.__all__

@@ -60,7 +60,7 @@ from verl.utils.profiler import (
 )
 from verl.utils.profiler.performance import reduce_timing
 from verl.workers.actor.megatron_actor import MegatronPPOActor
-from verl.workers.config import McoreCriticConfig
+from verl.workers.config import McoreCriticConfig, McoreRewardModelConfig
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
 
@@ -1001,12 +1001,12 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
     Note that we only implement the reward model that is subclass of AutoModelForSequenceClassification.
     """
 
-    def __init__(self, config):
+    def __init__(self, config: McoreRewardModelConfig):
         MegatronWorker.__init__(self)
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
         )
-        self.config = config
+        self.config: McoreRewardModelConfig = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
