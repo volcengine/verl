@@ -158,4 +158,5 @@ def test_fsdp_ckpt(strategy="fsdp"):
 
 if __name__ == "__main__":
     strategy = os.environ.get("STRATEGY", "fsdp")
+    os.environ["FLASH_ATTENTION_DETERMINISTIC"] = "1"
     test_fsdp_ckpt(strategy=strategy)
