@@ -270,9 +270,8 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self.actor_wg.init_model()
         self.rollout_wg.init_model()
         self.actor_rollout_wg = self.actor_wg  # to be compatible with the functions that not be modified
-        # weights_info = self.actor_wg.get_actor_weights_info()[0]
-        # self.rollout_wg.set_actor_weights_info(weights_info)
-        raise ValueError
+        weights_info = self.actor_wg.get_actor_weights_info()[0]
+        self.rollout_wg.set_actor_weights_info(weights_info)
         from ray.util.collective import collective
 
         actor_rollout_workers = self.actor_wg.workers + self.rollout_wg.workers
@@ -283,7 +282,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             backend="nccl",
             group_name="actor_rollout",
         )
-        self.sync_rollout_weights()
+        # self.sync_rollout_weights()
 
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
@@ -339,7 +338,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         )
         gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
         # sync weights from actor to rollout
-        self.sync_rollout_weights()
+        # self.sync_rollout_weights()
         # async generation
         gen_batch_output = self.rollout_wg.async_generate_sequences(gen_batch)
         return GenerationBatchFuture(epoch, batch, gen_batch_output)

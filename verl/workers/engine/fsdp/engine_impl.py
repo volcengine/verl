@@ -63,6 +63,9 @@ from verl.utils.py_functional import append_to_dict, convert_to_regular_types
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from verl.utils.fsdp_utils import (
+    fsdp_version,
+)
 
 if is_cuda_available:
     from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
@@ -285,6 +288,7 @@ class FSDPEngine(BaseEngine):
 
 
     def _build_fsdp_module(self, module):
+        # TODO(ziheng): need to improve
         from verl.utils.torch_dtypes import PrecisionType
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
 
@@ -433,10 +437,11 @@ class FSDPEngine(BaseEngine):
             print_model_size(module)
         log_gpu_memory_usage(f"After init model from HF AutoModel", logger=logger)
 
-        log_gpu_memory_usage("Before FSDP", logger=None)
         # Wrap model with FSDP for distributed training (sharding, mixed precision, etc.)
+        log_gpu_memory_usage("Before FSDP", logger=None)
         module = self._build_fsdp_module(module)
         log_gpu_memory_usage("After FSDP", logger=None)
+
         # Initialize optimizer with model parameters and config settings
         optimizer = self._build_optimizer(module)
         # Create learning rate scheduler with warmup and decay settings
@@ -444,6 +449,50 @@ class FSDPEngine(BaseEngine):
 
         return module, optimizer, lr_scheduler
 
+    def _get_params(self):
+        params = self.module.state_dict()
+        from verl.utils.model import convert_weight_keys
+
+        params = convert_weight_keys(
+            params, getattr(self.module, "_fsdp_wrapped_module", self.module)
+        )
+        return params
+
+    # TODO: temporary
+    def send_params(self):
+        assert hasattr(self, "_weights_info") and self._weights_info is not None
+
+        params = self._get_params()
+        for key, shape, dtype in self._weights_info:
+            tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
+
+            assert key in params
+            origin_data = params[key]
+            if hasattr(origin_data, "full_tensor"):
+                origin_data = origin_data.full_tensor()
+            if torch.distributed.get_rank() == 0:
+                tensor.copy_(origin_data)
+            from ray.util.collective import collective
+
+            collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
+
+    def get_params_meta_info(self):
+        if hasattr(self, "_weights_info"):
+            return self._weights_info
+        if fsdp_version(self.module) == 1:
+            from torch.distributed.fsdp.api import ShardedStateDictConfig, StateDictType
+
+            FSDP.set_state_dict_type(
+                self.module,
+                state_dict_type=StateDictType.SHARDED_STATE_DICT,
+                state_dict_config=ShardedStateDictConfig(),
+            )
+        params = self._get_params()
+        ret = []
+        for key, tensor in params.items():
+            ret.append((key, tensor.size(), tensor.dtype))
+        self._weights_info = ret
+        return ret
 
     def train_mode(self):
         """
@@ -575,40 +624,44 @@ class FSDPEngine(BaseEngine):
         assert self.mode == "eval"
 
         micro_batch_size = self.config.infer_micro_batch_size_per_gpu
-        max_token_len = self.config.forward_max_token_len_per_gpu
+        max_token_len = self.config.infer_max_token_len_per_gpu
         use_dynamic_bsz = self.config.use_dynamic_bsz
-        # data.meta_info["micro_batch_size"] = micro_batch_size
-        # data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
-        # data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
 
-        # micro_batch_size = data.meta_info["micro_batch_size"]
-
-        select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
-        batch = data.select(batch_keys=select_keys).batch
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+        select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
+        non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+        batch = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
-        if has_multi_modal_inputs:
-            num_micro_batches = data.batch.batch_size[0] // micro_batch_size
-            non_tensor_select_keys = ["multi_modal_inputs"]
-            micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
-        elif use_dynamic_bsz:
-            # split using dynamic bsz
+        from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
+        if use_dynamic_bsz:
             max_token_len = max_token_len * self.ulysses_sequence_parallel_size
-            micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
+            micro_batches, batch_idx_list = prepare_dynamic_batch(batch, max_token_len=max_token_len)
         else:
             micro_batches = batch.split(micro_batch_size)
+
+        # if has_multi_modal_inputs:
+        #     num_micro_batches = data.batch.batch_size[0] // micro_batch_size
+        #     non_tensor_select_keys = ["multi_modal_inputs"]
+        #     micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
+        # elif use_dynamic_bsz:
+        #     # split using dynamic bsz
+        #     max_token_len = max_token_len * self.ulysses_sequence_parallel_size
+        #     micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
+        # else:
+        #     micro_batches = batch.split(micro_batch_size)
     
         preds_list = {}
         for micro_batch in micro_batches:
-            if isinstance(micro_batch, DataProto):
-                micro_batch = {**micro_batch.batch, **micro_batch.non_tensor_batch}
+            assert isinstance(micro_batch, DataProto)
+            micro_batch = {**micro_batch.batch, **micro_batch.non_tensor_batch}
 
             with torch.no_grad():
                 # micro_batch_preds would be a dict[str, torch.Tensor]
                 preds = self._forward_micro_batch(micro_batch)
+                raise ValueError
                 _, outputs = post_fn(micro_batch, preds)
                 assert isinstance(outputs, dict)
-
+            raise ValueError
             # append micro batch preds to dict[str, List[torch.Tensor]]
             append_to_dict(preds_list, outputs)
 
@@ -619,6 +672,7 @@ class FSDPEngine(BaseEngine):
             t_concat = torch.concat(t_list, dim=0)
 
             if use_dynamic_bsz:
+                
                 indices = list(itertools.chain.from_iterable(indices))
                 assert len(indices) == t_concat.size(0), f"{len(indices)} vs. {t_concat.size()}"
                 revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
