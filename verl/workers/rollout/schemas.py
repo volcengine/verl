@@ -111,6 +111,8 @@ class AsyncRolloutRequest(BaseModel):
     max_response_len: int = 8192
     max_model_len: int = 32768
     metrics: dict[str, list[Any]] = {}
+    output_token_ids: torch.Tensor | None = None
+    rollout_log_probs: torch.Tensor | None = None
 
     use_inference_chat_template: bool
     tokenization_sanity_check_mode: TokenizationSanityCheckModeEnum
