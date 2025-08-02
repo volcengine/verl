@@ -106,4 +106,4 @@ jobs:
           torchrun --standalone --nnodes=1 --nproc-per-node=2 tests/workers/critic/test_special_dp_critic.py
       - name: Testing FSDP2 engine functionality
         run: |
-          torchrun --standalone --nnodes=1 --nproc-per-node=2 tests/workers/engine/test_fsdp_engine.py
+          torchrun --standalone --nnodes=1 --nproc-per-node=2 tests/workers/engine/test_special_fsdp_engine.py
