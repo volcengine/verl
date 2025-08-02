@@ -81,6 +81,9 @@ ignore_errors = true
 module = [
 "verl.trainer.config.algorithm",
 "verl.trainer.ppo.core_algos",
+"verl.trainer.ppo.reward",
+"verl.workers.reward_manager",
+"verl.workers.reward_manager.*",
 ]
 ignore_errors = false
 
