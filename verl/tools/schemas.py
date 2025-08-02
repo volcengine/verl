@@ -87,3 +87,32 @@ class OpenAIFunctionToolCall(BaseModel):
     id: str
     type: Literal["function"] = "function"
     function: OpenAIFunctionCallSchema
+
+
+class ToolResponse(BaseModel):
+    """The response from a tool execution."""
+
+    text: str | None = None
+    image: list[Any] | None = None
+    video: list[Any] | None = None
+
+    def to_dict(self) -> dict[str, Any] | str:
+        """Convert to dict format for backward compatibility.
+
+        Returns:
+            If only text is present, returns the text string.
+            Otherwise, returns a dict with non-None fields.
+        """
+        result = {}
+        if self.text is not None:
+            result["text"] = self.text
+        if self.image is not None:
+            result["image"] = self.image
+        if self.video is not None:
+            result["video"] = self.video
+
+        # If only text is present, return just the text string for backward compatibility
+        if len(result) == 1 and "text" in result:
+            return self.text
+
+        return result

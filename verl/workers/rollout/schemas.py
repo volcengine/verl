@@ -22,7 +22,7 @@ import torch
 from pydantic import BaseModel, ConfigDict, model_validator
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin
 
-from verl.tools.schemas import OpenAIFunctionToolCall, OpenAIFunctionToolSchema
+from verl.tools.schemas import OpenAIFunctionToolCall, OpenAIFunctionToolSchema, ToolResponse
 from verl.utils.model import compute_position_id_with_mask
 
 logger = logging.getLogger(__file__)
@@ -55,7 +55,7 @@ class FinishReasonTypeEnum(str, Enum):
 
 class Message(BaseModel):
     role: str
-    content: str | dict[str, Any] | list[dict[str, Any]]
+    content: str | dict[str, Any] | list[dict[str, Any]] | ToolResponse
     tool_calls: Optional[list[OpenAIFunctionToolCall]] = None
 
 
@@ -408,7 +408,7 @@ class AsyncRolloutRequest(BaseModel):
     def add_tool_response_messages(
         self,
         processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
-        contents: list[str | dict[str, Any]],
+        contents: list[ToolResponse],
     ) -> None:
         if not contents:
             return
@@ -416,40 +416,31 @@ class AsyncRolloutRequest(BaseModel):
         # We require the processing of the image and video to be done at tool.execute() level
         delta_multi_modal_data = {key: [] for key in self.multi_modal_keys}
         for content in contents:
-            if isinstance(content, dict):
-                content_list = []
-                # When we update multi_model_keys, we also need to update this logic
-                if "image" in content:
-                    if not isinstance(content["image"], list):
-                        raise ValueError(
-                            f"Image must be a list, but got {type(content['image'])}. Please check the tool.execute(). "
-                            f"For single images, wrap in a list: [image]. "
-                            f"Example: {{'image': [img1]}} or {{'image': [img1, img2, ...]}}."
-                        )
+            content_list = []
+            # When we update multi_model_keys, we also need to update this logic
+            if content.image:
+                if not isinstance(content.image, list):
+                    raise ValueError(
+                        f"Image must be a list, but got {type(content.image)}. Please check the tool.execute(). "
+                        f"For single images, wrap in a list: [image]. "
+                        f"Example: {{'image': [img1]}} or {{'image': [img1, img2, ...]}}."
+                    )
 
-                    content_list.extend([{"type": "image"} for _ in content["image"]])
-                    delta_multi_modal_data["image"].extend(content["image"])
-                if "video" in content:
-                    if not isinstance(content["video"], list):
-                        raise ValueError(
-                            f"Video must be a list, but got {type(content['video'])}. Please check the tool.execute(). "
-                            f"For single videos, wrap in a list: [video]. "
-                            f"Example: {{'video': [video1]}} or {{'video': [video1, video2, ...]}}."
-                        )
+                content_list.extend([{"type": "image"} for _ in content.image])
+                delta_multi_modal_data["image"].extend(content.image)
+            if content.video:
+                if not isinstance(content.video, list):
+                    raise ValueError(
+                        f"Video must be a list, but got {type(content.video)}. Please check the tool.execute(). "
+                        f"For single videos, wrap in a list: [video]. "
+                        f"Example: {{'video': [video1]}} or {{'video': [video1, video2, ...]}}."
+                    )
 
-                    content_list.extend([{"type": "video"} for _ in content["video"]])
-                    delta_multi_modal_data["video"].extend(content["video"])
-                if "text" in content:
-                    content_list.append({"type": "text", "text": content["text"]})
-                for key in content:
-                    if key not in ["image", "video", "text"]:
-                        logger.warning(
-                            f"Tool response message contains unexpected key: {key} "
-                            f"while we only support `image`, `video`, and `text`."
-                        )
-                self.messages.append(Message(role="tool", content=content_list))
-            else:
-                self.messages.append(Message(role="tool", content=content))
+                content_list.extend([{"type": "video"} for _ in content.video])
+                delta_multi_modal_data["video"].extend(content.video)
+            if content.text:
+                content_list.append({"type": "text", "text": content.text})
+            self.messages.append(Message(role="tool", content=content_list))
 
         messages = [*BASE_CHAT_HISTORY, *self.messages[-len(contents) :]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
