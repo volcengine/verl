@@ -844,7 +844,7 @@ class SGLangRollout(BaseRollout):
                         ]
                     )
                     _req.add_tool_response_messages(
-                        self.processing_class, [resp.to_dict() for resp, _, _ in tool_call_results]
+                        self.processing_class, [resp for resp, _, _ in tool_call_results]
                     )
                     for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results, strict=True):
                         _req.update_metrics(metrics, tool_call.function.name)
