@@ -204,9 +204,18 @@ update_weights_bucket_megabytes: 512
 
 # trace rollout data
 trace:
-  
+
   # trace backend, support mlflow, weave
   backend: null
 
   # whether translate token id to text in output
   token2text: False
+
+# When enabled (True), the trainer will attempt to load previously generated rollout data from the specified directory instead of computing new rollouts.
+# If no cached data is found or loading fails, new rollouts will be generated and automatically saved.
+# This feature is useful for debugging or when you want to reuse computation results across multiple runs.
+skip_rollout: False
+
+# Specifies the filesystem path where rollout data should be cached when skip_rollout is enabled.
+# Note: Giving path under /tmp/ray/session* is not recommended as these are temporary Ray cluster directories.
+skip_dump_dir: /tmp/rollout_dump

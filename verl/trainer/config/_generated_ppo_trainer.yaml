@@ -143,6 +143,8 @@ actor_rollout_ref:
     trace:
       backend: null
       token2text: false
+    skip_rollout: false
+    skip_dump_dir: /tmp/rollout_dump
     enable_chunked_prefill: true
     load_format: dummy_dtensor
     layered_summon: false

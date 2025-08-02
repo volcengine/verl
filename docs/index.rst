@@ -116,6 +116,7 @@ verl is fast with:
    advance/dpo_extension
    examples/sandbox_fusion_example
    advance/rollout_trace.rst
+   advance/rollout_skip.rst
    advance/one_step_off
    advance/agent_loop
 
