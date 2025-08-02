@@ -168,6 +168,9 @@ class FSDPSFTTrainer:
         if self.device_mesh.get_rank() == 0:
             print(f"Using FSDP rank {rank} and size {world_size} for data distribution")
 
+        # Set pin_memory_device when pin_memory is enabled.
+        device_name = get_device_name()
+
         self.train_sampler = DistributedSampler(
             self.train_dataset, shuffle=True, num_replicas=world_size, rank=rank, drop_last=True
         )
@@ -178,6 +181,7 @@ class FSDPSFTTrainer:
             num_workers=8,
             pin_memory=True,
             drop_last=True,
+            pin_memory_device=device_name,
         )
 
         self.val_sampler = DistributedSampler(
@@ -190,6 +194,7 @@ class FSDPSFTTrainer:
             num_workers=8,
             pin_memory=True,
             drop_last=True,
+            pin_memory_device=device_name,
         )
 
     def _build_model_optimizer(self):
