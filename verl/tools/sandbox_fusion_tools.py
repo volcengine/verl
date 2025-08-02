@@ -152,7 +152,9 @@ class SandboxFusionTool(BaseTool):
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
 
-    async def create(self, instance_id: Optional[str] = None, ground_truth: Optional[str] = None, **kwargs) -> str:
+    async def create(
+        self, instance_id: Optional[str] = None, ground_truth: Optional[str] = None, **kwargs
+    ) -> tuple[str, dict[str, Any]]:
         if instance_id is None:
             instance_id = str(uuid4())
         self._instance_dict[instance_id] = {
@@ -160,7 +162,7 @@ class SandboxFusionTool(BaseTool):
             "ground_truth": ground_truth,
             "reward": [],
         }
-        return instance_id
+        return instance_id, {}
 
     @rollout_trace_op
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:

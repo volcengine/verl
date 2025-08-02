@@ -185,7 +185,7 @@ class SearchTool(BaseTool):
         """Return the OpenAI tool schema."""
         return self.tool_schema
 
-    async def create(self, instance_id: Optional[str] = None, **kwargs) -> str:
+    async def create(self, instance_id: Optional[str] = None, **kwargs) -> tuple[str, dict[str, Any]]:
         """Create a tool instance.
 
         Args:
@@ -200,7 +200,7 @@ class SearchTool(BaseTool):
             "response": "",
             "reward": [],
         }
-        return instance_id
+        return instance_id, {}
 
     def execute_search(self, instance_id: str, query_list: list, retrieval_service_url: str, topk: int, timeout: int):
         """Execute search operation using retrieval service.

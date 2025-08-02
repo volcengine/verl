@@ -43,7 +43,7 @@ class BaseTool:
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
 
-    async def create(self, instance_id: Optional[str] = None, **kwargs) -> str:
+    async def create(self, instance_id: Optional[str] = None, **kwargs) -> tuple[str, dict[str, Any]]:
         """Create a tool instance.
 
         Args:
@@ -53,9 +53,9 @@ class BaseTool:
             The instance id of the tool.
         """
         if instance_id is None:
-            return str(uuid4())
+            return str(uuid4()), {}
         else:
-            return instance_id
+            return instance_id, {}
 
     @rollout_trace_op
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:

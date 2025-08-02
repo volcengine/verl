@@ -43,7 +43,7 @@ class MCPBaseTool(BaseTool):
         """Return the OpenAI tool schema."""
         return self.tool_schema
 
-    async def create(self, instance_id: Optional[str] = None, **kwargs) -> str:
+    async def create(self, instance_id: Optional[str] = None, **kwargs) -> tuple[str, dict[str, Any]]:
         """Create a tool instance.
 
         Args:
@@ -58,7 +58,7 @@ class MCPBaseTool(BaseTool):
             "response": "",
             "reward": [],
         }
-        return instance_id
+        return instance_id, {}
 
     async def _call_tool(self, instance_id, parameters) -> tuple[str, dict]:
         err_msg = ""
