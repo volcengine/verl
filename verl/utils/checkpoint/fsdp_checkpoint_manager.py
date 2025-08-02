@@ -203,8 +203,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
         # remove previous local_path, only rank 0 should do this
         if (
-            self.rank == 0
-            and max_ckpt_to_keep
+            max_ckpt_to_keep
             and isinstance(max_ckpt_to_keep, int)
             and max_ckpt_to_keep > 0
             and len(self.previous_saved_paths) >= max_ckpt_to_keep
