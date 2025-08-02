@@ -87,8 +87,10 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: 1
       SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK: "True"
+      NCCL_SHM_DISABLE: "1"
+      NCCL_P2P_DISABLE: "1"
     container:
-      image: verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.1
+      image: verlai/verl:app-verl0.5-sglang0.4.9.post6-mcore0.12.2-te2.2
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -97,7 +99,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install hf_transfer fastmcp
-          pip3 install -e .[test,gpu,sglang] --no-deps
+          pip3 install -e .[test]
       - name: Download Model to Use
         run: |
           huggingface-cli download 'Qwen/Qwen2-7B-Instruct'

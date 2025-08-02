@@ -36,11 +36,10 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.ref.megatron.tensor_model_parallel_size=2 \
     critic.optim.lr=1e-5 \
     critic.model.path=deepseek-ai/deepseek-llm-7b-chat \
-    critic.model.enable_gradient_checkpointing=False \
     critic.ppo_micro_batch_size_per_gpu=4 \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_ppo_gsm8k_math_examples' \
     trainer.experiment_name='deepseek_llm_7b_megatron' \
     trainer.n_gpus_per_node=8 \

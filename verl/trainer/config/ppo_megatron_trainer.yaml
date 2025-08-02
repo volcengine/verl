@@ -41,19 +41,7 @@ actor_rollout_ref:
 
         freeze_moe_router: False
 
-    enable_gradient_checkpointing: False
-
-    gradient_checkpointing_kwargs:
-
-      ## Activation Checkpointing
-      activations_checkpoint_method: null # 'uniform', 'block'; not used with 'selective'
-
-      # 'uniform' divides the total number of transformer layers and checkpoints the input activation of each chunk
-      # 'block' checkpoints the specified number of layers per pipeline stage at the specified granularity
-      activations_checkpoint_granularity: null # 'selective' or 'full'
-
-      # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
-      activations_checkpoint_num_layers: null # not used with 'selective'
+    use_fused_kernels: False # Whether to use custom fused kernels (PostProcessing, for memory efficiency)
 
     trust_remote_code: False
 
@@ -80,7 +68,7 @@ custom_reward_function:
   name: compute_score
 
 algorithm:
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.trainer.config.AlgoConfig
   gamma: 1.0
   lam: 1.0
@@ -89,7 +77,7 @@ algorithm:
   use_kl_in_reward: False
   kl_penalty: kl  # how to estimate kl divergence
   kl_ctrl:
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.trainer.config.KLControlConfig
     type: fixed
     kl_coef: 0.001
@@ -97,8 +85,6 @@ algorithm:
     target_kl: 0.1
   use_pf_ppo: False
   pf_ppo:
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs in the entrypoint
-    _target_: verl.trainer.config.PFPPOConfig
     reweight_method: pow  # ["pow", "max_min", "max_random"]
     weight_pow: 2.0
 
@@ -107,6 +93,7 @@ trainer:
   total_epochs: 30
   total_training_steps: null
   profile_steps: null # [1,2,5] or [] or null
+  profile_continuous_steps: False
   project_name: verl_examples
   experiment_name: gsm8k
   logger: ['console', 'wandb']
@@ -142,7 +129,6 @@ trainer:
     capture-range: "cudaProfilerApi"
     capture-range-end: null
     kill: none
-
 ray_init:
   num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
   timeline_json_file: null

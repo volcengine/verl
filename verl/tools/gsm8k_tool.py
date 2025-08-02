@@ -15,7 +15,7 @@
 
 import logging
 import os
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 from uuid import uuid4
 
 from verl.utils.reward_score import gsm8k
@@ -31,7 +31,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class Gsm8kTool(BaseTool):
     """A demo tool for calculating the reward of gsm8k.
 
-    - `to_openai_function_tool_schema`: return the tool schema in OpenAI format.
+    - `get_openai_tool_schema`: return the tool schema in OpenAI format.
     - `create`: create a tool instance for a trajectory.
     - `execute`: execute the tool.
     - `calc_reward`: calculate the reward respect to tool state.
@@ -67,6 +67,8 @@ class Gsm8kTool(BaseTool):
     async def create(self, instance_id: Optional[str] = None, ground_truth: Optional[str] = None, **kwargs) -> str:
         if instance_id is None:
             instance_id = str(uuid4())
+        if ground_truth is None:
+            ground_truth = kwargs.get("create_kwargs", {}).get("ground_truth", None)
         self._instance_dict[instance_id] = {
             "response": "",
             "ground_truth": ground_truth,
@@ -75,7 +77,7 @@ class Gsm8kTool(BaseTool):
         return instance_id
 
     @rollout_trace_op
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         answer = parameters.get("answer", "")
         if not isinstance(answer, str):
             answer = str(answer)
