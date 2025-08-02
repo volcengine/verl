@@ -180,7 +180,7 @@ The GSM8K interaction demonstrates a complete implementation for math problem-so
             return instance_id
 
         async def generate_response(self, instance_id, messages, **kwargs):
-            # Extract last user message content
+            # Extract last assistant message content
             content = ""
             for item in reversed(messages):
                 if item.get("role") == "assistant":
@@ -299,7 +299,8 @@ Comprehensive testing is essential for interaction systems:
         # Test complete workflow
         instance_id = await interaction.start_interaction(ground_truth="expected_answer")
         
-        messages = [{"role": "user", "content": "user_content"}, {"role": "assistant", "content": "assistant_response"}]
+
+        messages = [{"role": "user", "content": "user_content"}, {"role": "assistant", "content": "assistant_content"}]
         should_terminate, response, reward, metadata = await interaction.generate_response(instance_id, messages)
         
         assert should_terminate in [True, False]
