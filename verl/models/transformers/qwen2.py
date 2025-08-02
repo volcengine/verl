@@ -16,7 +16,7 @@ from typing import Callable, Optional
 
 import torch
 from transformers.cache_utils import Cache
-from transformers.modeling_flash_attention_utils import _flash_attention_forward
+from transformers.modeling_flash_attention_utils import _flash_attention_forward, flash_attn_supports_top_left_mask
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb, repeat_kv
 from transformers.utils import logging
 
@@ -137,7 +137,7 @@ def qwen2_flash_attn_forward(
         dropout=dropout_rate,
         sliding_window=sliding_window,
         is_causal=self.is_causal,
-        use_top_left_mask=self._flash_attn_uses_top_left_mask,
+        use_top_left_mask=flash_attn_supports_top_left_mask(),
     )
 
     # use full_q_len to reshape

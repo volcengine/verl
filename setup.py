@@ -51,8 +51,7 @@ MATH_REQUIRES = ["math-verify"]  # Add math-verify as an optional dependency
 VLLM_REQUIRES = ["tensordict>=0.8.0,<=0.9.1,!=0.9.0", "vllm>=0.7.3,<=0.9.1"]
 SGLANG_REQUIRES = [
     "tensordict>=0.8.0,<=0.9.1,!=0.9.0",
-    "sglang[srt,openai]==0.4.8",
-    "torch-memory-saver>=0.0.8",
+    "sglang[srt,openai]==0.4.9.post6",
     "torch==2.7.1",
 ]
 TRL_REQUIRES = ["trl<=0.9.6"]

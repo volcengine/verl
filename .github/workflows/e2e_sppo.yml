@@ -74,7 +74,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test,gpu,sglang] --no-deps
+          pip3 install -e .[test,gpu,sglang]
       - name: Prepare MATH dataset
         run: |
           python3 examples/data_preprocess/math_dataset.py
