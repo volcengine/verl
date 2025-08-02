@@ -147,6 +147,7 @@ actor_rollout_ref:
     load_format: dummy_dtensor
     layered_summon: false
   hybrid_engine: true
+  nccl_timeout: 600
   model:
     path: ~/models/deepseek-llm-7b-chat
     custom_chat_template: null
