@@ -624,6 +624,49 @@ class RayPPOTrainer:
         # Log to each configured logger
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
+    def _determine_core_metric(self, var2metric2val: dict) -> str:
+        """
+        Intelligently determine the core metric for TensorBoard grouping.
+        
+        Enhanced logic that supports custom metric configurations from Enhanced reward managers.
+        
+        Args:
+            var2metric2val: Dictionary mapping variable names to metric values
+            
+        Returns:
+            The name of the variable to treat as the core metric
+        """
+        # 🎯 Enhanced logic: Check if val_reward_fn is an Enhanced reward manager
+        if hasattr(self.val_reward_fn, 'metric_config'):
+            try:
+                metric_config = self.val_reward_fn.metric_config
+                if hasattr(metric_config, 'core_metrics') and metric_config.core_metrics:
+                    # Find the first core metric that exists in our data
+                    for core_metric in metric_config.core_metrics:
+                        if core_metric in var2metric2val:
+                            return core_metric
+                    
+                    # Force use accuracy_overall if available (temporary fix)
+                    if 'accuracy_overall' in var2metric2val:
+                        return 'accuracy_overall'
+                    
+                    # If none of the configured core metrics exist, use first available core metric
+                    available_metrics = list(var2metric2val.keys())
+                    for core_metric in metric_config.core_metrics:
+                        for available in available_metrics:
+                            if core_metric in available or available in core_metric:
+                                return available
+                                
+                pass
+            except Exception as e:
+                pass
+        
+        # 🔄 Fallback to original logic for backward compatibility
+        if "acc" in var2metric2val:
+            return "acc"
+        else:
+            return "reward"
+
     def _validate(self):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
@@ -746,7 +789,8 @@ class RayPPOTrainer:
         data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
         metric_dict = {}
         for data_source, var2metric2val in data_src2var2metric2val.items():
-            core_var = "acc" if "acc" in var2metric2val else "reward"
+            # 🚀 Enhanced core metric detection logic
+            core_var = self._determine_core_metric(var2metric2val)
             for var_name, metric2val in var2metric2val.items():
                 n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
                 for metric_name, metric_val in metric2val.items():
