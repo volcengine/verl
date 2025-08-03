@@ -57,14 +57,14 @@ limitations under the License. -->
 | Backend | Strategy                 | Model        | Training Time | Accuracy (last/max) | Log                                                                  |
 |------------------|----------------------------------|--------------|---------------|---------------------|----------------------------------------------------------------------------------|
 | Megatron         | baseline (from community) | Qwen2-7B-Instruct     | -             | 89.61 / 89.61       | [Log](https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b_math_megatron.log) |
-| Megatron         | baseline                         | Qwen2-7B-Instruct     | 17h53m        | 89.08 / 89.92       | [Log](./assets/tensorboard/gsm8k_qwen2_7b_base)                                                             |
-| FSDP             | baseline                         | Qwen2-7B-Instruct     | 18h24m        | 89.54 / 89.92       | [Log](./assets/tensorboard/q7b_fsdp_base)                                                                   |
-| Megatron         | mini-batch pipeline + one-step off-policy | Qwen2-7B-Instruct | **12h22m** (-30.85%) | 89.61 / 90.04       | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)                                                          |
-| FSDP             | mini-batch pipeline + one-step off-policy | Qwen2-7B-Instruct | **13h10m** (-28.44%) | 88.86 / 89.99       | [Log](./assets/tensorboard/q7b_fsdp_off_ppl)                                                                |
-| FSDP             | baseline                         | Qwen2.5-3B-Instruct   | 17h23m        | 87.87 / 88.10       | [Log](./assets/tensorboard/q3b_fsdp_base)                                                                   |
-| Megatron         | baseline                         | Qwen2.5-3B-Instruct   | 17h07m        | 88.02 / 88.02       | [Log](./assets/tensorboard/q3b_mcore_base)                                                                  |
-| FSDP             | mini-batch pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h15m** (-23.08%) | 88.93 / 88.93       | [Log](./assets/tensorboard/q3b_fsdp_off_ppl)                                                                |
-| Megatron         | mini-batch pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h10m** (-23.08%) | 87.19 / 88.40       | [Log](./assets/tensorboard/q3b_mcore_off_ppl)
+| Megatron         | baseline                         | Qwen2-7B-Instruct     | 17h53m        | 89.08 / 89.92       | [Log](https://github.com/haolinyan/verl/tree/35cee0caba9f852cfe62c39f738f096f55c8cbd0/recipe/async_reward_agent/assets/tensorboard/gsm8k_qwen2_7b_base)                                                             |
+| FSDP             | baseline                         | Qwen2-7B-Instruct     | 18h24m        | 89.54 / 89.92       | [Log](https://github.com/haolinyan/verl/tree/35cee0caba9f852cfe62c39f738f096f55c8cbd0/recipe/async_reward_agent/assets/tensorboard/q7b_fsdp_base)                                                                   |
+| Megatron         | mini-batch pipeline + one-step off-policy | Qwen2-7B-Instruct | **12h22m** (-30.85%) | 89.61 / 90.04       | [Log](https://github.com/haolinyan/verl/tree/35cee0caba9f852cfe62c39f738f096f55c8cbd0/recipe/async_reward_agent/assets/tensorboard/gsm8k_qwen2_7b_off_ppl)                                                          |
+| FSDP             | mini-batch pipeline + one-step off-policy | Qwen2-7B-Instruct | **13h10m** (-28.44%) | 88.86 / 89.99       | [Log](https://github.com/haolinyan/verl/tree/35cee0caba9f852cfe62c39f738f096f55c8cbd0/recipe/async_reward_agent/assets/tensorboard/q7b_fsdp_off_ppl)                                                                |
+| FSDP             | baseline                         | Qwen2.5-3B-Instruct   | 17h23m        | 87.87 / 88.10       | [Log](https://github.com/haolinyan/verl/tree/35cee0caba9f852cfe62c39f738f096f55c8cbd0/recipe/async_reward_agent/assets/tensorboard/q3b_fsdp_base)                                                                   |
+| Megatron         | baseline                         | Qwen2.5-3B-Instruct   | 17h07m        | 88.02 / 88.02       | [Log](https://github.com/haolinyan/verl/tree/35cee0caba9f852cfe62c39f738f096f55c8cbd0/recipe/async_reward_agent/assets/tensorboard/q3b_mcore_base)                                                                  |
+| FSDP             | mini-batch pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h15m** (-23.08%) | 88.93 / 88.93       | [Log](https://github.com/haolinyan/verl/tree/35cee0caba9f852cfe62c39f738f096f55c8cbd0/recipe/async_reward_agent/assets/tensorboard/q3b_fsdp_off_ppl)                                                                |
+| Megatron         | mini-batch pipeline + one-step off-policy | Qwen2.5-3B-Instruct | **13h10m** (-23.08%) | 87.19 / 88.40       | [Log](https://github.com/haolinyan/verl/tree/35cee0caba9f852cfe62c39f738f096f55c8cbd0/recipe/async_reward_agent/assets/tensorboard/q3b_mcore_off_ppl)
 
 我们通过进一步实验验证了以下两个方面：(1) 小批次流水线更新与单步离线策略对训练效率的独立贡献；(2) 解耦PPO损失函数（如[论文](https://arxiv.org/pdf/2505.24298)所述，用于缓解离线策略训练中的策略不一致性问题）对训练效率及模型性能的影响。  
 
@@ -73,11 +73,11 @@ limitations under the License. -->
 
 | Backend   | Strategy                              |  Model       | Training Time      | Accuracy (last/max) | Log                     |
 |------------|---------------------------------------|------------|----------------|----------------|------------------------------|
-| Megatron   | baseline                              | Qwen2-7B-Instruct   | 17h53m         | 89.08/89.92    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_base)          |
-| Megatron   | one-step off-policy                   | Qwen2-7B-Instruct   | 13h23m (-25.16%) | 88.93/89.54    | [Log](./assets/tensorboard/q7b_mcore_off)                |
-| Megatron   | mini-batch pipeline                       | Qwen2-7B-Instruct   | 15h41m (-12.30%) | 89.31/89.99    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_async)         |
-| Megatron   | mini-batch pipeline + one-step off-policy | Qwen2-7B-Instruct   | 12h22m (-30.85%) | 89.61/90.04    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl)       |
-| Megatron   | mini-batch pipeline + one-step off-policy + decoupled ppo loss | Qwen2-7B-Instruct | 12h21m (-30.94%) | 89.01/89.69    | [Log](./assets/tensorboard/gsm8k_qwen2_7b_off_ppl_behav) |
+| Megatron   | baseline                              | Qwen2-7B-Instruct   | 17h53m         | 89.08/89.92    | [Log](https://github.com/haolinyan/verl/tree/35cee0caba9f852cfe62c39f738f096f55c8cbd0/recipe/async_reward_agent/assets/tensorboard/gsm8k_qwen2_7b_base)          |
+| Megatron   | one-step off-policy                   | Qwen2-7B-Instruct   | 13h23m (-25.16%) | 88.93/89.54    | [Log](https://github.com/haolinyan/verl/tree/35cee0caba9f852cfe62c39f738f096f55c8cbd0/recipe/async_reward_agent/assets/tensorboard/q7b_mcore_off)                |
+| Megatron   | mini-batch pipeline                       | Qwen2-7B-Instruct   | 15h41m (-12.30%) | 89.31/89.99    | [Log](https://github.com/haolinyan/verl/tree/35cee0caba9f852cfe62c39f738f096f55c8cbd0/recipe/async_reward_agent/assets/tensorboard/gsm8k_qwen2_7b_async)         |
+| Megatron   | mini-batch pipeline + one-step off-policy | Qwen2-7B-Instruct   | 12h22m (-30.85%) | 89.61/90.04    | [Log](https://github.com/haolinyan/verl/tree/35cee0caba9f852cfe62c39f738f096f55c8cbd0/recipe/async_reward_agent/assets/tensorboard/gsm8k_qwen2_7b_off_ppl)       |
+| Megatron   | mini-batch pipeline + one-step off-policy + decoupled ppo loss | Qwen2-7B-Instruct | 12h21m (-30.94%) | 89.01/89.69    | [Log](https://github.com/haolinyan/verl/tree/35cee0caba9f852cfe62c39f738f096f55c8cbd0/recipe/async_reward_agent/assets/tensorboard/gsm8k_qwen2_7b_off_ppl_behav) |
 
 
 ## 实现方案
