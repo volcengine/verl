@@ -171,9 +171,11 @@ class MetricConfig:
             return True
         
         if self.auto_detect_accuracy:
-            # Auto-detect accuracy-like metrics
-            acc_patterns = ["acc", "accuracy", "precision", "recall", "f1"]
-            return any(pattern in metric_name.lower() for pattern in acc_patterns)
+            # Auto-detect accuracy-like metrics using word boundaries for more precise matching
+            import re
+            # Use word boundaries but allow for underscores and compound words
+            acc_patterns = [r"\bacc\b", r"\baccuracy", r"\bprecision", r"\brecall", r"\bf1\b", r"\bf1_"]
+            return any(re.search(pattern, metric_name.lower()) for pattern in acc_patterns)
         
         return False
     

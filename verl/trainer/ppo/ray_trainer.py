@@ -27,7 +27,6 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Optional
 
 import numpy as np
 import ray
@@ -218,7 +217,7 @@ def compute_advantage(
     lam: float = 1.0,
     num_repeat: int = 1,
     norm_adv_by_std_in_grpo: bool = True,
-    config: Optional[AlgoConfig] = None,
+    config: AlgoConfig | None = None,
 ) -> DataProto:
     """Compute advantage estimates for policy optimization.
 
@@ -311,10 +310,10 @@ class RayPPOTrainer:
         processor=None,
         reward_fn=None,
         val_reward_fn=None,
-        train_dataset: Optional[Dataset] = None,
-        val_dataset: Optional[Dataset] = None,
+        train_dataset: Dataset | None = None,
+        val_dataset: Dataset | None = None,
         collate_fn=None,
-        train_sampler: Optional[Sampler] = None,
+        train_sampler: Sampler | None = None,
         device_name=None,
     ):
         """
@@ -499,7 +498,7 @@ class RayPPOTrainer:
 
         print("[validate_config] All configuration checks passed successfully!")
 
-    def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
+    def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Sampler | None):
         """
         Creates the train and validation dataloaders.
         """
@@ -645,21 +644,8 @@ class RayPPOTrainer:
                     for core_metric in metric_config.core_metrics:
                         if core_metric in var2metric2val:
                             return core_metric
-                    
-                    # Force use accuracy_overall if available (temporary fix)
-                    if 'accuracy_overall' in var2metric2val:
-                        return 'accuracy_overall'
-                    
-                    # If none of the configured core metrics exist, use first available core metric
-                    available_metrics = list(var2metric2val.keys())
-                    for core_metric in metric_config.core_metrics:
-                        for available in available_metrics:
-                            if core_metric in available or available in core_metric:
-                                return available
-                                
-                pass
             except Exception as e:
-                pass
+                warnings.warn(f"Could not determine core metric from metric_config due to an error: {e}", stacklevel=2)
         
         # 🔄 Fallback to original logic for backward compatibility
         if "acc" in var2metric2val:

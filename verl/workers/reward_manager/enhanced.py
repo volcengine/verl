@@ -139,10 +139,10 @@ class EnhancedRewardManager:
                 tensorboard_prefix=tensorboard_prefix,
                 auto_detect_accuracy=auto_detect_accuracy
             )
-        except (AttributeError, TypeError):
+        except (AttributeError, TypeError) as e:
             # Fallback to default config
             warnings.warn(
-                f"Could not parse metric_config {type(metric_config)}, using default configuration",
+                f"Could not parse metric_config {type(metric_config)}, using default configuration. Error: {e}",
                 stacklevel=2
             )
             return MetricConfig()
@@ -237,13 +237,13 @@ class EnhancedRewardManager:
             
             # Partial case - some samples have this metric
             is_sparse = self.metric_config.is_sparse_metric(metric_name)
-            print(f"🔍 DEBUG: {metric_name} is_sparse={is_sparse}, sparse_config={self.metric_config.sparse_metrics}")
+            # Check if this is a sparse metric that doesn't need to be present for all samples
             if is_sparse:
                 # For sparse metrics, pad with None or 0 as appropriate
                 # This allows downstream processing to handle missing values
                 padded_values = self._pad_sparse_metric(values, total_samples, metric_name)
                 validated_metrics[metric_name] = padded_values
-                print(f"✅ Added sparse metric {metric_name} with {len(padded_values)} values")
+                # Padded sparse metric for consistent processing
             else:
                 issues.append(
                     f"Metric '{metric_name}' has {current_length} values but expected {total_samples}. "
@@ -315,15 +315,12 @@ class EnhancedRewardManager:
                 # Extract input data
                 prompt_ids = data_item.batch["prompts"]
                 prompt_length = prompt_ids.shape[-1]
-                valid_prompt_length = data_item.batch["attention_mask"][:prompt_length].sum()
-                valid_prompt_ids = prompt_ids[-valid_prompt_length:]
 
                 response_ids = data_item.batch["responses"]
                 valid_response_length = data_item.batch["attention_mask"][prompt_length:].sum()
                 valid_response_ids = response_ids[:valid_response_length]
 
                 # Decode text
-                prompt_str = self.tokenizer.decode(valid_prompt_ids, skip_special_tokens=True)
                 response_str = self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
 
                 # Get metadata
@@ -359,16 +356,8 @@ class EnhancedRewardManager:
 
                 if already_print_data_sources[data_source] < self.num_examine:
                     already_print_data_sources[data_source] += 1
-                    print(f"[Enhanced Reward Manager Debug - Sample {i}]")
-                    print(f"[data_source] {data_source}")
-                    print(f"[prompt] {prompt_str}")
-                    print(f"[response] {response_str}")
-                    print(f"[ground_truth] {ground_truth}")
-                    print(f"[reward] {reward_value}")
-                    if extra_metrics:
-                        for key, value in extra_metrics.items():
-                            print(f"[{key}] {value}")
-                    print("---")
+                    # Debug information available but not printed to avoid stdout pollution
+                    # Users can enable detailed logging via logging framework if needed
 
             except Exception as e:
                 error_msg = (
