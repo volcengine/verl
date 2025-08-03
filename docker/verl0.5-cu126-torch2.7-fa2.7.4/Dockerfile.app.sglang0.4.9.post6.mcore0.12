@@ -14,10 +14,10 @@ ENV HF_HUB_ENABLE_HF_TRANSFER="1"
 # Install FlashInfer Python package
 RUN pip install --upgrade pip setuptools packaging
 RUN pip install --resume-retries 999 --no-cache-dir --no-build-isolation flashinfer-python==0.2.9rc1
-RUN pip install --resume-retries 999  --no-cache-dir "sglang[all]==0.4.9.post6"
+RUN pip install --resume-retries 999  --no-cache-dir --no-build-isolation "sglang[all]==0.4.9.post6"
 
 # Fix packages
-RUN pip install --no-cache-dir "tensordict==0.6.2" "transformers[hf_xet]==4.53.2" accelerate datasets peft hf-transfer \
+RUN pip install --no-cache-dir "tensordict==0.6.2" "transformers[hf_xet]==4.54.0" accelerate datasets peft hf-transfer \
     "numpy<2.0.0" "pyarrow>=19.0.1" pandas \
     ray[default] codetiming hydra-core pylatexenc qwen-vl-utils wandb dill pybind11 liger-kernel mathruler blobfile xgrammar \
     pytest py-spy pyext pre-commit ruff
