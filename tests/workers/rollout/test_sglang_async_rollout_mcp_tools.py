@@ -28,6 +28,7 @@ from utils_sglang import get_rollout_config, prepare_inputs
 
 from verl.protocol import DataProto
 from verl.tools.mcp_search_tool import MCPSearchTool
+from verl.tools.schemas import ToolResponse
 from verl.tools.utils.mcp_clients.McpClientManager import MCPClientManager
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
@@ -100,10 +101,13 @@ def get_search_messages():
     }
 
     # Mock search tool responses
-    tool_return_0_msg = {"role": "tool", "content": [{"type": "text", "text": "Today's weather in Beijing is sunny."}]}
+    tool_return_0_msg = {
+        "role": "tool",
+        "content": [ToolResponse(type="text", text="Today's weather in Beijing is sunny.")],
+    }
     tool_return_1_msg = {
         "role": "tool",
-        "content": [{"type": "text", "text": "Tomorrow's weather in Beijing is cloudy."}],
+        "content": [ToolResponse(type="text", text="Tomorrow's weather in Beijing is cloudy.")],
     }
 
     user_prompts = [user_prompt]

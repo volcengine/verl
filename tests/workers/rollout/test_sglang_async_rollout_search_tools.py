@@ -31,6 +31,7 @@ from verl.tools.schemas import (
     OpenAIFunctionPropertySchema,
     OpenAIFunctionSchema,
     OpenAIFunctionToolSchema,
+    ToolResponse,
 )
 from verl.tools.search_tool import SearchTool
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
@@ -75,10 +76,13 @@ def get_search_messages():
     }
 
     # Mock search tool responses
-    tool_return_0_msg = {"role": "tool", "content": [{"type": "text", "text": "Today's weather in Beijing is sunny."}]}
+    tool_return_0_msg = {
+        "role": "tool",
+        "content": [ToolResponse(type="text", text="Today's weather in Beijing is sunny.")],
+    }
     tool_return_1_msg = {
         "role": "tool",
-        "content": [{"type": "text", "text": "Tomorrow's weather in Beijing is cloudy."}],
+        "content": [ToolResponse(type="text", text="Tomorrow's weather in Beijing is cloudy.")],
     }
 
     user_prompts = [user_prompt]

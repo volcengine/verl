@@ -37,6 +37,7 @@ from verl.tools.schemas import (
     OpenAIFunctionPropertySchema,
     OpenAIFunctionSchema,
     OpenAIFunctionToolSchema,
+    ToolResponse,
 )
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
@@ -89,7 +90,7 @@ def get_sandbox_fusion_messages():
 
     tool_return_0_msg = {
         "role": "tool",
-        "content": [{"type": "text", "text": """3"""}],
+        "content": [ToolResponse(type="text", text="3")],
     }
 
     expect_turn_1_msg = {
@@ -117,7 +118,7 @@ def get_sandbox_fusion_messages():
 
     tool_return_1_msg = {
         "role": "tool",
-        "content": [{"type": "text", "text": """149"""}],
+        "content": [ToolResponse(type="text", text="149")],
     }
     expect_turn_2_msg = {
         "role": "assistant",
