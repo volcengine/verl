@@ -97,19 +97,8 @@ class TaskRunner:
     def add_actor_rollout_worker(self, config):
         """Add actor rollout worker based on the actor strategy."""
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
-            assert config.critic.strategy in {"fsdp", "fsdp2"}
             from verl.single_controller.ray import RayWorkerGroup
             from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
-
-            use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
-            if use_legacy_worker_impl in ["auto", "enable"]:
-                from verl.workers.fsdp_workers import CriticWorker
-            elif use_legacy_worker_impl == "disable":
-                from verl.workers.roles import CriticWorker
-
-                print("Using new worker implementation")
-            else:
-                raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
 
             actor_rollout_cls = (
                 AsyncActorRolloutRefWorker
@@ -119,9 +108,8 @@ class TaskRunner:
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
-            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
             from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
-            from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
+            from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 
             actor_rollout_cls = (
                 AsyncActorRolloutRefWorker
@@ -133,13 +121,33 @@ class TaskRunner:
         else:
             raise NotImplementedError
 
-        return actor_rollout_cls, ray_worker_group_cls, CriticWorker
-
-    def add_critic_worker(self, actor_rollout_cls, CriticWorker):
-        """Add critic worker to role mapping."""
         from verl.trainer.ppo.ray_trainer import Role
 
         self.role_worker_mapping[Role.ActorRollout] = ray.remote(actor_rollout_cls)
+
+        return actor_rollout_cls, ray_worker_group_cls
+
+    def add_critic_worker(self, config):
+        """Add critic worker to role mapping."""
+        if config.critic.strategy in {"fsdp", "fsdp2"}:
+            use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
+            if use_legacy_worker_impl in ["auto", "enable"]:
+                from verl.workers.fsdp_workers import CriticWorker
+            elif use_legacy_worker_impl == "disable":
+                from verl.workers.roles import CriticWorker
+
+                print("Using new worker implementation")
+            else:
+                raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
+
+        elif config.critic.strategy == "megatron":
+            from verl.workers.megatron_workers import CriticWorker
+
+        else:
+            raise NotImplementedError
+
+        from verl.trainer.ppo.ray_trainer import Role
+
         self.role_worker_mapping[Role.Critic] = ray.remote(CriticWorker)
 
     def init_resource_pool_mgr(self, config):
@@ -214,8 +222,8 @@ class TaskRunner:
         # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
-        actor_rollout_cls, ray_worker_group_cls, CriticWorker = self.add_actor_rollout_worker(config)
-        self.add_critic_worker(actor_rollout_cls, CriticWorker)
+        actor_rollout_cls, ray_worker_group_cls = self.add_actor_rollout_worker(config)
+        self.add_critic_worker(config)
         resource_pool_spec, mapping = self.init_resource_pool_mgr(config)
 
         # We should adopt a multi-source reward function here:
