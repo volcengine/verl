@@ -284,6 +284,10 @@ def ulysses_flash_attn_forward(
     else:
         sliding_window = None
 
+    from transformers.modeling_flash_attention_utils import flash_attn_supports_top_left_mask
+
+    self._flash_attn_uses_top_left_mask = flash_attn_supports_top_left_mask()
+
     attn_output = flash_attention_forward(
         query_states,
         key_states,
