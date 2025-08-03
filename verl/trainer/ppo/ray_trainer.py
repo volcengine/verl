@@ -1300,7 +1300,7 @@ class RayPPOTrainer:
                                     "request_id",
                                     batch.non_tensor_batch["request_id"].tolist(),
                                 )
-      
+
                             self._dump_generations(
                                 inputs=inputs,
                                 outputs=outputs,
