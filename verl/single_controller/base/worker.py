@@ -17,6 +17,7 @@ the class for Worker
 
 import os
 import socket
+import warnings
 from dataclasses import dataclass
 
 import ray
@@ -55,6 +56,13 @@ class WorkerHelper:
         with socket.socket() as sock:
             sock.bind(("", 0))
             return sock.getsockname()[1]
+
+    def get_availale_master_addr_port(self):
+        warnings.warn(
+            "This function is deprecated due to typo in name; Please use `get_available_master_addr_port` instead",
+            stacklevel=2,
+        )
+        return self._get_node_ip().strip("[]"), str(self._get_free_port())
 
     def get_available_master_addr_port(self):
         return self._get_node_ip().strip("[]"), str(self._get_free_port())
