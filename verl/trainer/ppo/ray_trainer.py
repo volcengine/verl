@@ -160,7 +160,6 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
         data (DataProto): The data containing batched model outputs and inputs.
         kl_ctrl (core_algos.AdaptiveKLController): Controller for adaptive KL penalty.
         kl_penalty (str, optional): Type of KL penalty to apply. Defaults to "kl".
-        multi_turn (bool, optional): Whether the data is from a multi-turn conversation. Defaults to False.
 
     Returns:
         tuple: A tuple containing:
