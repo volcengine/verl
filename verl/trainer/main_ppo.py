@@ -89,10 +89,15 @@ class TaskRunner:
 
     This class encapsulates the main training logic and runs as a Ray remote actor
     to enable distributed execution across multiple nodes and GPUs.
+
+    Attributes:
+        role_worker_mapping: Dictionary mapping Role enums to Ray remote worker classes
+        mapping: Dictionary mapping Role enums to resource pool IDs for GPU allocation
     """
 
     def __init__(self):
         self.role_worker_mapping = {}
+        self.mapping = {}
 
     def add_actor_rollout_worker(self, config):
         """Add actor rollout worker based on the actor strategy."""
@@ -158,14 +163,14 @@ class TaskRunner:
         resource_pool_spec = {
             global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
         }
-        mapping = {
+        self.mapping = {
             Role.ActorRollout: global_pool_id,
             Role.Critic: global_pool_id,
         }
 
-        return resource_pool_spec, mapping
+        return resource_pool_spec
 
-    def add_reward_model_worker(self, config, mapping):
+    def add_reward_model_worker(self, config):
         """Add reward model worker if enabled."""
         from verl.trainer.ppo.ray_trainer import Role
 
@@ -177,15 +182,15 @@ class TaskRunner:
             else:
                 raise NotImplementedError
             self.role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
-            mapping[Role.RewardModel] = "global_pool"
+            self.mapping[Role.RewardModel] = "global_pool"
 
-    def add_ref_policy_worker(self, config, actor_rollout_cls, mapping):
+    def add_ref_policy_worker(self, config, actor_rollout_cls):
         """Add reference policy worker if KL loss or KL reward is used."""
         from verl.trainer.ppo.ray_trainer import Role
 
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
             self.role_worker_mapping[Role.RefPolicy] = ray.remote(actor_rollout_cls)
-            mapping[Role.RefPolicy] = "global_pool"
+            self.mapping[Role.RefPolicy] = "global_pool"
 
     def run(self, config):
         """Execute the main PPO training workflow.
@@ -224,7 +229,7 @@ class TaskRunner:
 
         actor_rollout_cls, ray_worker_group_cls = self.add_actor_rollout_worker(config)
         self.add_critic_worker(config)
-        resource_pool_spec, mapping = self.init_resource_pool_mgr(config)
+        resource_pool_spec = self.init_resource_pool_mgr(config)
 
         # We should adopt a multi-source reward function here:
         # - for rule-based rm, we directly call a reward score
@@ -232,10 +237,10 @@ class TaskRunner:
         # - for code related prompt, we send to a sandbox if there are test cases
         # finally, we combine all the rewards together
         # The reward type depends on the tag of the data
-        self.add_reward_model_worker(config, mapping)
+        self.add_reward_model_worker(config)
 
         # Add a reference policy worker if KL loss or KL reward is used.
-        self.add_ref_policy_worker(config, actor_rollout_cls, mapping)
+        self.add_ref_policy_worker(config, actor_rollout_cls)
 
         # Load the reward manager for training and validation.
         reward_fn = load_reward_manager(
@@ -247,7 +252,7 @@ class TaskRunner:
 
         from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 
-        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
+        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=self.mapping)
 
         from verl.utils.dataset.rl_dataset import collate_fn
 
