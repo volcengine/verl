@@ -1093,8 +1093,8 @@ class RayPPOTrainer:
 
                 # add uid to batch
                 batch.non_tensor_batch["uid"] = np.array(
-                        [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
-                    )
+                    [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
+                )
 
                 # pop those keys for generation
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
