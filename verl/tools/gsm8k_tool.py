@@ -22,7 +22,7 @@ from verl.utils.reward_score import gsm8k
 from verl.utils.rollout_trace import rollout_trace_op
 
 from .base_tool import BaseTool
-from .schemas import OpenAIFunctionToolSchema
+from .schemas import OpenAIFunctionToolSchema, ToolResponse
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -64,7 +64,9 @@ class Gsm8kTool(BaseTool):
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
 
-    async def create(self, instance_id: Optional[str] = None, ground_truth: Optional[str] = None, **kwargs) -> str:
+    async def create(
+        self, instance_id: Optional[str] = None, ground_truth: Optional[str] = None, **kwargs
+    ) -> tuple[str, ToolResponse]:
         if instance_id is None:
             instance_id = str(uuid4())
         if ground_truth is None:
@@ -74,10 +76,10 @@ class Gsm8kTool(BaseTool):
             "ground_truth": ground_truth,
             "reward": 0.0,
         }
-        return instance_id
+        return instance_id, ToolResponse()
 
     @rollout_trace_op
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
         answer = parameters.get("answer", "")
         if not isinstance(answer, str):
             answer = str(answer)
@@ -93,7 +95,7 @@ class Gsm8kTool(BaseTool):
         # update the reward
         self._instance_dict[instance_id]["reward"] = reward
 
-        return f"Current parsed {answer=} {reward=}", tool_reward, {}
+        return ToolResponse(text=f"Current parsed {answer=} {reward=}"), tool_reward, {}
 
     async def calc_reward(self, instance_id: str, **kwargs) -> float:
         return gsm8k.compute_score(
