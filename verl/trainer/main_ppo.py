@@ -167,8 +167,10 @@ class TaskRunner:
             Role.ActorRollout: global_pool_id,
             Role.Critic: global_pool_id,
         }
+        from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 
-        return resource_pool_spec
+        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=self.mapping)
+        return resource_pool_manager
 
     def add_reward_model_worker(self, config):
         """Add reward model worker if enabled."""
@@ -184,12 +186,12 @@ class TaskRunner:
             self.role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
             self.mapping[Role.RewardModel] = "global_pool"
 
-    def add_ref_policy_worker(self, config, actor_rollout_cls):
+    def add_ref_policy_worker(self, config, ref_policy_cls):
         """Add reference policy worker if KL loss or KL reward is used."""
         from verl.trainer.ppo.ray_trainer import Role
 
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
-            self.role_worker_mapping[Role.RefPolicy] = ray.remote(actor_rollout_cls)
+            self.role_worker_mapping[Role.RefPolicy] = ray.remote(ref_policy)
             self.mapping[Role.RefPolicy] = "global_pool"
 
     def run(self, config):
@@ -229,7 +231,6 @@ class TaskRunner:
 
         actor_rollout_cls, ray_worker_group_cls = self.add_actor_rollout_worker(config)
         self.add_critic_worker(config)
-        resource_pool_spec = self.init_resource_pool_mgr(config)
 
         # We should adopt a multi-source reward function here:
         # - for rule-based rm, we directly call a reward score
@@ -250,9 +251,7 @@ class TaskRunner:
             config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {})
         )
 
-        from verl.trainer.ppo.ray_trainer import ResourcePoolManager
-
-        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=self.mapping)
+        resource_pool_manager = self.init_resource_pool_mgr(config)
 
         from verl.utils.dataset.rl_dataset import collate_fn
 
