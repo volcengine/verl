@@ -171,7 +171,7 @@ class TestRolloutWithTools:
             for turn in expect_turn_array
         ]
         preencode_tool_return_array = [
-            ToolResponse(type="text", text=qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True))
+            ToolResponse(text=qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True))
             for turn in tool_return_array
         ]
         return prompts, preencode_turn_array, preencode_tool_return_array

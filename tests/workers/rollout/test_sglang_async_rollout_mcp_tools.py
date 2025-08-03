@@ -101,13 +101,10 @@ def get_search_messages():
     }
 
     # Mock search tool responses
-    tool_return_0_msg = {
-        "role": "tool",
-        "content": "Today's weather in Beijing is sunny.",
-    }
+    tool_return_0_msg = {"role": "tool", "content": [{"type": "text", "text": "Today's weather in Beijing is sunny."}]}
     tool_return_1_msg = {
         "role": "tool",
-        "content": "Tomorrow's weather in Beijing is cloudy.",
+        "content": [{"type": "text", "text": "Tomorrow's weather in Beijing is cloudy."}],
     }
 
     user_prompts = [user_prompt]
@@ -141,7 +138,7 @@ class TestRolloutWithMCPSearchTools:
             for turn in expect_turn_array
         ]
         preencode_tool_return_array = [
-            ToolResponse(type="text", text=qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True))
+            ToolResponse(text=qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True))
             for turn in tool_return_array
         ]
         return prompts, preencode_turn_array, preencode_tool_return_array
@@ -397,7 +394,7 @@ class TestRolloutWithMCPSearchTools:
         search_counter = 0
         for msg in output_req.messages:
             if msg.role == "tool":
-                assert msg.content == tool_return_array[search_counter]
+                assert msg.content[0]["text"] == tool_return_array[search_counter].text
                 search_counter += 1
         assert search_counter == 2
 

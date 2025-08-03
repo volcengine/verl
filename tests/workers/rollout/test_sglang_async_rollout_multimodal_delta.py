@@ -111,7 +111,7 @@ def _test_add_tool_response_messages_image_delta(processor, image_list, descript
         req.add_assistant_message(processor, content=description_list[idx - 1])
         before_tool_call_len = req.input_ids.shape[-1]
         req.add_tool_response_messages(
-            processor, [ToolResponse(type="image", image=[img], text="Here is the new image you requested: ")]
+            processor, [ToolResponse(image=[img], text="Here is the new image you requested: ")]
         )
         after_tool_call_len = req.input_ids.shape[-1]
         if prev_generated_len == 0:
