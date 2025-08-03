@@ -90,7 +90,7 @@ def get_sandbox_fusion_messages():
 
     tool_return_0_msg = {
         "role": "tool",
-        "content": [ToolResponse(type="text", text="3")],
+        "content": """3""",
     }
 
     expect_turn_1_msg = {
@@ -118,7 +118,7 @@ def get_sandbox_fusion_messages():
 
     tool_return_1_msg = {
         "role": "tool",
-        "content": [ToolResponse(type="text", text="149")],
+        "content": """149""",
     }
     expect_turn_2_msg = {
         "role": "assistant",
@@ -171,7 +171,7 @@ class TestRolloutWithTools:
             for turn in expect_turn_array
         ]
         preencode_tool_return_array = [
-            qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True)
+            ToolResponse(type="text", text=qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True))
             for turn in tool_return_array
         ]
         return prompts, preencode_turn_array, preencode_tool_return_array
