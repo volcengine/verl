@@ -354,7 +354,7 @@ class TestRolloutWithSearchTools:
         search_counter = 0
         for msg in output_req.messages:
             if msg.role == "tool":
-                assert msg.content == tool_return_array[search_counter]
+                assert msg.content[0]['text'] == tool_return_array[search_counter].text
                 search_counter += 1
         assert search_counter == 2
 
