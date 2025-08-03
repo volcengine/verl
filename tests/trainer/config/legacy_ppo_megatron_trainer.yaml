@@ -223,9 +223,6 @@ actor_rollout_ref:
       # null for no interaction
       interaction_config_path: null
 
-      # null for default callback
-      completion_callback: null
-
       # - When set to True, the model's default chat template is used for multi-turn rollout, which typically matches production behavior.
       # - When set to False, the token ids recorded for training are used instead; unlike the default chat template, these always include the model's full output,
       #   which may contain additional content such as reasoning content. This maintains the consistency between training and rollout, but it will lead to longer prompts.
@@ -453,6 +450,7 @@ trainer:
   npu_profile:
     options:
       save_path: ./profiler_data
+      roles: ["all"]
       level: level1
       with_memory: False
       record_shapes: False

@@ -4,13 +4,17 @@ NUM_GPUS=${NUM_GPUS:-8}
 
 exp_name="Qwen2.5-0.5B-Instruct-spin-minimal"
 
+MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
+MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
+huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
+
 CUDA_VISIBLE_DEVICES=${VISIBLE_DEVICES} python3 -m recipe.spin.main_spin \
-  data.train_files=$HOME/data/gsm8k/train.parquet \
-  data.val_files=$HOME/data/gsm8k/test.parquet \
+  data.train_files="${HOME}/data/gsm8k/train.parquet" \
+  data.val_files="${HOME}/data/gsm8k/test.parquet" \
   data.train_batch_size=1024 \
   data.max_prompt_length=1024 \
   data.max_response_length=1024 \
-  actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
+  actor_rollout_ref.model.path=$MODEL_PATH \
   actor_rollout_ref.actor.optim.lr=1e-6 \
   actor_rollout_ref.actor.ppo_mini_batch_size=64 \
   actor_rollout_ref.actor.ppo_micro_batch_size=8 \

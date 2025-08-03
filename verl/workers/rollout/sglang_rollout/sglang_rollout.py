@@ -22,7 +22,7 @@ import os
 import time
 from copy import deepcopy
 from json import JSONDecodeError
-from typing import Any, List, Optional, Tuple
+from typing import Any, Optional
 from uuid import uuid4
 
 import numpy as np
@@ -38,12 +38,10 @@ from sglang.srt.managers.tokenizer_manager import (
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
-    MultiprocessingSerializer,
     assert_pkg_version,
     get_ip,
     get_open_port,
     is_cuda,
-    maybe_set_triton_cache_manager,
     set_prometheus_multiproc_dir,
     set_ulimit,
 )
@@ -104,9 +102,15 @@ def _set_envs_and_config(server_args: ServerArgs):
     set_ulimit()
 
     # Fix triton bugs
-    if server_args.tp_size * server_args.dp_size > 1:
-        # FIXME: remove this after https://github.com/triton-lang/triton/pull/4295 is used as a dependency.
-        maybe_set_triton_cache_manager()
+    try:
+        from sglang.srt.utils import maybe_set_triton_cache_manager
+
+        if server_args.tp_size * server_args.dp_size > 1:
+            # FIXME: remove this after https://github.com/triton-lang/triton/pull/4295 is used as a dependency.
+            maybe_set_triton_cache_manager()
+    except ImportError:
+        # Fixed in sglang 0.4.9
+        pass
 
     # Check flashinfer version
     if server_args.attention_backend == "flashinfer":
@@ -160,22 +164,8 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
             obj = ResumeMemoryOccupationReqInput(tags=tags)
         return await self.tokenizer_manager.resume_memory_occupation(obj, None)
 
-    async def update_weights_from_tensor(
-        self,
-        named_tensors: List[Tuple[str, torch.Tensor]],  # noqa: UP006
-        load_format: Optional[str] = None,
-        flush_cache: bool = True,
-    ):
-        """Update weights from distributed source. If there are going to be more updates, set `flush_cache` to be false
-        to avoid duplicated cache cleaning operation."""
-        obj = UpdateWeightsFromTensorReqInput(
-            serialized_named_tensors=[
-                MultiprocessingSerializer.serialize(named_tensors) for _ in range(self.server_args.tp_size)
-            ],
-            load_format=load_format,
-            flush_cache=flush_cache,
-        )
-        return await self.tokenizer_manager.update_weights_from_tensor(obj, None)
+    async def update_weights_from_tensor(self, update_weights_request: UpdateWeightsFromTensorReqInput):
+        return await self.tokenizer_manager.update_weights_from_tensor(update_weights_request, None)
 
     async def flush_cache(self):
         return await self.tokenizer_manager.flush_cache()
@@ -433,6 +423,8 @@ class SGLangRollout(BaseRollout):
         tp_size_per_node = self._tp_size // nnodes
         node_rank = self._tp_rank // tp_size_per_node
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0
+        engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {})
+        attention_backend = engine_kwargs.get("attention_backend", None)
 
         if first_rank_in_node:
             rank = dist.get_rank()
@@ -461,7 +453,7 @@ class SGLangRollout(BaseRollout):
                 # log_requests_level=2,
                 # max_running_requests=1,
                 mm_attention_backend="fa3",
-                attention_backend="fa3",
+                attention_backend=attention_backend if attention_backend is not None else "fa3",
                 # In async mode, we want token in token out.
                 skip_tokenizer_init=self.config.mode == "async",
             )
@@ -660,14 +652,14 @@ class SGLangRollout(BaseRollout):
                 {"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch.pop("raw_prompt_ids")
             ]
 
-        # Ensure token IDs are lists or numpy arrays
         for input_data in sglang_inputs:
-            if isinstance(input_data["prompt_token_ids"], np.ndarray):
-                input_data["prompt_token_ids"] = input_data["prompt_token_ids"].tolist()
-            elif not isinstance(input_data["prompt_token_ids"], list):
+            # Ensure token IDs are lists or numpy arrays
+            if not isinstance(input_data["prompt_token_ids"], list | np.ndarray):
                 raise TypeError(
                     f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}"
                 )
+
+            input_data["prompt_token_ids"] = list(input_data["prompt_token_ids"])
 
         # Extract token IDs and image data for SGLang Engine
         idx_list = [input_data["prompt_token_ids"] for input_data in sglang_inputs]
@@ -1266,12 +1258,15 @@ class SGLangRollout(BaseRollout):
             else:
                 _interaction_kwargs = {}
 
+            if not isinstance(raw_prompt, list | np.ndarray):
+                raise TypeError(f"raw_prompt must be a list or numpy array, got {type(raw_prompt)}")
+
             req = AsyncRolloutRequest(
                 batch_data_id=data_idx,
                 rollout_offset=0,
                 request_id=str(uuid4()),
                 state=AsyncRolloutRequestStateEnum.PENDING,
-                messages=raw_prompt.tolist(),
+                messages=list(raw_prompt),
                 multi_modal_data=multi_modal_data,
                 tool_schemas=_tool_schemas,
                 tools_kwargs=_tools_kwargs,
