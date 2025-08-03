@@ -23,7 +23,7 @@ else:
     pass
 
 from transformers.cache_utils import Cache
-from transformers.modeling_flash_attention_utils import _flash_attention_forward
+from transformers.modeling_flash_attention_utils import _flash_attention_forward, flash_attn_supports_top_left_mask
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 from transformers.utils import logging
 
@@ -147,7 +147,7 @@ def llama_flash_attn_forward(
         position_ids=position_ids,
         dropout=dropout_rate,
         sliding_window=getattr(self, "sliding_window", None),
-        use_top_left_mask=self._flash_attn_uses_top_left_mask,
+        use_top_left_mask=flash_attn_supports_top_left_mask(),
         is_causal=self.is_causal,
         **kwargs,
     )
