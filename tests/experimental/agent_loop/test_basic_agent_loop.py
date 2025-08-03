@@ -129,9 +129,9 @@ class WeatherTool(BaseTool):
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
         try:
             result = self.get_current_temperature(**parameters)
-            return ToolResponse(type="text", text=json.dumps(result)), 0, {}
+            return ToolResponse(text=json.dumps(result)), 0, {}
         except Exception as e:
-            return ToolResponse(type="text", text=str(e)), 0, {}
+            return ToolResponse(text=str(e)), 0, {}
 
 
 class WeatherToolWithData(BaseTool):
@@ -161,9 +161,9 @@ class WeatherToolWithData(BaseTool):
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
         try:
             result = self.get_temperature_date(**parameters)
-            return ToolResponse(type="text", text=json.dumps(result)), 0, {}
+            return ToolResponse(text=json.dumps(result)), 0, {}
         except Exception as e:
-            return ToolResponse(type="text", text=str(e)), 0, {}
+            return ToolResponse(text=str(e)), 0, {}
 
 
 def test_tool_agent(init_config):
