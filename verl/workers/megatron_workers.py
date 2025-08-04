@@ -87,7 +87,75 @@ def set_random_seed(seed):
     # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 
 
-class ActorRolloutRefWorker(Worker, DistProfilerExtension):
+class MegatronWorker(Worker):
+    def _init_hf_config_and_tf_config(
+        self,
+        model_path,
+        tokenizer_or_path,
+        dtype,
+        override_model_config,
+        override_transformer_config,
+        trust_remote_code=False,
+        use_mbridge=False,
+    ):
+        from transformers import AutoConfig
+
+        from verl.models.mcore import hf_to_mcore_config
+        from verl.utils import hf_processor, hf_tokenizer
+        from verl.utils.fs import copy_to_local
+        from verl.utils.model import update_model_config
+
+        # Step 1: initialize the tokenizer
+        self.local_path = copy_to_local(model_path)
+        if tokenizer_or_path is None:
+            self.tokenizer = hf_tokenizer(self.local_path, trust_remote_code=trust_remote_code)
+            self.processor = hf_processor(self.local_path, trust_remote_code=trust_remote_code)
+        elif isinstance(tokenizer_or_path, str):
+            self.tokenizer = hf_tokenizer(copy_to_local(tokenizer_or_path), trust_remote_code=trust_remote_code)
+            self.processor = hf_processor(copy_to_local(tokenizer_or_path), trust_remote_code=trust_remote_code)
+        else:
+            self.tokenizer = tokenizer_or_path
+            self.processor = tokenizer_or_path
+
+        if self.config.model.get("custom_chat_template", None) is not None:
+            if self.processor is not None:
+                self.processor.chat_template = self.config.model.custom_chat_template
+            else:
+                self.tokenizer.chat_template = self.config.model.custom_chat_template
+
+        # Step 2: get the hf
+        hf_config = AutoConfig.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
+
+        # Step 3: override the hf config
+        override_config_kwargs = {
+            "bos_token_id": self.tokenizer.bos_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+            "pad_token_id": self.tokenizer.pad_token_id,
+        }
+        override_config_kwargs.update(override_model_config.get("model_config", {}))
+        self.share_embeddings_and_output_weights = getattr(hf_config, "tie_word_embeddings", False)
+        update_model_config(hf_config, override_config_kwargs=override_config_kwargs)
+        self.architectures = getattr(hf_config, "architectures", None)
+        if self.rank == 0:
+            print(f"Model config after override: {hf_config}")
+        tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
+
+        if use_mbridge:
+            from verl.models.mcore.mbridge import AutoBridge
+
+            bridge = AutoBridge.from_config(hf_config)
+            bridge.set_extra_args(**override_transformer_config)
+            tf_config = bridge.config
+            self.bridge = bridge
+        else:
+            self.bridge = None
+
+        print(f"TF config: {tf_config}")
+        self.hf_config = hf_config
+        self.tf_config = tf_config
+
+
+class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     """
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
     or a hybrid engine based on the config.rollout
@@ -290,72 +358,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         log_gpu_memory_usage("After actor optimizer init", logger=logger)
 
         return actor_module, actor_optimizer, actor_optimizer_scheduler, self.hf_config, optim_config
-
-    def _init_hf_config_and_tf_config(
-        self,
-        model_path,
-        tokenizer_or_path,
-        dtype,
-        override_model_config,
-        override_transformer_config,
-        trust_remote_code=False,
-        use_mbridge=False,
-    ):
-        from transformers import AutoConfig
-
-        from verl.models.mcore import hf_to_mcore_config
-        from verl.utils import hf_processor, hf_tokenizer
-        from verl.utils.fs import copy_to_local
-        from verl.utils.model import update_model_config
-
-        # Step 1: initialize the tokenizer
-        self.local_path = copy_to_local(model_path)
-        if tokenizer_or_path is None:
-            self.tokenizer = hf_tokenizer(self.local_path, trust_remote_code=trust_remote_code)
-            self.processor = hf_processor(self.local_path, trust_remote_code=trust_remote_code)
-        elif isinstance(tokenizer_or_path, str):
-            self.tokenizer = hf_tokenizer(copy_to_local(tokenizer_or_path), trust_remote_code=trust_remote_code)
-            self.processor = hf_processor(copy_to_local(tokenizer_or_path), trust_remote_code=trust_remote_code)
-        else:
-            self.tokenizer = tokenizer_or_path
-            self.processor = tokenizer_or_path
-
-        if self.config.model.get("custom_chat_template", None) is not None:
-            if self.processor is not None:
-                self.processor.chat_template = self.config.model.custom_chat_template
-            else:
-                self.tokenizer.chat_template = self.config.model.custom_chat_template
-
-        # Step 2: get the hf
-        hf_config = AutoConfig.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
-
-        # Step 3: override the hf config
-        override_config_kwargs = {
-            "bos_token_id": self.tokenizer.bos_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
-            "pad_token_id": self.tokenizer.pad_token_id,
-        }
-        override_config_kwargs.update(override_model_config.get("model_config", {}))
-        self.share_embeddings_and_output_weights = getattr(hf_config, "tie_word_embeddings", False)
-        update_model_config(hf_config, override_config_kwargs=override_config_kwargs)
-        self.architectures = getattr(hf_config, "architectures", None)
-        if self.rank == 0:
-            print(f"Model config after override: {hf_config}")
-        tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
-
-        if use_mbridge:
-            from verl.models.mcore.mbridge import AutoBridge
-
-            bridge = AutoBridge.from_config(hf_config)
-            bridge.set_extra_args(**override_transformer_config)
-            tf_config = bridge.config
-            self.bridge = bridge
-        else:
-            self.bridge = None
-
-        print(f"TF config: {tf_config}")
-        self.hf_config = hf_config
-        self.tf_config = tf_config
 
     def _build_rollout(self, trust_remote_code=False):
         from torch.distributed.device_mesh import init_device_mesh
@@ -797,7 +799,7 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         return True
 
 
-class CriticWorker(Worker, DistProfilerExtension):
+class CriticWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config: McoreCriticConfig):
         Worker.__init__(self)
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler")))
@@ -853,72 +855,6 @@ class CriticWorker(Worker, DistProfilerExtension):
             self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
 
         # TODO(sgm): support critic model offload
-
-    def _init_hf_config_and_tf_config(
-        self,
-        model_path,
-        tokenizer_or_path,
-        dtype,
-        override_model_config,
-        override_transformer_config,
-        trust_remote_code=False,
-        use_mbridge=False,
-    ):
-        from transformers import AutoConfig
-
-        from verl.models.mcore import hf_to_mcore_config
-        from verl.utils import hf_processor, hf_tokenizer
-        from verl.utils.fs import copy_to_local
-        from verl.utils.model import update_model_config
-
-        # Step 1: initialize the tokenizer
-        self.local_path = copy_to_local(model_path)
-        if tokenizer_or_path is None:
-            self.tokenizer = hf_tokenizer(self.local_path, trust_remote_code=trust_remote_code)
-            self.processor = hf_processor(self.local_path, trust_remote_code=trust_remote_code)
-        elif isinstance(tokenizer_or_path, str):
-            self.tokenizer = hf_tokenizer(copy_to_local(tokenizer_or_path), trust_remote_code=trust_remote_code)
-            self.processor = hf_processor(copy_to_local(tokenizer_or_path), trust_remote_code=trust_remote_code)
-        else:
-            self.tokenizer = tokenizer_or_path
-            self.processor = tokenizer_or_path
-
-        if self.config.model.get("custom_chat_template", None) is not None:
-            if self.processor is not None:
-                self.processor.chat_template = self.config.model.custom_chat_template
-            else:
-                self.tokenizer.chat_template = self.config.model.custom_chat_template
-
-        # Step 2: get the hf
-        hf_config = AutoConfig.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
-
-        # Step 3: override the hf config
-        override_config_kwargs = {
-            "bos_token_id": self.tokenizer.bos_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
-            "pad_token_id": self.tokenizer.pad_token_id,
-        }
-        override_config_kwargs.update(override_model_config.get("model_config", {}))
-        self.share_embeddings_and_output_weights = getattr(hf_config, "tie_word_embeddings", False)
-        update_model_config(hf_config, override_config_kwargs=override_config_kwargs)
-        self.architectures = getattr(hf_config, "architectures", None)
-        if self.rank == 0:
-            print(f"Model config after override: {hf_config}")
-        tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
-
-        if use_mbridge:
-            from verl.models.mcore.mbridge import AutoBridge
-
-            bridge = AutoBridge.from_config(hf_config)
-            bridge.set_extra_args(**override_transformer_config)
-            tf_config = bridge.config
-            self.bridge = bridge
-        else:
-            self.bridge = None
-
-        print(f"TF config: {tf_config}")
-        self.hf_config = hf_config
-        self.tf_config = tf_config
 
     def _build_critic_model_optimizer(
         self, model_path, optim_config, override_model_config, override_transformer_config
@@ -1146,7 +1082,7 @@ class CriticWorker(Worker, DistProfilerExtension):
             offload_megatron_model_to_cpu(self.critic_module)
 
 
-class RewardModelWorker(Worker, DistProfilerExtension):
+class RewardModelWorker(MegatronWorker, DistProfilerExtension):
     """
     Note that we only implement the reward model that is subclass of AutoModelForSequenceClassification.
     """
@@ -1200,72 +1136,6 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         if self.config.micro_batch_size is not None:
             self.config.micro_batch_size //= mpu.get_data_parallel_world_size()
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
-
-    def _init_hf_config_and_tf_config(
-        self,
-        model_path,
-        tokenizer_or_path,
-        dtype,
-        override_model_config,
-        override_transformer_config,
-        trust_remote_code=False,
-        use_mbridge=False,
-    ):
-        from transformers import AutoConfig
-
-        from verl.models.mcore import hf_to_mcore_config
-        from verl.utils import hf_processor, hf_tokenizer
-        from verl.utils.fs import copy_to_local
-        from verl.utils.model import update_model_config
-
-        # Step 1: initialize the tokenizer
-        self.local_path = copy_to_local(model_path)
-        if tokenizer_or_path is None:
-            self.tokenizer = hf_tokenizer(self.local_path, trust_remote_code=trust_remote_code)
-            self.processor = hf_processor(self.local_path, trust_remote_code=trust_remote_code)
-        elif isinstance(tokenizer_or_path, str):
-            self.tokenizer = hf_tokenizer(copy_to_local(tokenizer_or_path), trust_remote_code=trust_remote_code)
-            self.processor = hf_processor(copy_to_local(tokenizer_or_path), trust_remote_code=trust_remote_code)
-        else:
-            self.tokenizer = tokenizer_or_path
-            self.processor = tokenizer_or_path
-
-        if self.config.model.get("custom_chat_template", None) is not None:
-            if self.processor is not None:
-                self.processor.chat_template = self.config.model.custom_chat_template
-            else:
-                self.tokenizer.chat_template = self.config.model.custom_chat_template
-
-        # Step 2: get the hf
-        hf_config = AutoConfig.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
-
-        # Step 3: override the hf config
-        override_config_kwargs = {
-            "bos_token_id": self.tokenizer.bos_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
-            "pad_token_id": self.tokenizer.pad_token_id,
-        }
-        override_config_kwargs.update(override_model_config.get("model_config", {}))
-        self.share_embeddings_and_output_weights = getattr(hf_config, "tie_word_embeddings", False)
-        update_model_config(hf_config, override_config_kwargs=override_config_kwargs)
-        self.architectures = getattr(hf_config, "architectures", None)
-        if self.rank == 0:
-            print(f"Model config after override: {hf_config}")
-        tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
-
-        if use_mbridge:
-            from verl.models.mcore.mbridge import AutoBridge
-
-            bridge = AutoBridge.from_config(hf_config)
-            bridge.set_extra_args(**override_transformer_config)
-            tf_config = bridge.config
-            self.bridge = bridge
-        else:
-            self.bridge = None
-
-        print(f"TF config: {tf_config}")
-        self.hf_config = hf_config
-        self.tf_config = tf_config
 
     def _build_rm_model(self, model_path, tokenizer, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
