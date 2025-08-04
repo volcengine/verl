@@ -777,47 +777,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             self.config.megatron.use_mbridge,
         )
 
-<<<<<<< HEAD
-        override_ddp_config = OmegaConf.to_container(
-            OmegaConf.create(self.config.megatron.get("override_ddp_config", {}))
-        )
-        if self.bridge is not None:
-            from verl.models.mcore.mbridge import freeze_moe_router, make_value_model
-
-            post_model_creation_callbacks = [make_value_model]
-            if override_model_config.get("moe_config", {}).get("freeze_moe_router", False):
-                post_model_creation_callbacks.append(freeze_moe_router)
-            critic_module = self.bridge.get_model(
-                post_model_creation_callbacks=post_model_creation_callbacks,
-                wrap_with_ddp=True,
-                optimizer_config=override_ddp_config,
-            )
-        else:
-
-            def megatron_critic_model_provider(pre_process, post_process):
-                from verl.models.mcore import init_mcore_model
-
-                parallel_model = init_mcore_model(
-                    self.tf_config,
-                    self.hf_config,
-                    pre_process,
-                    post_process,
-                    share_embeddings_and_output_weights=False,
-                    value=True,
-                    freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False),
-                )
-                parallel_model.to(get_device_name())
-                return parallel_model
-
-            # Step 3: initialize the megatron model
-            critic_module = get_model(
-                model_provider_func=megatron_critic_model_provider,
-                model_type=ModelType.encoder_or_decoder,
-                wrap_with_ddp=True,
-                use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
-                override_ddp_config=override_ddp_config,
-            )
-=======
         wrap_config = McoreModuleWrapperConfig(
             is_value_model=True,  # critic is value model
             share_embeddings_and_output_weights=False,
@@ -832,7 +791,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             override_model_config=override_model_config,
             override_ddp_config=override_ddp_config,
         )
->>>>>>> 5706bdfb (refactor model init)
         # note that here critic_module will be a list to be compatible with the construction of interleaved pp (vpp).
         # but here, we do not use pp (vpp) yet. For simplicity, we remove the list
         # critic_module = nn.ModuleList(critic_module)
