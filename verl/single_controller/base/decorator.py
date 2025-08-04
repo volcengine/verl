@@ -405,7 +405,7 @@ def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, *args
     return all_args, all_kwargs
 
 
-def collect_nd_compute(dp_rank_mapping: list[int], worker_group, output):
+def collect_nd_compute(collect_mask: list[bool], worker_group, output):
     from verl.single_controller.base.worker_group import WorkerGroup
 
     assert isinstance(worker_group, WorkerGroup)
