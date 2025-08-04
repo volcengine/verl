@@ -29,6 +29,9 @@ MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
+PROJECT_DIR="$(pwd)"
+REWARD_FILE="$PROJECT_DIR/recipe/async_reward_agent/reward/gsm8k.py"
+
 # Algorithm parameters
 adv_estimator=grpo
 
@@ -53,8 +56,6 @@ top_k=-1
 val_top_p=0.7
 
 n_gpus_training=${NUM_GPUS}
-
-reward_file=${HOME}/recipe/async_reward_agent/reward/gsm8k.py
 
 exp_name="$(basename "${MODEL_ID,,}")-async-reward-agent-${ACTOR_STRATEGY}-minimal"
 
@@ -102,7 +103,7 @@ common_params=(
     trainer.resume_mode=disable
     trainer.nnodes=1
     trainer.n_gpus_per_node=${n_gpus_training}
-    custom_reward_function.path=${reward_file} \
+    custom_reward_function.path=${REWARD_FILE} \
     reward_model.reward_manager=batch \
     reward_model.launch_reward_fn_async=True \
     +mini_batch_pipeline=True
@@ -116,7 +117,7 @@ if [ "${ACTOR_STRATEGY}" == "fsdp2" ]; then
     actor_offload=False
 
     python3 -m recipe.async_reward_agent.main_ppo \
-        --config-path="${HOME}/verl/trainer/config" \
+        --config-path="${PROJECT_DIR}/verl/trainer/config" \
         "${common_params[@]}" \
         actor_rollout_ref.actor.strategy=fsdp2 \
         critic.strategy=fsdp2 \
@@ -138,7 +139,7 @@ elif [ "${ACTOR_STRATEGY}" == "megatron" ]; then
     actor_offload=True
 
     python3 -m recipe.async_reward_agent.main_ppo \
-        --config-path="${HOME}/verl/trainer/config" \
+        --config-path="${PROJECT_DIR}/verl/trainer/config" \
         --config-name='ppo_megatron_trainer.yaml'\
         "${common_params[@]}" \
         actor_rollout_ref.actor.strategy=megatron \
