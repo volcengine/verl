@@ -226,15 +226,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 f"Invalid role {self.role}, should be one of "
                 "['actor', 'rollout', 'ref', 'actor_rollout', 'actor_rollout_ref']"
             )
-        profiler_config = omega_conf_to_dataclass(omega_profiler_config.get("profiler"))
-        if profiler_config.get("tool", None) is None:
-            tool_config = omega_conf_to_dataclass(
-                omega_profiler_config.profiler.tool_config.get(profiler_config.tool, {})
-            )
-        else:
-            tool_config = None
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config)
         DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config)
         )
 
         # TODO(sgm): Currently, we only support reference model param offload
@@ -824,13 +818,9 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config: McoreCriticConfig):
         Worker.__init__(self)
 
-        profiler_config = config.get("profiler", {})
-        if profiler_config.get("tool", None) is None:
-            tool_config = omega_conf_to_dataclass(profiler_config.profiler.tool_config.get(profiler_config.tool, {}))
-        else:
-            tool_config = None
+        profiler_config = omega_conf_to_dataclass(config.profiler)
         DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=config.get("profiler"), tool_config=tool_config)
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config)
         )
         self.config: McoreCriticConfig = config
 
@@ -1119,16 +1109,10 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config):
         Worker.__init__(self)
 
-        profiler_config = config.get("profiler", {})
-        if profiler_config.get("tool", None) is None:
-            tool_config = omega_conf_to_dataclass(profiler_config.profiler.tool_config.get(profiler_config.tool, {}))
-        else:
-            tool_config = None
+        profiler_config = omega_conf_to_dataclass(config.profiler)
         DistProfilerExtension.__init__(
             self,
-            DistProfiler(
-                rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")), tool_config=tool_config
-            ),
+            DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config),
         )
         self.config = config
 

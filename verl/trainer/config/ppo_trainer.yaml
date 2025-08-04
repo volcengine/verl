@@ -330,13 +330,13 @@ profiler:
   tool_config:
   
     nsys:
-      _target_: verl.utils.profiler.NsightToolConfig
+      _target_: verl.utils.profiler.config.NsightToolConfig
 
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
     
     npu:
-      _target_: verl.utils.profiler.NPUToolConfig
+      _target_: verl.utils.profiler.config.NPUToolConfig
 
       # Contents to profile, can be empty
       # options: npu, cpu, memory, shapes, module, stack

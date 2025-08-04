@@ -52,6 +52,7 @@ actor_rollout_ref:
       warmup_style: constant
     use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
     profiler:
+      _target_: verl.utils.profiler.config.ProfilerConfig
       tool: ${oc.select:profiler.tool,null}
       enable: false
       all_ranks: false
@@ -82,6 +83,7 @@ actor_rollout_ref:
     log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_token_len_per_gpu,16384}
     model: null
     profiler:
+      _target_: verl.utils.profiler.config.ProfilerConfig
       tool: ${oc.select:profiler.tool,null}
       enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
@@ -162,9 +164,9 @@ actor_rollout_ref:
     skip_dump_dir: /tmp/rollout_dump
     profiler:
       tool: ${oc.select:profiler.tool,null}
-      enable: ${oc.select:actor_rollout_ref.rollout.profiler.enable,false}
-      all_ranks: ${oc.select:actor_rollout_ref.rollout.profiler.all_ranks,false}
-      ranks: ${oc.select:actor_rollout_ref.rollout.profiler.ranks,[]}
+      enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
+      all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
+      ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:profiler.save_path,null}
       tool_config: ${profiler.tool_config}
     enable_chunked_prefill: true
@@ -280,6 +282,7 @@ critic:
     load_contents: ${.save_contents}
     async_save: false
   profiler:
+    _target_: verl.utils.profiler.config.ProfilerConfig
     tool: ${oc.select:profiler.tool,null}
     enable: false
     all_ranks: false
@@ -321,6 +324,7 @@ reward_model:
     max_concurrent: 64
     memory_limit_mb: 1024
   profiler:
+    _target_: verl.utils.profiler.config.ProfilerConfig
     tool: ${oc.select:profiler.tool,null}
     enable: false
     all_ranks: false
@@ -397,10 +401,10 @@ profiler:
   save_path: outputs/profile
   tool_config:
     nsys:
-      _target_: verl.utils.profiler.NsightToolConfig
+      _target_: verl.utils.profiler.config.NsightToolConfig
       discrete: false
     npu:
-      _target_: verl.utils.profiler.NPUToolConfig
+      _target_: verl.utils.profiler.config.NPUToolConfig
       contents: []
       level: level1
       analysis: true

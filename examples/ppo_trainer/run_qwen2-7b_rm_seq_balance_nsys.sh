@@ -10,8 +10,8 @@ test_files=${test_files:-"$gsm8k_test_path"}
 
 PROFILE_STEPS="[1,2,5]" # or [] or null
 PROFILE_RANKS_ALL=False # or True
-PROFILE_RANKS=[0,4,8,12]
-DISCRETE=False  # or True
+PROFILE_RANKS=[0,4]
+DISCRETE=True  # or True
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gae \
@@ -30,7 +30,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_mini_batch_size=512 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
-    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24000 \
+    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=12000 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.actor.use_kl_loss=False \
@@ -70,7 +70,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name='qwen2-7b_hybrid_rm_bsz8k_p4k_r4k_seq_packing' \
     trainer.n_gpus_per_node=8 \
     trainer.val_before_train=False \
-    trainer.nnodes=2 \
+    trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=-1 \
     trainer.total_epochs=15 \

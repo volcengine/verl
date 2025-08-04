@@ -68,6 +68,8 @@ sandbox_fusion:
 # profile the reward model in `compute_reward` 
 profiler:
 
+  _target_: verl.utils.profiler.config.ProfilerConfig
+
   tool: ${oc.select:profiler.tool,null}
 
   # whether enable profile on ref

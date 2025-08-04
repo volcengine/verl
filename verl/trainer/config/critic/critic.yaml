@@ -98,6 +98,8 @@ checkpoint:
 # profile the critic model in `update_policy` 
 profiler:
 
+  _target_: verl.utils.profiler.config.ProfilerConfig
+
   tool: ${oc.select:profiler.tool,null}
 
   # whether enable profile on critic

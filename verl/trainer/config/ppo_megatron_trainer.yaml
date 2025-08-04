@@ -128,11 +128,11 @@ profiler:
   save_path: "outputs/profile"   # profiler saving path
   tool_config:
     nsys:
-      _target_: verl.utils.profiler.NsightToolConfig
+      _target_: verl.utils.profiler.config.NsightToolConfig
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
     npu:
-      _target_: verl.utils.profiler.NPUToolConfig
+      _target_: verl.utils.profiler.config.NPUToolConfig
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
       # options: npu, cpu, memory, shapes, module, stack
@@ -142,7 +142,7 @@ profiler:
       # Whether to automatically parse the data.
       analysis: True
     torch:
-      _target_: verl.utils.profiler.TorchProfilerToolConfig
+      _target_: verl.utils.profiler.config.TorchProfilerToolConfig
       step_start: 0
       step_end: null
 

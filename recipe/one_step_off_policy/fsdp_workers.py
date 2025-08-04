@@ -131,20 +131,9 @@ class RolloutWorker(ActorRolloutRefWorker):
         # We can still use ProfilerConfig for testing purpose (tests/utils/test_nvtx_profile.py)
         # as they provides DictConfig-like interface
         # The benefit of creating the dataclass config is to perform validation during __post_init__
-        profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler", {}))
-        if config.rollout.profiler.tool_config.get("nsys", {}) is not None:
-            tool_config = omega_conf_to_dataclass(config.rollout.profiler.tool_config.get("nsys", {}))
-        elif config.rollout.profiler.tool_config.get("npu", {}) is not None:
-            tool_config = omega_conf_to_dataclass(config.rollout.profiler.tool_config.get("npu", {}))
-        elif config.rollout.profiler.tool_config.get("torch", {}) is not None:
-            tool_config = omega_conf_to_dataclass(config.rollout.profiler.tool_config.get("torch", {}))
-        else:
-            raise ValueError(
-                "No valid profiler tool_config found in rollout.profiler.tool_config. "
-                "Expected keys: 'nsys', 'npu', or 'torch'."
-            )
+        profiler_config = omega_conf_to_dataclass(config.profiler)
         DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config)
         )
         self._is_rollout = True
         self._is_actor = False

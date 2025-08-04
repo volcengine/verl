@@ -15,7 +15,7 @@ test_files=${test_files:-"$gsm8k_test_path"}
 # Nsight profiling configuration
 PROFILE_STEPS="[1,2,5]" # or [] or null
 PROFILE_RANKS_ALL=False # or True
-PROFILE_RANKS=[0,4,8,12]
+PROFILE_RANKS=[0,4]
 DISCRETE=True  # or True
 
 python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megatron_trainer'\
@@ -55,7 +55,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     trainer.project_name='verl_ppo_gsm8k_math_examples' \
     trainer.experiment_name='deepseek_llm_7b_megatron' \
     trainer.n_gpus_per_node=8 \
-    trainer.nnodes=2 \
+    trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=-1 \
     trainer.total_epochs=100 \

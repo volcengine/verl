@@ -23,6 +23,8 @@ log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_toke
 # profile the ref model in `compute_log_prob` 
 profiler:
 
+  _target_: verl.utils.profiler.config.ProfilerConfig
+
   tool: ${oc.select:profiler.tool,null}
 
   # whether enable profile on ref
