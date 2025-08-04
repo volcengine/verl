@@ -30,7 +30,7 @@ from contextlib import nullcontext
 import hydra
 import torch
 import torch.distributed
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from peft import LoraConfig, TaskType, get_peft_model
 from tensordict import TensorDict
 from torch import nn, optim
@@ -688,6 +688,7 @@ class FSDPSFTTrainer:
                 project_name=self.config.trainer.project_name,
                 experiment_name=self.config.trainer.experiment_name,
                 default_backend=self.config.trainer.logger,
+                config=OmegaConf.to_container(self.config, resolve=True),
             )
 
         global_step = self.resume_global_step  # Start from resumed step
