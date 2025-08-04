@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from dataclasses import dataclass, field
 
 from verl.base_config import BaseConfig
@@ -43,8 +44,8 @@ class TorchProfilerToolConfig(BaseConfig):
 
     def __post_init__(self) -> None:
         """config validation logics go here"""
+        warnings.warn("Torch profiler tool config is not fully supported now.", stacklevel=1)
         assert isinstance(self.step_start, int), f"Profiler step_start must be of type int, got {type(self.step_start)}"
-        assert isinstance(self.step_end, int), f"Profiler step_end must be of type int, got {type(self.step_end)}"
 
 
 @dataclass

@@ -13,7 +13,7 @@ train_files=${train_files:-"$gsm8k_train_path"}
 test_files=${test_files:-"$gsm8k_test_path"}
 
 # Nsight profiling configuration
-PROFILE_STEPS="[1,2,5]" # or [] or null
+PROFILE_STEPS="[1]" # or [] or null
 PROFILE_RANKS_ALL=False # or True
 PROFILE_RANKS=[0,4]
 DISCRETE=True  # or True
@@ -59,7 +59,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     trainer.save_freq=-1 \
     trainer.test_freq=-1 \
     trainer.total_epochs=100 \
-    trainer.total_training_steps=6 \
+    trainer.total_training_steps=1 \
     profiler.tool=nsys \
     profiler.steps=$PROFILE_STEPS \
     profiler.tool_config.nsys.discrete=$DISCRETE $@
