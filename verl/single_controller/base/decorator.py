@@ -424,7 +424,7 @@ def dispatch_nd_compute_dataproto(dp_rank_mapping: list[int], dp_size, worker_gr
     return dispatch_nd_compute(dp_rank_mapping, dp_size, worker_group, *splitted_args, **splitted_kwargs)
 
 
-def collect_nd_compute_dataproto(dp_rank_mapping: list[int], worker_group, output):
+def collect_nd_compute_dataproto(collect_mask: list[bool], worker_group, output):
     output = collect_nd_compute(dp_rank_mapping, worker_group, output)
     import ray
 
