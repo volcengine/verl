@@ -943,7 +943,6 @@ class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config: FSDPCriticConfig):
         Worker.__init__(self)
         profiler_config = omega_conf_to_dataclass(config.profiler)
-        profiler_config.tool_config = omega_conf_to_dataclass(profiler_config.tool_config)
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config)
         )
