@@ -1,8 +1,8 @@
 # vllm server
-# CUDA_VISIBLE_DEVICES=0,1,2,3 vllm serve dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --served_model_name genrm-demo
+# CUDA_VISIBLE_DEVICES=0,1,2,3 vllm serve verl-team/GenRM-CI-Test-1.5B --served_model_name genrm-demo
 
 # sglang server
-# CUDA_VISIBLE_DEVICES=0,1,2,3 python -m sglang_router.launch_server --model-path dyyyyyyyy/Qwen2.5-1.5B-GenRM-QueryOnly --dp-size 4
+# CUDA_VISIBLE_DEVICES=0,1,2,3 python -m sglang_router.launch_server --model-path verl-team/GenRM-CI-Test-1.5B --dp-size 4
 
 set -x
 
@@ -33,7 +33,7 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 python3 -m verl.trainer.main_ppo \
     custom_reward_function.path=recipe/genrm_remote/reward_function.py \
     custom_reward_function.name=compute_score_batch \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_func_rm_example_gsm8k' \
     trainer.experiment_name='qwen2_5_3b_gen_rm' \
     trainer.n_gpus_per_node=4 \

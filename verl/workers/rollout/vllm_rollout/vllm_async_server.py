@@ -14,7 +14,7 @@
 import logging
 import os
 import pickle
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Optional
 
 import ray
 import zmq
@@ -43,19 +43,27 @@ def _get_model_runner_workers(vllm_config, init_ray: bool = True):
     assert vllm_config.instance_id is not None, "instance_id must be set for external ray actors."
 
     fields = vllm_config.instance_id.split(":")
-    assert len(fields) == 4, f"instance_id: {vllm_config.instance_id} must be in the format of <namespace>:<wg_prefix>:<vllm_dp_size>:<vllm_dp_rank>."
+    assert len(fields) == 4, (
+        f"instance_id: {vllm_config.instance_id} must be in the format of "
+        f"<namespace>:<wg_prefix>:<vllm_dp_size>:<vllm_dp_rank>."
+    )
     namespace, wg_prefix, vllm_dp_size, vllm_dp_rank = fields[0], fields[1], int(fields[2]), int(fields[3])
 
     # Make sure subprocess in same namespace as parent actor.
     # actor name format: {name_prefix}WorkerDict_{pg_idx}:{local_rank}
     if init_ray:
         ray.init(namespace=namespace)
-    actor_names = [actor_name for actor_name in ray.util.list_named_actors() if actor_name.startswith(f"{wg_prefix}WorkerDict")]
+    actor_names = [
+        actor_name for actor_name in ray.util.list_named_actors() if actor_name.startswith(f"{wg_prefix}WorkerDict")
+    ]
 
     vllm_tp_size = vllm_config.parallel_config.tensor_parallel_size
-    assert len(actor_names) == vllm_dp_size * vllm_tp_size, f"instance_id: {vllm_config.instance_id} has {len(actor_names)} actors, but vllm_dp_size: {vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = {vllm_dp_size * vllm_tp_size} is expected."
+    assert len(actor_names) == vllm_dp_size * vllm_tp_size, (
+        f"instance_id: {vllm_config.instance_id} has {len(actor_names)} actors, but vllm_dp_size: "
+        f"{vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = {vllm_dp_size * vllm_tp_size} is expected."
+    )
 
-    def get_pg_index_and_local_rank(actor_name) -> Tuple[int, int]:
+    def get_pg_index_and_local_rank(actor_name) -> tuple[int, int]:
         fields = actor_name.split(":")
         assert len(fields) == 2, f"invalid actor name: {actor_name}"
         pg_index, local_rank = int(fields[0].split("_")[-1]), int(fields[1])
@@ -64,7 +72,7 @@ def _get_model_runner_workers(vllm_config, init_ray: bool = True):
     # sort actor names by pg_index and local_rank
     actor_names = sorted(actor_names, key=get_pg_index_and_local_rank)
     actor_names = actor_names[vllm_dp_rank * vllm_tp_size : (vllm_dp_rank + 1) * vllm_tp_size]
-    workers: List[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
+    workers: list[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
     print(f"instance_id: {vllm_config.instance_id} initializes with external actors: {actor_names}")
 
     return workers
@@ -92,11 +100,11 @@ class ExternalRayDistributedExecutor(Executor):
 
     def collective_rpc(
         self,
-        method: Union[str, Callable],
+        method: str | Callable,
         timeout: Optional[float] = None,
-        args: Tuple = (),
-        kwargs: Optional[Dict[str, Any]] = None,
-    ) -> List[Any]:
+        args: tuple = (),
+        kwargs: Optional[dict[str, Any]] = None,
+    ) -> list[Any]:
         # TODO(wuxibin): support ray compiled graph
         if isinstance(method, str):
             sent_method = method
@@ -105,7 +113,9 @@ class ExternalRayDistributedExecutor(Executor):
         del method
 
         # ~3ms overhead per schedule step due to SchedulerOutput/ModelRunnerOutput serialization/deserialization.
-        outputs = ray.get([worker.execute_method.remote(sent_method, *args, **(kwargs or {})) for worker in self.workers])
+        outputs = ray.get(
+            [worker.execute_method.remote(sent_method, *args, **(kwargs or {})) for worker in self.workers]
+        )
         return outputs
 
     def check_health(self):
@@ -139,11 +149,11 @@ class ExternalZeroMQDistributedExecutor(Executor):
 
     def collective_rpc(
         self,
-        method: Union[str, Callable],
+        method: str | Callable,
         timeout: Optional[float] = None,
-        args: Tuple = (),
-        kwargs: Optional[Dict[str, Any]] = None,
-    ) -> List[Any]:
+        args: tuple = (),
+        kwargs: Optional[dict[str, Any]] = None,
+    ) -> list[Any]:
         if isinstance(method, str):
             sent_method = method
         else:
@@ -303,7 +313,7 @@ class AsyncvLLMServer(AsyncServerBase):
             assert isinstance(generator, ChatCompletionResponse)
             return JSONResponse(content=generator.model_dump())
 
-    async def generate(self, prompt_ids: List[int], sampling_params: Dict[str, Any], request_id: str) -> List[int]:
+    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
         max_tokens = self.max_model_len - len(prompt_ids)
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
         prompt = TokensPrompt(prompt_token_ids=prompt_ids)

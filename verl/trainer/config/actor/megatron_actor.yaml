@@ -1,0 +1,122 @@
+# megatron actor config, inheriting from trainer/config/actor/actor.yaml
+defaults:
+  - actor
+  # load the reference default config, then apply the fields in the current yaml
+  - _self_
+
+_target_: verl.workers.config.McoreActorConfig
+
+strategy: megatron
+
+data_loader_seed: null
+
+load_weight: True
+
+optim:
+  _target_: verl.workers.config.McoreOptimizerConfig
+  optimizer: adam
+
+  clip_grad: 1.0
+
+  # initial learning rate for warmup, default to 0.0
+  lr_warmup_init: 0.0
+
+  lr_decay_steps: null
+
+  # select from constant/linear/cosine/inverse_square_root
+  lr_decay_style: constant
+
+  # minimum learning rate, default to 0.0
+  min_lr: 0.0
+
+  # select from constant/linear/cosine
+  weight_decay_incr_style: constant
+
+  # select from constant/exponential/cosine
+  lr_wsd_decay_style: exponential
+
+  lr_wsd_decay_steps: null
+
+  # use checkpoint optimizer parameter scheduler
+  use_checkpoint_opt_param_scheduler: False
+
+megatron:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.McoreEngineConfig
+
+  # Whether to offload model parameters to CPU
+  param_offload: False
+
+  # Whether to offload gradients to CPU
+  grad_offload: False
+
+  # Whether to offload optimizer state to CPU
+  optimizer_offload: False
+
+  tensor_model_parallel_size: 1
+
+  expert_model_parallel_size: 1
+
+  expert_tensor_parallel_size: null
+
+  pipeline_model_parallel_size: 1
+
+  virtual_pipeline_model_parallel_size: null
+
+  context_parallel_size: 1
+
+  sequence_parallel: True
+
+  use_distributed_optimizer: True
+
+  use_dist_checkpointing: False
+
+  dist_checkpointing_path: null
+
+  # oc.select: default val for ref.megatron.seed
+  seed: 42
+
+  # Allow to override Distributed Data Parallel (DDP) config
+  override_ddp_config: {}
+
+  # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
+  # oc.select: default val for ref.megatron.override_transformer_config
+  override_transformer_config:
+    # Recompute configuration, same as in megatron.training.arguments
+    # default use minimal performance-interference recompute methods
+    # Recompute granualarity, choices: ["full", "selective"]
+    recompute_granularity: null
+
+    # Recompute modules, multiple choices: ["core_attn", "moe_act", "layernorm", "mla_up_proj", "mlp", "moe"]
+    # Please use correct module in matched model
+    recompute_modules: ["core_attn"]
+
+    # 'uniform', 'block'
+    # 'uniform' divides the total number of transformer layers and checkpoints the input activation of each chunk
+    # 'block' checkpoints the specified number of layers per pipeline stage at the specified granularity
+    recompute_method: null
+
+    # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
+    recompute_num_layers: null
+
+  # oc.select: default val for ref.megatron.use_mbridge
+  use_mbridge: False
+
+# profile the actor model in `update_policy` 
+profile:
+
+  # turn it on when you want to profile the actor model
+  use_profile: False
+
+  # list, you can specify the ranks to profile
+  profile_ranks: null
+
+  # start step in update_policy
+  step_start: -1
+
+  # end step
+  step_end: -1
+
+  # the path to save the profile result
+  save_path: null

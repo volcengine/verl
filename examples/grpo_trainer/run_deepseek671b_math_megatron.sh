@@ -74,7 +74,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.rollout.top_k=-1 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$INFER_TP \
     algorithm.use_kl_in_reward=False \
-    trainer.logger=['console','tensorboard'] \
+    trainer.logger='["console","tensorboard"]' \
     trainer.project_name='verl_megatron_gsm8k_examples' \
     trainer.experiment_name='dsv3-32nodes' \
     trainer.n_gpus_per_node=8 \
@@ -99,7 +99,6 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.ref.megatron.use_dist_checkpointing=True \
     actor_rollout_ref.actor.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
     actor_rollout_ref.ref.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
-    trainer.default_hdfs_dir=null \
     trainer.default_local_dir=$CKPT_DIR \
     trainer.val_before_train=False \
     trainer.total_epochs=100 $@

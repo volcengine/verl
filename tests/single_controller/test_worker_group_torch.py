@@ -38,7 +38,9 @@ class TestAllGatherActor(Worker):
 
     def all_gather(self):
         world_size = self._world_size
-        output = torch.zeros(size=(self.tensor.shape[0] * world_size,), dtype=self.tensor.dtype, device=self.tensor.device)
+        output = torch.zeros(
+            size=(self.tensor.shape[0] * world_size,), dtype=self.tensor.dtype, device=self.tensor.device
+        )
         torch.distributed.all_gather_into_tensor(output, self.tensor, async_op=False)
         return output
 
@@ -55,7 +57,9 @@ class TestAllGatherActorV2(Worker):
 
     def all_gather(self):
         world_size = self._world_size
-        output = torch.zeros(size=(self.tensor.shape[0] * world_size,), dtype=self.tensor.dtype, device=self.tensor.device)
+        output = torch.zeros(
+            size=(self.tensor.shape[0] * world_size,), dtype=self.tensor.dtype, device=self.tensor.device
+        )
         torch.distributed.all_gather_into_tensor(output, self.tensor, async_op=False)
         return output
 

@@ -5,23 +5,22 @@ set -xeuo pipefail
 
 NUM_GPUS=${NUM_GPUS:-8}
 
-gsm8k_train_path=./data/math/train.parquet
-gsm8k_test_path=./data/math/test.parquet
-train_files="['$gsm8k_train_path']"
-test_files="['$gsm8k_test_path']"
-
 exp_name="Qwen2.5-0.5B-Instruct-sppo-minimal"
 
+MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
+MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
+huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
+
 python3 -m recipe.sppo.main_sppo \
-    data.train_files="$train_files" \
-    data.val_files="$test_files" \
+    data.train_files="${HOME}/data/math/train.parquet" \
+    data.val_files="${HOME}/data/math/test.parquet" \
     data.train_batch_size=1024 \
     data.max_prompt_length=1024 \
     data.max_response_length=512 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.return_raw_chat=True \
-    actor_rollout_ref.model.path="./models/Qwen2.5-0.5B-Instruct" \
+    actor_rollout_ref.model.path="$MODEL_PATH" \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.use_fused_kernels=True \
@@ -38,9 +37,9 @@ python3 -m recipe.sppo.main_sppo \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console'] \
+    trainer.logger=console \
     trainer.val_before_train=False \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node=$NUM_GPUS \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.total_training_steps=1 \

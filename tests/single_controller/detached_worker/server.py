@@ -51,7 +51,6 @@ class Trainer(MegatronWorker):
             torch.distributed.init_process_group(backend="nccl")
             torch.cuda.set_device(rank)
 
-            os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "1"
             mpu.initialize_model_parallel(
                 tensor_model_parallel_size=2,
                 pipeline_model_parallel_size=1,
@@ -114,12 +113,16 @@ class Trainer(MegatronWorker):
         position_ids = data.batch["position_ids"]
 
         self.optimizer.zero_grad()
-        self.model.zero_grad_buffer(zero_buffer=(not self.optimizer_config.use_distributed_optimizer))  # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
+        self.model.zero_grad_buffer(
+            zero_buffer=(not self.optimizer_config.use_distributed_optimizer)
+        )  # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
         # update for 1 iteration
         output = self.model(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids).logits
         output.mean().backward()
 
-        update_successful, grad_norm, num_zeros_in_grad = self.optimizer.step(self.megatron_config, self.megatron_config.timers)
+        update_successful, grad_norm, num_zeros_in_grad = self.optimizer.step(
+            self.megatron_config, self.megatron_config.timers
+        )
 
         return DataProto(batch=TensorDict({"loss": output.detach()}, batch_size=output.shape[0]))
 

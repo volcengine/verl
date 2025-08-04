@@ -29,23 +29,103 @@ def test_union_tensor_dict():
     data1 = TensorDict({"obs": obs, "act": torch.randn(100, 3)}, batch_size=[100])
     data2 = TensorDict({"obs": obs, "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}, batch_size=[100])
 
-    data_with_copied_obs = TensorDict({"obs": obs.clone(), "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}, batch_size=[100])
+    data_with_copied_obs = TensorDict(
+        {"obs": obs.clone(), "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}, batch_size=[100]
+    )
 
-    data = union_tensor_dict(data1, data2)
+    union_tensor_dict(data1, data2)
     with pytest.raises(AssertionError):
-        data = union_tensor_dict(data1, data_with_copied_obs)
+        union_tensor_dict(data1, data_with_copied_obs)
 
+
+def test_union_numpy_dict():
+    """
+    A comprehensive test suite for union_numpy_dict, covering standard use
+    cases, N-dimensional arrays, object-dtype arrays, and NaN value handling.
+    """
+    arr_3d = np.arange(8).reshape((2, 2, 2))
+    union_numpy_dict({"a": arr_3d}, {"a": arr_3d})
+    arr1 = np.array([1, "hello", np.array([2, 3])], dtype=object)
+    arr2 = np.array([1, "hello", np.array([2, 3])], dtype=object)
+    union_numpy_dict({"a": arr1}, {"a": arr2})
+    # --- Test Case 1: The original test with mixed object/float types ---
+    # This test case from the original test file is preserved.
     data = np.random.random(100)
-    data2 = [float("nan") for _ in range(99)]
-    data2.append("nan")
-    data2 = np.array(data2, dtype=object)
-    data3 = np.tile(data2, (2, 1))
-    a = {"a": data, "b": data2, "c": data3}
-    b = {"a": data, "b": data2, "c": data3}
-    b_ = {"a": np.random.random(100)}
-    union_numpy_dict(a, b)
+    # This array intentionally mixes float('nan') and the string 'nan'
+    nan_data = [float("nan") for _ in range(99)]
+    nan_data.append("nan")
+    nan_data_arr = np.array(nan_data, dtype=object)
+
+    dict1 = {"a": data, "b": nan_data_arr}
+    dict2_same = {"a": data.copy(), "b": nan_data_arr.copy()}
+    dict3_different = {"a": np.random.random(100)}
+
+    union_numpy_dict(dict1, dict2_same)  # Should pass
     with pytest.raises(AssertionError):
-        union_numpy_dict(a, b_)
+        union_numpy_dict(dict1, dict3_different)
+
+    # --- Test Case 2: Standard 3D arrays (fixes the core bug) ---
+    arr_3d = np.arange(24, dtype=np.int32).reshape((2, 3, 4))
+    dict_3d_1 = {"nd_array": arr_3d}
+    dict_3d_2_same = {"nd_array": arr_3d.copy()}
+    dict_3d_3_different = {"nd_array": arr_3d + 1}
+
+    union_numpy_dict(dict_3d_1, dict_3d_2_same)  # Should pass
+    with pytest.raises(AssertionError, match="`nd_array` in tensor_dict1 and tensor_dict2 are not the same object."):
+        union_numpy_dict(dict_3d_1, dict_3d_3_different)
+
+    # --- Test Case 3: Nested 2D and 4D object-dtype arrays ---
+    sub_arr1 = np.array([1, 2])
+    sub_arr2 = np.array([3.0, 4.0])
+    # 2D object array
+    arr_2d_obj = np.array([[sub_arr1, "text"], [sub_arr2, None]], dtype=object)
+    arr_2d_obj_diff = np.array([[sub_arr1, "text"], [sub_arr2, "other"]], dtype=object)
+
+    union_numpy_dict({"data": arr_2d_obj}, {"data": arr_2d_obj.copy()})  # Should pass
+    with pytest.raises(AssertionError):
+        union_numpy_dict({"data": arr_2d_obj}, {"data": arr_2d_obj_diff})
+
+    # 4D object array to ensure deep recursion is robust
+    arr_4d_obj = np.array([[[[sub_arr1]]], [[[sub_arr2]]]], dtype=object)
+    arr_4d_obj_diff = np.array([[[[sub_arr1]]], [[[np.array([9, 9])]]]], dtype=object)
+
+    union_numpy_dict({"data": arr_4d_obj}, {"data": arr_4d_obj.copy()})  # Should pass
+    with pytest.raises(AssertionError):
+        union_numpy_dict({"data": arr_4d_obj}, {"data": arr_4d_obj_diff})
+
+    # --- Test Case 4: Explicit NaN value comparison ---
+    # This verifies that our new _deep_equal logic correctly handles NaNs.
+    nan_arr = np.array([1.0, np.nan, 3.0])
+    dict_nan_1 = {"data": nan_arr}
+    dict_nan_2_same = {"data": np.array([1.0, np.nan, 3.0])}  # A new array with same values
+    dict_nan_3_different_val = {"data": np.array([1.0, 2.0, 3.0])}
+    dict_nan_4_different_pos = {"data": np.array([np.nan, 1.0, 3.0])}
+
+    # NaNs in the same position should be considered equal for merging.
+    union_numpy_dict(dict_nan_1, dict_nan_2_same)  # Should pass
+
+    with pytest.raises(AssertionError):
+        union_numpy_dict(dict_nan_1, dict_nan_3_different_val)
+    with pytest.raises(AssertionError):
+        union_numpy_dict(dict_nan_1, dict_nan_4_different_pos)
+
+    # --- Test Case 5: Circular reference handling ---
+    # Create two separate, but structurally identical, circular references.
+    # This should pass without a RecursionError.
+    circ_arr_1 = np.array([None], dtype=object)
+    circ_arr_1[0] = circ_arr_1
+
+    circ_arr_2 = np.array([None], dtype=object)
+    circ_arr_2[0] = circ_arr_2
+
+    union_numpy_dict({"data": circ_arr_1}, {"data": circ_arr_2})  # Should pass
+
+    # Create a circular reference and a non-circular one.
+    # This should fail with an AssertionError because they are different.
+    non_circ_arr = np.array([None], dtype=object)
+
+    with pytest.raises(AssertionError):
+        union_numpy_dict({"data": circ_arr_1}, {"data": non_circ_arr})
 
 
 def test_tensor_dict_constructor():
@@ -77,7 +157,7 @@ def test_tensor_dict_make_iterator():
     for data in data_iter_2:
         data_list_2.append(data)
 
-    for data1, data2 in zip(data_list_1, data_list_2):
+    for data1, data2 in zip(data_list_1, data_list_2, strict=True):
         assert isinstance(data1, DataProto)
         assert isinstance(data2, DataProto)
         result = torch.all(torch.eq(data1.batch["obs"], data2.batch["obs"]))
@@ -416,7 +496,9 @@ def test_dataproto_unfold_column_chunks():
     obs2 = torch.tensor([[1, 2], [5, 6], [9, 10]])
 
     labels = ["a", "b", "c"]
-    data = DataProto.from_dict(tensors={"obs1": obs1, "obs2": obs2}, non_tensors={"labels": labels}, meta_info={"name": "abc"})
+    data = DataProto.from_dict(
+        tensors={"obs1": obs1, "obs2": obs2}, non_tensors={"labels": labels}, meta_info={"name": "abc"}
+    )
     ret = data.unfold_column_chunks(2, split_keys=["obs1"])
 
     expect_obs1 = torch.tensor([[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12]])
@@ -431,7 +513,9 @@ def test_dataproto_unfold_column_chunks():
     obs2 = torch.tensor([[1, 2], [5, 6], [9, 10]])
 
     labels = [["a1", "a2"], ["b1", "b2"], ["c1", "c2"]]
-    data = DataProto.from_dict(tensors={"obs1": obs1, "obs2": obs2}, non_tensors={"labels": labels}, meta_info={"name": "abc"})
+    data = DataProto.from_dict(
+        tensors={"obs1": obs1, "obs2": obs2}, non_tensors={"labels": labels}, meta_info={"name": "abc"}
+    )
     ret = data.unfold_column_chunks(2, split_keys=["obs1", "labels"])
 
     expect_obs1 = torch.tensor([[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12]])
@@ -442,15 +526,30 @@ def test_dataproto_unfold_column_chunks():
     assert (ret.non_tensor_batch["labels"] == expect_labels).all()
     assert ret.meta_info == {"name": "abc"}
 
-    obs1 = torch.tensor([[[1, 1], [2, 2], [3, 3], [4, 4]], [[5, 5], [6, 6], [7, 7], [8, 8]], [[9, 9], [10, 10], [11, 11], [12, 12]]])
+    obs1 = torch.tensor(
+        [[[1, 1], [2, 2], [3, 3], [4, 4]], [[5, 5], [6, 6], [7, 7], [8, 8]], [[9, 9], [10, 10], [11, 11], [12, 12]]]
+    )
     obs2 = torch.tensor([[[1, 1], [2, 2]], [[5, 5], [6, 6]], [[9, 9], [10, 10]]])
 
     labels = ["a", "b", "c"]
-    data = DataProto.from_dict(tensors={"obs1": obs1, "obs2": obs2}, non_tensors={"labels": labels}, meta_info={"name": "abc"})
+    data = DataProto.from_dict(
+        tensors={"obs1": obs1, "obs2": obs2}, non_tensors={"labels": labels}, meta_info={"name": "abc"}
+    )
     ret = data.unfold_column_chunks(2, split_keys=["obs1"])
 
-    expect_obs1 = torch.tensor([[[1, 1], [2, 2]], [[3, 3], [4, 4]], [[5, 5], [6, 6]], [[7, 7], [8, 8]], [[9, 9], [10, 10]], [[11, 11], [12, 12]]])
-    expect_obs2 = torch.tensor([[[1, 1], [2, 2]], [[1, 1], [2, 2]], [[5, 5], [6, 6]], [[5, 5], [6, 6]], [[9, 9], [10, 10]], [[9, 9], [10, 10]]])
+    expect_obs1 = torch.tensor(
+        [
+            [[1, 1], [2, 2]],
+            [[3, 3], [4, 4]],
+            [[5, 5], [6, 6]],
+            [[7, 7], [8, 8]],
+            [[9, 9], [10, 10]],
+            [[11, 11], [12, 12]],
+        ]
+    )
+    expect_obs2 = torch.tensor(
+        [[[1, 1], [2, 2]], [[1, 1], [2, 2]], [[5, 5], [6, 6]], [[5, 5], [6, 6]], [[9, 9], [10, 10]], [[9, 9], [10, 10]]]
+    )
     expect_labels = ["a", "a", "b", "b", "c", "c"]
     assert torch.all(torch.eq(ret.batch["obs1"], expect_obs1))
     assert torch.all(torch.eq(ret.batch["obs2"], expect_obs2))

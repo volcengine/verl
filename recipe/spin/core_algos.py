@@ -78,7 +78,10 @@ def compute_onlinedpo_pref(
     """
     # print(f"---- [DEBUG] Inside compute_onlinedpo_pref ----")
     if token_level_rewards.shape[0] % 2 != 0 or response_mask.shape[0] % 2 != 0:
-        raise ValueError(f"Input tensor batch dimension must be even for pair comparison, got shapes: {token_level_rewards.shape}, {response_mask.shape}")
+        raise ValueError(
+            f"Input tensor batch dimension must be even for pair comparison, got shapes: "
+            f"{token_level_rewards.shape}, {response_mask.shape}"
+        )
     if token_level_rewards.shape != response_mask.shape:
         raise ValueError(f"Shape mismatch between rewards {token_level_rewards.shape} and mask {response_mask.shape}")
 
@@ -155,12 +158,15 @@ def compute_online_dpo_loss(
     return losses.mean()
 
 
-def get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, average_log_prob: bool = False) -> torch.FloatTensor:
+def get_batch_logps(
+    logits: torch.FloatTensor, labels: torch.LongTensor, average_log_prob: bool = False
+) -> torch.FloatTensor:
     """
     Compute the log probabilities of the given labels under the given logits.
 
     Args:
-        logits: Logits of the model (e.g., huggingface CausalLMOutputs `logits`). Shape: (batch_size, sequence_length, vocab_size)
+        logits: Logits of the model (e.g., huggingface CausalLMOutputs `logits`).
+                Shape: (batch_size, sequence_length, vocab_size)
         labels: Labels for computing the sequence log probabilities. Shape: (batch_size, sequence_length)
         average_log_prob: If True, return the average log probability per sequence. Otherwise, return the sum.
 
@@ -179,7 +185,9 @@ def get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, average
     # Calculate per token log probability
     loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100, reduction="none")
     per_token_logps = -loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-    per_token_logps = per_token_logps.view(shift_logits.size(0), shift_logits.size(1))  # Reshape back to (batch_size, seq_len-1)
+    per_token_logps = per_token_logps.view(
+        shift_logits.size(0), shift_logits.size(1)
+    )  # Reshape back to (batch_size, seq_len-1)
 
     # Create a mask for the labels that are not -100
     loss_mask = shift_labels != -100

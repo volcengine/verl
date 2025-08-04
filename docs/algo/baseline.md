@@ -36,6 +36,8 @@ Refer to the table below to reproduce RL training from different pre-trained che
 | NVIDIA GPU  | Mixtral-8x22B-Instruct-v0.1      | Instruct model    | 83.7         | [Qwen Blog](https://qwenlm.github.io/blog/qwen2.5-llm/) |
 | NVIDIA GPU  | Mixtral-8x22B-Instruct-v0.1      | RLOO (Megatron)   | 92.3         | [wandb](https://api.wandb.ai/links/ppo_dev/sbuiuf2d) |
 | NVIDIA GPU  | Qwen/Qwen2.5-7B-Instruct         | SPIN              | 92           | [script](https://github.com/volcengine/verl/tree/main/recipe/spin/README.md) |
+| NVIDIA GPU  | Qwen/Qwen2-7B-Instruct           | GPG               | 88           | [log](https://github.com/diqiuzhuanzhuan/verldata/blob/main/run_logs/qwen2-7b_math.log), [wandb](https://wandb.ai/diqiuzhuanzhuan/verl_gpg_example_gsm8k_math/runs/ab86c4va) |
+| NVIDIA GPU  | Qwen/Qwen2-7B-Instruct           | GPG (Megatron)    | 88           | [log](https://github.com/diqiuzhuanzhuan/verldata/blob/main/run_logs/qwen2-7b_math_megatron.log), [wandb](https://wandb.ai/diqiuzhuanzhuan/verl_gpg_example_gsm8k_math/runs/yy8bheu8) |
 | NVIDIA GPU  | Qwen/Qwen2.5-VL-7B-Instruct      | GRPO (Megatron)   | 65.4 (GEO3k) | [script](https://github.com/volcengine/verl/blob/main/examples/grpo_trainer/run_qwen2_5_vl-7b-megatron.sh), [wandb](https://api.wandb.ai/links/megatron-core-moe-dev/1yngvkek) |
 | AMD MI300   | deepseek-ai/deepseek-llm-7b-chat | PPO               | 70.5 [1]     | [log](https://github.com/yushengsu-thu/verl_training_log/blob/main/gsm8k/ppo_run_deepseek7b_llm.log) |
 | AMD MI300   | deepseek-ai/deepseek-llm-7b-chat | GRPO              | 71.4 [1]     | [log](https://github.com/yushengsu-thu/verl_training_log/blob/main/gsm8k/grpo_run_deepseek7b_llm.log) |
@@ -51,9 +53,11 @@ Refer to the table below to reproduce RL training from different pre-trained che
 Note:
 - For Qwen/Qwen2.5-Math-7B, we directly modify the max_position_embeddings to 32768 without observing performance degradation in order to train longer response length.
 
-| Hardware    | Model                            | Method            | Test score   | Details |
-|-------------|----------------------------------|-------------------|--------------|---------|
-| NVIDIA GPU  | Qwen/Qwen2.5-Math-7B (32k)       | DAPO              | 36.3         | [command](https://github.com/volcengine/verl/blob/main/recipe/dapo/test_dapo_7b_math.sh), [logs](https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl/runs/ow47vvon?nw=nwusertongyuxuan361)|
+| Hardware    | Model                       | Method                  | Test score | Details |
+|-------------|-----------------------------|-------------------------|------------|---------|
+| NVIDIA GPU  | Qwen/Qwen2.5-Math-7B (32k)  | DAPO                    | 36.3       | [command](https://github.com/volcengine/verl/blob/main/recipe/dapo/test_dapo_7b_math.sh), [logs](https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl/runs/ow47vvon?nw=nwusertongyuxuan361)|
+| NVIDIA GPU  | Qwen/Qwen2.5-7B-Instruct    | DAPO + Code Interpreter | 40.0       | [command](https://github.com/volcengine/verl/blob/main/recipe/retool/run_qwen2_7b_dapo.sh)|
+
 
 
 

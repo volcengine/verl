@@ -15,7 +15,6 @@
 import os
 import random
 import shutil
-from typing import Union
 
 import numpy as np
 import torch
@@ -23,17 +22,17 @@ import torch.distributed
 from omegaconf import DictConfig
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
+from verl.trainer.config import CheckpointConfig
 from verl.utils.device import get_device_name, get_torch_device
 
 
 class BaseCheckpointManager:
     """
-    A checkpoint manager that saves and loads
+    A checkpoint manager that saves and loads the following states in a SPMD way:
     - model
     - optimizer
     - lr_scheduler
     - extra_states
-    in a SPMD way.
 
     We save
     - sharded model states and optimizer states
@@ -46,8 +45,8 @@ class BaseCheckpointManager:
         model,
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler = None,
-        processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
-        checkpoint_config: DictConfig = None,
+        processing_class: PreTrainedTokenizer | ProcessorMixin = None,
+        checkpoint_config: DictConfig | CheckpointConfig = None,
     ):
         self.checkpoint_config = checkpoint_config
         checkpoint_load_contents = checkpoint_config.get("load_contents", None) if checkpoint_config else None
@@ -93,7 +92,8 @@ class BaseCheckpointManager:
     @property
     def should_save_hf_model(self) -> bool:
         """
-        Returns True if 'hf_model' is in checkpoint_save_contents, indicating the model should be converted to hf model and saved.
+        Returns True if 'hf_model' is in checkpoint_save_contents, indicating the model should be converted to hf
+        model and saved.
         """
         return "hf_model" in self.checkpoint_save_contents
 
@@ -121,7 +121,9 @@ class BaseCheckpointManager:
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load: bool = False):
         raise NotImplementedError
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep: int = None):
+    def save_checkpoint(
+        self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep: int = None
+    ):
         raise NotImplementedError
 
     @staticmethod
@@ -219,7 +221,11 @@ def should_save_ckpt_esi(max_steps_duration: float, save_ckpt_duration: float = 
             remaining = float(exp_ts_mlp) - time.time()
         except ValueError:
             return False
-        return remaining > 0 and max_steps_duration > 0 and remaining <= save_ckpt_duration + max_steps_duration + redundant_time
+        return (
+            remaining > 0
+            and max_steps_duration > 0
+            and remaining <= save_ckpt_duration + max_steps_duration + redundant_time
+        )
     elif exp_ts_aws:
         from datetime import datetime, timedelta
 

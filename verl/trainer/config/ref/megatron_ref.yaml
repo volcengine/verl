@@ -1,0 +1,33 @@
+# megatron ref config, inheriting from trainer/config/ref/ref.yaml
+defaults:
+  - ref
+  # load the reference default config, then apply the fields in the current yaml
+  - _self_
+
+strategy: megatron
+
+megatron:
+  _target_: verl.workers.config.MegatronEngineConfig
+  param_offload: False
+  tensor_model_parallel_size: 1
+  expert_model_parallel_size: 1
+  expert_tensor_parallel_size: None
+  pipeline_model_parallel_size: 1
+  virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+  context_parallel_size: 1
+  sequence_parallel: True
+  use_distributed_optimizer: False
+  use_dist_checkpointing: False
+  dist_checkpointing_path: null
+  seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
+  override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
+  use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+
+profile:
+  use_profile: False
+  profile_ranks: null
+  step_start: -1
+  step_end: -1
+  save_path: null
+
+load_weight: True

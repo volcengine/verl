@@ -33,7 +33,11 @@ def run_ppo(config) -> None:
     os.environ["ENSURE_CUDA_VISIBLE_DEVICES"] = os.environ.get("CUDA_VISIBLE_DEVICES", "")
     if not ray.is_initialized():
         # this is for local ray cluster
-        ray.init(runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}})
+        ray.init(
+            runtime_env={
+                "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}
+            }
+        )
 
     runner = TaskRunner.remote()
     ray.get(runner.run.remote(config))
@@ -63,8 +67,8 @@ class TaskRunner:
         processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
 
         # define worker classes
-        if config.actor_rollout_ref.actor.strategy == "fsdp":
-            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+        if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
+            assert config.critic.strategy in {"fsdp", "fsdp2"}
             # from recipe.spin.fsdp_workers import ActorRolloutRefWorker
             from recipe.spin.fsdp_workers import SPINRolloutRefWorker
             from verl.single_controller.ray import RayWorkerGroup
@@ -98,7 +102,7 @@ class TaskRunner:
         }
 
         if config.reward_model.enable:
-            if config.reward_model.strategy == "fsdp":
+            if config.reward_model.strategy in {"fsdp", "fsdp2"}:
                 from recipe.spin.fsdp_workers import RewardModelWorker
             elif config.reward_model.strategy == "megatron":
                 from verl.workers.megatron_workers import RewardModelWorker
@@ -122,10 +126,18 @@ class TaskRunner:
 
         compute_score = get_custom_reward_fn(config)
         reward_kwargs = dict(config.reward_model.get("reward_kwargs", {}))
-        reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=0, compute_score=compute_score, reward_fn_key=config.data.reward_fn_key, **reward_kwargs)
+        reward_fn = reward_manager_cls(
+            tokenizer=tokenizer,
+            num_examine=0,
+            compute_score=compute_score,
+            reward_fn_key=config.data.reward_fn_key,
+            **reward_kwargs,
+        )
 
         # Note that we always use function-based RM for validation
-        val_reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=1, compute_score=compute_score, reward_fn_key=config.data.reward_fn_key)
+        val_reward_fn = reward_manager_cls(
+            tokenizer=tokenizer, num_examine=1, compute_score=compute_score, reward_fn_key=config.data.reward_fn_key
+        )
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
         trainer = RaySPINTrainer(
@@ -137,7 +149,6 @@ class TaskRunner:
             ray_worker_group_cls=ray_worker_group_cls,
             reward_fn=reward_fn,
             val_reward_fn=val_reward_fn,
-            device_name=config.trainer.device,
         )
         trainer.init_workers()
         trainer.fit_dpo()

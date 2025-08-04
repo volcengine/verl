@@ -18,7 +18,7 @@ import pytest
 
 from verl.utils.flops_counter import FlopsCounter
 
-VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3"}
+VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text"}
 
 
 class Config:
@@ -39,9 +39,12 @@ CONFIG = {
             "num_key_value_heads": 32,
         },
         "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
-        # 6*(vocab*hidden*2+layer*(hidden*(q+k+v+head*head_dim)+ hidden*inter*3))*token_sum + 12*sum(seqlen^2)*layer*head*head_dim
-        # 6*(32000*4096*2+32*(4096*4096*4+4096*11008*3))*(512+1024+2048) + 12*(512*512+1024*1024+2048*2048)*32*4096
-        # 6*(32000*4096*2+32*(4096*4096*4+4096*11008*3))*(4096+4096+4096) + 12*(4096*4096+4096*4096+4096*4096)*32*4096
+        # 6*(vocab*hidden*2+layer*(hidden*(q+k+v+head*head_dim)+ hidden*inter*3))*token_sum +
+        # 12*sum(seqlen^2)*layer*head*head_dim
+        # 6*(32000*4096*2+32*(4096*4096*4+4096*11008*3))*(512+1024+2048) +
+        # 12*(512*512+1024*1024+2048*2048)*32*4096
+        # 6*(32000*4096*2+32*(4096*4096*4+4096*11008*3))*(4096+4096+4096) +
+        # 12*(4096*4096+4096*4096+4096*4096)*32*4096
         "expected_flops_tuple": (153555818250240 / 1e12, 575955114393600 / 1e12),
     },
     "qwen2": {
@@ -55,9 +58,12 @@ CONFIG = {
             "num_key_value_heads": 4,
         },
         "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
-        # 6*(vocab*hidden*2+layer*(hidden*(q+k+v+head*head_dim)+ hidden*inter*3))*token_sum + 12*sum(seqlen^2)*layer*head*head_dim
-        # 6*(152064*3584*2+28*(3584*(3584+512+512+3584)+3584*18944*3))*(512+1024+2048) + 12*(512*512+1024*1024+2048*2048)*28*3584
-        # 6*(152064*3584*2+28*(3584*(3584+512+512+3584)+3584*18944*3))*(4096+4096+4096) + 12*(4096*4096+4096*4096+4096*4096)*28*3584
+        # 6*(vocab*hidden*2+layer*(hidden*(q+k+v+head*head_dim)+ hidden*inter*3))*token_sum +
+        # 12*sum(seqlen^2)*layer*head*head_dim
+        # 6*(152064*3584*2+28*(3584*(3584+512+512+3584)+3584*18944*3))*(512+1024+2048) +
+        # 12*(512*512+1024*1024+2048*2048)*28*3584
+        # 6*(152064*3584*2+28*(3584*(3584+512+512+3584)+3584*18944*3))*(4096+4096+4096) +
+        # 12*(4096*4096+4096*4096+4096*4096)*28*3584
         "expected_flops_tuple": (170388331954176 / 1e12, 622070178250752 / 1e12),
     },
     "qwen3": {
@@ -72,9 +78,12 @@ CONFIG = {
             "head_dim": 128,
         },
         "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
-        # 6*(vocab*hidden*2+layer*(hidden*(q+k+v+head*head_dim)+ hidden*inter*3))*token_sum + 12*sum(seqlen^2)*layer*head*head_dim
-        # 6*(151936*4096*2+36*(4096*(128*32+128*8*2+128*32)+4096*12288*3))*(512+1024+2048) + 12*(512*512+1024*1024+2048*2048)*36*128*32
-        # 6*(151936*4096*2+36*(4096*(128*32+128*8*2+128*32)+4096*12288*3))*(4096+4096+4096) + 12*(4096*4096+4096*4096+4096*4096)*36*128*32
+        # 6*(vocab*hidden*2+layer*(hidden*(q+k+v+head*head_dim)+ hidden*inter*3))*token_sum +
+        # 12*sum(seqlen^2)*layer*head*head_dim
+        # 6*(151936*4096*2+36*(4096*(128*32+128*8*2+128*32)+4096*12288*3))*(512+1024+2048) +
+        # 12*(512*512+1024*1024+2048*2048)*36*128*32
+        # 6*(151936*4096*2+36*(4096*(128*32+128*8*2+128*32)+4096*12288*3))*(4096+4096+4096) +
+        # 12*(4096*4096+4096*4096+4096*4096)*36*128*32
         "expected_flops_tuple": (185867930959872 / 1e12, 692924253732864 / 1e12),
     },
     "qwen3_moe": {
@@ -91,9 +100,12 @@ CONFIG = {
             "num_experts": 128,
         },
         "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
-        # 6*(vocab*hidden*2+layer*(hidden*(q+k+v+head*head_dim)+hidden*inter*top_k_exp*3 + hidden*num_experts))*token_sum + 12*sum(seqlen^2)*layer*head*head_dim
-        # 6*(151936*2048*2+48*(2048*(128*32+128*4*2+128*32)+2048*768*8*3+2048*128))*(512+1024+2048) + 12*(512*512+1024*1024+2048*2048)*48*128*32
-        # 6*(151936*2048*2+48*(2048*(128*32+128*4*2+128*32)+2048*768*8*3+2048*128))*(4096+4096+4096) + 12*(4096*4096+4096*4096+4096*4096)*48*128*32
+        # 6*(vocab*hidden*2+layer*(hidden*(q+k+v+head*head_dim)+hidden*inter*top_k_exp*3 +
+        # hidden*num_experts))*token_sum + 12*sum(seqlen^2)*layer*head*head_dim
+        # 6*(151936*2048*2+48*(2048*(128*32+128*4*2+128*32)+2048*768*8*3+2048*128))*(512+1024+2048) +
+        # 12*(512*512+1024*1024+2048*2048)*48*128*32
+        # 6*(151936*2048*2+48*(2048*(128*32+128*4*2+128*32)+2048*768*8*3+2048*128))*(4096+4096+4096) +
+        # 12*(4096*4096+4096*4096+4096*4096)*48*128*32
         "expected_flops_tuple": (85087060230144 / 1e12, 365944098521088 / 1e12),
     },
     "deepseek_v3": {
@@ -117,23 +129,100 @@ CONFIG = {
         },
         "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
         # (1536*7168+128*192*1536+7168*(512+64)+128*(128+128)*512+128*128*7168) = 187105280
-        # 6*(129280*7168*2+ 3*(7168*18432*3+187105280)+ 58*(187105280+7168*256+7168*2048*9*3))*(512+1024+2048) + 12*(512*512+1024*1024+2048*2048)*61*192*128
-        # 6*(129280*7168*2+ 3*(7168*18432*3+187105280)+ 58*(187105280+7168*256+7168*2048*9*3))*(4096+4096+4096) + 12*(4096*4096+4096*4096+4096*4096)*61*192*128
+        # 6*(129280*7168*2+ 3*(7168*18432*3+187105280)+ 58*(187105280+7168*256+7168*2048*9*3))*(512+1024+2048) +
+        # 12*(512*512+1024*1024+2048*2048)*61*192*128
+        # 6*(129280*7168*2+ 3*(7168*18432*3+187105280)+ 58*(187105280+7168*256+7168*2048*9*3))*(4096+4096+4096) +
+        # 12*(4096*4096+4096*4096+4096*4096)*61*192*128
         "expected_flops_tuple": (906535995703296 / 1e12, 3674028304760832 / 1e12),
+    },
+    "mistral": {
+        "config": {  # mistralai/Mistral-Small-24B-Instruct-2501
+            "model_type": "mistral",
+            "vocab_size": 131072,
+            "hidden_size": 5120,
+            "intermediate_size": 32768,
+            "num_hidden_layers": 40,
+            "num_attention_heads": 32,
+            "num_key_value_heads": 8,
+            "head_dim": 128,
+        },
+        "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
+        # Mistral uses same architecture as Llama, with GQA
+        # 6*(vocab*hidden*2+layer*(hidden*(q+k+v+head*head_dim)+ hidden*inter*3))*token_sum +
+        # 12*sum(seqlen^2)*layer*head*head_dim
+        # vocab part: 131072*5120*2 = 1342177280
+        # attn part per layer: 5120*(128*32+128*8+128*8+128*32) = 5120*10240 = 52428800
+        # mlp part per layer: 5120*32768*3 = 503316480
+        # total per layer: 52428800 + 503316480 = 555745280
+        # all layers: 1342177280 + 40*555745280 = 23571988480
+        # For batch [512, 1024, 2048], tokens_sum = 3584:
+        # dense flops: 6 * 23571988480 * 3584 = 506892040273920
+        # attn flops: 12 * 5505024 * 40 * 128 * 32 = 10823317585920
+        # total: 517715357859840 / 1e12 = 517.71535785984
+        # For batch [4096, 4096, 4096], tokens_sum = 12288:
+        # dense flops: 6 * 23571988480 * 12288 = 1737915566653440
+        # attn flops: 12 * 50331648 * 40 * 128 * 32 = 98956046499840
+        # total: 1836871613153280 / 1e12 = 1836.87161315328
+        "expected_flops_tuple": (517715357859840 / 1e12, 1836871613153280 / 1e12),
+    },
+    "gemma3_text": {
+        "config": {  # Gemma3-12B-IT-TextOnly
+            "model_type": "gemma3_text",
+            "vocab_size": 262208,
+            "hidden_size": 3840,
+            "intermediate_size": 15360,
+            "num_hidden_layers": 48,
+            "num_attention_heads": 16,
+            "num_key_value_heads": 8,
+            "head_dim": 256,
+            "sliding_window": 1024,
+            "layer_types": None,
+            # Will be auto-generated based on sliding_window_pattern
+            "sliding_window_pattern": 6,
+            # Every 6th layer is full attention
+        },
+        "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
+        # Gemma3 has alternating sliding window attention
+        # With sliding_window_pattern=6: layers 5,11,17,23,29,35,41,47 use full attention (8 layers)
+        # Other 40 layers use sliding window attention with window_size=1024
+        #
+        # Non-attention FLOPs:
+        # vocab part: 262208*3840*2 = 2013757440
+        # attn part per layer: 3840*(256*16+256*8+256*8+256*16) = 3840*12288 = 47185920
+        # mlp part per layer: 3840*15360*3 = 176947200
+        # total per layer: 47185920 + 176947200 = 224133120
+        # all layers: 2013757440 + 48*224133120 = 12772147200
+        #
+        # For batch [512, 1024, 2048], tokens_sum = 3584:
+        # dense flops: 6 * 12772147200 * 3584 = 274652253388800
+        # seqlen_square_sum: 180355072 (calculated with sliding window logic)
+        # attn flops: 12 * 180355072 * 256 * 16 = 8864812498944
+        # total: 283517065887744 / 1e12 = 283.517065887744
+        #
+        # For batch [4096, 4096, 4096], tokens_sum = 12288:
+        # dense flops: 6 * 12772147200 * 12288 = 941664868761600
+        # seqlen_square_sum: 905969664 (calculated with sliding window logic)
+        # attn flops: 12 * 905969664 * 256 * 16 = 44530220924928
+        # total: 986195089686528 / 1e12 = 986.195089686528
+        "expected_flops_tuple": (283517065887744 / 1e12, 986195089686528 / 1e12),
     },
 }
 
 
 @pytest.mark.parametrize(
     "config_type",
-    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3"],
+    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text"],
 )
 def test_flops_counter(config_type: str):
     test_config = CONFIG[config_type]
     config = Config(test_config["config"])
     flops_counter = FlopsCounter(config)
-    for batch_seqlens, expected_flops in zip(test_config["batch_seqlens_tuple"], test_config["expected_flops_tuple"]):
+    for batch_seqlens, expected_flops in zip(
+        test_config["batch_seqlens_tuple"], test_config["expected_flops_tuple"], strict=True
+    ):
         # set delta time to 1 to get the flops
         counted_flops, _ = flops_counter.estimate_flops(batch_seqlens, 1)
         print(f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}")
-        assert math.isclose(counted_flops, expected_flops), f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}"
+        assert math.isclose(counted_flops, expected_flops), (
+            f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}"
+        )

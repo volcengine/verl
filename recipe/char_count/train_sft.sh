@@ -18,5 +18,4 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     trainer.project_name=char_count-sft \
     trainer.experiment_name=char_count-sft-SmolLM2-135M-Instruct \
     trainer.total_epochs=3 \
-    trainer.logger=['console'] \
-    trainer.default_hdfs_dir=null
+    trainer.logger=console
