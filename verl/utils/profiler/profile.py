@@ -17,9 +17,8 @@ from typing import Callable, Optional
 
 import torch
 import torch.distributed
-from omegaconf import DictConfig, OmegaConf
 
-from .config import ProfilerConfig
+from .config import ProfilerConfig, TorchProfilerToolConfig
 
 
 class Profiler:
@@ -39,18 +38,18 @@ class Profiler:
         config: Configuration object containing profiling parameters
     """
 
-    def __init__(self, config):
+    def __init__(self, config: ProfilerConfig, tool_config: Optional[TorchProfilerToolConfig] = None):
         # note : if we do not set use_profile, it will be set as None, so that all function will be skip
-        if not isinstance(config, DictConfig):
-            config = OmegaConf.create(config)
+        self.enable = config.enable
+        if not config.enable:
+            return
         self.config = config
-        self.skip_prof = False
         self.saved = False
         self.prof = None
         self.rank = torch.distributed.get_rank()
         # we need to validate the config before using the profiler
         self._validate()
-        if config.use_profile and self.rank in self.config.profile_ranks:
+        if self.rank in self.config.profile_ranks:
             print(f"[Profiler] Profiler init for rank {self.rank}")
 
             self.prof = torch.profiler.profile(
