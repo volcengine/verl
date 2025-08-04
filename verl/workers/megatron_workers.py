@@ -396,7 +396,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 OmegaConf.create(self.config.actor.megatron.get("override_transformer_config", {}))
             )
             override_ddp_config = OmegaConf.to_container(
-                self.config.actor.megatron.get("override_ddp_config", OmegaConf.create()), resolve=True
+                OmegaConf.create(self.config.actor.megatron.get("override_ddp_config", {}))
             )
         elif self._is_ref:
             override_transformer_config = OmegaConf.to_container(
@@ -840,7 +840,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             OmegaConf.create(self.config.megatron.get("override_transformer_config", {}))
         )
         override_ddp_config = OmegaConf.to_container(
-            self.config.megatron.get("override_ddp_config", OmegaConf.create()), resolve=True
+            OmegaConf.create(self.config.megatron.get("override_ddp_config", {}))
         )
         self.param_dtype = torch.bfloat16
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
