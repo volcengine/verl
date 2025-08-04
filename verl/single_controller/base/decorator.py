@@ -413,7 +413,7 @@ def collect_nd_compute(collect_mask: list[bool], worker_group, output):
 
     output_in_dp = []
     for global_rank in range(worker_group.world_size):
-        collect_dp_rank = dp_rank_mapping[global_rank]
+        collect_dp_rank = collect_mask[global_rank]
         if collect_dp_rank:
             output_in_dp.append(output[global_rank])
     return output_in_dp
@@ -425,7 +425,7 @@ def dispatch_nd_compute_dataproto(dp_rank_mapping: list[int], dp_size, worker_gr
 
 
 def collect_nd_compute_dataproto(collect_mask: list[bool], worker_group, output):
-    output = collect_nd_compute(dp_rank_mapping, worker_group, output)
+    output = collect_nd_compute(collect_mask, worker_group, output)
     import ray
 
     from verl.protocol import DataProto
@@ -464,9 +464,9 @@ def collect_lazy_compute_data_proto(mesh_name, worker_group, *args, **kwargs):
         assert len(worker_group._collect_info[mesh_name]) == worker_group.world_size
 
     # a boolean of whether the dp_rank is used for collect
-    dp_rank_mapping = worker_group._collect_info[mesh_name]
+    collect_mask = worker_group._collect_info[mesh_name]
     # perform dispatch
-    return collect_nd_compute_dataproto(dp_rank_mapping, worker_group, *args, **kwargs)
+    return collect_nd_compute_dataproto(collect_mask, worker_group, *args, **kwargs)
 
 
 def make_nd_compute_dataproto_dispatch_fn(mesh_name):
