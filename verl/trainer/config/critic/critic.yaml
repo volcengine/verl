@@ -98,8 +98,11 @@ checkpoint:
 # profile the critic model in `update_policy` 
 profiler:
 
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.utils.profiler.config.ProfilerConfig
 
+  # profiler tool, default same as profiler.tool in global config
+  # choices: nsys, npu, torch
   tool: ${oc.select:profiler.tool,null}
 
   # whether enable profile on critic
@@ -111,6 +114,8 @@ profiler:
   # The ranks that will be profiled. [] or [0,1,...]
   ranks: []
 
+  # profile results saving path
   save_path: ${oc.select:profiler.save_path,null}
 
+  # specific tool config
   tool_config: ${profiler.tool_config}

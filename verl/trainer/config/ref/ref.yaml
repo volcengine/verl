@@ -23,8 +23,11 @@ log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_toke
 # profile the ref model in `compute_log_prob` 
 profiler:
 
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.utils.profiler.config.ProfilerConfig
 
+  # profiler tool, default same as profiler.tool in global config
+  # choices: nsys, npu, torch
   tool: ${oc.select:profiler.tool,null}
 
   # whether enable profile on ref
@@ -36,6 +39,8 @@ profiler:
   # The ranks that will be profiled. [] or [0,1,...]
   ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
 
+  # profile results saving path
   save_path: ${oc.select:profiler.save_path,null}
 
+  # specific tool config
   tool_config: ${profiler.tool_config}

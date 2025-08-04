@@ -329,13 +329,19 @@ profiler:
   # Specific tool configs, can use +profiler.tool_config.[tool].xxx to config
   tool_config:
   
+    # nsys config
     nsys:
+
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
       _target_: verl.utils.profiler.config.NsightToolConfig
 
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
     
+    # npu config
     npu:
+
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
       _target_: verl.utils.profiler.config.NPUToolConfig
 
       # Contents to profile, can be empty
