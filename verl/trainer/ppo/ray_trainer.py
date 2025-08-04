@@ -497,6 +497,14 @@ class RayPPOTrainer:
                 "validation gen temperature should be greater than 0 when enabling do_sample"
             )
 
+        if config.actor_rollout_ref.rollout.multi_turn.enable:
+            warnings.warn(
+                "Enable `multi_turn.enable=True`, please set `rollout.mode=async` instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            config.actor_rollout_ref.rollout.mode = "async"
+
         print("[validate_config] All configuration checks passed successfully!")
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
