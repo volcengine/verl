@@ -247,9 +247,8 @@ class ToolAgentLoop(AgentLoopBase):
             tool_args = json.loads(tool_call.arguments)
             tool = self.tools[tool_name]
             kwargs = tools_kwargs.get(tool_name, {})
-            create_kwargs = kwargs.get("create_kwargs", {})
-            instance_id = await tool.create(instance_id=None, **create_kwargs)
-            tool_response, _, _ = await tool.execute(instance_id, tool_args)
+            instance_id, _ = await tool.create(create_kwargs=kwargs.get("create_kwargs", {}))
+            tool_execution_response, _, _ = await tool.execute(instance_id, tool_args)
         except Exception as e:
             logger.warning(f"Error when executing tool: {e}")
             return ToolResponse(
@@ -263,15 +262,16 @@ class ToolAgentLoop(AgentLoopBase):
             if tool and instance_id:
                 await tool.release(instance_id)
 
-        return ToolResponse.from_tool_output(tool_response)
+        tool_response_text = tool_execution_response.text
+        if tool_response_text and len(tool_response_text) > self.max_tool_response_length:
+            if self.tool_response_truncate_side == "left":
+                tool_response_text = tool_response_text[: self.max_tool_response_length] + "...(truncated)"
+            elif self.tool_response_truncate_side == "right":
+                tool_response_text = "(truncated)..." + tool_response_text[-self.max_tool_response_length :]
+            else:
+                length = self.max_tool_response_length // 2
+                tool_response_text = tool_response_text[:length] + "...(truncated)..." + tool_response_text[-length:]
 
-    @classmethod
-    def get_tool_parser(cls, name: str) -> ToolParser:
-        from verl.experimental.agent_loop.tool_parser import HermesToolParser
-
-        tool_parsers = {
-            "hermes": HermesToolParser,
-        }
-        if name not in tool_parsers:
-            raise ValueError(f"Unknown tool parser: {name}")
-        return tool_parsers[name](cls.tokenizer)
+        return ToolResponse.from_tool_output(
+            {"text": tool_response_text, **{k: v for k, v in tool_execution_response.__dict__.items() if k != "text"}}
+        )

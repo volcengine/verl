@@ -28,7 +28,7 @@ from PIL import Image
 from qwen_vl_utils import fetch_image
 
 from .base_tool import BaseTool
-from .schemas import OpenAIFunctionToolSchema
+from .schemas import OpenAIFunctionToolSchema, ToolResponse
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -369,10 +369,10 @@ class ImageZoomInTool(BaseTool):
             response_text = f"Zoomed in on the image to the region {bbox_2d} with label {label}."
 
         return (
-            {
-                "image": [cropped_image],
-                "text": response_text,
-            },
+            ToolResponse(
+                image=[cropped_image],
+                text=response_text,
+            ),
             0.0,
             {"success": True},
         )
