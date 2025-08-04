@@ -78,7 +78,7 @@ filter_overlong_prompts=False
 # req_algo="even_prompt"
 # req_algo="even_token"
 # req_algo="even_token_kk"
-# agg="max" # sum / max
+# agg="max" # sum / max / mean / median / min
 
 export req_algo=${req_algo:-even_token_kk}
 export agg=${agg:-max}

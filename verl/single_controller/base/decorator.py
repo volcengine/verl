@@ -50,6 +50,7 @@ def init_predefined_dispatch_mode():
     Dispatch.register("DP_COMPUTE_METRIC")
     # This is a special dispatch mode for vllm ExternalRayDistributedExecutor
     Dispatch.register("DIRECT_ROLLOUT_METHOD")
+    # This is a special dispatch mode for recpie: ReqScheduler
     Dispatch.register("REQ_DISTRIBUTION")
 
 

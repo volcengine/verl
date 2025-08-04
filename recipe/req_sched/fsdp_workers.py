@@ -48,6 +48,7 @@ class ActorRolloutRefWorker(ARRWorker):
         # Support all hardwares
         rank = torch.distributed.get_rank()
         config = self.config.rollout
+
         tp_size = config.get("tensor_model_parallel_size", 1)
 
         my_req_idx = rank // tp_size
@@ -62,10 +63,11 @@ class ActorRolloutRefWorker(ARRWorker):
         my_idx = [i for i, idx in enumerate(reqs_idx) if idx == my_req_idx]
         if len(my_idx) == 0:
             raise RuntimeError(f"Empty reqs {rank} {tp_size=} {my_req_idx=} {reqs_idx=}")
-
+        # [ReqScheduler] select the asigned requests
         prompts = prompts.select_idxs(my_idx)
         pre_outlens = [pre_outlens[i] for i in my_idx]
 
+        # [ReqScheduler] calculate the statistics of the predicted outlens
         pre_longest = max(pre_outlens)
         pre_shortest = min(pre_outlens)
         pre_avg = np.mean(pre_outlens)
@@ -77,9 +79,9 @@ class ActorRolloutRefWorker(ARRWorker):
         if is_first_tp_rank:
             print(
                 f"[GEN]:\n"
-                f"{rank=}, len(my_idx)={len(my_idx)},\
-                pre_longest={pre_longest}, pre_shortest={pre_shortest},\
-                pre_avg={pre_avg:.2f}, pre_std={pre_std:.2f}\n"
+                f"{rank=}, len(my_idx)={len(my_idx)},"
+                f"pre_longest={pre_longest}, pre_shortest={pre_shortest},"
+                f"pre_avg={pre_avg:.2f}, pre_std={pre_std:.2f}\n"
             )
         prompts = prompts.to(get_device_id())
 
@@ -97,12 +99,13 @@ class ActorRolloutRefWorker(ARRWorker):
         timing_generate = {}
         with self.rollout_sharding_manager:
             log_gpu_memory_usage("After entering rollout sharding manager", logger=logger)
-
+            # [ReqScheduler] Note that we already preprocessed the data above
+            # so we can directly pass the prompts
             with simple_timer("generate_sequences", timing_generate):
                 output = self.rollout.generate_sequences(prompts=prompts)
             log_gpu_memory_usage("After rollout generation", logger=logger)
             if is_first_tp_rank:
-                # just printing
+                # [ReqScheduler] collect the statistics of the generated sequences
                 inlongest = max(inlens)
                 inshortest = min(inlens)
                 inavg = np.mean(inlens)
@@ -117,7 +120,7 @@ class ActorRolloutRefWorker(ARRWorker):
                 predict_tsum = sum(predict_totallens)
                 insum = sum(inlens)
 
-                # actual out
+                # [ReqScheduler] actual out
                 responses = output.batch["responses"]
                 pad_id = self.tokenizer.pad_token_id
                 padded_tensor = responses.cpu()
@@ -140,13 +143,13 @@ class ActorRolloutRefWorker(ARRWorker):
                 actual_mean = np.mean(actual_outlen)
                 actual_max = np.max(actual_outlen)
                 actual_min = np.min(actual_outlen)
-                # breakpoint()
+                # [ReqScheduler] print the generation time and statistics
                 print(
-                    f"[GENTIME] {rank=}, {timing_generate['generate_sequences']:.2f}s; \
-                    Sum: predict_totallens={predict_tsum}, pre_outlens={pre_osum}, insum={insum} ; \
-                    Total: {predict_tlongest=}, {predict_tshortest=}, {predict_tavg=}, {predict_tstd=}; \
-                    In: {inlongest=}, {inshortest=}, inavg={inavg:.0f}, instd={instd:.0f}; \
-                    ACTUAL: {actual_sum=}, {actual_mean=}, {actual_max=}, {actual_min=}"
+                    f"[GENTIME] {rank=}, {timing_generate['generate_sequences']:.2f}s;"
+                    f"Sum: predict_totallens={predict_tsum}, pre_outlens={pre_osum}, insum={insum}; "
+                    f"Total: {predict_tlongest=}, {predict_tshortest=}, {predict_tavg=}, {predict_tstd=};"
+                    f"In: {inlongest=}, {inshortest=}, inavg={inavg:.0f}, instd={instd:.0f};"
+                    f"ACTUAL: {actual_sum=}, {actual_mean=}, {actual_max=}, {actual_min=}"
                 )
             output = self.rollout_sharding_manager.postprocess_data(output)
 

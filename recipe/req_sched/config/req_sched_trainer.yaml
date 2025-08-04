@@ -12,6 +12,7 @@ data:
 trainer:
   project_name: verl-req_sched
 
+# Configuration for the request scheduler
 req_scheduler:
   seq_dir: null
   log_dir: null
