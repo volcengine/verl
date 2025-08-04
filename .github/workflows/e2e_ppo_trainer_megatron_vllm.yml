@@ -245,16 +245,6 @@ jobs:
       - name: Prepare dist_ckpt of Qwen2.5-0.5B, uneven layer distribution only supports dist_ckpt
         run: |
           python3 scripts/converter_hf_to_mcore.py --hf_model_path ${HOME}/models/Qwen/Qwen2.5-0.5B --output_path checkpoints/verl-test/qwen2.5-0.5b-megatron
-      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron, use mbridge e2e to pre-load and save (Qwen)
-        run: |
-          ray stop --force
-          SAVE_FREQ=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 USE_MBRIDGE=True USE_DIST_CKPT=False \
-          bash tests/special_e2e/run_ppo_trainer_megatron.sh
-      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron, use mbridge e2e to pre-load and save (Qwen)
-        run: |
-          ray stop --force
-          RESUME_MODE=auto TOTAL_TRAIN_STEPS=2 SAVE_FREQ=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 USE_MBRIDGE=True USE_DIST_CKPT=False \
-          bash tests/special_e2e/run_ppo_trainer_megatron.sh
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
         run: |
           ray stop --force

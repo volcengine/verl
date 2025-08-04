@@ -234,18 +234,18 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         # For save dist checkpointing
         state_dict = {}
 
+        # Should always generate model state dict
         # All ranks Save Model to reduce memory pressure
-        if generate_model:
-            # Get sharded state dict, notice that state_dict will collect among dp groups, causing memory pressure
-            for vpp_rank, model in enumerate(self.model):
-                if len(self.model) > 1:
-                    mpu.set_virtual_pipeline_model_parallel_rank(vpp_rank)
-                    key = f"model{vpp_rank}" if len(self.model) > 1 else "model"
-                else:
-                    key = "model"
-                if hasattr(model, "module"):
-                    model = model.module
-                state_dict[key] = model.sharded_state_dict()
+        # Get sharded state dict, notice that state_dict will collect among dp groups, causing memory pressure
+        for vpp_rank, model in enumerate(self.model):
+            if len(self.model) > 1:
+                mpu.set_virtual_pipeline_model_parallel_rank(vpp_rank)
+                key = f"model{vpp_rank}" if len(self.model) > 1 else "model"
+            else:
+                key = "model"
+            if hasattr(model, "module"):
+                model = model.module
+            state_dict[key] = model.sharded_state_dict()
 
         # Optimizer State Dict
         if generate_optimizer:
@@ -256,6 +256,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             if self.lr_scheduler is not None:
                 lr_state_dict = self.lr_scheduler.state_dict()
                 state_dict["lr_scheduler"] = lr_state_dict
+
+        if not generate_model:
+            state_dict.pop("model", None)
 
         # RNG States State Dict
         if generate_extra:
