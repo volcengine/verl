@@ -36,7 +36,6 @@ from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.profiler.performance import simple_timer
 from verl.utils.torch_functional import check_device_is_available
-from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
 from .base import BaseShardingManager
 
@@ -166,6 +165,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                     self.layer_name_mapping,
                 )
             model = self.model_runner.model
+            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+
             patch_vllm_moe_model_weight_loader(model)
             loaded_params = model.load_weights(per_tensor_param)
             info = f"vLLM load weights, loaded_params: {len(loaded_params)}"

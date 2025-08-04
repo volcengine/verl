@@ -22,7 +22,7 @@ import os
 import time
 from copy import deepcopy
 from json import JSONDecodeError
-from typing import Any, List, Optional, Tuple
+from typing import Any, Optional
 from uuid import uuid4
 
 import numpy as np
@@ -38,12 +38,10 @@ from sglang.srt.managers.tokenizer_manager import (
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
-    MultiprocessingSerializer,
     assert_pkg_version,
     get_ip,
     get_open_port,
     is_cuda,
-    maybe_set_triton_cache_manager,
     set_prometheus_multiproc_dir,
     set_ulimit,
 )
@@ -104,9 +102,15 @@ def _set_envs_and_config(server_args: ServerArgs):
     set_ulimit()
 
     # Fix triton bugs
-    if server_args.tp_size * server_args.dp_size > 1:
-        # FIXME: remove this after https://github.com/triton-lang/triton/pull/4295 is used as a dependency.
-        maybe_set_triton_cache_manager()
+    try:
+        from sglang.srt.utils import maybe_set_triton_cache_manager
+
+        if server_args.tp_size * server_args.dp_size > 1:
+            # FIXME: remove this after https://github.com/triton-lang/triton/pull/4295 is used as a dependency.
+            maybe_set_triton_cache_manager()
+    except ImportError:
+        # Fixed in sglang 0.4.9
+        pass
 
     # Check flashinfer version
     if server_args.attention_backend == "flashinfer":
@@ -160,22 +164,8 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
             obj = ResumeMemoryOccupationReqInput(tags=tags)
         return await self.tokenizer_manager.resume_memory_occupation(obj, None)
 
-    async def update_weights_from_tensor(
-        self,
-        named_tensors: List[Tuple[str, torch.Tensor]],  # noqa: UP006
-        load_format: Optional[str] = None,
-        flush_cache: bool = True,
-    ):
-        """Update weights from distributed source. If there are going to be more updates, set `flush_cache` to be false
-        to avoid duplicated cache cleaning operation."""
-        obj = UpdateWeightsFromTensorReqInput(
-            serialized_named_tensors=[
-                MultiprocessingSerializer.serialize(named_tensors) for _ in range(self.server_args.tp_size)
-            ],
-            load_format=load_format,
-            flush_cache=flush_cache,
-        )
-        return await self.tokenizer_manager.update_weights_from_tensor(obj, None)
+    async def update_weights_from_tensor(self, update_weights_request: UpdateWeightsFromTensorReqInput):
+        return await self.tokenizer_manager.update_weights_from_tensor(update_weights_request, None)
 
     async def flush_cache(self):
         return await self.tokenizer_manager.flush_cache()
@@ -190,6 +180,22 @@ def _pre_process_inputs(
     # remove the left padding in the prompt token_id
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
     return prompt_token_ids[non_pad_index:]
+
+
+def _extract_logprob_from_output(output):
+    """
+    extract log_prob from single sglang inference output
+    """
+
+    def _map_each_response(resp):
+        input_token_logprobs = resp["meta_info"]["input_token_logprobs"]
+        log_probs, output_token_ids = zip(
+            *[(log_prob, token_ids) for log_prob, token_ids, _ in input_token_logprobs[1:]], strict=False
+        )
+        return torch.tensor(output_token_ids), torch.tensor(log_probs)
+
+    output_token_ids, log_probs = _map_each_response(output)
+    return output_token_ids, log_probs
 
 
 # NOTE(linjunrong): adhoc
@@ -433,6 +439,8 @@ class SGLangRollout(BaseRollout):
         tp_size_per_node = self._tp_size // nnodes
         node_rank = self._tp_rank // tp_size_per_node
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0
+        engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {})
+        attention_backend = engine_kwargs.get("attention_backend", None)
 
         if first_rank_in_node:
             rank = dist.get_rank()
@@ -461,7 +469,7 @@ class SGLangRollout(BaseRollout):
                 # log_requests_level=2,
                 # max_running_requests=1,
                 mm_attention_backend="fa3",
-                attention_backend="fa3",
+                attention_backend=attention_backend if attention_backend is not None else "fa3",
                 # In async mode, we want token in token out.
                 skip_tokenizer_init=self.config.mode == "async",
             )
@@ -660,14 +668,14 @@ class SGLangRollout(BaseRollout):
                 {"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch.pop("raw_prompt_ids")
             ]
 
-        # Ensure token IDs are lists or numpy arrays
         for input_data in sglang_inputs:
-            if isinstance(input_data["prompt_token_ids"], np.ndarray):
-                input_data["prompt_token_ids"] = input_data["prompt_token_ids"].tolist()
-            elif not isinstance(input_data["prompt_token_ids"], list):
+            # Ensure token IDs are lists or numpy arrays
+            if not isinstance(input_data["prompt_token_ids"], list | np.ndarray):
                 raise TypeError(
                     f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}"
                 )
+
+            input_data["prompt_token_ids"] = list(input_data["prompt_token_ids"])
 
         # Extract token IDs and image data for SGLang Engine
         idx_list = [input_data["prompt_token_ids"] for input_data in sglang_inputs]
@@ -991,7 +999,19 @@ class SGLangRollout(BaseRollout):
         tool_reward_scores = dict(tool_reward_scores)
         all_rewards = {**tool_reward_scores, **{"user_turn_rewards": user_turn_rewards}}
         _req.finalize(self.processing_class, all_rewards, finish_reason_type)
-
+        if self.config.calculate_log_probs:
+            # 把input_ids输入sglang内生成一遍，并设置max_new_tokens=0，以生成log_probs
+            debug_sampling_params = {**self.sampling_params}
+            debug_sampling_params["max_new_tokens"] = 0
+            output = await self._engine.async_generate(
+                prompt=None,
+                input_ids=_req.input_ids,
+                sampling_params=debug_sampling_params,
+                return_logprob=True,
+                logprob_start_len=0,
+            )
+            # len(input_token_logprobs) = len(input_tokens)-1，because logprob of 1st token is None
+            _req.output_token_ids, _req.rollout_log_probs = _extract_logprob_from_output(output)
         return _req
 
     async def _handle_engine_call(
@@ -1022,7 +1042,10 @@ class SGLangRollout(BaseRollout):
                 tool = self._tool_map[tool_schema.function.name]
                 create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
                 tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
-            await asyncio.gather(*tool_creation_coroutines)
+            tool_creation_results = await asyncio.gather(*tool_creation_coroutines)
+            _req.add_tool_response_messages(
+                self.processing_class, [tool_result for _, tool_result in tool_creation_results]
+            )
         if _req.interaction_kwargs and self.interaction_map:
             interaction_kwargs = _req.interaction_kwargs
             # Get interaction by name from interaction_kwargs
@@ -1090,6 +1113,9 @@ class SGLangRollout(BaseRollout):
         reward_scores = []
         multi_modal_inputs = []
         request_ids = []
+        if self.config.calculate_log_probs:
+            output_logprobs = []
+            rollout_output_token_ids = []
 
         for req in sorted_output_req_list:
             assert req.state == AsyncRolloutRequestStateEnum.COMPLETED, f"Request {req.request_id} is not completed"
@@ -1130,6 +1156,10 @@ class SGLangRollout(BaseRollout):
             reward_scores.append(req.reward_scores)
             multi_modal_inputs.append(req.multi_modal_inputs)
             request_ids.append(req.request_id)
+            if self.config.calculate_log_probs:
+                # extract output log_probs
+                output_logprobs.append(req.rollout_log_probs[-len(req.response_ids) :])
+                rollout_output_token_ids.append(req.output_token_ids[-len(req.response_ids) :])
 
         prompt_ids = pad_sequence(
             prompt_ids,
@@ -1194,6 +1224,17 @@ class SGLangRollout(BaseRollout):
         response_loss_mask = pad_sequence(response_loss_mask, batch_first=True, padding_value=0)
         if response_loss_mask.shape[1] < self.config.response_length:
             response_loss_mask = pad_sequence_to_length(response_loss_mask, self.config.response_length, 0)
+        if self.config.calculate_log_probs:
+            output_logprobs = pad_sequence(output_logprobs, padding_value=0.0, batch_first=True)
+            output_logprobs = pad_sequence_to_length(
+                output_logprobs, pad_token_id=0.0, max_seq_len=response_ids.shape[-1]
+            ).to(tgt_device)
+            rollout_output_token_ids = pad_sequence(
+                rollout_output_token_ids, padding_value=self.pad_token_id, batch_first=True
+            )
+            rollout_output_token_ids = pad_sequence_to_length(
+                rollout_output_token_ids, pad_token_id=self.pad_token_id, max_seq_len=response_ids.shape[-1]
+            ).to(tgt_device)
 
         input_ids = torch.cat((prompt_ids, response_ids), dim=-1)
         attention_mask = torch.cat((prompt_attention_mask, response_attention_mask), dim=-1)
@@ -1211,6 +1252,9 @@ class SGLangRollout(BaseRollout):
             },
             batch_size=len(sorted_output_req_list),
         )
+        if self.config.calculate_log_probs:
+            batch["rollout_log_probs"] = output_logprobs
+            batch["rollout_output_token_ids"] = rollout_output_token_ids
 
         # free cache engine
         if self._engine is not None and self._tp_rank == 0:
@@ -1266,12 +1310,15 @@ class SGLangRollout(BaseRollout):
             else:
                 _interaction_kwargs = {}
 
+            if not isinstance(raw_prompt, list | np.ndarray):
+                raise TypeError(f"raw_prompt must be a list or numpy array, got {type(raw_prompt)}")
+
             req = AsyncRolloutRequest(
                 batch_data_id=data_idx,
                 rollout_offset=0,
                 request_id=str(uuid4()),
                 state=AsyncRolloutRequestStateEnum.PENDING,
-                messages=raw_prompt.tolist(),
+                messages=list(raw_prompt),
                 multi_modal_data=multi_modal_data,
                 tool_schemas=_tool_schemas,
                 tools_kwargs=_tools_kwargs,
