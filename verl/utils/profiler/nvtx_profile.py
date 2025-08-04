@@ -20,6 +20,7 @@ from typing import Callable, Optional
 import nvtx
 import torch
 
+from .config import NsightToolConfig
 from .profile import DistProfiler, ProfilerConfig
 
 
@@ -113,7 +114,7 @@ def marked_timer(
 class NsightSystemsProfiler(DistProfiler):
     """Nsight system profiler. Installed in a worker to control the Nsight system profiler."""
 
-    def __init__(self, rank: int, config: Optional[ProfilerConfig], **kwargs):
+    def __init__(self, rank: int, config: Optional[ProfilerConfig], tool_config: Optional[NsightToolConfig], **kwargs):
         """Initialize the NsightSystemsProfiler.
 
         Args:
@@ -123,8 +124,9 @@ class NsightSystemsProfiler(DistProfiler):
         # If no configuration is provided, create a default ProfilerConfig with an empty list of ranks
         if not config:
             config = ProfilerConfig(ranks=[])
+        assert tool_config is not None, "NsightSystemsProfiler requires a tool_config of type NsightToolConfig"
         self.this_step: bool = False
-        self.discrete: bool = config.discrete
+        self.discrete: bool = tool_config.discrete
         self.this_rank: bool = False
         if config.all_ranks:
             self.this_rank = True

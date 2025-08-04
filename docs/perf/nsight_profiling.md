@@ -23,7 +23,6 @@ In `trainer`, three new config entries control the profiler behaviors:
 * **`trainer.profile_continuous_steps`**. If true, and the following `profiler.discrete==False`, then the continuous steps in `profile_steps` will be combined into one database. For example the above step 1 and 2 are in one database, and 5 in another. If false, every step occupies at least one database. The reason for this config is to observe the program behaviors between steps.
 
 * **`controller_nsight_options`**. This config group is for the single controller. All fields in this config group will be just sent to Nsight Systems when Ray starts the controller process. `ppo_trainer.yaml` provides a workable example. Users can reference [Nsight Systems manual](https://docs.nvidia.com/nsight-systems/UserGuide/index.html) and [Ray user guide](https://docs.ray.io/en/latest/ray-observability/user-guides/profiling.html) for more details.
-
 * **`worker_nsight_options`**. This config group is for the worker processes. Similarly all fields in this config group will be just sent to Nsight Systems when Ray starts the controller process. Capture range is used to control the profiler when to start and stop. So `capture-range: "cudaProfilerApi"` is fixed and does not change it. Users can change `capture-range-end` with some accurate calculation or just leave it `null`.
 
 ### Worker process profiling
@@ -31,16 +30,13 @@ In `trainer`, three new config entries control the profiler behaviors:
 Verl manages mulitiple RL roles, _Actor_, _Ref_, _Rollout_, _Critic_, _Reward_, which are implemented in different Worker classes. And these workers can be combined into one Ray Actor, running in a process group. Each RL role has its own profiling config group, `profiler`, which consists of three fields:
 
 * **`all_ranks` and `ranks`**. When `all_ranks` is set `True` then all ranks will be profiled; when set `False`, `ranks` will be profiled. By default, verl profiles the whole training process in a series ` worker_process_<PID>.<RID>.nsys-rep` files for each process rank. PID is the process ID; RID is the capture range ID.
-
 * **`discrete`**. When set `False`, all the roles actions in one training step will be dumped in one database. When set `True`, the actions annotated by `DistProfiler.annotate` will be dumped into a discrete database. In this case, each role's action occupies one `<RID>`.
-
 * **`actor_rollout_ref`**. This Worker can be configured to contain at most 3 roles and executes together. So `actor_rollout_ref` has a `profiler` config and all the inside roles inherit it.
-
 * **Verl collocate mode**. Verl can combine two Worker sub classes to one Worker Actor. In this case, the user should take care that the combined Workers have consistent `discrete`. The Nsight Systems profiler uses a `torch.cuda.profiler.start()` and `stop()` pair to dump a `<step>` database anyway.
 
 ### where to find the profiling data
 
-By default the `*.nsys-rep` files are saved in the directory `/tmp/ray/session_latest/logs/nsight/` at each node. According to the Ray manual, this default directory is not changeable. ["however, Ray preserves the `--output` option of the default config"](https://docs.ray.io/en/latest/ray-observability/user-guides/profiling.html).
+By default the `*.nsys-rep` files are saved in the directory `/tmp/ray/session_latest/logs/nsight/` at each node. According to the Ray manual, this default directory is not changeable. [&#34;however, Ray preserves the `--output` option of the default config&#34;](https://docs.ray.io/en/latest/ray-observability/user-guides/profiling.html).
 
 Some users may think it is not convenient, but it is understandable that Ray may start hundreds of processes and it would be a big network file system pressure if we save the files in one central place.
 
@@ -49,51 +45,40 @@ Some users may think it is not convenient, but it is understandable that Ray may
 To enable profiling for specific components and steps, modify your ppo_trainer.yaml like this:
 
 ### Disable profiler
+
 ```yaml
-    trainer:
-        profile_steps: null # disable profile
+    profiler:
+        steps: null # disable profile
 ```
 
 ### Enable profiler and one database for one training step
+
 ```yaml
-    trainer:
-        profile_steps: [1, 2, 5]
+    profiler:
+        steps: [1, 2, 5]
+        discrete: False
     actor_rollout_ref:
-        profiler:
-            discrete: False
-            all_ranks: False
-            ranks: [0, 1]
+        actor:
+            profile:
+                enable: True
+                all_ranks: True
+        # rollout & ref follow actor settings
     critic:
-        profiler:
-            discrete: False
-            all_ranks: False
-            ranks: [0, 1]
+            profile:
+                enable: True
+                all_ranks: True
     reward_model:
-        profiler:
-            discrete: False
-            all_ranks: False
-            ranks: [0, 1]
+            profile:
+                enable: True
+                all_ranks: True
 ```
 
 ### Enable profiler and multiple databases for one training step
+
 ```yaml
-    trainer:
-        profile_steps: [1, 2, 5]
-    actor_rollout_ref:
-        profiler:
-            discrete: True
-            all_ranks: False
-            ranks: [0, 1]
-    critic:
-        profiler:
-            discrete: True
-            all_ranks: False
-            ranks: [0, 1]
-    reward_model:
-        profiler:
-            discrete: True
-            all_ranks: False
-            ranks: [0, 1]
+    profiler:
+        steps: [1, 2, 5]
+        discrete: True
 ```
 
 ## Profiling Output

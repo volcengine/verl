@@ -219,3 +219,21 @@ skip_rollout: False
 # Specifies the filesystem path where rollout data should be cached when skip_rollout is enabled.
 # Note: Giving path under /tmp/ray/session* is not recommended as these are temporary Ray cluster directories.
 skip_dump_dir: /tmp/rollout_dump
+
+# profile the rollout model in `generate_sequence` 
+profiler:
+
+  tool: ${oc.select:profiler.tool,null}
+
+  # whether enable profile on ref
+  enable: ${oc.select:actor_rollout_ref.rollout.profiler.enable,false}
+  
+  # Whether to profile all ranks.
+  all_ranks: ${oc.select:actor_rollout_ref.rollout.profiler.all_ranks,false}
+
+  # The ranks that will be profiled. [] or [0,1,...]
+  ranks: ${oc.select:actor_rollout_ref.rollout.profiler.ranks,[]}
+
+  save_path: ${oc.select:profiler.save_path,null}
+
+  tool_config: ${profiler.tool_config}

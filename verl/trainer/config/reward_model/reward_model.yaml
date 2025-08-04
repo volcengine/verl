@@ -65,17 +65,20 @@ sandbox_fusion:
   # Max memory limit for each sandbox process in MB
   memory_limit_mb: 1024
 
-# profiler configs
+# profile the reward model in `compute_reward` 
 profiler:
 
-  # hint for the target config dataclass
-  _target_: verl.utils.profiler.ProfilerConfig
+  tool: ${oc.select:profiler.tool,null}
 
-  # True for each task has its own database, False for all tasks in one training step share one database.
-  discrete: False
-
+  # whether enable profile on ref
+  enable: False
+  
   # Whether to profile all ranks.
   all_ranks: False
 
   # The ranks that will be profiled. [] or [0,1,...]
   ranks: []
+
+  save_path: ${oc.select:profiler.save_path,null}
+
+  tool_config: ${profiler.tool_config}

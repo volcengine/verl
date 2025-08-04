@@ -58,6 +58,13 @@ actor_rollout_ref:
       lr_wsd_decay_steps: null
       use_checkpoint_opt_param_scheduler: false
     use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
+    profiler:
+      tool: ${oc.select:profiler.tool,null}
+      enable: false
+      all_ranks: false
+      ranks: []
+      save_path: ${oc.select:profiler.save_path,null}
+      tool_config: ${profiler.tool_config}
     data_loader_seed: null
     load_weight: true
     megatron:
@@ -84,12 +91,6 @@ actor_rollout_ref:
         recompute_method: null
         recompute_num_layers: null
       use_mbridge: false
-    profile:
-      use_profile: false
-      profile_ranks: null
-      step_start: -1
-      step_end: -1
-      save_path: null
   ref:
     strategy: megatron
     use_torch_compile: ${oc.select:actor_rollout_ref.actor.use_torch_compile,true}
@@ -97,6 +98,13 @@ actor_rollout_ref:
     log_prob_micro_batch_size_per_gpu: null
     log_prob_use_dynamic_bsz: ${oc.select:actor_rollout_ref.actor.use_dynamic_bsz,false}
     log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_token_len_per_gpu,16384}
+    profiler:
+      tool: ${oc.select:profiler.tool,null}
+      enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
+      all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
+      ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
+      save_path: ${oc.select:profiler.save_path,null}
+      tool_config: ${profiler.tool_config}
     megatron:
       _target_: verl.workers.config.MegatronEngineConfig
       param_offload: false
@@ -182,6 +190,13 @@ actor_rollout_ref:
       token2text: false
     skip_rollout: false
     skip_dump_dir: /tmp/rollout_dump
+    profiler:
+      tool: ${oc.select:profiler.tool,null}
+      enable: ${oc.select:actor_rollout_ref.rollout.profiler.enable,false}
+      all_ranks: ${oc.select:actor_rollout_ref.rollout.profiler.all_ranks,false}
+      ranks: ${oc.select:actor_rollout_ref.rollout.profiler.ranks,[]}
+      save_path: ${oc.select:profiler.save_path,null}
+      tool_config: ${profiler.tool_config}
     enable_chunked_prefill: false
     load_format: dummy_megatron
     layer_name_map:
@@ -199,63 +214,6 @@ actor_rollout_ref:
         freeze_moe_router: false
     use_fused_kernels: false
     trust_remote_code: false
-  profiler:
-    _target_: verl.utils.profiler.ProfilerConfig
-    discrete: false
-    all_ranks: false
-    ranks: []
-trainer:
-  npu_profile:
-    options:
-      save_path: ./profiler_data
-      roles:
-      - all
-      level: level1
-      with_memory: false
-      record_shapes: false
-      with_npu: true
-      with_cpu: true
-      with_module: false
-      with_stack: false
-      analysis: true
-  balance_batch: true
-  total_epochs: 30
-  total_training_steps: null
-  profile_steps: null
-  profile_continuous_steps: false
-  project_name: verl_examples
-  experiment_name: gsm8k
-  logger:
-  - console
-  - wandb
-  log_val_generations: 0
-  nnodes: 1
-  n_gpus_per_node: 8
-  save_freq: -1
-  esi_redundant_time: 0
-  resume_mode: auto
-  resume_from_path: null
-  del_local_ckpt_after_load: false
-  val_before_train: true
-  test_freq: -1
-  critic_warmup: 0
-  default_hdfs_dir: null
-  default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
-  max_actor_ckpt_to_keep: null
-  max_critic_ckpt_to_keep: null
-  ray_wait_register_center_timeout: 300
-  device: cuda
-  controller_nsight_options:
-    trace: cuda,nvtx,cublas,ucx
-    cuda-memory-usage: 'true'
-    cuda-graph-trace: graph
-  worker_nsight_options:
-    trace: cuda,nvtx,cublas,ucx
-    cuda-memory-usage: 'true'
-    cuda-graph-trace: graph
-    capture-range: cudaProfilerApi
-    capture-range-end: null
-    kill: none
 data:
   tokenizer: null
   use_shm: false
@@ -340,10 +298,12 @@ critic:
     load_contents: ${.save_contents}
     async_save: false
   profiler:
-    _target_: verl.utils.profiler.ProfilerConfig
-    discrete: false
+    tool: ${oc.select:profiler.tool,null}
+    enable: false
     all_ranks: false
     ranks: []
+    save_path: ${oc.select:profiler.save_path,null}
+    tool_config: ${profiler.tool_config}
   nccl_timeout: 600
   megatron:
     _target_: verl.workers.config.McoreEngineConfig
@@ -386,10 +346,12 @@ reward_model:
     max_concurrent: 64
     memory_limit_mb: 1024
   profiler:
-    _target_: verl.utils.profiler.ProfilerConfig
-    discrete: false
+    tool: ${oc.select:profiler.tool,null}
+    enable: false
     all_ranks: false
     ranks: []
+    save_path: ${oc.select:profiler.save_path,null}
+    tool_config: ${profiler.tool_config}
   nccl_timeout: 600
   megatron:
     _target_: verl.workers.config.MegatronEngineConfig
@@ -429,6 +391,63 @@ algorithm:
   pf_ppo:
     reweight_method: pow
     weight_pow: 2.0
+trainer:
+  balance_batch: true
+  total_epochs: 30
+  total_training_steps: null
+  project_name: verl_examples
+  experiment_name: gsm8k
+  logger:
+  - console
+  - wandb
+  log_val_generations: 0
+  nnodes: 1
+  n_gpus_per_node: 8
+  save_freq: -1
+  esi_redundant_time: 0
+  resume_mode: auto
+  resume_from_path: null
+  del_local_ckpt_after_load: false
+  val_before_train: true
+  test_freq: -1
+  critic_warmup: 0
+  default_hdfs_dir: null
+  default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
+  max_actor_ckpt_to_keep: null
+  max_critic_ckpt_to_keep: null
+  ray_wait_register_center_timeout: 300
+  device: cuda
+  controller_nsight_options:
+    trace: cuda,nvtx,cublas,ucx
+    cuda-memory-usage: 'true'
+    cuda-graph-trace: graph
+  worker_nsight_options:
+    trace: cuda,nvtx,cublas,ucx
+    cuda-memory-usage: 'true'
+    cuda-graph-trace: graph
+    capture-range: cudaProfilerApi
+    capture-range-end: null
+    kill: none
+profiler:
+  _target_: verl.utils.profiler.ProfilerConfig
+  tool: null
+  steps: null
+  profile_continuous_steps: false
+  save_path: outputs/profile
+  tool_config:
+    nsys:
+      _target_: verl.utils.profiler.NsightToolConfig
+      discrete: false
+    npu:
+      _target_: verl.utils.profiler.NPUToolConfig
+      discrete: false
+      contents: []
+      level: level1
+      analysis: true
+    torch:
+      _target_: verl.utils.profiler.TorchProfilerToolConfig
+      step_start: 0
+      step_end: null
 ray_init:
   num_cpus: null
   timeline_json_file: null

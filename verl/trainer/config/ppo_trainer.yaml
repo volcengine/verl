@@ -11,9 +11,6 @@ defaults:
   # actor_rollout_ref.actor: trainer/config/actor/dp_actor.yaml
   - actor@actor_rollout_ref.actor: dp_actor
 
-  # trainer.npu_profile: trainer/config/npu_profile/npu_profile.yaml
-  - npu_profile@trainer.npu_profile: npu_profile
-
   # data: trainer/config/data/legacy_data.yaml
   - data@data: legacy_data
 
@@ -112,21 +109,6 @@ actor_rollout_ref:
     # for huge model, layered summon can save memory (prevent OOM) but make it slower
     layered_summon: False
 
-  # profiler configs
-  profiler:
-
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-    _target_: verl.utils.profiler.ProfilerConfig
-
-    # True for each task has its own database, False for all tasks in one training step share one database.
-    discrete: False
-
-    # Whether to profile all ranks.
-    all_ranks: False
-
-    # The ranks that will be profiled. [] or [0,1,...]
-    ranks: []
-
 # custom reward function definition
 custom_reward_function:
 
@@ -202,14 +184,6 @@ trainer:
 
   # Total training steps (can be set explicitly or derived from epochs)
   total_training_steps: null
-
-  # The steps that will be profiled. null means no profiling. null or [1,2,5,...]
-  profile_steps: null
-
-  # Whether to combine continuous steps into one database.
-  ## If True, worker.profiler.discrete must be False, [1,2] in one, [5] in another.
-  ## If False, [1] in one, [2] in another, [5] in another.
-  profile_continuous_steps: False
 
   # controller Nvidia Nsight Systems Options. Must set when profile_steps is not None.
   ## reference https://docs.nvidia.com/nsight-systems/UserGuide/index.html
@@ -330,6 +304,49 @@ trainer:
   # whether to use legacy worker implementation
   #  mode: "auto", "enable", or "disable"
   use_legacy_worker_impl: auto
+
+
+# profiler configs
+profiler:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.utils.profiler.ProfilerConfig
+
+  # Profiling tool: choose between nsys, npu, torch
+  tool: null
+
+  # profile steps
+  steps: null
+
+  # Whether to combine continuous steps into one database.
+  ## If True, worker.profiler.discrete must be False, [1,2] in one, [5] in another.
+  ## If False, [1] in one, [2] in another, [5] in another.
+  profile_continuous_steps: False
+
+  # Path to save profiling contents
+  save_path: "outputs/profile"
+
+  # Specific tool configs, can use +profiler.tool_config.[tool].xxx to config
+  tool_config:
+  
+    nsys:
+      _target_: verl.utils.profiler.NsightToolConfig
+
+      # True for each task has its own database, False for all tasks in one training step share one database.
+      discrete: False
+    
+    npu:
+      _target_: verl.utils.profiler.NPUToolConfig
+
+      # Contents to profile, can be empty
+      # options: npu, cpu, memory, shapes, module, stack
+      contents: []
+
+      # Collection level, optional values: level_none, level0, level1, level2.
+      level: "level1"
+
+      # Whether to automatically parse the data.
+      analysis: True
 
 # configs related to ray initialization
 ray_init:

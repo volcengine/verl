@@ -18,8 +18,64 @@ from verl.base_config import BaseConfig
 
 
 @dataclass
+class NsightToolConfig(BaseConfig):
+    """Nsight tool config."""
+
+    "True for each task has its own database, False for all tasks in one training step share one database."
+    discrete: bool = False
+
+    def __post_init__(self) -> None:
+        pass
+
+
+@dataclass
+class TorchProfilerToolConfig(BaseConfig):
+    """Torch profiler tool config.
+
+    Args:
+        step_start (int): Start step in update_policy.
+        step_end (int): End step.
+    """
+
+    step_start: int = -1
+    step_end: int = -1
+
+    def __post_init__(self) -> None:
+        """config validation logics go here"""
+        assert isinstance(self.step_start, int), f"Profiler step_start must be of type int, got {type(self.step_start)}"
+        assert isinstance(self.step_end, int), f"Profiler step_end must be of type int, got {type(self.step_end)}"
+
+
+@dataclass
+class NPUToolConfig(NsightToolConfig):
+    """NPU profiler too; config."""
+
+    # options: npu, cpu, memory, shapes, module, stack
+    contents: list[str] = field(default_factory=list)
+
+    # Collection level, optional values: level_none, level0, level1, level2.
+    level: str = "level1"
+
+    # Whether to automatically parse the data.
+    analysis: bool = False
+
+    def __post_init__(self) -> None:
+        """config validation logics go here"""
+        assert isinstance(self.contents, list), f"Profiler contents must be of type list, got {type(self.contents)}"
+        assert isinstance(self.level, str), f"Profiler level must be of type str, got {type(self.level)}"
+        assert isinstance(self.analysis, bool), f"Profiler analysis must be of type bool, got {type(self.analysis)}"
+        for content in self.contents:
+            assert content in ["npu", "cpu", "memory", "shapes", "module", "stack"], (
+                f"Profiler contents only supports npu, cpu, memory, shapes, module, stack, but gets {content}"
+            )
+        assert self.level in ["level_none", "level0", "level1", "level2"], (
+            f"Profiler level only supports level0, 1, 2, and level_none, but gets {self.level}"
+        )
+
+
+@dataclass
 class ProfilerConfig(BaseConfig):
-    """Worker profiler config. Currently only support Nsight system profiler.
+    """Worker profiler config.
 
     The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
 
@@ -30,23 +86,11 @@ class ProfilerConfig(BaseConfig):
         ranks (list[int]): The ranks that will be profiled. Defaults to [].
     """
 
-    discrete: bool = False
+    tool: str = None
+    enable: bool = False
     all_ranks: bool = False
     ranks: list[int] = field(default_factory=list)
-
-    def union(self, other: "ProfilerConfig") -> "ProfilerConfig":
-        return ProfilerConfig(
-            all_ranks=self.all_ranks or other.all_ranks,
-            ranks=list(set(self.ranks or []) | set(other.ranks or [])),
-            discrete=self.discrete or other.discrete,
-        )
-
-    def intersect(self, other: "ProfilerConfig") -> "ProfilerConfig":
-        return ProfilerConfig(
-            all_ranks=self.all_ranks and other.all_ranks,
-            ranks=list(set(self.ranks or []) & set(other.ranks or [])),
-            discrete=self.discrete and other.discrete,
-        )
+    save_path: str = None
 
     def __post_init__(self) -> None:
         """config validation logics go here"""

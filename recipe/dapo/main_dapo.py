@@ -45,8 +45,8 @@ def run_ppo(config) -> None:
 
     if (
         is_cuda_available
-        and OmegaConf.select(config.trainer, "profile_steps") is not None
-        and len(OmegaConf.select(config.trainer, "profile_steps")) > 0
+        and OmegaConf.select(config.profiler, "steps") is not None
+        and len(OmegaConf.select(config.profiler, "steps")) > 0
     ):
         nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()

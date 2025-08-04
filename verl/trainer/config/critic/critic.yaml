@@ -95,18 +95,20 @@ checkpoint:
   # Whether to save checkpoints asynchronously. Only effective for Megatron as of now.
   async_save: False
 
-# profiler configs
-# the corresponding dataclass is verl.utils.profiler.ProfilerConfig.
+# profile the critic model in `update_policy` 
 profiler:
 
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-  _target_: verl.utils.profiler.ProfilerConfig
+  tool: ${oc.select:profiler.tool,null}
 
-  # True for each task has its own database, False for all tasks in one training step share one database.
-  discrete: False
-
+  # whether enable profile on critic
+  enable: False
+  
   # Whether to profile all ranks.
   all_ranks: False
 
   # The ranks that will be profiled. [] or [0,1,...]
   ranks: []
+
+  save_path: ${oc.select:profiler.save_path,null}
+
+  tool_config: ${profiler.tool_config}
