@@ -55,12 +55,11 @@ def get_response(problem, solution_str, ground_truth):
         start_time = time.time()
         success = False
         # tracker.print_current_state()
+        # choose the best server based on current metrics
+        base_url = tracker.get_best_server()
+        assert base_url is not None, f"the {BASE_URLS} server is not available, please check the server status."
+        tracker.start_request(base_url)
         try:
-            # choose the best server based on current metrics
-            base_url = tracker.get_best_server()
-            assert base_url is not None, f"the {BASE_URLS} server is not available, please check the server status."
-            tracker.start_request(base_url)
-
             headers = {"Content-Type": "application/json"}
             chat_url = f"{base_url}/v1/chat/completions"
             data = {"model": MODEL_NAME, "messages": messages}
@@ -73,7 +72,6 @@ def get_response(problem, solution_str, ground_truth):
             response_time = end_time - start_time
             tracker.update_metrics(base_url, response_time, success)
             tracker.complete_request(base_url)
-
             return response
         except Exception as e:
             if attempt < MAX_RETRIES - 1:

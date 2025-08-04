@@ -19,6 +19,8 @@ DEFAULT_RESPONSE_TIME_S = 0.5
 # Scaling factor to reduce the impact of response time on the score, making it a tie-breaker.
 RESPONSE_TIME_SCALING_FACTOR = 0.15
 
+MAX_ERROR_COUNT = 6
+
 
 # Global service tracker
 class ServiceTracker:
@@ -46,8 +48,8 @@ class ServiceTracker:
                 metrics["error_count"] = 0  # Reset error counter
             else:
                 metrics["error_count"] += 1
-                # Mark as inactive after 5 consecutive errors
-                if metrics["error_count"] > 5:
+                # Mark as inactive after MAX_ERROR_COUNT consecutive errors
+                if metrics["error_count"] > MAX_ERROR_COUNT:
                     metrics["active"] = False
 
     def start_request(self, server):
