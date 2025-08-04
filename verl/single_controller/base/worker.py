@@ -90,7 +90,7 @@ class Worker(WorkerHelper):
             instance._configure_before_init(f"{worker_group_prefix}_register_center", int(rank))
 
         return instance
-    
+
     def _register_dispatch_collect_info(self, mesh_name: str, dp_rank: int, is_collect: bool):
         """Register the dp_rank for a given mesh name. This function is meant to be called by the worker
 
@@ -104,7 +104,7 @@ class Worker(WorkerHelper):
         """
         self.__dispatch_dp_rank[mesh_name] = dp_rank
         self.__collect_dp_rank[mesh_name] = is_collect
-    
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def _query_dispatch_info(self, mesh_name: str):
         """Query the dispatch info for a given mesh name.
@@ -135,7 +135,6 @@ class Worker(WorkerHelper):
         """
         assert mesh_name in self.__collect_dp_rank
         return self.__collect_dp_rank[mesh_name]
-    
 
     def _configure_before_init(self, register_center_name: str, rank: int):
         """Configure worker settings before initialization.

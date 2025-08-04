@@ -13,12 +13,13 @@
 # limitations under the License.
 
 
+import ray
+import torch
+
 from verl import DataProto
 from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import register, make_nd_compute_dataproto_dispatch_fn
-import ray
+from verl.single_controller.base.decorator import make_nd_compute_dataproto_dispatch_fn, register
 
-import torch
 
 @ray.remote
 class TestActor(Worker):
@@ -35,13 +36,17 @@ class TestActor(Worker):
             device_type="cuda", mesh_shape=[2, 2, 2], mesh_dim_names=["pp", "dp", "tp"]
         )
 
-        self._register_dispatch_collect_info('infer', 
-                                             dp_rank=self.infer_device_mesh["dp"].get_local_rank(),
-                                             is_collect=self.infer_device_mesh["tp"].get_local_rank() == 0)
-        self._register_dispatch_collect_info('train', 
-                                             dp_rank=self.train_device_mesh["dp"].get_local_rank(),
-                                             is_collect=self.train_device_mesh["tp"].get_local_rank() == 0 and self.train_device_mesh["pp"].get_local_rank() == 1)
-
+        self._register_dispatch_collect_info(
+            "infer",
+            dp_rank=self.infer_device_mesh["dp"].get_local_rank(),
+            is_collect=self.infer_device_mesh["tp"].get_local_rank() == 0,
+        )
+        self._register_dispatch_collect_info(
+            "train",
+            dp_rank=self.train_device_mesh["dp"].get_local_rank(),
+            is_collect=self.train_device_mesh["tp"].get_local_rank() == 0
+            and self.train_device_mesh["pp"].get_local_rank() == 1,
+        )
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="infer"))
     def generate_data_proto(self, data: DataProto):
@@ -77,20 +82,19 @@ def test_dist_global_info_wg():
     infer_input_data_proto = DataProto.from_single_dict(data={"a": torch.tensor([1, 2])})
     infer_output_data_proto = wg.generate_data_proto(infer_input_data_proto)
 
-    assert wg._dispatch_info['infer'] == [0, 0, 0, 0, 1, 1, 1, 1]
+    assert wg._dispatch_info["infer"] == [0, 0, 0, 0, 1, 1, 1, 1]
 
     assert torch.all(torch.eq(infer_output_data_proto.batch["a"], torch.tensor([1, 3])))
 
     train_input_data_proto = DataProto.from_single_dict(data={"a": torch.tensor([3, 4])})
     train_output_data_proto = wg.train_data_proto(train_input_data_proto)
 
-    assert wg._dispatch_info['train'] == [0, 0, 1, 1, 0, 0, 1, 1]
-
+    assert wg._dispatch_info["train"] == [0, 0, 1, 1, 0, 0, 1, 1]
 
     assert torch.all(torch.eq(train_output_data_proto.batch["a"], torch.tensor([11, 16])))
 
     ray.shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_dist_global_info_wg()

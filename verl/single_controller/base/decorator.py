@@ -13,10 +13,8 @@
 # limitations under the License.
 
 import inspect
-from functools import wraps
+from functools import partial, wraps
 from types import FunctionType
-
-from functools import partial
 
 from verl.protocol import DataProtoFuture, _padding_size_key
 from verl.utils.py_functional import DynamicEnum
@@ -376,11 +374,10 @@ def collect_dp_compute_data_proto(worker_group, output):
     return _concat_data_proto_or_future(output)
 
 
-
-
 def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, *args, **kwargs):
-    from verl.single_controller.base.worker_group import WorkerGroup
     import ray
+
+    from verl.single_controller.base.worker_group import WorkerGroup
 
     assert isinstance(worker_group, WorkerGroup)
 
@@ -389,7 +386,7 @@ def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, *args
 
     all_args = []
     for arg in args:
-        assert isinstance(arg, (tuple, list)) and len(arg) == dp_size
+        assert isinstance(arg, tuple | list) and len(arg) == dp_size
         transformed_args = []
         for i in range(worker_group.world_size):
             local_dp_rank = dp_rank_mapping[i]
@@ -399,7 +396,7 @@ def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, *args
 
     all_kwargs = {}
     for k, v in kwargs.items():
-        assert isinstance(v, (tuple, list)) and len(v) == dp_size
+        assert isinstance(v, tuple | list) and len(v) == dp_size
         transformed_v = []
         for i in range(worker_group.world_size):
             local_dp_rank = dp_rank_mapping[i]
@@ -408,9 +405,9 @@ def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, *args
     return all_args, all_kwargs
 
 
-
 def collect_nd_compute(dp_rank_mapping: list[int], worker_group, output):
     from verl.single_controller.base.worker_group import WorkerGroup
+
     assert isinstance(worker_group, WorkerGroup)
     assert len(output) == worker_group.world_size
 
@@ -420,7 +417,6 @@ def collect_nd_compute(dp_rank_mapping: list[int], worker_group, output):
         if collect_dp_rank:
             output_in_dp.append(output[global_rank])
     return output_in_dp
-
 
 
 def dispatch_nd_compute_dataproto(dp_rank_mapping: list[int], dp_size, worker_group, *args, **kwargs):
@@ -433,8 +429,9 @@ def collect_nd_compute_dataproto(dp_rank_mapping: list[int], worker_group, outpu
     import ray
 
     from verl.protocol import DataProto
+
     for o in output:
-        assert isinstance(o, (DataProto, ray.ObjectRef)), f"expecting {o} to be DataProto, but got {type(o)}"
+        assert isinstance(o, DataProto | ray.ObjectRef), f"expecting {o} to be DataProto, but got {type(o)}"
     return _concat_data_proto_or_future(output)
 
 
@@ -461,7 +458,6 @@ def collect_lazy_compute_data_proto(mesh_name, worker_group, *args, **kwargs):
 
     # the dispatch info is stored in the worker group
     assert mesh_name in worker_group._dispatch_info
-
 
     if mesh_name not in worker_group._collect_info:
         worker_group._collect_info[mesh_name] = worker_group._query_collect_info(mesh_name)
