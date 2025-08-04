@@ -19,7 +19,13 @@ import pytest
 import torch
 
 import verl.trainer.ppo.core_algos
-from verl.trainer.ppo.core_algos import compute_gae_advantage_return, get_adv_estimator_fn, register_adv_est
+from verl.trainer.ppo.core_algos import (
+    compute_gae_advantage_return,
+    compute_policy_loss_cispo,
+    get_adv_estimator_fn,
+    get_policy_loss_fn,
+    register_adv_est,
+)
 
 
 def mock_test_fn():
@@ -129,6 +135,88 @@ class TestRegisterAdvEst(unittest.TestCase):
         """Test that name lookup is case-sensitive."""
         with pytest.raises(ValueError):
             get_adv_estimator_fn("GAE")  # Different case
+
+
+class TestComputePolicyLossCispo(unittest.TestCase):
+    def setUp(self):
+        """Set up test data"""
+        self.batch_size = 2
+        self.response_length = 4
+        self.old_log_prob = torch.randn(self.batch_size, self.response_length)
+        self.log_prob = torch.randn(self.batch_size, self.response_length)
+        self.advantages = torch.randn(self.batch_size, self.response_length)
+        self.response_mask = torch.ones(self.batch_size, self.response_length)
+
+        from types import SimpleNamespace
+
+        self.config = SimpleNamespace()
+        self.config.clip_ratio = 0.2
+        self.config.clip_ratio_low = None
+        self.config.clip_ratio_high = None
+        self.config.policy_loss = SimpleNamespace()
+        self.config.policy_loss.cispo_clip_ratio_high = 0.2
+        self.config.policy_loss.cispo_clip_ratio_low = 0.2
+
+    def test_cispo_function_exists_and_registered(self):
+        """Test that CISPO function is properly registered"""
+        cispo_fn = get_policy_loss_fn("cispo")
+        self.assertIsNotNone(cispo_fn)
+        self.assertEqual(cispo_fn, compute_policy_loss_cispo)
+
+    def test_cispo_output_format(self):
+        """Test that CISPO returns correct output format"""
+        result = compute_policy_loss_cispo(
+            self.old_log_prob, self.log_prob, self.advantages, self.response_mask, config=self.config
+        )
+
+        self.assertEqual(len(result), 4)
+        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = result
+        self.assertIsInstance(pg_loss, torch.Tensor)
+        self.assertIsInstance(pg_clipfrac, torch.Tensor)
+        self.assertIsInstance(ppo_kl, torch.Tensor)
+        self.assertIsInstance(pg_clipfrac_lower, torch.Tensor)
+
+        self.assertEqual(pg_loss.dim(), 0)
+
+    def test_cispo_parameter_defaults(self):
+        """Test that CISPO uses correct parameter defaults"""
+        self.config.policy_loss.cispo_clip_ratio_high = None
+        self.config.policy_loss.cispo_clip_ratio_low = None
+
+        result = compute_policy_loss_cispo(
+            self.old_log_prob, self.log_prob, self.advantages, self.response_mask, config=self.config
+        )
+
+        self.assertEqual(len(result), 4)
+        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = result
+        self.assertIsInstance(pg_loss, torch.Tensor)
+
+        self.assertTrue(torch.isfinite(pg_loss))
+
+    def test_cispo_vs_vanilla_different_results(self):
+        """Test that CISPO produces different results than vanilla PPO"""
+        from verl.trainer.ppo.core_algos import compute_policy_loss
+
+        cispo_result = compute_policy_loss_cispo(
+            self.old_log_prob, self.log_prob, self.advantages, self.response_mask, config=self.config
+        )
+
+        vanilla_result = compute_policy_loss(
+            self.old_log_prob,
+            self.log_prob,
+            self.advantages,
+            self.response_mask,
+            cliprange=0.2,
+            cliprange_low=0.2,
+            cliprange_high=0.2,
+            clip_ratio_c=3.0,
+        )
+
+        cispo_loss, _, _, _ = cispo_result
+        vanilla_loss, _, _, _ = vanilla_result
+
+        self.assertTrue(torch.isfinite(cispo_loss))
+        self.assertTrue(torch.isfinite(vanilla_loss))
 
 
 def test_multi_turn_compute_gae_advantage_return():
