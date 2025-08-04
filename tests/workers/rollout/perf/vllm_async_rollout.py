@@ -121,8 +121,8 @@ def perf_rollout(mode, backend, pp_size, n_gpus_per_node, num_steps):
         gen_batch = agent_loop_manager.generate_sequences(batch)
         t_end = time.time()
         print(
-            f"[DEBUG] backend: {backend}, pp_size: {pp_size}, n_gpus_per_node: {n_gpus_per_node}, batch_size: {len(gen_batch)}, "
-            f"step: {step}, step_time: {t_end - t_start:.2f} secs"
+            f"[DEBUG] backend: {backend}, pp_size: {pp_size}, n_gpus_per_node: {n_gpus_per_node}, "
+            f"batch_size: {len(gen_batch)}, step: {step}, step_time: {t_end - t_start:.2f} secs"
         )
         if step + 1 >= num_steps:
             break

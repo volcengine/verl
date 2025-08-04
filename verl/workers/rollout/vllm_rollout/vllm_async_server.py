@@ -207,7 +207,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
 
         message = pickle.dumps((sent_method, args, kwargs, unique_reply_rank))
         # TODO(haibin.lin): optimize with only necessary ranks
-        for socket, recv_complete in zip(self.sockets, self.recv_complete_events):
+        for socket, recv_complete in zip(self.sockets, self.recv_complete_events, strict=True):
             self.send(socket, recv_complete, message)
 
         def recv_response(socket: zmq.Socket, recv_complete):
@@ -218,7 +218,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
                 recv_complete.set()  # Allow next send
 
         outputs = []
-        for i, (socket, recv_complete) in enumerate(zip(self.sockets, self.recv_complete_events)):
+        for i, (socket, recv_complete) in enumerate(zip(self.sockets, self.recv_complete_events, strict=True)):
             if non_block:
                 val = self.io_thread_pool.submit(recv_response, socket, recv_complete)
             else:
