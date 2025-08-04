@@ -35,8 +35,8 @@ except ImportError:
 from megatron.core import parallel_state as mpu
 
 from verl import DataProto
-from verl.single_controller.base.decorator import Dispatch, register
-from verl.single_controller.base.megatron.worker import MegatronWorker
+from verl.single_controller.base import Worker
+from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 from verl.utils.config import omega_conf_to_dataclass
@@ -87,14 +87,14 @@ def set_random_seed(seed):
     # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 
 
-class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
+class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     """
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
     or a hybrid engine based on the config.rollout
     """
 
     def __init__(self, config: DictConfig, role: str, **kwargs):
-        MegatronWorker.__init__(self)
+        Worker.__init__(self)
         self.config = config
         if repatch is not None:
             # NPU MindSpeed patch, will be refactored with MindSpeedEngine.
@@ -125,6 +125,15 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 expert_model_parallel_size=self.config.actor.megatron.expert_model_parallel_size,
                 expert_tensor_parallel_size=self.config.actor.megatron.expert_tensor_parallel_size,
                 nccl_communicator_config_path=None,
+            )
+
+            is_collect = (
+                mpu.get_tensor_model_parallel_rank() == 0
+                and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
+                and mpu.get_context_parallel_rank() == 0
+            )
+            self._register_dispatch_collect_info(
+                mesh_name="train", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
             )
 
         set_random_seed(seed=self.config.actor.megatron.seed)
@@ -504,7 +513,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         get_torch_device().empty_cache()
         log_gpu_memory_usage("After init_model finish", logger=logger)
 
-    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
     @GPUMemoryLogger(role="update_actor", logger=logger)
     @DistProfiler.annotate(color="red")
     def update_actor(self, data: DataProto):
@@ -585,7 +594,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         aggressive_empty_cache(force_sync=True)
         return output
 
-    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
     @GPUMemoryLogger(role="compute_ref_log_prob", logger=logger)
     @DistProfiler.annotate(color="olive")
     def compute_ref_log_prob(self, data: DataProto):
@@ -608,7 +617,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         aggressive_empty_cache(force_sync=True)
         return output
 
-    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
     @GPUMemoryLogger(role="compute_log_prob", logger=logger)
     @DistProfiler.annotate(color="blue")
     def compute_log_prob(self, data: DataProto):
@@ -722,9 +731,9 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         return True
 
 
-class CriticWorker(MegatronWorker, DistProfilerExtension):
+class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config: McoreCriticConfig):
-        MegatronWorker.__init__(self)
+        Worker.__init__(self)
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler")))
         self.config: McoreCriticConfig = config
 
@@ -753,6 +762,15 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
                 expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,
                 expert_tensor_parallel_size=self.config.megatron.expert_tensor_parallel_size,
                 nccl_communicator_config_path=None,
+            )
+
+            is_collect = (
+                mpu.get_tensor_model_parallel_rank() == 0
+                and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
+                and mpu.get_context_parallel_rank() == 0
+            )
+            self._register_dispatch_collect_info(
+                mesh_name="train", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
             )
 
         set_random_seed(seed=self.config.megatron.seed)
@@ -925,7 +943,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             use_dist_checkpointing=self.config.megatron.use_dist_checkpointing,
         )
 
-    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
     @DistProfiler.annotate(color="cyan")
     def compute_values(self, data: DataProto):
         micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
@@ -942,7 +960,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             offload_megatron_model_to_cpu(self.critic_module)
         return output
 
-    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
     @DistProfiler.annotate(color="pink")
     def update_critic(self, data: DataProto):
         data = data.to(get_device_id())
@@ -996,13 +1014,13 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             offload_megatron_model_to_cpu(self.critic_module)
 
 
-class RewardModelWorker(MegatronWorker, DistProfilerExtension):
+class RewardModelWorker(Worker, DistProfilerExtension):
     """
     Note that we only implement the reward model that is subclass of AutoModelForSequenceClassification.
     """
 
     def __init__(self, config):
-        MegatronWorker.__init__(self)
+        Worker.__init__(self)
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
         )
@@ -1033,6 +1051,15 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
                 expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,
                 expert_tensor_parallel_size=self.config.megatron.expert_tensor_parallel_size,
                 nccl_communicator_config_path=None,
+            )
+
+            is_collect = (
+                mpu.get_tensor_model_parallel_rank() == 0
+                and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
+                and mpu.get_context_parallel_rank() == 0
+            )
+            self._register_dispatch_collect_info(
+                mesh_name="train", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
             )
 
         set_random_seed(seed=self.config.megatron.seed)
@@ -1158,7 +1185,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
 
     # TODO: reward model use itself tokenizer instead of sft tokenizer
     # the input_ids, responses, attention_mask and position_ids may be different!
-    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
     @DistProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
         data.meta_info["micro_batch_size"] = self.config.micro_batch_size_per_gpu
