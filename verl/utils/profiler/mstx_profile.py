@@ -152,6 +152,8 @@ class NPUProfiler(DistProfiler):
         """
         if not config:
             config = ProfilerConfig(ranks=[])
+        if not config.enable:
+            return
         assert tool_config is not None, "NPUProfiler requires a tool_config of type NPUToolConfig"
         self.this_step: bool = False
         self.enable: bool = config.enable

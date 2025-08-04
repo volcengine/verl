@@ -124,6 +124,8 @@ class NsightSystemsProfiler(DistProfiler):
         # If no configuration is provided, create a default ProfilerConfig with an empty list of ranks
         if not config:
             config = ProfilerConfig(ranks=[])
+        if not config.enable:
+            return
         assert tool_config is not None, "NsightSystemsProfiler requires a tool_config of type NsightToolConfig"
         self.this_step: bool = False
         self.discrete: bool = tool_config.discrete
