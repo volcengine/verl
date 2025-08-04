@@ -64,10 +64,10 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 # Default configuration constants
-DEFAULT_TIMEOUT = 30.0
+DEFAULT_TIMEOUT = 60.0
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY = 2.0
-DEFAULT_MAX_CONNECTIONS = 100
+DEFAULT_MAX_CONNECTIONS = 4000
 
 
 def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIMEOUT) -> multiprocessing.Process:
@@ -288,6 +288,7 @@ class HttpServerEngineAdapter(EngineBase):
                     raise
 
             if attempt < self.max_retries:
+                print(f"Retrying {endpoint} in {self.retry_delay * (2**attempt):.2f} seconds...", flush=True)
                 time.sleep(self.retry_delay * (2**attempt))  # Exponential backoff
 
         raise RuntimeError(f"Failed to complete request to {endpoint} after {self.max_retries + 1} attempts")
@@ -611,29 +612,25 @@ class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
             aiohttp.ClientSession: Session instance for making HTTP requests
 
         Note:
-            This method ensures thread-safe access to the session and handles
-            session creation/recreation as needed. If an error occurs during
-            session usage, the session will be closed and recreated on next access.
+            This method creates a new session for each request to avoid resource competition
+            while still maintaining proper connection pooling through the shared connector.
         """
-        async with self._session_lock:
-            if self._session is None or self._session.closed:
-                connector = aiohttp.TCPConnector(
-                    limit=self.max_connections,
-                    limit_per_host=self.max_connections // 4,
-                    ttl_dns_cache=300,
-                    use_dns_cache=True,
-                )
-                timeout = aiohttp.ClientTimeout(total=self.timeout)
-                self._session = aiohttp.ClientSession(connector=connector, timeout=timeout)
-
-            try:
-                yield self._session
-            except Exception:
-                # If there's an error, close the session to force recreation
-                if self._session and not self._session.closed:
-                    await self._session.close()
-                    self._session = None
-                raise
+        # Create a new session for each request to avoid resource competition
+        connector = aiohttp.TCPConnector(
+            limit=self.max_connections,
+            limit_per_host=self.max_connections // 4,
+            ttl_dns_cache=300,
+            use_dns_cache=True,
+        )
+        timeout = aiohttp.ClientTimeout(total=self.timeout)
+        session = aiohttp.ClientSession(connector=connector, timeout=timeout)
+        
+        try:
+            yield session
+        finally:
+            # Always close the session to free up resources
+            if not session.closed:
+                await session.close()
 
     async def _make_async_request(
         self,
@@ -666,7 +663,10 @@ class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
         if only_master and self.node_rank != 0:
             return {}
 
+
         url = f"http://{self.server_args.host}:{self.server_args.port}/{endpoint}"
+
+        # print(f"Making async request to {url} with method {method} and payload {payload}", flush=True)
 
         for attempt in range(self.max_retries + 1):
             try:
@@ -828,25 +828,20 @@ class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
             "custom_logit_processor": custom_logit_processor,
         }
 
-        t_after_payload = time.perf_counter()
-        print(f"Payload construction took {(t_after_payload - t_start)*1000:.2f} ms")
-
         # Filter out None values
         payload = {k: v for k, v in payload.items() if v is not None}
-
-        t_after_filter = time.perf_counter()
-        print(f"Payload filtering took {(t_after_filter - t_after_payload)*1000:.2f} ms")
-
+        from datetime import datetime
+        now_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # 精确到毫秒
         # Send request
-        print("Sending async HTTP request to /generate...")
         response = await self._make_async_request(
             "generate", payload, timeout=self.timeout, only_master=False
         )
         t_after_request = time.perf_counter()
-        print(f"Async request + response took {(t_after_request - t_after_filter)*1000:.2f} ms")
+
 
         total_time = t_after_request - t_start
-        print(f"generate() completed in {total_time*1000:.2f} ms with response length: {len(response['text'])}")
+        now_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # 精确到毫秒
+        # print(f"[{now_start} to {now_end}] generate() completed in {total_time*1000:.2f} ms with response length: {len(response['text'])}")
 
         return response
 
