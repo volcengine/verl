@@ -114,8 +114,8 @@ class Worker(WorkerHelper):
                 Name of the mesh to query dispatch info for.
 
         Returns:
-            dict:
-                A dictionary containing the dispatch info for the given mesh name.
+            int:
+                The dp_rank for the given mesh name.
         """
         assert mesh_name in self.__dispatch_dp_rank
         # note that each rank store its own dp_rank
