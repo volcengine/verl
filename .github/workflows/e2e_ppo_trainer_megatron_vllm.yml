@@ -290,6 +290,16 @@ jobs:
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
+      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron, use mbridge e2e to pre-load and save (Deepseek)
+        run: |
+          ray stop --force
+          SAVE_FREQ=1 MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 USE_MBRIDGE=True USE_DIST_CKPT=False \
+          bash tests/special_e2e/run_ppo_trainer_megatron.sh
+      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron, use mbridge e2e to pre-load and save (Deepseek)
+        run: |
+          ray stop --force
+          RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 SAVE_FREQ=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 USE_MBRIDGE=True USE_DIST_CKPT=False \
+          bash tests/special_e2e/run_ppo_trainer_megatron.sh
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force
