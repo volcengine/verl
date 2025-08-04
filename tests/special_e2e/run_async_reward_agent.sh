@@ -103,9 +103,10 @@ common_params=(
     trainer.resume_mode=disable
     trainer.nnodes=1
     trainer.n_gpus_per_node=${n_gpus_training}
-    custom_reward_function.path=${REWARD_FILE} \
-    reward_model.reward_manager=batch \
-    reward_model.launch_reward_fn_async=True \
+    custom_reward_function.path=${REWARD_FILE} 
+    reward_model.reward_manager=batch 
+    reward_model.launch_reward_fn_async=True 
+    actor_rollout_ref.rollout.name='vllm'
     +mini_batch_pipeline=True
 )
 
