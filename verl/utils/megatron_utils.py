@@ -187,7 +187,8 @@ def make_megatron_module(
         if override_model_config.get("moe_config", {}).get("freeze_moe_router", False):
             post_model_creation_callbacks.append(freeze_moe_router)
         return bridge.get_model(
-            post_model_creation_callbacks=post_model_creation_callbacks, wrap_with_ddp=wrap_config.wrap_with_ddp,
+            post_model_creation_callbacks=post_model_creation_callbacks,
+            wrap_with_ddp=wrap_config.wrap_with_ddp,
         )
     else:
 
