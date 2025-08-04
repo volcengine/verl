@@ -24,7 +24,6 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
-from mbridge import AutoBridge
 from megatron.core import ModelParallelConfig, mpu, tensor_parallel
 from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import DistributedDataParallelConfig
@@ -171,7 +170,7 @@ def make_megatron_module(
     wrap_config: McoreModuleWrapperConfig,
     tf_config: TransformerConfig,
     hf_config: PretrainedConfig,
-    bridge: AutoBridge = None,
+    bridge: Any = None,
     override_model_config: dict[str, Any] = None,
     override_ddp_config: dict[str, Any] = None,
 ):
