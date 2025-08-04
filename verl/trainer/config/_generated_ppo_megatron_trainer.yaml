@@ -180,6 +180,8 @@ actor_rollout_ref:
     trace:
       backend: null
       token2text: false
+    skip_rollout: false
+    skip_dump_dir: /tmp/rollout_dump
     enable_chunked_prefill: false
     load_format: dummy_megatron
     layer_name_map:
