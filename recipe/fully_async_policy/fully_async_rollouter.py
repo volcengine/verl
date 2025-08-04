@@ -30,6 +30,7 @@ from verl.utils.tracking import ValidationGenerationsLogger
 
 logger = logging.getLogger(__name__)
 
+
 @ray.remote(num_cpus=10, max_concurrency=10)
 class FullyAsyncRollouter(RayPPOTrainer):
     """
@@ -126,6 +127,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.running = False
         self.paused = False
         self.generation_thread = None
+        self.monitor_thread = None
         self.thread_executor = ThreadPoolExecutor(max_workers=2)
         self.lock = threading.RLock()
         self.condition = threading.Condition(self.lock)
@@ -303,14 +305,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
     def fit(self):
         """开始异步生成样本 - 改进的主运行逻辑"""
-        from verl.utils.tracking import Tracking
-
-        logger = Tracking(
-            project_name=self.config.trainer.project_name,
-            experiment_name=self.config.trainer.experiment_name,
-            default_backend=self.config.trainer.logger,
-            config=OmegaConf.to_container(self.config, resolve=True),
-        )
         logger.info("Starting Rollouter...")
         if self.message_queue_client is None:
             raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
@@ -401,6 +395,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 if not self.running:
                     break
 
+                if self._should_pause_generation():
+                    self.pause()
+
                 # 如果被暂停，等待恢复
                 while self.paused and self.running:
                     logger.debug("Generation thread paused, waiting...")
@@ -409,13 +406,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 # 再次检查运行状态
                 if not self.running:
                     break
-
-            # 检查是否应该暂停生成
-            while True:
-                if self._should_pause_generation():
-                    with self.lock:
-                        self.paused = True
-                        logger.info("Generation paused due to staleness or queue size")
 
             metrics = {}
             timing_raw = {}
@@ -499,7 +489,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         try:
             # 主线程保持运行，处理控制信号和状态监控
             last_stats_time = time.time()
-            stats_interval = 30.0  # 30秒报告一次统计
+            stats_interval = 10.0
 
             while self.running:
                 time.sleep(1.0)
@@ -507,14 +497,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 # 定期打印统计信息
                 current_time = time.time()
                 if current_time - last_stats_time >= stats_interval:
-                    self._log_statistics()
+                    self.get_statistics()
                     last_stats_time = current_time
+                    if not self._should_pause_generation():
+                        self.resume()
 
                 # 检查生成线程状态
                 if not self.generation_thread.is_alive():
                     logger.error("Generation thread died, restarting...")
-                    self.generation_thread = threading.Thread(target=self._generation_loop, daemon=True)
-                    self.generation_thread.start()
+                    raise RuntimeError("generation_thread not alive")
+
 
         except KeyboardInterrupt:
             logger.info("Received interrupt signal, shutting down...")
@@ -522,7 +514,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
             logger.error(f"Error in main loop: {e}")
         finally:
             self.shutdown()
-
 
     def _should_pause_generation(self) -> bool:
         """
@@ -556,68 +547,25 @@ class FullyAsyncRollouter(RayPPOTrainer):
             logger.error(f"Error checking pause conditions: {e}")
             return True  # 出错时暂停生成
 
-    def _should_resume_generation(self) -> bool:
-        """判断是否应该恢复生成"""
-        if self.message_queue_client is None:
-            return False
-
-        try:
-            with self.lock:
-                if not self.paused:
-                    return False
-
-            queue_stats = self.message_queue_client.get_statistics()
-            queue_size = queue_stats["queue_size"]
-            current_trainer_version = queue_stats["current_param_version"]
-
-            # 计算参数版本差异
-            version_diff = self.current_param_version - current_trainer_version
-
-            # 如果版本差异减小，可以恢复生成
-            if version_diff < self.max_staleness_allowed - 1:
-                logger.debug(
-                    f"Can resume due to reduced staleness: rollout_version={self.current_param_version}, "
-                    f"trainer_version={current_trainer_version}, diff={version_diff}"
-                )
-                return True
-
-            # 如果队列不太满，也可以恢复生成
-            resume_queue_size = (self.staleness_threshold * self.config.data.train_batch_size) // 2
-            if queue_size <= resume_queue_size:
-                logger.debug(
-                    f"Can resume due to reduced queue: size={queue_size}, resume_threshold={resume_queue_size}")
-                return True
-
-            return False
-
-        except Exception as e:
-            logger.error(f"Error checking resume conditions: {e}")
-            return False
-
     def pause(self) -> bool:
         """暂停生成 - 供外部调用"""
         with self.lock:
             if not self.running:
-                logger.warning("Cannot pause: not running")
                 return False
 
             if self.paused:
-                logger.debug("Already paused")
                 return True
 
             self.paused = True
-            logger.info("Generation paused")
             return True
 
     def resume(self) -> bool:
         """恢复生成 - 供外部调用"""
         with self.lock:
             if not self.running:
-                logger.warning("Cannot resume: not running")
                 return False
 
             if not self.paused:
-                logger.debug("Not paused")
                 return True
 
             self.paused = False
@@ -664,35 +612,17 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         logger.info("Rollouter shutdown complete")
 
-
-    def _log_statistics(self):
-        """记录统计信息"""
-        try:
-            controller_status = self.rollout_controller.get_status()
-            queue_stats = self.message_queue_client.get_statistics()
-
-            logger.info(
-                f"Rollouter stats - Generated: {self.total_generated_samples}, "
-                f"Dropped: {self.dropped_stale_samples}, "
-                f"Errors: {self.generation_errors}, "
-                f"Queue size: {queue_stats['queue_size']}, "
-                f"Param version: {self.current_param_version}, "
-                f"Paused: {controller_status['is_paused']}, "
-                f"Sync requests: {self.param_sync_requests}"
-            )
-        except Exception as e:
-            logger.error(f"Error logging statistics: {e}")
-
     def get_statistics(self) -> dict:
         with self.lock:
+            queue_stats = self.message_queue_client.get_statistics()
             stats = {
                 "total_generated_samples": self.total_generated_samples,
                 "dropped_stale_samples": self.dropped_stale_samples,
-                "generation_errors": self.generation_errors,
                 "current_param_version": self.current_param_version,
                 "param_sync_requests": self.param_sync_requests,
                 "last_sync_time": self.last_sync_time,
                 "is_running": self.running,
                 "sync_in_progress": self.sync_in_progress,
+                "queue_size": f"{queue_stats['queue_size']}",
             }
             return stats
