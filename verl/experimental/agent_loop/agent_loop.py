@@ -27,7 +27,7 @@ from cachetools import LRUCache
 from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
-from transformers import AutoProcessor, AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin
+from transformers import AutoProcessor, AutoTokenizer
 
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
@@ -140,10 +140,16 @@ class _InternalAgentLoopOutput(AgentLoopOutput):
     """Padded prompt token ids."""
     response_ids: torch.Tensor
     """Padded response token ids."""
+    input_ids: torch.Tensor
+    """Padded input ids(prompt_ids + response_ids)."""
+    position_ids: torch.Tensor
+    """Padded position ids."""
     response_mask: torch.Tensor
     """Padded response mask."""
     attention_mask: torch.Tensor
     """Padded attention mask."""
+    multi_modal_inputs: Optional[dict[str, torch.Tensor]] = None
+    """Multi-modal inputs for processors (e.g., pixel_values, image_grid_thw)."""
 
 
 # make hydra.utils.instantiate happy
@@ -348,7 +354,7 @@ class AgentLoopWorker:
                 tokenizer=self.tokenizer,
                 processor=self.processor,
             )
-            output = await agent_loop.run(sampling_params, **kwargs)
+            output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
 
             # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
             # prompt_ids: left padded with zeros (e.g., [0,0,0,0,1,2,3,4])
@@ -402,14 +408,53 @@ class AgentLoopWorker:
                 response_mask_output["input_ids"] = response_mask_output["input_ids"].unsqueeze(0)
 
             response_mask = response_mask_output["input_ids"] * response_output["attention_mask"]
-
             attention_mask = torch.cat([prompt_output["attention_mask"], response_output["attention_mask"]], dim=1)
+            input_ids = torch.cat([prompt_output["input_ids"], response_output["input_ids"]], dim=1)
+
+            # Handle multi-modal inputs and position_ids calculation
+            # Only support Qwen2VLImageProcessor for multi-modal processing currently
+            # TODO: support other multi-modal inputs
+            multi_modal_inputs = None
+            if (
+                self.processor is not None
+                and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__
+            ):
+                from verl.models.transformers.qwen2_vl import get_rope_index
+
+                images = output.multi_modal_data.get("image", [])
+                current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
+                multi_modal_inputs = self.processor(text=[current_text], images=images, return_tensors="pt")
+                multi_modal_inputs.pop("input_ids", None)
+                multi_modal_inputs.pop("attention_mask", None)
+
+                # We must use dict(multi_modal_inputs) to convert BatchFeature values to a new dict
+                # because np.array() only keeps the keys for BatchFeature.
+                multi_modal_inputs = dict(multi_modal_inputs)
+
+                image_grid_thw = multi_modal_inputs.get("image_grid_thw")
+                video_grid_thw = multi_modal_inputs.get("video_grid_thw")
+                second_per_grid_ts = multi_modal_inputs.get("second_per_grid_ts")
+
+                position_ids = get_rope_index(
+                    self.processor,
+                    input_ids=input_ids.squeeze(0),
+                    image_grid_thw=image_grid_thw,
+                    video_grid_thw=video_grid_thw,
+                    second_per_grid_ts=second_per_grid_ts,
+                    attention_mask=attention_mask.squeeze(0),
+                ).unsqueeze(0)  # (1, 3, seq_len)
+            else:
+                position_ids = compute_position_id_with_mask(attention_mask)  # (1, seq_len)
 
             return _InternalAgentLoopOutput(
                 prompt_ids=prompt_output["input_ids"],
                 response_ids=response_output["input_ids"],
+                input_ids=input_ids,
+                position_ids=position_ids,
                 response_mask=response_mask,
                 attention_mask=attention_mask,
+                multi_modal_inputs=multi_modal_inputs,
+                multi_modal_data=output.multi_modal_data,
                 num_turns=output.num_turns,
                 metrics=output.metrics,
             )
@@ -421,9 +466,8 @@ class AgentLoopWorker:
         response_ids = torch.cat([input.response_ids for input in inputs], dim=0)
         response_mask = torch.cat([input.response_mask for input in inputs], dim=0)
         attention_mask = torch.cat([input.attention_mask for input in inputs], dim=0)
-
-        input_ids = torch.cat([prompt_ids, response_ids], dim=1)
-        position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
+        input_ids = torch.cat([input.input_ids for input in inputs], dim=0)
+        position_ids = torch.cat([input.position_ids for input in inputs], dim=0)
 
         batch = TensorDict(
             {
@@ -432,6 +476,7 @@ class AgentLoopWorker:
                 "response_mask": response_mask,  # [bsz, response_length]
                 "input_ids": input_ids,  # [bsz, prompt_length + response_length]
                 "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
+                # position_ids: [bsz, 3, prompt_length + response_length] or [bsz, prompt_length + response_length]
                 "position_ids": position_ids,
             },
             batch_size=len(inputs),
@@ -441,47 +486,13 @@ class AgentLoopWorker:
             "__num_turns__": np.array([input.num_turns for input in inputs], dtype=np.int32),
         }
 
+        # Add multi_modal_inputs to non_tensor_batch if any samples have them
+        multi_modal_inputs_list = [input.multi_modal_inputs for input in inputs]
+        if any(mmi is not None for mmi in multi_modal_inputs_list):
+            non_tensor_batch["multi_modal_inputs"] = np.array(multi_modal_inputs_list, dtype=object)
+
         metrics = [input.metrics.model_dump() for input in inputs]
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch, meta_info={"metrics": metrics})
-
-    @staticmethod
-    def _get_position_ids(
-        processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        multi_modal_inputs: Optional[dict[str, torch.Tensor]] = None,
-    ) -> torch.Tensor:
-        # special case for qwen2vl
-        is_qwen2vl = (
-            hasattr(processing_class, "image_processor")
-            and "Qwen2VLImageProcessor" in processing_class.image_processor.__class__.__name__
-        )
-        if is_qwen2vl:
-            from verl.models.transformers.qwen2_vl import get_rope_index
-
-            image_grid_thw = video_grid_thw = second_per_grid_ts = None
-            if multi_modal_inputs:
-                image_grid_thw = multi_modal_inputs.get("image_grid_thw")
-                video_grid_thw = multi_modal_inputs.get("video_grid_thw")
-                second_per_grid_ts = multi_modal_inputs.get("second_per_grid_ts")
-
-            assert input_ids.dim() == 2 and input_ids.shape[0] == 1, (
-                f"input_ids should be 2D with batch size 1, but got shape {input_ids.shape}"
-            )
-            assert attention_mask.dim() == 2 and attention_mask.shape[0] == 1, (
-                f"attention_mask should be 2D with batch size 1, but got shape {attention_mask.shape}"
-            )
-            new_position_ids = get_rope_index(
-                processing_class,
-                input_ids=input_ids.squeeze(0),
-                image_grid_thw=image_grid_thw,
-                video_grid_thw=video_grid_thw,
-                second_per_grid_ts=second_per_grid_ts,
-                attention_mask=attention_mask.squeeze(0),
-            )
-            return new_position_ids  # (3, seq_len)
-        else:
-            return compute_position_id_with_mask(attention_mask)  # (1, seq_len)
 
 
 async def get_trajectory_info(step, index, validate):

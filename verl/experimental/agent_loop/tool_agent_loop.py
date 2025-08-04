@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import copy
 import json
 import logging
 import os
+from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
@@ -26,6 +28,47 @@ from verl.utils.rollout_trace import rollout_trace_op
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+
+@dataclass
+class ToolResponse:
+    """Tool response containing both message and multimedia data."""
+
+    message: dict[str, Any]
+    multi_modal_data: dict[str, Any]
+
+    @classmethod
+    def from_tool_output(cls, tool_response: dict[str, Any]) -> "ToolResponse":
+        """Create ToolResponse from tool output.
+
+        Args:
+            tool_response: Tool output containing 'text' and optional multimedia data
+
+        Returns:
+            ToolResponse with properly formatted message and multimedia data
+        """
+        text_response = tool_response.get("text", "")
+        multi_modal_data = {}
+
+        # Extract multimedia data
+        for key in ["image", "video", "audio"]:
+            if key in tool_response and tool_response[key]:
+                multi_modal_data[key] = tool_response[key]
+
+        # Create message content
+        if multi_modal_data:
+            # Multi-modal content with structured format
+            content = []
+            for key, data in multi_modal_data.items():
+                content.append({"type": key})
+            if text_response:
+                content.append({"type": "text", "text": text_response})
+            message = {"role": "tool", "content": content}
+        else:
+            # Text-only content
+            message = {"role": "tool", "content": text_response}
+
+        return cls(message=message, multi_modal_data=multi_modal_data)
 
 
 @register("tool_agent")
@@ -59,7 +102,7 @@ class ToolAgentLoop(AgentLoopBase):
     @rollout_trace_op
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         messages = list(kwargs["raw_prompt"])
-        image_data = kwargs.get("multi_modal_data", {}).get("image", None)
+        image_data = copy.deepcopy(kwargs.get("multi_modal_data", {}).get("image", None))
         metrics = {}
         request_id = uuid4().hex
         if self.processor is not None:
@@ -118,20 +161,54 @@ class ToolAgentLoop(AgentLoopBase):
             if any(isinstance(item, Exception) for item in tool_responses):
                 break
 
+            # Extract messages and update multi_modal_data
+            tool_messages = []
+            new_images_this_turn = []
+            for tool_response in tool_responses:
+                tool_messages.append(tool_response.message)
+                # Accumulate multimedia data from tools
+                for key, data in tool_response.multi_modal_data.items():
+                    if key == "image":
+                        # Handle image data
+                        if image_data is None:
+                            image_data = []
+                        elif not isinstance(image_data, list):
+                            image_data = [image_data]
+
+                        # Add new image data
+                        if isinstance(data, list):
+                            image_data.extend(data)
+                            new_images_this_turn.extend(data)
+                        else:
+                            image_data.append(data)
+                            new_images_this_turn.append(data)
+                    elif key in ["video", "audio"]:
+                        # Currently not supported, raise informative error
+                        logger.warning(
+                            f"Multimedia type '{key}' is not currently supported. Only 'image' is supported."
+                        )
+                        raise NotImplementedError(
+                            f"Multimedia type '{key}' is not currently supported. Only 'image' is supported."
+                        )
+                    else:
+                        logger.warning(f"Unknown multimedia type '{key}' ignored.")
+
             # append tool_response_ids
             if self.processor is not None:
                 raw_tool_response = await self.loop.run_in_executor(
                     None,
-                    lambda messages=tool_responses: self.processor.apply_chat_template(
+                    lambda messages=tool_messages: self.processor.apply_chat_template(
                         messages, add_generation_prompt=True, tokenize=False
                     ),
                 )
-                model_inputs = self.processor(text=[raw_tool_response], images=image_data[-1], return_tensors="pt")
+                # Use only the new images from this turn for processing tool responses
+                current_images = new_images_this_turn if new_images_this_turn else None
+                model_inputs = self.processor(text=[raw_tool_response], images=current_images, return_tensors="pt")
                 tool_response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
             else:
                 tool_response_ids = await self.loop.run_in_executor(
                     None,
-                    lambda messages=tool_responses: self.tokenizer.apply_chat_template(
+                    lambda messages=tool_messages: self.tokenizer.apply_chat_template(
                         messages, add_generation_prompt=True, tokenize=True
                     ),
                 )
@@ -161,7 +238,7 @@ class ToolAgentLoop(AgentLoopBase):
         )
         return output
 
-    async def _call_tool(self, tool_call: FunctionCall, tools_kwargs: dict[str, Any]) -> dict[str, str]:
+    async def _call_tool(self, tool_call: FunctionCall, tools_kwargs: dict[str, Any]) -> ToolResponse:
         """Call tool and return tool response."""
         tool, instance_id = None, None
         try:
@@ -170,27 +247,23 @@ class ToolAgentLoop(AgentLoopBase):
             tool_args = json.loads(tool_call.arguments)
             tool = self.tools[tool_name]
             kwargs = tools_kwargs.get(tool_name, {})
-            instance_id = await tool.create(create_kwargs=kwargs.get("create_kwargs", {}))
+            create_kwargs = kwargs.get("create_kwargs", {})
+            instance_id = await tool.create(instance_id=None, **create_kwargs)
             tool_response, _, _ = await tool.execute(instance_id, tool_args)
         except Exception as e:
             logger.warning(f"Error when executing tool: {e}")
-            return {
-                "role": "tool",
-                "content": f"Error when executing tool: {e}",
-            }
+            return ToolResponse(
+                message={
+                    "role": "tool",
+                    "content": f"Error when executing tool: {e}",
+                },
+                multi_modal_data={},
+            )
         finally:
             if tool and instance_id:
                 await tool.release(instance_id)
 
-        image_response = tool_response.get("image", None)
-        text_response = tool_response.get("text", "")
-        if image_response:
-            return {"role": "tool", "content": [{"type": "image"}, {"type": "text", "text": text_response}]}
-        else:
-            return {
-                "role": "tool",
-                "content": text_response,
-            }
+        return ToolResponse.from_tool_output(tool_response)
 
     @classmethod
     def get_tool_parser(cls, name: str) -> ToolParser:
