@@ -74,7 +74,7 @@ jobs:
     runs-on: [self-hosted, npu-0]
     timeout-minutes: 40 # Increase this timeout value as needed
     container:
-      image: crispig/verl_npu:cann8.1rc1-py3.10-torch2.5.1-vllm-ascend0.7.3.post1-250616
+      image: crispig/verl_npu:cann8.1rc1-py3.10-torch2.5.1-vllm-ascend0.7.3.post1-mindspeed0121-250731
       volumes:
         - /usr/local/dcmi:/usr/local/dcmi
         - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
@@ -112,6 +112,9 @@ jobs:
       - name: Install torchviison
         run: |
           pip install torchvision==0.20.1+cpu --index-url https://download.pytorch.org/whl/cpu
+      - name: Uninstall Triton
+        run: |
+          pip uninstall -y triton
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
@@ -140,3 +143,10 @@ jobs:
           ray stop --force
           bash tests/special_npu/run_qwen2_5_05b_dapo.sh
           rm -rf $HOME/ckpts
+      - name: Running gsm8k e2e training tests with GRPO MindSpeed on ASCEND NPU
+        run: |
+          ray stop --force
+          USE_DIST_CKPT=True bash tests/special_npu/run_qwen2_5_05b_grpo_mindspeed.sh
+          rm -rf $HOME/dist_ckpt/qwen2_5_05b_grpo_mindspeed
+          rm -rf $HOME/ckpts
+          

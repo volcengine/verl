@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import inspect
-from functools import wraps
+from functools import partial, wraps
 from types import FunctionType
 
 from verl.protocol import DataProtoFuture, _padding_size_key
@@ -372,6 +372,108 @@ def collect_dp_compute_data_proto(worker_group, output):
 
     output = collect_dp_compute(worker_group, output)
     return _concat_data_proto_or_future(output)
+
+
+def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, *args, **kwargs):
+    import ray
+
+    from verl.single_controller.base.worker_group import WorkerGroup
+
+    assert isinstance(worker_group, WorkerGroup)
+
+    args = [[ray.put(dp_arg) for dp_arg in arg] for arg in args]
+    kwargs = {k: [ray.put(dp_v) for dp_v in v] for k, v in kwargs.items()}
+
+    all_args = []
+    for arg in args:
+        assert isinstance(arg, tuple | list) and len(arg) == dp_size
+        transformed_args = []
+        for i in range(worker_group.world_size):
+            local_dp_rank = dp_rank_mapping[i]
+            transformed_args.append(arg[local_dp_rank])
+        all_args.append(transformed_args)
+    all_args = tuple(all_args)
+
+    all_kwargs = {}
+    for k, v in kwargs.items():
+        assert isinstance(v, tuple | list) and len(v) == dp_size
+        transformed_v = []
+        for i in range(worker_group.world_size):
+            local_dp_rank = dp_rank_mapping[i]
+            transformed_v.append(v[local_dp_rank])
+        all_kwargs[k] = transformed_v
+    return all_args, all_kwargs
+
+
+def collect_nd_compute(collect_mask: list[bool], worker_group, output):
+    from verl.single_controller.base.worker_group import WorkerGroup
+
+    assert isinstance(worker_group, WorkerGroup)
+    assert len(output) == worker_group.world_size
+
+    output_in_dp = []
+    for global_rank in range(worker_group.world_size):
+        collect_dp_rank = collect_mask[global_rank]
+        if collect_dp_rank:
+            output_in_dp.append(output[global_rank])
+    return output_in_dp
+
+
+def dispatch_nd_compute_dataproto(dp_rank_mapping: list[int], dp_size, worker_group, *args, **kwargs):
+    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(dp_size, *args, **kwargs)
+    return dispatch_nd_compute(dp_rank_mapping, dp_size, worker_group, *splitted_args, **splitted_kwargs)
+
+
+def collect_nd_compute_dataproto(collect_mask: list[bool], worker_group, output):
+    output = collect_nd_compute(collect_mask, worker_group, output)
+    import ray
+
+    from verl.protocol import DataProto
+
+    for o in output:
+        assert isinstance(o, DataProto | ray.ObjectRef), f"expecting {o} to be DataProto, but got {type(o)}"
+    return _concat_data_proto_or_future(output)
+
+
+def dispatch_lazy_compute_data_proto(mesh_name, worker_group, *args, **kwargs):
+    from verl.single_controller.base.worker_group import WorkerGroup
+
+    assert isinstance(worker_group, WorkerGroup)
+
+    # query dispatch info of the worker group
+    if mesh_name not in worker_group._dispatch_info:
+        worker_group._dispatch_info[mesh_name] = worker_group._query_dispatch_info(mesh_name)
+        assert len(worker_group._dispatch_info[mesh_name]) == worker_group.world_size
+
+    dp_rank_mapping = worker_group._dispatch_info[mesh_name]
+    # perform dispatch
+    dp_size = max(dp_rank_mapping) + 1
+    return dispatch_nd_compute_dataproto(dp_rank_mapping, dp_size, worker_group, *args, **kwargs)
+
+
+def collect_lazy_compute_data_proto(mesh_name, worker_group, *args, **kwargs):
+    from verl.single_controller.base.worker_group import WorkerGroup
+
+    assert isinstance(worker_group, WorkerGroup)
+
+    # the dispatch info is stored in the worker group
+    assert mesh_name in worker_group._dispatch_info
+
+    if mesh_name not in worker_group._collect_info:
+        worker_group._collect_info[mesh_name] = worker_group._query_collect_info(mesh_name)
+        assert len(worker_group._collect_info[mesh_name]) == worker_group.world_size
+
+    # a boolean of whether the dp_rank is used for collect
+    collect_mask = worker_group._collect_info[mesh_name]
+    # perform dispatch
+    return collect_nd_compute_dataproto(collect_mask, worker_group, *args, **kwargs)
+
+
+def make_nd_compute_dataproto_dispatch_fn(mesh_name):
+    return {
+        "dispatch_fn": partial(dispatch_lazy_compute_data_proto, mesh_name),
+        "collect_fn": partial(collect_lazy_compute_data_proto, mesh_name),
+    }
 
 
 # Global registry for dispatch mode.

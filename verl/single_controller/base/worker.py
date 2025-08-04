@@ -70,6 +70,8 @@ class Worker(WorkerHelper):
     """
 
     fused_worker_attr_name = "fused_worker_dict"
+    __dispatch_dp_rank = {}
+    __collect_dp_rank = {}
 
     def __new__(cls, *args, **kwargs):
         """Create a new Worker instance with proper initialization based on environment settings."""
@@ -88,6 +90,51 @@ class Worker(WorkerHelper):
             instance._configure_before_init(f"{worker_group_prefix}_register_center", int(rank))
 
         return instance
+
+    def _register_dispatch_collect_info(self, mesh_name: str, dp_rank: int, is_collect: bool):
+        """Register the dp_rank for a given mesh name. This function is meant to be called by the worker
+
+        Args:
+            mesh_name (str):
+                Name of the mesh to register dp_rank for.
+            dp_rank (int):
+                dp_rank to register for the given mesh name.
+            is_collect (bool):
+                Whether the dp_rank is used for collect.
+        """
+        self.__dispatch_dp_rank[mesh_name] = dp_rank
+        self.__collect_dp_rank[mesh_name] = is_collect
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def _query_dispatch_info(self, mesh_name: str):
+        """Query the dispatch info for a given mesh name.
+
+        Args:
+            mesh_name (str):
+                Name of the mesh to query dispatch info for.
+
+        Returns:
+            int:
+                The dp_rank for the given mesh name.
+        """
+        assert mesh_name in self.__dispatch_dp_rank
+        # note that each rank store its own dp_rank
+        return self.__dispatch_dp_rank[mesh_name]
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def _query_collect_info(self, mesh_name: str):
+        """Query the collect info for a given mesh name.
+
+        Args:
+            mesh_name (str):
+                Name of the mesh to query collect info for.
+
+        Returns:
+            bool:
+                Whether the dp_rank is used for collect.
+        """
+        assert mesh_name in self.__collect_dp_rank
+        return self.__collect_dp_rank[mesh_name]
 
     def _configure_before_init(self, register_center_name: str, rank: int):
         """Configure worker settings before initialization.

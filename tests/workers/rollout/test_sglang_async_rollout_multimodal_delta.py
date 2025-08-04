@@ -16,6 +16,7 @@
 
 import pytest
 
+from verl.tools.schemas import ToolResponse
 from verl.utils.dataset.vision_utils import process_image
 from verl.utils.tokenizer import hf_processor
 from verl.workers.rollout.schemas import (
@@ -109,7 +110,9 @@ def _test_add_tool_response_messages_image_delta(processor, image_list, descript
         _ = req.get_generation_prompt_ids(processor)
         req.add_assistant_message(processor, content=description_list[idx - 1])
         before_tool_call_len = req.input_ids.shape[-1]
-        req.add_tool_response_messages(processor, [{"image": [img], "text": "Here is the new image you requested: "}])
+        req.add_tool_response_messages(
+            processor, [ToolResponse(image=[img], text="Here is the new image you requested: ")]
+        )
         after_tool_call_len = req.input_ids.shape[-1]
         if prev_generated_len == 0:
             prev_generated_len = after_tool_call_len - before_tool_call_len

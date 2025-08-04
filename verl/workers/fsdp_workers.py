@@ -15,6 +15,7 @@
 The main entry point to run the PPO algorithm
 """
 
+import datetime
 import json
 import logging
 import os
@@ -22,6 +23,7 @@ import warnings
 from dataclasses import asdict
 from typing import Any
 
+import numpy as np
 import psutil
 import torch
 import torch.distributed
@@ -60,6 +62,7 @@ from verl.utils.fsdp_utils import (
     fsdp_version,
     get_fsdp_wrap_policy,
     get_init_weight_context_manager,
+    get_shard_placement_fn,
     init_fn,
     layered_summon_lora_params,
     load_fsdp_model_to_gpu,
@@ -123,6 +126,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 backend=f"cpu:gloo,{get_device_name()}:{get_nccl_backend()}",
                 rank=rank,
                 world_size=world_size,
+                timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
 
@@ -399,6 +403,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 "mp_policy": mp_policy,
                 "offload_policy": cpu_offload,
                 "reshard_after_forward": fsdp_config.reshard_after_forward,
+                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1]),
             }
             full_state = actor_module.state_dict()
             apply_fsdp2(actor_module, fsdp_kwargs, fsdp_config)
@@ -519,7 +524,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
         elif rollout_name == "sglang":
-            from verl.workers.rollout.sglang_rollout import SGLangRollout
+            from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
 
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to
             # SGLang's model_runner would check CUDA device capability. However, due to verl's setting,
@@ -625,7 +630,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
 
         if self._is_ref:
-            local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
+            ref_model_path = self.config.model.path
+            ref_model = self.config.ref.get("model", None)
+            if ref_model is not None:
+                ref_model_path = ref_model.get("path", self.config.model.path)
+
+            if self.rank == 0:
+                print("reference model:", ref_model_path)
+            local_path = copy_to_local(ref_model_path, use_shm=use_shm)
             self.ref_module_fsdp = self._build_model_optimizer(
                 model_path=local_path,
                 fsdp_config=omega_conf_to_dataclass(self.config.ref.fsdp_config),
@@ -827,8 +839,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module
-        if self.world_size > 1 and fsdp_version(self.ref_policy.actor_module) == 1:
-            self.ref_policy.actor_module._handle.reshard(True)
+        if self.world_size > 1:
+            if fsdp_version(self.ref_policy.actor_module) == 1:
+                self.ref_policy.actor_module._handle.reshard(True)
+            elif fsdp_version(self.ref_policy.actor_module) == 2:
+                self.ref_policy.actor_module.shard()
 
         return output
 
@@ -918,9 +933,12 @@ class CriticWorker(Worker, DistProfilerExtension):
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler")))
         import torch.distributed
 
+        self.config = config
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(
-                backend=get_nccl_backend(), init_method=os.environ.get("DIST_INIT_METHOD", None)
+                backend=get_nccl_backend(),
+                timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
+                init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
         self.config: FSDPCriticConfig = config
 
@@ -1120,6 +1138,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 "mp_policy": mp_policy,
                 "offload_policy": offload_policy,
                 "reshard_after_forward": fsdp_config.reshard_after_forward,
+                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1]),
             }
             full_state = critic_module.state_dict()
             apply_fsdp2(critic_module, fsdp_kwargs, fsdp_config)
@@ -1311,11 +1330,13 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         import torch.distributed
 
+        self.config = config
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(
-                backend=get_nccl_backend(), init_method=os.environ.get("DIST_INIT_METHOD", None)
+                backend=get_nccl_backend(),
+                timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
+                init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
-        self.config = config
 
         # build device mesh for Ulysses Sequence Parallel
         world_size = torch.distributed.get_world_size()
@@ -1413,6 +1434,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 "mesh": fsdp_mesh,
                 "offload_policy": cpu_offload,
                 "reshard_after_forward": config.model.fsdp_config.reshard_after_forward,
+                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1]),
             }
             full_state = reward_module.state_dict()
             apply_fsdp2(reward_module, fsdp_kwargs, config.model.fsdp_config)
@@ -1526,11 +1548,13 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         rm_attention_mask = []
 
         for i in range(data.batch.batch_size[0]):
+            if not isinstance(data.non_tensor_batch["raw_prompt"][i], list | np.ndarray):
+                raise TypeError(
+                    f"raw_prompt must be a list or numpy array, got {type(data.non_tensor_batch['raw_prompt'][i])}"
+                )
+
             # extract raw prompt
-            if isinstance(data.non_tensor_batch["raw_prompt"][i], list):
-                chat: list = data.non_tensor_batch["raw_prompt"][i]
-            else:
-                chat: list = data.non_tensor_batch["raw_prompt"][i].tolist()
+            chat: list = list(data.non_tensor_batch["raw_prompt"][i])
 
             # extract response
             response_ids = data.batch["responses"][i]

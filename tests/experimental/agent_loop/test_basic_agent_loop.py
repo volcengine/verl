@@ -25,6 +25,7 @@ from tests.experimental.agent_loop.agent_utils import init_agent_loop_manager
 from verl.experimental.agent_loop.agent_loop import get_trajectory_info
 from verl.protocol import DataProto
 from verl.tools.base_tool import BaseTool, OpenAIFunctionToolSchema
+from verl.tools.schemas import ToolResponse
 from verl.utils import hf_tokenizer
 
 
@@ -125,12 +126,12 @@ class WeatherTool(BaseTool):
         schema = get_json_schema(self.get_current_temperature)
         return OpenAIFunctionToolSchema(**schema)
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
         try:
             result = self.get_current_temperature(**parameters)
-            return json.dumps(result), 0, {}
+            return ToolResponse(text=json.dumps(result)), 0, {}
         except Exception as e:
-            return str(e), 0, {}
+            return ToolResponse(text=str(e)), 0, {}
 
 
 class WeatherToolWithData(BaseTool):
@@ -157,12 +158,12 @@ class WeatherToolWithData(BaseTool):
             "unit": unit,
         }
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
         try:
             result = self.get_temperature_date(**parameters)
-            return json.dumps(result), 0, {}
+            return ToolResponse(text=json.dumps(result)), 0, {}
         except Exception as e:
-            return str(e), 0, {}
+            return ToolResponse(text=str(e)), 0, {}
 
 
 def test_tool_agent(init_config):
