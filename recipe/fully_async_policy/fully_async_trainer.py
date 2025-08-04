@@ -132,96 +132,34 @@ class FullyAsyncTrainer(RayPPOTrainer):
         """设置消息队列客户端"""
         self.message_queue_client = message_queue_client
 
-    def _validate(self):
-        """执行验证 - 参考OneStepOffRayTrainer的验证逻辑"""
-        return None
-
-    def init_workers(self):
-        """Initialize distributed training workers using Ray backend.
-
-        Creates:
-        1. Ray resource pools from configuration
-        2. Worker groups for each role (actor, critic, etc.)
-        """
-        self.resource_pool_manager.create_resource_pool()
-
-        self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
-
-        # 创建actor worker
-        resource_pool = self.resource_pool_manager.get_resource_pool(Role.Actor)
-        actor_cls = RayClassWithInitArgs(
-            cls=self.role_worker_mapping[Role.Actor],
-            config=self.config.actor_rollout_ref,
-            role="actor",
-        )
-        self.resource_pool_to_cls[resource_pool]["actor"] = actor_cls
-
-        # 创建critic worker
-        if self.use_critic:
-            resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
-            critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=self.config.critic)
-            self.resource_pool_to_cls[resource_pool]["critic"] = critic_cls
-
-        # 创建reference policy worker
-        if self.use_reference_policy:
-            resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
-            ref_policy_cls = RayClassWithInitArgs(
-                cls=self.role_worker_mapping[Role.RefPolicy],
+    def _create_actor_rollout_classes(self):
+        # create actor
+        for role in [Role.Actor]:
+            resource_pool = self.resource_pool_manager.get_resource_pool(role)
+            role_cls = RayClassWithInitArgs(
+                cls=self.role_worker_mapping[role],
                 config=self.config.actor_rollout_ref,
-                role="ref",
+                role=str(role),
             )
-            self.resource_pool_to_cls[resource_pool]["ref"] = ref_policy_cls
+            self.resource_pool_to_cls[resource_pool][str(role)] = role_cls
 
-        # 创建reward model worker
-        if self.use_rm:
-            resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-            rm_cls = RayClassWithInitArgs(
-                cls=self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model
-            )
-            self.resource_pool_to_cls[resource_pool]["rm"] = rm_cls
-
-        # 初始化WorkerGroup - 参考OneStepOffRayTrainer的实现
-        all_wg = {}
-        wg_kwargs = {}
-        if OmegaConf.select(self.config.trainer, "ray_wait_register_center_timeout") is not None:
-            wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
-        if OmegaConf.select(self.config.trainer, "profile_steps") is not None:
-            wg_kwargs["profile_steps"] = OmegaConf.select(self.config.trainer, "profile_steps")
-            assert OmegaConf.select(self.config.trainer, "worker_nsight_options") is not None, (
-                "worker_nsight_options must be set when profile_steps is set"
-            )
-            wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
-                OmegaConf.select(self.config.trainer, "worker_nsight_options")
-            )
-
-        for resource_pool, class_dict in self.resource_pool_to_cls.items():
-            worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
-            wg_dict = self.ray_worker_group_cls(
-                resource_pool=resource_pool,
-                ray_cls_with_init=worker_dict_cls,
-                device_name=self.device_name,
-                **wg_kwargs,
-            )
-            spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
-            all_wg.update(spawn_wg)
-
-        # 分配worker groups
-        self.actor_wg = all_wg["actor"]
-        self.actor_wg.init_model()
-
+    def _init_models(self):
         if self.use_critic:
-            self.critic_wg = all_wg["critic"]
+            self.critic_wg = self.all_wg[str(Role.Critic)]
             self.critic_wg.init_model()
 
         if self.use_reference_policy and not self.ref_in_actor:
-            self.ref_policy_wg = all_wg["ref"]
+            self.ref_policy_wg = self.all_wg[str(Role.RefPolicy)]
             self.ref_policy_wg.init_model()
 
         if self.use_rm:
-            self.rm_wg = all_wg["rm"]
+            self.rm_wg = self.all_wg[str(Role.RewardModel)]
             self.rm_wg.init_model()
 
-        logger.info("FullyAsyncTrainer workers initialized successfully")
+        self.actor_wg = self.all_wg[str(Role.Actor)]
+        self.actor_wg.init_model()
+        self.actor_rollout_wg = self.actor_wg  # to be compatible with the functions that not be modified
+
 
     def fit(self):
         """
