@@ -159,6 +159,7 @@ actor_rollout_ref:
       do_sample: false
     multi_turn:
       enable: false
+      force_use_sglang_multi_turn: false
       max_assistant_turns: null
       tool_config_path: null
       max_user_turns: null

@@ -16,6 +16,7 @@ import heapq
 import logging
 import os
 import random
+import warnings
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -283,7 +284,18 @@ class AgentLoopWorker:
 
         # by default, we assume it's a single turn agent
         if "agent_name" not in batch.non_tensor_batch:
-            batch.non_tensor_batch["agent_name"] = np.array(["single_turn_agent"] * len(batch), dtype=object)
+            warnings.warn(
+                "agent_name is not set in RLHFDataset, set to 'tool_agent' if tool_config_path is set, "
+                "otherwise default to 'single_turn_agent'",
+                category=UserWarning,
+                stacklevel=2,
+            )
+            if config.multi_turn.tool_config_path is not None:
+                agent_name = "tool_agent"
+            else:
+                agent_name = "single_turn_agent"
+
+            batch.non_tensor_batch["agent_name"] = np.array([agent_name] * len(batch), dtype=object)
 
         if "index" in batch.non_tensor_batch:
             index = batch.non_tensor_batch["index"]

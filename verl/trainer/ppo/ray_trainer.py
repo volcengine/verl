@@ -499,7 +499,8 @@ class RayPPOTrainer:
 
         if config.actor_rollout_ref.rollout.multi_turn.enable:
             warnings.warn(
-                "Enable `multi_turn.enable=True`, please set `rollout.mode=async` instead.",
+                "The setting multi_turn.enable=True is deprecated. Please use rollout.mode=async instead. "
+                "If you want to use the old behavior, please set multi_turn.force_use_sglang_multi_turn=True",
                 DeprecationWarning,
                 stacklevel=2,
             )
