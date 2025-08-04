@@ -1095,7 +1095,7 @@ class RayPPOTrainer:
                 with marked_timer("start_profile", timing_raw):
                     self._start_profiling(
                         not prev_step_profile and curr_step_profile
-                        if self.config.trainer.profile_continuous_steps
+                        if self.config.profiler.profile_continuous_steps
                         else curr_step_profile
                     )
 
@@ -1345,7 +1345,7 @@ class RayPPOTrainer:
                     )
                     self._stop_profiling(
                         curr_step_profile and not next_step_profile
-                        if self.config.trainer.profile_continuous_steps
+                        if self.config.profiler.profile_continuous_steps
                         else curr_step_profile
                     )
                     prev_step_profile = curr_step_profile

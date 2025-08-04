@@ -100,4 +100,5 @@ class ProfilerConfig(BaseConfig):
         assert isinstance(self.ranks, set | list | tuple), (
             f"Profiler ranks must be of type list, got {type(self.ranks)}"
         )
-        self.tool_config = omega_conf_to_dataclass(self.tool_config[self.tool])
+        if self.tool:
+            self.tool_config = omega_conf_to_dataclass(self.tool_config[self.tool])

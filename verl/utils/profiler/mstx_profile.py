@@ -211,7 +211,7 @@ class NPUProfiler(DistProfiler):
             def wrapper(self, *args, **kwargs):
                 profile_name = message or func.__name__
                 discrete_mode = self.profiler.discrete
-                profile_enable = self.profiler.this_step and self.enable
+                profile_enable = self.profiler.this_step and self.profiler.enable
 
                 if not profile_enable:
                     return func(self, *args, **kwargs)
