@@ -11,11 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import random
 import threading
-import time
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
+
+# Default response time in seconds if no metrics are available yet.
+DEFAULT_RESPONSE_TIME_S = 0.5
+# Scaling factor to reduce the impact of response time on the score, making it a tie-breaker.
+RESPONSE_TIME_SCALING_FACTOR = 0.15
 
 
 # Global service tracker
@@ -115,56 +117,14 @@ class ServiceTracker:
             for server in candidates:
                 metrics = self.metrics[server]
                 # Use default response time if no history available
-                avg_time = 0.5  # Default 500ms response time
+                avg_time = DEFAULT_RESPONSE_TIME_S  # Default 500ms response time
                 if metrics["response_times"]:
                     avg_time = (
-                        sum(metrics["response_times"]) / len(metrics["response_times"]) * 0.15
-                    )  # Weight response time by 0.15
+                        sum(metrics["response_times"]) / len(metrics["response_times"]) * RESPONSE_TIME_SCALING_FACTOR
+                    )  # Weight response time by RESPONSE_TIME_SCALING_FACTOR
                 # Load factor based on current in-flight requests
                 load_factor = metrics["in_flight"]
                 # Composite score (lower is better)
                 scores[server] = avg_time + load_factor
             # Return server with minimum score
             return min(scores, key=scores.get)
-
-
-def request_loop():
-    """Continuous request generator"""
-    request_id = 1
-    while True:
-        # Use thread pool for concurrency control
-        with ThreadPoolExecutor(max_workers=500) as executor:
-            # Send batch of requests with random intervals
-            for _ in range(20):
-                executor.submit(send_request, request_id)
-                request_id += 1
-                # Random delay between requests (0-100ms)
-                time.sleep(random.uniform(0, 0.1))
-
-
-def send_request(request_id, tracker):
-    """Send request to backend service with load balancing"""
-    # Select optimal server using scoring algorithm
-    server = tracker.get_best_server()
-    if not server:
-        print(f"Request {request_id} failed: No available servers")
-        return
-
-    # Update in-flight counter
-    tracker.start_request(server)
-    start_time = time.time()
-    success = False
-    try:
-        # Send actual request to backend
-        time.sleep(2 * random.uniform(0.1, 0.5))  # Simulate network delay
-        success = True
-        print(f"Request {request_id} to {server} successful")
-    except Exception as e:
-        print(f"Request {request_id} to {server} failed: {str(e)}")
-    finally:
-        # Always update metrics regardless of success/failure
-        end_time = time.time()
-        response_time = end_time - start_time
-        tracker.update_metrics(server, response_time, success)
-        tracker.complete_request(server)
-        tracker.print_current_state()
