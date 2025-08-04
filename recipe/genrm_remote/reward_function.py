@@ -12,14 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from time import sleep
 
 import requests
+from load_balance import ServiceTracker
 
 from verl.utils.reward_score.math import last_boxed_only_string, remove_boxed
 
-BASE_URL = "http://localhost:30000"
+BASE_URLS = ["http://localhost:30000"]
+assert isinstance(BASE_URLS, list) and len(BASE_URLS) > 0, "BASE_URLS must be a non-empty list of URLs."
+
 API_KEY = "EMPTY"
 MAX_RETRIES = 3
 BASE_DELAY = 2
@@ -41,17 +45,35 @@ Your task is to review and critique the solution step by step, and output whethe
 Please put your final answer (i.e., 'True' or 'False') in \\boxed{{}}.
 """.strip()
 
+tracker = ServiceTracker(BASE_URLS)
+
 
 def get_response(problem, solution_str, ground_truth):
     prompt = GENRM_PROMPT_TEMPLATE.format(problem=problem, solution=solution_str)
     messages = [{"role": "user", "content": prompt}]
     for attempt in range(MAX_RETRIES):
+        start_time = time.time()
+        success = False
+        # tracker.print_current_state()
         try:
+            # choose the best server based on current metrics
+            base_url = tracker.get_best_server()
+            assert base_url is not None, f"the {BASE_URLS} server is not available, please check the server status."
+            tracker.start_request(base_url)
+
             headers = {"Content-Type": "application/json"}
-            chat_url = f"{BASE_URL}/v1/chat/completions"
+            chat_url = f"{base_url}/v1/chat/completions"
             data = {"model": MODEL_NAME, "messages": messages}
             output = requests.post(chat_url, headers=headers, json=data, timeout=30)
             response = output.json()["choices"][0]["message"]["content"]
+
+            # update metrics after receiving response
+            success = True
+            end_time = time.time()
+            response_time = end_time - start_time
+            tracker.update_metrics(base_url, response_time, success)
+            tracker.complete_request(base_url)
+
             return response
         except Exception as e:
             if attempt < MAX_RETRIES - 1:
@@ -61,6 +83,12 @@ def get_response(problem, solution_str, ground_truth):
                 sleep(delay)
             else:
                 print(f"Failed after {MAX_RETRIES} attempts. Error: {e}")
+            # update metrics even if the request fails
+            end_time = time.time()
+            response_time = end_time - start_time
+            success = False
+            tracker.update_metrics(base_url, response_time, success)
+            tracker.complete_request(base_url)
 
     raise ConnectionRefusedError(f"Failed to run the model for {prompt}!")
 
@@ -97,6 +125,7 @@ def compute_score(data_source, solution_str, ground_truth, extra_info):
 
 
 def compute_score_batch(data_sources, solution_strs, ground_truths, extra_infos):
+    tracker.print_current_state()
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = []
         for data_source, solution_str, ground_truth, extra_info in zip(
