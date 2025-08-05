@@ -24,7 +24,6 @@ from uuid import uuid4
 
 import ray
 import ray.actor
-from PIL import Image
 from qwen_vl_utils import fetch_image
 
 from .base_tool import BaseTool
@@ -300,7 +299,7 @@ class ImageZoomInTool(BaseTool):
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
 
-    async def create(self, instance_id: Optional[str], image: str | Image.Image, **kwargs) -> str:
+    async def create(self, instance_id: Optional[str] = None, **kwargs) -> tuple[str, ToolResponse]:
         """
         Creates a new instance for image zoom-in tool.
 
@@ -311,7 +310,8 @@ class ImageZoomInTool(BaseTool):
         Args:
             instance_id: An optional unique identifier for the instance. If not
                 provided, a new UUID will be generated.
-            image: image can be one of the following:
+            **kwargs: Should contain 'image' key with image data, or 'create_kwargs'
+                containing {'image': image_data}. Image can be one of the following:
                 - A PIL.Image.Image object.
                 - A string containing an HTTP or HTTPS URL.
                 - A string containing a local file path.
@@ -319,10 +319,20 @@ class ImageZoomInTool(BaseTool):
                 - A string containing a base64-encoded image in the format of "data:image/jpeg;base64,..."
 
         Returns:
-            The unique identifier for the created instance.
+            Tuple of (instance_id, ToolResponse)
         """
         if instance_id is None:
             instance_id = str(uuid4())
+
+        # Handle create_kwargs parameter if passed
+        create_kwargs = kwargs.get("create_kwargs", {})
+        if create_kwargs:
+            kwargs.update(create_kwargs)
+
+        # Get image from kwargs
+        image = kwargs.get("image")
+        if image is None:
+            raise ValueError("Missing required 'image' parameter in kwargs")
 
         img = fetch_image({"image": image})
         self._instance_dict[instance_id] = {
@@ -330,15 +340,15 @@ class ImageZoomInTool(BaseTool):
             "response": "",
             "reward": 0.0,
         }
-        return instance_id
+        return instance_id, ToolResponse()
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
         bbox_2d = parameters.get("bbox_2d")
         label = parameters.get("label", "")
 
         if not bbox_2d or len(bbox_2d) != 4:
             return (
-                {"text": "Error: bbox_2d parameter is missing or not a list of 4 numbers."},
+                ToolResponse(text="Error: bbox_2d parameter is missing or not a list of 4 numbers."),
                 -0.05,
                 {"success": False},
             )
@@ -356,13 +366,13 @@ class ImageZoomInTool(BaseTool):
                     f"the minimum size of {self.MIN_DIMENSION}x{self.MIN_DIMENSION}."
                 )
                 logger.warning(f"Tool execution failed: {error_msg}")
-                return {"text": error_msg}, -0.05, {"success": False}
+                return ToolResponse(text=error_msg), -0.05, {"success": False}
 
             cropped_image = image.crop(resized_bbox)
             logger.info(f"Cropped image size: {cropped_image.size}")
         except Exception as e:
             logger.error(f"Error processing image zoom-in: {e}")
-            return {"text": f"Error processing image zoom-in: {e}"}, -0.05, {"success": False}
+            return ToolResponse(text=f"Error processing image zoom-in: {e}"), -0.05, {"success": False}
 
         response_text = f"Zoomed in on the image to the region {bbox_2d}."
         if label:
