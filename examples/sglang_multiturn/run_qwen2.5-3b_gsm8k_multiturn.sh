@@ -12,7 +12,7 @@ function now() {
     date '+%d-%H-%M'
 }
 
-EXPERIMENT_NAME="qwen2.5-3b_baseline_$(now)_$OVER_SAMPLE_RATE"
+EXPERIMENT_NAME="qwen2.5-3b_baseline_$(now)"
 
 python3 -m verl.trainer.main_ppo \
     --config-path="$CONFIG_PATH" \
@@ -44,10 +44,11 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.n=16 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
+    actor_rollout_ref.rollout.over_sample_rate=0 \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
-    trainer.project_name='benchmark_over_sample_2' \
+    trainer.project_name='multi-turn-grpo-qwen2.5-3b-sglang' \
     trainer.experiment_name=$EXPERIMENT_NAME \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
