@@ -294,19 +294,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         # Get State Dict for loading
         sharded_state_dict = self.generate_state_dict(
-            self.should_load_model, self.should_load_optimizer, self.should_load_extra
+            self.should_load_model and self.use_dist_checkpointing, self.should_load_optimizer, self.should_load_extra
         )
-        log_with_rank(f"Generated state dict for saving: {sharded_state_dict.keys()}", rank=self.rank, logger=logger)
-        for vpp_rank, model in enumerate(self.model):
-            if len(self.model) > 1:
-                model_i_keys = sharded_state_dict[f"model{vpp_rank}"].keys()
-                log_with_rank(f"Generated state dict for saving: {model_i_keys}", rank=self.rank, logger=logger)
-            else:
-                log_with_rank(
-                    f"Generated state dict for saving: {sharded_state_dict['model'].keys()}",
-                    rank=self.rank,
-                    logger=logger,
-                )
+        log_with_rank(f"Generated state dict for loading: {sharded_state_dict.keys()}", rank=self.rank, logger=logger)
 
         # Load Dist Checkpointing
         state_dict = load_dist_checkpointing(
