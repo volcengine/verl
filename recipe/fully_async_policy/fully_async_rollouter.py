@@ -21,6 +21,7 @@ from omegaconf import OmegaConf
 from tqdm import tqdm
 
 from recipe.fully_async_policy.message_queue import MessageQueueClient
+from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
 from verl.utils.debug import marked_timer
@@ -35,16 +36,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
     """
 
     def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-        device_name=None,
+            self,
+            config,
+            tokenizer,
+            role_worker_mapping: dict[Role, WorkerType],
+            resource_pool_manager: ResourcePoolManager,
+            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+            processor=None,
+            reward_fn=None,
+            val_reward_fn=None,
+            device_name=None,
     ):
         """
         Initialize distributed PPO trainer with Ray backend.
@@ -111,8 +112,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         # 新鲜度控制 - 改进的配置管理
         async_config = config.async_training
         self.staleness_threshold = async_config.get("staleness_threshold", 3)
-        self.max_staleness_allowed = async_config.get("max_staleness_allowed", 5)
-        self.generation_timeout = async_config.get("generation_timeout", 30.0)
 
         # 统计信息
         self.total_generated_samples = 0
@@ -145,6 +144,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.sync_in_progress = False
         self.sync_lock = threading.Lock()
 
+        self.max_queue_size = self.staleness_threshold * self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
+
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """设置消息队列客户端"""
         with self.lock:
@@ -175,6 +176,343 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.rollout_wg = self.all_wg[str(Role.Rollout)]
         self.rollout_wg.init_model()
         self.actor_rollout_wg = self.rollout_wg
+
+    def _create_continuous_iterator(self):
+        """
+        Create a continuous data iterator across epoch
+        """
+        for epoch in range(self.config.trainer.total_epochs):
+            iterator = iter(self.train_dataloader)
+            for batch_dict in iterator:
+                yield epoch, batch_dict
+
+    def fit(self):
+        """开始异步生成样本 - 改进的主运行逻辑"""
+        print("Starting Rollouter...")
+        if self.message_queue_client is None:
+            raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
+        # if self.param_synchronizer is None:
+        #     raise ValueError("param_synchronizer client not set. Call set_parameter_synchronizer() first.")
+
+        # 设置运行状态
+        with self.lock:
+            self.running = True
+            self.paused = False
+
+        # 创建并启动生成线程
+        self.generation_thread = threading.Thread(target=self._generation_loop, daemon=True)
+        self.generation_thread.start()
+
+        # 创建并启动监控线程
+        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self.monitor_thread.start()
+
+        # 等待线程完成
+        self.generation_thread.join()
+        self.monitor_thread.join()
+
+        print("Rollouter fit completed")
+
+    def _generation_loop(self):
+        """
+        主要的生成循环
+
+        循环入口，需要
+        1. running 判断
+        4. 中断判断
+        3. 新鲜度判断
+
+        生成样本过程中，需要
+        1. running 判断
+        2. 中断判断
+        """
+
+        from verl.utils.tracking import Tracking
+
+        self.logger = Tracking(
+            project_name=self.config.trainer.project_name,
+            experiment_name=self.config.trainer.experiment_name,
+            default_backend=self.config.trainer.logger,
+            config=OmegaConf.to_container(self.config, resolve=True),
+        )
+
+        self.global_steps = 0
+
+        # load checkpoint before doing anything
+        self._load_checkpoint()
+
+        # perform validation before training
+        # currently, we only support validation using the reward_function.
+        if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
+            val_metrics = self._validate()
+            assert val_metrics, f"{val_metrics=}"
+            pprint(f"Initial validation metrics: {val_metrics}")
+            self.logger.log(data=val_metrics, step=self.global_steps)
+            if self.config.trainer.get("val_only", False):
+                return
+
+        # we start from step 1
+        self.global_steps += 1
+        last_val_metrics = None
+        self.max_steps_duration = 0
+
+        """
+        主要的生成循环
+
+        循环入口，需要
+        1. running 判断
+        4. 中断判断
+        3. 新鲜度判断
+
+        生成样本过程中，需要
+        1. running 判断
+        2. 中断判断
+        """
+
+        continuous_iterator = self._create_continuous_iterator()
+        for epoch, batch_dict in continuous_iterator:
+            with self.lock:
+                if not self.running:
+                    break
+
+                if self._should_pause_generation():
+                    self.pause()
+
+                # 如果被暂停，等待恢复
+                while self.paused and self.running:
+                    print("Generation thread paused, waiting...")
+                    self.condition.wait()
+
+                # 再次检查运行状态
+                if not self.running:
+                    break
+
+            metrics = {}
+            timing_raw = {}
+            batch, gen_batch = self._prepare_generate_batch(batch_dict)
+            is_last_step = self.global_steps >= self.total_training_steps
+
+            # generate a batch
+            with marked_timer("gen", timing_raw, color="red"):
+                if not self.async_rollout_mode:
+                    gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                else:
+                    gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
+                timing_raw.update(gen_batch_output.meta_info["timing"])
+                gen_batch_output.meta_info.pop("timing", None)
+
+            if gen_batch_output is not None:
+                # 准备rollout metadata
+                rollout_metadata = {
+                    "timing": timing_raw,
+                    "generation_timestamp": time.time(),
+                    "rollout_param_version": self.current_param_version,
+                }
+
+                gen_batch_output: DataProto = gen_batch_output
+                print(gen_batch_output)
+                for i in gen_batch_output:
+                    print(i)
+
+                # 放入队列
+                success = self.message_queue_client.put_samples(
+                    samples=gen_batch_output,
+                    param_version=self.current_param_version,
+                    rollout_metadata_list=rollout_metadata,
+                )
+                print(f"put samples {success}")
+                with self.lock:
+                    if success:
+                        self.total_generated_samples += 1
+                    else:
+                        self.dropped_stale_samples += 1
+
+                if self.global_steps % 1 == 0:
+                    print(f"Generated {self.total_generated_samples} batches, \n"
+                          f"param_version={self.current_param_version}, \n"
+                          f"errors={self.generation_errors}, \n"
+                          f"Dropped stale samples: {self.dropped_stale_samples}\n")
+
+            self.global_steps += 1
+
+            if is_last_step:
+                pprint(f"Final validation metrics: {last_val_metrics}")
+                return
+
+    def _monitor_loop(self):
+        """监控线程 - 监控状态并处理控制信号"""
+        try:
+            # 主线程保持运行，处理控制信号和状态监控
+            last_stats_time = time.time()
+            stats_interval = 30.0  # 30秒报告一次统计
+            check_interval = 5.0  # 5秒检查一次状态
+
+            while True:
+                with self.lock:
+                    if not self.running:
+                        break
+
+                time.sleep(check_interval)
+
+                # 定期打印统计信息
+                current_time = time.time()
+                if current_time - last_stats_time >= stats_interval:
+                    self._log_statistics()
+                    last_stats_time = current_time
+
+                # 检查是否应该恢复生成
+                if not self._should_pause_generation():
+                    with self.lock:
+                        if self.paused:
+                            self.paused = False
+                            self.condition.notify_all()
+                            print("Generation resumed")
+
+        except Exception as e:
+            print(f"Error in monitor loop: {e}")
+        finally:
+            print("Monitor thread exiting")
+
+    def _report_loop(self):
+        try:
+            # 主线程保持运行，处理控制信号和状态监控
+            last_stats_time = time.time()
+            stats_interval = 10.0
+
+            while self.running:
+                time.sleep(1.0)
+
+                # 定期打印统计信息
+                current_time = time.time()
+                if current_time - last_stats_time >= stats_interval:
+                    self.get_statistics()
+                    last_stats_time = current_time
+                    if not self._should_pause_generation():
+                        self.resume()
+
+                # 检查生成线程状态
+                if not self.generation_thread.is_alive():
+                    print("Generation thread died, restarting...")
+                    raise RuntimeError("generation_thread not alive")
+
+        except KeyboardInterrupt:
+            print("Received interrupt signal, shutting down...")
+        except Exception as e:
+            print(f"Error in main loop: {e}")
+        finally:
+            self.shutdown()
+
+    def _should_pause_generation(self) -> bool:
+        """
+        判断是否应该暂停生成，基于新鲜度控制 - 改进的判断逻辑
+        """
+        try:
+            queue_stats = self.message_queue_client.get_statistics()
+            queue_size = queue_stats["queue_size"]
+            current_trainer_version = queue_stats["current_param_version"]
+
+            # 计算参数版本差异
+            version_diff = self.current_param_version - current_trainer_version
+
+            # 如果版本差异过大，暂停生成
+            if version_diff >= self.staleness_threshold:
+                print(
+                    f"Should pause due to staleness: rollout_version={self.current_param_version}, "
+                    f"trainer_version={current_trainer_version}, diff={version_diff}"
+                )
+                return True
+
+            # 如果队列太满，也暂停生成
+
+            if queue_size >= max_queue_size:
+                print(f"Should pause due to full queue: size={queue_size}, max={max_queue_size}")
+                return True
+
+            return False
+
+        except Exception as e:
+            print(f"Error checking pause conditions: {e}")
+            return True  # 出错时暂停生成
+
+    def pause(self) -> bool:
+        """暂停生成 - 供外部调用"""
+        with self.lock:
+            if not self.running:
+                return False
+
+            if self.paused:
+                return True
+
+            self.paused = True
+            return True
+
+    def resume(self) -> bool:
+        """恢复生成 - 供外部调用"""
+        with self.lock:
+            if not self.running:
+                return False
+
+            if not self.paused:
+                return True
+
+            self.paused = False
+            self.condition.notify_all()
+            print("Generation resumed")
+            return True
+
+    def shutdown(self):
+        """关闭Rollouter - 改进的关闭逻辑"""
+        print("Shutting down Rollouter...")
+
+        with self.lock:
+            self.running = False
+            self.paused = False
+            self.condition.notify_all()
+
+        # 等待生成线程结束
+        if self.generation_thread and self.generation_thread.is_alive():
+            print("Waiting for generation thread to finish...")
+            self.generation_thread.join(timeout=10.0)
+
+            if self.generation_thread.is_alive():
+                print("Generation thread did not finish within timeout")
+
+        # 等待监控线程结束
+        if self.monitor_thread and self.monitor_thread.is_alive():
+            print("Waiting for monitor thread to finish...")
+            self.monitor_thread.join(timeout=5.0)
+
+            if self.monitor_thread.is_alive():
+                print("Monitor thread did not finish within timeout")
+
+        # 关闭线程池
+        if self.thread_executor:
+            self.thread_executor.shutdown(wait=True)
+
+        # 清理异步rollout管理器
+        if hasattr(self, "async_rollout_manager"):
+            try:
+                # TODO: 添加异步rollout管理器的清理逻辑
+                pass
+            except Exception as e:
+                print(f"Error cleaning up async rollout manager: {e}")
+
+        print("Rollouter shutdown complete")
+
+    def get_statistics(self) -> dict:
+        with self.lock:
+            queue_stats = self.message_queue_client.get_statistics()
+            stats = {
+                "total_generated_samples": self.total_generated_samples,
+                "dropped_stale_samples": self.dropped_stale_samples,
+                "current_param_version": self.current_param_version,
+                "param_sync_requests": self.param_sync_requests,
+                "last_sync_time": self.last_sync_time,
+                "is_running": self.running,
+                "sync_in_progress": self.sync_in_progress,
+                "queue_size": f"{queue_stats['queue_size']}",
+            }
+            return stats
 
     def update_rollout_weights(self, param_version: int) -> bool:
         """
@@ -274,333 +612,3 @@ class FullyAsyncRollouter(RayPPOTrainer):
         except Exception as e:
             print(f"Parameter sync execution failed: {e}")
             return False
-
-    def _create_continuous_iterator(self):
-        """
-        Create a continuous data iterator across epoch
-        """
-        for epoch in range(self.config.trainer.total_epochs):
-            iterator = iter(self.train_dataloader)
-            for batch_dict in iterator:
-                yield epoch, batch_dict
-
-    def fit(self):
-        """开始异步生成样本 - 改进的主运行逻辑"""
-        print("Starting Rollouter...")
-        if self.message_queue_client is None:
-            raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
-        # if self.param_synchronizer is None:
-        #     raise ValueError("param_synchronizer client not set. Call set_parameter_synchronizer() first.")
-
-        # 设置运行状态
-        with self.lock:
-            self.running = True
-            self.paused = False
-
-        # 创建并启动生成线程
-        self.generation_thread = threading.Thread(target=self._generation_loop, daemon=True)
-        self.generation_thread.start()
-
-        # 创建并启动监控线程
-        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
-        self.monitor_thread.start()
-
-        # 等待线程完成
-        self.generation_thread.join()
-        self.monitor_thread.join()
-
-        print("Rollouter fit completed")
-
-    def _generation_loop(self):
-        """
-        主要的生成循环
-
-        循环入口，需要
-        1. running 判断
-        4. 中断判断
-        3. 新鲜度判断
-
-        生成样本过程中，需要
-        1. running 判断
-        2. 中断判断
-        """
-
-        from verl.utils.tracking import Tracking
-
-        self.logger = Tracking(
-            project_name=self.config.trainer.project_name,
-            experiment_name=self.config.trainer.experiment_name,
-            default_backend=self.config.trainer.logger,
-            config=OmegaConf.to_container(self.config, resolve=True),
-        )
-
-        self.global_steps = 0
-
-        # load checkpoint before doing anything
-        self._load_checkpoint()
-
-        # perform validation before training
-        # currently, we only support validation using the reward_function.
-        if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-            val_metrics = self._validate()
-            assert val_metrics, f"{val_metrics=}"
-            pprint(f"Initial validation metrics: {val_metrics}")
-            self.logger.log(data=val_metrics, step=self.global_steps)
-            if self.config.trainer.get("val_only", False):
-                return
-
-        # add tqdm
-        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
-
-        # we start from step 1
-        self.global_steps += 1
-        last_val_metrics = None
-        self.max_steps_duration = 0
-
-        """
-        主要的生成循环
-
-        循环入口，需要
-        1. running 判断
-        4. 中断判断
-        3. 新鲜度判断
-
-        生成样本过程中，需要
-        1. running 判断
-        2. 中断判断
-        """
-
-        continuous_iterator = self._create_continuous_iterator()
-        for epoch, batch_dict in continuous_iterator:
-            with self.lock:
-                if not self.running:
-                    break
-
-                if self._should_pause_generation():
-                    self.pause()
-
-                # 如果被暂停，等待恢复
-                while self.paused and self.running:
-                    print("Generation thread paused, waiting...")
-                    self.condition.wait()
-
-                # 再次检查运行状态
-                if not self.running:
-                    break
-
-            metrics = {}
-            timing_raw = {}
-            batch, gen_batch = self._prepare_generate_batch(batch_dict)
-            is_last_step = self.global_steps >= self.total_training_steps
-
-            # generate a batch
-            with marked_timer("gen", timing_raw, color="red"):
-                if not self.async_rollout_mode:
-                    gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                else:
-                    gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
-                timing_raw.update(gen_batch_output.meta_info["timing"])
-                gen_batch_output.meta_info.pop("timing", None)
-
-            if gen_batch_output is not None:
-                # 准备rollout metadata
-                rollout_metadata = {
-                    "timing": timing_raw,
-                    "generation_timestamp": time.time(),
-                    "rollout_param_version": self.current_param_version,
-                }
-                # 放入队列
-                success = self.message_queue_client.put_samples(
-                    samples=gen_batch_output,
-                    param_version=self.current_param_version,
-                    rollout_metadata_list=rollout_metadata,
-                )
-
-                with self.lock:
-                    if success:
-                        self.total_generated_samples += 1
-                        if self.total_generated_samples % 10 == 0:
-                            print(
-                                f"Generated {self.total_generated_samples} batches, "
-                                f"param_version={self.current_param_version}, "
-                                f"errors={self.generation_errors}"
-                            )
-                    else:
-                        self.dropped_stale_samples += 1
-                        if self.dropped_stale_samples % 5 == 0:
-                            print(f"Dropped stale samples: {self.dropped_stale_samples}")
-
-    def _monitor_loop(self):
-        """监控线程 - 监控状态并处理控制信号"""
-        try:
-            # 主线程保持运行，处理控制信号和状态监控
-            last_stats_time = time.time()
-            stats_interval = 30.0  # 30秒报告一次统计
-            check_interval = 5.0  # 5秒检查一次状态
-
-            while True:
-                with self.lock:
-                    if not self.running:
-                        break
-
-                time.sleep(check_interval)
-
-                # 定期打印统计信息
-                current_time = time.time()
-                if current_time - last_stats_time >= stats_interval:
-                    self._log_statistics()
-                    last_stats_time = current_time
-
-                # 检查是否应该恢复生成
-                if not self._should_pause_generation():
-                    with self.lock:
-                        if self.paused:
-                            self.paused = False
-                            self.condition.notify_all()
-                            print("Generation resumed")
-
-        except Exception as e:
-            print(f"Error in monitor loop: {e}")
-        finally:
-            print("Monitor thread exiting")
-
-    def _report_loop(self):
-        try:
-            # 主线程保持运行，处理控制信号和状态监控
-            last_stats_time = time.time()
-            stats_interval = 10.0
-
-            while self.running:
-                time.sleep(1.0)
-
-                # 定期打印统计信息
-                current_time = time.time()
-                if current_time - last_stats_time >= stats_interval:
-                    self.get_statistics()
-                    last_stats_time = current_time
-                    if not self._should_pause_generation():
-                        self.resume()
-
-                # 检查生成线程状态
-                if not self.generation_thread.is_alive():
-                    print("Generation thread died, restarting...")
-                    raise RuntimeError("generation_thread not alive")
-
-        except KeyboardInterrupt:
-            print("Received interrupt signal, shutting down...")
-        except Exception as e:
-            print(f"Error in main loop: {e}")
-        finally:
-            self.shutdown()
-
-    def _should_pause_generation(self) -> bool:
-        """
-        判断是否应该暂停生成，基于新鲜度控制 - 改进的判断逻辑
-        """
-        try:
-            queue_stats = self.message_queue_client.get_statistics()
-            queue_size = queue_stats["queue_size"]
-            current_trainer_version = queue_stats["current_param_version"]
-
-            # 计算参数版本差异
-            version_diff = self.current_param_version - current_trainer_version
-
-            # 如果版本差异过大，暂停生成
-            if version_diff >= self.max_staleness_allowed:
-                print(
-                    f"Should pause due to staleness: rollout_version={self.current_param_version}, "
-                    f"trainer_version={current_trainer_version}, diff={version_diff}"
-                )
-                return True
-
-            # 如果队列太满，也暂停生成
-            max_queue_size = self.staleness_threshold * self.config.data.train_batch_size
-            if queue_size >= max_queue_size:
-                print(f"Should pause due to full queue: size={queue_size}, max={max_queue_size}")
-                return True
-
-            return False
-
-        except Exception as e:
-            print(f"Error checking pause conditions: {e}")
-            return True  # 出错时暂停生成
-
-    def pause(self) -> bool:
-        """暂停生成 - 供外部调用"""
-        with self.lock:
-            if not self.running:
-                return False
-
-            if self.paused:
-                return True
-
-            self.paused = True
-            return True
-
-    def resume(self) -> bool:
-        """恢复生成 - 供外部调用"""
-        with self.lock:
-            if not self.running:
-                return False
-
-            if not self.paused:
-                return True
-
-            self.paused = False
-            self.condition.notify_all()
-            print("Generation resumed")
-            return True
-
-    def shutdown(self):
-        """关闭Rollouter - 改进的关闭逻辑"""
-        print("Shutting down Rollouter...")
-
-        with self.lock:
-            self.running = False
-            self.paused = False
-            self.condition.notify_all()
-
-        # 等待生成线程结束
-        if self.generation_thread and self.generation_thread.is_alive():
-            print("Waiting for generation thread to finish...")
-            self.generation_thread.join(timeout=10.0)
-
-            if self.generation_thread.is_alive():
-                print("Generation thread did not finish within timeout")
-
-        # 等待监控线程结束
-        if self.monitor_thread and self.monitor_thread.is_alive():
-            print("Waiting for monitor thread to finish...")
-            self.monitor_thread.join(timeout=5.0)
-
-            if self.monitor_thread.is_alive():
-                print("Monitor thread did not finish within timeout")
-
-        # 关闭线程池
-        if self.thread_executor:
-            self.thread_executor.shutdown(wait=True)
-
-        # 清理异步rollout管理器
-        if hasattr(self, "async_rollout_manager"):
-            try:
-                # TODO: 添加异步rollout管理器的清理逻辑
-                pass
-            except Exception as e:
-                print(f"Error cleaning up async rollout manager: {e}")
-
-        print("Rollouter shutdown complete")
-
-    def get_statistics(self) -> dict:
-        with self.lock:
-            queue_stats = self.message_queue_client.get_statistics()
-            stats = {
-                "total_generated_samples": self.total_generated_samples,
-                "dropped_stale_samples": self.dropped_stale_samples,
-                "current_param_version": self.current_param_version,
-                "param_sync_requests": self.param_sync_requests,
-                "last_sync_time": self.last_sync_time,
-                "is_running": self.running,
-                "sync_in_progress": self.sync_in_progress,
-                "queue_size": f"{queue_stats['queue_size']}",
-            }
-            return stats

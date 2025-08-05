@@ -55,7 +55,6 @@ max_response_length=1024
 
 # 异步训练参数
 staleness_threshold=3
-max_staleness_allowed=5
 max_queue_size=1000
 min_batch_count=1
 batch_timeout=30.0
@@ -121,7 +120,6 @@ python -m recipe.one_step_off_policy.fully_async_main \
     \
     # 异步训练配置
     async_training.staleness_threshold=$staleness_threshold \
-    async_training.max_staleness_allowed=$max_staleness_allowed \
     async_training.max_queue_size=$max_queue_size \
     async_training.min_batch_count=$min_batch_count \
     async_training.batch_timeout=$batch_timeout \

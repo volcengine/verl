@@ -224,7 +224,7 @@ class FullyAsyncTaskRunner:
 
         # 创建MessageQueue
         print("Creating MessageQueue...")
-        max_queue_size = config.async_training.get("max_queue_size", 1000)
+        max_queue_size = config.async_training.staleness_threshold * config.data.train_batch_size
         message_queue = MessageQueue.remote(config, max_queue_size)
         message_queue_client = MessageQueueClient(message_queue)
 

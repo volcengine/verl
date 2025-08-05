@@ -76,7 +76,7 @@ class MessageQueue:
         )
 
     def put_samples(
-        self, samples: list[Any], param_version: int, rollout_metadata_list: list[dict[str, Any]] = None
+            self, samples: list[Any] | Any, param_version: int, rollout_metadata: dict[str, Any] = None
     ) -> bool:
         """
         放入一个batch样本到队列
@@ -84,7 +84,7 @@ class MessageQueue:
         Args:
             samples: 样本数据
             param_version: 参数版本号
-            rollout_metadata_list: rollout相关的元数据
+            rollout_metadata: rollout相关的元数据
 
         Returns:
             bool: 是否成功放入队列
@@ -97,21 +97,13 @@ class MessageQueue:
                 logger.debug(f"Dropped stale sample: staleness={staleness}, threshold={self.staleness_threshold}")
                 return False
 
-            # 处理 rollout_metadatas 为 None 的情况
-            if rollout_metadata_list is None:
-                rollout_metadata_list = [{}] * len(samples)
-
-            if len(rollout_metadata_list) != len(samples):
-                logger.warning(f"len(rollout_metadata_list):{len(rollout_metadata_list)} != len(samples:{len(samples)}")
-                return False
-
-            for sample, meta in zip(samples, rollout_metadata_list, strict=False):
+            for sample in samples:
                 queue_sample = QueueSample(
                     id=str(uuid.uuid4()),
                     data=sample,
                     param_version=param_version,
                     timestamp=time.time(),
-                    rollout_metadata=meta or {},
+                    rollout_metadata=rollout_metadata or {},
                 )
 
                 # 如果队列满了，移除最旧的样本，一般不会发生
@@ -235,7 +227,7 @@ class MessageQueueClient:
         self.queue_actor = queue_actor
 
     def put_samples(
-        self, samples: list[Any], param_version: int, rollout_metadata_list: list[dict[str, Any]] = None
+            self, samples: list[Any], param_version: int, rollout_metadata_list: list[dict[str, Any]] = None
     ) -> bool:
         """放入batch到队列"""
         return ray.get(self.queue_actor.put_samples.remote(samples, param_version, rollout_metadata_list))

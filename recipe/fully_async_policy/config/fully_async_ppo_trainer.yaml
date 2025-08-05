@@ -11,16 +11,6 @@ defaults:
 async_training:
   # 新鲜度控制 (Freshness Control)
   staleness_threshold: 3              # 样本新鲜度阈值
-  max_staleness_allowed: 5            # 最大允许的样本陈旧度
-
-  # 队列管理 (Queue Management)
-  max_queue_size: 1000               # 消息队列最大大小
-  min_batch_count: 1                 # 每次获取的最小batch数量
-  batch_timeout: 30.0                # 获取batch的超时时间(秒)
-
-  # 生成控制 (Generation Control)
-  generation_timeout: 30.0           # 单次生成的超时时间(秒)
-  batch_generation_interval: 0.1     # batch生成间隔(秒)
 
   # 参数同步 (Parameter Synchronization)
   max_sync_retries: 3                # 参数同步最大重试次数
@@ -35,3 +25,5 @@ rollout:
   name: vllm                         # rollout引擎: vllm, sglang
   n: 4                               # 每个prompt生成的响应数量
 
+data:
+  gen_batch_size: 32
