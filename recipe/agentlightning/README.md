@@ -118,7 +118,7 @@ You can run the agent client alone without the `verl` server. This is useful for
 
 ## Evaluation
 
-The example is evaluated using Qwen2.5-Coder-Instruct and Llama-3.2-Instruct models. The models are trained on the Spider dataset for 2 epochs, with evaluation performed on a randomly selected subset of 500 test samples to compute held-out accuracy. Training is conducted on mixed hardware configurations, including 1-2 80GB A100/H100 GPUs. The default setup for running agent clients during evaluation is as follows:
+The example is evaluated using Qwen2.5-Coder-Instruct and Llama-3.2-Instruct models. The models are trained on the Spider dataset for 2 epochs, with evaluation performed on a randomly selected subset of 500 test samples to compute held-out accuracy. The default setup for running agent clients during evaluation is as follows:
 
 ```bash
 python sql_agent.py \
@@ -170,3 +170,8 @@ python sql_agent.py \
 | Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite&#124;check |       436 |           100.4 |               56.4 |                    33.5 |
 | Qwen2.5-Coder | 3B     |      4096 |           1 | write&#124;rewrite            |       436 |            66   |               55.7 |                    34   |
 | Qwen2.5-Coder | 3B     |      4096 |           3 | write&#124;rewrite            |       436 |            83.1 |               61.8 |                    28.8 |
+
+**Notes:**
+
+1. **Hardware Configuration**: Training is conducted on mixed hardware setups, typically using 1-2 80GB A100/H100 GPUs. Larger models (e.g., 3B parameters) require additional GPU memory and may benefit from multi-GPU configurations.
+2. **Training Completion**: Some experimental runs completed fewer training steps due to technical constraints encountered during the limited training window. These limitations included response length explosion (which significantly slowed training throughput) and occasional cluster infrastructure failures.
