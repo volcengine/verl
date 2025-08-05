@@ -159,25 +159,36 @@ class ActorRolloutRefWorker:
 
 class AsyncRayPPOTrainer(RayPPOTrainer):
    def init_workers(self):
-
-
-...
-# rollout obtains the meta-info of model parameters from the actor for parameter sync
-weights_info = self.actor_wg.get_actor_weights_info()[0]
-self.rollout_wg.set_actor_weights_info(weights_info)
-
-# Create an actor-rollout communication group for parameter sync
-actor_rollout_workers = self.actor_wg.workers + self.rollout_wg.workers
-collective.create_collective_group(
-   actor_rollout_workers,
-   len(actor_rollout_workers),
-   list(range(0, len(actor_rollout_workers))),
-   backend="nccl",
-   group_name="actor_rollout"
-)
+      ...
+      # rollout obtains the meta-info of model parameters from the actor for parameter sync
+      weights_info = self.actor_wg.get_actor_weights_info()[0]
+      self.rollout_wg.set_actor_weights_info(weights_info)
+      
+      # Create an actor-rollout communication group for parameter sync
+      self.create_weight_sync_group
 ```
 
 ```python
+# The driving process invokes the actor and rollout respectively to create a weight synchronization group based on nccl/hccl.
+def create_weight_sync_group(self):
+   master_address = ray.get(self.actor_wg.workers[0]._get_node_ip.remote())
+   master_port = ray.get(self.actor_wg.workers[0]._get_free_port.remote())
+   world_size = len(self.actor_wg.workers + self.rollout_wg.workers)
+   self.actor_wg.create_weight_sync_group(
+      master_address,
+      master_port,
+      0,
+      world_size,
+   )
+   ray.get(
+      self.rollout_wg.create_weight_sync_group(
+            master_address,
+            master_port,
+            len(self.actor_wg.workers),
+            world_size,
+      )
+   )
+
 # drive process call the actor and rollout respectively to sync parameters by nccl 
 def sync_rollout_weights(self):
    self.actor_wg.sync_rollout_weights()
