@@ -102,6 +102,8 @@ class Worker(WorkerHelper):
             is_collect (bool):
                 Whether the dp_rank is used for collect.
         """
+        if mesh_name in self.__dispatch_dp_rank or mesh_name in self.__collect_dp_rank:
+            raise ValueError(f"mesh_name {mesh_name} has been registered")
         self.__dispatch_dp_rank[mesh_name] = dp_rank
         self.__collect_dp_rank[mesh_name] = is_collect
 
