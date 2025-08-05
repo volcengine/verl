@@ -2,7 +2,7 @@
 
 This example demonstrates how to build and train a self-correcting SQL agent. It leverages [Agent Lightning](https://github.com/microsoft/agent-lightning) and the `verl` framework for Reinforcement Learning (RL) based training, and LangGraph to define the agent's complex, cyclical reasoning workflow. The goal is to fine-tune a Large Language Model (LLM) to accurately convert natural language questions into executable SQL queries.
 
-**The example is tested with verl v0.5.0 and Agent Lightning v0.1.1.**
+**The example is tested with verl v0.5.0, vLLM v0.10.0, and Agent Lightning v0.1.1.**
 
 ## SQL Agent Implementation
 
@@ -130,6 +130,8 @@ python sql_agent.py \
    --litsqlagent.table-info-truncate 2048 \
    --litsqlagent.execution-truncate 2048
 ```
+
+The setup of training server is the same as the command above.
 
 ### Performance Metrics
 
