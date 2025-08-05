@@ -396,7 +396,7 @@ trainer:
   use_legacy_worker_impl: auto
 profiler:
   _target_: verl.utils.profiler.ProfilerConfig
-  tool: null
+  tool: ''
   steps: null
   profile_continuous_steps: false
   save_path: outputs/profile

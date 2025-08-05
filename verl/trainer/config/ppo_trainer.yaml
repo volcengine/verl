@@ -313,7 +313,7 @@ profiler:
   _target_: verl.utils.profiler.ProfilerConfig
 
   # Profiling tool: choose between nsys, npu, torch
-  tool: null
+  tool: ""
 
   # profile steps
   steps: null
