@@ -135,18 +135,18 @@ python sql_agent.py \
 
 ![](assets/val_reward_curves.png)
 
-| Model         | Size   |   Context |   Max Turns | Agents              |   Acc (Initial) |   Acc (Final) | Transitions   |   Prompt Length | Response Length   |
-|---------------|--------|-----------|-------------|---------------------|-----------------|---------------|---------------|-----------------|-------------------|
-| Llama3.2      | 1B     |      2048 |           3 | write|rewrite       |            18.8 |          53   | 2.89 → 3.00   |           800.9 | 299.1 → 15.9      |
-| Llama3.2      | 3B     |      2048 |           3 | write|rewrite       |            53   |          68.4 | 2.26 → 2.52   |           833   | 123.8 → 36.7      |
-| Qwen2.5-Coder | 1.5B   |      2048 |           3 | write|rewrite       |            28.6 |          68.8 | 2.74 → 2.99   |           846   | 38.0 → 33.8       |
-| Qwen2.5-Coder | 3B     |      2048 |           1 | write|rewrite       |            63.8 |          73.2 | 1.00 → 1.00   |           707.9 | 36.9 → 32.8       |
-| Qwen2.5-Coder | 3B     |      2048 |           3 | rewrite|check       |            63.4 |          74   | 2.31 → 1.64   |           969.5 | 22.0 → 54.9       |
-| Qwen2.5-Coder | 3B     |      2048 |           3 | write|rewrite       |            50.8 |          75.2 | 2.02 → 1.78   |           799.9 | 43.9 → 29.1       |
-| Qwen2.5-Coder | 3B     |      2048 |           3 | write|rewrite       |            62.4 |          74.2 | 1.63 → 1.40   |           793.7 | 37.3 → 28.9       |
-| Qwen2.5-Coder | 3B     |      2048 |           3 | write|rewrite|check |            63.4 |          73   | 3.32 → 2.58   |           864.7 | 30.7 → 32.4       |
-| Qwen2.5-Coder | 3B     |      4096 |           1 | write|rewrite       |            68.8 |          80.2 | 1.00 → 1.00   |           974.2 | 36.4 → 31.1       |
-| Qwen2.5-Coder | 3B     |      4096 |           3 | write|rewrite       |            68   |          81.4 | 1.54 → 1.47   |          1052   | 36.7 → 31.3       |
+| Model         | Size   |   Context |   Max Turns | Agents                        |   Acc (Initial) |   Acc (Final) | Transitions   |   Prompt Length | Response Length   |
+|---------------|--------|-----------|-------------|-------------------------------|-----------------|---------------|---------------|-----------------|-------------------|
+| Llama3.2      | 1B     |      2048 |           3 | write&#124;rewrite            |            18.8 |          53   | 2.89 → 3.00   |           800.9 | 299.1 → 15.9      |
+| Llama3.2      | 3B     |      2048 |           3 | write&#124;rewrite            |            53   |          68.4 | 2.26 → 2.52   |           833   | 123.8 → 36.7      |
+| Qwen2.5-Coder | 1.5B   |      2048 |           3 | write&#124;rewrite            |            28.6 |          68.8 | 2.74 → 2.99   |           846   | 38.0 → 33.8       |
+| Qwen2.5-Coder | 3B     |      2048 |           1 | write&#124;rewrite            |            63.8 |          73.2 | 1.00 → 1.00   |           707.9 | 36.9 → 32.8       |
+| Qwen2.5-Coder | 3B     |      2048 |           3 | rewrite&#124;check            |            63.4 |          74   | 2.31 → 1.64   |           969.5 | 22.0 → 54.9       |
+| Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite            |            50.8 |          75.2 | 2.02 → 1.78   |           799.9 | 43.9 → 29.1       |
+| Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite            |            62.4 |          74.2 | 1.63 → 1.40   |           793.7 | 37.3 → 28.9       |
+| Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite&#124;check |            63.4 |          73   | 3.32 → 2.58   |           864.7 | 30.7 → 32.4       |
+| Qwen2.5-Coder | 3B     |      4096 |           1 | write&#124;rewrite            |            68.8 |          80.2 | 1.00 → 1.00   |           974.2 | 36.4 → 31.1       |
+| Qwen2.5-Coder | 3B     |      4096 |           3 | write&#124;rewrite            |            68   |          81.4 | 1.54 → 1.47   |          1052   | 36.7 → 31.3       |
 
 **Notes:**
 
@@ -158,15 +158,15 @@ python sql_agent.py \
 
 ### Efficiency Metrics
 
-| Model         | Size   |   Context |   Max Turns | Agents              |   # Steps |   Time/Step (s) |   Rollout Time (%) |   Update Actor Time (%) |
-|---------------|--------|-----------|-------------|---------------------|-----------|-----------------|--------------------|-------------------------|
-| Llama3.2      | 1B     |      2048 |           3 | write|rewrite       |       436 |            62.1 |               71.6 |                    21.8 |
-| Llama3.2      | 3B     |      2048 |           3 | write|rewrite       |       335 |           122.5 |               76.3 |                    18.3 |
-| Qwen2.5-Coder | 1.5B   |      2048 |           3 | write|rewrite       |       436 |            63.8 |               63.1 |                    28.5 |
-| Qwen2.5-Coder | 3B     |      2048 |           1 | write|rewrite       |       436 |            47   |               69.1 |                    23.4 |
-| Qwen2.5-Coder | 3B     |      2048 |           3 | rewrite|check       |       307 |           122   |               68.5 |                    24.1 |
-| Qwen2.5-Coder | 3B     |      2048 |           3 | write|rewrite       |       436 |            76.1 |               66.7 |                    25.3 |
-| Qwen2.5-Coder | 3B     |      2048 |           3 | write|rewrite       |       436 |            73.7 |               66.7 |                    25.2 |
-| Qwen2.5-Coder | 3B     |      2048 |           3 | write|rewrite|check |       436 |           100.4 |               56.4 |                    33.5 |
-| Qwen2.5-Coder | 3B     |      4096 |           1 | write|rewrite       |       436 |            66   |               55.7 |                    34   |
-| Qwen2.5-Coder | 3B     |      4096 |           3 | write|rewrite       |       436 |            83.1 |               61.8 |                    28.8 |
+| Model         | Size   |   Context |   Max Turns | Agents                        |   # Steps |   Time/Step (s) |   Rollout Time (%) |   Update Actor Time (%) |
+|---------------|--------|-----------|-------------|-------------------------------|-----------|-----------------|--------------------|-------------------------|
+| Llama3.2      | 1B     |      2048 |           3 | write&#124;rewrite            |       436 |            62.1 |               71.6 |                    21.8 |
+| Llama3.2      | 3B     |      2048 |           3 | write&#124;rewrite            |       335 |           122.5 |               76.3 |                    18.3 |
+| Qwen2.5-Coder | 1.5B   |      2048 |           3 | write&#124;rewrite            |       436 |            63.8 |               63.1 |                    28.5 |
+| Qwen2.5-Coder | 3B     |      2048 |           1 | write&#124;rewrite            |       436 |            47   |               69.1 |                    23.4 |
+| Qwen2.5-Coder | 3B     |      2048 |           3 | rewrite&#124;check            |       307 |           122   |               68.5 |                    24.1 |
+| Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite            |       436 |            76.1 |               66.7 |                    25.3 |
+| Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite            |       436 |            73.7 |               66.7 |                    25.2 |
+| Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite&#124;check |       436 |           100.4 |               56.4 |                    33.5 |
+| Qwen2.5-Coder | 3B     |      4096 |           1 | write&#124;rewrite            |       436 |            66   |               55.7 |                    34   |
+| Qwen2.5-Coder | 3B     |      4096 |           3 | write&#124;rewrite            |       436 |            83.1 |               61.8 |                    28.8 |
