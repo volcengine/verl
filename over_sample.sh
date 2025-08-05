@@ -6,8 +6,24 @@
 cd ~/verl
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
-# 定义 OVER_SAMPLE_RATE 数组
-rates=(0.65 0.7 0.75 0.8 0.85 0.88 0.9 0.92 0.95 0.98 1.0)
+# 检查是否传入了参数
+if [ $# -eq 0 ]; then
+    # 如果没有传入参数，使用默认值
+    rates=(0.8)
+    echo "使用默认的 OVER_SAMPLE_RATE 数组: ${rates[*]}"
+else
+    # 使用传入的参数作为数组
+    rates=("$@")
+    echo "使用传入的 OVER_SAMPLE_RATE 数组: ${rates[*]}"
+fi
+
+# 验证传入的参数是否为有效的数字
+for rate in "${rates[@]}"; do
+    if ! [[ "$rate" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+        echo "错误：传入的参数 '$rate' 不是有效的数字"
+        exit 1
+    fi
+done
 
 # 无限循环
 while true; do

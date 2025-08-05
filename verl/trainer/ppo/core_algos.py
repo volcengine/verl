@@ -715,26 +715,17 @@ def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str
         loss: `a scalar torch.Tensor`
             aggregated loss
     """
-    # 检测padding请求（loss_mask全为0的样本）
-    # 如果某个样本的loss_mask全为0，说明这是一个被abort的padding请求
-    # 我们需要将其排除在统计之外
-    sample_mask = loss_mask.any(dim=1).float()  # (bs,) - 只有非padding样本为1
-
     if loss_agg_mode == "token-mean":
-        # 使用样本级别的mask来过滤padding请求
-        loss = verl_F.masked_mean(loss_mat, loss_mask * sample_mask.unsqueeze(-1))
+        loss = verl_F.masked_mean(loss_mat, loss_mask)
     elif loss_agg_mode == "seq-mean-token-sum":
         seq_losses = torch.sum(loss_mat * loss_mask, dim=-1)  # token-sum
-        # 使用样本级别的mask来过滤padding请求
-        loss = verl_F.masked_mean(seq_losses, sample_mask)
+        loss = torch.mean(seq_losses)  # seq-mean
     elif loss_agg_mode == "seq-mean-token-mean":
         seq_losses = torch.sum(loss_mat * loss_mask, dim=-1) / torch.sum(loss_mask, dim=-1)  # token-mean
-        # 使用样本级别的mask来过滤padding请求
-        loss = verl_F.masked_mean(seq_losses, sample_mask)
+        loss = torch.mean(seq_losses)  # seq-mean
     elif loss_agg_mode == "seq-mean-token-sum-norm":
         seq_losses = torch.sum(loss_mat * loss_mask, dim=-1)
-        # 使用样本级别的mask来过滤padding请求
-        loss = verl_F.masked_mean(seq_losses, sample_mask) / loss_mask.shape[-1]  # The divisor
+        loss = torch.sum(seq_losses) / loss_mask.shape[-1]  # The divisor
         # (loss_mask.shape[-1]) should ideally be constant
         # throughout training to well-replicate the DrGRPO paper.
         # TODO: Perhaps add user-defined normalizer argument to
