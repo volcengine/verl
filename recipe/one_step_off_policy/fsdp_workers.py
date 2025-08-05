@@ -24,7 +24,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import AutoConfig
 
 from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils import hf_processor, hf_tokenizer, omega_conf_to_dataclass
 from verl.utils.debug import DistProfiler, DistProfilerExtension, log_gpu_memory_usage
 from verl.utils.device import (
@@ -214,7 +214,7 @@ class RolloutWorker(ActorRolloutRefWorker):
         self.rollout = rollout
         self.rollout_sharding_manager = rollout_sharding_manager
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO, blocking=False)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"), blocking=False)
     def async_generate_sequences(self, *args, **kwargs):
         return super().generate_sequences(*args, **kwargs)
 
