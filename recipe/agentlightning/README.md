@@ -1,8 +1,31 @@
 # SQL Agent with Agent Lightning
 
-This example demonstrates how to use Agent Lightning to train a SQL agent using Agent Lightning + verl framework. The SQL agent is designed to interact with a database, execute SQL queries, and retrieve results to answer user queries.
+This example demonstrates how to build and train a self-correcting SQL agent. It leverages [Agent Lightning](https://github.com/microsoft/agent-lightning) and the `verl` framework for Reinforcement Learning (RL) based training, and LangGraph to define the agent's complex, cyclical reasoning workflow. The goal is to fine-tune a Large Language Model (LLM) to accurately convert natural language questions into executable SQL queries.
 
 **The example is tested with verl v0.5.0 and Agent Lightning v0.1.1.**
+
+## SQL Agent Implementation
+
+The design of Agent-lightning allows flexible integration with various agent frameworks, including AutoGen, CrewAI, OpenAI Agent SDK, LangGraph, and more. It can also work without agent frameworks, allowing you to train an agent built from scratch with Python code.
+
+The core of the agent is a state machine built with LangGraph, which allows for a robust and transparent workflow. The agent's logic, as visualized below, starts by writing a query, executes it, and then enters a refinement loop where it checks and rewrites the query until it is deemed correct or a turn limit is reached.
+
+![The agent's reasoning workflow, implemented as a StateGraph in LangGraph](assets/sql_agent_visualization.png)
+
+This workflow is implemented in the `SQLAgent` class within `sql_agent.py`. It consists of the following key steps:
+
+1. **write_query**: Given a user's question and database schema, the agent makes an initial attempt to write a SQL query.
+2. **execute_query**: The generated query is run against the target database.
+3. **check_query**: The agent analyzes the original query and its execution result (or error) to check for mistakes. It uses a specific prompt (`CHECK_QUERY_PROMPT`) to determine if the query is correct.
+4. **rewrite_query**: If the `check_query` step finds errors, the agent enters this step. It uses the feedback from the previous step to generate a corrected SQL query. The process then loops back to `check_query` for re-evaluation.
+5. **END**: The loop terminates when `check_query` confirms the query is correct or the maximum number of turns (`max_turns`) is exceeded.
+
+## Client-Server Training with Agent Lightning
+
+The training process uses a distributed client-server architecture designed by Agent Lightning to efficiently fine-tune the underlying LLM. This separation allows for scalable data generation across multiple clients while centralizing the computationally intensive model training on a dedicated server with GPUs.
+
+* **Training Server (`agentlightning.verl`)**: The server, launched with the first command below, manages the core training loop. It runs an RL algorithm (with `verl` of course) and hosts an OpenAI-compatible LLM endpoint (with `verl`'s async server). The server's sole purpose is to receive interaction data from clients and update the LLM's weights to improve its performance.
+* **Agent Clients (`sql_agent.py`)**: The clients run the LangGraph agent logic described above. They connect to the server to fetch tasks (natural language questions) and use the server's LLM API for all generation steps (`write_query`, `check_query`, `rewrite_query`). After completing a task, the client exports its interaction traces (traced by [AgentOps](https://www.agentops.ai/) by default), evaluates its correctness to calculate a reward, and sends the entire interaction history (the "trajectory") back to the server for training.
 
 ## Running the Example
 
@@ -61,7 +84,7 @@ This example demonstrates how to use Agent Lightning to train a SQL agent using 
        trainer.nnodes=1 \
        trainer.save_freq=256 \
        trainer.test_freq=32 \
-       trainer.total_epochs=2 $@
+       trainer.total_epochs=2
     ```
 
 4. Launch agent clients that connect with the server:
@@ -77,7 +100,7 @@ There is no hard requirement in the launching order of the server and clients. B
 
 ## Debug the Agent without verl
 
-You can run the agent client alone without the verl server. This is useful for debugging the agent logic and SQL execution.
+You can run the agent client alone without the `verl` server. This is useful for debugging the agent logic and SQL execution.
 
 1. Copy `.env.example` to `.env` and fill in your OpenAI API key. `VERL_API_BASE` does not really matter here because you are not connecting to the server end.
 
