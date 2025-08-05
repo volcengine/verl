@@ -453,6 +453,11 @@ class AsyncRolloutRequest(BaseModel):
         multi_modal_inputs = content_info.copy()
         multi_modal_inputs.pop("input_ids", None)
         multi_modal_inputs.pop("attention_mask", None)
+
+        # chat templates include generation prompt tokens (e.g., "<im_start>assistant\n")
+        # So when tool response is added, we need to explicitly remove these tokens.
+        self._remove_generation_prompt_ids_if_present()
+
         self._update_input_ids(
             processing_class,
             content_ids,
@@ -526,6 +531,16 @@ class AsyncRolloutRequest(BaseModel):
             )
         return diffs
 
+    def _remove_generation_prompt_ids_if_present(self) -> None:
+        """
+        Remove generation prompt IDs from input tensors if they are present at the end.
+        """
+        if self.input_ids[..., -self.generation_prompt_ids.shape[-1] :].eq(self.generation_prompt_ids).all():
+            self.input_ids = self.input_ids[..., : -self.generation_prompt_ids.shape[-1]]
+            self.attention_mask = self.attention_mask[..., : -self.generation_prompt_ids.shape[-1]]
+            self.position_ids = self.position_ids[..., : -self.generation_prompt_ids.shape[-1]]
+            self.loss_mask = self.loss_mask[..., : -self.generation_prompt_ids.shape[-1]]
+
     def finalize(
         self,
         processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
@@ -537,11 +552,7 @@ class AsyncRolloutRequest(BaseModel):
 
         # In case we failed to generate the assistant message and the generation prompt ids were already added to
         # input_ids, remove them from the end of input_ids
-        if self.input_ids[..., -self.generation_prompt_ids.shape[-1] :].eq(self.generation_prompt_ids).all():
-            self.input_ids = self.input_ids[..., : -self.generation_prompt_ids.shape[-1]]
-            self.attention_mask = self.attention_mask[..., : -self.generation_prompt_ids.shape[-1]]
-            self.position_ids = self.position_ids[..., : -self.generation_prompt_ids.shape[-1]]
-            self.loss_mask = self.loss_mask[..., : -self.generation_prompt_ids.shape[-1]]
+        self._remove_generation_prompt_ids_if_present()
 
         self.response_ids = self.input_ids[..., self.prompt_ids.shape[-1] :]
 
