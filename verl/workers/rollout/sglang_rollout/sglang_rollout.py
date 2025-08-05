@@ -180,7 +180,7 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
             abort_all: If True, abort all running requests regardless of rid.
         """
         try:
-            result = await self.tokenizer_manager.abort_request(rid=rid, abort_all=abort_all)
+            result = self.tokenizer_manager.abort_request(rid=rid, abort_all=abort_all)
             print(f"🔍 Abort result: {result}")
             return result if result is not None else {"status": "aborted"}
         except Exception as e:
@@ -1170,7 +1170,7 @@ class SGLangRollout(BaseRollout):
 
                     # 向engine发送abort信号，中断所有正在进行的请求
                     try:
-                        abort_result = await self.abort_request(abort_all=True)
+                        abort_result = await self._engine.abort_request(abort_all=True)
                         print(f"✅ Abort signal sent to engine: {abort_result}")
                     except Exception as e:
                         print(f"❌ Failed to send abort signal to engine: {e}")

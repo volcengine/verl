@@ -5,6 +5,7 @@ set -x
 
 ulimit -n 65535
 
+VAL_BEFORE_TRAIN=False
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 
