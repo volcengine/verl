@@ -20,12 +20,10 @@ from pprint import pprint
 import numpy as np
 import ray
 from omegaconf import OmegaConf
-from torch.utils.data import Dataset, Sampler
 from tqdm import tqdm
 
 from recipe.fully_async_policy.message_queue import MessageQueueClient, QueueSample
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
-from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator
 from verl.trainer.ppo.ray_trainer import (
@@ -155,7 +153,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.actor_wg.init_model()
         self.actor_rollout_wg = self.actor_wg  # to be compatible with the functions that not be modified
 
-
     def fit(self):
         """
         The training loop of PPO.
@@ -167,8 +164,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         if self.message_queue_client is None:
             raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
-
-        from omegaconf import OmegaConf
 
         from verl.utils.tracking import Tracking
 

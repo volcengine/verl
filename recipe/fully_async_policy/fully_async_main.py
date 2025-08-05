@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
 import os
 import signal
 import socket
@@ -27,7 +26,6 @@ from omegaconf import OmegaConf
 from recipe.fully_async_policy.fully_async_rollouter import FullyAsyncRollouter
 from recipe.fully_async_policy.fully_async_trainer import FullyAsyncTrainer
 from recipe.fully_async_policy.message_queue import MessageQueue, MessageQueueClient
-from recipe.fully_async_policy.param_sync import AsyncParameterSynchronizer
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.fs import copy_to_local
@@ -159,9 +157,9 @@ class FullyAsyncTaskRunner:
         self._setup_signal_handlers()
         # 初始化基础组件
         self._initialize_components(config)
-        time.sleep(60)
+        # time.sleep(60)
         # 启动训练流程
-        # self._run_training_loop()
+        self._run_training_loop()
 
         # self._cleanup_resources()
 
@@ -239,7 +237,7 @@ class FullyAsyncTaskRunner:
 
         # 创建Trainer
         print("Creating FullyAsyncTrainer...")
-        self._create_trainer(config)
+        # self._create_trainer(config)
 
         # 设置参数同步
         # print("Setting up parameter synchronization...")
@@ -308,30 +306,12 @@ class FullyAsyncTaskRunner:
 
         print("Starting Rollouter in background...")
         rollouter_future = self.components["rollouter"].fit.remote()
-        trainer_future = self.components["trainer"].fit.remote()
-        self._monitor_components()
+        # trainer_future = self.components["trainer"].fit.remote()
+        # self._monitor_components()
         ray.get(rollouter_future)
-        ray.get(trainer_future)
+        # ray.get(trainer_future)
 
         print("Training completed or interrupted")
-
-    def _run_rollouter(self):
-        try:
-            ray.get(self.components["rollouter"].fit.remote())
-        except Exception as e:
-            print(f"Rollouter error: {e}")
-            self.running = False
-            self.shutdown_event.set()
-
-    def _run_trainer(self):
-        """运行trainer"""
-        try:
-            self.components["trainer"].fit()
-        except Exception as e:
-            print(f"Trainer error: {e}")
-        finally:
-            self.running = False
-            self.shutdown_event.set()
 
     def _monitor_components(self):
         """监控组件状态"""
@@ -468,6 +448,7 @@ class FullyAsyncTaskRunner:
 def main(config):
     """主入口函数"""
     from verl.trainer.main_ppo import run_ppo
+
     # 确保异步训练配置存在
     if not hasattr(config, "async_training"):
         raise RuntimeError("must set async_training config")

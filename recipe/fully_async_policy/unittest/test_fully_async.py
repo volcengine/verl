@@ -61,14 +61,13 @@ class TestMessageQueue(unittest.TestCase):
         mock_batch = Mock(spec=DataProto)
 
         # 放入样本
-        success = self.client.put_batch(epoch=0, batch=mock_batch, param_version=1, rollout_metadata={"test": "data"})
+        success = self.client.put_samples(samples=mock_batch, param_version=1, rollout_metadata={"test": "data"})
         self.assertTrue(success)
 
         # 获取样本
-        samples = self.client.get_batch(min_batch_count=1, timeout=5.0)
+        samples = self.client.get_samples(min_batch_count=1, timeout=5.0)
         self.assertIsNotNone(samples)
         self.assertEqual(len(samples), 1)
-        self.assertEqual(samples[0].epoch, 0)
         self.assertEqual(samples[0].param_version, 1)
 
     def test_freshness_control(self):
@@ -79,9 +78,8 @@ class TestMessageQueue(unittest.TestCase):
         self.client.update_param_version(10)
 
         # 尝试放入过期样本
-        success = self.client.put_batch(
-            epoch=0,
-            batch=mock_batch,
+        success = self.client.put_samples(
+            samples=mock_batch,
             param_version=5,  # 版本差异为5，超过阈值3
             rollout_metadata={},
         )
@@ -161,11 +159,11 @@ def test_integration():
 
         # 生产样本
         for i in range(5):
-            success = client.put_batch(epoch=i, batch=mock_batch, param_version=i, rollout_metadata={"batch_id": i})
+            success = client.put_samples(samples=mock_batch, param_version=i, rollout_metadata={"batch_id": i})
             assert success, f"Failed to put batch {i}"
 
         # 消费样本
-        samples = client.get_batch(min_batch_count=3, timeout=10.0)
+        samples = client.get_samples(min_batch_count=3, timeout=10.0)
         assert samples is not None, "Failed to get samples"
         assert len(samples) == 3, f"Expected 3 samples, got {len(samples)}"
 

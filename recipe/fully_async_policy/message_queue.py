@@ -31,7 +31,6 @@ class QueueSample:
     """单个batch样本，包含参数版本和新鲜度信息"""
 
     id: str
-    epoch: int
     data: Any
     param_version: int
     timestamp: float
@@ -77,13 +76,12 @@ class MessageQueue:
         )
 
     def put_samples(
-            self, epoch: int, samples: list[Any], param_version: int, rollout_metadata_list: list[dict[str, Any]] = None
+        self, samples: list[Any], param_version: int, rollout_metadata_list: list[dict[str, Any]] = None
     ) -> bool:
         """
         放入一个batch样本到队列
 
         Args:
-            epoch: 当前epoch
             samples: 样本数据
             param_version: 参数版本号
             rollout_metadata_list: rollout相关的元数据
@@ -110,7 +108,6 @@ class MessageQueue:
             for sample, meta in zip(samples, rollout_metadata_list, strict=False):
                 queue_sample = QueueSample(
                     id=str(uuid.uuid4()),
-                    epoch=epoch,
                     data=sample,
                     param_version=param_version,
                     timestamp=time.time(),
@@ -237,13 +234,13 @@ class MessageQueueClient:
     def __init__(self, queue_actor: Any):
         self.queue_actor = queue_actor
 
-    def put_batch(
-            self, epoch: int, batch: list[Any], param_version: int, rollout_metadata_list: list[dict[str, Any]] = None
+    def put_samples(
+        self, samples: list[Any], param_version: int, rollout_metadata_list: list[dict[str, Any]] = None
     ) -> bool:
         """放入batch到队列"""
-        return ray.get(self.queue_actor.put_samples.remote(epoch, batch, param_version, rollout_metadata_list))
+        return ray.get(self.queue_actor.put_samples.remote(samples, param_version, rollout_metadata_list))
 
-    def get_batch(self, min_batch_count: int = 1) -> list[QueueSample]:
+    def get_samples(self, min_batch_count: int = 1) -> list[QueueSample]:
         """从队列获取batch，一直等待直到有足够样本"""
         return ray.get(self.queue_actor.get_samples.remote(min_batch_count))
 

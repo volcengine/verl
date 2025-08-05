@@ -11,16 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pprint import pprint
-from typing import Optional
 
 import ray
 from omegaconf import OmegaConf
-from torch.utils.data import Dataset, Sampler
 from tqdm import tqdm
 
 from recipe.fully_async_policy.message_queue import MessageQueueClient
@@ -38,16 +35,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
     """
 
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            device_name=None,
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        device_name=None,
     ):
         """
         Initialize distributed PPO trainer with Ray backend.
@@ -92,7 +89,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.use_critic = False
         self.use_reference_policy = False
         self.use_rm = False
-
 
         # 创建数据集
         print("Creating datasets...")
@@ -180,7 +176,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.rollout_wg.init_model()
         self.actor_rollout_wg = self.rollout_wg
 
-
     def update_rollout_weights(self, param_version: int) -> bool:
         """
         更新rollout模型参数 - 改进的参数同步实现
@@ -192,11 +187,11 @@ class FullyAsyncRollouter(RayPPOTrainer):
         Returns:
             bool: 是否成功更新参数
         """
-        self.logger.info(f"Updating rollout weights to version {param_version}")
+        print(f"Updating rollout weights to version {param_version}")
 
         with self.sync_lock:
             if self.sync_in_progress:
-                self.logger.warning(f"Sync already in progress, skipping version {param_version}")
+                print(f"Sync already in progress, skipping version {param_version}")
                 return False
 
             self.sync_in_progress = True
@@ -217,7 +212,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 self.current_param_version = param_version
                 self.param_sync_requests += 1
                 self.last_sync_time = time.time()
-                self.logger.info(f"Successfully updated rollout weights to version {param_version}")
+                print(f"Successfully updated rollout weights to version {param_version}")
             else:
                 print(f"Failed to sync parameters to version {param_version}")
 
@@ -254,15 +249,15 @@ class FullyAsyncRollouter(RayPPOTrainer):
             # 执行参数同步
             if self.param_synchronizer:
                 self.param_synchronizer.sync_weights()
-                self.logger.debug("Parameter synchronization completed via synchronizer")
+                print("Parameter synchronization completed via synchronizer")
             else:
                 # 直接使用rollout worker group的同步机制
                 if hasattr(self.rollout_wg, "sync_rollout_weights"):
                     sync_futures = self.rollout_wg.sync_rollout_weights()
                     ray.get(sync_futures)
-                    self.logger.debug("Parameter synchronization completed via rollout worker group")
+                    print("Parameter synchronization completed via rollout worker group")
                 else:
-                    self.logger.warning("No parameter synchronization mechanism available")
+                    print("No parameter synchronization mechanism available")
                     return False
 
             # 恢复推理引擎
@@ -291,11 +286,11 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
     def fit(self):
         """开始异步生成样本 - 改进的主运行逻辑"""
-        self.logger.info("Starting Rollouter...")
+        print("Starting Rollouter...")
         if self.message_queue_client is None:
             raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
-        if self.param_synchronizer is None:
-            raise ValueError("param_synchronizer client not set. Call set_parameter_synchronizer() first.")
+        # if self.param_synchronizer is None:
+        #     raise ValueError("param_synchronizer client not set. Call set_parameter_synchronizer() first.")
 
         # 设置运行状态
         with self.lock:
@@ -314,7 +309,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.generation_thread.join()
         self.monitor_thread.join()
 
-        self.logger.info("Rollouter fit completed")
+        print("Rollouter fit completed")
 
     def _generation_loop(self):
         """
@@ -335,7 +330,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.logger = Tracking(
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
-            default_backend=self.config.trainer.self.logger,
+            default_backend=self.config.trainer.logger,
             config=OmegaConf.to_container(self.config, resolve=True),
         )
 
@@ -386,7 +381,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
                 # 如果被暂停，等待恢复
                 while self.paused and self.running:
-                    self.logger.debug("Generation thread paused, waiting...")
+                    print("Generation thread paused, waiting...")
                     self.condition.wait()
 
                 # 再次检查运行状态
@@ -413,21 +408,19 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     "timing": timing_raw,
                     "generation_timestamp": time.time(),
                     "rollout_param_version": self.current_param_version,
-                    "epoch": epoch,
                 }
                 # 放入队列
                 success = self.message_queue_client.put_samples(
-                    epoch=epoch,
-                    sample=gen_batch_output,
+                    samples=gen_batch_output,
                     param_version=self.current_param_version,
-                    rollout_metadata=rollout_metadata,
+                    rollout_metadata_list=rollout_metadata,
                 )
 
                 with self.lock:
                     if success:
                         self.total_generated_samples += 1
                         if self.total_generated_samples % 10 == 0:
-                            self.logger.info(
+                            print(
                                 f"Generated {self.total_generated_samples} batches, "
                                 f"param_version={self.current_param_version}, "
                                 f"errors={self.generation_errors}"
@@ -435,7 +428,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     else:
                         self.dropped_stale_samples += 1
                         if self.dropped_stale_samples % 5 == 0:
-                            self.logger.warning(f"Dropped stale samples: {self.dropped_stale_samples}")
+                            print(f"Dropped stale samples: {self.dropped_stale_samples}")
 
     def _monitor_loop(self):
         """监控线程 - 监控状态并处理控制信号"""
@@ -459,17 +452,17 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     last_stats_time = current_time
 
                 # 检查是否应该恢复生成
-                if self._should_resume_generation():
+                if not self._should_pause_generation():
                     with self.lock:
                         if self.paused:
                             self.paused = False
                             self.condition.notify_all()
-                            self.logger.info("Generation resumed")
+                            print("Generation resumed")
 
         except Exception as e:
             print(f"Error in monitor loop: {e}")
         finally:
-            self.logger.info("Monitor thread exiting")
+            print("Monitor thread exiting")
 
     def _report_loop(self):
         try:
@@ -493,9 +486,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     print("Generation thread died, restarting...")
                     raise RuntimeError("generation_thread not alive")
 
-
         except KeyboardInterrupt:
-            self.logger.info("Received interrupt signal, shutting down...")
+            print("Received interrupt signal, shutting down...")
         except Exception as e:
             print(f"Error in main loop: {e}")
         finally:
@@ -515,7 +507,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             # 如果版本差异过大，暂停生成
             if version_diff >= self.max_staleness_allowed:
-                self.logger.debug(
+                print(
                     f"Should pause due to staleness: rollout_version={self.current_param_version}, "
                     f"trainer_version={current_trainer_version}, diff={version_diff}"
                 )
@@ -524,7 +516,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             # 如果队列太满，也暂停生成
             max_queue_size = self.staleness_threshold * self.config.data.train_batch_size
             if queue_size >= max_queue_size:
-                self.logger.debug(f"Should pause due to full queue: size={queue_size}, max={max_queue_size}")
+                print(f"Should pause due to full queue: size={queue_size}, max={max_queue_size}")
                 return True
 
             return False
@@ -556,12 +548,12 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             self.paused = False
             self.condition.notify_all()
-            self.logger.info("Generation resumed")
+            print("Generation resumed")
             return True
 
     def shutdown(self):
         """关闭Rollouter - 改进的关闭逻辑"""
-        self.logger.info("Shutting down Rollouter...")
+        print("Shutting down Rollouter...")
 
         with self.lock:
             self.running = False
@@ -570,19 +562,19 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         # 等待生成线程结束
         if self.generation_thread and self.generation_thread.is_alive():
-            self.logger.info("Waiting for generation thread to finish...")
+            print("Waiting for generation thread to finish...")
             self.generation_thread.join(timeout=10.0)
 
             if self.generation_thread.is_alive():
-                self.logger.warning("Generation thread did not finish within timeout")
+                print("Generation thread did not finish within timeout")
 
         # 等待监控线程结束
         if self.monitor_thread and self.monitor_thread.is_alive():
-            self.logger.info("Waiting for monitor thread to finish...")
+            print("Waiting for monitor thread to finish...")
             self.monitor_thread.join(timeout=5.0)
 
             if self.monitor_thread.is_alive():
-                self.logger.warning("Monitor thread did not finish within timeout")
+                print("Monitor thread did not finish within timeout")
 
         # 关闭线程池
         if self.thread_executor:
@@ -594,9 +586,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 # TODO: 添加异步rollout管理器的清理逻辑
                 pass
             except Exception as e:
-                self.logger.warning(f"Error cleaning up async rollout manager: {e}")
+                print(f"Error cleaning up async rollout manager: {e}")
 
-        self.logger.info("Rollouter shutdown complete")
+        print("Rollouter shutdown complete")
 
     def get_statistics(self) -> dict:
         with self.lock:
