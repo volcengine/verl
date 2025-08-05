@@ -14,6 +14,7 @@
 
 import warnings
 from dataclasses import dataclass, field
+from typing import Any
 
 from omegaconf import MISSING
 
@@ -94,6 +95,7 @@ class ProfilerConfig(BaseConfig):
     all_ranks: bool = False
     ranks: list[int] = field(default_factory=list)
     save_path: str = MISSING
+    tool_config: Any = MISSING
 
     def __post_init__(self) -> None:
         """config validation logics go here"""
