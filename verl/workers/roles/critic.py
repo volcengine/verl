@@ -30,7 +30,7 @@ from verl.utils.device import (
     get_device_id,
     get_nccl_backend,
 )
-from verl.utils.profiler import DistProfiler, DistProfilerExtension
+from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 from verl.workers.engine import EngineRegistry
@@ -42,7 +42,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config):
         Worker.__init__(self)
-        profiler_config = omega_conf_to_dataclass(config.get("profiler"))
+        profiler_config = omega_conf_to_dataclass(config.get("profiler"), dataclass_type=ProfilerConfig)
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config)
         )

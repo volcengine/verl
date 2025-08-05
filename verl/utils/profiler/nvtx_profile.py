@@ -124,10 +124,11 @@ class NsightSystemsProfiler(DistProfiler):
         # If no configuration is provided, create a default ProfilerConfig with an empty list of ranks
         if not config:
             config = ProfilerConfig(ranks=[])
+        if not tool_config:
+            assert not config.enable, "tool_config must be provided when profiler is enabled"
         self.enable = config.enable
         if not config.enable:
             return
-        assert tool_config is not None, "NsightSystemsProfiler requires a tool_config of type NsightToolConfig"
         self.this_step: bool = False
         self.discrete: bool = tool_config.discrete
         self.this_rank: bool = False
@@ -176,7 +177,7 @@ class NsightSystemsProfiler(DistProfiler):
             @functools.wraps(func)
             def wrapper(self, *args, **kwargs):
                 if not self.profiler.enable:
-                    return func(*args, **kwargs)
+                    return func(self, *args, **kwargs)
 
                 profile_name = message or func.__name__
 

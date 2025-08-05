@@ -55,6 +55,7 @@ from verl.utils.profiler import (
     DistProfiler,
     DistProfilerExtension,
     GPUMemoryLogger,
+    ProfilerConfig,
     log_gpu_memory_usage,
     simple_timer,
 )
@@ -227,8 +228,12 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 "['actor', 'rollout', 'ref', 'actor_rollout', 'actor_rollout_ref']"
             )
         profiler_config = omega_conf_to_dataclass(omega_profiler_config)
+        if profiler_config is not None:
+            tool_config = profiler_config.tool_config
+        else:
+            tool_config = None
         DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config)
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )
 
         # TODO(sgm): Currently, we only support reference model param offload
@@ -818,7 +823,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config: McoreCriticConfig):
         Worker.__init__(self)
 
-        profiler_config = omega_conf_to_dataclass(config.profiler)
+        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), dataclass_type=ProfilerConfig)
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config)
         )
@@ -1109,7 +1114,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config):
         Worker.__init__(self)
 
-        profiler_config = omega_conf_to_dataclass(config.profiler)
+        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), dataclass_type=ProfilerConfig)
         DistProfilerExtension.__init__(
             self,
             DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config),

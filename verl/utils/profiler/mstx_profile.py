@@ -151,11 +151,12 @@ class NPUProfiler(DistProfiler):
             config (Optional[ProfilerConfig]): Configuration for the profiler. If None, a default configuration is used.
         """
         if not config:
-            config = ProfilerConfig(ranks=[])
+            config = ProfilerConfig(ranks=[], enable=False)
+        if not tool_config:
+            assert not config.enable, "tool_config must be set when profiler is enabled"
         self.enable: bool = config.enable
         if not config.enable:
             return
-        assert tool_config is not None, "NPUProfiler requires a tool_config of type NPUToolConfig"
         self.this_step: bool = False
         self.discrete: bool = tool_config.discrete
         self.this_rank: bool = False

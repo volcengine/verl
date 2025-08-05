@@ -38,6 +38,7 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
+from verl.utils.profiler import ProfilerConfig
 from verl.workers.fsdp_workers import ActorRolloutRefWorker as ARRWorker
 from verl.workers.fsdp_workers import CriticWorker
 
@@ -131,9 +132,13 @@ class RolloutWorker(ActorRolloutRefWorker):
         # We can still use ProfilerConfig for testing purpose (tests/utils/test_nvtx_profile.py)
         # as they provides DictConfig-like interface
         # The benefit of creating the dataclass config is to perform validation during __post_init__
-        profiler_config = omega_conf_to_dataclass(config.profiler)
+        profiler_config = omega_conf_to_dataclass(config.get("profiler"), dataclass_type=ProfilerConfig)
+        if profiler_config is not None:
+            tool_config = profiler_config.tool_config
+        else:
+            tool_config = None
         DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config)
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )
         self._is_rollout = True
         self._is_actor = False
