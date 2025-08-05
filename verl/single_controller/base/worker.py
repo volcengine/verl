@@ -117,7 +117,7 @@ class Worker(WorkerHelper):
             int:
                 The dp_rank for the given mesh name.
         """
-        assert mesh_name in self.__dispatch_dp_rank
+        assert mesh_name in self.__dispatch_dp_rank, f"{mesh_name} is not registered in {self.__class__.__name__}"
         # note that each rank store its own dp_rank
         return self.__dispatch_dp_rank[mesh_name]
 
