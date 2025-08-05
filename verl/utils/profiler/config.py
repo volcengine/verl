@@ -15,6 +15,8 @@
 import warnings
 from dataclasses import dataclass, field
 
+from omegaconf import MISSING
+
 from verl.base_config import BaseConfig
 from verl.utils.config import omega_conf_to_dataclass
 
@@ -88,12 +90,12 @@ class ProfilerConfig(BaseConfig):
         ranks (list[int]): The ranks that will be profiled. Defaults to [].
     """
 
-    tool: str = None
+    tool: str = MISSING
     enable: bool = False
     all_ranks: bool = False
     ranks: list[int] = field(default_factory=list)
-    save_path: str = None
-    tool_config: NsightToolConfig | TorchProfilerToolConfig | NPUToolConfig = None
+    save_path: str = MISSING
+    tool_config: NsightToolConfig | TorchProfilerToolConfig | NPUToolConfig = MISSING
     _mutable_fields = ["tool_config"]
 
     def __post_init__(self) -> None:
