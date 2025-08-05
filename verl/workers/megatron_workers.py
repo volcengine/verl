@@ -656,10 +656,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         timing_generate = {}
         with self.sharding_manager:
             log_gpu_memory_usage("After entering sharding manager", logger=logger)
-            prompts = self.sharding_manager.preprocess_data(prompts)
             with simple_timer("generate_sequences", timing_generate):
                 output = self.rollout.generate_sequences(prompts=prompts)
-            output = self.sharding_manager.postprocess_data(output)
             log_gpu_memory_usage("After rollout generation", logger=logger)
 
         timing_generate.update(self.sharding_manager.timing)
