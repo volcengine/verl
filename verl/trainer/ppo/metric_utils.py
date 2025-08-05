@@ -121,13 +121,7 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
     # 检测被abort的请求：response_mask全为0的请求
     # 被abort的请求的response部分完全没有有效token
     # 使用batch中的response_mask来保持与agg_loss的一致性
-    if "response_mask" in batch.batch:
-        # 使用batch中的response_mask，与agg_loss保持一致
-        response_mask_from_batch = batch.batch["response_mask"]
-        aborted_mask = (response_mask_from_batch.sum(dim=1) == 0).bool()
-    else:
-        # 回退到原来的计算方式
-        aborted_mask = (response_length == 0).bool()  # response_length为0表示被abort
+    aborted_mask = (response_length == 0).bool()  # response_length为0表示被abort
 
     non_aborted_mask = ~aborted_mask
 
