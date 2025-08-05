@@ -9,10 +9,10 @@ PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 
 function now() {
-    date '+%Y-%m-%d-%H-%M'
+    date '+%d-%H-%M'
 }
 
-EXPERIMENT_NAME="qwen2.5-3b_baseline_$(now)"
+EXPERIMENT_NAME="qwen2.5-3b_baseline_$(now)_$OVER_SAMPLE_RATE"
 
 python3 -m verl.trainer.main_ppo \
     --config-path="$CONFIG_PATH" \
@@ -47,7 +47,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
-    trainer.project_name='gsm8k_baseline' \
+    trainer.project_name='benchmark_over_sample' \
     trainer.experiment_name=$EXPERIMENT_NAME \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
