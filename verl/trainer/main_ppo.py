@@ -17,6 +17,7 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 import os
 import socket
+import warnings
 
 import hydra
 import ray
@@ -111,6 +112,16 @@ class TaskRunner:
         print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
         pprint(OmegaConf.to_container(config, resolve=True))
         OmegaConf.resolve(config)
+
+        if config.actor_rollout_ref.rollout.multi_turn.enable:
+            warnings.warn(
+                "The setting multi_turn.enable=True is deprecated. Please use rollout.mode=async instead. "
+                "If you want to use the old behavior, please set multi_turn.force_use_sglang_multi_turn=True. "
+                "https://verl.readthedocs.io/en/latest/advance/agent_loop.html#migration-guide-from-sglang-multi-turn",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            config.actor_rollout_ref.rollout.mode = "async"
 
         # Download the checkpoint from HDFS to the local machine.
         # `use_shm` determines whether to use shared memory, which could lead to faster model loading if turned on
