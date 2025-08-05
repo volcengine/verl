@@ -101,17 +101,6 @@ def _set_envs_and_config(server_args: ServerArgs):
     # Set ulimit
     set_ulimit()
 
-    # Fix triton bugs
-    try:
-        from sglang.srt.utils import maybe_set_triton_cache_manager
-
-        if server_args.tp_size * server_args.dp_size > 1:
-            # FIXME: remove this after https://github.com/triton-lang/triton/pull/4295 is used as a dependency.
-            maybe_set_triton_cache_manager()
-    except ImportError:
-        # Fixed in sglang 0.4.9
-        pass
-
     # Check flashinfer version
     if server_args.attention_backend == "flashinfer":
         assert_pkg_version(
