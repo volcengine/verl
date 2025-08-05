@@ -246,7 +246,8 @@ class DataParallelPPOCritic(BasePPOCritic):
 
                     micro_batch_metrics.update(
                         {
-                            "critic/vf_loss": vf_loss.detach().item() * (response_mask.shape[0] / self.config.ppo_mini_batch_size),
+                            "critic/vf_loss": vf_loss.detach().item()
+                            * (response_mask.shape[0] / self.config.ppo_mini_batch_size),
                             "critic/vf_clipfrac": vf_clipfrac.detach().item(),
                             "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
                         }

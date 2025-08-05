@@ -39,7 +39,7 @@ import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import Dispatch, register, make_nd_compute_dataproto_dispatch_fn
+from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
@@ -147,7 +147,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # create training dispatch
         if self.ulysses_device_mesh is not None:
             is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
-            self._register_dispatch_collect_info("actor", dp_rank=self.ulysses_device_mesh["dp"].get_local_rank(), is_collect=is_collect)
+            self._register_dispatch_collect_info(
+                "actor", dp_rank=self.ulysses_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+            )
         else:
             self._register_dispatch_collect_info("actor", dp_rank=self.rank, is_collect=True)
 
@@ -533,7 +535,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
             is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
-            self._register_dispatch_collect_info("rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect)
+            self._register_dispatch_collect_info(
+                "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+            )
 
         elif rollout_name == "sglang":
             from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
@@ -573,7 +577,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
             is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
-            self._register_dispatch_collect_info("rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect)
+            self._register_dispatch_collect_info(
+                "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+            )
 
         else:
             raise NotImplementedError(f"Rollout name: {self.config.rollout.name} is not supported")
@@ -966,7 +972,9 @@ class CriticWorker(Worker, DistProfilerExtension):
         # create training dispatch
         if self.ulysses_device_mesh is not None:
             is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
-            self._register_dispatch_collect_info("critic", dp_rank=self.ulysses_device_mesh["dp"].get_local_rank(), is_collect=is_collect)
+            self._register_dispatch_collect_info(
+                "critic", dp_rank=self.ulysses_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+            )
         else:
             self._register_dispatch_collect_info("critic", dp_rank=self.rank, is_collect=True)
 
@@ -1366,7 +1374,9 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         # create training dispatch
         if self.ulysses_device_mesh is not None:
             is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
-            self._register_dispatch_collect_info("reward", dp_rank=self.ulysses_device_mesh["dp"].get_local_rank(), is_collect=is_collect)
+            self._register_dispatch_collect_info(
+                "reward", dp_rank=self.ulysses_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+            )
         else:
             self._register_dispatch_collect_info("reward", dp_rank=self.rank, is_collect=True)
 
