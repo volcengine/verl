@@ -11,9 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
 import logging
 import os
 import pickle
+from contextlib import ExitStack
 from typing import Any, Callable, Optional
 
 import ray
@@ -34,6 +36,7 @@ from vllm.v1.executor.abstract import Executor
 from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl.utils.fs import copy_to_local
+from verl.utils.vllm_utils import with_cancellation
 from verl.workers.rollout.async_server import AsyncServerBase
 
 logger = logging.getLogger(__file__)
@@ -205,6 +208,9 @@ class AsyncvLLMServer(AsyncServerBase):
         self.vllm_dp_rank = vllm_dp_rank
         self.wg_prefix = wg_prefix
         self.engine: AsyncLLM = None
+        # for cancelation
+        self.active_req: dict[str, asyncio.Event] = {}
+        self.req_result: dict[str, list[int]] = {}
 
     async def init_engine(self):
         """Init vLLM AsyncLLM engine."""
@@ -219,7 +225,7 @@ class AsyncvLLMServer(AsyncServerBase):
         max_num_batched_tokens = config.get("max_num_batched_tokens", 8192)
         max_model_len = config.max_model_len if config.max_model_len else config.prompt_length + config.response_length
         self.max_model_len = int(max_model_len)
-
+        stat_log_interval = config.get("stat_log_interval", 10)
         # Override default generation config from hugging face model config,
         # user can still override them by passing kwargs in each request.
         kwargs = dict(
@@ -282,6 +288,14 @@ class AsyncvLLMServer(AsyncServerBase):
             tool_parser=config.multi_turn.format,  # hermes, llama3_json, ...
         )
 
+        async def _force_log(stat_log_interval=10):
+            print("stat_log_interval", stat_log_interval)
+            while True:
+                await asyncio.sleep(stat_log_interval)
+                await self.engine.do_log_stats()
+
+        asyncio.create_task(_force_log(stat_log_interval))
+
     def _create_engine_config(self, engine_args: AsyncEngineArgs):
         vllm_config = engine_args.create_engine_config()
         namespace = ray.get_runtime_context().namespace
@@ -296,6 +310,7 @@ class AsyncvLLMServer(AsyncServerBase):
 
         return vllm_config
 
+    @with_cancellation
     async def chat_completion(self, raw_request: Request):
         """OpenAI-compatible HTTP endpoint.
 
@@ -314,6 +329,9 @@ class AsyncvLLMServer(AsyncServerBase):
             return JSONResponse(content=generator.model_dump())
 
     async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
+        with ExitStack() as stack:
+            self.req_result[request_id] = None
+            stack.callback(lambda: self.req_result.pop(request_id, None))
         max_tokens = self.max_model_len - len(prompt_ids)
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
         prompt = TokensPrompt(prompt_token_ids=prompt_ids)
@@ -322,10 +340,35 @@ class AsyncvLLMServer(AsyncServerBase):
         # Get final response
         final_res: Optional[RequestOutput] = None
         async for output in generator:
-            final_res = output
-        assert final_res is not None
-
+            self.req_result[request_id] = output
+        final_res = self.req_result[request_id]
+        # assert final_res is not None
         return final_res.outputs[0].token_ids
+
+    async def generate_with_cancel(
+        self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str
+    ) -> list[int]:
+        with ExitStack() as stack:
+            self.active_req[request_id] = asyncio.Event()
+            stack.callback(lambda: self.active_req.pop(request_id, None))
+            cancel_handle = asyncio.create_task(self.active_req[request_id].wait())
+            generation_handle = asyncio.create_task(self.generate(prompt_ids, sampling_params, request_id))
+            done, pending = await asyncio.wait([generation_handle, cancel_handle], return_when=asyncio.FIRST_COMPLETED)
+            for task in pending:
+                task.cancel()
+            if generation_handle in done:
+                return generation_handle.result()
+            return None
+
+    async def cancel(self, request_id: str):
+        if request_id in self.active_req:
+            self.active_req[request_id].set()
+            if request_id in self.req_result:
+                return self.req_result[request_id]
+            logger.debug(f"cancel request_id {request_id}")
+        else:
+            logger.debug(f"request_id {request_id} not in active_req")
+            return None
 
     async def wake_up(self):
         if self.config.rollout.free_cache_engine:

@@ -78,6 +78,14 @@ class AsyncSGLangServer(AsyncServerBase):
     async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
         return await self.master_worker.generate.remote(prompt_ids, sampling_params, request_id)
 
+    async def generate_with_cancel(
+        self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str
+    ) -> list[int]:
+        return await self.master_worker.generate.remote(prompt_ids, sampling_params, request_id)
+
+    async def cancel(self, request_id: str):
+        return await self.master_worker.cancel_req.remote(request_id)
+
     async def wake_up(self):
         if not self.config.rollout.free_cache_engine:
             return

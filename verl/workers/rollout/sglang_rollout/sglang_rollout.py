@@ -20,6 +20,7 @@ import logging
 import multiprocessing as mp
 import os
 import time
+from contextlib import ExitStack
 from copy import deepcopy
 from json import JSONDecodeError
 from typing import Any, Optional
@@ -79,6 +80,12 @@ try:
 except ImportError:
     from sglang.srt.openai_api.protocol import Tool
 
+from typing import AsyncIterator
+
+from PIL.Image import Image
+from sglang.srt.managers.io_struct import (
+    GenerateReqInput,
+)
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -169,6 +176,60 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
 
     async def flush_cache(self):
         return await self.tokenizer_manager.flush_cache()
+
+    async def async_generate(
+        self,
+        # The input prompt. It can be a single prompt or a batch of prompts.
+        prompt: Optional[list[str] | str] = None,
+        sampling_params: Optional[list[dict] | dict] = None,
+        # The token ids for text; one can either specify text or input_ids.
+        input_ids: Optional[list[list[int]] | list[int]] = None,
+        # The image input. It can be an image instance, file name, URL, or base64 encoded string.
+        # Can be formatted as:
+        # - Single image for a single request
+        # - List of images (one per request in a batch)
+        # - List of lists of images (multiple images per request)
+        # See also python/sglang/srt/utils.py:load_image for more details.
+        image_data: Optional[list[list[Image | str]] | list[Image | str] | Image | str] = None,
+        return_logprob: Optional[list[bool] | bool] = False,
+        logprob_start_len: Optional[list[int] | int] = None,
+        top_logprobs_num: Optional[list[int] | int] = None,
+        token_ids_logprob: Optional[list[list[int]] | list[int]] = None,
+        lora_path: Optional[list[Optional[str]]] = None,
+        custom_logit_processor: Optional[list[str] | str] = None,
+        stream: bool = False,
+        bootstrap_host: Optional[list[str] | str] = None,
+        bootstrap_port: Optional[list[int] | int] = None,
+        bootstrap_room: Optional[list[int] | int] = None,
+        rid: str = None,
+    ) -> dict | AsyncIterator[dict]:
+        """
+        The arguments of this function is the same as `sglang/srt/managers/io_struct.py::GenerateReqInput`.
+        Please refer to `GenerateReqInput` for the documentation.
+        """
+        obj = GenerateReqInput(
+            text=prompt,
+            input_ids=input_ids,
+            sampling_params=sampling_params,
+            image_data=image_data,
+            return_logprob=return_logprob,
+            logprob_start_len=logprob_start_len,
+            top_logprobs_num=top_logprobs_num,
+            token_ids_logprob=token_ids_logprob,
+            lora_path=lora_path,
+            stream=stream,
+            custom_logit_processor=custom_logit_processor,
+            bootstrap_host=bootstrap_host,
+            bootstrap_port=bootstrap_port,
+            bootstrap_room=bootstrap_room,
+            rid=rid,
+        )
+        generator = self.tokenizer_manager.generate_request(obj, None)
+
+        if stream is True:
+            return generator
+        else:
+            return await generator.__anext__()
 
 
 # NOTE(sgm): add for verl. We can optimize it by making
@@ -316,6 +377,8 @@ class SGLangRollout(BaseRollout):
         self._init_inference_engine(trust_remote_code, actor_module, port)
 
         self._init_sampling_params(**kwargs)
+
+        self._init_req_recorder()
 
         self.processing_class = processing_class
 
@@ -556,6 +619,9 @@ class SGLangRollout(BaseRollout):
 
         logger.info(f"Initialize interactions from configuration: interaction_map: {list(interaction_map.keys())}")
         return interaction_map
+
+    def _init_req_recorder(self):
+        self.active_req = {}
 
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
@@ -1021,7 +1087,11 @@ class SGLangRollout(BaseRollout):
         return await self._handle_engine_generate(generation_prompt_ids, sampling_params, image_data)
 
     async def _handle_engine_generate(
-        self, generation_prompt_ids: list[int], sampling_params: dict, image_data: Optional[list[Any]] = None
+        self,
+        generation_prompt_ids: list[int],
+        sampling_params: dict,
+        image_data: Optional[list[Any]] = None,
+        req_id: str = None,
     ) -> dict:
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
         kwargs = sampling_params.copy()
@@ -1032,6 +1102,7 @@ class SGLangRollout(BaseRollout):
             sampling_params=kwargs,
             return_logprob=False,
             image_data=image_data,
+            rid=req_id,
         )
         return output
 
@@ -1430,10 +1501,23 @@ class SGLangRollout(BaseRollout):
     async def generate(
         self, prompt_ids: torch.Tensor, sampling_params: dict[str, Any], request_id: str
     ) -> torch.Tensor:
-        request_sampling_params = self.sampling_params.copy()
-        request_sampling_params.update(sampling_params)
-        output = await self._handle_engine_generate(prompt_ids, request_sampling_params)
-        return output["output_ids"]
+        with ExitStack() as stack:
+            request_sampling_params = self.sampling_params.copy()
+            request_sampling_params.update(sampling_params)
+            awaitable = self._handle_engine_generate(prompt_ids, request_sampling_params, req_id=request_id)
+            task = asyncio.ensure_future(awaitable)
+            self.active_req[request_id] = task
+            stack.callback(lambda: self.active_req.pop(request_id, None))
+            output = await task
+            return output["output_ids"]
+
+    async def cancel_req(self, request_id: str):
+        logger.debug(f"cancel request {request_id} from cancel_req")
+        if request_id in self.active_req:
+            self._engine.tokenizer_manager.abort_request(request_id)
+            logger.info(f"cancel request {request_id} from active_req")
+        else:
+            logger.debug(f"request {request_id} not in active_req")
 
     async def wake_up(self):
         if not self.is_sleep:

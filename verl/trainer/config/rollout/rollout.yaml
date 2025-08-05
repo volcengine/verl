@@ -66,6 +66,9 @@ log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_toke
 # disable logging statistics
 disable_log_stats: True
 
+# logging interval for engine load statistic
+stat_log_interval: 100
+
 # for hf rollout
 # Whether to sample during training rollout. False uses greedy sampling.
 do_sample: True

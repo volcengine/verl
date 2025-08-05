@@ -1709,6 +1709,11 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id)
         return ret
 
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
+    async def cancel_req(self, request_id: str) -> list[int]:
+        ret = await self.rollout.cancel_req(request_id)
+        return ret
+
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def wake_up(self):
         if self.config.rollout.free_cache_engine:

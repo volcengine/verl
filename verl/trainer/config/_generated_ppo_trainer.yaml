@@ -106,6 +106,7 @@ actor_rollout_ref:
     log_prob_use_dynamic_bsz: ${oc.select:actor_rollout_ref.actor.use_dynamic_bsz,false}
     log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_token_len_per_gpu,16384}
     disable_log_stats: true
+    stat_log_interval: 100
     do_sample: true
     'n': 1
     multi_stage_wake_up: false
