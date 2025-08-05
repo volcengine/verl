@@ -893,7 +893,9 @@ class SGLangRollout(BaseRollout):
                 # Only continue the conversation if the prompt length is not greater than max_model_len - 1,
                 # since SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra
                 # token accounts for the EOS token).
-                if len(_req.get_generation_prompt_ids(self.processing_class)) + 1 >= self.config.max_model_len:
+                prompt_length = len(_req.get_generation_prompt_ids(self.processing_class))
+
+                if prompt_length + 1 >= self.config.max_model_len:
                     finish_reason_type = FinishReasonTypeEnum.LENGTH
                     break
 
@@ -1045,9 +1047,11 @@ class SGLangRollout(BaseRollout):
         self, generation_prompt_ids: list[int], sampling_params: dict, image_data: Optional[list[Any]] = None
     ) -> dict:
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
+
         kwargs = sampling_params.copy()
         kwargs["max_new_tokens"] = max_new_tokens
         kwargs["n"] = 1  # group size is supported in preprocess
+
         output = await self._engine.async_generate(
             input_ids=generation_prompt_ids,
             sampling_params=kwargs,
@@ -1093,6 +1097,7 @@ class SGLangRollout(BaseRollout):
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
         tgt_device = prompts.batch["input_ids"].device
+
         if self._tp_rank == 0:
             req_list = self._preprocess_prompt_to_async_rollout_requests(
                 prompts,
@@ -1103,6 +1108,7 @@ class SGLangRollout(BaseRollout):
             target_completion = int(total_requests * OVER_SAMPLE_RATE)  # 80%完成时abort
             completed_count = 0
             aborted_requests = []
+            print(f"🎯 Over sampling target: {target_completion}/{total_requests}")
 
             # 创建进度监控和abort任务
             async def monitor_and_abort():
@@ -1110,14 +1116,14 @@ class SGLangRollout(BaseRollout):
                 while completed_count < target_completion:
                     await asyncio.sleep(0.1)
 
-                logger.info(f"🎯 Target reached: {completed_count}/{total_requests} completed!")
-                logger.info("🚫 Aborting remaining requests...")
+                print(f"🎯 Target reached: {completed_count}/{total_requests} completed!")
+                print("🚫 Aborting remaining requests...")
 
                 try:
                     await self._engine.abort_request(abort_all=True)
-                    logger.info("✅ Abort command sent successfully!")
+                    print("✅ Abort command sent successfully!")
                 except Exception as e:
-                    logger.error(f"❌ Abort failed: {e}")
+                    print(f"❌ Abort failed: {e}")
 
             # 修改请求处理函数，添加完成计数
             async def process_request_with_monitoring(req):
@@ -1125,6 +1131,7 @@ class SGLangRollout(BaseRollout):
                 try:
                     result = await self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
                     completed_count += 1
+                    print(f"✅ Request {req.request_id} completed ({completed_count}/{total_requests})")
                     return result
                 except Exception as e:
                     # 如果请求被abort，创建padding请求
@@ -1134,18 +1141,27 @@ class SGLangRollout(BaseRollout):
                     # 返回一个padding的请求，确保在后续处理中被忽略
                     return self._create_padding_request(req)
 
-            # 启动监控任务
-            monitor_task = asyncio.create_task(monitor_and_abort())
+            # 修复：在事件循环中创建监控任务
+            async def run_with_monitoring():
+                # 启动监控任务
+                monitor_task = asyncio.create_task(monitor_and_abort())
 
+                try:
+                    output_req_list = await asyncio.gather(
+                        *[process_request_with_monitoring(req) for req in req_list],
+                    )
+                    return output_req_list
+                finally:
+                    # 取消监控任务
+                    monitor_task.cancel()
+                    try:
+                        await monitor_task
+                    except asyncio.CancelledError:
+                        pass
+
+            # 运行异步任务
             loop = asyncio.get_event_loop()
-            output_req_list = loop.run_until_complete(
-                asyncio.gather(
-                    *[process_request_with_monitoring(req) for req in req_list],
-                )
-            )
-
-            # 取消监控任务
-            monitor_task.cancel()
+            output_req_list = loop.run_until_complete(run_with_monitoring())
 
             sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
         else:
