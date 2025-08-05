@@ -83,7 +83,7 @@ except ImportError:
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-OVER_SAMPLE_RATE = os.getenv("OVER_SAMPLE_RATE", 1)
+OVER_SAMPLE_RATE = float(os.getenv("OVER_SAMPLE_RATE", 1))
 
 
 # patch to avoid issue https://github.com/sgl-project/sglang/issues/6723
