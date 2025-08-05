@@ -57,10 +57,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
         processor=None,
         reward_fn=None,
         val_reward_fn=None,
-            train_dataset: Dataset | None = None,
-            val_dataset: Dataset | None = None,
-        collate_fn=None,
-            train_sampler: Sampler | None = None,
         device_name=None,
     ):
         """
@@ -125,7 +121,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
             self.use_critic = False
 
         self._validate_config()
-        self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
         self.message_queue_client = None
 
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):

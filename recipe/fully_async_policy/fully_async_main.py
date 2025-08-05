@@ -32,17 +32,6 @@ from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.fs import copy_to_local
 
-logger = logging.getLogger(__name__)
-
-
-def setup_logging():
-    """设置日志配置"""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[logging.StreamHandler(), logging.FileHandler("fully_async_training.log")],
-    )
-
 
 def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
     """
@@ -80,9 +69,6 @@ def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
         rollout_pool = [config.rollout.n_gpus_per_node] * config.rollout.nnodes
         resource_pool_spec["rollout_pool"] = rollout_pool
         mapping[Role.Rollout] = "rollout_pool"
-
-    logger.info(f"Resource pool specification: {resource_pool_spec}")
-    logger.info(f"Role mapping: {mapping}")
 
     return ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
@@ -168,22 +154,22 @@ class FullyAsyncTaskRunner:
 
     def run(self, config):
         """运行完全异步的PPO训练"""
-        setup_logging()
-        logger.info("Starting fully async PPO training...")
+        print("Starting fully async PPO training...")
         # 设置信号处理
         self._setup_signal_handlers()
         # 初始化基础组件
         self._initialize_components(config)
+        time.sleep(60)
         # 启动训练流程
-        self._run_training_loop()
+        # self._run_training_loop()
 
-        self._cleanup_resources()
+        # self._cleanup_resources()
 
     def _setup_signal_handlers(self):
         """设置信号处理器"""
 
         def signal_handler(signum, frame):
-            logger.info(f"Received signal {signum}, initiating shutdown...")
+            print(f"Received signal {signum}, initiating shutdown...")
             self.running = False
             self.shutdown_event.set()
 
@@ -206,7 +192,7 @@ class FullyAsyncTaskRunner:
         OmegaConf.resolve(config)
 
         # 初始化模型路径和tokenizer
-        logger.info("Initializing model and tokenizer...")
+        print("Initializing model and tokenizer...")
         local_path = copy_to_local(
             config.actor_rollout_ref.model.path, use_shm=config.actor_rollout_ref.model.get("use_shm", False)
         )
@@ -222,27 +208,13 @@ class FullyAsyncTaskRunner:
         self.components["processor"] = processor
 
         # 创建worker映射和资源池
-        logger.info("Creating worker mapping and resource pools...")
+        print("Creating worker mapping and resource pools...")
         role_worker_mapping, ray_worker_group_cls = create_role_worker_mapping(config)
         self.components["role_worker_mapping"] = role_worker_mapping
         self.components["ray_worker_group_cls"] = ray_worker_group_cls
 
-        # 创建数据集
-        logger.info("Creating datasets...")
-        from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
-        from verl.utils.dataset.rl_dataset import collate_fn
-
-        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor)
-        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor)
-        train_sampler = create_rl_sampler(config.data, train_dataset)
-
-        self.components["train_dataset"] = train_dataset
-        self.components["val_dataset"] = val_dataset
-        self.components["train_sampler"] = train_sampler
-        self.components["collate_fn"] = collate_fn
-
         # 创建奖励函数
-        logger.info("Loading reward functions...")
+        print("Loading reward functions...")
         reward_fn = load_reward_manager(
             config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
         )
@@ -253,7 +225,7 @@ class FullyAsyncTaskRunner:
         self.components["val_reward_fn"] = val_reward_fn
 
         # 创建MessageQueue
-        logger.info("Creating MessageQueue...")
+        print("Creating MessageQueue...")
         max_queue_size = config.async_training.get("max_queue_size", 1000)
         message_queue = MessageQueue.remote(config, max_queue_size)
         message_queue_client = MessageQueueClient(message_queue)
@@ -262,25 +234,26 @@ class FullyAsyncTaskRunner:
         self.components["message_queue_client"] = message_queue_client
 
         # 创建Rollouter
-        logger.info("Creating Rollouter...")
+        print("Creating Rollouter...")
         self._create_rollouter(config)
 
         # 创建Trainer
-        logger.info("Creating FullyAsyncTrainer...")
+        print("Creating FullyAsyncTrainer...")
         self._create_trainer(config)
 
         # 设置参数同步
-        logger.info("Setting up parameter synchronization...")
-        param_synchronizer = AsyncParameterSynchronizer(
-            config=config,
-            actor_wg=self.components["trainer"].actor_wg,
-            rollouter=self.components["rollouter"],
-        )
-        self.components["param_synchronizer"] = param_synchronizer
-        logger.info("All components initialized successfully")
+        # print("Setting up parameter synchronization...")
+        # param_synchronizer = AsyncParameterSynchronizer(
+        #     config=config,
+        #     actor_wg=self.components["trainer"].actor_wg,
+        #     rollouter=self.components["rollouter"],
+        # )
+        # self.components["param_synchronizer"] = param_synchronizer
+        # print("All components initialized successfully")
 
     def _create_rollouter(self, config) -> None:
         """创建Rollouter"""
+        pprint(self.components)
         rollouter = FullyAsyncRollouter.remote(
             config=config,
             tokenizer=self.components["tokenizer"],
@@ -288,21 +261,19 @@ class FullyAsyncTaskRunner:
             resource_pool_manager=create_resource_pool_manager(config, roles=[Role.Rollout]),
             ray_worker_group_cls=self.components["ray_worker_group_cls"],
             processor=self.components["processor"],
-            train_dataset=self.components["train_dataset"],
-            collate_fn=self.components["collate_fn"],
-            train_sampler=self.components["train_sampler"],
             device_name=config.trainer.device,
         )
+        print(rollouter)
+
+        print("========== rollouter init workers ======")
 
         # 初始化Rollouter
-        init_future = rollouter.init_workers.remote()
-        ray.get(init_future, timeout=60.0)
+        ray.get(rollouter.init_workers.remote())
 
-        set_queue_future = rollouter.set_message_queue_client.remote(self.components["message_queue_client"])
-        ray.get(set_queue_future, timeout=10.0)
+        ray.get(rollouter.set_message_queue_client.remote(self.components["message_queue_client"]))
 
         self.components["rollouter"] = rollouter
-        logger.info("Rollouter created and initialized successfully")
+        print("Rollouter created and initialized successfully")
 
     def _create_trainer(self, config) -> None:
         """创建Trainer"""
@@ -322,39 +293,33 @@ class FullyAsyncTaskRunner:
             processor=self.components["processor"],
             reward_fn=self.components["reward_fn"],
             val_reward_fn=self.components["val_reward_fn"],
-            train_dataset=self.components["train_dataset"],
-            val_dataset=self.components["val_dataset"],
-            collate_fn=self.components["collate_fn"],
-            train_sampler=self.components["train_sampler"],
             device_name=config.trainer.device,
         )
 
         # 初始化Trainer
-        trainer.init_workers()
-        trainer.set_message_queue_client(self.components["message_queue_client"])
-        trainer.set_rollouter(self.components["rollouter"])
-
+        ray.get(trainer.init_workers.remote())
+        ray.get(trainer.set_message_queue_client.remote(self.components["message_queue_client"]))
         self.components["trainer"] = trainer
-        logger.info("FullyAsyncTrainer created and initialized successfully")
+        print("FullyAsyncTrainer created and initialized successfully")
 
     def _run_training_loop(self):
         """运行训练循环"""
         self.running = True
 
-        logger.info("Starting Rollouter in background...")
+        print("Starting Rollouter in background...")
         rollouter_future = self.components["rollouter"].fit.remote()
         trainer_future = self.components["trainer"].fit.remote()
         self._monitor_components()
         ray.get(rollouter_future)
         ray.get(trainer_future)
 
-        logger.info("Training completed or interrupted")
+        print("Training completed or interrupted")
 
     def _run_rollouter(self):
         try:
             ray.get(self.components["rollouter"].fit.remote())
         except Exception as e:
-            logger.error(f"Rollouter error: {e}")
+            print(f"Rollouter error: {e}")
             self.running = False
             self.shutdown_event.set()
 
@@ -363,14 +328,14 @@ class FullyAsyncTaskRunner:
         try:
             self.components["trainer"].fit()
         except Exception as e:
-            logger.error(f"Trainer error: {e}")
+            print(f"Trainer error: {e}")
         finally:
             self.running = False
             self.shutdown_event.set()
 
     def _monitor_components(self):
         """监控组件状态"""
-        logger.info("Starting component monitoring...")
+        print("Starting component monitoring...")
 
         last_stats_time = time.time()
         stats_interval = 60.0  # 60秒报告一次统计
@@ -391,9 +356,9 @@ class FullyAsyncTaskRunner:
                 self._check_component_health()
 
             except Exception as e:
-                logger.error(f"Error in component monitoring: {e}")
+                print(f"Error in component monitoring: {e}")
 
-        logger.info("Component monitoring stopped")
+        print("Component monitoring stopped")
 
     def _log_component_statistics(self):
         """记录组件统计信息"""
@@ -407,27 +372,27 @@ class FullyAsyncTaskRunner:
             # 获取队列统计
             queue_stats = self.components["message_queue_client"].get_statistics()
 
-            logger.info("=== Component Statistics ===")
-            logger.info(
+            print("=== Component Statistics ===")
+            print(
                 f"Trainer - Steps: {trainer_stats['global_steps']}, "
                 f"Samples: {trainer_stats['processed_samples']}, "
                 f"Param version: {trainer_stats['current_param_version']}"
             )
 
-            logger.info(
+            print(
                 f"Rollouter - Generated: {rollouter_stats['total_generated_samples']}, "
                 f"Dropped: {rollouter_stats['dropped_stale_samples']}, "
                 f"Errors: {rollouter_stats['generation_errors']}"
             )
 
-            logger.info(
+            print(
                 f"Queue - Size: {queue_stats['queue_size']}, "
                 f"Produced: {queue_stats['total_produced']}, "
                 f"Consumed: {queue_stats['total_consumed']}"
             )
 
         except Exception as e:
-            logger.error(f"Error getting component statistics: {e}")
+            print(f"Error getting component statistics: {e}")
 
     def _check_component_health(self):
         """检查组件健康状态"""
@@ -442,43 +407,43 @@ class FullyAsyncTaskRunner:
             rollouter_stats = ray.get(self.components["rollouter"].get_statistics.remote(), timeout=5.0)
 
             if not rollouter_stats["is_running"]:
-                logger.warning("Rollouter is not running!")
+                print("Rollouter is not running!")
                 # 可以尝试重启或报告错误
 
         except Exception as e:
-            logger.warning(f"Health check failed: {e}")
+            print(f"Health check failed: {e}")
 
     def _cleanup_resources(self):
         """清理资源"""
-        logger.info("Cleaning up resources...")
+        print("Cleaning up resources...")
 
         try:
             # 停止Rollouter
             if "rollouter" in self.components:
-                logger.info("Shutting down Rollouter...")
+                print("Shutting down Rollouter...")
                 try:
                     shutdown_future = self.components["rollouter"].shutdown.remote()
                     ray.get(shutdown_future, timeout=10.0)
                 except Exception as e:
-                    logger.warning(f"Error shutting down Rollouter: {e}")
+                    print(f"Error shutting down Rollouter: {e}")
 
             # 清理MessageQueue
             if "message_queue_client" in self.components:
-                logger.info("Cleaning up MessageQueue...")
+                print("Cleaning up MessageQueue...")
                 try:
                     self.components["message_queue_client"].shutdown()
                 except Exception as e:
-                    logger.warning(f"Error cleaning up MessageQueue: {e}")
+                    print(f"Error cleaning up MessageQueue: {e}")
 
             # 清理参数同步器
             if "param_synchronizer" in self.components:
-                logger.info("Cleaning up parameter synchronizer...")
+                print("Cleaning up parameter synchronizer...")
                 # TODO: 添加参数同步器的清理逻辑
 
-            logger.info("Resource cleanup completed")
+            print("Resource cleanup completed")
 
         except Exception as e:
-            logger.error(f"Error during cleanup: {e}")
+            print(f"Error during cleanup: {e}")
 
     def get_training_status(self) -> dict:
         """获取训练状态"""
@@ -495,7 +460,7 @@ class FullyAsyncTaskRunner:
                 "rollouter_stats": rollouter_stats,
             }
         except Exception as e:
-            logger.error(f"Error getting training status: {e}")
+            print(f"Error getting training status: {e}")
             return {"status": "error", "error": str(e)}
 
 
@@ -503,27 +468,9 @@ class FullyAsyncTaskRunner:
 def main(config):
     """主入口函数"""
     from verl.trainer.main_ppo import run_ppo
-
     # 确保异步训练配置存在
     if not hasattr(config, "async_training"):
-        # 设置默认异步训练配置
-        config.async_training = OmegaConf.create(
-            {
-                "staleness_threshold": 3,
-                "max_staleness_allowed": 5,
-                "max_queue_size": 1000,
-                "min_batch_count": 1,
-                "batch_timeout": 30.0,
-                "generation_timeout": 30.0,
-                "batch_generation_interval": 0.1,
-                "max_sync_retries": 3,
-                "sync_timeout": 30.0,
-                "sync_retry_delay": 1.0,
-            }
-        )
-        logger.info("Using default async training configuration")
-
-    logger.info("Starting fully async PPO training with improved architecture")
+        raise RuntimeError("must set async_training config")
     run_ppo(config, task_runner_class=FullyAsyncTaskRunner)
 
 
