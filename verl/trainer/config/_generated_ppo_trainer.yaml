@@ -73,6 +73,7 @@ actor_rollout_ref:
     log_prob_micro_batch_size_per_gpu: null
     log_prob_use_dynamic_bsz: ${oc.select:actor_rollout_ref.actor.use_dynamic_bsz,false}
     log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_token_len_per_gpu,16384}
+    model: null
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
@@ -143,10 +144,13 @@ actor_rollout_ref:
     trace:
       backend: null
       token2text: false
+    skip_rollout: false
+    skip_dump_dir: /tmp/rollout_dump
     enable_chunked_prefill: true
     load_format: dummy_dtensor
     layered_summon: false
   hybrid_engine: true
+  nccl_timeout: 600
   model:
     path: ~/models/deepseek-llm-7b-chat
     custom_chat_template: null
