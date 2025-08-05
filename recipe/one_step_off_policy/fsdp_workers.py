@@ -184,6 +184,12 @@ class RolloutWorker(ActorRolloutRefWorker):
         rollout_device_mesh = init_device_mesh(
             device_name, mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
         )
+
+        is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
+        self._register_dispatch_collect_info(
+            "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+        )
+
         rollout_name = self.config.rollout.name
         assert rollout_name == "vllm"
 
