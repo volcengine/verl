@@ -58,6 +58,10 @@ class CriticWorker(Worker, DistProfilerExtension):
         # if strategy is fsdp, offload_config should be None
         
         engine_config = self.create_engine_config(self.config)
+        """
+        override_config_kwargs
+        # model_config.num_labels = 1
+        """
         self.engine = EngineRegistry.new(self.config.strategy, engine_config)
 
 

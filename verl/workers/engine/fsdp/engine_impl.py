@@ -61,7 +61,7 @@ from verl.utils.fsdp_utils import (
 from verl.utils.import_utils import import_external_libs
 from verl.utils.py_functional import append_to_dict, convert_to_regular_types
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
-from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
+from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 from verl.utils.fsdp_utils import (
     fsdp_version,
@@ -82,6 +82,8 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
 
+def debug_print(msg):
+    print(f"[MyActorWorker]: {msg}")
 
 @EngineRegistry.register(["fsdp", "fsdp2"])
 class FSDPEngine(BaseEngine):
@@ -200,7 +202,7 @@ class FSDPEngine(BaseEngine):
             trust_remote_code=self.config.model.trust_remote_code,
         )
         # TODO: behavior difference between actor and critic
-        model_config.num_labels = 1
+        # model_config.num_labels = 1
         # patch for kimi-vl
         if getattr(model_config, "model_type", None) == "kimi_vl":
             model_config.text_config.topk_method = "greedy"
@@ -219,7 +221,7 @@ class FSDPEngine(BaseEngine):
 
 
     def _build_module(self, local_path, model_config):
-        from verl.utils.model import load_valuehead_model
+        from verl.utils.model import load_torch_module
         from verl.utils.torch_dtypes import PrecisionType
         torch_dtype = self.config.system.model_dtype
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
@@ -235,12 +237,14 @@ class FSDPEngine(BaseEngine):
             model_config.hidden_dropout = "0"
             model_config.summary_dropout_prob = 0.0
 
-            module = load_valuehead_model(
+            module = load_torch_module(
+                self.config.module_type,
                 local_path,
                 torch_dtype,
                 model_config,
                 self.config.model.trust_remote_code,
             )
+            debug_print(f"module after load_valuehead_model: {module}")
 
             use_liger=self.config.model.use_liger
             # Apply Liger kernel to the model if use_liger is set to True
@@ -530,13 +534,19 @@ class FSDPEngine(BaseEngine):
     def _forward_micro_batch(self, micro_batch):
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
-            for key in micro_batch["multi_modal_inputs"][0].keys():
-                multi_modal_inputs[key] = torch.cat(
-                    [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
-                )
+            if "image_bound" in micro_batch["multi_modal_inputs"][0]:  # minicpm-o logic
+                for key in micro_batch["multi_modal_inputs"][0].keys():
+                    multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"]]
+            else:
+                for key in micro_batch["multi_modal_inputs"][0].keys():
+                    multi_modal_inputs[key] = torch.cat(
+                        [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
+                    )
+
 
         with torch.autocast(device_type=device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
+            debug_print(f"input_ids shape: {input_ids.shape}")
             batch, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
             position_ids = micro_batch["position_ids"]
@@ -567,6 +577,8 @@ class FSDPEngine(BaseEngine):
                         input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size
                     )
 
+                debug_print(f"input_ids_rmpad before module execution: {input_ids_rmpad.shape}")
+                debug_print(f"position_ids_rmpad before module execution: {position_ids_rmpad.shape}")
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 preds = self.module(
                     input_ids=input_ids_rmpad,
@@ -581,14 +593,20 @@ class FSDPEngine(BaseEngine):
                     preds_rmpad = preds[2].squeeze(0).unsqueeze(-1)
                 else:
                     preds_rmpad = preds.logits
+                    print(f"preds_rmpad before squeeze: {preds_rmpad.shape}")
                     preds_rmpad = preds_rmpad.squeeze(0)  # (total_nnz)
+
+                debug_print(f"preds_rmpad before gather: {preds_rmpad.shape}")
 
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
-                    preds_rmpad = gather_outpus_and_unpad(preds_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+                    preds_rmpad = gather_outputs_and_unpad(preds_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+                debug_print(f"preds_rmpad after gather: {preds_rmpad.shape}")
 
                 # pad it back
-                preds = pad_input(preds_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
+                # preds = pad_input(preds_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
+                preds = pad_input(preds_rmpad.unsqueeze(-1), indices=indices, batch=batch, seqlen=seqlen)
+                debug_print(f"preds after pad_input: {preds.shape}")
             else:
                 preds = self.module(
                     input_ids=input_ids,
@@ -658,8 +676,8 @@ class FSDPEngine(BaseEngine):
             with torch.no_grad():
                 # micro_batch_preds would be a dict[str, torch.Tensor]
                 preds = self._forward_micro_batch(micro_batch)
-                raise ValueError
                 _, outputs = post_fn(micro_batch, preds)
+                raise ValueError
                 assert isinstance(outputs, dict)
             raise ValueError
             # append micro batch preds to dict[str, List[torch.Tensor]]

@@ -76,6 +76,11 @@ from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 from verl.workers.engine import EngineRegistry
 import verl.workers.engine.config as engine_cfg
+from verl.utils.torch_functional import logprobs_from_logits
+if is_cuda_available:
+    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
+elif is_npu_available:
+    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -126,6 +131,9 @@ class ActorWorker(Worker, DistProfilerExtension):
         self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
 
         self.config = config
+        assert not self.config.model.use_fused_kernels and not self.config.actor.entropy_checkpointing, \
+            "fused kernels and entropy checkpointing are not supported in the new worker implementation yet"
+
         engine_config = self.create_engine_config(self.config)
         self.engine = EngineRegistry.new(self.config.actor.strategy, engine_config)
     
@@ -142,6 +150,7 @@ class ActorWorker(Worker, DistProfilerExtension):
                                             optim_config,
                                             system_config,
                                             ckpt_config,
+                                            module_type="causal_lm",
                                             rollout_n=actor_config.rollout.n,
                                             infer_micro_batch_size_per_gpu=actor_config.rollout.log_prob_micro_batch_size_per_gpu,
                                             infer_max_token_len_per_gpu=actor_config.rollout.log_prob_max_token_len_per_gpu)
@@ -162,8 +171,27 @@ class ActorWorker(Worker, DistProfilerExtension):
     def get_actor_weights_info(self):
         return self.engine.get_params_meta_info()
 
-    def _post_fn_log_prob(self):
-        pass
+    def _post_fn_log_prob(self, micro_batch, preds):
+        # assert not use_fused_kernels and not entropy_checkpointing
+        response_length = micro_batch["responses"].size(-1)
+        temperature = self.config.rollout.temperature
+
+        logits = preds.squeeze(-1)                                           # (bsz, seqlen, vocab_size)
+        debug_print(f"logits: {logits.shape}")
+        logits.div_(temperature)
+        logits = logits[:, -response_length - 1 : -1, :]                     # (bsz, response_length, vocab_size)
+        debug_print(f"logits after transform: {logits.shape}")
+        debug_print(f"responses: {micro_batch['responses'].shape}")
+        log_probs = logprobs_from_logits(logits, micro_batch["responses"])   # (bsz, response_length)
+        debug_print(f"log_probs: {log_probs.shape}")
+        entropy = verl_F.entropy_from_logits(logits)                         # (bsz, response_length)
+
+        outputs = {
+            "log_probs": log_probs.clone().detach(),
+            "entropy": entropy.clone().detach(),
+        }
+
+        return None, outputs
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
@@ -181,7 +209,7 @@ class ActorWorker(Worker, DistProfilerExtension):
             assert "old_log_probs" in output
             assert "entropys" in output
             output = DataProto.from_dict(output)
-            output.meta_info["temperature"] = self.config.rollout.temperature
+            # output.meta_info["temperature"] = self.config.rollout.temperature
 
             output = self.engine.unshard_data(data=output)
         output = output.to("cpu")

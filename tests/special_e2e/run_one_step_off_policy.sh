@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
+ray stop --force
 
 # Test script for one_step_off_policy E2E regression testing
 # This script runs one_step_off_policy with both FSDP2 and Megatron backends

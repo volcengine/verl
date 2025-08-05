@@ -34,6 +34,7 @@ class EngineConfig(BaseConfig):
     grad_clip: float
     use_dynamic_bsz: bool
     ppo_max_token_len_per_gpu: int
+    module_type: str
     rollout_n: int
 
 
@@ -182,6 +183,7 @@ def get_engine_config(config,
                       optim_config,
                       system_config,
                       checkpoint_config,
+                      module_type,
                       rollout_n,
                       infer_micro_batch_size_per_gpu,
                       infer_max_token_len_per_gpu):
@@ -199,6 +201,7 @@ def get_engine_config(config,
         grad_clip=config.grad_clip,
         use_dynamic_bsz=config.use_dynamic_bsz,
         ppo_max_token_len_per_gpu=config.ppo_max_token_len_per_gpu,
+        module_type=module_type,
         rollout_n=rollout_n,
     )
     return engine_config
