@@ -83,8 +83,6 @@ except ImportError:
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-OVER_SAMPLE_RATE = float(os.getenv("OVER_SAMPLE_RATE", 1))
-
 
 # patch to avoid issue https://github.com/sgl-project/sglang/issues/6723
 def _set_envs_and_config(server_args: ServerArgs):
@@ -1100,7 +1098,7 @@ class SGLangRollout(BaseRollout):
 
             # add progress monitoring and abort function
             total_requests = len(req_list)
-            target_completion = int(total_requests * (1 - OVER_SAMPLE_RATE))
+            target_completion = int(total_requests * (1 - self.config.over_sample_rate))
             # abort when target_completion of requests are completed
             completed_count = 0
             aborted_requests = []
