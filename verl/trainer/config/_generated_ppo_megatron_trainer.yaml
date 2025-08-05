@@ -59,7 +59,7 @@ actor_rollout_ref:
       use_checkpoint_opt_param_scheduler: false
     use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
     profiler:
-      _target_: verl.utils.profiler.config.ProfilerConfig
+      _target_: verl.utils.profiler.ProfilerConfig
       tool: ${oc.select:profiler.tool,null}
       enable: false
       all_ranks: false
@@ -100,7 +100,7 @@ actor_rollout_ref:
     log_prob_use_dynamic_bsz: ${oc.select:actor_rollout_ref.actor.use_dynamic_bsz,false}
     log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_token_len_per_gpu,16384}
     profiler:
-      _target_: verl.utils.profiler.config.ProfilerConfig
+      _target_: verl.utils.profiler.ProfilerConfig
       tool: ${oc.select:profiler.tool,null}
       enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
@@ -294,7 +294,7 @@ critic:
     load_contents: ${.save_contents}
     async_save: false
   profiler:
-    _target_: verl.utils.profiler.config.ProfilerConfig
+    _target_: verl.utils.profiler.ProfilerConfig
     tool: ${oc.select:profiler.tool,null}
     enable: false
     all_ranks: false
@@ -343,7 +343,7 @@ reward_model:
     max_concurrent: 64
     memory_limit_mb: 1024
   profiler:
-    _target_: verl.utils.profiler.config.ProfilerConfig
+    _target_: verl.utils.profiler.ProfilerConfig
     tool: ${oc.select:profiler.tool,null}
     enable: false
     all_ranks: false

@@ -97,9 +97,7 @@ class RayDAPOTrainer(RayPPOTrainer):
 
         prev_step_profile = False
         curr_step_profile = (
-            self.global_steps in self.config.trainer.profile_steps
-            if self.config.trainer.profile_steps is not None
-            else False
+            self.global_steps in self.config.profiler.steps if self.config.profiler.steps is not None else False
         )
         next_step_profile = False
 
@@ -350,8 +348,8 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                 with marked_timer("stop_profile", timing_raw):
                     next_step_profile = (
-                        self.global_steps + 1 in self.config.trainer.profile_steps
-                        if self.config.trainer.profile_steps is not None
+                        self.global_steps + 1 in self.config.profiler.steps
+                        if self.config.profiler.steps is not None
                         else False
                     )
                     self._stop_profiling(

@@ -152,11 +152,11 @@ class NPUProfiler(DistProfiler):
         """
         if not config:
             config = ProfilerConfig(ranks=[])
+        self.enable: bool = config.enable
         if not config.enable:
             return
         assert tool_config is not None, "NPUProfiler requires a tool_config of type NPUToolConfig"
         self.this_step: bool = False
-        self.enable: bool = config.enable
         self.discrete: bool = tool_config.discrete
         self.this_rank: bool = False
         self.profile_npu = None
@@ -211,6 +211,9 @@ class NPUProfiler(DistProfiler):
         def decorator(func):
             @functools.wraps(func)
             def wrapper(self, *args, **kwargs):
+                if not self.profiler.enable:
+                    return func(self, *args, **kwargs)
+
                 profile_name = message or func.__name__
                 discrete_mode = self.profiler.discrete
                 profile_enable = self.profiler.this_step and self.profiler.enable

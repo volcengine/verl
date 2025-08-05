@@ -69,7 +69,7 @@ sandbox_fusion:
 profiler:
 
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-  _target_: verl.utils.profiler.config.ProfilerConfig
+  _target_: verl.utils.profiler.ProfilerConfig
 
   # profiler tool, default same as profiler.tool in global config
   # choices: nsys, npu, torch

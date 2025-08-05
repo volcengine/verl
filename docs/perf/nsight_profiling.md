@@ -20,7 +20,7 @@ In `profiler`, three new config entries control the profiler behaviors:
 
 * **`profiler.steps`**. List of step numbers at which profiling should be performed. For example: [1, 2, 5] will profile steps 1, 2, and 5. And ``null`` means no profiling.
 
-* **`profiler.profile_continuous_steps`**. If true, and the following `profiler.discrete==False`, then the continuous steps in `profile_steps` will be combined into one database. For example the above step 1 and 2 are in one database, and 5 in another. If false, every step occupies at least one database. The reason for this config is to observe the program behaviors between steps.
+* **`profiler.profile_continuous_steps`**. If true, and the following `profiler.discrete==False`, then the continuous steps in `profiler.steps` will be combined into one database. For example the above step 1 and 2 are in one database, and 5 in another. If false, every step occupies at least one database. The reason for this config is to observe the program behaviors between steps.
 
 Nsys options in controller nodes and worker nodes are configured in `trainer`:
 

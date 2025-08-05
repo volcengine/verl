@@ -232,8 +232,8 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         wg_kwargs = {}  # Setting up kwargs for RayWorkerGroup
         if OmegaConf.select(self.config.trainer, "ray_wait_register_center_timeout") is not None:
             wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
-        if OmegaConf.select(self.config.trainer, "profile_steps") is not None:
-            wg_kwargs["profile_steps"] = OmegaConf.select(self.config.trainer, "profile_steps")
+        if OmegaConf.select(self.config.profiler, "steps") is not None:
+            wg_kwargs["profile_steps"] = OmegaConf.select(self.config.trainer, "steps")
             assert OmegaConf.select(self.config.trainer, "worker_nsight_options") is not None, (
                 "worker_nsight_options must be set when profile_steps is set"
             )
@@ -390,9 +390,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
 
         while batch_data_future is not None:
             do_profile = (
-                self.global_steps in self.config.trainer.profile_steps
-                if self.config.trainer.profile_steps is not None
-                else False
+                self.global_steps in self.config.profiler.steps if self.config.profiler.steps is not None else False
             )
             if do_profile:
                 self.actor_wg.start_profile()
