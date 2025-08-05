@@ -729,6 +729,7 @@ class FSDPSFTTrainer:
         # Calculate which epoch we're starting from for sampler.set_epoch()
         start_epoch = global_step // self.steps_per_epoch
 
+        train_time = 0
         for epoch in range(start_epoch, self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
 
@@ -744,6 +745,7 @@ class FSDPSFTTrainer:
                 global_step += 1
                 data = TensorDict(data, batch_size=self.config.data.train_batch_size).to(self.device_name)
                 metric = self.training_step(data)
+                train_time += metric["train/time(s)"]
                 if rank == 0:
                     tracking.log(data=metric, step=global_step)
 
@@ -773,6 +775,7 @@ class FSDPSFTTrainer:
 
                 if is_last_step:
                     if rank == 0:
+                        print(f"Total time for train steps: {train_time}")
                         print(f"Final validation metrics: {last_valid_metric}")
                     return
 
