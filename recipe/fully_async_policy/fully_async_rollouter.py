@@ -18,7 +18,6 @@ from pprint import pprint
 
 import ray
 from omegaconf import OmegaConf
-from tqdm import tqdm
 
 from recipe.fully_async_policy.message_queue import MessageQueueClient
 from verl import DataProto
@@ -36,16 +35,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
     """
 
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            device_name=None,
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        device_name=None,
     ):
         """
         Initialize distributed PPO trainer with Ray backend.
@@ -144,7 +143,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.sync_in_progress = False
         self.sync_lock = threading.Lock()
 
-        self.max_queue_size = self.staleness_threshold * self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
+        self.max_queue_size = (
+            self.staleness_threshold * self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
+        )
 
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """设置消息队列客户端"""
@@ -287,7 +288,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 if not self.running:
                     break
 
-            metrics = {}
             timing_raw = {}
             batch, gen_batch = self._prepare_generate_batch(batch_dict)
             is_last_step = self.global_steps >= self.total_training_steps
@@ -328,10 +328,12 @@ class FullyAsyncRollouter(RayPPOTrainer):
                         self.dropped_stale_samples += 1
 
                 if self.global_steps % 1 == 0:
-                    print(f"Generated {self.total_generated_samples} batches, \n"
-                          f"param_version={self.current_param_version}, \n"
-                          f"errors={self.generation_errors}, \n"
-                          f"Dropped stale samples: {self.dropped_stale_samples}\n")
+                    print(
+                        f"Generated {self.total_generated_samples} batches, \n"
+                        f"param_version={self.current_param_version}, \n"
+                        f"errors={self.generation_errors}, \n"
+                        f"Dropped stale samples: {self.dropped_stale_samples}\n"
+                    )
 
             self.global_steps += 1
 
@@ -424,8 +426,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             # 如果队列太满，也暂停生成
 
-            if queue_size >= max_queue_size:
-                print(f"Should pause due to full queue: size={queue_size}, max={max_queue_size}")
+            if queue_size >= self.max_queue_size:
+                print(f"Should pause due to full queue: size={queue_size}, max={self.max_queue_size}")
                 return True
 
             return False

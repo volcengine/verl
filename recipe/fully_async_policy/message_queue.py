@@ -76,7 +76,7 @@ class MessageQueue:
         )
 
     def put_samples(
-            self, samples: list[Any] | Any, param_version: int, rollout_metadata: dict[str, Any] = None
+        self, samples: list[Any] | Any, param_version: int, rollout_metadata: dict[str, Any] = None
     ) -> bool:
         """
         放入一个batch样本到队列
@@ -123,26 +123,26 @@ class MessageQueue:
 
             return True
 
-    def get_samples(self, min_batch: int = 1) -> list[QueueSample]:
+    def get_samples(self, min_batch_count: int = 1) -> list[QueueSample]:
         """
         从队列获取batch样本，一直等待直到有足够样本
 
         Args:
-            min_batch: sample数量满足min_batch，一次性获取
+            min_batch_count: sample数量满足min_batch，一次性获取
 
         Returns:
             List[QueueSample]: 获取的样本列表
         """
         with self.lock:
-            while len(self.queue) < min_batch and self.running:
+            while len(self.queue) < min_batch_count and self.running:
                 self.consumer_condition.wait()
 
             # 如果队列已关闭且没有足够样本，返回空列表
-            if not self.running and len(self.queue) < min_batch:
+            if not self.running and len(self.queue) < min_batch_count:
                 return []
 
             # 获取指定数量的样本
-            batch_count = min(min_batch, len(self.queue))
+            batch_count = min(min_batch_count, len(self.queue))
             samples = []
             for _ in range(batch_count):
                 if self.queue:
@@ -227,7 +227,7 @@ class MessageQueueClient:
         self.queue_actor = queue_actor
 
     def put_samples(
-            self, samples: list[Any], param_version: int, rollout_metadata_list: list[dict[str, Any]] = None
+        self, samples: list[Any], param_version: int, rollout_metadata_list: list[dict[str, Any]] = None
     ) -> bool:
         """放入batch到队列"""
         return ray.get(self.queue_actor.put_samples.remote(samples, param_version, rollout_metadata_list))

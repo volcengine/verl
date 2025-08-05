@@ -13,9 +13,11 @@
 # limitations under the License.
 
 import logging
+import threading
 import time
 import warnings
 from pprint import pprint
+from typing import Any
 
 import numpy as np
 import ray
@@ -33,7 +35,6 @@ from verl.trainer.ppo.ray_trainer import (
     WorkerType,
 )
 from verl.utils.debug import marked_timer
-from verl.utils.tracking import ValidationGenerationsLogger
 
 logger = logging.getLogger(__name__)
 
@@ -115,11 +116,192 @@ class FullyAsyncTrainer(RayPPOTrainer):
             self.use_critic = False
 
         self._validate_config()
+
+        self.lock = threading.RLock()
         self.message_queue_client = None
+        self.param_synchronizer = None
 
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """设置消息队列客户端"""
-        self.message_queue_client = message_queue_client
+        with self.lock:
+            self.message_queue_client = message_queue_client
+
+    def set_parameter_synchronizer(self, param_synchronizer):
+        """设置参数同步器"""
+        with self.lock:
+            self.param_synchronizer = param_synchronizer
+
+    def _get_samples_from_queue(self) -> tuple[None, None, None] | tuple[int, dict, Any]:
+        """
+        从消息队列获取样本并组成gen_batch_output
+
+        Returns:
+            tuple: (epoch, batch_dict, gen_batch_output)
+        """
+        if self.message_queue_client is None:
+            raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
+
+        # 计算需要获取的样本数量
+        n_responses_per_prompt = self.config.actor_rollout_ref.rollout.n
+        batch_size = self.config.data.train_batch_size
+        required_samples = n_responses_per_prompt * batch_size
+
+        logger.info(
+            f"Requesting {required_samples} samples from queue (n={n_responses_per_prompt}, batch_size={batch_size})"
+        )
+
+        # 从队列获取样本
+        queue_samples = self.message_queue_client.get_samples(min_batch_count=required_samples)
+
+        if not queue_samples or len(queue_samples) == 0:
+            logger.warning("required_samples is empty")
+            return None, None, None
+
+        logger.info(f"Retrieved {len(queue_samples)} samples from queue")
+
+        # 组装gen_batch_output
+        gen_batch_output = self._assemble_gen_batch_output_from_queue_samples(
+            queue_samples, n_responses_per_prompt, batch_size
+        )
+
+        # 从第一个样本中提取原始batch信息来构造batch_dict
+        first_sample = queue_samples[0].data
+        batch_dict = self._extract_batch_dict_from_sample(first_sample, batch_size)
+
+        return 0, batch_dict, gen_batch_output
+
+    def _assemble_gen_batch_output_from_queue_samples(
+        self, queue_samples: list[QueueSample], n_responses_per_prompt: int, batch_size: int
+    ):
+        """
+        从队列样本中组装gen_batch_output
+
+        Args:
+            queue_samples: 队列中的样本列表
+            n_responses_per_prompt: 每个prompt的响应数量
+            batch_size: 批次大小
+
+        Returns:
+            DataProto: 组装好的gen_batch_output
+        """
+        import numpy as np
+        import torch
+
+        from verl.protocol import DataProto
+
+        # 提取所有样本的数据
+        sample_data_list = []
+        rollout_metadata_list = []
+        timing_info = {}
+
+        for sample in queue_samples:
+            sample_data_list.append(sample.data)
+            rollout_metadata_list.append(sample.rollout_metadata)
+
+        # 假设所有样本具有相同的数据结构，从第一个样本推断结构
+        first_sample_data = sample_data_list[0]
+
+        # 组装tensor数据
+        tensor_dict = {}
+        non_tensor_dict = {}
+
+        # 获取第一个样本的结构来初始化
+        if hasattr(first_sample_data, "batch") and first_sample_data.batch is not None:
+            # 处理tensor数据
+            for key in first_sample_data.batch.keys():
+                tensor_list = []
+                for sample_data in sample_data_list:
+                    if hasattr(sample_data, "batch") and sample_data.batch is not None and key in sample_data.batch:
+                        tensor_list.append(sample_data.batch[key])
+                    else:
+                        logger.warning(f"Missing key '{key}' in sample batch data")
+
+                if tensor_list:
+                    # 连接所有tensor
+                    tensor_dict[key] = torch.cat(tensor_list, dim=0)
+
+        if hasattr(first_sample_data, "non_tensor_batch") and first_sample_data.non_tensor_batch:
+            # 处理non_tensor数据
+            for key in first_sample_data.non_tensor_batch.keys():
+                non_tensor_list = []
+                for sample_data in sample_data_list:
+                    if (
+                        hasattr(sample_data, "non_tensor_batch")
+                        and sample_data.non_tensor_batch
+                        and key in sample_data.non_tensor_batch
+                    ):
+                        non_tensor_list.extend(sample_data.non_tensor_batch[key])
+                    else:
+                        logger.warning(f"Missing key '{key}' in sample non_tensor_batch data")
+
+                if non_tensor_list:
+                    non_tensor_dict[key] = np.array(non_tensor_list, dtype=object)
+
+        # 收集timing信息和metadata
+        for sample, metadata in zip(queue_samples, rollout_metadata_list, strict=False):
+            if "timing" in metadata:
+                for timing_key, timing_value in metadata["timing"].items():
+                    if timing_key not in timing_info:
+                        timing_info[timing_key] = []
+                    timing_info[timing_key].append(timing_value)
+
+        # 计算平均timing
+        avg_timing = {}
+        for key, values in timing_info.items():
+            if values:
+                avg_timing[key] = sum(values) / len(values)
+
+        # 创建meta_info
+        meta_info = {
+            "timing": avg_timing,
+            "queue_sample_count": len(queue_samples),
+            "rollout_param_versions": [sample.param_version for sample in queue_samples],
+            "sample_timestamps": [sample.timestamp for sample in queue_samples],
+        }
+
+        # 创建DataProto对象
+        if tensor_dict or non_tensor_dict:
+            gen_batch_output = DataProto.from_dict(
+                tensors=tensor_dict if tensor_dict else None,
+                non_tensors=non_tensor_dict if non_tensor_dict else None,
+                meta_info=meta_info,
+            )
+        else:
+            # 如果没有数据，创建空的DataProto
+            logger.warning("No tensor or non_tensor data found in samples, creating empty DataProto")
+            gen_batch_output = DataProto.from_dict(meta_info=meta_info)
+
+        logger.info(f"Assembled gen_batch_output with {len(gen_batch_output)} samples")
+        return gen_batch_output
+
+    def _extract_batch_dict_from_sample(self, sample_data, batch_size: int) -> dict:
+        """
+        从样本数据中提取batch_dict信息
+
+        Args:
+            sample_data: 样本数据
+            batch_size: 批次大小
+
+        Returns:
+            dict: batch字典
+        """
+        batch_dict = {}
+
+        # 从样本中提取原始输入信息
+        if hasattr(sample_data, "batch") and sample_data.batch is not None:
+            for key, value in sample_data.batch.items():
+                # 只保留输入相关的key，去掉生成的输出
+                if key in ["input_ids", "attention_mask", "position_ids"]:
+                    # 由于我们有多个响应，需要取出原始prompt部分
+                    batch_dict[key] = value[:batch_size] if len(value) >= batch_size else value
+
+        if hasattr(sample_data, "non_tensor_batch") and sample_data.non_tensor_batch:
+            for key, value in sample_data.non_tensor_batch.items():
+                # 保留非tensor的批次数据
+                if key in ["raw_prompt_ids", "raw_prompt", "multi_modal_data", "tools_kwargs", "interaction_kwargs"]:
+                    batch_dict[key] = np.array(value[:batch_size]) if len(value) >= batch_size else np.array(value)
+
+        return batch_dict
 
     def _create_actor_rollout_classes(self):
         # create actor
@@ -156,7 +338,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
         to construct the PPO dataflow.
         The light-weight advantage computation is done on the driver process.
         """
-        logger.info("Starting Trainer...")
 
         if self.message_queue_client is None:
             raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
@@ -193,13 +374,13 @@ class FullyAsyncTrainer(RayPPOTrainer):
         last_val_metrics = None
         self.max_steps_duration = 0
 
-        # across epoch iterator
-        continuous_iterator = self._create_continuous_iterator()
+        # 使用队列模式，不需要传统的dataloader迭代器
+        # 初始化获取第一批数据
+        while True:
+            epoch, batch, gen_batch_output = self._get_samples_from_queue()
+            if gen_batch_output is None:
+                break
 
-        # Start the first asynchronous generation task.
-        batch_data_future = self._async_gen_next_batch(continuous_iterator)
-
-        while batch_data_future is not None:
             metrics = {}
             timing_raw = {}
 
@@ -213,17 +394,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
             is_last_step = self.global_steps >= self.total_training_steps
 
             with marked_timer("step", timing_raw):
-                # wait for the previous batch
-                with marked_timer("wait_prev_gen", timing_raw, color="red"):
-                    epoch, batch, gen_batch_output = batch_data_future.get()
-                    timing_raw.update(gen_batch_output.meta_info["timing"])
-                    gen_batch_output.meta_info.pop("timing", None)
-
-                # asys next generation (with syns weights from actor to rollout)
-                with marked_timer("sync_rollout_weights", timing_raw, color="purple"):
-                    if not is_last_step:
-                        batch_data_future = self._async_gen_next_batch(continuous_iterator)
-
                 batch = self._post_generate_batch(batch, gen_batch_output, metrics)
                 batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
                 self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
