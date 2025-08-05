@@ -83,7 +83,7 @@ except ImportError:
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-OVER_SAMPLE_RATE = 0.8
+OVER_SAMPLE_RATE = 1
 
 
 # patch to avoid issue https://github.com/sgl-project/sglang/issues/6723
@@ -1102,6 +1102,7 @@ class SGLangRollout(BaseRollout):
             # 添加进度监控和abort功能
             total_requests = len(req_list)
             target_completion = int(total_requests * OVER_SAMPLE_RATE)  # 80%完成时abort
+            print(f"🎯 Training mode: over sampling target {target_completion}/{total_requests}")
             completed_count = 0
             aborted_requests = []
 
