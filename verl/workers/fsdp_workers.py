@@ -725,7 +725,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    @DistProfiler.annotate(color="red", role="rollout_generate")
+    @DistProfiler.annostate(color="red", role="rollout_generate")
     def generate_sequences(self, prompts: DataProto):
         # Support all hardwares
         prompts = prompts.to(get_device_id())
@@ -763,7 +763,198 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # clear kv cache
         get_torch_device().empty_cache()
         return output
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    def create_reward_prompt(self, data: DataProto):
+        """
+        Constructs a new prompt for reward model evaluation (self-critique).
+        This function takes the initial model generation, combines it with the original
+        prompt and ground truth, and formats it as a structured "evaluation task".
+        """
+        # Decode original prompts and model-generated responses
+        prompt_ids_tensor = data.batch.get("prompts")
+        if prompt_ids_tensor is None:
+            raise ValueError("'prompts' field not found in the batch. Cannot decode prompt text.")
+        decoded_prompts = self.tokenizer.batch_decode(prompt_ids_tensor, skip_special_tokens=True)
+        
+        
+        response_ids_tensor = data.batch.get("responses")
+        response_mask = data.batch.get("response_mask")
+        if response_ids_tensor is None or response_mask is None:
+            raise ValueError("'responses' or 'response_mask' field not found in the batch. Cannot decode response text.")
+        
+        decoded_responses = []
+        for i in range(len(response_ids_tensor)):
+            valid_response_ids = response_ids_tensor[i][response_mask[i] == 1]
+            decoded_responses.append(self.tokenizer.decode(valid_response_ids, skip_special_tokens=True))
 
+        src_max_length = data.batch["attention_mask"].shape[-1]
+        rm_input_ids = []
+        rm_attention_mask = []
+        
+        # Import custom cat function for reward model evaluation
+        from verl.trainer.ppo.reward_self import get_custom_cat_fn
+        cat_fn = get_custom_cat_fn(self.config)
+        if cat_fn is None:
+            raise ValueError("Custom cat function could not be loaded. Please check your configuration.")
+        
+        batch_size = data.batch.batch_size[0]
+
+        for i in range(batch_size):
+            prompt_text = decoded_prompts[i]
+            response_text = decoded_responses[i]
+            ground_truth = data.non_tensor_batch["reward_model"][i]["ground_truth"]
+            
+            chat = cat_fn(
+                prompt_text=prompt_text,
+                response_text=response_text,
+                ground_truth=ground_truth
+            )
+            print(f"\n  - [Sample {i}] Result from custom cat_fn (chat list):")
+            from pprint import pprint
+            pprint(chat)
+            prompt_with_chat_template = self.tokenizer.apply_chat_template(
+                chat,
+                add_generation_prompt=True,
+                tokenize=False
+            )
+            model_inputs = self.tokenizer(
+                prompt_with_chat_template,
+                return_tensors="pt",
+                add_special_tokens=False
+            )
+
+            input_ids, attention_mask = verl_F.postprocess_data(
+                input_ids=model_inputs["input_ids"],
+                attention_mask=model_inputs["attention_mask"],
+                max_length=src_max_length,
+                pad_token_id=self.tokenizer.pad_token_id,
+                left_pad=True,
+                truncation="error"
+            )
+
+            rm_input_ids.append(input_ids)
+            rm_attention_mask.append(attention_mask)
+        # Overwrite the original DataProto batch with the new evaluation prompts    
+        rm_input_ids = torch.cat(rm_input_ids, dim=0)
+        rm_attention_mask = torch.cat(rm_attention_mask, dim=0)
+        rm_position_ids = compute_position_id_with_mask(rm_attention_mask)
+        
+        data.batch["input_ids"] = rm_input_ids
+        data.batch["attention_mask"] = rm_attention_mask
+        data.batch["position_ids"] = rm_position_ids
+        
+        data.batch.pop("prompts", None)
+        data.batch.pop("responses", None)
+        data.batch.pop("response_mask", None)
+
+        print("\n Successfully created new prompts for reward evaluation.")
+        
+        return data
+
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    def generate_and_validate_reward_responses(self, reward_prompt_data: DataProto):
+        """
+        Generates `gen_num` valid reward responses for each prompt, with a retry mechanism.
+        This function handles dynamic batching to efficiently regenerate for failed samples.
+        """
+        from verl.trainer.ppo.reward_self import get_custom_format_validator
+        import numpy as np
+        from collections import defaultdict
+        config = self.config 
+        
+        validator_config = config.actor_self_judgement.custom_reward_format_validator
+        gen_num = config.actor_self_judgement.get("gen_num", 1)
+        MAX_RETRIES = validator_config.max_retries
+        
+        reward_format_validator = get_custom_format_validator(config)
+        
+
+        print(f" Starting validation process: gen_num={gen_num}, max_retries={MAX_RETRIES}")
+        batch_size = reward_prompt_data.batch.batch_size[0]
+
+        # State tracking for each original prompt
+        final_responses_grouped = [[] for _ in range(batch_size)] 
+        needs_generating_count = np.full(batch_size, gen_num, dtype=int)
+        retries_left = np.full(batch_size, MAX_RETRIES, dtype=int)
+        
+        original_uids = reward_prompt_data.non_tensor_batch.get("uid", list(range(batch_size)))
+
+        # Main generation loop: continues as long as any prompt needs more responses
+        attempt = 0
+        while np.sum(needs_generating_count) > 0:
+            attempt += 1
+
+            # Identify all prompts that still require generation
+            indices_to_process = np.where(needs_generating_count > 0)[0]
+            
+            if len(indices_to_process) == 0:
+                break
+
+            
+            prompts_to_generate_list = []
+            original_indices_map = [] 
+            
+            print(f"Processing {len(indices_to_process)} prompts that still need responses.")
+            for idx in indices_to_process:
+                num_needed = needs_generating_count[idx]
+                single_prompt_proto = reward_prompt_data.select_idxs([idx])
+                repeated_prompts = single_prompt_proto.repeat(repeat_times=num_needed, interleave=False)
+                prompts_to_generate_list.append(repeated_prompts)
+                original_indices_map.extend([idx] * num_needed)
+            
+            if not prompts_to_generate_list:
+                continue
+            current_prompts_to_process = DataProto.concat(prompts_to_generate_list)
+            
+            # Generate responses for the dynamically constructed batch
+            gen_output = self.generate_sequences(current_prompts_to_process)
+            # Decode responses
+            response_ids_tensor = gen_output.batch["responses"]
+            response_length = response_ids_tensor.shape[1]
+            attention_mask_tensor = gen_output.batch["attention_mask"][:, -response_length:]
+            decoded_texts = [
+                self.tokenizer.decode(resp[mask==1], skip_special_tokens=True) 
+                for resp, mask in zip(response_ids_tensor, attention_mask_tensor)
+            ]
+            
+            # Validate and distribute the newly generated responses
+            failed_counts_this_cycle = defaultdict(int)
+
+            for i, text in enumerate(decoded_texts):
+                original_idx = original_indices_map[i]
+                
+                if needs_generating_count[original_idx] == 0:
+                    continue
+
+                if reward_format_validator(text):
+                    final_responses_grouped[original_idx].append(text)
+                    needs_generating_count[original_idx] -= 1
+                    print(f"[SUCCESS] Prompt {original_idx} got a valid response. Need {needs_generating_count[original_idx]} more.")
+                else:
+                    failed_counts_this_cycle[original_idx] += 1
+                    print(f"[FAIL] Prompt {original_idx} got an invalid response.")
+
+            # Update retry counts and handle prompts that have exhausted their retries
+            for idx in indices_to_process:
+                if failed_counts_this_cycle[idx] > 0:
+                    retries_left[idx] -= 1
+                    
+                    if retries_left[idx] <= 0 and needs_generating_count[idx] > 0:
+                        uid = original_uids[idx]
+                        num_missing = needs_generating_count[idx]
+                        print(f"[WARNING] Prompt {idx} (uid={uid}) has exhausted all retries but still needs {num_missing} more responses.")
+                        print("  -> Filling the rest with empty strings.")
+                        final_responses_grouped[idx].extend([""] * num_missing)
+                        needs_generating_count[idx] = 0
+        
+        print("\n" + "="*30 + " Final Grouped Results " + "="*30)
+        from pprint import pprint
+        pprint(final_responses_grouped)
+        print("="*80 + "\n")
+
+        return DataProto.from_dict(
+            non_tensors={"validated_reward_responses": final_responses_grouped}
+        )
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
     def compute_log_prob(self, data: DataProto):

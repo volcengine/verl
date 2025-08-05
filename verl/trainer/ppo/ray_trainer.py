@@ -1184,6 +1184,39 @@ class RayPPOTrainer:
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
                     with marked_timer("reward", timing_raw, color="yellow"):
+                        # actor self-critique reward
+                        if self.config.actor_rollout_ref.actor_self_judgement.enable:
+                            print("\n use reward_self_judgement")
+                            reward_prompt_batch=self.actor_rollout_wg.create_reward_prompt(batch)
+
+                            validated_reward_data = self.actor_rollout_wg.generate_and_validate_reward_responses(reward_prompt_batch)
+                            
+                            print("\n Received validated reward responses from worker.")
+                            print(validated_reward_data)
+
+                            validated_responses_grouped = validated_reward_data.non_tensor_batch["validated_reward_responses"]
+
+                            if "extra_info" not in batch.non_tensor_batch:
+                                batch.non_tensor_batch["extra_info"] = np.array([{} for _ in range(batch.batch.batch_size[0])], dtype=object)
+
+                            original_extra_info_array = batch.non_tensor_batch["extra_info"]
+                            new_extra_info_list = []
+
+                            assert len(original_extra_info_array) == len(validated_responses_grouped), \
+                                f"Mismatch in length between extra_info ({len(original_extra_info_array)}) and grouped validated_responses ({len(validated_responses_grouped)})"
+
+                            for i in range(len(validated_responses_grouped)):
+                                old_info_dict = original_extra_info_array[i]
+                                new_info_dict = old_info_dict.copy()
+                                
+                                new_info_dict["validated_reward_responses_list"] = validated_responses_grouped[i]
+                                
+                                new_extra_info_list.append(new_info_dict)
+
+                            batch.non_tensor_batch["extra_info"] = np.array(new_extra_info_list, dtype=object)
+
+                            print("\n Updated 'extra_info' field with a list of validated reward responses.")
+                            print(batch)
                         # compute reward model score
                         if self.use_rm:
                             reward_tensor = self.rm_wg.compute_rm_score(batch)
