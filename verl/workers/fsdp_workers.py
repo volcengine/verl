@@ -1535,7 +1535,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         # select the response part
         token_level_scores = token_level_scores[:, -response_length:]
-        
+
         return token_level_scores
 
     def _switch_chat_template(self, data: DataProto):
