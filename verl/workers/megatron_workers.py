@@ -201,7 +201,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             and mpu.get_context_parallel_rank() == 0
         )
         self._register_dispatch_collect_info(
-            mesh_name="actor_train", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
+            mesh_name="actor", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
         )
 
         set_random_seed(seed=self.config.actor.megatron.seed)
@@ -591,7 +591,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         get_torch_device().empty_cache()
         log_gpu_memory_usage("After init_model finish", logger=logger)
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor_train"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @GPUMemoryLogger(role="update_actor", logger=logger)
     @DistProfiler.annotate(color="red")
     def update_actor(self, data: DataProto):
@@ -670,7 +670,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         aggressive_empty_cache(force_sync=True)
         return output
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor_train"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @GPUMemoryLogger(role="compute_ref_log_prob", logger=logger)
     @DistProfiler.annotate(color="olive")
     def compute_ref_log_prob(self, data: DataProto):
@@ -693,7 +693,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         aggressive_empty_cache(force_sync=True)
         return output
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor_train"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @GPUMemoryLogger(role="compute_log_prob", logger=logger)
     @DistProfiler.annotate(color="blue")
     def compute_log_prob(self, data: DataProto):
@@ -846,7 +846,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             and mpu.get_context_parallel_rank() == 0
         )
         self._register_dispatch_collect_info(
-            mesh_name="critic_train", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
+            mesh_name="critic", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
         )
 
         set_random_seed(seed=self.config.megatron.seed)
@@ -1019,7 +1019,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             use_dist_checkpointing=self.config.megatron.use_dist_checkpointing,
         )
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic_train"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="cyan")
     def compute_values(self, data: DataProto):
         micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
@@ -1036,7 +1036,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             offload_megatron_model_to_cpu(self.critic_module)
         return output
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic_train"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="pink")
     def update_critic(self, data: DataProto):
         data = data.to(get_device_id())
