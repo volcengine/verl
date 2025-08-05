@@ -1536,6 +1536,20 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         # select the response part
         token_level_scores = token_level_scores[:, -response_length:]
 
+        # 检测padding请求（response_loss_mask全为0的请求）
+        # 如果某个请求的response_loss_mask全为0，说明这是一个被abort的padding请求
+        # 我们将其reward设为0，这样在后续的reward统计中就不会被计入
+        if "response_mask" in data.batch:
+            response_mask = data.batch["response_mask"]  # 这是response_loss_mask
+            # 检查每个样本的response_mask是否全为0
+            padding_mask = response_mask.sum(dim=-1) == 0  # (batch_size,)
+
+            # 将padding请求的reward设为0
+            if padding_mask.any():
+                # 将padding请求对应的token_level_scores设为0
+                token_level_scores[padding_mask] = 0
+                logger.info(f"Detected {padding_mask.sum().item()} padding requests, their rewards are set to 0")
+
         return token_level_scores
 
     def _switch_chat_template(self, data: DataProto):
