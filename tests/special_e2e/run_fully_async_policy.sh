@@ -33,7 +33,8 @@ overlong_penalty_factor=1.0
 
 # Training parameters
 loss_agg_mode="token-mean"
-train_prompt_bsz=8
+train_prompt_bsz=32
+gen_prompt_bsz=4
 n_resp_per_prompt=3
 train_prompt_mini_bsz=4
 
@@ -50,8 +51,6 @@ n_gpus_training=$((NUM_GPUS - n_gpus_rollout))
 
 # Async training specific configurations
 staleness_threshold=3
-max_staleness_allowed=5
-max_queue_size=1000
 min_batch_count=1
 batch_timeout=30.0
 generation_timeout=30.0
@@ -74,6 +73,7 @@ common_params=(
     data.max_prompt_length=${max_prompt_length}
     data.max_response_length=${max_response_length}
     data.train_batch_size=${train_prompt_bsz}
+    data.gen_batch_size=${gen_prompt_bsz}
     actor_rollout_ref.rollout.n=${n_resp_per_prompt}
     algorithm.adv_estimator=${adv_estimator}
     algorithm.use_kl_in_reward=${use_kl_in_reward}
@@ -115,7 +115,7 @@ common_params=(
     trainer.test_freq=-1
     trainer.save_freq=-1
     trainer.total_epochs=2
-    trainer.total_training_steps=4
+    trainer.total_training_steps=10
     trainer.resume_mode=disable
     trainer.nnodes=1
     trainer.n_gpus_per_node=${n_gpus_training}
@@ -123,13 +123,6 @@ common_params=(
     rollout.n_gpus_per_node=${n_gpus_rollout}
     # Fully async specific configurations
     async_training.staleness_threshold=${staleness_threshold}
-    async_training.max_staleness_allowed=${max_staleness_allowed}
-    async_training.max_queue_size=${max_queue_size}
-    async_training.min_batch_count=${min_batch_count}
-    async_training.batch_timeout=${batch_timeout}
-    async_training.generation_timeout=${generation_timeout}
-    async_training.batch_generation_interval=${batch_generation_interval}
-    async_training.max_sync_retries=${max_sync_retries}
     async_training.sync_timeout=${sync_timeout}
     async_training.sync_retry_delay=${sync_retry_delay}
 )
