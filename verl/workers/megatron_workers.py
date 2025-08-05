@@ -236,10 +236,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             )
         else:
             tool_config = None
-        if profiler_config is not None:
-            tool_config = profiler_config.tool_config
-        else:
-            tool_config = None
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )
