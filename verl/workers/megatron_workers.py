@@ -227,8 +227,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 f"Invalid role {self.role}, should be one of "
                 "['actor', 'rollout', 'ref', 'actor_rollout', 'actor_rollout_ref']"
             )
+        # omega_profiler_config is DictConfig
+        # profiler_config is a ProfilerConfig dataclass
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
-        if profiler_config is not None and profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
             tool_config = omega_conf_to_dataclass(
                 omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
             )
