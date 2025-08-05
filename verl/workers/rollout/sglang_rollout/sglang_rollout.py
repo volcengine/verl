@@ -1108,60 +1108,74 @@ class SGLangRollout(BaseRollout):
             target_completion = int(total_requests * OVER_SAMPLE_RATE)  # 80%完成时abort
             completed_count = 0
             aborted_requests = []
-            print(f"🎯 Over sampling target: {target_completion}/{total_requests}")
 
-            # 创建进度监控和abort任务
-            async def monitor_and_abort():
-                nonlocal completed_count
-                while completed_count < target_completion:
-                    await asyncio.sleep(0.1)
+            # 区分训练和验证阶段
+            if is_validate:
+                print(f"🔍 Validation mode: processing all {total_requests} requests without abort")
 
-                print(f"🎯 Target reached: {completed_count}/{total_requests} completed!")
-                print("🚫 Aborting remaining requests...")
-
-                try:
-                    await self._engine.abort_request(abort_all=True)
-                    print("✅ Abort command sent successfully!")
-                except Exception as e:
-                    print(f"❌ Abort failed: {e}")
-
-            # 修改请求处理函数，添加完成计数
-            async def process_request_with_monitoring(req):
-                nonlocal completed_count
-                try:
-                    result = await self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
-                    completed_count += 1
-                    print(f"✅ Request {req.request_id} completed ({completed_count}/{total_requests})")
-                    return result
-                except Exception as e:
-                    # 如果请求被abort，创建padding请求
-                    logger.warning(f"Request {req.request_id} was aborted or failed: {e}")
-                    aborted_requests.append(req.request_id)
-                    completed_count += 1
-                    # 返回一个padding的请求，确保在后续处理中被忽略
-                    return self._create_padding_request(req)
-
-            # 修复：在事件循环中创建监控任务
-            async def run_with_monitoring():
-                # 启动监控任务
-                monitor_task = asyncio.create_task(monitor_and_abort())
-
-                try:
-                    output_req_list = await asyncio.gather(
-                        *[process_request_with_monitoring(req) for req in req_list],
+                # 验证阶段：处理所有请求，不使用abort
+                async def process_all_requests():
+                    return await asyncio.gather(
+                        *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
                     )
-                    return output_req_list
-                finally:
-                    # 取消监控任务
-                    monitor_task.cancel()
-                    try:
-                        await monitor_task
-                    except asyncio.CancelledError:
-                        pass
 
-            # 运行异步任务
-            loop = asyncio.get_event_loop()
-            output_req_list = loop.run_until_complete(run_with_monitoring())
+                loop = asyncio.get_event_loop()
+                output_req_list = loop.run_until_complete(process_all_requests())
+            else:
+                print(f"🎯 Training mode: over sampling target {target_completion}/{total_requests}")
+
+                # 创建进度监控和abort任务
+                async def monitor_and_abort():
+                    nonlocal completed_count
+                    while completed_count < target_completion:
+                        await asyncio.sleep(0.1)
+
+                    print(f"🎯 Target reached: {completed_count}/{total_requests} completed!")
+                    print("🚫 Aborting remaining requests...")
+
+                    try:
+                        await self._engine.abort_request(abort_all=True)
+                        print("✅ Abort command sent successfully!")
+                    except Exception as e:
+                        print(f"❌ Abort failed: {e}")
+
+                # 修改请求处理函数，添加完成计数
+                async def process_request_with_monitoring(req):
+                    nonlocal completed_count
+                    try:
+                        result = await self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
+                        completed_count += 1
+                        print(f"✅ Request {req.request_id} completed ({completed_count}/{total_requests})")
+                        return result
+                    except Exception as e:
+                        # 如果请求被abort，创建padding请求
+                        logger.warning(f"Request {req.request_id} was aborted or failed: {e}")
+                        aborted_requests.append(req.request_id)
+                        completed_count += 1
+                        # 返回一个padding的请求，确保在后续处理中被忽略
+                        return self._create_padding_request(req)
+
+                # 修复：在事件循环中创建监控任务
+                async def run_with_monitoring():
+                    # 启动监控任务
+                    monitor_task = asyncio.create_task(monitor_and_abort())
+
+                    try:
+                        output_req_list = await asyncio.gather(
+                            *[process_request_with_monitoring(req) for req in req_list],
+                        )
+                        return output_req_list
+                    finally:
+                        # 取消监控任务
+                        monitor_task.cancel()
+                        try:
+                            await monitor_task
+                        except asyncio.CancelledError:
+                            pass
+
+                # 运行异步任务
+                loop = asyncio.get_event_loop()
+                output_req_list = loop.run_until_complete(run_with_monitoring())
 
             sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
         else:
