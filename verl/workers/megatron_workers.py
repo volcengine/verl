@@ -96,6 +96,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config: DictConfig, role: str, **kwargs):
         MegatronWorker.__init__(self)
         self.config = config
+        self.profile_option = kwargs.get("profile_option", None)
         if repatch is not None:
             # NPU MindSpeed patch, will be refactored with MindSpeedEngine.
             repatch(self.config.actor.megatron.get("override_transformer_config", {}))
@@ -137,7 +138,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
         profiler_config = omega_conf_to_dataclass(config.get("profiler"))
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, option=self.profile_option)
+        )
 
         # TODO(sgm): Currently, we only support reference model param offload
         # will support other offload later
@@ -723,9 +726,11 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
 
 class CriticWorker(MegatronWorker, DistProfilerExtension):
-    def __init__(self, config: McoreCriticConfig):
+    def __init__(self, config: McoreCriticConfig, **kwargs):
         MegatronWorker.__init__(self)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler")))
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=config.get("profiler"), option=kwargs.get("profile_option", None))
+        )
         self.config: McoreCriticConfig = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -1001,10 +1006,15 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
     Note that we only implement the reward model that is subclass of AutoModelForSequenceClassification.
     """
 
-    def __init__(self, config):
+    def __init__(self, config, **kwargs):
         MegatronWorker.__init__(self)
         DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
+            self,
+            DistProfiler(
+                rank=self.rank,
+                config=omega_conf_to_dataclass(config.get("profiler")),
+                option=kwargs.get("profile_option", None),
+            ),
         )
         self.config = config
 
