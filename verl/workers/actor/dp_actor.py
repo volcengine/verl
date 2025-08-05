@@ -258,7 +258,6 @@ class DataParallelPPOActor(BasePPOActor):
                     entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
                 debug_print(f"log_probs after squeeze: {log_probs.shape}")
-                raise ValueError
 
             else:  # not using rmpad and no ulysses sp
                 extra_args = {}

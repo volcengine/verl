@@ -141,6 +141,9 @@ class ActorWorker(Worker, DistProfilerExtension):
     def create_engine_config(self, actor_config):
         print(actor_config)
         model_config = engine_cfg.get_model_config(actor_config.model)
+        print(f"override_config")
+        print(model_config.override_config)
+        raise ValueError
         optim_config = engine_cfg.get_optim_config(actor_config.actor.optim)
         system_config = engine_cfg.get_system_config(actor_config.actor.fsdp_config)
         ckpt_config = engine_cfg.get_checkpoint_config(actor_config.actor.checkpoint)

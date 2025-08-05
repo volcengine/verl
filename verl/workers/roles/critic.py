@@ -69,6 +69,12 @@ class CriticWorker(Worker, DistProfilerExtension):
     def create_engine_config(self, critic_config):
         print(critic_config)
         model_config = engine_cfg.get_model_config(critic_config.model)
+        print(f"override_config")
+        print(model_config.override_config)
+        model_config.override_config["num_labels"] = 1
+        model_config.override_config["classifier_dropout"] = 0.0
+        model_config.override_config["hidden_dropout"] = "0"
+        model_config.override_config["summary_dropout_prob"] = 0.0
         optim_config = engine_cfg.get_optim_config(critic_config.optim)
         system_config = engine_cfg.get_system_config(critic_config.model.fsdp_config)
         ckpt_config = engine_cfg.get_checkpoint_config(critic_config.checkpoint)
@@ -78,8 +84,10 @@ class CriticWorker(Worker, DistProfilerExtension):
                                             optim_config,
                                             system_config,
                                             ckpt_config,
+                                            module_type="token_classification",
                                             rollout_n=critic_config.rollout_n,
-                                            infer_micro_batch_size_per_gpu=critic_config.forward_micro_batch_size_per_gpu)
+                                            infer_micro_batch_size_per_gpu=critic_config.forward_micro_batch_size_per_gpu,
+                                            infer_max_token_len_per_gpu=critic_config.forward_max_token_len_per_gpu)
         return ret
 
     

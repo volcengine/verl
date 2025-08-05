@@ -233,9 +233,9 @@ class FSDPEngine(BaseEngine):
         # TODO(ziheng): need to recheck
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            model_config.classifier_dropout = 0.0
-            model_config.hidden_dropout = "0"
-            model_config.summary_dropout_prob = 0.0
+            # model_config.classifier_dropout = 0.0
+            # model_config.hidden_dropout = "0"
+            # model_config.summary_dropout_prob = 0.0
 
             module = load_torch_module(
                 self.config.module_type,
