@@ -330,6 +330,7 @@ class RaySchedTrainer(RayPPOTrainer):
                 with marked_timer("step", timing_raw):
                     with marked_timer("gen", timing_raw, color="red"):
                         # [ReqScheduler] scheduling for bacth generation
+                        # [ReqScheduler] Note that we repeat dataproto in workers not here
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)

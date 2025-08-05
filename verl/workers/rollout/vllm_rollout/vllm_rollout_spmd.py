@@ -310,7 +310,7 @@ class vLLMRollout(BaseRollout):
                 "temperature": self.config.val_kwargs.temperature,
                 "n": 1,  # if validate, already repeat in ray_trainer
             }
-
+        # [ReqScheduler] Note that we repeat dataproto in workers not in ray_trainer
         if len(prompts.non_tensor_batch.pop("reqs_idx", [])):
             self.sampling_params.n = self.config.get("n", 1)
 
