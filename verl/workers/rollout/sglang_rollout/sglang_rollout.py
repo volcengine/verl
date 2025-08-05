@@ -170,6 +170,19 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
     async def flush_cache(self):
         return await self.tokenizer_manager.flush_cache()
 
+    async def abort_request(self, rid: str = "", abort_all: bool = False):
+        """Abort a specific request or all requests.
+        Args:
+            rid: The request ID to abort. If empty and abort_all is False, no action is taken.
+            abort_all: If True, abort all running requests regardless of rid.
+        """
+        try:
+            result = self.tokenizer_manager.abort_request(rid=rid, abort_all=abort_all)
+            print(f"🔍 Abort result: {result}")
+            return result if result is not None else {"status": "aborted"}
+        except Exception as e:
+            logger.error(f"Failed to abort requests: {e}")
+            raise
 
 # NOTE(sgm): add for verl. We can optimize it by making
 #  the dataloader yield List[int] without padding.
@@ -1061,16 +1074,6 @@ class SGLangRollout(BaseRollout):
 
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
-    def generate_sequences_with_tools(self, prompts: DataProto, **kwargs) -> DataProto:
-        logger.warning(
-            "`generate_sequences_with_tools` is deprecated, please use `generate_sequences(...)`",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._req_level_generate_sequences(prompts, **kwargs)
-
-    @GPUMemoryLogger(role="sglang rollout", logger=logger)
-    @torch.no_grad()
     def _req_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         """Generates multi-turn sequences for a batch of prompts.
         For multi-turn generation, each prompt is processed separately via
@@ -1086,12 +1089,114 @@ class SGLangRollout(BaseRollout):
             req_list = self._preprocess_prompt_to_async_rollout_requests(
                 prompts,
             )
-            loop = asyncio.get_event_loop()
-            output_req_list = loop.run_until_complete(
-                asyncio.gather(
-                    *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
-                )
-            )
+             # 添加进度监控和abort功能
+            total_requests = len(req_list)
+            target_completion = int(self.config.data.train_batch_size * self.config.n)  # 80%完成时abort
+            print(f"🎯 Training mode: over sampling target {target_completion}/{total_requests}")
+            completed_count = 0
+            aborted_requests = []
+
+            # 区分训练和验证阶段
+            if is_validate:
+                print(f"🔍 Validation mode: processing all {total_requests} requests without abort")
+
+                # 验证阶段：处理所有请求，不使用abort
+                async def process_all_requests():
+                    return await asyncio.gather(
+                        *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
+                    )
+
+                loop = asyncio.get_event_loop()
+                output_req_list = loop.run_until_complete(process_all_requests())
+            else:
+                print(f"🎯 Training mode: over sampling target {target_completion}/{total_requests}")
+
+                completion_lock = asyncio.Lock()
+                all_tasks = []
+
+                async def process_request_with_monitoring(req):
+                    nonlocal completed_count
+                    try:
+                        result = await self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
+
+                        async with completion_lock:
+                            if completed_count < target_completion:
+                                completed_count += 1
+                                print(f"✅ Request {req.request_id} completed ({completed_count}/{total_requests})")
+                                return result
+                            else:
+                                # 这个请求虽然完成了，但已经超过目标，返回padding
+                                logger.info(f"Request {req.request_id} finished after target met, creating padding")
+                                return None
+                    except asyncio.CancelledError:
+                        # 请求被取消，返回padding
+                        logger.info(f"Request {req.request_id} was cancelled, creating padding")
+                        aborted_requests.append(req.request_id)
+                        return None
+                    except Exception as e:
+                        # 请求失败，也算作完成
+                        logger.warning(f"Request {req.request_id} failed: {e}")
+                        aborted_requests.append(req.request_id)
+                        return None
+
+                async def monitor_and_cancel():
+                    nonlocal completed_count
+                    while completed_count < target_completion:
+                        await asyncio.sleep(0.1)
+
+                    print(f"🎯 Target reached: {completed_count}/{total_requests} completed!")
+                    print("🚫 Cancelling remaining requests and sending abort to engine...")
+
+                    # 取消剩余的任务
+                    cancelled_count = 0
+                    for task in all_tasks:
+                        if not task.done():
+                            task.cancel()
+                            cancelled_count += 1
+
+                    print(f"📋 Cancelled {cancelled_count} remaining tasks")
+
+                    # 向engine发送abort信号，中断所有正在进行的请求
+                    try:
+                        abort_result = await self._engine.abort_request(abort_all=True)
+                        print(f"✅ Abort signal sent to engine: {abort_result}")
+                    except Exception as e:
+                        print(f"❌ Failed to send abort signal to engine: {e}")
+
+                async def run_with_cancellation():
+                    nonlocal all_tasks
+
+                    # 创建所有任务
+                    all_tasks = [asyncio.create_task(process_request_with_monitoring(req)) for req in req_list]
+
+                    # 启动监控任务
+                    monitor_task = asyncio.create_task(monitor_and_cancel())
+
+                    try:
+                        # 等待所有任务完成（包括被取消的）
+                        results = await asyncio.gather(*all_tasks, return_exceptions=True)
+
+                        # 处理结果，将异常转换为padding
+                        output_req_list = []
+                        for i, result in enumerate(results):
+                            if isinstance(result, Exception):
+                                # 如果是异常（包括CancelledError），创建padding
+                                logger.warning(f"Task {i} resulted in exception: {result}")
+                            elif result is not None:
+                                output_req_list.append(result)
+
+                        return output_req_list
+                    finally:
+                        # 取消监控任务
+                        monitor_task.cancel()
+                        try:
+                            await monitor_task
+                        except asyncio.CancelledError:
+                            pass
+
+                # 运行异步任务
+                loop = asyncio.get_event_loop()
+                output_req_list = loop.run_until_complete(run_with_cancellation())
             sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
         else:
             sorted_output_req_list = None
