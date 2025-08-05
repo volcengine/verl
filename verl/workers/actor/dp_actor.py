@@ -454,15 +454,17 @@ class DataParallelPPOActor(BasePPOActor):
 
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz
-                        loss = policy_loss * (response_mask.shape[0] / self.config.ppo_mini_batch_size)
+                        loss_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
+                        loss = policy_loss * loss_scale_factor
+
                     else:
-                        loss = policy_loss / self.gradient_accumulation
+                        loss_scale_factor = 1 / self.gradient_accumulation
+                        loss = policy_loss * loss_scale_factor
                     loss.backward()
 
                     micro_batch_metrics.update(
                         {
-                            "actor/pg_loss": pg_loss.detach().item()
-                            * (response_mask.shape[0] / self.config.ppo_mini_batch_size),
+                            "actor/pg_loss": pg_loss.detach().item() * loss_scale_factor,
                             "actor/pg_clipfrac": pg_clipfrac.detach().item(),
                             "actor/ppo_kl": ppo_kl.detach().item(),
                             "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
