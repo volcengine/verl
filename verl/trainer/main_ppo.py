@@ -113,12 +113,16 @@ class TaskRunner:
         pprint(OmegaConf.to_container(config, resolve=True))
         OmegaConf.resolve(config)
 
-        if config.actor_rollout_ref.rollout.multi_turn.enable:
+        if (
+            config.actor_rollout_ref.rollout.multi_turn.enable
+            and config.actor_rollout_ref.rollout.mode != "async"
+            and not config.actor_rollout_ref.rollout.multi_turn.force_use_sglang_multi_turn
+        ):
             warnings.warn(
                 "The setting multi_turn.enable=True is deprecated. Please use rollout.mode=async instead. "
                 "If you want to use the old behavior, please set multi_turn.force_use_sglang_multi_turn=True. "
                 "https://verl.readthedocs.io/en/latest/advance/agent_loop.html#migration-guide-from-sglang-multi-turn",
-                DeprecationWarning,
+                UserWarning,
                 stacklevel=2,
             )
             config.actor_rollout_ref.rollout.mode = "async"
