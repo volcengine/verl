@@ -118,11 +118,7 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
     prompt_length = response_info["prompt_length"]
     response_length = response_info["response_length"]
 
-    # 检测被abort的请求：response_mask全为0的请求
-    # 被abort的请求的response部分完全没有有效token
-    # 使用batch中的response_mask来保持与agg_loss的一致性
-    aborted_mask = (response_length == 0).bool()  # response_length为0表示被abort
-
+    aborted_mask = (response_length == 0).bool()
     non_aborted_mask = ~aborted_mask
 
     print("over sample rate in metric_utils: ", non_aborted_mask.sum() / len(non_aborted_mask))
@@ -148,11 +144,11 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
         return_var = torch.var(valid_returns)
 
     metrics = {
-        # score (只对非abort请求计算平均值)
+        # score
         "critic/score/mean": score_mean,
         "critic/score/max": score_max,
         "critic/score/min": score_min,
-        # reward (只对非abort请求计算平均值)
+        # reward
         "critic/rewards/mean": reward_mean,
         "critic/rewards/max": reward_max,
         "critic/rewards/min": reward_min,

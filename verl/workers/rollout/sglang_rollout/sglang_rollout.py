@@ -181,7 +181,6 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
         """
         try:
             result = self.tokenizer_manager.abort_request(rid=rid, abort_all=abort_all)
-            print(f"🔍 Abort result: {result}")
             return result if result is not None else {"status": "aborted"}
         except Exception as e:
             logger.error(f"Failed to abort requests: {e}")
@@ -1099,18 +1098,16 @@ class SGLangRollout(BaseRollout):
                 prompts,
             )
 
-            # 添加进度监控和abort功能
+            # add progress monitoring and abort function
             total_requests = len(req_list)
-            target_completion = int(total_requests * OVER_SAMPLE_RATE)  # 80%完成时abort
-            print(f"🎯 Training mode: over sampling target {target_completion}/{total_requests}")
+            target_completion = int(total_requests * (1 - OVER_SAMPLE_RATE))
+            # abort when target_completion of requests are completed
             completed_count = 0
             aborted_requests = []
 
-            # 区分训练和验证阶段
+            # distinguish training and validation
             if is_validate:
-                print(f"🔍 Validation mode: processing all {total_requests} requests without abort")
-
-                # 验证阶段：处理所有请求，不使用abort
+                # validation mode: process all requests without abort
                 async def process_all_requests():
                     return await asyncio.gather(
                         *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
@@ -1119,8 +1116,6 @@ class SGLangRollout(BaseRollout):
                 loop = asyncio.get_event_loop()
                 output_req_list = loop.run_until_complete(process_all_requests())
             else:
-                print(f"🎯 Training mode: over sampling target {target_completion}/{total_requests}")
-
                 completion_lock = asyncio.Lock()
                 all_tasks = []
 
@@ -1132,68 +1127,53 @@ class SGLangRollout(BaseRollout):
                         async with completion_lock:
                             if completed_count < target_completion:
                                 completed_count += 1
-                                print(f"✅ Request {req.request_id} completed ({completed_count}/{total_requests})")
-                                return result
-                            else:
-                                # 这个请求虽然完成了，但已经超过目标，返回padding
-                                logger.info(f"Request {req.request_id} finished after target met, creating padding")
-                                return self._create_padding_request(req)
+                            return result
                     except asyncio.CancelledError:
-                        # 请求被取消，返回padding
+                        # request is cancelled, return padding
                         logger.info(f"Request {req.request_id} was cancelled, creating padding")
                         aborted_requests.append(req.request_id)
                         return self._create_padding_request(req)
                     except Exception as e:
-                        # 请求失败，也算作完成
-                        logger.warning(f"Request {req.request_id} failed: {e}")
-                        aborted_requests.append(req.request_id)
-                        async with completion_lock:
-                            if completed_count < target_completion:
-                                completed_count += 1
-                        return self._create_padding_request(req)
+                        logger.error(f"Uncaught exception in process_request_with_monitoring: {e}")
+                        logger.error("This shall not happen, please check the code")
+                        raise e
 
                 async def monitor_and_cancel():
                     nonlocal completed_count
                     while completed_count < target_completion:
                         await asyncio.sleep(0.1)
 
-                    print(f"🎯 Target reached: {completed_count}/{total_requests} completed!")
-                    print("🚫 Cancelling remaining requests and sending abort to engine...")
-
-                    # 取消剩余的任务
+                    # cancel remaining tasks
                     cancelled_count = 0
                     for task in all_tasks:
                         if not task.done():
                             task.cancel()
                             cancelled_count += 1
 
-                    print(f"📋 Cancelled {cancelled_count} remaining tasks")
-
-                    # 向engine发送abort信号，中断所有正在进行的请求
+                    # send abort signal to engine, interrupt all ongoing requests
                     try:
-                        abort_result = await self._engine.abort_request(abort_all=True)
-                        print(f"✅ Abort signal sent to engine: {abort_result}")
+                        await self._engine.abort_request(abort_all=True)
                     except Exception as e:
-                        print(f"❌ Failed to send abort signal to engine: {e}")
+                        logger.error(f"Failed to send abort signal to engine: {e}")
 
                 async def run_with_cancellation():
                     nonlocal all_tasks
 
-                    # 创建所有任务
+                    # create all tasks
                     all_tasks = [asyncio.create_task(process_request_with_monitoring(req)) for req in req_list]
 
-                    # 启动监控任务
+                    # start monitoring task
                     monitor_task = asyncio.create_task(monitor_and_cancel())
 
                     try:
-                        # 等待所有任务完成（包括被取消的）
+                        # wait for all tasks to complete (including cancelled ones)
                         results = await asyncio.gather(*all_tasks, return_exceptions=True)
 
-                        # 处理结果，将异常转换为padding
+                        # process results, convert exceptions to padding
                         output_req_list = []
                         for i, result in enumerate(results):
                             if isinstance(result, Exception):
-                                # 如果是异常（包括CancelledError），创建padding
+                                # if it is an exception (including CancelledError), create padding
                                 logger.warning(f"Task {i} resulted in exception: {result}")
                                 output_req_list.append(self._create_padding_request(req_list[i]))
                             else:
@@ -1201,14 +1181,14 @@ class SGLangRollout(BaseRollout):
 
                         return output_req_list
                     finally:
-                        # 取消监控任务
+                        # cancel monitoring task
                         monitor_task.cancel()
                         try:
                             await monitor_task
                         except asyncio.CancelledError:
                             pass
 
-                # 运行异步任务
+                # run async tasks
                 loop = asyncio.get_event_loop()
                 output_req_list = loop.run_until_complete(run_with_cancellation())
 
@@ -1400,14 +1380,12 @@ class SGLangRollout(BaseRollout):
         )
 
     def _create_padding_request(self, original_req: AsyncRolloutRequest) -> AsyncRolloutRequest:
-        """创建一个padding请求，用于替代被abort的请求。
-
-        这个padding请求的特点是：
-        1. 状态为COMPLETED，但包含空的response
-        2. response_loss_mask全为0，确保在loss计算中被忽略
-        3. 保持原始请求的结构，但内容为空
-        """
-        # 创建padding的response_ids (全为pad_token_id)
+        # create a padding request to replace the aborted request
+        # the padding request has the following characteristics:
+        # 1. state is COMPLETED, but contains empty response
+        # 2. response_loss_mask is all 0, ensuring it is ignored in loss calculation
+        # 3. keep the original request structure, but the content is empty
+        # create padding response_ids (all pad_token_id)
         padding_response_length = self.config.response_length
         padding_response_ids = torch.full(
             (1, padding_response_length),
@@ -1416,75 +1394,71 @@ class SGLangRollout(BaseRollout):
             device=original_req.input_ids.device if original_req.input_ids is not None else "cpu",
         )
 
-        # 创建padding的attention_mask (全为0)
+        # create padding attention_mask (all 0)
         padding_response_attention_mask = torch.zeros(
             (1, padding_response_length),
             dtype=torch.long,
             device=original_req.attention_mask.device if original_req.attention_mask is not None else "cpu",
         )
 
-        # 创建padding的position_ids
+        # create padding position_ids
         if original_req.position_ids is not None:
             prompt_length = original_req.prompt_ids.shape[-1] if original_req.prompt_ids is not None else 0
             padding_response_position_ids = torch.arange(
                 prompt_length, prompt_length + padding_response_length, dtype=torch.long
             ).unsqueeze(0)
             if original_req.position_ids.dim() == 2:
-                # 如果是2D tensor (如qwen2vl)
+                # if it is a 2D tensor (e.g. qwen2vl)
                 padding_response_position_ids = padding_response_position_ids.repeat(
                     original_req.position_ids.shape[0], 1
                 )
         else:
             padding_response_position_ids = None
 
-        # 创建padding的loss_mask (全为0，确保被忽略)
+        # create padding loss_mask (all 0, ensuring it is ignored)
         padding_response_loss_mask = torch.zeros(
             (1, padding_response_length),
             dtype=torch.long,
             device=original_req.loss_mask.device if original_req.loss_mask is not None else "cpu",
         )
 
-        # 创建新的请求，保持原始结构但使用padding数据
         padding_req = AsyncRolloutRequest(
             batch_data_id=original_req.batch_data_id,
             rollout_offset=original_req.rollout_offset,
             request_id=original_req.request_id + "_padding",
             state=AsyncRolloutRequestStateEnum.COMPLETED,
-            messages=original_req.messages,  # 保持原始messages
+            messages=original_req.messages,
             multi_modal_keys=original_req.multi_modal_keys,
             multi_modal_data=original_req.multi_modal_data,
             multi_modal_inputs=original_req.multi_modal_inputs,
             tool_schemas=original_req.tool_schemas,
             tools_kwargs=original_req.tools_kwargs,
             interaction_kwargs=original_req.interaction_kwargs,
-            input_ids=original_req.input_ids,  # 保持原始input_ids
-            prompt_ids=original_req.prompt_ids,  # 保持原始prompt_ids
-            response_ids=padding_response_ids,  # 使用padding的response_ids
-            attention_mask=original_req.attention_mask,  # 保持原始attention_mask
-            prompt_attention_mask=original_req.prompt_attention_mask,  # 保持原始prompt_attention_mask
-            response_attention_mask=padding_response_attention_mask,  # 使用padding的response_attention_mask
-            position_ids=original_req.position_ids,  # 保持原始position_ids
-            prompt_position_ids=original_req.prompt_position_ids,  # 保持原始prompt_position_ids
-            response_position_ids=padding_response_position_ids,  # 使用padding的response_position_ids
-            loss_mask=original_req.loss_mask,  # 保持原始loss_mask
-            prompt_loss_mask=original_req.prompt_loss_mask,  # 保持原始prompt_loss_mask
-            response_loss_mask=padding_response_loss_mask,  # 使用padding的response_loss_mask (全为0)
-            reward_scores={},  # 空的reward_scores
+            input_ids=original_req.input_ids,
+            prompt_ids=original_req.prompt_ids,
+            response_ids=padding_response_ids,
+            attention_mask=original_req.attention_mask,
+            prompt_attention_mask=original_req.prompt_attention_mask,
+            response_attention_mask=padding_response_attention_mask,
+            position_ids=original_req.position_ids,
+            prompt_position_ids=original_req.prompt_position_ids,
+            response_position_ids=padding_response_position_ids,
+            loss_mask=original_req.loss_mask,
+            prompt_loss_mask=original_req.prompt_loss_mask,
+            response_loss_mask=padding_response_loss_mask,
+            reward_scores={},
             max_prompt_len=original_req.max_prompt_len,
             max_response_len=original_req.max_response_len,
-            max_model_len=original_req.max_model_len,
-            metrics={},  # 空的metrics
-            output_token_ids=None,  # 空的output_token_ids
-            rollout_log_probs=None,  # 空的rollout_log_probs
+            metrics={},
+            output_token_ids=None,
+            rollout_log_probs=None,
             use_inference_chat_template=original_req.use_inference_chat_template,
             tokenization_sanity_check_mode=original_req.tokenization_sanity_check_mode,
             generation_prompt_ids=original_req.generation_prompt_ids,
             base_conv_wo_gen_prompt_end_pos=original_req.base_conv_wo_gen_prompt_end_pos,
             base_conv_with_gen_prompt_end_pos=original_req.base_conv_with_gen_prompt_end_pos,
-            processing_class=self.processing_class,  # 添加缺少的 processing_class 参数
+            processing_class=self.processing_class,
         )
-
-        logger.info(f"Created padding request for aborted request {original_req.request_id}")
         return padding_req
 
     def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: int = 1) -> list[AsyncRolloutRequest]:
