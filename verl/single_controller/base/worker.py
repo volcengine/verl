@@ -133,7 +133,7 @@ class Worker(WorkerHelper):
             bool:
                 Whether the dp_rank is used for collect.
         """
-        assert mesh_name in self.__collect_dp_rank
+        assert mesh_name in self.__collect_dp_rank, f"{mesh_name} is not registered in {self.__class__.__name__}"
         return self.__collect_dp_rank[mesh_name]
 
     def _configure_before_init(self, register_center_name: str, rank: int):
