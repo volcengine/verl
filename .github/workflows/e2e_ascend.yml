@@ -149,4 +149,8 @@ jobs:
           USE_DIST_CKPT=True bash tests/special_npu/run_qwen2_5_05b_grpo_mindspeed.sh
           rm -rf $HOME/dist_ckpt/qwen2_5_05b_grpo_mindspeed
           rm -rf $HOME/ckpts
-          
+      - name: Running the E2E test with one_tesp_off_policy alroithm (MindSpeed) on Ascend NPU
+        run: |
+          ray stop --force
+          bash tests/special_npu/run_one_step_off_policy.sh
+          rm -rf $HOME/ckpts
