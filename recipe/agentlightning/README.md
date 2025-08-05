@@ -152,9 +152,9 @@ python sql_agent.py \
 
 1. **Context Length**: Controlled via `--litsqlagent.table-info-truncate <context-length>` and `--litsqlagent.execution-truncate <context-length>`
 2. **Max Turns**: Set using `--litsqlagent.max-turns <max-turns>`
-3. **Trained Agents**: Specified with `--litsqlagent.agents <regex>` (defaults to `write`, which matches both write and rewrite agents)
-4. **Transitions**: Represents the number of prompt-response pairs collected during each rollout. Note that this differs from the turn count in the SQL agent workflow, where one turn may encompass 2-3 transitions in the check-rewrite cycle.
-5. **Prompt/Response Length**: Average token count per prompt/transition response.
+3. **Agents**: Specified with `--litsqlagent.agents <regex>` (defaults to `write`, which matches both write and rewrite agents)
+4. **Transitions**: Represents the number of prompt-response pairs traced (collected) during each rollout. Note that this differs from the turn count in the SQL agent workflow, where one turn may encompass 2-3 transitions in the check-rewrite cycle. The number of transitions is also related to which *agents* get involved in the training.
+5. **Prompt/Response Length**: Average token count per **traced** prompt/transition response.
 
 ### Efficiency Metrics
 
