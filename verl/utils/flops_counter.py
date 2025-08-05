@@ -20,6 +20,7 @@ from verl.utils.device import get_torch_device
 VALID_CONFIG_TYPE = {
     "llama",
     "qwen2",
+    "qwen2_moe",
     "qwen2_vl",
     "qwen2_5_vl",
     "qwen3",

@@ -101,8 +101,8 @@ class TaskRunner:
 
     def add_actor_rollout_worker(self, config):
         """Add actor rollout worker based on the actor strategy."""
+        from verl.single_controller.ray import RayWorkerGroup
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
-            from verl.single_controller.ray import RayWorkerGroup
             from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 
             actor_rollout_cls = (
@@ -113,7 +113,6 @@ class TaskRunner:
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
-            from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
             from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 
             actor_rollout_cls = (
@@ -121,7 +120,7 @@ class TaskRunner:
                 if config.actor_rollout_ref.rollout.mode == "async"
                 else ActorRolloutRefWorker
             )
-            ray_worker_group_cls = NVMegatronRayWorkerGroup
+            ray_worker_group_cls = RayWorkerGroup
 
         else:
             raise NotImplementedError
