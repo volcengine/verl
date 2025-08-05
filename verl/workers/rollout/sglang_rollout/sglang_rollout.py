@@ -1480,6 +1480,7 @@ class SGLangRollout(BaseRollout):
             generation_prompt_ids=original_req.generation_prompt_ids,
             base_conv_wo_gen_prompt_end_pos=original_req.base_conv_wo_gen_prompt_end_pos,
             base_conv_with_gen_prompt_end_pos=original_req.base_conv_with_gen_prompt_end_pos,
+            processing_class=self.processing_class,  # 添加缺少的 processing_class 参数
         )
 
         logger.info(f"Created padding request for aborted request {original_req.request_id}")
