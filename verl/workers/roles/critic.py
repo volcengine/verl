@@ -42,8 +42,14 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config):
         Worker.__init__(self)
-        profiler_config = omega_conf_to_dataclass(config.get("profiler"), dataclass_type=ProfilerConfig)
-        tool_config = omega_conf_to_dataclass(config.get("profiler", {}).get("tool_config", {}))
+        omega_profiler_config = config.get("profiler", {})
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )
