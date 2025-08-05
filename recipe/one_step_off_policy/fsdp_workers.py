@@ -133,10 +133,7 @@ class RolloutWorker(ActorRolloutRefWorker):
         # as they provides DictConfig-like interface
         # The benefit of creating the dataclass config is to perform validation during __post_init__
         profiler_config = omega_conf_to_dataclass(config.get("profiler"), dataclass_type=ProfilerConfig)
-        if profiler_config is not None:
-            tool_config = profiler_config.tool_config
-        else:
-            tool_config = None
+        tool_config = omega_conf_to_dataclass(config.get("profiler", {}).get("tool_config", {}))
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )

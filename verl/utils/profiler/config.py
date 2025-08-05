@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 from omegaconf import MISSING
 
 from verl.base_config import BaseConfig
-from verl.utils.config import omega_conf_to_dataclass
 
 
 @dataclass
@@ -95,13 +94,9 @@ class ProfilerConfig(BaseConfig):
     all_ranks: bool = False
     ranks: list[int] = field(default_factory=list)
     save_path: str = MISSING
-    tool_config: NsightToolConfig | TorchProfilerToolConfig | NPUToolConfig = MISSING
-    _mutable_fields = ["tool_config"]
 
     def __post_init__(self) -> None:
         """config validation logics go here"""
         assert isinstance(self.ranks, set | list | tuple), (
             f"Profiler ranks must be of type list, got {type(self.ranks)}"
         )
-        if self.tool:
-            self.tool_config = omega_conf_to_dataclass(self.tool_config[self.tool])

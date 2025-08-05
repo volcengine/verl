@@ -174,8 +174,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 "['actor', 'rollout', 'ref', 'actor_rollout', 'actor_rollout_ref']"
             )
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        tool_config = omega_conf_to_dataclass(omega_profiler_config.get("tool_config", {}))
         DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config)
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )
 
         self._is_offload_param = False
@@ -943,8 +944,9 @@ class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config: FSDPCriticConfig):
         Worker.__init__(self)
         profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), dataclass_type=ProfilerConfig)
+        tool_config = omega_conf_to_dataclass(config.get("profiler", {}).get("tool_config", {}))
         DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config)
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )
         import torch.distributed
 
@@ -1341,9 +1343,10 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         Worker.__init__(self)
 
         profiler_config = omega_conf_to_dataclass(config.profiler)
+        tool_config = omega_conf_to_dataclass(config.get("profiler", {}).get("tool_config", {}))
         DistProfilerExtension.__init__(
             self,
-            DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config),
+            DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config),
         )
 
         import torch.distributed

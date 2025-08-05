@@ -227,7 +227,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 f"Invalid role {self.role}, should be one of "
                 "['actor', 'rollout', 'ref', 'actor_rollout', 'actor_rollout_ref']"
             )
-        profiler_config = omega_conf_to_dataclass(omega_profiler_config)
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        tool_config = omega_conf_to_dataclass(omega_profiler_config.get("tool_config", {}))
         if profiler_config is not None:
             tool_config = profiler_config.tool_config
         else:
@@ -824,8 +825,9 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         Worker.__init__(self)
 
         profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), dataclass_type=ProfilerConfig)
+        tool_config = omega_conf_to_dataclass(config.get("profiler", {}).get("tool_config", {}))
         DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config)
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )
         self.config: McoreCriticConfig = config
 
@@ -1115,9 +1117,10 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
         Worker.__init__(self)
 
         profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), dataclass_type=ProfilerConfig)
+        tool_config = omega_conf_to_dataclass(config.get("profiler", {}).get("tool_config", {}))
         DistProfilerExtension.__init__(
             self,
-            DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config),
+            DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config),
         )
         self.config = config
 

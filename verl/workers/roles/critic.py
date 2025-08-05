@@ -43,8 +43,9 @@ class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config):
         Worker.__init__(self)
         profiler_config = omega_conf_to_dataclass(config.get("profiler"), dataclass_type=ProfilerConfig)
+        tool_config = omega_conf_to_dataclass(config.get("profiler", {}).get("tool_config", {}))
         DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=profiler_config.tool_config)
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )
         import torch.distributed
 
