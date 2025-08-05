@@ -1,0 +1,7 @@
+agentlightning==0.1.1
+langgraph
+langchain[openai]
+langchain-community
+langchain-text-splitters
+sqlparse
+nltk
