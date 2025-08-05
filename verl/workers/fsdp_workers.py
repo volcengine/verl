@@ -681,9 +681,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="red", role="actor_update")
     def update_actor(self, data: DataProto):
-        # Support all hardwares
-        data = data.to(get_device_id())
-
+        data = data.to("cpu")  # data will to device with each micro batch on actor.update_policy
         assert self._is_actor
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
