@@ -143,7 +143,6 @@ class ActorWorker(Worker, DistProfilerExtension):
         model_config = engine_cfg.get_model_config(actor_config.model)
         print(f"override_config")
         print(model_config.override_config)
-        raise ValueError
         optim_config = engine_cfg.get_optim_config(actor_config.actor.optim)
         system_config = engine_cfg.get_system_config(actor_config.actor.fsdp_config)
         ckpt_config = engine_cfg.get_checkpoint_config(actor_config.actor.checkpoint)
@@ -179,7 +178,7 @@ class ActorWorker(Worker, DistProfilerExtension):
         response_length = micro_batch["responses"].size(-1)
         temperature = self.config.rollout.temperature
 
-        logits = preds.squeeze(-1)                                           # (bsz, seqlen, vocab_size)
+        logits = preds                                          # (bsz, seqlen, vocab_size)
         debug_print(f"logits: {logits.shape}")
         logits.div_(temperature)
         logits = logits[:, -response_length - 1 : -1, :]                     # (bsz, response_length, vocab_size)
@@ -207,27 +206,21 @@ class ActorWorker(Worker, DistProfilerExtension):
         with self.engine.eval_mode():
             data = self.engine.shard_data(data=data)
             output = self.engine.infer_batch(data, post_fn=self._post_fn_log_prob)
-
-
-            assert "old_log_probs" in output
-            assert "entropys" in output
-            output = DataProto.from_dict(output)
-            # output.meta_info["temperature"] = self.config.rollout.temperature
+            output = DataProto.from_dict(
+                tensors={"old_log_probs": output["log_probs"], "entropys": output["entropy"]},
+                meta_info={"temperature": self.config.rollout.temperature},
+            )
 
             output = self.engine.unshard_data(data=output)
         output = output.to("cpu")
 
-        raise ValueError
-
-
-        # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
-        # unshard the root FSDP module
-        if self.world_size > 1 and fsdp_version(self.actor.actor_module) == 1:
-            self.actor.actor_module._handle.reshard(True)
-
+        # TODO: check this
+        # # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
+        # # unshard the root FSDP module
+        # if self.world_size > 1 and fsdp_version(self.actor.actor_module) == 1:
+        #     self.actor.actor_module._handle.reshard(True)
 
         return output
-        raise NotImplementedError
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):

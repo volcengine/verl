@@ -49,7 +49,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 def debug_print(msg):
-    print(f"[MyActorWorker]: {msg}")
+    print(f"[PrevActorWorker]: {msg}")
 
 class DataParallelPPOActor(BasePPOActor):
     """FSDP DataParallel PPO Actor or Ref worker

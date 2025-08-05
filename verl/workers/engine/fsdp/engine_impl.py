@@ -83,7 +83,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 device_name = get_device_name()
 
 def debug_print(msg):
-    print(f"[MyActorWorker]: {msg}")
+    print(f"[MyEngine]: {msg}")
 
 @EngineRegistry.register(["fsdp", "fsdp2"])
 class FSDPEngine(BaseEngine):
@@ -532,6 +532,8 @@ class FSDPEngine(BaseEngine):
     
 
     def _forward_micro_batch(self, micro_batch):
+        # input_ids: [bsz, seqlen]
+        # preds: [bsz, seqlen, logits]
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
             if "image_bound" in micro_batch["multi_modal_inputs"][0]:  # minicpm-o logic
@@ -587,6 +589,7 @@ class FSDPEngine(BaseEngine):
                     **multi_modal_inputs,
                     use_cache=False,
                 )  # prevent model thinks we are generating
+                # shape: [1, total_nnz, logits]
 
                 if hasattr(self.module, "v_head"):
                     # For trl.AutoModelForCausalLMWithValueHead
@@ -595,6 +598,7 @@ class FSDPEngine(BaseEngine):
                     preds_rmpad = preds.logits
                     print(f"preds_rmpad before squeeze: {preds_rmpad.shape}")
                     preds_rmpad = preds_rmpad.squeeze(0)  # (total_nnz)
+                # shape: [total_nnz, logits]
 
                 debug_print(f"preds_rmpad before gather: {preds_rmpad.shape}")
 
@@ -605,8 +609,9 @@ class FSDPEngine(BaseEngine):
 
                 # pad it back
                 # preds = pad_input(preds_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
-                preds = pad_input(preds_rmpad.unsqueeze(-1), indices=indices, batch=batch, seqlen=seqlen)
+                preds = pad_input(preds_rmpad, indices=indices, batch=batch, seqlen=seqlen)
                 debug_print(f"preds after pad_input: {preds.shape}")
+                # shape: [bsz, seqlen, logits]
             else:
                 preds = self.module(
                     input_ids=input_ids,
@@ -677,9 +682,7 @@ class FSDPEngine(BaseEngine):
                 # micro_batch_preds would be a dict[str, torch.Tensor]
                 preds = self._forward_micro_batch(micro_batch)
                 _, outputs = post_fn(micro_batch, preds)
-                raise ValueError
                 assert isinstance(outputs, dict)
-            raise ValueError
             # append micro batch preds to dict[str, List[torch.Tensor]]
             append_to_dict(preds_list, outputs)
 
@@ -690,11 +693,12 @@ class FSDPEngine(BaseEngine):
             t_concat = torch.concat(t_list, dim=0)
 
             if use_dynamic_bsz:
+                t_concat = restore_dynamic_batch(t_concat, batch_idx_list)
                 
-                indices = list(itertools.chain.from_iterable(indices))
-                assert len(indices) == t_concat.size(0), f"{len(indices)} vs. {t_concat.size()}"
-                revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-                t_concat = t_concat[revert_indices]
+                # indices = list(itertools.chain.from_iterable(indices))
+                # assert len(indices) == t_concat.size(0), f"{len(indices)} vs. {t_concat.size()}"
+                # revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+                # t_concat = t_concat[revert_indices]
 
             mini_batch_preds[key] = t_concat
 
@@ -715,6 +719,7 @@ class FSDPEngine(BaseEngine):
         Returns:
             dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
         """
+        raise ValueError
         assert self.mode == "train"
         # split batch into micro_batches
         mini_batch = data

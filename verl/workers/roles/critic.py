@@ -90,7 +90,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                                             infer_max_token_len_per_gpu=critic_config.forward_max_token_len_per_gpu)
         return ret
 
-    
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         self.engine.init_model()
@@ -99,10 +99,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         response_length = micro_batch["responses"].size(-1)
         values = preds[:, -response_length - 1 : -1]
 
-        use_remove_padding = self.config.model.get("use_remove_padding", False)
-        if not use_remove_padding:
-            values = values.squeeze(-1)
-
+        values = values.squeeze(-1)
         return values, {"values": values.clone().detach()}
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
