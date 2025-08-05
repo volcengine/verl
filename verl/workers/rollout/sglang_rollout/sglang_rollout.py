@@ -180,7 +180,7 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
             abort_all: If True, abort all running requests regardless of rid.
         """
         try:
-            self.tokenizer_manager.abort_request(rid=rid, abort_all=abort_all)
+            self.abort_request(rid=rid, abort_all=abort_all)
             if abort_all:
                 logger.info("Aborted all pending requests")
             elif rid:
