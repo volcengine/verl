@@ -26,7 +26,7 @@ From this version, we divide images built for vLLM and SGLang as the divergence 
 There are 2 types of application images available:
 
 - **vLLM with FSDP and Megatron**: ``verlai/verl:app-verl0.5-vllm0.9.1-mcore0.12.2-te2.2``
-- **SGLang with FSDP and Megatron**: ``verlai/verl:app-verl0.5-sglang0.4.9.post6-mcore0.13.0-te2.2``
+- **SGLang with FSDP and Megatron**: `verlai/verl:app-verl0.5-transformers0.54.0-sglang0.4.9.post6-mcore0.13.0-te2.2`
 
 Docker images with Megatron backends are runnable with large language model like ``Qwen/Qwen3-235B-A22B``, ``deepseek-ai/DeepSeek-V3-0324`` post-training. Refer to the :doc:`Large Language Model Post-Training documentation<../perf/dpsk>` for more details.
 
@@ -54,7 +54,7 @@ docker start verl
 docker exec -it verl bash
 ```
 
-2.	If you use the images provided, you only need to install verl itself without dependencies:
+2. If you use the images provided, you only need to install verl itself without dependencies:
 
 ```sh
 # install the nightly version (recommended)
