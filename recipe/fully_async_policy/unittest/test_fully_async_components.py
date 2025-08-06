@@ -58,7 +58,7 @@ class TestMessageQueue(unittest.TestCase):
 
         # 测试放入样本
         success = ray.get(
-            self.message_queue.put_samples.remote(
+            self.message_queue.put_sample.remote(
                 epoch=1, sample=mock_sample, param_version=1, rollout_metadata={"timestamp": time.time()}
             )
         )
@@ -79,7 +79,7 @@ class TestMessageQueue(unittest.TestCase):
 
         # 放入一个参数版本较老的样本
         success = ray.get(
-            self.message_queue.put_samples.remote(
+            self.message_queue.put_sample.remote(
                 epoch=1, sample=mock_sample, param_version=1, rollout_metadata={"timestamp": time.time()}
             )
         )
@@ -109,7 +109,7 @@ class TestMessageQueue(unittest.TestCase):
 
         for i in range(3):
             ray.get(
-                self.message_queue.put_samples.remote(
+                self.message_queue.put_sample.remote(
                     epoch=1, sample=mock_sample, param_version=1, rollout_metadata={"timestamp": time.time()}
                 )
             )
@@ -339,7 +339,7 @@ class TestIntegrationScenarios(unittest.TestCase):
         mock_sample.batch_size = 4
 
         ray.get(
-            message_queue.put_samples.remote(
+            message_queue.put_sample.remote(
                 epoch=1, sample=mock_sample, param_version=1, rollout_metadata={"timestamp": time.time()}
             )
         )
@@ -377,7 +377,7 @@ class TestErrorHandling(unittest.TestCase):
         # 填满队列
         for i in range(2):
             result = ray.get(
-                message_queue.put_samples.remote(
+                message_queue.put_sample.remote(
                     epoch=1, sample=mock_sample, param_version=1, rollout_metadata={"timestamp": time.time()}
                 )
             )
@@ -385,7 +385,7 @@ class TestErrorHandling(unittest.TestCase):
 
         # 尝试再放入一个样本（应该失败或者覆盖旧样本）
         result = ray.get(
-            message_queue.put_samples.remote(
+            message_queue.put_sample.remote(
                 epoch=1, sample=mock_sample, param_version=1, rollout_metadata={"timestamp": time.time()}
             )
         )

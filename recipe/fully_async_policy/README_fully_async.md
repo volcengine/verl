@@ -306,3 +306,31 @@ def custom_monitor(trainer_stats, rollouter_stats):
 - 简单的消息队列实现
 - 基本的参数同步功能
 
+
+```python
+DataProtoItem(
+    batch=TensorDict(
+        fields={
+            attention_mask: Tensor(shape=torch.Size([3072]), device=cpu, dtype=torch.int64, is_shared=False),
+            input_ids: Tensor(shape=torch.Size([3072]), device=cpu, dtype=torch.int64, is_shared=False),
+            position_ids: Tensor(shape=torch.Size([3072]), device=cpu, dtype=torch.int64, is_shared=False),
+            prompts: Tensor(shape=torch.Size([1024]), device=cpu, dtype=torch.int64, is_shared=False),
+            response_mask: Tensor(shape=torch.Size([2048]), device=cpu, dtype=torch.int64, is_shared=False),
+            responses: Tensor(shape=torch.Size([2048]), device=cpu, dtype=torch.int64, is_shared=False)},
+        batch_size=torch.Size([]),
+        device=None,
+        is_shared=False), 
+    non_tensor_batch={'data_source': 'openai/gsm8k',
+                      'ability': 'math', 
+                      'reward_model': {'ground_truth': '35', 'style': 'rule'},
+                      'extra_info': {
+                          'answer': 'The total number of green and red plates is 28 + 21 = <<28+21=49>>49.\nXavier should buy 84 − 49 = 35 more plates.\n#### 35',
+                          'index': 1421, 
+                          'question': 'Xavier needs 84 paper plates for a housewarming party. He already has 21 green plates and 28 red plates. How many more plates should Xavier buy?', 'split': 'train'},
+                      'uid': 'fab3e910-67b3-4653-bc69-377250049267', 
+                      'tools_kwargs': {}, 
+                      'interaction_kwargs': {}, 
+                      'index': 1421},
+    meta_info={'global_token_num': [2141, 2141, 2161, 2151, 2151, 2130, 2141, 2161, 2161, 2151, 2130, 2130]})
+```
+

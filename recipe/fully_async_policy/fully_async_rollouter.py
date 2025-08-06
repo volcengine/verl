@@ -19,8 +19,7 @@ from pprint import pprint
 import ray
 from omegaconf import OmegaConf
 
-from recipe.fully_async_policy.message_queue import MessageQueueClient
-from verl import DataProto
+from recipe.fully_async_policy.message_queue import MessageQueueClient, QueueSample
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
 from verl.utils.debug import marked_timer
@@ -45,6 +44,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         reward_fn=None,
         val_reward_fn=None,
         device_name=None,
+        max_queue_size=1000,
     ):
         """
         Initialize distributed PPO trainer with Ray backend.
@@ -59,10 +59,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
             processor: Optional data processor, used for multimodal data
             reward_fn: Function for computing rewards during training.
             val_reward_fn: Function for computing rewards during validation.
-            train_dataset (Optional[Dataset], optional): Training dataset. Defaults to None.
-            val_dataset (Optional[Dataset], optional): Validation dataset. Defaults to None.
-            collate_fn: Function to collate data samples into batches.
-            train_sampler (Optional[Sampler], optional): Sampler for the training dataset. Defaults to None.
             device_name (str, optional): Device name for training (e.g., "cuda", "cpu"). Defaults to None.
         """
         # Store the tokenizer for text processing
@@ -115,7 +111,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         # 统计信息
         self.total_generated_samples = 0
         self.dropped_stale_samples = 0
-        self.generation_errors = 0
         self.param_sync_requests = 0
 
         # Worker groups
@@ -143,9 +138,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.sync_in_progress = False
         self.sync_lock = threading.Lock()
 
-        self.max_queue_size = (
-            self.staleness_threshold * self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
-        )
+        self.max_queue_size = max_queue_size
 
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """设置消息队列客户端"""
@@ -257,19 +250,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         last_val_metrics = None
         self.max_steps_duration = 0
 
-        """
-        主要的生成循环
-
-        循环入口，需要
-        1. running 判断
-        4. 中断判断
-        3. 新鲜度判断
-
-        生成样本过程中，需要
-        1. running 判断
-        2. 中断判断
-        """
-
         continuous_iterator = self._create_continuous_iterator()
         for epoch, batch_dict in continuous_iterator:
             with self.lock:
@@ -288,6 +268,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 if not self.running:
                     break
 
+            metrics = {}
             timing_raw = {}
             batch, gen_batch = self._prepare_generate_batch(batch_dict)
             is_last_step = self.global_steps >= self.total_training_steps
@@ -308,101 +289,65 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     "generation_timestamp": time.time(),
                     "rollout_param_version": self.current_param_version,
                 }
+                batch = self._post_generate_batch(batch, gen_batch_output, metrics)
 
-                gen_batch_output: DataProto = gen_batch_output
-                print(gen_batch_output)
-                for i in gen_batch_output:
-                    print(i)
-
-                # 放入队列
-                success = self.message_queue_client.put_samples(
-                    samples=gen_batch_output,
-                    param_version=self.current_param_version,
-                    rollout_metadata_list=rollout_metadata,
-                )
-                print(f"put samples {success}")
-                with self.lock:
-                    if success:
-                        self.total_generated_samples += 1
-                    else:
-                        self.dropped_stale_samples += 1
-
-                if self.global_steps % 1 == 0:
-                    print(
-                        f"Generated {self.total_generated_samples} batches, \n"
-                        f"param_version={self.current_param_version}, \n"
-                        f"errors={self.generation_errors}, \n"
-                        f"Dropped stale samples: {self.dropped_stale_samples}\n"
+                for sample in batch:
+                    # for sample in samples:
+                    queue_sample = QueueSample(
+                        data=sample,
+                        rollout_metadata=rollout_metadata,
                     )
+                    # 放入队列
+                    success = self.message_queue_client.put_sample(
+                        sample=ray.cloudpickle.dumps(queue_sample),
+                        param_version=self.current_param_version,
+                    )
+                    print(f"put samples {success}")
+                    with self.lock:
+                        if success:
+                            self.total_generated_samples += 1
+                        else:
+                            self.dropped_stale_samples += 1
+
+                    if self.global_steps % 1 == 0:
+                        print(
+                            f"Generated {self.total_generated_samples} batches, \n"
+                            f"param_version={self.current_param_version}, \n"
+                            f"Dropped stale samples: {self.dropped_stale_samples}\n"
+                        )
 
             self.global_steps += 1
 
             if is_last_step:
                 pprint(f"Final validation metrics: {last_val_metrics}")
-                return
+                break
+
+        with self.lock:
+            self.running = False
 
     def _monitor_loop(self):
         """监控线程 - 监控状态并处理控制信号"""
-        try:
-            # 主线程保持运行，处理控制信号和状态监控
-            last_stats_time = time.time()
-            stats_interval = 30.0  # 30秒报告一次统计
-            check_interval = 5.0  # 5秒检查一次状态
-
-            while True:
+        # 主线程保持运行，处理控制信号和状态监控
+        last_stats_time = time.time()
+        stats_interval = 30.0  # 30秒报告一次统计
+        check_interval = 5.0  # 5秒检查一次状态
+        while True:
+            with self.lock:
+                if not self.running:
+                    break
+            time.sleep(check_interval)
+            # 定期打印统计信息
+            current_time = time.time()
+            if current_time - last_stats_time >= stats_interval:
+                print(self.get_statistics())
+                last_stats_time = current_time
+            # 检查是否应该恢复生成
+            if not self._should_pause_generation():
                 with self.lock:
-                    if not self.running:
-                        break
-
-                time.sleep(check_interval)
-
-                # 定期打印统计信息
-                current_time = time.time()
-                if current_time - last_stats_time >= stats_interval:
-                    self._log_statistics()
-                    last_stats_time = current_time
-
-                # 检查是否应该恢复生成
-                if not self._should_pause_generation():
-                    with self.lock:
-                        if self.paused:
-                            self.paused = False
-                            self.condition.notify_all()
-                            print("Generation resumed")
-
-        except Exception as e:
-            print(f"Error in monitor loop: {e}")
-        finally:
-            print("Monitor thread exiting")
-
-    def _report_loop(self):
-        try:
-            # 主线程保持运行，处理控制信号和状态监控
-            last_stats_time = time.time()
-            stats_interval = 10.0
-
-            while self.running:
-                time.sleep(1.0)
-
-                # 定期打印统计信息
-                current_time = time.time()
-                if current_time - last_stats_time >= stats_interval:
-                    self.get_statistics()
-                    last_stats_time = current_time
-                    if not self._should_pause_generation():
-                        self.resume()
-
-                # 检查生成线程状态
-                if not self.generation_thread.is_alive():
-                    print("Generation thread died, restarting...")
-                    raise RuntimeError("generation_thread not alive")
-
-        except KeyboardInterrupt:
-            print("Received interrupt signal, shutting down...")
-        except Exception as e:
-            print(f"Error in main loop: {e}")
-        finally:
-            self.shutdown()
+                    if self.paused:
+                        self.paused = False
+                        self.condition.notify_all()
+                        print("Generation resumed")
 
     def _should_pause_generation(self) -> bool:
         """

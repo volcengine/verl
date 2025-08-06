@@ -30,10 +30,7 @@ logger = logging.getLogger(__name__)
 class QueueSample:
     """单个batch样本，包含参数版本和新鲜度信息"""
 
-    id: str
     data: Any
-    param_version: int
-    timestamp: float
     rollout_metadata: dict[str, Any]
 
 
@@ -75,16 +72,13 @@ class MessageQueue:
             "staleness_threshold={self.staleness_threshold}"
         )
 
-    def put_samples(
-        self, samples: list[Any] | Any, param_version: int, rollout_metadata: dict[str, Any] = None
-    ) -> bool:
+    def put_sample(self, sample: Any, param_version: int) -> bool:
         """
         放入一个batch样本到队列
 
         Args:
-            samples: 样本数据
+            sample: 样本数据
             param_version: 参数版本号
-            rollout_metadata: rollout相关的元数据
 
         Returns:
             bool: 是否成功放入队列
@@ -97,23 +91,13 @@ class MessageQueue:
                 logger.debug(f"Dropped stale sample: staleness={staleness}, threshold={self.staleness_threshold}")
                 return False
 
-            for sample in samples:
-                queue_sample = QueueSample(
-                    id=str(uuid.uuid4()),
-                    data=sample,
-                    param_version=param_version,
-                    timestamp=time.time(),
-                    rollout_metadata=rollout_metadata or {},
-                )
-
-                # 如果队列满了，移除最旧的样本，一般不会发生
-                if len(self.queue) >= self.max_queue_size:
-                    removed = self.queue.popleft()
-                    self.dropped_samples += 1
-                    logger.warning(f"Queue full, dropped sample {removed.id}")
-
-                self.queue.append(queue_sample)
-                self.total_produced += 1
+            # 如果队列满了，移除最旧的样本，一般不会发生
+            if len(self.queue) >= self.max_queue_size:
+                removed = self.queue.popleft()
+                self.dropped_samples += 1
+                logger.warning(f"Queue full, dropped sample {removed.id}")
+            self.queue.append(sample)
+            self.total_produced += 1
 
             # 通知等待的消费者
             self.consumer_condition.notify()
@@ -226,11 +210,9 @@ class MessageQueueClient:
     def __init__(self, queue_actor: Any):
         self.queue_actor = queue_actor
 
-    def put_samples(
-        self, samples: list[Any], param_version: int, rollout_metadata_list: list[dict[str, Any]] = None
-    ) -> bool:
+    def put_sample(self, sample: Any, param_version: int) -> bool:
         """放入batch到队列"""
-        return ray.get(self.queue_actor.put_samples.remote(samples, param_version, rollout_metadata_list))
+        return ray.get(self.queue_actor.put_sample.remote(sample, param_version))
 
     def get_samples(self, min_batch_count: int = 1) -> list[QueueSample]:
         """从队列获取batch，一直等待直到有足够样本"""

@@ -61,7 +61,7 @@ class TestMessageQueue(unittest.TestCase):
         mock_batch = Mock(spec=DataProto)
 
         # 放入样本
-        success = self.client.put_samples(samples=mock_batch, param_version=1, rollout_metadata={"test": "data"})
+        success = self.client.put_sample(sample=mock_batch, param_version=1, rollout_metadata={"test": "data"})
         self.assertTrue(success)
 
         # 获取样本
@@ -78,8 +78,8 @@ class TestMessageQueue(unittest.TestCase):
         self.client.update_param_version(10)
 
         # 尝试放入过期样本
-        success = self.client.put_samples(
-            samples=mock_batch,
+        success = self.client.put_sample(
+            sample=mock_batch,
             param_version=5,  # 版本差异为5，超过阈值3
             rollout_metadata={},
         )
@@ -159,7 +159,7 @@ def test_integration():
 
         # 生产样本
         for i in range(5):
-            success = client.put_samples(samples=mock_batch, param_version=i, rollout_metadata={"batch_id": i})
+            success = client.put_sample(sample=mock_batch, param_version=i, rollout_metadata={"batch_id": i})
             assert success, f"Failed to put batch {i}"
 
         # 消费样本

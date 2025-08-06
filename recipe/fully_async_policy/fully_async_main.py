@@ -223,9 +223,13 @@ class FullyAsyncTaskRunner:
         self.components["val_reward_fn"] = val_reward_fn
 
         # 创建MessageQueue
+        self.max_queue_size = (
+            config.async_training.staleness_threshold
+            * config.data.train_batch_size
+            * config.actor_rollout_ref.rollout.n
+        )
         print("Creating MessageQueue...")
-        max_queue_size = config.async_training.staleness_threshold * config.data.train_batch_size
-        message_queue = MessageQueue.remote(config, max_queue_size)
+        message_queue = MessageQueue.remote(config, self.max_queue_size)
         message_queue_client = MessageQueueClient(message_queue)
 
         self.components["message_queue"] = message_queue
@@ -260,6 +264,7 @@ class FullyAsyncTaskRunner:
             ray_worker_group_cls=self.components["ray_worker_group_cls"],
             processor=self.components["processor"],
             device_name=config.trainer.device,
+            max_queue_size=self.max_queue_size,
         )
         print(rollouter)
 
@@ -311,6 +316,8 @@ class FullyAsyncTaskRunner:
         ray.get(rollouter_future)
         # ray.get(trainer_future)
 
+        self.components['message_queue_client'].clear_queue.remote()
+        
         print("Training completed or interrupted")
 
     def _monitor_components(self):

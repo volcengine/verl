@@ -199,12 +199,13 @@ assert result == True
 ```
 
 ### 测试新鲜度控制
+
 ```python
 # 测试样本过期机制
 queue = MessageQueueClient.remote(max_staleness=3)
 
 # 放入旧版本样本
-queue.put_samples.remote(sample, param_version=1)
+queue.put_sample.remote(sample, param_version=1)
 
 # 用新版本获取（应该被拒绝）
 result = ray.get(queue.get_samples.remote(current_param_version=5))

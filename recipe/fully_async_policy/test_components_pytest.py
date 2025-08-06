@@ -91,7 +91,7 @@ class TestMessageQueue:
 
             # 测试放入样本
             success = ray.get(
-                queue.put_samples.remote(
+                queue.put_sample.remote(
                     epoch=1, sample=mock_sample, param_version=1, rollout_metadata={"timestamp": time.time()}
                 )
             )
@@ -260,7 +260,7 @@ class TestIntegration:
 
             # 放入样本
             success = ray.get(
-                queue.put_samples.remote(
+                queue.put_sample.remote(
                     epoch=1, sample=mock_sample, param_version=1, rollout_metadata={"timestamp": time.time()}
                 )
             )
