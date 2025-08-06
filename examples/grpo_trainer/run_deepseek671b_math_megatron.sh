@@ -8,7 +8,6 @@ set -x
 # no offline dist checkpoint needed, now with mbridge>=0.13.0, we can directly init model from huggingface downloaded fp8 weights
 # tested on docker://verlai/verl:app-verl0.5-vllm0.10.0-mcore0.13.0-te2.2
 LLM="<path_to_dsv3_config>"
-LLM=/lustre/fs1/portfolios/coreai/projects/coreai_dlalgo_mcore/checkpoints/DeepSeek-V3-0324_hf_verl
 
 
 # 2. run the script
