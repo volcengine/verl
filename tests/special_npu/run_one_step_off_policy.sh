@@ -138,6 +138,8 @@ python3 -m recipe.one_step_off_policy.main_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
     actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=${train_pp} \
     actor_rollout_ref.ref.megatron.tensor_model_parallel_size=${train_tp} \
-    actor_rollout_ref.ref.megatron.param_offload=${ref_offload} $@
+    actor_rollout_ref.ref.megatron.param_offload=${ref_offload} \
+    trainer.device=npu \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.use_flash_attn=True $@
 
 echo "One-step-off-policy E2E test completed successfully with ${ACTOR_STRATEGY} strategy"

@@ -41,7 +41,7 @@ from verl.utils.model import get_generation_config, update_model_config
 from verl.workers.fsdp_workers import ActorRolloutRefWorker as ARRWorker
 from verl.workers.fsdp_workers import CriticWorker
 
-from .distributed_util import init_process_group
+from .distributed_util import stateless_init_process_group
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -53,16 +53,14 @@ __all__ = ["ActorRolloutRefWorker", "AsyncActorRolloutRefWorker", "CriticWorker"
 
 class ActorRolloutRefWorker(ARRWorker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
-    def create_weight_sync_group(
-        self, master_address, master_port, world_size, rank_offset, backend="nccl", group_name="actor_rollout"
-    ):
-        rank = self.rank + rank_offset
-        self._weight_sync_group = init_process_group(
-            backend=backend,
-            init_method=f"tcp://{master_address}:{master_port}",
-            world_size=world_size,
-            rank=rank,
-            group_name=group_name,
+    def create_weight_sync_group(self, master_address, master_port, world_size, rank_offset):
+        rank = torch.distributed.get_rank() + rank_offset
+        self._weight_sync_group = stateless_init_process_group(
+            master_address,
+            master_port,
+            rank,
+            world_size,
+            get_torch_device().current_device(),
         )
 
     def _get_actor_params(self):

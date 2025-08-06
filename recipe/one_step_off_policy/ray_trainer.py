@@ -49,7 +49,6 @@ from verl.trainer.ppo.ray_trainer import (
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.debug import marked_timer
-from verl.utils.device import get_nccl_backend
 from verl.utils.metric import (
     reduce_metrics,
 )
@@ -298,30 +297,27 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                 actor_rollout_workers,
                 len(actor_rollout_workers),
                 list(range(0, len(actor_rollout_workers))),
-                backend=get_nccl_backend(),
+                backend="nccl",
                 group_name="actor_rollout",
             )
         else:
-            master_address = ray.get(self.actor_wg.worker[0]._get_node_ip.remote())
+            master_address = ray.get(self.actor_wg.workers[0]._get_node_ip.remote())
             master_port = ray.get(self.actor_wg.workers[0]._get_free_port.remote())
             world_size = len(self.actor_wg.workers + self.rollout_wg.workers)
-            actor_futures = self.actor_wg.create_weight_sync_group(
+            self.actor_wg.create_weight_sync_group(
                 master_address,
                 master_port,
                 world_size,
                 rank_offset=0,
-                backend=get_nccl_backend(),
-                group_name="actor_rollout",
             )
-            rollout_futures = self.rollout_wg.create_weight_sync_group(
-                master_address,
-                master_port,
-                world_size,
-                rank_offset=len(self.actor_wg.workers),
-                backend=get_nccl_backend(),
-                group_name="actor_rollout",
+            ray.get(
+                self.rollout_wg.create_weight_sync_group(
+                    master_address,
+                    master_port,
+                    world_size,
+                    rank_offset=len(self.actor_wg.workers),
+                )
             )
-            ray.get(actor_futures + rollout_futures)
 
     def sync_rollout_weights(self, use_ray=True):
         if not self.hybrid_engine:
