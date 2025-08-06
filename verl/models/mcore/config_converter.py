@@ -131,19 +131,21 @@ def _get_mla_transformer_config(
     return base_config
 
 
-def check_and_disable_incompatible_configs(original_config: dict) -> dict:
+def check_and_disable_incompatible_configs(original_config: dict, cls = TransformerConfig) -> dict:
     """
     Check and disable incompatible configurations for older Megatron version.
 
     Args:
         original_config (dict): The original model configuration.
+        cls (type, optional): The config class to validate against.
+            Defaults to :class:`TransformerConfig`.
 
     Returns:
         dict: The updated model configuration with incompatible settings disabled.
     """
     removed_keys = []
     for key in original_config.keys():
-        if not hasattr(TransformerConfig, key):
+        if not hasattr(cls, key):
             removed_keys.append(key)
     if removed_keys:
         warnings.warn(
@@ -354,7 +356,7 @@ def hf_to_mcore_config_dpskv3(
     )
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
-    args = check_and_disable_incompatible_configs(args)
+    args = check_and_disable_incompatible_configs(args, MLATransformerConfig)
     transformer_config: MLATransformerConfig = MLATransformerConfig(**args)
     print(f"Overridden MLA TF init config: {transformer_config}")
     # MTP
