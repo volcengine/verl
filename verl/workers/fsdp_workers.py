@@ -852,7 +852,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             if fsdp_version(self.ref_policy.actor_module) == 1:
                 self.ref_policy.actor_module._handle.reshard(True)
             elif fsdp_version(self.ref_policy.actor_module) == 2:
-                self.ref_policy.actor_module.shard()
+                self.ref_policy.actor_module.reshard()
 
         return output
 
