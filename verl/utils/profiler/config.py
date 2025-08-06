@@ -29,6 +29,7 @@ class ProfilerConfig(BaseConfig):
         all_ranks (bool): Whether to profile all ranks.
         ranks (list[int]): The ranks that will be profiled. Defaults to [].
     """
+    _target_: str = "verl.utils.profiler.ProfilerConfig"
 
     discrete: bool = False
     all_ranks: bool = False

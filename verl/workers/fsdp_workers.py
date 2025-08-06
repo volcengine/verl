@@ -20,7 +20,7 @@ import logging
 import os
 import warnings
 from dataclasses import asdict
-from typing import Any
+from typing import Any, List, Tuple
 
 import psutil
 import torch
@@ -1349,12 +1349,17 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
         # for causal llm rollout
-        self.use_rollout = self.config.model.rollout.enable
-        if self.use_rollout:
+        self.reward_model_mode = self.config.rm_mode # "generator" or "discriminator"
+        if self.reward_model_mode not in ("generator", "discriminator"):
+            raise NotImplementedError("Only 'generator' and 'discriminator' reward model modes are supported")
+        
+        self.GenRM_mode = (self.reward_model_mode == "generator")
+
+        if self.GenRM_mode:
             processor_config = self.config.model.get("data_processer", {})
             # default value for lower version if user forget to set `processor_path`
             # but raise Exception for user setting `processor_path` to None
-            processor_path = processor_config.get("path", "examples/reward_model/reward_process.py")
+            processor_path = processor_config.get("path", "verl/utils/reward_process.py")
             pre_fn_name = processor_config.get("preprocess_fn_name", "reward_preprocess")
             post_fn_name = processor_config.get("postprocess_fn_name", "reward_postprocess")
 
@@ -1413,7 +1418,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
             self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
         
-        if self.use_rollout:
+        if self.GenRM_mode:
             self.generation_config = get_generation_config(local_path, trust_remote_code=trust_remote_code)
 
         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
@@ -1426,7 +1431,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            if not self.use_rollout:
+            if not self.GenRM_mode:
                 from transformers import AutoModelForTokenClassification
                 model_config.classifier_dropout = 0.0
                 reward_module = AutoModelForTokenClassification.from_pretrained(
@@ -1460,7 +1465,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
 
-        if self.use_rollout and self.config.model.rollout.name == "hf":
+        if self.GenRM_mode and self.config.model.rollout.name == "hf":
             # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
             auto_wrap_policy = None
 
@@ -1600,7 +1605,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
         self.reward_module, self.model_config = self._build_model(config=self.config)
-        if self.use_rollout:
+        if self.GenRM_mode:
             self.rollout_engine, self.rollout_sharding_manager = self._build_rollout(
                 trust_remote_code=self.config.model.get("trust_remote_code", False)
             )
@@ -1820,70 +1825,112 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         rm_position_ids = compute_position_id_with_mask(rm_attention_mask)
         rm_inputs = {"input_ids": rm_input_ids, "attention_mask": rm_attention_mask, "position_ids": rm_position_ids}
         return DataProto.from_dict(rm_inputs)
+    
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    def _extract_inputs_for_reward(
+        self, data: DataProto
+    ) -> Tuple[List[str], List[str], List[str]]:
+        """
+        Extracts question, answer, and ground_truth strings from a DataProto object.
+        This is an internal utility to prepare data for the custom reward_preprocess function.
+        Args:
+            data: DataProto containing the batch of conversations and responses
+        Returns:
+            Tuple containing:
+            - questions: List of user questions
+            - answers: List of model responses
+            - ground_truths: List of ground truth answers
+        """
+        questions = []
+        answers = []
+        ground_truths = []
+        batch_size = data.batch.batch_size[0]
+
+        for i in range(batch_size):
+            # Extract user question from conversation history
+            chat_history = data.non_tensor_batch["raw_prompt"][i]
+            if not isinstance(chat_history, list):
+                chat_history = chat_history.tolist()
+
+            # Find the last user question in conversation
+            question = next(
+                (turn["content"] for turn in reversed(chat_history)
+                 if turn.get("role") == "user"),
+                ""
+            )
+            questions.append(question)
+            # Extract and decode model response
+            response_ids = data.batch["responses"][i]
+
+            answer = self.tokenizer.decode(response_ids, skip_special_tokens=True)
+            answers.append(answer)
+
+            # Get ground truth
+            ground_truth = data.non_tensor_batch["reward_model"][i]["ground_truth"]
+            ground_truths.append(ground_truth)
+            
+        return questions, answers, ground_truths
+
+    
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)      
     @DistProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
         import itertools
-
         from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
-        extra_data = None
 
         # Support all hardwares
         data = data.to(get_device_id())
-        if self._do_switch_chat_template:
-            if self.use_rollout:
-                chats, extra_data = self.reward_preprocess_fn(data, self.tokenizer)
-                rm_data = self._chats_to_ids(
-                    chats, data.batch["attention_mask"].shape[-1]
-                )
-            else:
-                rm_data = self._switch_chat_template(data)
+        if self.GenRM_mode:
+            questions, answers, ground_truths = self._extract_inputs_for_reward(data)
+            chats, scores_tensor = self.reward_preprocess_fn(
+                questions, answers, ground_truths
+            )
+            rm_data = self._chats_to_ids(chats, data.batch['attention_mask'].shape[-1])
+            if scores_tensor is not None:
+                scores_tensor = scores_tensor.to(rm_data.batch.device)
+                rm_data.batch['extra_scores'] = scores_tensor
         else:
-            rm_input_ids = data.batch["input_ids"]
-            rm_attention_mask = data.batch["attention_mask"]
-            rm_position_ids = data.batch["position_ids"]
-            rm_inputs = {
-                "input_ids": rm_input_ids,
-                "attention_mask": rm_attention_mask,
-                "position_ids": rm_position_ids,
-            }
-            rm_data = DataProto.from_dict(rm_inputs)
+            if self._do_switch_chat_template:
+                rm_data = self._switch_chat_template(data)
+            else:
+                rm_input_ids = data.batch["input_ids"]
+                rm_attention_mask = data.batch["attention_mask"]
+                rm_position_ids = data.batch["position_ids"]
+                rm_inputs = {
+                    "input_ids": rm_input_ids,
+                    "attention_mask": rm_attention_mask,
+                    "position_ids": rm_position_ids,
+                }
+                rm_data = DataProto.from_dict(rm_inputs)
 
         # Support all hardwares
         rm_data.batch = rm_data.batch.to(get_device_id())
-
-        # if we have a rollout engine, there is no need for ulysses
-        if self.use_rollout:
-            current_sharding_manager = self.rollout_sharding_manager
-        else:
-            current_sharding_manager = self.ulysses_sharding_manager
+        current_sharding_manager = (self.rollout_sharding_manager if self.GenRM_mode
+                                    else self.ulysses_sharding_manager)
 
         # perform forward computation
         with current_sharding_manager:
             rm_data = current_sharding_manager.preprocess_data(data=rm_data)
             data = current_sharding_manager.preprocess_data(data=data)
-            if extra_data:
-                extra_data = current_sharding_manager.preprocess_data(data=extra_data)
 
             use_dynamic_bsz = self.config.use_dynamic_bsz
             if use_dynamic_bsz:
                 max_token_len = self.config.forward_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                 micro_batches, indices = rearrange_micro_batches(batch=rm_data.batch, max_token_len=max_token_len)
-                if extra_data:
-                    extra_data, _ = rearrange_micro_batches(batch=extra_data.batch, max_token_len=max_token_len)
             else:
                 micro_batches = rm_data.batch.split(self.config.micro_batch_size_per_gpu)
-                if extra_data:
-                    extra_data = extra_data.batch.split(self.config.micro_batch_size_per_gpu)
             output = []
-            for idx, micro_batch in enumerate(micro_batches):
-                if self.use_rollout:
+            for micro_batch in micro_batches:
+                if self.GenRM_mode:
                     output_proto = self._forward_rollout_micro_batch(micro_batch)
-                    if extra_data:
-                        rm_score = self.reward_postprocess_fn(output_proto, self.tokenizer, extra_data[idx])
-                    else:
-                        rm_score = self.reward_postprocess_fn(output_proto, self.tokenizer)
+                    generated_texts = self.tokenizer.batch_decode(
+                        output_proto.batch["responses"],
+                        skip_special_tokens=True
+                    )
+                    rm_score = self.reward_postprocess_fn(
+                        generated_texts,
+                        micro_batch.get("extra_scores", None)
+                    )
                 else:
                     rm_score = self._forward_micro_batch(micro_batch)
                 output.append(rm_score)

@@ -1,0 +1,62 @@
+# .github/workflows/e2e_gen_rm.yml
+
+name: E2E GenRM (PPO)
+
+on:
+  push:
+    branches:
+      - main
+      - v0.4.x
+  pull_request:
+    branches:
+      - main
+      - v0.4.x
+    paths:
+      - 'verl/workers/fsdp_workers.py'
+      - 'examples/reward_model/main_ppo_rm.py'
+      - 'examples/reward_model/config/ppo_trainer_rm.yaml'
+      - 'tests/special_e2e/ppo_trainer/run_gen_rm_smoke_test.sh'
+      - 'examples/data_preprocess/gsm8k.py'
+      - '.github/workflows/e2e_gen_rm.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-gen-rm:
+    runs-on: [L20x2]
+    timeout-minutes: 30
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
+      HF_ENDPOINT: "https://hf-mirror.com"
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
+
+    container:
+      image: verlai/verl:app-verl0.5-vllm0.9.1-mcore0.12.2-te2.2
+      options: --gpus all --shm-size=10g
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          pip3 install -e .[test,vllm,gpu]
+
+      - name: Prepare GSM8K dataset
+        run: |
+          python3 examples/data_preprocess/gsm8k.py
+        env:
+            DATAPATH: ${{ github.workspace }}/data
+      
+      - name: Running the E2E smoke test for GenRM
+        run: |
+          ray stop --force
+          chmod +x tests/special_e2e/ppo_trainer/run_gen_rm_smoke_test.sh
+          bash tests/special_e2e/ppo_trainer/run_gen_rm_smoke_test.sh

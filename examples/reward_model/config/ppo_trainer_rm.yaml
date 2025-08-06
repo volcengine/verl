@@ -406,11 +406,12 @@ critic:
 reward_model:
   # Whether to enable the reward model.
   enable: False
+  rm_mode: "generator"  # or "discriminator"
   # Distributed strategy.
   strategy: fsdp
   micro_batch_size: null
   # Per-GPU micro-batch size for forward pass.
-  micro_batch_size_per_gpu: null
+  micro_batch_size_per_gpu: 1
   # Max sequence length for reward model.
   max_length: null
   # Sequence parallelism size.
@@ -447,7 +448,7 @@ reward_model:
     trust_remote_code: False
     # Data processor for reward model inputs/outputs.
     data_processer:
-      path: examples/reward_model/reward_process.py
+      path: verl/utils/reward_process.py
       preprocess_fn_name: reward_preprocess
       postprocess_fn_name: reward_postprocess
     # FSDP-specific configuration.
@@ -461,9 +462,6 @@ reward_model:
       
     # --- IMPORTANT: Rollout config is now nested under model ---
     rollout:
-      # Whether to enable rollout for the reward model.
-      enable: False
-      
       # Inference engine name.
       name: vllm
       
@@ -593,6 +591,7 @@ trainer:
   # Steps to profile.
   profile_steps: null
   # NSight options for the controller.
+  profile_continuous_steps: False
   controller_nsight_options:
     trace: "cuda,nvtx,cublas,ucx"
     cuda-memory-usage: "true"

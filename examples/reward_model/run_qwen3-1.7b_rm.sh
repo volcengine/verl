@@ -43,8 +43,8 @@ python3 -m examples.reward_model.main_ppo_rm \
     critic.model.fsdp_config.param_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
     reward_model.enable=True \
+    reward_model.rm_mode=generator \
     reward_model.model.path=${model_path} \
-    reward_model.model.rollout.enable=True \
     reward_model.model.rollout.name=vllm \
     reward_model.model.rollout.tensor_model_parallel_size=4 \
     reward_model.model.rollout.gpu_memory_utilization=0.5 \
