@@ -223,6 +223,9 @@ skip_dump_dir: /tmp/rollout_dump
 # profile the rollout model in `generate_sequence` 
 profiler:
 
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.utils.profiler.ProfilerConfig
+
   # profiler tool, default same as profiler.tool in global config
   # choices: nsys, npu, torch
   tool: ${oc.select:global_profiler.tool,null}
