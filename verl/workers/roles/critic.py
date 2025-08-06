@@ -58,12 +58,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         # if strategy is fsdp, offload_config should be None
         
         engine_config = self.create_engine_config(self.config)
-        """
-        override_config_kwargs
-        # model_config.num_labels = 1
-        """
         self.engine = EngineRegistry.new(self.config.strategy, engine_config)
-
 
 
     def create_engine_config(self, critic_config):
@@ -95,12 +90,13 @@ class CriticWorker(Worker, DistProfilerExtension):
     def init_model(self):
         self.engine.init_model()
 
+
     def _post_fn_values(self, micro_batch, preds):
         response_length = micro_batch["responses"].size(-1)
         values = preds[:, -response_length - 1 : -1]
-
         values = values.squeeze(-1)
         return values, {"values": values.clone().detach()}
+
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="cyan")
@@ -166,23 +162,19 @@ class CriticWorker(Worker, DistProfilerExtension):
                     "values",
                     "returns",
                 ]
-                batch = data.select(batch_keys=select_keys).batch
                 has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+                non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+                data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
                 # calculate mini batch size
                 mini_bsz = self.config.ppo_mini_batch_size * self.config.rollout_n
                 mini_bsz = mini_bsz // self.engine.get_data_parallel_size()
                 # Split to make minibatch iterator for updating the actor
                 # See PPO paper for details. https://arxiv.org/abs/1707.06347
-                if has_multi_modal_inputs:
-                    num_mini_batches = data.batch.batch_size[0] // mini_bsz
-                    non_tensor_select_keys = ["multi_modal_inputs"]
-                    dataloader = data.select(select_keys, non_tensor_select_keys).chunk(num_mini_batches)
-                else:
-                    dataloader = batch.split(mini_bsz)
+                mini_batches = data.split(self.config.ppo_mini_batch_size)
 
                 for epoch in range(self.config.ppo_epochs):
-                    for batch_idx, mini_batch in enumerate(dataloader):
+                    for batch_idx, mini_batch in enumerate(mini_batches):
                         self.engine.optimizer_zero_grad()
                         mini_batch_metrics = self.engine.train_batch(mini_batch, self.loss_fn)
                         grad_norm = self.engine.optimizer_step()

@@ -232,7 +232,6 @@ class ActorWorker(Worker, DistProfilerExtension):
         advantages = batch["advantages"]
         micro_batch_metrics = {}
 
-
         entropy_coeff = self.config.actor.entropy_coeff
         loss_agg_mode = self.config.actor.loss_agg_mode
 
@@ -276,14 +275,12 @@ class ActorWorker(Worker, DistProfilerExtension):
             micro_batch_metrics["actor/kl_loss"] = kl_loss.detach().item()
             micro_batch_metrics["actor/kl_coef"] = self.config.actor.kl_loss_coef
 
-        micro_batch_metrics.update(
-            {
-                "actor/pg_loss": pg_loss.detach().item(),
-                "actor/pg_clipfrac": pg_clipfrac.detach().item(),
-                "actor/ppo_kl": ppo_kl.detach().item(),
-                "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
-            }
-        )
+        micro_batch_metrics.update({
+            "actor/pg_loss": pg_loss.detach().item(),
+            "actor/pg_clipfrac": pg_clipfrac.detach().item(),
+            "actor/ppo_kl": ppo_kl.detach().item(),
+            "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),    
+        })
         return policy_loss, micro_batch_metrics
 
 
