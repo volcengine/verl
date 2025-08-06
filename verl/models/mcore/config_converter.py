@@ -375,7 +375,7 @@ def hf_to_mcore_config_qwen2_5_vl(
     )
     # override_transformer_config_kwargs as kwargs shall never be none
     args.update(override_transformer_config_kwargs)
-    return args
+    return TransformerConfig(**args)
 
 
 def hf_to_mcore_config_llama4(
