@@ -316,8 +316,8 @@ class FullyAsyncTaskRunner:
         ray.get(rollouter_future)
         # ray.get(trainer_future)
 
-        self.components['message_queue_client'].clear_queue.remote()
-        
+        self.components["message_queue_client"].clear_queue()
+
         print("Training completed or interrupted")
 
     def _monitor_components(self):

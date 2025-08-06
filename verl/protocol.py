@@ -38,7 +38,7 @@ from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.py_functional import union_two_dict
 from verl.utils.torch_functional import allgather_dict_tensors
 
-__all__ = ["DataProto", "union_tensor_dict"]
+__all__ = ["DataProto", "DataProtoItem", "union_tensor_dict"]
 
 with contextlib.suppress(Exception):
     tensordict.set_lazy_legacy(False).set()
@@ -198,10 +198,82 @@ def collate_fn(x: list["DataProtoItem"]):
 
 @dataclass
 class DataProtoItem:
-    # TODO(zhangchi.usc1992) add consistency check
+    """
+    A single item from a DataProto batch, representing one sample.
+    This is typically used when accessing individual elements from a DataProto.
+    """
+
     batch: TensorDict = None
     non_tensor_batch: dict = field(default_factory=dict)
     meta_info: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        """Perform consistency checking after initialization."""
+        self._check_consistency()
+
+    def _check_consistency(self):
+        """Check the consistency of the DataProtoItem."""
+        # For DataProtoItem, batch can have no batch dimension (batch_size=[]) or batch size 1
+        if self.batch is not None:
+            # Allow both cases: tensors without batch dim (batch_size=[]) and tensors with batch size 1
+            if hasattr(self.batch, "batch_size") and len(self.batch.batch_size) > 0:
+                if self.batch.batch_size[0] > 1:
+                    raise ValueError(
+                        f"DataProtoItem batch should have batch size 0 or 1, got {self.batch.batch_size[0]}"
+                    )
+
+        # Check non_tensor_batch consistency
+        if self.non_tensor_batch:
+            for key, val in self.non_tensor_batch.items():
+                # For DataProtoItem, non_tensor values should be individual items, not arrays
+                if isinstance(val, np.ndarray) and val.shape != ():
+                    # Allow only scalar numpy arrays (shape=()) for individual items
+                    if val.shape[0] > 1:
+                        raise ValueError(
+                            f"DataProtoItem non_tensor_batch['{key}']"
+                            "should be a single item, got array with shape {val.shape}"
+                        )
+
+    def to_proto(self) -> "DataProto":
+        """Convert this DataProtoItem to a DataProto with batch size 1.
+
+        Returns:
+            DataProto: A DataProto containing this single item
+        """
+        return DataProto.from_items([self])
+
+    @staticmethod
+    def from_items(items: list["DataProtoItem"]) -> "DataProto":
+        """Create a DataProto from a list of DataProtoItem objects.
+
+        This is a convenience method that calls DataProto.from_items().
+
+        Args:
+            items (List[DataProtoItem]): A list of DataProtoItem objects to merge
+
+        Returns:
+            DataProto: A new DataProto containing all the items as a batch
+        """
+        return DataProto.from_items(items)
+
+    def copy(self) -> "DataProtoItem":
+        """Create a deep copy of this DataProtoItem.
+
+        Returns:
+            DataProtoItem: A deep copy of this item
+        """
+        import copy
+
+        # Deep copy the batch TensorDict
+        batch_copy = copy.deepcopy(self.batch) if self.batch is not None else None
+
+        # Deep copy non_tensor_batch
+        non_tensor_copy = copy.deepcopy(self.non_tensor_batch)
+
+        # Deep copy meta_info
+        meta_info_copy = copy.deepcopy(self.meta_info)
+
+        return DataProtoItem(batch=batch_copy, non_tensor_batch=non_tensor_copy, meta_info=meta_info_copy)
 
 
 @dataclass
@@ -737,6 +809,96 @@ class DataProto:
             List[DataProto]: a list of DataProto after splitting
         """
         return [self[i : i + split_size] for i in range(0, len(self), split_size)]
+
+    def to_items(self) -> list["DataProtoItem"]:
+        """Convert DataProto to a list of DataProtoItem objects.
+
+        Returns:
+            List[DataProtoItem]: A list containing individual DataProtoItem objects,
+                                 one for each sample in the batch
+        """
+        items = []
+        for i in range(len(self)):
+            # Use the existing __getitem__ implementation for single integer access
+            items.append(self[i])
+        return items
+
+    @staticmethod
+    def from_items(items: list["DataProtoItem"]) -> "DataProto":
+        """Create a DataProto from a list of DataProtoItem objects.
+
+        Args:
+            items (List[DataProtoItem]): A list of DataProtoItem objects to merge
+
+        Returns:
+            DataProto: A new DataProto containing all the items as a batch
+
+        Raises:
+            ValueError: If the input list is empty or items have inconsistent structure
+        """
+        if not items:
+            raise ValueError("Cannot create DataProto from empty list of items")
+
+        # Get the first item to determine structure and meta_info
+        first_item = items[0]
+        meta_info = first_item.meta_info
+
+        # Collect all tensor batches
+        batch_tensors = {}
+        non_tensor_batches = {}
+
+        # Process tensor data
+        if first_item.batch is not None:
+            # Get all keys from the first item's batch
+            tensor_keys = list(first_item.batch.keys())
+
+            for key in tensor_keys:
+                tensor_list = []
+                for i, item in enumerate(items):
+                    if item.batch is None or key not in item.batch:
+                        raise ValueError(f"Item {i} missing tensor key '{key}' in batch")
+
+                    tensor = item.batch[key]
+                    # Handle tensors from DataProtoItem which may not have batch dimension
+                    # (as shown in the user's example where batch_size=torch.Size([]))
+                    if tensor.dim() == 0:
+                        # Scalar tensor - add batch dimension
+                        tensor = tensor.unsqueeze(0)
+                    else:
+                        # Multi-dimensional tensor without batch dimension - add batch dimension
+                        tensor = tensor.unsqueeze(0)
+
+                    tensor_list.append(tensor)
+
+                # Concatenate tensors along batch dimension
+                if tensor_list:
+                    batch_tensors[key] = torch.cat(tensor_list, dim=0)
+
+        # Process non-tensor data
+        if first_item.non_tensor_batch:
+            non_tensor_keys = list(first_item.non_tensor_batch.keys())
+
+            for key in non_tensor_keys:
+                non_tensor_list = []
+                for i, item in enumerate(items):
+                    if key not in item.non_tensor_batch:
+                        raise ValueError(f"Item {i} missing non_tensor key '{key}'")
+
+                    non_tensor_data = item.non_tensor_batch[key]
+                    non_tensor_list.append(non_tensor_data)
+
+                # Stack non-tensor data
+                if non_tensor_list:
+                    non_tensor_batches[key] = np.array(non_tensor_list, dtype=object)
+
+        # Create TensorDict for batch
+        if batch_tensors:
+            batch_size = len(items)
+            batch = TensorDict(source=batch_tensors, batch_size=(batch_size,))
+        else:
+            batch = None
+
+        return DataProto(batch=batch, non_tensor_batch=non_tensor_batches, meta_info=meta_info)
 
     @staticmethod
     def concat(data: list["DataProto"]) -> "DataProto":

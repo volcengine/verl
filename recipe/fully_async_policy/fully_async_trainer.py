@@ -121,6 +121,12 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.message_queue_client = None
         self.param_synchronizer = None
 
+        # 统计信息
+        self.processed_samples = 0
+        self.stale_samples_processed = 0
+        self.current_param_version = 0
+        self.param_sync_count = 0
+
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """设置消息队列客户端"""
         with self.lock:
@@ -131,7 +137,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         with self.lock:
             self.param_synchronizer = param_synchronizer
 
-    def _get_samples_from_queue(self) -> tuple[None, None, None] | tuple[int, dict, Any]:
+    def _get_samples_from_queue(self) -> tuple[None, None] | tuple[int, Any]:
         """
         从消息队列获取样本并组成gen_batch_output
 
@@ -155,24 +161,16 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         if not queue_samples or len(queue_samples) == 0:
             logger.warning("required_samples is empty")
-            return None, None, None
+            return None, None
 
         logger.info(f"Retrieved {len(queue_samples)} samples from queue")
 
-        # 组装gen_batch_output
-        gen_batch_output = self._assemble_gen_batch_output_from_queue_samples(
-            queue_samples, n_responses_per_prompt, batch_size
-        )
+        # 组装 batch
+        batch = self._assemble_gen_batch_output_from_queue_samples(queue_samples)
 
-        # 从第一个样本中提取原始batch信息来构造batch_dict
-        first_sample = queue_samples[0].data
-        batch_dict = self._extract_batch_dict_from_sample(first_sample, batch_size)
+        return 0, batch
 
-        return 0, batch_dict, gen_batch_output
-
-    def _assemble_gen_batch_output_from_queue_samples(
-        self, queue_samples: list[QueueSample], n_responses_per_prompt: int, batch_size: int
-    ):
+    def _assemble_gen_batch_output_from_queue_samples(self, queue_samples: list[QueueSample]):
         """
         从队列样本中组装gen_batch_output
 
@@ -185,123 +183,57 @@ class FullyAsyncTrainer(RayPPOTrainer):
             DataProto: 组装好的gen_batch_output
         """
         import numpy as np
-        import torch
 
         from verl.protocol import DataProto
 
-        # 提取所有样本的数据
+        if not queue_samples:
+            raise ValueError("Empty queue_samples provided for batch assembly")
+
+        logger.debug(f"Assembling batch from {len(queue_samples)} queue samples")
+
+        # 提取所有样本的数据和元数据
         sample_data_list = []
         rollout_metadata_list = []
         timing_info = {}
 
-        for sample in queue_samples:
+        for i, sample in enumerate(queue_samples):
             sample_data_list.append(sample.data)
             rollout_metadata_list.append(sample.rollout_metadata)
 
-        # 假设所有样本具有相同的数据结构，从第一个样本推断结构
-        first_sample_data = sample_data_list[0]
-
-        # 组装tensor数据
-        tensor_dict = {}
-        non_tensor_dict = {}
-
-        # 获取第一个样本的结构来初始化
-        if hasattr(first_sample_data, "batch") and first_sample_data.batch is not None:
-            # 处理tensor数据
-            for key in first_sample_data.batch.keys():
-                tensor_list = []
-                for sample_data in sample_data_list:
-                    if hasattr(sample_data, "batch") and sample_data.batch is not None and key in sample_data.batch:
-                        tensor_list.append(sample_data.batch[key])
-                    else:
-                        logger.warning(f"Missing key '{key}' in sample batch data")
-
-                if tensor_list:
-                    # 连接所有tensor
-                    tensor_dict[key] = torch.cat(tensor_list, dim=0)
-
-        if hasattr(first_sample_data, "non_tensor_batch") and first_sample_data.non_tensor_batch:
-            # 处理non_tensor数据
-            for key in first_sample_data.non_tensor_batch.keys():
-                non_tensor_list = []
-                for sample_data in sample_data_list:
-                    if (
-                        hasattr(sample_data, "non_tensor_batch")
-                        and sample_data.non_tensor_batch
-                        and key in sample_data.non_tensor_batch
-                    ):
-                        non_tensor_list.extend(sample_data.non_tensor_batch[key])
-                    else:
-                        logger.warning(f"Missing key '{key}' in sample non_tensor_batch data")
-
-                if non_tensor_list:
-                    non_tensor_dict[key] = np.array(non_tensor_list, dtype=object)
+        batch = DataProto.from_items(sample_data_list)
 
         # 收集timing信息和metadata
-        for sample, metadata in zip(queue_samples, rollout_metadata_list, strict=False):
+        param_versions = []
+        sample_timestamps = []
+        for metadata in rollout_metadata_list:
+            # 提取参数版本和时间戳
+            param_versions.append(metadata.get("rollout_param_version", 0))
+            sample_timestamps.append(metadata.get("generation_timestamp", time.time()))
             if "timing" in metadata:
                 for timing_key, timing_value in metadata["timing"].items():
                     if timing_key not in timing_info:
                         timing_info[timing_key] = []
-                    timing_info[timing_key].append(timing_value)
-
+                    # if isinstance(timing_value, (int, float)):
+                    #     timing_info[timing_key].append(timing_value)
         # 计算平均timing
         avg_timing = {}
         for key, values in timing_info.items():
-            if values:
+            if values and len(values) > 0:
                 avg_timing[key] = sum(values) / len(values)
 
         # 创建meta_info
         meta_info = {
             "timing": avg_timing,
             "queue_sample_count": len(queue_samples),
-            "rollout_param_versions": [sample.param_version for sample in queue_samples],
-            "sample_timestamps": [sample.timestamp for sample in queue_samples],
+            "rollout_param_versions": param_versions,
+            "sample_timestamps": sample_timestamps,
+            "param_version_diversity": len(set(param_versions)),
+            "avg_sample_age": np.mean([time.time() - ts for ts in sample_timestamps]),
         }
 
-        # 创建DataProto对象
-        if tensor_dict or non_tensor_dict:
-            gen_batch_output = DataProto.from_dict(
-                tensors=tensor_dict if tensor_dict else None,
-                non_tensors=non_tensor_dict if non_tensor_dict else None,
-                meta_info=meta_info,
-            )
-        else:
-            # 如果没有数据，创建空的DataProto
-            logger.warning("No tensor or non_tensor data found in samples, creating empty DataProto")
-            gen_batch_output = DataProto.from_dict(meta_info=meta_info)
+        print(meta_info)
 
-        logger.info(f"Assembled gen_batch_output with {len(gen_batch_output)} samples")
-        return gen_batch_output
-
-    def _extract_batch_dict_from_sample(self, sample_data, batch_size: int) -> dict:
-        """
-        从样本数据中提取batch_dict信息
-
-        Args:
-            sample_data: 样本数据
-            batch_size: 批次大小
-
-        Returns:
-            dict: batch字典
-        """
-        batch_dict = {}
-
-        # 从样本中提取原始输入信息
-        if hasattr(sample_data, "batch") and sample_data.batch is not None:
-            for key, value in sample_data.batch.items():
-                # 只保留输入相关的key，去掉生成的输出
-                if key in ["input_ids", "attention_mask", "position_ids"]:
-                    # 由于我们有多个响应，需要取出原始prompt部分
-                    batch_dict[key] = value[:batch_size] if len(value) >= batch_size else value
-
-        if hasattr(sample_data, "non_tensor_batch") and sample_data.non_tensor_batch:
-            for key, value in sample_data.non_tensor_batch.items():
-                # 保留非tensor的批次数据
-                if key in ["raw_prompt_ids", "raw_prompt", "multi_modal_data", "tools_kwargs", "interaction_kwargs"]:
-                    batch_dict[key] = np.array(value[:batch_size]) if len(value) >= batch_size else np.array(value)
-
-        return batch_dict
+        return batch
 
     def _create_actor_rollout_classes(self):
         # create actor
@@ -377,10 +309,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
         # 使用队列模式，不需要传统的dataloader迭代器
         # 初始化获取第一批数据
         while True:
-            epoch, batch, gen_batch_output = self._get_samples_from_queue()
-            if gen_batch_output is None:
-                break
-
             metrics = {}
             timing_raw = {}
 
@@ -394,7 +322,41 @@ class FullyAsyncTrainer(RayPPOTrainer):
             is_last_step = self.global_steps >= self.total_training_steps
 
             with marked_timer("step", timing_raw):
-                batch = self._post_generate_batch(batch, gen_batch_output, metrics)
+                with marked_timer("gen", timing_raw, color="red"):
+                    epoch, batch = self._get_samples_from_queue()
+                    if batch is None:
+                        break
+
+                # 更新统计信息
+                with self.lock:
+                    self.processed_samples += len(batch) if isinstance(batch, list) else 1
+
+                    # 从meta_info中获取参数版本信息
+                    if hasattr(batch, "meta_info") and batch.meta_info:
+                        rollout_param_versions = batch.meta_info.get("rollout_param_versions", [])
+                        if rollout_param_versions:
+                            # 统计陈旧样本
+                            stale_count = sum(1 for v in rollout_param_versions if self.current_param_version - v > 1)
+                            self.stale_samples_processed += stale_count
+
+                        # 添加新鲜度指标到metrics
+                        if rollout_param_versions:
+                            param_version_diversity = batch.meta_info.get("param_version_diversity", 0)
+                            avg_sample_age = batch.meta_info.get("avg_sample_age", 0)
+
+                            metrics.update(
+                                {
+                                    "freshness/param_version_diversity": param_version_diversity,
+                                    "freshness/avg_sample_age": avg_sample_age,
+                                    "freshness/stale_samples_ratio": stale_count / len(rollout_param_versions)
+                                    if rollout_param_versions
+                                    else 0,
+                                    "statistics/processed_samples": self.processed_samples,
+                                    "statistics/stale_samples_processed": self.stale_samples_processed,
+                                    "statistics/current_param_version": self.current_param_version,
+                                }
+                            )
+
                 batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
                 self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
                 last_val_metrics = self._validate_metrics(is_last_step, last_val_metrics, metrics, timing_raw)
@@ -430,17 +392,80 @@ class FullyAsyncTrainer(RayPPOTrainer):
             "queue_dropped_samples": queue_stats.get("dropped_samples", 0),
         }
 
-    def _compute_sample_freshness_metrics(self, batch_samples: list[QueueSample]) -> dict:
-        """计算样本新鲜度指标"""
-        sample_ages = [self.current_param_version - sample.param_version for sample in batch_samples]
-        current_time = time.time()
-        sample_latencies = [current_time - sample.timestamp for sample in batch_samples]
+    def update_param_version(self, param_version: int) -> bool:
+        """
+        更新trainer的参数版本，用于跟踪与rollouter的参数同步状态
 
-        return {
-            "freshness/avg_sample_age": np.mean(sample_ages),
-            "freshness/max_sample_age": max(sample_ages),
-            "freshness/min_sample_age": min(sample_ages),
-            "freshness/avg_sample_latency": np.mean(sample_latencies),
-            "freshness/max_sample_latency": max(sample_latencies),
-            "freshness/stale_samples_ratio": sum(1 for age in sample_ages if age > 1) / len(sample_ages),
-        }
+        Args:
+            param_version: 新的参数版本号
+
+        Returns:
+            bool: 是否成功更新
+        """
+        try:
+            with self.lock:
+                old_version = self.current_param_version
+                self.current_param_version = param_version
+                self.param_sync_count += 1
+
+                # 更新消息队列的参数版本
+                if self.message_queue_client:
+                    self.message_queue_client.update_param_version(param_version)
+
+                logger.info(f"Updated trainer param version from {old_version} to {param_version}")
+                return True
+        except Exception as e:
+            logger.error(f"Error updating param version: {e}")
+            return False
+
+    def _compute_sample_freshness_metrics(self, batch_samples: list[QueueSample]) -> dict:
+        """
+        计算样本新鲜度指标
+
+        Args:
+            batch_samples: 队列样本列表
+
+        Returns:
+            dict: 新鲜度指标字典
+        """
+        if not batch_samples:
+            return {}
+
+        try:
+            # 提取参数版本和时间戳
+            sample_ages = []
+            sample_latencies = []
+            current_time = time.time()
+
+            for sample in batch_samples:
+                # 从rollout_metadata中获取信息
+                if hasattr(sample, "rollout_metadata") and sample.rollout_metadata:
+                    rollout_version = sample.rollout_metadata.get("rollout_param_version", 0)
+                    generation_time = sample.rollout_metadata.get("generation_timestamp", current_time)
+                else:
+                    rollout_version = 0
+                    generation_time = current_time
+
+                age = max(0, self.current_param_version - rollout_version)
+                latency = max(0, current_time - generation_time)
+
+                sample_ages.append(age)
+                sample_latencies.append(latency)
+
+            if not sample_ages:
+                return {}
+
+            return {
+                "freshness/avg_sample_age": np.mean(sample_ages),
+                "freshness/max_sample_age": max(sample_ages),
+                "freshness/min_sample_age": min(sample_ages),
+                "freshness/avg_sample_latency": np.mean(sample_latencies),
+                "freshness/max_sample_latency": max(sample_latencies),
+                "freshness/min_sample_latency": min(sample_latencies),
+                "freshness/stale_samples_ratio": sum(1 for age in sample_ages if age > 1) / len(sample_ages),
+                "freshness/sample_count": len(sample_ages),
+            }
+
+        except Exception as e:
+            logger.error(f"Error computing freshness metrics: {e}")
+            return {"freshness/error": str(e)}
