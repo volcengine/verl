@@ -70,8 +70,6 @@ class Worker(WorkerHelper):
     """
 
     fused_worker_attr_name = "fused_worker_dict"
-    __dispatch_dp_rank = {}
-    __collect_dp_rank = {}
 
     def __new__(cls, *args, **kwargs):
         """Create a new Worker instance with proper initialization based on environment settings."""
@@ -102,6 +100,8 @@ class Worker(WorkerHelper):
             is_collect (bool):
                 Whether the dp_rank is used for collect.
         """
+        if mesh_name in self.__dispatch_dp_rank or mesh_name in self.__collect_dp_rank:
+            raise ValueError(f"mesh_name {mesh_name} has been registered")
         self.__dispatch_dp_rank[mesh_name] = dp_rank
         self.__collect_dp_rank[mesh_name] = is_collect
 
@@ -117,7 +117,7 @@ class Worker(WorkerHelper):
             int:
                 The dp_rank for the given mesh name.
         """
-        assert mesh_name in self.__dispatch_dp_rank
+        assert mesh_name in self.__dispatch_dp_rank, f"{mesh_name} is not registered in {self.__class__.__name__}"
         # note that each rank store its own dp_rank
         return self.__dispatch_dp_rank[mesh_name]
 
@@ -133,7 +133,7 @@ class Worker(WorkerHelper):
             bool:
                 Whether the dp_rank is used for collect.
         """
-        assert mesh_name in self.__collect_dp_rank
+        assert mesh_name in self.__collect_dp_rank, f"{mesh_name} is not registered in {self.__class__.__name__}"
         return self.__collect_dp_rank[mesh_name]
 
     def _configure_before_init(self, register_center_name: str, rank: int):
@@ -219,6 +219,8 @@ class Worker(WorkerHelper):
         self._configure_with_store(store=store)
 
         self.fused_worker_dict = {}
+        self.__dispatch_dp_rank = {}
+        self.__collect_dp_rank = {}
 
     def get_fused_worker_by_name(self, worker_name: str):
         """Get a fused worker by its name.
