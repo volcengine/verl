@@ -17,8 +17,8 @@
 """Pretrain utilities."""
 
 import gc
-import os
 import inspect
+import os
 import warnings
 from dataclasses import dataclass
 from typing import Any
@@ -952,7 +952,7 @@ def per_tensor_generator(
 
 
 def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerConfig):
-    '''
+    """
     Get the index offset of any pipeline stage, given the level of pipelining.
 
     Make pipeline_rank and vp_stage as two arguments to make it more flexible,
@@ -960,9 +960,11 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
     The original function only returns the layer offset for current pipeline stage.
 
     Extension to https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/transformer/transformer_layer.py::get_transformer_layer_offset
-    '''
+    """
 
-    has_vp_stage = inspect.signature(parallel_state.is_pipeline_first_stage).parameters.get("vp_stage", None) is not None
+    has_vp_stage = (
+        inspect.signature(parallel_state.is_pipeline_first_stage).parameters.get("vp_stage", None) is not None
+    )
     extra_kwargs = {} if not has_vp_stage else {"ignore_virtual": False, "vp_stage": vp_stage}
     if not parallel_state.is_inside_encoder():
         pp_decoder_start = parallel_state.get_pipeline_model_parallel_decoder_start()
@@ -970,9 +972,9 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
             pipeline_rank = pipeline_rank - pp_decoder_start
 
     if config.pipeline_model_parallel_size > 1:
-
         if hasattr(config, "pipeline_model_parallel_layout") and config.pipeline_model_parallel_layout:
             from megatron.core.transformer.enums import LayerType
+
             offset = config.pipeline_model_parallel_layout.get_layer_offset(
                 layer_type=LayerType.decoder, vp_stage=vp_stage
             )
@@ -998,26 +1000,18 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
             # are not set, we will not enable uneven pipeline. All layers will be treated
             # as middle layers.
             num_layers_in_first_pipeline_stage = (
-                0
-                if config.num_layers_in_first_pipeline_stage is None
-                else config.num_layers_in_first_pipeline_stage
+                0 if config.num_layers_in_first_pipeline_stage is None else config.num_layers_in_first_pipeline_stage
             )
             num_layers_in_last_pipeline_stage = (
-                0
-                if config.num_layers_in_last_pipeline_stage is None
-                else config.num_layers_in_last_pipeline_stage
+                0 if config.num_layers_in_last_pipeline_stage is None else config.num_layers_in_last_pipeline_stage
             )
 
             middle_num_layers = (
-                config.num_layers
-                - num_layers_in_first_pipeline_stage
-                - num_layers_in_last_pipeline_stage
+                config.num_layers - num_layers_in_first_pipeline_stage - num_layers_in_last_pipeline_stage
             )
 
             if (vp_size := config.virtual_pipeline_model_parallel_size) is not None:
-                assert (
-                    vp_stage is not None
-                ), "vp_stage must be provided if virtual pipeline model parallel size is set"
+                assert vp_stage is not None, "vp_stage must be provided if virtual pipeline model parallel size is set"
 
                 # Calculate number of layers in each virtual model chunk
                 # If the num_layers_in_first_pipeline_stage and
@@ -1035,9 +1029,7 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
                     else config.num_layers_in_last_pipeline_stage // vp_size
                 )
 
-                num_layers_per_vritual_model_chunk_in_middle_pipeline_stage = (
-                    middle_num_layers // vp_size
-                )
+                num_layers_per_vritual_model_chunk_in_middle_pipeline_stage = middle_num_layers // vp_size
 
                 # First stage + middle stage + last stage
                 total_virtual_chunks = (
@@ -1054,10 +1046,7 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
                         vp_stage * total_virtual_chunks
                         + num_layers_per_virtual_model_chunk_in_first_pipeline_stage
                         + (pipeline_rank - 1)
-                        * (
-                            num_layers_per_vritual_model_chunk_in_middle_pipeline_stage
-                            // middle_pipeline_stages
-                        )
+                        * (num_layers_per_vritual_model_chunk_in_middle_pipeline_stage // middle_pipeline_stages)
                     )
             else:
                 if middle_pipeline_stages > 0:
@@ -1066,17 +1055,13 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
                     num_layers_per_pipeline_rank = 0
 
                 middle_pipeline_rank = (
-                    pipeline_rank
-                    if config.num_layers_in_first_pipeline_stage is None
-                    else pipeline_rank - 1
+                    pipeline_rank if config.num_layers_in_first_pipeline_stage is None else pipeline_rank - 1
                 )
 
                 if pipeline_rank == 0:
                     offset = 0
                 else:
-                    offset = (
-                        middle_pipeline_rank * num_layers_per_pipeline_rank
-                    ) + num_layers_in_first_pipeline_stage
+                    offset = (middle_pipeline_rank * num_layers_per_pipeline_rank) + num_layers_in_first_pipeline_stage
         else:
             num_layers = config.num_layers
 
@@ -1091,29 +1076,23 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
             num_layers_per_pipeline_rank = num_layers // config.pipeline_model_parallel_size
 
             if (vp_size := config.virtual_pipeline_model_parallel_size) is not None:
-                assert (
-                    vp_stage is not None
-                ), "vp_stage must be provided if virtual pipeline model parallel size is set"
+                assert vp_stage is not None, "vp_stage must be provided if virtual pipeline model parallel size is set"
 
                 num_layers_per_virtual_rank = num_layers_per_pipeline_rank // vp_size
                 total_virtual_chunks = num_layers // vp_size
-                offset = vp_stage * total_virtual_chunks + (
-                    pipeline_rank * num_layers_per_virtual_rank
-                )
+                offset = vp_stage * total_virtual_chunks + (pipeline_rank * num_layers_per_virtual_rank)
 
                 # Reduce the offset of embedding layer from the total layer number
-                if (
-                    config.account_for_embedding_in_pipeline_split
-                    and not parallel_state.is_pipeline_first_stage(**extra_kwargs)
+                if config.account_for_embedding_in_pipeline_split and not parallel_state.is_pipeline_first_stage(
+                    **extra_kwargs
                 ):
                     offset -= 1
             else:
                 offset = pipeline_rank * num_layers_per_pipeline_rank
 
                 # Reduce the offset of embedding layer from the total layer number
-                if (
-                    config.account_for_embedding_in_pipeline_split
-                    and not parallel_state.is_pipeline_first_stage(**extra_kwargs)
+                if config.account_for_embedding_in_pipeline_split and not parallel_state.is_pipeline_first_stage(
+                    **extra_kwargs
                 ):
                     offset -= 1
     else:

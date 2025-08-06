@@ -15,8 +15,8 @@
 # limitations under the License.
 
 # use mcore transformer config to initialize the model
-from abc import ABC, abstractmethod
 import inspect
+from abc import ABC, abstractmethod
 
 from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec, get_gpt_mtp_block_spec
 from megatron.core.models.gpt.gpt_model import GPTModel
