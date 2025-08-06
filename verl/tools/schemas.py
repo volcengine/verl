@@ -15,7 +15,7 @@
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class OpenAIFunctionPropertySchema(BaseModel):
@@ -39,7 +39,9 @@ class OpenAIFunctionSchema(BaseModel):
 
     name: str
     description: str
-    parameters: OpenAIFunctionParametersSchema
+    parameters: OpenAIFunctionParametersSchema = Field(
+        default_factory=lambda: OpenAIFunctionParametersSchema(type="object", properties={}, required=[])
+    )
     strict: bool = False
 
 
