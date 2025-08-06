@@ -180,4 +180,4 @@ The setup of training server is the same as the command above.
 ### Known issues
 
 1. Some experimental runs completed fewer training steps due to technical constraints encountered during the limited training window. These limitations included response length explosion (which significantly slowed training throughput and potentially caused OOMs) and occasional cluster infrastructure failures.
-2. The `execute_query` step is only invoked once in the first turn and not in subsequent turns, which may lead to lower accuracy for agents trained with more than one turn. This is a known limitation of the current agent design and will be addressed in future iterations.
+2. The `execute_query` step is only invoked once in the first turn and not in subsequent turns, which may lead to lower accuracy for agents trained with more than one turn. This is a known bug of the current agent implementation and will be addressed in future iterations.

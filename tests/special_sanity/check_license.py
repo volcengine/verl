@@ -23,7 +23,7 @@ license_head_sglang = "Copyright 2023-2024 SGLang Team"
 license_head_modelbest = "Copyright 2025 ModelBest Inc. and/or its affiliates"
 license_head_amazon = "Copyright 2025 Amazon.com Inc and/or its affiliates"
 license_head_facebook = "Copyright (c) 2016-     Facebook, Inc"
-licnese_head_microsoft = ""
+license_head_microsoft = "Copyright (c) Microsoft Corporation."
 license_headers = [
     license_head_bytedance,
     license_head_bytedance_25,
@@ -33,6 +33,7 @@ license_headers = [
     license_head_modelbest,
     license_head_amazon,
     license_head_facebook,
+    license_head_microsoft,
 ]
 
 
