@@ -17,10 +17,17 @@ else
     echo "使用传入的 OVER_SAMPLE_RATE 数组: ${rates[*]}"
 fi
 
-# 验证传入的参数是否为有效的数字
+# 验证传入的参数是否为有效的数字且在合理范围内
 for rate in "${rates[@]}"; do
+    # 检查是否为有效数字
     if ! [[ "$rate" =~ ^[0-9]+\.?[0-9]*$ ]]; then
         echo "错误：传入的参数 '$rate' 不是有效的数字"
+        exit 1
+    fi
+    
+    # 检查是否在合理范围内 (0-1)
+    if (( $(echo "$rate < 0" | bc -l) )) || (( $(echo "$rate > 1" | bc -l) )); then
+        echo "错误：传入的参数 '$rate' 超出合理范围 (0-1)"
         exit 1
     fi
 done
@@ -35,7 +42,8 @@ while true; do
     
     # 启动训练（后台运行）
     echo "启动训练..."
-    bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn_benchmark.sh $rate &
+    # 使用引号保护参数，确保正确传递
+    bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn_benchmark.sh "$rate" &
     TRAIN_PID=$!
     
     # 等待训练完成或超时
