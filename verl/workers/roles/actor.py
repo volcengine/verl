@@ -15,83 +15,38 @@
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
-import json
 import logging
 import os
-import warnings
-from dataclasses import asdict
 from typing import Any
+from functools import partial
+
 
 import psutil
 import torch
 import torch.distributed
-import torch.distributed as dist
 from codetiming import Timer
-from omegaconf import DictConfig, OmegaConf, open_dict
-from peft import LoraConfig, TaskType, get_peft_model
-from safetensors.torch import save_file
-from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
-from verl.utils import hf_processor, hf_tokenizer
-from verl.utils.activation_offload import enable_activation_offloading
-from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import (
     get_device_id,
     get_device_name,
     get_nccl_backend,
     get_torch_device,
-    is_cuda_available,
-    is_npu_available,
-)
-from verl.utils.flops_counter import FlopsCounter
-from verl.utils.fs import copy_to_local
-from verl.utils.fsdp_utils import (
-    CPUOffloadPolicy,
-    MixedPrecisionPolicy,
-    apply_fsdp2,
-    fsdp2_load_full_state_dict,
-    fsdp_version,
-    get_fsdp_wrap_policy,
-    get_init_weight_context_manager,
-    init_fn,
-    layered_summon_lora_params,
-    load_fsdp_model_to_gpu,
-    load_fsdp_optimizer,
-    offload_fsdp_model_to_cpu,
-    offload_fsdp_optimizer,
 )
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
-from verl.utils.import_utils import import_external_libs
-from verl.utils.model import compute_position_id_with_mask
-from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage, simple_timer
-from verl.utils.profiler.performance import reduce_timing
-from verl.utils.py_functional import convert_to_regular_types
-from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig
-from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from verl.utils.profiler import DistProfiler, DistProfilerExtension
 from verl.workers.engine import EngineRegistry
 import verl.workers.engine.config as engine_cfg
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import logprobs_from_logits
-if is_cuda_available:
-    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
-elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
-
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
-
-
-def debug_print(msg):
-    print(f"[ActorWorker] {msg}")
 
 
 class ActorWorker(Worker, DistProfilerExtension):
@@ -101,7 +56,6 @@ class ActorWorker(Worker, DistProfilerExtension):
     """
 
     def __init__(self, config, role, **kwargs):
-        debug_print(f"__init__ role: {role}")
         Worker.__init__(self)
         # TODO(haibin.lin):
         # As of now the type of config is DictConfig, if we assign config.profiler with ProfilerConfig,
@@ -141,10 +95,7 @@ class ActorWorker(Worker, DistProfilerExtension):
     
 
     def create_engine_config(self, actor_config):
-        print(actor_config)
         model_config = engine_cfg.get_model_config(actor_config.model)
-        print(f"override_config")
-        print(model_config.override_config)
         optim_config = engine_cfg.get_optim_config(actor_config.actor.optim)
         system_config = engine_cfg.get_system_config(actor_config.actor.fsdp_config)
         ckpt_config = engine_cfg.get_checkpoint_config(actor_config.actor.checkpoint)
@@ -163,7 +114,6 @@ class ActorWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
-        debug_print(f"init_model")
         self.engine.init_model()
 
     # TODO: temporary
@@ -176,19 +126,17 @@ class ActorWorker(Worker, DistProfilerExtension):
         return self.engine.get_params_meta_info()
 
     def _post_fn_log_prob(self, micro_batch, preds):
-        # assert not use_fused_kernels and not entropy_checkpointing
+        # do not support not calculate entropy
         response_length = micro_batch["responses"].size(-1)
         temperature = self.config.rollout.temperature
 
-        logits = preds                                          # (bsz, seqlen, vocab_size)
-        debug_print(f"logits: {logits.shape}")
+        logits = preds                                                      # (bsz, seqlen, vocab_size)
         logits.div_(temperature)
-        logits = logits[:, -response_length - 1 : -1, :]                     # (bsz, response_length, vocab_size)
-        debug_print(f"logits after transform: {logits.shape}")
-        debug_print(f"responses: {micro_batch['responses'].shape}")
-        log_probs = logprobs_from_logits(logits, micro_batch["responses"])   # (bsz, response_length)
-        debug_print(f"log_probs: {log_probs.shape}")
-        entropy = verl_F.entropy_from_logits(logits)                         # (bsz, response_length)
+        logits = logits[:, -response_length - 1 : -1, :]                    # (bsz, response_length, vocab_size)
+        log_probs = logprobs_from_logits(logits,
+                                         micro_batch["responses"],
+                                         inplace_backward=False)            # (bsz, response_length)
+        entropy = verl_F.entropy_from_logits(logits)                        # (bsz, response_length)
 
         outputs = {
             "log_probs": log_probs.clone().detach(),
@@ -207,7 +155,8 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         with self.engine.eval_mode():
             data = self.engine.shard_data(data=data)
-            output = self.engine.infer_batch(data, post_fn=self._post_fn_log_prob)
+            post_fn = partial(self._post_fn_log_prob)
+            output = self.engine.infer_batch(data, post_fn=post_fn)
             output = DataProto.from_dict(
                 tensors={"old_log_probs": output["log_probs"], "entropys": output["entropy"]},
                 meta_info={"temperature": self.config.rollout.temperature},
@@ -216,11 +165,6 @@ class ActorWorker(Worker, DistProfilerExtension):
             output = self.engine.unshard_data(data=output)
         output = output.to("cpu")
 
-        # TODO: check this
-        # # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
-        # # unshard the root FSDP module
-        # if self.world_size > 1 and fsdp_version(self.actor.actor_module) == 1:
-        #     self.actor.actor_module._handle.reshard(True)
         return output
 
     
@@ -234,11 +178,6 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         entropy_coeff = self.config.actor.entropy_coeff
         loss_agg_mode = self.config.actor.loss_agg_mode
-
-        # all return: (bsz, response_length)
-        calculate_entropy = False
-        if entropy_coeff != 0:
-            calculate_entropy = True
 
         (log_prob, entropy), _ = self._post_fn_log_prob(batch, vpreds)
 
@@ -330,9 +269,8 @@ class ActorWorker(Worker, DistProfilerExtension):
                 self.engine.optimizer_zero_grad()
             delta_time = timer.last
 
-            # TODO: should not access engine's flops_counter
             global_num_tokens = data.meta_info["global_token_num"]
-            estimated_flops, promised_flops = self.engine.flops_counter.estimate_flops(global_num_tokens, delta_time)
+            estimated_flops, promised_flops = self.engine.estimate_flops(global_num_tokens, delta_time)
             metrics["perf/mfu/actor"] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
             metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
             metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)

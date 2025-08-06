@@ -42,8 +42,6 @@ elif is_npu_available:
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-def debug_print(msg):
-    print(f"[PrevCriticWorker]: {msg}")
 
 class DataParallelPPOCritic(BasePPOCritic):
     def __init__(self, config, critic_module: nn.Module, critic_optimizer: optim.Optimizer):
@@ -67,7 +65,6 @@ class DataParallelPPOCritic(BasePPOCritic):
 
         with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
-            debug_print(f"input_ids shape: {input_ids.shape}")
             batch, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
             position_ids = micro_batch["position_ids"]
@@ -98,8 +95,6 @@ class DataParallelPPOCritic(BasePPOCritic):
                         input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size
                     )
 
-                debug_print(f"input_ids_rmpad before module execution: {input_ids_rmpad.shape}")
-                debug_print(f"position_ids_rmpad before module execution: {position_ids_rmpad.shape}")
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.critic_module(
                     input_ids=input_ids_rmpad,
@@ -116,17 +111,14 @@ class DataParallelPPOCritic(BasePPOCritic):
                     values_rmpad = output.logits
                     values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
 
-                debug_print(f"values_rmpad before gather: {values_rmpad.shape}")
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
                     values_rmpad = gather_outputs_and_unpad(
                         values_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size
                     )
-                debug_print(f"values_rmpad after gather: {values_rmpad.shape}")
 
                 # pad it back
                 values = pad_input(values_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
-                debug_print(f"values after pad_input: {values.shape}")
                 values = values[:, -response_length - 1 : -1]
             else:
                 output = self.critic_module(

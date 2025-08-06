@@ -62,10 +62,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
 
     def create_engine_config(self, critic_config):
-        print(critic_config)
         model_config = engine_cfg.get_model_config(critic_config.model)
-        print(f"override_config")
-        print(model_config.override_config)
         model_config.override_config["num_labels"] = 1
         model_config.override_config["classifier_dropout"] = 0.0
         model_config.override_config["hidden_dropout"] = "0"
@@ -185,7 +182,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
             # TODO: should not access engine's flops_counter
             global_num_tokens = data.meta_info["global_token_num"]
-            estimated_flops, promised_flops = self.engine.flops_counter.estimate_flops(global_num_tokens, delta_time)
+            estimated_flops, promised_flops = self.engine.estimate_flops(global_num_tokens, delta_time)
             metrics["perf/mfu/critic"] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
 
             metrics["critic/lr"] = self.engine.lr_scheduler_step()[0]

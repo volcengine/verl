@@ -84,9 +84,6 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
 
-def debug_print(msg):
-    print(f"[MyEngine]: {msg}")
-
 @EngineRegistry.register(["fsdp", "fsdp2"])
 class FSDPEngine(BaseEngine):
     """
@@ -246,7 +243,6 @@ class FSDPEngine(BaseEngine):
                 model_config,
                 self.config.model.trust_remote_code,
             )
-            debug_print(f"module after load_valuehead_model: {module}")
 
             use_liger=self.config.model.use_liger
             # Apply Liger kernel to the model if use_liger is set to True
@@ -278,7 +274,6 @@ class FSDPEngine(BaseEngine):
 
 
     def _build_lora_module(self, module):
-        print("Applying LoRA to the module")
         module.enable_input_require_grads()
         # Convert config to regular Python types before creating PEFT model
         lora_config = {
@@ -531,7 +526,12 @@ class FSDPEngine(BaseEngine):
 
     def get_data_parallel_size(self):
         return torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
-    
+
+
+    def estimate_flops(self, global_num_tokens, delta_time):
+        estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
+        return estimated_flops, promised_flops
+
 
     def _forward_micro_batch(self, micro_batch):
         # input_ids: [bsz, seqlen]
@@ -547,10 +547,8 @@ class FSDPEngine(BaseEngine):
                         [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
                     )
 
-
         with torch.autocast(device_type=device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
-            debug_print(f"input_ids shape: {input_ids.shape}")
             batch, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
             position_ids = micro_batch["position_ids"]
@@ -581,8 +579,6 @@ class FSDPEngine(BaseEngine):
                         input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size
                     )
 
-                debug_print(f"input_ids_rmpad before module execution: {input_ids_rmpad.shape}")
-                debug_print(f"position_ids_rmpad before module execution: {position_ids_rmpad.shape}")
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 preds = self.module(
                     input_ids=input_ids_rmpad,
@@ -598,21 +594,16 @@ class FSDPEngine(BaseEngine):
                     preds_rmpad = preds[2].squeeze(0).unsqueeze(-1)
                 else:
                     preds_rmpad = preds.logits
-                    print(f"preds_rmpad before squeeze: {preds_rmpad.shape}")
                     preds_rmpad = preds_rmpad.squeeze(0)  # (total_nnz)
                 # shape: [total_nnz, logits]
-
-                debug_print(f"preds_rmpad before gather: {preds_rmpad.shape}")
 
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
                     preds_rmpad = gather_outputs_and_unpad(preds_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size)
-                debug_print(f"preds_rmpad after gather: {preds_rmpad.shape}")
 
                 # pad it back
                 # preds = pad_input(preds_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
                 preds = pad_input(preds_rmpad, indices=indices, batch=batch, seqlen=seqlen)
-                debug_print(f"preds after pad_input: {preds.shape}")
                 # shape: [bsz, seqlen, logits]
             else:
                 preds = self.module(
@@ -662,17 +653,6 @@ class FSDPEngine(BaseEngine):
             micro_batches, batch_idx_list = prepare_dynamic_batch(batch, max_token_len=max_token_len)
         else:
             micro_batches = batch.split(micro_batch_size)
-
-        # if has_multi_modal_inputs:
-        #     num_micro_batches = data.batch.batch_size[0] // micro_batch_size
-        #     non_tensor_select_keys = ["multi_modal_inputs"]
-        #     micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
-        # elif use_dynamic_bsz:
-        #     # split using dynamic bsz
-        #     max_token_len = max_token_len * self.ulysses_sequence_parallel_size
-        #     micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
-        # else:
-        #     micro_batches = batch.split(micro_batch_size)
     
         preds_list = {}
         for micro_batch in micro_batches:

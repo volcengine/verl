@@ -48,8 +48,6 @@ __all__ = ["DataParallelPPOActor"]
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-def debug_print(msg):
-    print(f"[PrevActorWorker]: {msg}")
 
 class DataParallelPPOActor(BasePPOActor):
     """FSDP DataParallel PPO Actor or Ref worker
@@ -114,7 +112,6 @@ class DataParallelPPOActor(BasePPOActor):
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
             position_ids = micro_batch["position_ids"]
-            debug_print(f"input_ids shape: {input_ids.shape}")
             entropy = None
             if position_ids.dim() == 3:  # qwen2vl mrope
                 position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
@@ -177,8 +174,6 @@ class DataParallelPPOActor(BasePPOActor):
                     extra_args["temperature"] = temperature
                     extra_args["return_dict"] = True
 
-                debug_print(f"input_ids_rmpad before module execution: {input_ids_rmpad.shape}")
-                debug_print(f"position_ids_rmpad before module execution: {position_ids_rmpad.shape}")
                 output = self.actor_module(
                     input_ids=input_ids_rmpad,
                     attention_mask=None,
@@ -196,19 +191,16 @@ class DataParallelPPOActor(BasePPOActor):
                 else:
                     logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
                     logits_rmpad.div_(temperature)
-                    debug_print(f"logits_rmpad: {logits_rmpad.shape}")
 
                     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
                     inplace_backward = True
                     if calculate_entropy:
                         inplace_backward = False
-                    debug_print(f"input_ids_rmpad_rolled: {input_ids_rmpad_rolled.shape}")
                     log_probs = logprobs_from_logits(
                         logits=logits_rmpad,
                         labels=input_ids_rmpad_rolled,
                         inplace_backward=inplace_backward,
                     )
-                    debug_print(f"log_probs: {log_probs.shape}")
 
                     # compute entropy
                     if calculate_entropy:
@@ -218,7 +210,6 @@ class DataParallelPPOActor(BasePPOActor):
                             entropy_rmpad = torch.utils.checkpoint.checkpoint(
                                 self.compute_entropy_from_logits, logits_rmpad
                             )
-                        debug_print(f"entropy_rmpad: {entropy_rmpad.shape}")
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:
@@ -229,7 +220,6 @@ class DataParallelPPOActor(BasePPOActor):
                         unpad_dim=0,
                         padding_size=pad_size,
                     )
-                    debug_print(f"log_probs after gather: {log_probs.shape}")
                     if calculate_entropy:
                         entropy_rmpad = gather_outputs_and_unpad(
                             entropy_rmpad,
@@ -251,13 +241,11 @@ class DataParallelPPOActor(BasePPOActor):
                     batch=batch_size,
                     seqlen=seqlen,
                 )
-                debug_print(f"log_probs after pad_input: {log_probs.shape}")
 
                 # only return response part:
                 if calculate_entropy:
                     entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
-                debug_print(f"log_probs after squeeze: {log_probs.shape}")
 
             else:  # not using rmpad and no ulysses sp
                 extra_args = {}
