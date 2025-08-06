@@ -75,6 +75,8 @@ elif is_npu_available:
 from ..base import BaseEngine, EngineRegistry
 from ..config import EngineConfig
 from .utils import create_device_mesh, get_sharding_strategy
+from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
+
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -655,7 +657,6 @@ class FSDPEngine(BaseEngine):
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
         batch = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
-        from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
         if use_dynamic_bsz:
             max_token_len = max_token_len * self.ulysses_sequence_parallel_size
             micro_batches, batch_idx_list = prepare_dynamic_batch(batch, max_token_len=max_token_len)
@@ -691,14 +692,8 @@ class FSDPEngine(BaseEngine):
         mini_batch_preds = {}
         for key, t_list in preds_list.items():
             t_concat = torch.concat(t_list, dim=0)
-
             if use_dynamic_bsz:
                 t_concat = restore_dynamic_batch(t_concat, batch_idx_list)
-                
-                # indices = list(itertools.chain.from_iterable(indices))
-                # assert len(indices) == t_concat.size(0), f"{len(indices)} vs. {t_concat.size()}"
-                # revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-                # t_concat = t_concat[revert_indices]
 
             mini_batch_preds[key] = t_concat
 
@@ -719,28 +714,20 @@ class FSDPEngine(BaseEngine):
         Returns:
             dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
         """
-        raise ValueError
         assert self.mode == "train"
         # split batch into micro_batches
         mini_batch = data
-        select_keys = ["input_ids", "responses", "response_mask", "attention_mask", "position_ids"]
-        if "multi_modal_inputs" in mini_batch:
-            non_tensor_select_keys = ["multi_modal_inputs"]
-            num_micro_batches = mini_batch.batch.batch_size[0] // self.config.train_micro_batch_size_per_gpu
-            micro_batches = mini_batch.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
-        elif self.config.use_dynamic_bsz:
+        if self.config.use_dynamic_bsz:
             max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-            micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
+            micro_batches, _ = prepare_dynamic_batch(mini_batch, max_token_len=max_token_len)
         else:
             micro_batches = mini_batch.split(self.config.train_micro_batch_size_per_gpu)
 
         mini_batch_metrics = {}
         for micro_batch in micro_batches:
             # Support all devices
-            if isinstance(micro_batch, DataProto):
-                micro_batch = {**micro_batch.batch.to(get_device_id()), **micro_batch.non_tensor_batch}
-            else:
-                micro_batch = micro_batch.to(get_device_id())  # critic device is cpu when using offload
+            assert isinstance(micro_batch, DataProto)
+            micro_batch = {**micro_batch.batch, **micro_batch.non_tensor_batch}
 
             preds = self._forward_micro_batch(micro_batch)
             vf_loss, micro_batch_metrics = loss_fn(micro_batch, preds)
@@ -749,7 +736,8 @@ class FSDPEngine(BaseEngine):
             # calculate loss
             if self.config.use_dynamic_bsz:
                 # relative to the dynamic bsz
-                loss = vf_loss * (len(micro_batch) / self.mini_bsz)
+                response_mask = micro_batch["response_mask"]
+                loss = vf_loss * (response_mask.shape[0] / self.mini_bsz)
             else:
                 gradient_accumulation = self.mini_bsz // self.config.train_micro_batch_size_per_gpu
                 loss = vf_loss / gradient_accumulation

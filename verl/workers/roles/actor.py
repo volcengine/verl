@@ -67,6 +67,7 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
 )
+from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage, simple_timer
@@ -76,6 +77,7 @@ from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 from verl.workers.engine import EngineRegistry
 import verl.workers.engine.config as engine_cfg
+from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import logprobs_from_logits
 if is_cuda_available:
     from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
@@ -193,7 +195,7 @@ class ActorWorker(Worker, DistProfilerExtension):
             "entropy": entropy.clone().detach(),
         }
 
-        return None, outputs
+        return (log_probs, entropy), outputs
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
@@ -219,12 +221,135 @@ class ActorWorker(Worker, DistProfilerExtension):
         # # unshard the root FSDP module
         # if self.world_size > 1 and fsdp_version(self.actor.actor_module) == 1:
         #     self.actor.actor_module._handle.reshard(True)
-
         return output
 
+    
+    def loss_fn(
+        self, batch: DataProto, vpreds: dict[str, torch.Tensor]
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        response_mask = batch["response_mask"]
+        old_log_prob = batch["old_log_probs"]
+        advantages = batch["advantages"]
+        micro_batch_metrics = {}
+
+
+        entropy_coeff = self.config.actor.entropy_coeff
+        loss_agg_mode = self.config.actor.loss_agg_mode
+
+        # all return: (bsz, response_length)
+        calculate_entropy = False
+        if entropy_coeff != 0:
+            calculate_entropy = True
+
+        (log_prob, entropy), _ = self._post_fn_log_prob(batch, vpreds)
+
+        loss_mode = self.config.actor.policy_loss.get("loss_mode", "vanilla")
+        # vanilla -> verl.trainer.ppo.core_algos.compute_policy_loss_vanilla
+        # gpg -> verl.trainer.ppo.core_algos.compute_policy_loss_gpg
+        # clip_cov -> verl.trainer.ppo.core_algos.compute_policy_loss_clip_cov
+        policy_loss_fn = get_policy_loss_fn(loss_mode)
+        pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
+            old_log_prob=old_log_prob,
+            log_prob=log_prob,
+            advantages=advantages,
+            response_mask=response_mask,
+            loss_agg_mode=loss_agg_mode,
+            config=self.config.actor,
+        )
+
+        if entropy_coeff != 0:
+            entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+            # compute policy loss
+            policy_loss = pg_loss - entropy_loss * entropy_coeff
+        else:
+            policy_loss = pg_loss
+
+        if self.config.actor.use_kl_loss:
+            ref_log_prob = batch["ref_log_prob"]
+            # compute kl loss
+            kld = kl_penalty(
+                logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.actor.kl_loss_type
+            )
+            kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+
+            policy_loss = policy_loss + kl_loss * self.config.actor.kl_loss_coef
+            micro_batch_metrics["actor/kl_loss"] = kl_loss.detach().item()
+            micro_batch_metrics["actor/kl_coef"] = self.config.actor.kl_loss_coef
+
+        micro_batch_metrics.update(
+            {
+                "actor/pg_loss": pg_loss.detach().item(),
+                "actor/pg_clipfrac": pg_clipfrac.detach().item(),
+                "actor/ppo_kl": ppo_kl.detach().item(),
+                "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+            }
+        )
+        return policy_loss, micro_batch_metrics
+
+
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @DistProfiler.annotate(color="red", role="actor_update")
     def update_actor(self, data: DataProto):
-        raise NotImplementedError
+        metrics = {}
+        # Support all hardwares
+        data = data.to(get_device_id())
+        # perform forward computation
+        with self.engine.train_mode():
+            data = self.engine.shard_data(data=data)
+
+            with Timer(name="update_policy", logger=None) as timer:
+                select_keys = [
+                    "responses",
+                    "response_mask",
+                    "input_ids",
+                    "attention_mask",
+                    "position_ids",
+                    "old_log_probs",
+                    "advantages",
+                ]
+
+                if self.config.actor.use_kl_loss:
+                    select_keys.append("ref_log_prob")
+
+                has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+                non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+                data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
+
+                # calculate mini batch size
+                mini_bsz = self.config.actor.ppo_mini_batch_size * self.config.rollout.n
+                mini_bsz = mini_bsz // self.engine.get_data_parallel_size()
+                # Split to make minibatch iterator for updating the actor
+                # See PPO paper for details. https://arxiv.org/abs/1707.06347
+                mini_batches = data.split(mini_bsz)
+
+                metrics = {}
+                for epoch in range(self.config.actor.ppo_epochs):
+                    for batch_idx, mini_batch in enumerate(mini_batches):
+                        self.engine.optimizer_zero_grad()
+                        mini_batch_metrics = self.engine.train_batch(mini_batch, self.loss_fn)
+                        grad_norm = self.engine.optimizer_step()
+                        mini_batch_metrics["critic/grad_norm"] = grad_norm.detach().item()
+                        append_to_dict(metrics, mini_batch_metrics)
+                self.engine.optimizer_zero_grad()
+            delta_time = timer.last
+
+            # TODO: should not access engine's flops_counter
+            global_num_tokens = data.meta_info["global_token_num"]
+            estimated_flops, promised_flops = self.engine.flops_counter.estimate_flops(global_num_tokens, delta_time)
+            metrics["perf/mfu/critic"] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
+            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
+            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
+
+            lr = self.engine.lr_scheduler_step()[0]
+            metrics["actor/lr"] = lr
+
+            output = DataProto(batch=None, meta_info={"metrics": metrics})
+            output = self.engine.unshard_data(data=output)
+
+        output = output.to("cpu")
+        raise ValueError
+        return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
