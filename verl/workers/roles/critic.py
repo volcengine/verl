@@ -85,7 +85,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
-        self.engine.init_model()
+        self.engine.initialize()
 
 
     def _post_fn_values(self, micro_batch, preds):
@@ -103,7 +103,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         with self.engine.eval_mode():
             data = self.engine.shard_data(data=data)
-            output = self.engine.infer_batch(data, post_fn=self._post_fn_values)
+            output = self.engine.forward_step(data, post_fn=self._post_fn_values)
             response_mask = data.batch["response_mask"]
             values = output["values"] * response_mask  # Only action tokens have values
             output = DataProto.from_dict(tensors={"values": values})
@@ -172,12 +172,10 @@ class CriticWorker(Worker, DistProfilerExtension):
 
                 for epoch in range(self.config.ppo_epochs):
                     for batch_idx, mini_batch in enumerate(mini_batches):
-                        self.engine.optimizer_zero_grad()
-                        mini_batch_metrics = self.engine.train_batch(mini_batch, self.loss_fn)
-                        grad_norm = self.engine.optimizer_step()
-                        mini_batch_metrics["critic/grad_norm"] = grad_norm.detach().item()
+                        mini_batch_metrics = self.engine.train_step(mini_batch, self.loss_fn)
+                        # renaming metrics for critic specific
+                        mini_batch_metrics["critic/grad_norm"] = mini_batch_metrics.pop("grad_norm")
                         append_to_dict(metrics, mini_batch_metrics)
-                self.engine.optimizer_zero_grad()
             delta_time = timer.last
 
             # TODO: should not access engine's flops_counter

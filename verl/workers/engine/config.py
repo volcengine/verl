@@ -73,25 +73,10 @@ class OptimConfig(BaseConfig):
     num_cycles: float
 
 
-# use_orig_params=fsdp_config.get("use_orig_params", False),
-# forward_prefetch=fsdp_config.get("forward_prefetch", False),
-
 # TODO: use inheritance for different backend
 # - FSDPSystemConfig(SystemConfig)
 # - MCoreSystemConfig(SystemConfig)
 
-"""
-Current offload policy logistic
-
-fsdp:
-- actor: force to False
-- critic: force to False
-- ref: force to be CPUOffload(offload_params=True)
-fsdp2:
-- actor: depend on offload_policy
-- critic: depend on offload_policy
-- ref: force to be CPUOffload(pin_memory=True)
-"""
 @dataclass(frozen=True)
 class SystemConfig(BaseConfig):
     """Dataclass for FSDP system configuration."""
@@ -135,8 +120,6 @@ def get_model_config(config):
     )
     return model_config
 
-            # min_lr_ratio = config.optim.get("min_lr_ratio", 0.0)
-            # num_cycles = config.optim.get("num_cycles", 0.5)
 
 def get_optim_config(config):
     optim_config = OptimConfig(
@@ -205,7 +188,3 @@ def get_engine_config(config,
         rollout_n=rollout_n,
     )
     return engine_config
-
-
-def check_config_for_engine():
-    pass

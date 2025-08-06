@@ -91,7 +91,7 @@ class ActorWorker(Worker, DistProfilerExtension):
             "fused kernels and entropy checkpointing are not supported in the new worker implementation yet"
 
         engine_config = self.create_engine_config(self.config)
-        self.engine = EngineRegistry.new(self.config.actor.strategy, engine_config)
+        self.engine = EngineRegistry.new(self.config.actor.strategy, engine_config, "actor")
     
 
     def create_engine_config(self, actor_config):
@@ -114,7 +114,7 @@ class ActorWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
-        self.engine.init_model()
+        self.engine.initialize()
 
     # TODO: temporary
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
@@ -155,8 +155,7 @@ class ActorWorker(Worker, DistProfilerExtension):
 
         with self.engine.eval_mode():
             data = self.engine.shard_data(data=data)
-            post_fn = partial(self._post_fn_log_prob)
-            output = self.engine.infer_batch(data, post_fn=post_fn)
+            output = self.engine.forward_step(data, post_fn=self._post_fn_log_prob)
             output = DataProto.from_dict(
                 tensors={"old_log_probs": output["log_probs"], "entropys": output["entropy"]},
                 meta_info={"temperature": self.config.rollout.temperature},
@@ -261,12 +260,10 @@ class ActorWorker(Worker, DistProfilerExtension):
                 metrics = {}
                 for epoch in range(self.config.actor.ppo_epochs):
                     for batch_idx, mini_batch in enumerate(mini_batches):
-                        self.engine.optimizer_zero_grad()
-                        mini_batch_metrics = self.engine.train_batch(mini_batch, self.loss_fn)
-                        grad_norm = self.engine.optimizer_step()
-                        mini_batch_metrics["critic/grad_norm"] = grad_norm.detach().item()
+                        mini_batch_metrics = self.engine.train_step(mini_batch, self.loss_fn)
+                        # renaming metrics for actor specific
+                        mini_batch_metrics["actor/grad_norm"] = mini_batch_metrics.pop("grad_norm")
                         append_to_dict(metrics, mini_batch_metrics)
-                self.engine.optimizer_zero_grad()
             delta_time = timer.last
 
             global_num_tokens = data.meta_info["global_token_num"]

@@ -24,7 +24,8 @@ from verl import DataProto
 
 class BaseEngine:
     """
-    Abstract base class defining the interface for model training engines.
+    Abstract base class defining the interface for model training engines. Interface is subject to
+    change before release.
 
     Engine implementations must subclass BaseEngine and provide concrete behavior for all methods.
     """
@@ -38,7 +39,7 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def init_model(self):
+    def initialize(self):
         """
         Instantiate or load the model, optimizer, and learning rate scheduler.
 
@@ -66,7 +67,7 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def infer_batch(
+    def forward_step(
         self,
         data: DataProto,
         post_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
@@ -84,10 +85,10 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def train_batch(
+    def train_step(
         self,
         data: DataProto,
-        loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
+        loss_fn: Callable[[DataProto, torch.Tensor], tuple[list[torch.Tensor], dict[str, torch.Tensor]]],
     ) -> dict[str, torch.Tensor]:
         """
         Perform a training step on a mini-batch of data.
@@ -101,21 +102,6 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def optimizer_zero_grad(self):
-        """
-        Zero out gradients of all parameters before starting a new backward pass.
-        """
-        raise NotImplementedError
-
-    def optimizer_step(self):
-        """
-        Perform an optimization step to update model parameters based on accumulated gradients.
-
-        Returns:
-            grad_norm (float): The norm of the gradients before clipping or update.
-        """
-        raise NotImplementedError
-
     def lr_scheduler_step(self):
         """
         Advance the learning rate scheduler by one step.
@@ -123,6 +109,13 @@ class BaseEngine:
         Returns:
             current_lr (float or list[float]): Updated learning rate(s).
         """
+        raise NotImplementedError
+    
+    def get_data_parallel_size(self):
+        raise NotImplementedError
+
+
+    def estimate_flops(self, global_num_tokens, delta_time):
         raise NotImplementedError
 
     def shard_data(self, data):

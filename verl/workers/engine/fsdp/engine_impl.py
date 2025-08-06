@@ -145,7 +145,7 @@ class FSDPEngine(BaseEngine):
         self._is_lora = self.config.model.lora_rank > 0
 
 
-    def init_model(self):
+    def initialize(self):
         """
         Build the model, optimizer, and learning rate scheduler under FSDP.
 
@@ -621,10 +621,10 @@ class FSDPEngine(BaseEngine):
 
             return preds
 
-    def infer_batch(
+    def forward_step(
         self,
         data: DataProto,
-        post_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
+        post_fn: Callable[[DataProto, torch.Tensor], tuple[list[torch.Tensor], dict[str, torch.Tensor]]],
     ) -> dict[str, torch.Tensor]:
         """
         Perform inference on a mini batch of data.
@@ -679,7 +679,7 @@ class FSDPEngine(BaseEngine):
 
         return mini_batch_preds
 
-    def train_batch(
+    def train_step(
         self,
         data: DataProto,
         loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
@@ -695,6 +695,7 @@ class FSDPEngine(BaseEngine):
             dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the mini-batch.
         """
         assert self.mode == "train"
+        self.optimizer_zero_grad()
         # split batch into micro_batches
         mini_batch = data
         if self.config.use_dynamic_bsz:
@@ -723,6 +724,8 @@ class FSDPEngine(BaseEngine):
                 loss = vf_loss / gradient_accumulation
                 
             loss.backward()
+        grad_norm = self.optimizer_step()
+        mini_batch_metrics["grad_norm"] = grad_norm.detach().item()
 
         return mini_batch_metrics
 
@@ -835,6 +838,13 @@ class EngineEvalModeCtx:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
+
+        # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
+        # unshard the root FSDP module
+        world_size = torch.distributed.get_world_size()
+        if world_size > 1 and fsdp_version(self.engine.module) == 1:
+            self.engine.module._handle.reshard(True)
+
         if self.engine._is_offload_param:
             offload_fsdp_model_to_cpu(self.engine.module)
         self.engine.mode = None
@@ -856,6 +866,7 @@ class EngineTrainModeCtx:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.engine.ulysses_sharding_manager.__exit__(exc_type, exc_value, traceback)
+        self.engine.optimizer_zero_grad()
 
         if self.engine._is_offload_param:
             offload_fsdp_model_to_cpu(self.engine.module)

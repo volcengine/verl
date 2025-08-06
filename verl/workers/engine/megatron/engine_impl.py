@@ -25,7 +25,7 @@ class MegatronEngine(BaseEngine):
     def __init__(self, config):
         raise NotImplementedError
 
-    def init_model(self):
+    def initialize(self):
         raise NotImplementedError
 
     def train_mode(self):
@@ -48,10 +48,10 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-    def infer_batch(
+    def forward_step(
         self,
         data: DataProto,
-        post_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],
+        post_fn: Callable[[DataProto, torch.Tensor], tuple[list[torch.Tensor], dict[str, torch.Tensor]]],
     ) -> dict[str, torch.Tensor]:
         """
         Perform inference on a mini batch of data.
@@ -66,7 +66,7 @@ class MegatronEngine(BaseEngine):
         """
         raise NotImplementedError
 
-    def train_batch(
+    def train_step(
         self,
         data: DataProto,
         loss_fn: Callable[[DataProto, torch.Tensor], tuple[torch.Tensor, dict[str, torch.Tensor]]],

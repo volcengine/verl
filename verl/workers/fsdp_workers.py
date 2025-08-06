@@ -80,9 +80,6 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
 
-def debug_print(msg):
-    print(f"[MyActorWorker]: {msg}")
-
 def create_device_mesh(world_size, fsdp_size):
     if fsdp_size < 0 or fsdp_size >= world_size:
         device_mesh = init_device_mesh(device_name, mesh_shape=(world_size,), mesh_dim_names=["fsdp"])
@@ -291,7 +288,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 config=actor_model_config,
                 trust_remote_code=trust_remote_code,
             )
-            debug_print(f"module after from_pretrained: {actor_module}")
 
             # Apply Liger kernel to the model if use_liger is set to True
             if use_liger:
