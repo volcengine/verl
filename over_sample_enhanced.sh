@@ -17,21 +17,6 @@ else
     echo "使用传入的 OVER_SAMPLE_RATE 数组: ${rates[*]}"
 fi
 
-# 验证传入的参数是否为有效的数字且在合理范围内
-for rate in "${rates[@]}"; do
-    # 检查是否为有效数字
-    if ! [[ "$rate" =~ ^[0-9]+\.?[0-9]*$ ]]; then
-        echo "错误：传入的参数 '$rate' 不是有效的数字"
-        exit 1
-    fi
-    
-    # 检查是否在合理范围内 (0-1)
-    if (( $(echo "$rate < 0" | bc -l) )) || (( $(echo "$rate > 1" | bc -l) )); then
-        echo "错误：传入的参数 '$rate' 超出合理范围 (0-1)"
-        exit 1
-    fi
-done
-
 # 无限循环
 while true; do
     for rate in "${rates[@]}"; do
@@ -48,7 +33,7 @@ while true; do
     
     # 等待训练完成或超时
     echo "训练将在60秒后自动终止..."
-    for i in {1..60}; do
+    for i in {1..2700}; do
         # 检查进程是否还在运行
         if ! kill -0 $TRAIN_PID 2>/dev/null; then
             echo "训练进程已结束"
@@ -66,8 +51,8 @@ while true; do
     pkill -f sglang
     
     # 等待30秒
-    echo "等待30秒进行下一组实验..."
-    sleep 30
+    echo "等待180秒进行下一组实验..."
+    sleep 180
     
     echo "实验 OVER_SAMPLE_RATE = $rate 完成"
     echo "=========================================="
