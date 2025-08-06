@@ -370,7 +370,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 return True
 
             # 如果队列太满，也暂停生成
-
             if queue_size >= self.max_queue_size:
                 print(f"Should pause due to full queue: size={queue_size}, max={self.max_queue_size}")
                 return True

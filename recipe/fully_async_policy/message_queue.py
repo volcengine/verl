@@ -115,8 +115,11 @@ class MessageQueue:
         Returns:
             List[Any]: 获取的样本列表
         """
+
+        print("get_samples")
         with self.lock:
             while len(self.queue) < min_batch_count and self.running:
+                print("consumer_condition")
                 self.consumer_condition.wait()
 
             # 如果队列已关闭且没有足够样本，返回空列表

@@ -308,12 +308,12 @@ class FullyAsyncTrainer(RayPPOTrainer):
             print(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
                 return
-
+        # TODO 需要从
         self.total_training_steps = self.config.trainer.total_training_steps
 
         print(f"Total training steps: {self.total_training_steps}")
         # add tqdm
-        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
+        # progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
 
         # we start from step 1
         self.global_steps += 1
@@ -324,6 +324,15 @@ class FullyAsyncTrainer(RayPPOTrainer):
         # 初始化获取第一批数据
         while True:
             print("while True", flush=True)
+
+            # 检查队列状态
+            if self.message_queue_client:
+                queue_stats = self.message_queue_client.get_statistics()
+                print(f"Queue status before getting samples: {queue_stats}")
+
+                if queue_stats.get('queue_size', 0) == 0:
+                    print("WARNING: Queue is empty, will block waiting for samples")
+
             metrics = {}
             timing_raw = {}
 
@@ -383,22 +392,42 @@ class FullyAsyncTrainer(RayPPOTrainer):
                 self._check_save_checkpoint(is_last_step, timing_raw)
 
             print("_stop_profiling")
-            self._stop_profiling(do_profile, timing_raw)
+            # self._stop_profiling(do_profile, timing_raw)
             print("_collect_metrics")
-            self._collect_metrics(batch, epoch, metrics, timing_raw)
+            # self._collect_metrics(batch, epoch, metrics, timing_raw)
             print("_post_batch_processing")
-            self._post_batch_processing(batch)
+            # self._post_batch_processing(batch)
 
-            # TODO: make a canonical logger that supports various backend
-            print(data=metrics, step=self.global_steps)
+            print("step end")
+            #
+            # # TODO: make a canonical logger that supports various backend
+            # print(data=metrics, step=self.global_steps)
+            #
+            # # progress_bar.update(1)
+            # self.global_steps += 1
+            print("is_last_step")
+            # if is_last_step:
+            #     pprint(f"Final validation metrics: {last_val_metrics}")
+            #     print("is_last_step")
+            #     # progress_bar.close()
+            #     return
+            #
+            #
+            # # 检查队列状态
+            # if self.message_queue_client:
+            #     queue_stats = self.message_queue_client.get_statistics()
+            #     print(f"Queue status before getting samples: {queue_stats}")
+            #
+            #     if queue_stats.get('queue_size', 0) == 0:
+            #         print("WARNING: Queue is empty, will block waiting for samples")
+            #
+            # with marked_timer("gen", timing_raw, color="red"):
+            #     epoch, batch = self._get_samples_from_queue()
+            #     if batch is None:
+            #         break
 
-            progress_bar.update(1)
-            self.global_steps += 1
 
-            if is_last_step:
-                pprint(f"Final validation metrics: {last_val_metrics}")
-                progress_bar.close()
-                return
+
 
     def get_statistics(self) -> dict:
         """获取训练统计信息"""
