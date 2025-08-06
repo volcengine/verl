@@ -197,40 +197,37 @@ def flash_attention_forward(
         )  # remove channel dimension
         cu_seqlens_q, cu_seqlens_k = cu_seq_lens
         max_seqlen_in_batch_q, max_seqlen_in_batch_k = max_seq_lens
+
         flash_attn_func = flash_attn_varlen_func
+        common_attn_kwargs = {
+            "cu_seqlens_q": cu_seqlens_q,
+            "cu_seqlens_k": cu_seqlens_k,
+            "max_seqlen_q": max_seqlen_in_batch_q,
+            "max_seqlen_k": max_seqlen_in_batch_k,
+            "dropout_p": kwargs.pop("dropout", 0.0),
+            "softmax_scale": kwargs.pop("softmax_scale", None),
+            **flash_kwargs,
+        }
+
         if flash_attn_func is None:
             # Use transformers >= 4.54
             flash_attn_func = _flash_attention_forward
-            attn_output = flash_attn_func(
-                query_states,
-                key_states,
-                value_states,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                query_length=query_length,
-                is_causal=is_causal,
-                cu_seqlens_q=cu_seqlens_q,
-                cu_seqlens_k=cu_seqlens_k,
-                max_seqlen_q=max_seqlen_in_batch_q,
-                max_seqlen_k=max_seqlen_in_batch_k,
-                dropout_p=kwargs.pop("dropout", 0.0),
-                softmax_scale=kwargs.pop("softmax_scale", None),
-                **flash_kwargs,
-            )
+            specific_attn_kwargs = {
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
+                "query_length": query_length,
+                "is_causal": causal,
+            }
         else:
-            attn_output = flash_attn_func(
-                query_states,
-                key_states,
-                value_states,
-                cu_seqlens_q=cu_seqlens_q,
-                cu_seqlens_k=cu_seqlens_k,
-                max_seqlen_q=max_seqlen_in_batch_q,
-                max_seqlen_k=max_seqlen_in_batch_k,
-                dropout_p=kwargs.pop("dropout", 0.0),
-                softmax_scale=kwargs.pop("softmax_scale", None),
-                causal=causal,
-                **flash_kwargs,
-            )
+            specific_attn_kwargs = {"causal": causal}
+
+        attn_output = flash_attn_func(
+            query_states,
+            key_states,
+            value_states,
+            **common_attn_kwargs,
+            **specific_attn_kwargs,
+        )
         attn_output = attn_output.view(batch_size, -1, attn_output.size(-2), attn_output.size(-1))
     else:
         attn_output = _flash_attention_forward(
