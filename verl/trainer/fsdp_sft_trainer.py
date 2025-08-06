@@ -775,7 +775,7 @@ class FSDPSFTTrainer:
 
                 if is_last_step:
                     if rank == 0:
-                        print(f"Total time for train steps: {train_time}")
+                        print(f"Total time for train steps: {round(train_time, 2)}s")
                         print(f"Final validation metrics: {last_valid_metric}")
                     return
 
