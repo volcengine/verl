@@ -120,9 +120,9 @@ trainer:
     capture-range-end: null
     kill: none
 
-profiler:
+global_profiler:
   _target_: verl.utils.profiler.ProfilerConfig
-  tool: ""  # choose between nsys, npu, torch
+  tool: null  # choose between nsys, npu, torch
   steps: null   # profile steps
   profile_continuous_steps: False
   save_path: "outputs/profile"   # profiler saving path

@@ -307,13 +307,13 @@ trainer:
 
 
 # profiler configs
-profiler:
+global_profiler:
 
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.utils.profiler.ProfilerConfig
 
   # Profiling tool: choose between nsys, npu, torch
-  tool: ""
+  tool: null
 
   # profile steps
   steps: null

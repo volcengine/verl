@@ -29,22 +29,25 @@ class TestProfilerConfig(unittest.TestCase):
 
         with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
             cfg = compose(config_name="ppo_trainer")
-        arr = cfg.actor_rollout_ref
         for config in [
+            cfg.actor_rollout_ref.actor.profiler,
+            cfg.actor_rollout_ref.rollout.profiler,
+            cfg.actor_rollout_ref.ref.profiler,
             cfg.critic.profiler,
-            arr.profiler,
             cfg.reward_model.profiler,
         ]:
             profiler_config = omega_conf_to_dataclass(config)
-            self.assertEqual(profiler_config.discrete, config.discrete)
+            self.assertEqual(profiler_config.tool, config.tool)
+            self.assertEqual(profiler_config.enable, config.enable)
             self.assertEqual(profiler_config.all_ranks, config.all_ranks)
+            self.assertEqual(profiler_config.ranks, config.ranks)
+            self.assertEqual(profiler_config.save_path, config.save_path)
             self.assertEqual(profiler_config.ranks, config.ranks)
             assert isinstance(profiler_config, ProfilerConfig)
             with self.assertRaises(AttributeError):
                 _ = profiler_config.non_existing_key
             assert config.get("non_existing_key") == profiler_config.get("non_existing_key")
             assert config.get("non_existing_key", 1) == profiler_config.get("non_existing_key", 1)
-            assert config["discrete"] == profiler_config["discrete"]
             from dataclasses import FrozenInstanceError
 
             with self.assertRaises(FrozenInstanceError):

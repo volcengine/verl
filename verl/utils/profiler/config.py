@@ -14,7 +14,7 @@
 
 import warnings
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 from omegaconf import MISSING
 
@@ -90,11 +90,11 @@ class ProfilerConfig(BaseConfig):
         ranks (list[int]): The ranks that will be profiled. Defaults to [].
     """
 
-    tool: str = MISSING
+    tool: Optional[str] = MISSING
     enable: bool = False
     all_ranks: bool = False
     ranks: list[int] = field(default_factory=list)
-    save_path: str = MISSING
+    save_path: Optional[str] = MISSING
     tool_config: Any = MISSING
 
     def __post_init__(self) -> None:

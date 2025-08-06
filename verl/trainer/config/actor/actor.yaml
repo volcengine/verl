@@ -137,7 +137,7 @@ profiler:
 
   # profiler tool, default same as profiler.tool in global config
   # choices: nsys, npu, torch
-  tool: ${oc.select:profiler.tool,null}
+  tool: ${oc.select:global_profiler.tool,null}
 
   # whether enable profile on Actor
   enable: False
@@ -149,8 +149,8 @@ profiler:
   ranks: []
 
   # profile results saving path
-  save_path: ${oc.select:profiler.save_path,null}
+  save_path: ${oc.select:global_profiler.save_path,null}
 
   # specific tool config
-  tool_config: ${profiler.tool_config}
+  tool_config: ${global_profiler.tool_config}
 

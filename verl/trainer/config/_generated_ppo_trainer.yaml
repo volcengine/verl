@@ -53,12 +53,12 @@ actor_rollout_ref:
     use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
-      tool: ${oc.select:profiler.tool,null}
+      tool: ${oc.select:global_profiler.tool,null}
       enable: false
       all_ranks: false
       ranks: []
-      save_path: ${oc.select:profiler.save_path,null}
-      tool_config: ${profiler.tool_config}
+      save_path: ${oc.select:global_profiler.save_path,null}
+      tool_config: ${global_profiler.tool_config}
     grad_clip: 1.0
     ulysses_sequence_parallel_size: 1
     entropy_from_logits_with_chunking: false
@@ -83,12 +83,12 @@ actor_rollout_ref:
     log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_token_len_per_gpu,16384}
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
-      tool: ${oc.select:profiler.tool,null}
+      tool: ${oc.select:global_profiler.tool,null}
       enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
-      save_path: ${oc.select:profiler.save_path,null}
-      tool_config: ${profiler.tool_config}
+      save_path: ${oc.select:global_profiler.save_path,null}
+      tool_config: ${global_profiler.tool_config}
     model: null
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
@@ -163,12 +163,12 @@ actor_rollout_ref:
     skip_rollout: false
     skip_dump_dir: /tmp/rollout_dump
     profiler:
-      tool: ${oc.select:profiler.tool,null}
+      tool: ${oc.select:global_profiler.tool,null}
       enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
-      save_path: ${oc.select:profiler.save_path,null}
-      tool_config: ${profiler.tool_config}
+      save_path: ${oc.select:global_profiler.save_path,null}
+      tool_config: ${global_profiler.tool_config}
     enable_chunked_prefill: true
     load_format: dummy_dtensor
     layered_summon: false
@@ -283,12 +283,12 @@ critic:
     async_save: false
   profiler:
     _target_: verl.utils.profiler.ProfilerConfig
-    tool: ${oc.select:profiler.tool,null}
+    tool: ${oc.select:global_profiler.tool,null}
     enable: false
     all_ranks: false
     ranks: []
-    save_path: ${oc.select:profiler.save_path,null}
-    tool_config: ${profiler.tool_config}
+    save_path: ${oc.select:global_profiler.save_path,null}
+    tool_config: ${global_profiler.tool_config}
   forward_micro_batch_size: ${oc.select:.ppo_micro_batch_size,null}
   forward_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size_per_gpu,null}
   ulysses_sequence_parallel_size: 1
@@ -325,12 +325,12 @@ reward_model:
     memory_limit_mb: 1024
   profiler:
     _target_: verl.utils.profiler.ProfilerConfig
-    tool: ${oc.select:profiler.tool,null}
+    tool: ${oc.select:global_profiler.tool,null}
     enable: false
     all_ranks: false
     ranks: []
-    save_path: ${oc.select:profiler.save_path,null}
-    tool_config: ${profiler.tool_config}
+    save_path: ${oc.select:global_profiler.save_path,null}
+    tool_config: ${global_profiler.tool_config}
   ulysses_sequence_parallel_size: 1
 custom_reward_function:
   path: null
@@ -394,9 +394,9 @@ trainer:
   ray_wait_register_center_timeout: 300
   device: cuda
   use_legacy_worker_impl: auto
-profiler:
+global_profiler:
   _target_: verl.utils.profiler.ProfilerConfig
-  tool: ''
+  tool: null
   steps: null
   profile_continuous_steps: false
   save_path: outputs/profile

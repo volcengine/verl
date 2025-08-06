@@ -60,12 +60,12 @@ actor_rollout_ref:
     use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
-      tool: ${oc.select:profiler.tool,null}
+      tool: ${oc.select:global_profiler.tool,null}
       enable: false
       all_ranks: false
       ranks: []
-      save_path: ${oc.select:profiler.save_path,null}
-      tool_config: ${profiler.tool_config}
+      save_path: ${oc.select:global_profiler.save_path,null}
+      tool_config: ${global_profiler.tool_config}
     data_loader_seed: null
     load_weight: true
     megatron:
@@ -101,12 +101,12 @@ actor_rollout_ref:
     log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_token_len_per_gpu,16384}
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
-      tool: ${oc.select:profiler.tool,null}
+      tool: ${oc.select:global_profiler.tool,null}
       enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
-      save_path: ${oc.select:profiler.save_path,null}
-      tool_config: ${profiler.tool_config}
+      save_path: ${oc.select:global_profiler.save_path,null}
+      tool_config: ${global_profiler.tool_config}
     megatron:
       _target_: verl.workers.config.MegatronEngineConfig
       param_offload: false
@@ -187,12 +187,12 @@ actor_rollout_ref:
     skip_rollout: false
     skip_dump_dir: /tmp/rollout_dump
     profiler:
-      tool: ${oc.select:profiler.tool,null}
+      tool: ${oc.select:global_profiler.tool,null}
       enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
-      save_path: ${oc.select:profiler.save_path,null}
-      tool_config: ${profiler.tool_config}
+      save_path: ${oc.select:global_profiler.save_path,null}
+      tool_config: ${global_profiler.tool_config}
     enable_chunked_prefill: false
     load_format: dummy_megatron
     layer_name_map:
@@ -295,12 +295,12 @@ critic:
     async_save: false
   profiler:
     _target_: verl.utils.profiler.ProfilerConfig
-    tool: ${oc.select:profiler.tool,null}
+    tool: ${oc.select:global_profiler.tool,null}
     enable: false
     all_ranks: false
     ranks: []
-    save_path: ${oc.select:profiler.save_path,null}
-    tool_config: ${profiler.tool_config}
+    save_path: ${oc.select:global_profiler.save_path,null}
+    tool_config: ${global_profiler.tool_config}
   nccl_timeout: 600
   megatron:
     _target_: verl.workers.config.McoreEngineConfig
@@ -344,12 +344,12 @@ reward_model:
     memory_limit_mb: 1024
   profiler:
     _target_: verl.utils.profiler.ProfilerConfig
-    tool: ${oc.select:profiler.tool,null}
+    tool: ${oc.select:global_profiler.tool,null}
     enable: false
     all_ranks: false
     ranks: []
-    save_path: ${oc.select:profiler.save_path,null}
-    tool_config: ${profiler.tool_config}
+    save_path: ${oc.select:global_profiler.save_path,null}
+    tool_config: ${global_profiler.tool_config}
   nccl_timeout: 600
   megatron:
     _target_: verl.workers.config.MegatronEngineConfig
@@ -426,9 +426,9 @@ trainer:
     capture-range: cudaProfilerApi
     capture-range-end: null
     kill: none
-profiler:
+global_profiler:
   _target_: verl.utils.profiler.ProfilerConfig
-  tool: ''
+  tool: null
   steps: null
   profile_continuous_steps: false
   save_path: outputs/profile
