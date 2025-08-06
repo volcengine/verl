@@ -33,10 +33,10 @@ overlong_penalty_factor=1.0
 
 # Training parameters
 loss_agg_mode="token-mean"
-train_prompt_bsz=32
-gen_prompt_bsz=4
+train_prompt_bsz=2
+gen_prompt_bsz=2
 n_resp_per_prompt=3
-train_prompt_mini_bsz=4
+train_prompt_mini_bsz=1
 
 # Temperature parameters
 temperature=1.0

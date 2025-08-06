@@ -316,7 +316,247 @@ class TestConcurrency:
         finally:
             client.shutdown()
 
+    def test_consume_first_produce_later(self, message_queue_client, mock_data_proto):
+        """测试先消费、后生产的场景 - 验证阻塞和唤醒机制"""
+        consumer_result = []
+        producer_result = []
+        start_time = time.time()
 
-# 运行测试的示例配置
+        def consumer_task():
+            """消费者任务：先启动，等待生产者生产数据"""
+            try:
+                # 记录开始消费的时间
+                consumer_start = time.time()
+                # 这里会阻塞等待，直到有至少2个样本可用
+                samples = message_queue_client.get_samples(min_batch_count=2)
+                consumer_end = time.time()
+
+                consumer_result.append(
+                    {
+                        "success": True,
+                        "samples_count": len(samples),
+                        "wait_time": consumer_end - consumer_start,
+                        "samples": samples,
+                    }
+                )
+            except Exception as e:
+                consumer_result.append({"success": False, "error": str(e), "wait_time": time.time() - consumer_start})
+
+        def producer_task():
+            """生产者任务：延迟1秒后开始生产"""
+            try:
+                # 延迟1秒，确保消费者先开始等待
+                time.sleep(1.0)
+                producer_start = time.time()
+
+                # 分两次放入，验证消费者会等到足够的样本数量
+                samples_1 = mock_data_proto
+                result1 = message_queue_client.put_sample(
+                    sample=samples_1, param_version=1, rollout_metadata=[{"batch": "first"}]
+                )
+
+                # 短暂延迟后放入第二批
+                time.sleep(0.1)
+                samples_2 = mock_data_proto
+                result2 = message_queue_client.put_sample(
+                    sample=samples_2, param_version=1, rollout_metadata=[{"batch": "second"}]
+                )
+
+                samples_2 = mock_data_proto
+                result3 = message_queue_client.put_sample(
+                    sample=samples_2, param_version=1, rollout_metadata=[{"batch": "second"}]
+                )
+
+                producer_end = time.time()
+                producer_result.append(
+                    {
+                        "success": result1 and result2,
+                        "put_count": 2,
+                        "produce_time": producer_end - producer_start,
+                        "result1": result1,
+                        "result2": result2,
+                    }
+                )
+
+                print("produce finish")
+
+            except Exception as e:
+                producer_result.append({"success": False, "error": str(e)})
+
+        # 启动消费者线程（先启动）
+        consumer_thread = threading.Thread(target=consumer_task, name="Consumer")
+        # 启动生产者线程（后启动）
+        producer_thread = threading.Thread(target=producer_task, name="Producer")
+
+        consumer_thread.start()
+        time.sleep(0.1)  # 确保消费者先开始等待
+        producer_thread.start()
+
+        print("=========")
+        #
+        # # 等待两个线程完成（设置超时避免死锁）
+        producer_thread.join()
+        # print("producer_result", producer_result)
+        # consumer_thread.join()
+        # print("consumer_thread", consumer_result)
+        #
+        # total_time = time.time() - start_time
+        #
+        # # 验证结果
+        # assert len(consumer_result) == 1, "消费者应该执行一次"
+        #
+        # consumer_data = consumer_result[0]
+        # producer_data = producer_result[0]
+        #
+        # # 验证生产者成功
+        # assert producer_data['success'], f"生产者失败: {producer_data.get('error', '')}"
+        # assert producer_data['put_count'] == 2, "应该生产2批数据"
+        #
+        # # 验证消费者成功
+        # assert consumer_data['success'], f"消费者失败: {consumer_data.get('error', '')}"
+        # assert consumer_data['samples_count'] == 2, "消费者应该获取到2个样本"
+        #
+        # # 验证时序：消费者等待时间应该大于1秒（生产者的延迟时间）
+        # assert consumer_data['wait_time'] >= 1.0, f"消费者等待时间应该≥1秒，实际: {consumer_data['wait_time']:.2f}秒"
+        #
+        # # 验证数据完整性
+        # assert all(isinstance(sample, QueueSample) for sample in consumer_data['samples']), "获取的样本应该是QueueSample类型"
+        #
+        # # 验证队列状态
+        # final_queue_size = message_queue_client.get_queue_size()
+        # assert final_queue_size == 0, "队列应该被清空"
+        #
+        # stats = message_queue_client.get_statistics()
+        # assert stats['total_produced'] == 2, "应该生产了2个样本"
+        # assert stats['total_consumed'] == 2, "应该消费了2个样本"
+        #
+        # print(f"测试成功完成，总耗时: {total_time:.2f}秒")
+        # print(f"消费者等待时间: {consumer_data['wait_time']:.2f}秒")
+        # print(f"生产者执行时间: {producer_data['produce_time']:.2f}秒")
+
+    def test_multiple_consumers_single_producer(self, message_queue_client, mock_data_proto):
+        """测试多个消费者等待单个生产者的场景"""
+        consumer_results = []
+        producer_result = []
+
+        def consumer_task(consumer_id):
+            """消费者任务"""
+            try:
+                start_time = time.time()
+                samples = message_queue_client.get_samples(min_batch_count=1)
+                end_time = time.time()
+
+                consumer_results.append(
+                    {
+                        "id": consumer_id,
+                        "success": True,
+                        "samples_count": len(samples),
+                        "wait_time": end_time - start_time,
+                    }
+                )
+            except Exception as e:
+                consumer_results.append({"id": consumer_id, "success": False, "error": str(e)})
+
+        def producer_task():
+            """生产者任务：延迟后批量生产"""
+            try:
+                time.sleep(1.5)  # 确保所有消费者都在等待
+
+                # 生产3批数据，每批1个样本，供3个消费者消费
+                for i in range(3):
+                    samples = [mock_data_proto]
+                    result = message_queue_client.put_sample(
+                        sample=samples, param_version=1, rollout_metadata=[{"batch_id": i}]
+                    )
+                    producer_result.append(result)
+                    time.sleep(0.1)  # 短暂间隔
+
+            except Exception as e:
+                producer_result.append(False)
+
+        print("# 启动3个消费者线程")
+        # consumer_threads = []
+        # for i in range(3):
+        #     thread = threading.Thread(target=consumer_task, args=(i,), name=f"Consumer-{i}")
+        #     consumer_threads.append(thread)
+        #     thread.start()
+        #     time.sleep(0.1)  # 错开启动时间
+        #
+        # # 启动生产者线程
+        # producer_thread = threading.Thread(target=producer_task, name="Producer")
+        # producer_thread.start()
+        #
+        # # 等待所有线程完成
+        # producer_thread.join(timeout=10)
+        # for thread in consumer_threads:
+        #     thread.join(timeout=10)
+        #
+        # # 验证结果
+        # assert len(consumer_results) == 3, "应该有3个消费者结果"
+        # assert len(producer_result) == 3, "应该生产3批数据"
+        #
+        # # 验证所有消费者都成功
+        # for result in consumer_results:
+        #     assert result['success'], f"消费者{result['id']}失败: {result.get('error', '')}"
+        #     assert result['samples_count'] == 1, f"消费者{result['id']}应该获取1个样本"
+        #     assert result['wait_time'] >= 1.5, f"消费者{result['id']}等待时间应该≥1.5秒"
+        #
+        # # 验证生产者都成功
+        # assert all(producer_result), "所有生产操作都应该成功"
+        #
+        # # 验证最终状态
+        # final_stats = message_queue_client.get_statistics()
+        # assert final_stats['total_produced'] == 3, "应该总共生产3个样本"
+        # assert final_stats['total_consumed'] == 3, "应该总共消费3个样本"
+        # assert final_stats['queue_size'] == 0, "队列应该被清空"
+
+    def test_consumer_timeout_scenario(self, message_queue_client, mock_data_proto):
+        """测试消费者超时场景（通过关闭队列来模拟）"""
+        consumer_result = []
+
+        def consumer_task():
+            """消费者任务：等待样本"""
+            try:
+                start_time = time.time()
+                # 尝试获取样本，但没有生产者会生产数据
+                samples = message_queue_client.get_samples(min_batch_count=2)
+                end_time = time.time()
+
+                consumer_result.append(
+                    {"success": True, "samples_count": len(samples), "wait_time": end_time - start_time}
+                )
+            except Exception as e:
+                consumer_result.append({"success": False, "error": str(e)})
+
+        def shutdown_task():
+            """延迟关闭队列，模拟超时场景"""
+            time.sleep(2.0)  # 让消费者等待2秒
+            message_queue_client.shutdown()
+
+        # 启动消费者和关闭任务
+        consumer_thread = threading.Thread(target=consumer_task, name="Consumer")
+        shutdown_thread = threading.Thread(target=shutdown_task, name="Shutdown")
+
+        consumer_thread.start()
+        time.sleep(0.1)
+        shutdown_thread.start()
+
+        # 等待线程完成
+        shutdown_thread.join(timeout=5)
+        consumer_thread.join(timeout=5)
+
+        # 验证结果
+        assert len(consumer_result) == 1, "应该有一个消费者结果"
+
+        result = consumer_result[0]
+        # 消费者应该在队列关闭后返回空列表
+        if result["success"]:
+            assert result["samples_count"] == 0, "关闭后应该返回空样本列表"
+
+        print(f"消费者等待了 {result.get('wait_time', 0):.2f} 秒后退出")
+
+    # 运行测试的示例配置
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

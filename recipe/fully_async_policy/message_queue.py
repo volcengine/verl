@@ -93,7 +93,7 @@ class MessageQueue:
             if len(self.queue) >= self.max_queue_size:
                 removed = self.queue.popleft()
                 self.dropped_samples += 1
-                logger.warning(f"Queue full, dropped sample {removed.id}")
+                logger.warning(f"Queue full, dropped sample {removed}")
             self.queue.append(sample)
             self.total_produced += 1
 
@@ -105,7 +105,7 @@ class MessageQueue:
 
             return True
 
-    def get_samples(self, min_batch_count: int = 1) -> list[QueueSample]:
+    def get_samples(self, min_batch_count: int = 1) -> list[Any]:
         """
         从队列获取batch样本，一直等待直到有足够样本
 
@@ -113,7 +113,7 @@ class MessageQueue:
             min_batch_count: sample数量满足min_batch，一次性获取
 
         Returns:
-            List[QueueSample]: 获取的样本列表
+            List[Any]: 获取的样本列表
         """
         with self.lock:
             while len(self.queue) < min_batch_count and self.running:
@@ -212,7 +212,7 @@ class MessageQueueClient:
         """放入batch到队列"""
         return ray.get(self.queue_actor.put_sample.remote(sample, param_version))
 
-    def get_samples(self, min_batch_count: int = 1) -> list[QueueSample]:
+    def get_samples(self, min_batch_count: int = 1) -> list[Any]:
         """从队列获取batch，一直等待直到有足够样本"""
         return ray.get(self.queue_actor.get_samples.remote(min_batch_count))
 

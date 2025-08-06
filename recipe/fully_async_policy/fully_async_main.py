@@ -241,7 +241,7 @@ class FullyAsyncTaskRunner:
 
         # 创建Trainer
         print("Creating FullyAsyncTrainer...")
-        # self._create_trainer(config)
+        self._create_trainer(config)
 
         # 设置参数同步
         # print("Setting up parameter synchronization...")
@@ -311,11 +311,15 @@ class FullyAsyncTaskRunner:
 
         print("Starting Rollouter in background...")
         rollouter_future = self.components["rollouter"].fit.remote()
-        # trainer_future = self.components["trainer"].fit.remote()
+        trainer_future = self.components["trainer"].fit.remote()
         # self._monitor_components()
-        ray.get(rollouter_future)
-        # ray.get(trainer_future)
 
+        print("Starting Trainer...")
+        time.sleep(10)
+        print("Starting Trainer...")
+
+        ray.get(rollouter_future)
+        ray.get(trainer_future)
         self.components["message_queue_client"].clear_queue()
 
         print("Training completed or interrupted")

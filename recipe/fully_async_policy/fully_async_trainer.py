@@ -152,21 +152,30 @@ class FullyAsyncTrainer(RayPPOTrainer):
         batch_size = self.config.data.train_batch_size
         required_samples = n_responses_per_prompt * batch_size
 
-        logger.info(
-            f"Requesting {required_samples} samples from queue (n={n_responses_per_prompt}, batch_size={batch_size})"
+        print(
+            f"Requesting {required_samples} samples from queue (n={n_responses_per_prompt}, batch_size={batch_size})",
+            flush=True,
         )
 
         # 从队列获取样本
+        consumer_start = time.time()
         queue_samples = self.message_queue_client.get_samples(min_batch_count=required_samples)
+        consumer_end = time.time()
 
         if not queue_samples or len(queue_samples) == 0:
             logger.warning("required_samples is empty")
             return None, None
 
-        logger.info(f"Retrieved {len(queue_samples)} samples from queue")
+        print(f"Retrieved {len(queue_samples)} samples from queue. wait time {consumer_end - consumer_start}")
+
+        queue_samples = [ray.cloudpickle.loads(x) for x in queue_samples]
+        print(queue_samples)
 
         # 组装 batch
         batch = self._assemble_gen_batch_output_from_queue_samples(queue_samples)
+
+        print("=" * 200)
+        print(batch)
 
         return 0, batch
 
@@ -189,7 +198,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         if not queue_samples:
             raise ValueError("Empty queue_samples provided for batch assembly")
 
-        logger.debug(f"Assembling batch from {len(queue_samples)} queue samples")
+        print(f"Assembling batch from {len(queue_samples)} queue samples")
 
         # 提取所有样本的数据和元数据
         sample_data_list = []
@@ -271,6 +280,8 @@ class FullyAsyncTrainer(RayPPOTrainer):
         The light-weight advantage computation is done on the driver process.
         """
 
+        print("FullyAsyncTrainer run")
+
         if self.message_queue_client is None:
             raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
 
@@ -294,10 +305,13 @@ class FullyAsyncTrainer(RayPPOTrainer):
             val_metrics = self._validate()
             assert val_metrics, f"{val_metrics=}"
             pprint(f"Initial validation metrics: {val_metrics}")
-            logger.log(data=val_metrics, step=self.global_steps)
+            print(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
                 return
 
+        self.total_training_steps = self.config.trainer.total_training_steps
+
+        print(f"Total training steps: {self.total_training_steps}")
         # add tqdm
         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
 
@@ -309,6 +323,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         # 使用队列模式，不需要传统的dataloader迭代器
         # 初始化获取第一批数据
         while True:
+            print("while True", flush=True)
             metrics = {}
             timing_raw = {}
 
@@ -327,47 +342,55 @@ class FullyAsyncTrainer(RayPPOTrainer):
                     if batch is None:
                         break
 
-                # 更新统计信息
-                with self.lock:
-                    self.processed_samples += len(batch) if isinstance(batch, list) else 1
+                print("_get_samples_from_queue end")
 
-                    # 从meta_info中获取参数版本信息
-                    if hasattr(batch, "meta_info") and batch.meta_info:
-                        rollout_param_versions = batch.meta_info.get("rollout_param_versions", [])
-                        if rollout_param_versions:
-                            # 统计陈旧样本
-                            stale_count = sum(1 for v in rollout_param_versions if self.current_param_version - v > 1)
-                            self.stale_samples_processed += stale_count
-
-                        # 添加新鲜度指标到metrics
-                        if rollout_param_versions:
-                            param_version_diversity = batch.meta_info.get("param_version_diversity", 0)
-                            avg_sample_age = batch.meta_info.get("avg_sample_age", 0)
-
-                            metrics.update(
-                                {
-                                    "freshness/param_version_diversity": param_version_diversity,
-                                    "freshness/avg_sample_age": avg_sample_age,
-                                    "freshness/stale_samples_ratio": stale_count / len(rollout_param_versions)
-                                    if rollout_param_versions
-                                    else 0,
-                                    "statistics/processed_samples": self.processed_samples,
-                                    "statistics/stale_samples_processed": self.stale_samples_processed,
-                                    "statistics/current_param_version": self.current_param_version,
-                                }
-                            )
-
+                # # 更新统计信息
+                # with self.lock:
+                #     self.processed_samples += len(batch) if isinstance(batch, list) else 1
+                #
+                #     # 从meta_info中获取参数版本信息
+                #     if hasattr(batch, "meta_info") and batch.meta_info:
+                #         rollout_param_versions = batch.meta_info.get("rollout_param_versions", [])
+                #         if rollout_param_versions:
+                #             # 统计陈旧样本
+                #             stale_count = sum(1 for v in rollout_param_versions if self.current_param_version - v > 1)
+                #             self.stale_samples_processed += stale_count
+                #
+                #         # 添加新鲜度指标到metrics
+                #         if rollout_param_versions:
+                #             param_version_diversity = batch.meta_info.get("param_version_diversity", 0)
+                #             avg_sample_age = batch.meta_info.get("avg_sample_age", 0)
+                #
+                #             metrics.update(
+                #                 {
+                #                     "freshness/param_version_diversity": param_version_diversity,
+                #                     "freshness/avg_sample_age": avg_sample_age,
+                #                     "freshness/stale_samples_ratio": stale_count / len(rollout_param_versions)
+                #                     if rollout_param_versions
+                #                     else 0,
+                #                     "statistics/processed_samples": self.processed_samples,
+                #                     "statistics/stale_samples_processed": self.stale_samples_processed,
+                #                     "statistics/current_param_version": self.current_param_version,
+                #                 }
+                #             )
+                print("_process_batch_common")
                 batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
+                print("_log_rollout")
                 self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
+                print("_validate_metrics")
                 last_val_metrics = self._validate_metrics(is_last_step, last_val_metrics, metrics, timing_raw)
+                print("_check_save_checkpoint")
                 self._check_save_checkpoint(is_last_step, timing_raw)
 
+            print("_stop_profiling")
             self._stop_profiling(do_profile, timing_raw)
+            print("_collect_metrics")
             self._collect_metrics(batch, epoch, metrics, timing_raw)
+            print("_post_batch_processing")
             self._post_batch_processing(batch)
 
             # TODO: make a canonical logger that supports various backend
-            logger.log(data=metrics, step=self.global_steps)
+            print(data=metrics, step=self.global_steps)
 
             progress_bar.update(1)
             self.global_steps += 1
@@ -412,7 +435,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
                 if self.message_queue_client:
                     self.message_queue_client.update_param_version(param_version)
 
-                logger.info(f"Updated trainer param version from {old_version} to {param_version}")
+                print(f"Updated trainer param version from {old_version} to {param_version}")
                 return True
         except Exception as e:
             logger.error(f"Error updating param version: {e}")
