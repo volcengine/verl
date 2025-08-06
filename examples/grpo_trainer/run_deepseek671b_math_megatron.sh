@@ -46,7 +46,7 @@ n_resp_per_prompt=4
 max_prompt_length=2048
 max_response_length=4096
 use_dynamic_bsz=True
-actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 10 / 10))
+actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 1))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 
 # RAY_ADDRESS='auto' ray job submit --working-dir . --
@@ -54,7 +54,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     algorithm.adv_estimator=grpo \
     data.train_files="$train_files" \
     data.val_files="$test_files" \
-    data.train_batch_size=128 \
+    data.train_batch_size=512 \
     data.max_prompt_length=$max_prompt_length \
     data.max_response_length=$max_response_length \
     data.filter_overlong_prompts=True \
