@@ -39,7 +39,7 @@ class OpenAIFunctionSchema(BaseModel):
 
     name: str
     description: str
-    parameters: OpenAIFunctionParametersSchema
+    parameters: OpenAIFunctionParametersSchema | None = None
     strict: bool = False
 
 
