@@ -152,5 +152,5 @@ profiler:
   save_path: ${oc.select:global_profiler.save_path,null}
 
   # specific tool config
-  tool_config: ${global_profiler.tool_config}
+  tool_config: ${oc.select:global_profiler.tool_config,null}
 

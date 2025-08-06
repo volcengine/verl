@@ -58,7 +58,7 @@ actor_rollout_ref:
       all_ranks: false
       ranks: []
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${global_profiler.tool_config}
+      tool_config: ${oc.select:global_profiler.tool_config,null}
     grad_clip: 1.0
     ulysses_sequence_parallel_size: 1
     entropy_from_logits_with_chunking: false
@@ -88,7 +88,7 @@ actor_rollout_ref:
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${global_profiler.tool_config}
+      tool_config: ${oc.select:global_profiler.tool_config,null}
     model: null
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
@@ -168,7 +168,7 @@ actor_rollout_ref:
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${global_profiler.tool_config}
+      tool_config: ${oc.select:global_profiler.tool_config,null}
     enable_chunked_prefill: true
     load_format: dummy_dtensor
     layered_summon: false
@@ -288,7 +288,7 @@ critic:
     all_ranks: false
     ranks: []
     save_path: ${oc.select:global_profiler.save_path,null}
-    tool_config: ${global_profiler.tool_config}
+    tool_config: ${oc.select:global_profiler.tool_config,null}
   forward_micro_batch_size: ${oc.select:.ppo_micro_batch_size,null}
   forward_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size_per_gpu,null}
   ulysses_sequence_parallel_size: 1
@@ -330,7 +330,7 @@ reward_model:
     all_ranks: false
     ranks: []
     save_path: ${oc.select:global_profiler.save_path,null}
-    tool_config: ${global_profiler.tool_config}
+    tool_config: ${oc.select:global_profiler.tool_config,null}
   ulysses_sequence_parallel_size: 1
 custom_reward_function:
   path: null

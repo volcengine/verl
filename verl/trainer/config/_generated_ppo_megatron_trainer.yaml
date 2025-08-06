@@ -65,7 +65,7 @@ actor_rollout_ref:
       all_ranks: false
       ranks: []
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${global_profiler.tool_config}
+      tool_config: ${oc.select:global_profiler.tool_config,null}
     data_loader_seed: null
     load_weight: true
     megatron:
@@ -106,7 +106,7 @@ actor_rollout_ref:
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${global_profiler.tool_config}
+      tool_config: ${oc.select:global_profiler.tool_config,null}
     megatron:
       _target_: verl.workers.config.MegatronEngineConfig
       param_offload: false
@@ -192,7 +192,7 @@ actor_rollout_ref:
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${global_profiler.tool_config}
+      tool_config: ${oc.select:global_profiler.tool_config,null}
     enable_chunked_prefill: false
     load_format: dummy_megatron
     layer_name_map:
@@ -300,7 +300,7 @@ critic:
     all_ranks: false
     ranks: []
     save_path: ${oc.select:global_profiler.save_path,null}
-    tool_config: ${global_profiler.tool_config}
+    tool_config: ${oc.select:global_profiler.tool_config,null}
   nccl_timeout: 600
   megatron:
     _target_: verl.workers.config.McoreEngineConfig
@@ -349,7 +349,7 @@ reward_model:
     all_ranks: false
     ranks: []
     save_path: ${oc.select:global_profiler.save_path,null}
-    tool_config: ${global_profiler.tool_config}
+    tool_config: ${oc.select:global_profiler.tool_config,null}
   nccl_timeout: 600
   megatron:
     _target_: verl.workers.config.MegatronEngineConfig
