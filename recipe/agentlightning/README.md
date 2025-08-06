@@ -18,7 +18,7 @@ This workflow is implemented in the `SQLAgent` class within `sql_agent.py`. It c
 2. **execute_query**: The generated query is run against the target database.
 3. **check_query**: The agent analyzes the original query and its execution result (or error) to check for mistakes. It uses a specific prompt (`CHECK_QUERY_PROMPT`) to determine if the query is correct.
 4. **rewrite_query**: If the `check_query` step finds errors, the agent enters this step. It uses the feedback from the previous step to generate a corrected SQL query. The process then loops back to `check_query` for re-evaluation.
-5. **END**: The loop terminates when `check_query` confirms the query is correct or the maximum number of turns (`max_turns`) is exceeded.
+5. **END**: The loop terminates when `check_query` confirms the query is correct or the maximum number of turns (`max_turns`) is exceeded. One turn corresponds to a complete cycle of `write_query` (if first round), `execute_query`, `check_query`, and potentially `rewrite_query`.
 
 We aim to train **write_query** and **rewrite_query** step in the setup of this example. The **check_query** step is not trained but will share the same LLM weights as the other steps.
 
@@ -133,6 +133,10 @@ python sql_agent.py \
 
 The setup of training server is the same as the command above.
 
+### W&B Report
+
+[link](https://wandb.ai/ultmaster/AgentZero/reports/SQL-Agent-with-Agent-Lightning--VmlldzoxMzg3NjY4NQ)
+
 ### Performance Metrics
 
 ![](assets/val_reward_curves.png)
@@ -140,10 +144,10 @@ The setup of training server is the same as the command above.
 | Model         | Size   |   Context |   Max Turns | Agents                        |   Acc (Initial) |   Acc (Final) | Transitions   |   Prompt Length | Response Length   |
 |---------------|--------|-----------|-------------|-------------------------------|-----------------|---------------|---------------|-----------------|-------------------|
 | Llama3.2      | 1B     |      2048 |           3 | write&#124;rewrite            |            18.8 |          53   | 2.89 → 3.00   |           800.9 | 299.1 → 15.9      |
-| Llama3.2      | 3B     |      2048 |           3 | write&#124;rewrite            |            53   |          68.4 | 2.26 → 2.52   |           833   | 123.8 → 36.7      |
+| Llama3.2      | 3B     |      2048 |           3 | write&#124;rewrite            |            53   |          68.2 | 2.26 → 2.52   |           831.5 | 123.8 → 44.8      |
 | Qwen2.5-Coder | 1.5B   |      2048 |           3 | write&#124;rewrite            |            28.6 |          68.8 | 2.74 → 2.99   |           846   | 38.0 → 33.8       |
 | Qwen2.5-Coder | 3B     |      2048 |           1 | write&#124;rewrite            |            63.8 |          73.2 | 1.00 → 1.00   |           707.9 | 36.9 → 32.8       |
-| Qwen2.5-Coder | 3B     |      2048 |           3 | rewrite&#124;check            |            63.4 |          74   | 2.31 → 1.64   |           969.5 | 22.0 → 54.9       |
+| Qwen2.5-Coder | 3B     |      2048 |           3 | rewrite&#124;check            |            63.4 |          74   | 2.31 → 1.81   |           967.2 | 22.0 → 52.9       |
 | Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite            |            50.8 |          75.2 | 2.02 → 1.78   |           799.9 | 43.9 → 29.1       |
 | Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite            |            62.4 |          74.2 | 1.63 → 1.40   |           793.7 | 37.3 → 28.9       |
 | Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite&#124;check |            63.4 |          73   | 3.32 → 2.58   |           864.7 | 30.7 → 32.4       |
@@ -160,20 +164,20 @@ The setup of training server is the same as the command above.
 
 ### Efficiency Metrics
 
-| Model         | Size   |   Context |   Max Turns | Agents                        |   # Steps |   Time/Step (s) |   Rollout Time (%) |   Update Actor Time (%) |
-|---------------|--------|-----------|-------------|-------------------------------|-----------|-----------------|--------------------|-------------------------|
-| Llama3.2      | 1B     |      2048 |           3 | write&#124;rewrite            |       436 |            62.1 |               71.6 |                    21.8 |
-| Llama3.2      | 3B     |      2048 |           3 | write&#124;rewrite            |       335 |           122.5 |               76.3 |                    18.3 |
-| Qwen2.5-Coder | 1.5B   |      2048 |           3 | write&#124;rewrite            |       436 |            63.8 |               63.1 |                    28.5 |
-| Qwen2.5-Coder | 3B     |      2048 |           1 | write&#124;rewrite            |       436 |            47   |               69.1 |                    23.4 |
-| Qwen2.5-Coder | 3B     |      2048 |           3 | rewrite&#124;check            |       307 |           122   |               68.5 |                    24.1 |
-| Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite            |       436 |            76.1 |               66.7 |                    25.3 |
-| Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite            |       436 |            73.7 |               66.7 |                    25.2 |
-| Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite&#124;check |       436 |           100.4 |               56.4 |                    33.5 |
-| Qwen2.5-Coder | 3B     |      4096 |           1 | write&#124;rewrite            |       436 |            66   |               55.7 |                    34   |
-| Qwen2.5-Coder | 3B     |      4096 |           3 | write&#124;rewrite            |       436 |            83.1 |               61.8 |                    28.8 |
+| Model         | Size   |   Context |   Max Turns | Agents                        |   # GPUs |   # Steps |   Time (h) |   Time/Step (s) |   Rollout Time (%) |   Update Actor Time (%) |
+|---------------|--------|-----------|-------------|-------------------------------|----------|-----------|------------|-----------------|--------------------|-------------------------|
+| Llama3.2      | 1B     |      2048 |           3 | write&#124;rewrite            |        1 |       436 |       5.57 |            62.1 |               71.6 |                    21.8 |
+| Llama3.2      | 3B     |      2048 |           3 | write&#124;rewrite            |        4 |       436 |      16.09 |           118.8 |               75.4 |                    19.1 |
+| Qwen2.5-Coder | 1.5B   |      2048 |           3 | write&#124;rewrite            |        1 |       436 |       8.3  |            63.8 |               63.1 |                    28.5 |
+| Qwen2.5-Coder | 3B     |      2048 |           1 | write&#124;rewrite            |        2 |       436 |       6.13 |            47   |               69.1 |                    23.4 |
+| Qwen2.5-Coder | 3B     |      2048 |           3 | rewrite&#124;check            |        2 |       435 |       3.01 |           127.4 |               70.1 |                    22.9 |
+| Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite            |        2 |       436 |       9.84 |            76.1 |               66.7 |                    25.3 |
+| Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite            |        2 |       436 |       9.59 |            73.7 |               66.7 |                    25.2 |
+| Qwen2.5-Coder | 3B     |      2048 |           3 | write&#124;rewrite&#124;check |        2 |       436 |      12.85 |           100.4 |               56.4 |                    33.5 |
+| Qwen2.5-Coder | 3B     |      4096 |           1 | write&#124;rewrite            |        2 |       436 |       8.5  |            66   |               55.7 |                    34   |
+| Qwen2.5-Coder | 3B     |      4096 |           3 | write&#124;rewrite            |        2 |       436 |       7.38 |            83.1 |               61.8 |                    28.8 |
 
-**Notes:**
+### Known issues
 
-1. **Hardware Configuration**: Training is conducted on mixed hardware setups, typically using 1-2 80GB A100/H100 GPUs. Larger models (e.g., 3B parameters) require additional GPU memory and may benefit from multi-GPU configurations.
-2. **Training Completion**: Some experimental runs completed fewer training steps due to technical constraints encountered during the limited training window. These limitations included response length explosion (which significantly slowed training throughput) and occasional cluster infrastructure failures.
+1. Some experimental runs completed fewer training steps due to technical constraints encountered during the limited training window. These limitations included response length explosion (which significantly slowed training throughput and potentially caused OOMs) and occasional cluster infrastructure failures.
+2. The `execute_query` step is only invoked once in the first turn and not in subsequent turns, which may lead to lower accuracy for agents trained with more than one turn. This is a known limitation of the current agent design and will be addressed in future iterations.
