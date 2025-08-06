@@ -195,14 +195,14 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 nccl_communicator_config_path=None,
             )
 
-            is_collect = (
-                mpu.get_tensor_model_parallel_rank() == 0
-                and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
-                and mpu.get_context_parallel_rank() == 0
-            )
-            self._register_dispatch_collect_info(
-                mesh_name="train", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
-            )
+        is_collect = (
+            mpu.get_tensor_model_parallel_rank() == 0
+            and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
+            and mpu.get_context_parallel_rank() == 0
+        )
+        self._register_dispatch_collect_info(
+            mesh_name="actor", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
+        )
 
         set_random_seed(seed=self.config.actor.megatron.seed)
 
@@ -403,6 +403,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
+            is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
+            self._register_dispatch_collect_info(
+                "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+            )
+
         elif self.config.rollout.name == "sglang":
             from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
 
@@ -422,6 +427,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             )
             rollout_device_mesh = init_device_mesh(
                 "cpu", mesh_shape=(dp, infer_tp, 1), mesh_dim_names=("dp", "tp", "pp")
+            )
+
+            is_collect = rollout_device_mesh["tp"].get_local_rank() == 0
+            self._register_dispatch_collect_info(
+                "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
             )
 
             local_path = copy_to_local(self.config.model.path)
@@ -571,7 +581,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         get_torch_device().empty_cache()
         log_gpu_memory_usage("After init_model finish", logger=logger)
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @GPUMemoryLogger(role="update_actor", logger=logger)
     @DistProfiler.annotate(color="red")
     def update_actor(self, data: DataProto):
@@ -615,7 +625,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         aggressive_empty_cache(force_sync=True)
         return output
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"))
     @GPUMemoryLogger(role="generate_sequences", logger=logger)
     @DistProfiler.annotate(color="red")
     def generate_sequences(self, prompts: DataProto):
@@ -636,10 +646,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         timing_generate = {}
         with self.sharding_manager:
             log_gpu_memory_usage("After entering sharding manager", logger=logger)
-            prompts = self.sharding_manager.preprocess_data(prompts)
             with simple_timer("generate_sequences", timing_generate):
                 output = self.rollout.generate_sequences(prompts=prompts)
-            output = self.sharding_manager.postprocess_data(output)
             log_gpu_memory_usage("After rollout generation", logger=logger)
 
         timing_generate.update(self.sharding_manager.timing)
@@ -652,7 +660,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         aggressive_empty_cache(force_sync=True)
         return output
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @GPUMemoryLogger(role="compute_ref_log_prob", logger=logger)
     @DistProfiler.annotate(color="olive")
     def compute_ref_log_prob(self, data: DataProto):
@@ -675,7 +683,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         aggressive_empty_cache(force_sync=True)
         return output
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @GPUMemoryLogger(role="compute_log_prob", logger=logger)
     @DistProfiler.annotate(color="blue")
     def compute_log_prob(self, data: DataProto):
@@ -822,14 +830,14 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
                 nccl_communicator_config_path=None,
             )
 
-            is_collect = (
-                mpu.get_tensor_model_parallel_rank() == 0
-                and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
-                and mpu.get_context_parallel_rank() == 0
-            )
-            self._register_dispatch_collect_info(
-                mesh_name="train", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
-            )
+        is_collect = (
+            mpu.get_tensor_model_parallel_rank() == 0
+            and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
+            and mpu.get_context_parallel_rank() == 0
+        )
+        self._register_dispatch_collect_info(
+            mesh_name="critic", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
+        )
 
         set_random_seed(seed=self.config.megatron.seed)
 
@@ -978,7 +986,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             use_dist_checkpointing=self.config.megatron.use_dist_checkpointing,
         )
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="cyan")
     def compute_values(self, data: DataProto):
         micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
@@ -995,7 +1003,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             offload_megatron_model_to_cpu(self.critic_module)
         return output
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="pink")
     def update_critic(self, data: DataProto):
         data = data.to(get_device_id())
@@ -1088,14 +1096,14 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
                 nccl_communicator_config_path=None,
             )
 
-            is_collect = (
-                mpu.get_tensor_model_parallel_rank() == 0
-                and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
-                and mpu.get_context_parallel_rank() == 0
-            )
-            self._register_dispatch_collect_info(
-                mesh_name="train", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
-            )
+        is_collect = (
+            mpu.get_tensor_model_parallel_rank() == 0
+            and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
+            and mpu.get_context_parallel_rank() == 0
+        )
+        self._register_dispatch_collect_info(
+            mesh_name="reward", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
+        )
 
         set_random_seed(seed=self.config.megatron.seed)
 
@@ -1196,7 +1204,7 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
 
     # TODO: reward model use itself tokenizer instead of sft tokenizer
     # the input_ids, responses, attention_mask and position_ids may be different!
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="reward"))
     @DistProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
         data.meta_info["micro_batch_size"] = self.config.micro_batch_size_per_gpu

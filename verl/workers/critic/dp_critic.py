@@ -238,15 +238,17 @@ class DataParallelPPOCritic(BasePPOCritic):
                     )
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz
-                        loss = vf_loss * (response_mask.shape[0] / self.config.ppo_mini_batch_size)
+                        loss_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
+                        loss = vf_loss * loss_scale_factor
                     else:
-                        loss = vf_loss / self.gradient_accumulation
+                        loss_scale_factor = 1 / self.gradient_accumulation
+                        loss = vf_loss * loss_scale_factor
 
                     loss.backward()
 
                     micro_batch_metrics.update(
                         {
-                            "critic/vf_loss": vf_loss.detach().item(),
+                            "critic/vf_loss": vf_loss.detach().item() * loss_scale_factor,
                             "critic/vf_clipfrac": vf_clipfrac.detach().item(),
                             "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
                         }
