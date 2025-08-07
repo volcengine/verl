@@ -55,7 +55,7 @@ from verl import DataProto
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
-
+from verl.utils.ray_utils import ray_noset_visible_devices
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -459,7 +459,7 @@ class vLLMAsyncRollout:
     def init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
-        if os.environ.get("RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES", "").lower() in ("1", "true"):
+        if ray_noset_visible_devices():
             all_kwargs[0]["local_rank"] = int(os.environ.get("RAY_LOCAL_RANK", 0))
         else:
             all_kwargs[0]["local_rank"] = 0
