@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from collections import defaultdict
+import logging
 from pathlib import Path
 
 import torch
@@ -21,6 +22,9 @@ from verl import DataProto
 from verl.tools.utils.tool_registry import get_tool_class
 from verl.workers.reward_manager import register
 
+# Setup logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 @register("benchmax")
 class BenchmaxRewardManager:
@@ -77,9 +81,9 @@ class BenchmaxRewardManager:
                 )
 
             reward_tensor[i, valid_response_length - 1] = reward
-            print("[response]", response_str)
-            print("[ground_truth]", ground_truth)
-            print("[reward]", reward)
+            logger.info("[response]", response_str)
+            logger.info("[ground_truth]", ground_truth)
+            logger.info("[reward]", reward)
 
         if return_dict:
             return {
