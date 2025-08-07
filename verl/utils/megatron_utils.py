@@ -30,7 +30,6 @@ from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import ModelType
 from megatron.core.optimizer import ChainedOptimizer
-from megatron.core.optimizer.cpu_offloading.hybrid_optimizer import HybridDeviceOptimizer
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
@@ -491,9 +490,6 @@ def load_megatron_optimizer(optimizers):
         return [opt]
 
     for _opt in _iter_opts(optimizers):
-        if isinstance(_opt.optimizer, HybridDeviceOptimizer):
-            _opt.optimizer._move_new_state_to_right_device()
-            continue
         load_megatron_copy_params(_opt)
         opt_state_dict_values = _opt.optimizer.state.values()
         for v in opt_state_dict_values:
