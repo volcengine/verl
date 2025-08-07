@@ -335,7 +335,7 @@ class DataProto:
             batch = self.batch.contiguous()
             batch_consolidated = batch.consolidate()
         else:
-            batch_consolidated = None
+            batch_consolidated = self.batch
         torch.save(batch_consolidated, buffer)
         buffer_bytes = buffer.getvalue()
         return buffer_bytes, self.non_tensor_batch, self.meta_info
