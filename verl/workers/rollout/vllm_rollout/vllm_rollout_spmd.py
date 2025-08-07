@@ -469,12 +469,6 @@ class vLLMAsyncRollout:
 
     def init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
-<<<<<<< HEAD
-        all_kwargs[0]["rank"] = int(os.environ["RANK"])
-        all_kwargs[0]["local_rank"] = 0 if not ray_noset_visible_devices() else int(os.environ.get("RAY_LOCAL_RANK", 0))
-        self.vllm_config = all_kwargs[0]["vllm_config"]
-        self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
-=======
         vllm_config = all_kwargs[0]["vllm_config"]
         mp_size = vllm_config.parallel_config.tensor_parallel_size * vllm_config.parallel_config.pipeline_parallel_size
         assert mp_size == self.model_parallel_size
@@ -487,7 +481,6 @@ class vLLMAsyncRollout:
 
         self.vllm_config = all_kwargs[self.rpc_rank]["vllm_config"]
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config, rpc_rank=self.rpc_rank)
->>>>>>> bac2374 (add vllm pipeline parallel support for zmq executor)
         self.inference_engine.init_worker(all_kwargs)
 
     def load_model(self, *args, **kwargs):
