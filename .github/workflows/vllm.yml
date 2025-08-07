@@ -102,6 +102,10 @@ jobs:
           huggingface-cli download 'deepseek-ai/deepseek-llm-7b-chat'
           export HF_HUB_OFFLINE=1
         # Disable requests to avoid network errors
+      - name: Prepare gsm8k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/gsm8k.py
       - name: Test the latest vLLM
         run: |
           torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s tests/workers/rollout/rollout_vllm/test_vllm_spmd.py

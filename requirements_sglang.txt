@@ -17,6 +17,5 @@ torchdata
 torchvision
 transformers
 wandb
-sglang[all]==0.4.6.post5
-torch-memory-saver>=0.0.5
+sglang[all]==0.4.9.post6
 huggingface_hub

@@ -67,6 +67,9 @@ def run_ppo(config) -> None:
         and config.trainer.get("profile_steps") is not None
         and len(config.trainer.get("profile_steps", [])) > 0
     ):
+        from verl.utils.import_utils import is_nvtx_available
+
+        assert is_nvtx_available(), "nvtx is not available in CUDA platform. Please 'pip3 install nvtx'"
         nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
     else:
@@ -151,7 +154,7 @@ class TaskRunner:
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
+            from verl.single_controller.ray import RayWorkerGroup
             from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
             actor_rollout_cls = (
@@ -159,7 +162,7 @@ class TaskRunner:
                 if config.actor_rollout_ref.rollout.mode == "async"
                 else ActorRolloutRefWorker
             )
-            ray_worker_group_cls = NVMegatronRayWorkerGroup
+            ray_worker_group_cls = RayWorkerGroup
 
         else:
             raise NotImplementedError

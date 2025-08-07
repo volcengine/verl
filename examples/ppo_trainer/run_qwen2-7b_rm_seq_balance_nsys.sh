@@ -11,7 +11,7 @@ test_files=${test_files:-"$gsm8k_test_path"}
 PROFILE_STEPS="[1,2,5]" # or [] or null
 PROFILE_RANKS_ALL=False # or True
 PROFILE_RANKS=[0,4,8,12]
-DISCRETE=True  # or True
+DISCRETE=False  # or True
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gae \
@@ -75,4 +75,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.test_freq=-1 \
     trainer.total_epochs=15 \
     trainer.total_training_steps=6 \
+    trainer.profile_continuous_steps=True \
     trainer.profile_steps=$PROFILE_STEPS $@

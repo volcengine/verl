@@ -77,10 +77,12 @@ jobs:
         run: |
           pip install -e .[test,prime,geo]
           pip install --upgrade "ray>=2.40.0" pillow
+      - name: Download datasets
+        run: |
+          huggingface-cli download verl-team/gsm8k-v0.4.1 --repo-type dataset --local-dir ~/verl-data/gsm8k
+          python3 examples/data_preprocess/geo3k.py
       - name: Running CPU unit tests
         run: |
-          [ ! -d "$HOME/verl-data" ] && huggingface-cli download verl-team/gsm8k-v0.4.1 --repo-type dataset --local-dir ~/verl-data/gsm8k
-          python3 examples/data_preprocess/geo3k.py
           echo '[pytest]' > pytest.ini
           echo 'python_files = *_on_cpu.py' >> pytest.ini
           pytest -s -x --asyncio-mode=auto tests/
