@@ -15,6 +15,7 @@
 The main entry point to run the PPO algorithm
 """
 
+import datetime
 import json
 import logging
 import os
@@ -22,6 +23,7 @@ import warnings
 from dataclasses import asdict
 from typing import Any
 
+import numpy as np
 import psutil
 import torch
 import torch.distributed
@@ -37,7 +39,7 @@ import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
@@ -60,6 +62,7 @@ from verl.utils.fsdp_utils import (
     fsdp_version,
     get_fsdp_wrap_policy,
     get_init_weight_context_manager,
+    get_shard_placement_fn,
     init_fn,
     layered_summon_lora_params,
     load_fsdp_model_to_gpu,
@@ -123,6 +126,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 backend=f"cpu:gloo,{get_device_name()}:{get_nccl_backend()}",
                 rank=rank,
                 world_size=world_size,
+                timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
 
@@ -139,6 +143,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.ulysses_device_mesh = init_device_mesh(
                 device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"]
             )
+
+        # create training dispatch
+        if self.ulysses_device_mesh is not None:
+            is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
+            self._register_dispatch_collect_info(
+                "actor", dp_rank=self.ulysses_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+            )
+        else:
+            self._register_dispatch_collect_info("actor", dp_rank=self.rank, is_collect=True)
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
         self._lora_rank = self.config.model.get("lora_rank", 0)
@@ -399,6 +412,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 "mp_policy": mp_policy,
                 "offload_policy": cpu_offload,
                 "reshard_after_forward": fsdp_config.reshard_after_forward,
+                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1]),
             }
             full_state = actor_module.state_dict()
             apply_fsdp2(actor_module, fsdp_kwargs, fsdp_config)
@@ -470,6 +484,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             device_name, mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
         )
         rollout_name = self.config.rollout.name
+
+        if rollout_name == "hf":
+            self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
+        else:
+            is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
+            self._register_dispatch_collect_info(
+                "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+            )
+
         if rollout_name == "hf":
             from verl.workers.rollout import HFRollout
             from verl.workers.sharding_manager.base import BaseShardingManager
@@ -519,7 +542,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
         elif rollout_name == "sglang":
-            from verl.workers.rollout.sglang_rollout import SGLangRollout
+            from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
 
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to
             # SGLang's model_runner would check CUDA device capability. However, due to verl's setting,
@@ -625,7 +648,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
 
         if self._is_ref:
-            local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
+            ref_model_path = self.config.model.path
+            ref_model = self.config.ref.get("model", None)
+            if ref_model is not None:
+                ref_model_path = ref_model.get("path", self.config.model.path)
+
+            if self.rank == 0:
+                print("reference model:", ref_model_path)
+            local_path = copy_to_local(ref_model_path, use_shm=use_shm)
             self.ref_module_fsdp = self._build_model_optimizer(
                 model_path=local_path,
                 fsdp_config=omega_conf_to_dataclass(self.config.ref.fsdp_config),
@@ -666,7 +696,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 checkpoint_config=checkpoint_contents,
             )
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")
     def update_actor(self, data: DataProto):
         # Support all hardwares
@@ -679,7 +709,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=get_device_id())
 
         with self.ulysses_sharding_manager:
-            data = self.ulysses_sharding_manager.preprocess_data(data=data)
             # perform training
             with Timer(name="update_policy", logger=None) as timer:
                 metrics = self.actor.update_policy(data=data)
@@ -700,7 +729,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # TODO: here, we should return all metrics
             output = DataProto(meta_info={"metrics": metrics})
 
-            output = self.ulysses_sharding_manager.postprocess_data(data=output)
             output = output.to("cpu")
 
         if self._is_offload_param:
@@ -712,7 +740,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         return output
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"))
     @DistProfiler.annotate(color="red", role="rollout_generate")
     def generate_sequences(self, prompts: DataProto):
         # Support all hardwares
@@ -733,13 +761,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         with self.rollout_sharding_manager:
             log_gpu_memory_usage("After entering rollout sharding manager", logger=logger)
 
-            prompts = self.rollout_sharding_manager.preprocess_data(prompts)
             with simple_timer("generate_sequences", timing_generate):
                 output = self.rollout.generate_sequences(prompts=prompts)
 
             log_gpu_memory_usage("After rollout generation", logger=logger)
-
-            output = self.rollout_sharding_manager.postprocess_data(output)
 
         timing_generate.update(self.rollout_sharding_manager.timing)
         # We calculate the average timing across all ranks
@@ -752,7 +777,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         get_torch_device().empty_cache()
         return output
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
     def compute_log_prob(self, data: DataProto):
         # when is_lora is True, we use the actor without lora applied to calculate the log_prob
@@ -774,14 +799,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         data.meta_info["temperature"] = self.config.rollout.temperature
         # perform recompute log_prob
         with self.ulysses_sharding_manager:
-            data = self.ulysses_sharding_manager.preprocess_data(data)
             with adapter_ctx:
                 output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
             output = DataProto.from_dict(
                 tensors={"old_log_probs": output, "entropys": entropys},
                 meta_info={"temperature": self.config.rollout.temperature},
             )
-            output = self.ulysses_sharding_manager.postprocess_data(output)
 
         output = output.to("cpu")
 
@@ -796,7 +819,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         return output
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
     def compute_ref_log_prob(self, data: DataProto):
         if self._is_lora:
@@ -818,17 +841,18 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         data.meta_info["max_token_len"] = self.config.ref.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
         with self.ulysses_sharding_manager:
-            data = self.ulysses_sharding_manager.preprocess_data(data)
             output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
             output = DataProto.from_dict(tensors={"ref_log_prob": output})
-            output = self.ulysses_sharding_manager.postprocess_data(output)
 
         output = output.to("cpu")
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module
-        if self.world_size > 1 and fsdp_version(self.ref_policy.actor_module) == 1:
-            self.ref_policy.actor_module._handle.reshard(True)
+        if self.world_size > 1:
+            if fsdp_version(self.ref_policy.actor_module) == 1:
+                self.ref_policy.actor_module._handle.reshard(True)
+            elif fsdp_version(self.ref_policy.actor_module) == 2:
+                self.ref_policy.actor_module.reshard()
 
         return output
 
@@ -918,9 +942,12 @@ class CriticWorker(Worker, DistProfilerExtension):
         DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler")))
         import torch.distributed
 
+        self.config = config
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(
-                backend=get_nccl_backend(), init_method=os.environ.get("DIST_INIT_METHOD", None)
+                backend=get_nccl_backend(),
+                timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
+                init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
         self.config: FSDPCriticConfig = config
 
@@ -938,6 +965,15 @@ class CriticWorker(Worker, DistProfilerExtension):
             self.ulysses_device_mesh = init_device_mesh(
                 device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"]
             )
+
+        # create training dispatch
+        if self.ulysses_device_mesh is not None:
+            is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
+            self._register_dispatch_collect_info(
+                "critic", dp_rank=self.ulysses_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+            )
+        else:
+            self._register_dispatch_collect_info("critic", dp_rank=self.rank, is_collect=True)
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
 
@@ -1120,6 +1156,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 "mp_policy": mp_policy,
                 "offload_policy": offload_policy,
                 "reshard_after_forward": fsdp_config.reshard_after_forward,
+                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1]),
             }
             full_state = critic_module.state_dict()
             apply_fsdp2(critic_module, fsdp_kwargs, fsdp_config)
@@ -1202,7 +1239,7 @@ class CriticWorker(Worker, DistProfilerExtension):
             checkpoint_config=self.config.checkpoint,
         )
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="cyan")
     def compute_values(self, data: DataProto):
         # Support all hardwares
@@ -1216,17 +1253,15 @@ class CriticWorker(Worker, DistProfilerExtension):
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
         # perform forward computation
         with self.ulysses_sharding_manager:
-            data = self.ulysses_sharding_manager.preprocess_data(data=data)
             values = self.critic.compute_values(data=data)
             output = DataProto.from_dict(tensors={"values": values})
-            output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
         output = output.to("cpu")
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.critic_module)
         return output
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="pink")
     def update_critic(self, data: DataProto):
         # Support all hardwares
@@ -1238,8 +1273,6 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         # perform forward computation
         with self.ulysses_sharding_manager:
-            data = self.ulysses_sharding_manager.preprocess_data(data=data)
-
             with Timer(name="update_critic", logger=None) as timer:
                 metrics = self.critic.update_critic(data=data)
             delta_time = timer.last
@@ -1253,7 +1286,6 @@ class CriticWorker(Worker, DistProfilerExtension):
             self.critic_lr_scheduler.step()
 
             output = DataProto(batch=None, meta_info={"metrics": metrics})
-            output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.critic_module)
@@ -1311,11 +1343,13 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         import torch.distributed
 
+        self.config = config
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(
-                backend=get_nccl_backend(), init_method=os.environ.get("DIST_INIT_METHOD", None)
+                backend=get_nccl_backend(),
+                timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
+                init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
-        self.config = config
 
         # build device mesh for Ulysses Sequence Parallel
         world_size = torch.distributed.get_world_size()
@@ -1333,6 +1367,15 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             )
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
+
+        # create training dispatch
+        if self.ulysses_device_mesh is not None:
+            is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
+            self._register_dispatch_collect_info(
+                "reward", dp_rank=self.ulysses_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+            )
+        else:
+            self._register_dispatch_collect_info("reward", dp_rank=self.rank, is_collect=True)
 
         self.use_remove_padding = self.config.model.get("use_remove_padding", False)
 
@@ -1413,6 +1456,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 "mesh": fsdp_mesh,
                 "offload_policy": cpu_offload,
                 "reshard_after_forward": config.model.fsdp_config.reshard_after_forward,
+                "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1]),
             }
             full_state = reward_module.state_dict()
             apply_fsdp2(reward_module, fsdp_kwargs, config.model.fsdp_config)
@@ -1526,11 +1570,13 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         rm_attention_mask = []
 
         for i in range(data.batch.batch_size[0]):
+            if not isinstance(data.non_tensor_batch["raw_prompt"][i], list | np.ndarray):
+                raise TypeError(
+                    f"raw_prompt must be a list or numpy array, got {type(data.non_tensor_batch['raw_prompt'][i])}"
+                )
+
             # extract raw prompt
-            if isinstance(data.non_tensor_batch["raw_prompt"][i], list):
-                chat: list = data.non_tensor_batch["raw_prompt"][i]
-            else:
-                chat: list = data.non_tensor_batch["raw_prompt"][i].tolist()
+            chat: list = list(data.non_tensor_batch["raw_prompt"][i])
 
             # extract response
             response_ids = data.batch["responses"][i]
@@ -1579,7 +1625,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         return DataProto.from_dict(rm_inputs)
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="reward"))
     @DistProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
         import itertools
@@ -1606,9 +1652,6 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         # perform forward computation
         with self.ulysses_sharding_manager:
-            rm_data = self.ulysses_sharding_manager.preprocess_data(data=rm_data)
-            data = self.ulysses_sharding_manager.preprocess_data(data=data)
-
             use_dynamic_bsz = self.config.use_dynamic_bsz
             if use_dynamic_bsz:
                 max_token_len = self.config.forward_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
@@ -1630,7 +1673,6 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             token_level_scores = self._expand_to_token_level(data, scores)
             # Note that this is only the scores, may not be the final rewards used to train RL
             output = DataProto.from_dict(tensors={"rm_scores": token_level_scores})
-            output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module

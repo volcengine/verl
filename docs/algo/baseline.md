@@ -53,9 +53,11 @@ Refer to the table below to reproduce RL training from different pre-trained che
 Note:
 - For Qwen/Qwen2.5-Math-7B, we directly modify the max_position_embeddings to 32768 without observing performance degradation in order to train longer response length.
 
-| Hardware    | Model                            | Method            | Test score   | Details |
-|-------------|----------------------------------|-------------------|--------------|---------|
-| NVIDIA GPU  | Qwen/Qwen2.5-Math-7B (32k)       | DAPO              | 36.3         | [command](https://github.com/volcengine/verl/blob/main/recipe/dapo/test_dapo_7b_math.sh), [logs](https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl/runs/ow47vvon?nw=nwusertongyuxuan361)|
+| Hardware    | Model                       | Method                  | Test score | Details |
+|-------------|-----------------------------|-------------------------|------------|---------|
+| NVIDIA GPU  | Qwen/Qwen2.5-Math-7B (32k)  | DAPO                    | 36.3       | [command](https://github.com/volcengine/verl/blob/main/recipe/dapo/test_dapo_7b_math.sh), [logs](https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl/runs/ow47vvon?nw=nwusertongyuxuan361)|
+| NVIDIA GPU  | Qwen/Qwen2.5-7B-Instruct    | DAPO + Code Interpreter | 40.0       | [command](https://github.com/volcengine/verl/blob/main/recipe/retool/run_qwen2_7b_dapo.sh)|
+
 
 
 
