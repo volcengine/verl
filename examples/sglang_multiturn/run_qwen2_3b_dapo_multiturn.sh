@@ -20,8 +20,8 @@ python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
     algorithm.kl_ctrl.kl_coef=0.0 \
-    data.train_files=/sgl-workspace/verl/dataset/BytedTsinghua-SIA/DAPO-Math-17k \
-    data.val_files=/sgl-workspace/verl/dataset/Maxwell-Jia/AIME_2024 \
+    data.train_files=$HOME/data/BytedTsinghua-SIA/DAPO-Math-17k \
+    data.val_files=$HOME/data/Maxwell-Jia/AIME_2024 \
     data.return_raw_chat=True \
     data.train_batch_size=32 \
     data.max_prompt_length=2048 \
