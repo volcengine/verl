@@ -19,11 +19,15 @@ import os
 import sys
 from enum import Enum
 
-from benchmax.envs.base_env import BaseEnv
 from omegaconf import OmegaConf
 
 from verl.tools.benchmax_tool import benchmax_env_to_tool_list
 from verl.tools.schemas import OpenAIFunctionToolSchema
+
+try:
+    from benchmax.envs.base_env import BaseEnv
+except ImportError:
+    BaseEnv = None
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -69,13 +73,14 @@ async def initialize_mcp_tool(tool_cls, tool_config) -> list:
 
 async def initialize_benchmax_environment(env_cls, tool_config) -> list:
     """Initialize a benchmax environment and return a list of verl compatible tools."""
-    print(f"Initializing benchmax environment with config: {tool_config.config}")
+    if BaseEnv is None:
+        raise ImportError("Benchmax environment requires benchmax package to be installed.")
     if not issubclass(env_cls, BaseEnv):
         raise TypeError("tool_cls must subclass BaseEnv when using Benchmax")
-    tool_config.config.pop("type")
-    print("initializing benchmax environment with config:", tool_config.config, env_cls)
+    filtered_config = {k: v for k, v in tool_config.config.items() if k != "type"}
+    logger.debug("initializing benchmax environment with config:", filtered_config, env_cls)
     benchmax_env = env_cls(
-        **tool_config.config,
+        **filtered_config,
     )
     return benchmax_env_to_tool_list(benchmax_env)
 

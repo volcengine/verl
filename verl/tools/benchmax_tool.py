@@ -18,10 +18,14 @@ from __future__ import annotations
 from typing import Any, Optional
 from uuid import uuid4
 
-from benchmax.envs.base_env import BaseEnv, ToolDefinition
-
 from verl.tools.base_tool import BaseTool, OpenAIFunctionToolSchema
 from verl.tools.schemas import OpenAIFunctionSchema
+
+try:
+    from benchmax.envs.base_env import BaseEnv, ToolDefinition
+except ImportError:
+    BaseEnv = None
+    ToolDefinition = None
 
 
 class BenchmaxToolAdapter(BaseTool):
@@ -33,7 +37,17 @@ class BenchmaxToolAdapter(BaseTool):
     - Tool-level Rewards are left as zero;
     """
 
-    def __init__(self, benchmax_env: BaseEnv, tool_def: ToolDefinition):
+    def __init__(self, benchmax_env: Any, tool_def: Any):
+        # Type checking is done manually to allow for dynamic imports.
+        assert BaseEnv is not None and ToolDefinition is not None, (
+            "BenchmaxToolAdapter requires benchmax package."
+        )
+        assert isinstance(benchmax_env, BaseEnv), (
+            f"benchmax_env must be an instance of BaseEnv, but got {type(benchmax_env)}"
+        )
+        assert isinstance(tool_def, ToolDefinition), (
+            f"tool_def must be an instance of ToolDefinition, but got {type(tool_def)}"
+        )
         self._benchmax_env = benchmax_env
         self._tool_def = tool_def
         self.initialized_requests = set([])
@@ -81,8 +95,12 @@ class BenchmaxToolAdapter(BaseTool):
         return self._benchmax_env.get_rollout_workspace(instance_id)
 
 
-def benchmax_env_to_tool_list(benchmax_env: BaseEnv) -> list[BaseTool]:
+def benchmax_env_to_tool_list(benchmax_env: Any) -> list[BaseTool]:
     """
     Convert all tools registered inside a benchmax `BaseEnv` into `BaseTool` instances.
     """
+    assert BaseEnv is not None, "Benchmax environment requires benchmax package to be installed."
+    assert isinstance(benchmax_env, BaseEnv), (
+        f"benchmax_env must be an instance of BaseEnv, but got {type(benchmax_env)}"
+    )
     return [BenchmaxToolAdapter(benchmax_env, tool_def) for tool_def in benchmax_env.list_tools()]
