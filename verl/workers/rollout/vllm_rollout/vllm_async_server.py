@@ -18,10 +18,11 @@ from typing import Any, Callable, Optional
 
 import ray
 import zmq
-from omegaconf import DictConfig
+from omegaconf import DictConfig, ListConfig
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from vllm import SamplingParams
+from vllm.config import CompilationConfig, CompilationLevel
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ErrorResponse
@@ -241,6 +242,20 @@ class AsyncvLLMServer(AsyncServerBase):
         else:
             distributed_executor_backend = None
 
+        compilation_config = None
+
+        cudagraph_capture_sizes = config.get("cudagraph_capture_sizes")
+        # enforce_eager must be False to use cudagraph
+        if not config.enforce_eager:
+            if cudagraph_capture_sizes and isinstance(cudagraph_capture_sizes, ListConfig):
+                compilation_config = CompilationConfig(
+                    level=CompilationLevel.PIECEWISE, cudagraph_capture_sizes=cudagraph_capture_sizes
+                )
+            else:
+                logger.warning(f"cudagraph_capture_sizes must be a list, but got {cudagraph_capture_sizes}")
+
+        logger.error(f"compilation_config: {compilation_config}")
+
         engine_args = AsyncEngineArgs(
             model=local_path,
             enable_sleep_mode=config.free_cache_engine,
@@ -260,6 +275,7 @@ class AsyncvLLMServer(AsyncServerBase):
             enable_prefix_caching=True,
             trust_remote_code=trust_remote_code,
             seed=config.get("seed", 0),
+            compilation_config=compilation_config,
         )
 
         # init async llm engine
