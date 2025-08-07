@@ -28,6 +28,9 @@ ulimit -n 65535
 
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
+train_files="['$dapo_math_17k']"
+test_files="['$aime_2024']"
+
 
 python3 -m verl.trainer.main_ppo \
     --config-path="$CONFIG_PATH" \
@@ -41,6 +44,10 @@ python3 -m verl.trainer.main_ppo \
     data.return_raw_chat=True \
     actor_rollout_ref.model.path=$HOME/models/Qwen2.5-3B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
+    data.custom_cls.path=recipe/retool/retool.py \
+    data.custom_cls.name=CustomRLHFDataset \
+    custom_reward_function.path=recipe/retool/retool.py \
+    custom_reward_function.name=compute_score \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=32 \
@@ -67,8 +74,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=20 \
-    data.train_files=$HOME/data/gsm8k/train.parquet \
-    data.val_files=$HOME/data/gsm8k/test.parquet \
+    data.train_files="$train_files" \
+    data.val_files="$test_files" \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/gsm8k_tool_config.yaml" \
     trainer.total_epochs=15 \
     +trainer.rollout_trace.backend=weave \
