@@ -133,7 +133,7 @@ def _fsdp_activation_offloading_test(rank, world_size, rendezvous_file, strategy
         logits_without_offloading = model(input_ids=input_ids2, position_ids=position_ids2).logits
 
     # Step 3: wrap module with activation offloading and load checkpoint
-    enable_activation_offloading(model, "fsdp")
+    enable_activation_offloading(model, strategy=strategy)
     checkpoint_manager.load_checkpoint(checkpoint_path)
 
     # Step 4: Repeat the second update with same input
