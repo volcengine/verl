@@ -33,7 +33,7 @@ def init_megatron_optim_config(optim_config: dict) -> OptimizerConfig:
         "use_distributed_optimizer": True,
     }
 
-    for k, v in optim_config.get("override_optimizer_config", {}):
+    for k, v in optim_config.get("override_optimizer_config", {}).items():
         optim_args[k] = v
 
     print_rank_0(f"optimizer config after override: {optim_args}")
