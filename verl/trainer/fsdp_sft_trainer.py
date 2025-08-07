@@ -30,7 +30,7 @@ from contextlib import nullcontext
 import hydra
 import torch
 import torch.distributed
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from peft import LoraConfig, TaskType, get_peft_model
 from tensordict import TensorDict
 from torch import nn, optim
@@ -168,6 +168,9 @@ class FSDPSFTTrainer:
         if self.device_mesh.get_rank() == 0:
             print(f"Using FSDP rank {rank} and size {world_size} for data distribution")
 
+        # Set pin_memory_device when pin_memory is enabled.
+        device_name = get_device_name()
+
         self.train_sampler = DistributedSampler(
             self.train_dataset, shuffle=True, num_replicas=world_size, rank=rank, drop_last=True
         )
@@ -178,6 +181,7 @@ class FSDPSFTTrainer:
             num_workers=8,
             pin_memory=True,
             drop_last=True,
+            pin_memory_device=device_name,
         )
 
         self.val_sampler = DistributedSampler(
@@ -190,6 +194,7 @@ class FSDPSFTTrainer:
             num_workers=8,
             pin_memory=True,
             drop_last=True,
+            pin_memory_device=device_name,
         )
 
     def _build_model_optimizer(self):
@@ -683,6 +688,7 @@ class FSDPSFTTrainer:
                 project_name=self.config.trainer.project_name,
                 experiment_name=self.config.trainer.experiment_name,
                 default_backend=self.config.trainer.logger,
+                config=OmegaConf.to_container(self.config, resolve=True),
             )
 
         global_step = self.resume_global_step  # Start from resumed step

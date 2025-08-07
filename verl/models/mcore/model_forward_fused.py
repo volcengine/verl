@@ -141,7 +141,7 @@ def fused_forward_qwen2_5_vl(
         packed_seq_params=packed_seq_params,
         pixel_values=pixel_values,
         image_grid_thw=image_grid_thw,
-        labels=labels,
+        labels=labels_rmpad,
     )
     if post_process:
         # output_orig is in type of CausalLMOutputForPPO

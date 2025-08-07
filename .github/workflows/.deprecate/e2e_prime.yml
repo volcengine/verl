@@ -1,4 +1,4 @@
-name: e2e_prime
+name: e2e_prime_deprecate
 
 on:
   # Trigger the workflow on push or pull request,

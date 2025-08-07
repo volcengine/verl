@@ -239,9 +239,6 @@ def apply_monkey_patch(
     if model.config.model_type == "qwen2_5_vl":
         if is_transformers_version_in_range(min_version="4.53.0"):
             from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLAttention
-
-            # TODO: Support transformers 4.53
-            raise ValueError("Transformers 4.53 is not supported")
         else:
             from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
                 Qwen2_5_VLFlashAttention2 as Qwen2_5_VLAttention,
@@ -266,9 +263,6 @@ def apply_monkey_patch(
     elif model.config.model_type == "qwen2_vl":
         if is_transformers_version_in_range(min_version="4.53.0"):
             from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLAttention
-
-            # TODO: Support transformers 4.53
-            raise ValueError("Transformers 4.53 is not supported")
         else:
             from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLFlashAttention2 as Qwen2VLAttention
 
