@@ -164,6 +164,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install --no-deps -e .[test]
+          pip install --upgrade "huggingface_hub[cli]"
       - name: Download model config files
         run: |
           hf download Qwen/Qwen2.5-7B config.json --local-dir $HOME/configs/Qwen/Qwen2.5-7B
