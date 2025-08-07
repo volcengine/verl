@@ -133,7 +133,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
 
     def _init_executor(self) -> None:
         import threading
-        
+
         addresses = os.environ["VERL_VLLM_ZMQ_ADDRESSES"].split(",")
         self.context = zmq.Context()
         self.sockets = []
@@ -142,7 +142,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
             socket = self.context.socket(zmq.REQ)
             socket.connect(address)
             self.sockets.append(socket)
-            
+
             # These threading events are used to make sure
             # each socket.send call is strictly followed by a socket.recv call, before another socket.send call.
             recv_complete = threading.Event()
@@ -159,7 +159,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
         self.collective_rpc("init_worker", args=([kwargs],))
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
-        
+
         from concurrent.futures import ThreadPoolExecutor
 
         # For pipeline parallel, we use a thread pool for asynchronous
@@ -171,7 +171,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
             self.io_thread_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="zmq_exec_io")
 
         self.output_rank = self._get_output_rank()
-    
+
     def send(self, socket, recv_complete, data):
         recv_complete.wait()  # Wait for previous recv to complete
         recv_complete.clear()  # Block future sends
