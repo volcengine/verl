@@ -14,8 +14,7 @@
 
 import numpy as np
 import torch
-from pydantic import BaseModel
-from tensordict import TensorDict
+from pydantic import BaseModel, ConfigDict
 
 from verl.protocol import DataProto
 
@@ -40,75 +39,21 @@ class AgentLoopOutput(BaseModel):
     """Number of chat turns, including user, assistant, tool."""
     metrics: AgentLoopMetrics
     """Auxiliary performance metrics"""
-    interrupt: bool = False
 
 
-def agent_loop_postprocess(
-    tokenizer, inputs: list[AgentLoopOutput], max_prompt_length: int, max_response_length: int
-) -> DataProto:
-    # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
-    # prompts: left pad
-    # responses: right pad
-    # input_ids: prompt + response
-    # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
-    # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
+class _InternalAgentLoopOutput(AgentLoopOutput):
+    """Internal agent loop output with padded sequences."""
 
-    # prompts
-    tokenizer.padding_side = "left"
-    outputs = tokenizer.pad(
-        [{"input_ids": input.prompt_ids} for input in inputs],
-        padding="max_length",
-        # max_length=self.config.actor_rollout_ref.rollout.prompt_length,
-        max_length=max_prompt_length,
-        return_tensors="pt",
-        return_attention_mask=True,
-    )
-    prompt_ids, prompt_attention_mask = outputs["input_ids"], outputs["attention_mask"]
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    # responses
-    tokenizer.padding_side = "right"
-    outputs = tokenizer.pad(
-        [{"input_ids": input.response_ids} for input in inputs],
-        padding="max_length",
-        max_length=max_response_length,
-        return_tensors="pt",
-        return_attention_mask=True,
-    )
-    response_ids, response_attention_mask = outputs["input_ids"], outputs["attention_mask"]
-
-    # response_mask
-    outputs = tokenizer.pad(
-        [{"input_ids": input.response_mask} for input in inputs],
-        padding="max_length",
-        max_length=max_response_length,
-        return_tensors="pt",
-        return_attention_mask=False,
-    )
-    response_mask = outputs["input_ids"]
-    assert response_ids.shape == response_mask.shape, (
-        f"mismatch in response_ids and response_mask shape: {response_ids.shape} vs {response_mask.shape}"
-    )
-    response_mask = response_mask * response_attention_mask
-
-    input_ids = torch.cat([prompt_ids, response_ids], dim=1)
-    attention_mask = torch.cat([prompt_attention_mask, response_attention_mask], dim=1)
-    position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
-
-    batch = TensorDict(
-        {
-            "prompts": prompt_ids,  # [bsz, prompt_length]
-            "responses": response_ids,  # [bsz, response_length]
-            "response_mask": response_mask,  # [bsz, response_length]
-            "input_ids": input_ids,  # [bsz, prompt_length + response_length]
-            "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
-            "position_ids": position_ids,  # [bsz, prompt_length + response_length]
-        },
-        batch_size=len(input_ids),
-    )
-
-    num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
-    metrics = [input.metrics.model_dump() for input in inputs]
-    return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
+    prompt_ids: torch.Tensor
+    """Padded prompt token ids."""
+    response_ids: torch.Tensor
+    """Padded response token ids."""
+    response_mask: torch.Tensor
+    """Padded response mask."""
+    attention_mask: torch.Tensor
+    """Padded attention mask."""
 
 
 def agent_loop_perf(metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:

@@ -25,11 +25,10 @@ import ray
 import torch
 from cachetools import LRUCache
 from omegaconf import DictConfig, OmegaConf
-from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
 from transformers import AutoTokenizer
 
-from verl.experimental.agent_loop.utils import AgentLoopOutput, agent_loop_perf, agent_loop_postprocess
+from verl.experimental.agent_loop.utils import AgentLoopOutput, _InternalAgentLoopOutput, agent_loop_perf
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils import hf_tokenizer
@@ -103,43 +102,6 @@ class AsyncLLMServerManager:
             sampling_params=sampling_params,
         )
         return output
-
-
-class AgentLoopMetrics(BaseModel):
-    """Agent loop performance metrics."""
-
-    generate_sequences: float = 0.0
-    tool_calls: float = 0.0
-
-
-class AgentLoopOutput(BaseModel):
-    """Agent loop output."""
-
-    prompt_ids: list[int]
-    """Prompt token ids."""
-    response_ids: list[int]
-    """Response token ids including LLM generated token, tool response token."""
-    response_mask: list[int]
-    """Response mask, 1 for LLM generated token, 0 for tool response token."""
-    num_turns: int = 0
-    """Number of chat turns, including user, assistant, tool."""
-    metrics: AgentLoopMetrics
-    """Auxiliary performance metrics"""
-
-
-class _InternalAgentLoopOutput(AgentLoopOutput):
-    """Internal agent loop output with padded sequences."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    prompt_ids: torch.Tensor
-    """Padded prompt token ids."""
-    response_ids: torch.Tensor
-    """Padded response token ids."""
-    response_mask: torch.Tensor
-    """Padded response mask."""
-    attention_mask: torch.Tensor
-    """Padded attention mask."""
 
 
 # make hydra.utils.instantiate happy

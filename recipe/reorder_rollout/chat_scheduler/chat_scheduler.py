@@ -47,6 +47,7 @@ from recipe.reorder_rollout.chat_scheduler.utils import (
     QueueGroup,
     WorkStealingActor,
     _MgrProxy,
+    agent_loop_postprocess,
     concat_data_proto,
 )
 from verl.experimental.agent_loop.agent_loop import (
@@ -56,7 +57,7 @@ from verl.experimental.agent_loop.agent_loop import (
     get_registry_keys,
     get_trajectory_info,
 )
-from verl.experimental.agent_loop.utils import agent_loop_perf, agent_loop_postprocess
+from verl.experimental.agent_loop.utils import agent_loop_perf
 from verl.protocol import DataProto
 from verl.utils.fs import copy_to_local
 from verl.utils.rollout_trace import rollout_trace_attr
