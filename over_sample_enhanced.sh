@@ -33,7 +33,7 @@ while true; do
     
     # 等待训练完成或超时
     echo "训练将在45分钟后自动终止..."
-    for i in {1..600}; do
+    for i in {1..2700}; do
         # 检查进程是否还在运行
         if ! kill -0 $TRAIN_PID 2>/dev/null; then
             echo "训练进程已结束"
@@ -57,7 +57,7 @@ while true; do
     
     # 等待180秒
     echo "等待180秒进行下一组实验..."
-    sleep 60
+    sleep 180
     
     echo "实验 OVER_SAMPLE_RATE = $rate 完成"
     echo "=========================================="
