@@ -65,7 +65,18 @@ actor_rollout_ref:
       all_ranks: false
       ranks: []
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${oc.select:global_profiler.tool_config,null}
+      tool_config:
+        nsys:
+          discrete: ${oc.select:global_profiler.global_tool_config.nsys.discrete}
+        npu:
+          _target_: verl.utils.profiler.config.NPUToolConfig
+          contents: []
+          level: level1
+          analysis: true
+        torch:
+          _target_: verl.utils.profiler.config.TorchProfilerToolConfig
+          step_start: 0
+          step_end: null
     data_loader_seed: null
     load_weight: true
     megatron:
@@ -106,7 +117,7 @@ actor_rollout_ref:
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${oc.select:global_profiler.tool_config,null}
+      tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}
     megatron:
       _target_: verl.workers.config.MegatronEngineConfig
       param_offload: false
@@ -193,7 +204,7 @@ actor_rollout_ref:
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${oc.select:global_profiler.tool_config,null}
+      tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}
     enable_chunked_prefill: false
     load_format: dummy_megatron
     layer_name_map:
@@ -301,7 +312,7 @@ critic:
     all_ranks: false
     ranks: []
     save_path: ${oc.select:global_profiler.save_path,null}
-    tool_config: ${oc.select:global_profiler.tool_config,null}
+    tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}
   nccl_timeout: 600
   megatron:
     _target_: verl.workers.config.McoreEngineConfig
@@ -350,7 +361,7 @@ reward_model:
     all_ranks: false
     ranks: []
     save_path: ${oc.select:global_profiler.save_path,null}
-    tool_config: ${oc.select:global_profiler.tool_config,null}
+    tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}
   nccl_timeout: 600
   megatron:
     _target_: verl.workers.config.MegatronEngineConfig
@@ -416,37 +427,26 @@ trainer:
   max_critic_ckpt_to_keep: null
   ray_wait_register_center_timeout: 300
   device: cuda
-  controller_nsight_options:
-    trace: cuda,nvtx,cublas,ucx
-    cuda-memory-usage: 'true'
-    cuda-graph-trace: graph
-  worker_nsight_options:
-    trace: cuda,nvtx,cublas,ucx
-    cuda-memory-usage: 'true'
-    cuda-graph-trace: graph
-    capture-range: cudaProfilerApi
-    capture-range-end: null
-    kill: none
 global_profiler:
   _target_: verl.utils.profiler.ProfilerConfig
   tool: null
   steps: null
   profile_continuous_steps: false
   save_path: outputs/profile
-  tool_config:
+  global_tool_config:
     nsys:
-      _target_: verl.utils.profiler.config.NsightToolConfig
       discrete: false
-    npu:
-      _target_: verl.utils.profiler.config.NPUToolConfig
-      discrete: false
-      contents: []
-      level: level1
-      analysis: true
-    torch:
-      _target_: verl.utils.profiler.config.TorchProfilerToolConfig
-      step_start: 0
-      step_end: null
+      controller_nsight_options:
+        trace: cuda,nvtx,cublas,ucx
+        cuda-memory-usage: 'true'
+        cuda-graph-trace: graph
+      worker_nsight_options:
+        trace: cuda,nvtx,cublas,ucx
+        cuda-memory-usage: 'true'
+        cuda-graph-trace: graph
+        capture-range: cudaProfilerApi
+        capture-range-end: null
+        kill: none
 ray_init:
   num_cpus: null
   timeline_json_file: null

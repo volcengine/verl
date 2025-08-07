@@ -151,6 +151,42 @@ profiler:
   # profile results saving path
   save_path: ${oc.select:global_profiler.save_path,null}
 
-  # specific tool config
-  tool_config: ${oc.select:global_profiler.tool_config,null}
+  # specific tool config which only related to the role
+  tool_config:
+
+    # nsys tool config
+    nsys:
+    
+      # True for each task has its own database, False for all tasks in one training step share one database.
+      discrete: ${oc.select:global_profiler.global_tool_config.nsys.discrete}
+    
+    # npu config
+    npu:
+
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+      _target_: verl.utils.profiler.config.NPUToolConfig
+
+      # Contents to profile, can be empty
+      # options: npu, cpu, memory, shapes, module, stack
+      contents: []
+
+      # Collection level, optional values: level_none, level0, level1, level2.
+      level: "level1"
+
+      # Whether to automatically parse the data.
+      analysis: True
+    
+    # torch profiler config
+    torch:
+
+      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+      _target_: verl.utils.profiler.config.TorchProfilerToolConfig
+
+      # start profile mini-batch in training
+      # NOTICE: different with global steps config which refers to iteration
+      # This field only related with mini-batch
+      step_start: 0
+
+      # stop profile mini-batch in training
+      step_end: null
 

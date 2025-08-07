@@ -58,7 +58,18 @@ actor_rollout_ref:
       all_ranks: false
       ranks: []
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${oc.select:global_profiler.tool_config,null}
+      tool_config:
+        nsys:
+          discrete: ${oc.select:global_profiler.global_tool_config.nsys.discrete}
+        npu:
+          _target_: verl.utils.profiler.config.NPUToolConfig
+          contents: []
+          level: level1
+          analysis: true
+        torch:
+          _target_: verl.utils.profiler.config.TorchProfilerToolConfig
+          step_start: 0
+          step_end: null
     grad_clip: 1.0
     ulysses_sequence_parallel_size: 1
     entropy_from_logits_with_chunking: false
@@ -88,7 +99,7 @@ actor_rollout_ref:
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${oc.select:global_profiler.tool_config,null}
+      tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}
     model: null
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
@@ -169,7 +180,7 @@ actor_rollout_ref:
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${oc.select:global_profiler.tool_config,null}
+      tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}
     enable_chunked_prefill: true
     load_format: dummy_dtensor
     layered_summon: false
@@ -289,7 +300,7 @@ critic:
     all_ranks: false
     ranks: []
     save_path: ${oc.select:global_profiler.save_path,null}
-    tool_config: ${oc.select:global_profiler.tool_config,null}
+    tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}
   forward_micro_batch_size: ${oc.select:.ppo_micro_batch_size,null}
   forward_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size_per_gpu,null}
   ulysses_sequence_parallel_size: 1
@@ -331,7 +342,7 @@ reward_model:
     all_ranks: false
     ranks: []
     save_path: ${oc.select:global_profiler.save_path,null}
-    tool_config: ${oc.select:global_profiler.tool_config,null}
+    tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}
   ulysses_sequence_parallel_size: 1
 custom_reward_function:
   path: null
@@ -358,17 +369,6 @@ trainer:
   balance_batch: true
   total_epochs: 30
   total_training_steps: null
-  controller_nsight_options:
-    trace: cuda,nvtx,cublas,ucx
-    cuda-memory-usage: 'true'
-    cuda-graph-trace: graph
-  worker_nsight_options:
-    trace: cuda,nvtx,cublas,ucx
-    cuda-memory-usage: 'true'
-    cuda-graph-trace: graph
-    capture-range: cudaProfilerApi
-    capture-range-end: null
-    kill: none
   project_name: verl_examples
   experiment_name: gsm8k
   logger:
@@ -401,15 +401,21 @@ global_profiler:
   steps: null
   profile_continuous_steps: false
   save_path: outputs/profile
-  tool_config:
+  global_tool_config:
     nsys:
       _target_: verl.utils.profiler.config.NsightToolConfig
       discrete: false
-    npu:
-      _target_: verl.utils.profiler.config.NPUToolConfig
-      contents: []
-      level: level1
-      analysis: true
+      controller_nsight_options:
+        trace: cuda,nvtx,cublas,ucx
+        cuda-memory-usage: 'true'
+        cuda-graph-trace: graph
+      worker_nsight_options:
+        trace: cuda,nvtx,cublas,ucx
+        cuda-memory-usage: 'true'
+        cuda-graph-trace: graph
+        capture-range: cudaProfilerApi
+        capture-range-end: null
+        kill: none
 ray_init:
   num_cpus: null
   timeline_json_file: null

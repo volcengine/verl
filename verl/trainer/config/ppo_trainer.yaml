@@ -185,46 +185,6 @@ trainer:
   # Total training steps (can be set explicitly or derived from epochs)
   total_training_steps: null
 
-  # controller Nvidia Nsight Systems Options. Must set when profile_steps is not None.
-  ## reference https://docs.nvidia.com/nsight-systems/UserGuide/index.html
-  ## reference https://docs.ray.io/en/latest/ray-observability/user-guides/profiling.html
-  controller_nsight_options:
-
-    # Select the API(s) to be traced.
-    trace: "cuda,nvtx,cublas,ucx"
-
-    # Track the GPU memory usage by CUDA kernels. Must be string type "true" or "false".
-    cuda-memory-usage: "true"
-
-    # CUDA graphs will be traced as a whole
-    cuda-graph-trace: "graph"
-
-  # worker Nvidia Nsight Systems Options. Must set when profile_steps is not None.
-  worker_nsight_options:
-
-    # Select the API(s) to be traced.
-    trace: "cuda,nvtx,cublas,ucx"
-
-    # Track the GPU memory usage by CUDA kernels. Must be string type "true" or "false".
-    cuda-memory-usage: "true"
-
-    # CUDA graphs will be traced as a whole
-    cuda-graph-trace: "graph"
-
-    # Profiling only in a range of torch.cuda.profiler.start and stop. Do not change this config.
-    capture-range: "cudaProfilerApi"
-
-    # Specify the desired behavior when a capture range ends.
-    # In verl we need the orch.cuda.profiler.start/stop pair to repeats n times.
-    # valid values are "repeat-shutdown:n" or null.
-    # For normal whole step profiling, n = len(profile_steps);
-    # but for discrete profiling, n = len(profile_steps) * Number(subtasks).
-    # Or you can just leave it null and the program will use n = len(profile_steps) * 6;
-    capture-range-end: null
-
-    # Send signal to the target application's process group. We let the program to exit by itself.
-    kill: none
-
   # Project name for experiment tracking (e.g., wandb)
   project_name: verl_examples
 
@@ -327,7 +287,7 @@ global_profiler:
   save_path: "outputs/profile"
 
   # Specific tool configs, can use +profiler.tool_config.[tool].xxx to config
-  tool_config:
+  global_tool_config:
   
     # nsys config
     nsys:
@@ -337,22 +297,46 @@ global_profiler:
 
       # True for each task has its own database, False for all tasks in one training step share one database.
       discrete: False
-    
-    # npu config
-    npu:
 
-      # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-      _target_: verl.utils.profiler.config.NPUToolConfig
+      # controller Nvidia Nsight Systems Options. Must set when profile_steps is not None.
+      ## reference https://docs.nvidia.com/nsight-systems/UserGuide/index.html
+      ## reference https://docs.ray.io/en/latest/ray-observability/user-guides/profiling.html
+      controller_nsight_options:
 
-      # Contents to profile, can be empty
-      # options: npu, cpu, memory, shapes, module, stack
-      contents: []
+        # Select the API(s) to be traced.
+        trace: "cuda,nvtx,cublas,ucx"
 
-      # Collection level, optional values: level_none, level0, level1, level2.
-      level: "level1"
+        # Track the GPU memory usage by CUDA kernels. Must be string type "true" or "false".
+        cuda-memory-usage: "true"
 
-      # Whether to automatically parse the data.
-      analysis: True
+        # CUDA graphs will be traced as a whole
+        cuda-graph-trace: "graph"
+
+      # worker Nvidia Nsight Systems Options. Must set when profile_steps is not None.
+      worker_nsight_options:
+
+        # Select the API(s) to be traced.
+        trace: "cuda,nvtx,cublas,ucx"
+
+        # Track the GPU memory usage by CUDA kernels. Must be string type "true" or "false".
+        cuda-memory-usage: "true"
+
+        # CUDA graphs will be traced as a whole
+        cuda-graph-trace: "graph"
+
+        # Profiling only in a range of torch.cuda.profiler.start and stop. Do not change this config.
+        capture-range: "cudaProfilerApi"
+
+        # Specify the desired behavior when a capture range ends.
+        # In verl we need the torch.cuda.profiler.start/stop pair to repeats n times.
+        # valid values are "repeat-shutdown:n" or null.
+        # For normal whole step profiling, n = len(profile_steps);
+        # but for discrete profiling, n = len(profile_steps) * Number(subtasks).
+        # Or you can just leave it null and the program will use n = len(profile_steps) * 6;
+        capture-range-end: null
+
+        # Send signal to the target application's process group. We let the program to exit by itself.
+        kill: none
 
 # configs related to ray initialization
 ray_init:

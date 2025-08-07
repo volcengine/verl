@@ -118,4 +118,4 @@ profiler:
   save_path: ${oc.select:global_profiler.save_path,null}
 
   # specific tool config
-  tool_config: ${oc.select:global_profiler.tool_config,null}
+  tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}
