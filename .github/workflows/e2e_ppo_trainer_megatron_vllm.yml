@@ -341,7 +341,6 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install --no-deps -e .[test]
-          pip3 install "transformers[hf_xet]<4.52.0"
       - name: Prepare Geo3k dataset
         run: |
           python3 examples/data_preprocess/geo3k.py
