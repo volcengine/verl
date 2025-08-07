@@ -332,11 +332,10 @@ class DataProto:
 
         buffer = io.BytesIO()
         if version.parse(tensordict.__version__) >= version.parse("0.5.0") and self.batch is not None:
-            batch = self.batch.contiguous()
-            batch_consolidated = batch.consolidate()
+            batch_to_save = self.batch.contiguous().consolidate()
         else:
-            batch_consolidated = self.batch
-        torch.save(batch_consolidated, buffer)
+            batch_to_save = self.batch
+        torch.save(batch_to_save, buffer)
         buffer_bytes = buffer.getvalue()
         return buffer_bytes, self.non_tensor_batch, self.meta_info
 
