@@ -207,13 +207,7 @@ class AgentLightningTrainer(RayPPOTrainer):
                     config=self.config.algorithm,
                 )
 
-            # after advantages are assinged, we begin to drop (1) long prompt (2) floor to ppo minisize
-            keep_indices = (~batch.batch["is_drop_mask"]).nonzero(as_tuple=True)[0]
-            metrics["agent_mode/n_dropped_sample_because_of_prompt"] = (
-                batch.batch["is_drop_mask"].shape[0] - keep_indices.shape[0]
-            )
-            batch = batch[keep_indices]
-            # next, round to minibatch size
+            # after advantages are assinged, we round to minibatch size
             mini_batch_size = self.config.actor_rollout_ref.actor.ppo_mini_batch_size
             n_transition = len(batch)
             random_indices = list(range(n_transition))
