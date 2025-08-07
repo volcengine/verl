@@ -51,6 +51,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
             prompt_ids=prompt_ids,
             response_ids=response_ids[: self.response_length],
             response_mask=response_mask[: self.response_length],
+            multi_modal_data={},
             num_turns=2,
             metrics=metrics,
         )
