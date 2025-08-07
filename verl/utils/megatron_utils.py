@@ -29,7 +29,8 @@ from megatron.core import ModelParallelConfig, mpu, parallel_state, tensor_paral
 from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import ModelType
-from megatron.core.optimizer import ChainedOptimizer, OptimizerConfig
+from megatron.core.optimizer import ChainedOptimizer
+from megatron.core.optimizer.cpu_offloading.hybrid_optimizer import HybridDeviceOptimizer
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
@@ -237,6 +238,17 @@ def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
 
 
 def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerConfig:
+    """[Deprecated] convert config
+
+    Args:
+        hf_config (PretrainedConfig): _description_
+        megatron_config (_type_): _description_
+
+    Returns:
+        TransformerConfig: _description_
+    """
+
+    warnings.warn("[deprecated] use config converter for more model support", stacklevel=2)
     print(f"megatron config {megatron_config}")
     dt = PrecisionType.to_dtype(megatron_config.params_dtype)
     print(f"pipeline_dtype=megatron_config {dt}")
@@ -279,20 +291,6 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
     )
 
     return transformer_config
-
-
-def init_megatron_optim_config(optim_config: dict) -> OptimizerConfig:
-    config = OptimizerConfig(
-        optimizer=optim_config.get("optimizer", "adam"),
-        lr=optim_config.get("lr"),
-        min_lr=optim_config.get("min_lr", None),
-        clip_grad=optim_config.get("clip_grad", 1.0),
-        weight_decay=optim_config.get("weight_decay", 0.01),
-        bf16=True,
-        params_dtype=torch.bfloat16,
-        use_distributed_optimizer=True,
-    )
-    return config
 
 
 def mcore_model_parallel_config(
@@ -493,6 +491,9 @@ def load_megatron_optimizer(optimizers):
         return [opt]
 
     for _opt in _iter_opts(optimizers):
+        if isinstance(_opt.optimizer, HybridDeviceOptimizer):
+            _opt.optimizer._move_new_state_to_right_device()
+            continue
         load_megatron_copy_params(_opt)
         opt_state_dict_values = _opt.optimizer.state.values()
         for v in opt_state_dict_values:
