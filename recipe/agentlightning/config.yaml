@@ -1,0 +1,21 @@
+hydra:
+  searchpath:
+    - pkg://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+agentlightning:
+  port: 9999
+
+data:
+  filter_overlong_prompts: false
+
+actor_rollout_ref:
+  rollout:
+    mode: async
+    agent:
+      custom_async_server:
+        path: pkg://agentlightning.verl.async_server
+        name: PatchedvLLMServer
