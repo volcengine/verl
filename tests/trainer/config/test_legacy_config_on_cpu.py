@@ -43,6 +43,8 @@ class TestConfigComparison(unittest.TestCase):
         "use_profile",
         "npu_profile",
         "profile_steps",
+        "worker_nsight_options",
+        "controller_nsight_options",
     ]
 
     def _compare_configs_recursively(
