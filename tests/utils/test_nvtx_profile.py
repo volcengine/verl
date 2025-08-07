@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from verl.utils import omega_conf_to_dataclass
-from verl.utils.profiler import ProfilerConfig
+from verl.utils.profiler.config import NsightToolConfig, ProfilerConfig
 from verl.utils.profiler.nvtx_profile import NsightSystemsProfiler
 
 
@@ -89,7 +89,7 @@ class TestNsightSystemsProfiler(unittest.TestCase):
     def setUp(self):
         self.config = ProfilerConfig(all_ranks=True)
         self.rank = 0
-        self.profiler = NsightSystemsProfiler(self.rank, self.config)
+        self.profiler = NsightSystemsProfiler(self.rank, self.config, tool_config=NsightToolConfig(discrete=False))
 
     def test_initialization(self):
         self.assertEqual(self.profiler.this_rank, True)
