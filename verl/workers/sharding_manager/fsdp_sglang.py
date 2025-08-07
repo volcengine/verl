@@ -18,6 +18,9 @@ import asyncio
 import logging
 import os
 
+import torch
+import torch.distributed as dist
+import torch_npu
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 from torch.distributed.device_mesh import DeviceMesh
@@ -102,6 +105,19 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     async def update_weights(self, params):
         named_tensors = [(k, v) for k, v in params.items()]
+
+        if self.device_mesh["infer_tp"].get_local_rank() != 0:
+            tp_size = self.device_mesh["infer_tp"].size()
+            result_pid = torch.zeros(tp_size, dtype=torch.int64)
+            result_pid = result_pid.to("npu")
+        else:
+            result_pid = self.inference_engine.result_pid
+            result_pid = torch.tensor(result_pid, dtype=torch.int64, device="npu")
+
+        dist.broadcast(result_pid, src=self.device_mesh["infer_tp"].mesh.tolist()[0], group=self.device_mesh["infer_tp"].get_group(),)
+        for pid in result_pid:
+            torch_npu._C._add_ipc_pid(pid)
+
         update_weights_bucket_bytes = int(self.rollout_config.update_weights_bucket_megabytes) << 20
         for params_batch in get_named_tensor_buckets(named_tensors, update_weights_bucket_bytes):
             await sgl_update_weights(

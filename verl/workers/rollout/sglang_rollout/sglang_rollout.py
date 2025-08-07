@@ -60,6 +60,7 @@ from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.net_utils import is_ipv6
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
+from verl.utils.device import get_visible_devices_keyword, get_device_name
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.schemas import (
     AsyncRolloutRequest,
@@ -279,6 +280,7 @@ class SGLangRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
+        self.attention_backend = self.config.engine_kwargs.sglang.attention_backend
         self._device_mesh_cpu = device_mesh
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
 
@@ -356,12 +358,12 @@ class SGLangRollout(BaseRollout):
             logger.info(f"_init_distributed_env: :tp_world: {self._tp_size}, global_world: {world_size}")
         # get tp_rank of this process in this tp group
         visible_devices = [None] * self._device_mesh_cpu.size(1)
-
+        devices_keyword = get_visible_devices_keyword()
         torch.distributed.all_gather_object(
-            visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], self._device_mesh_cpu.get_group("tp")
+            visible_devices, os.environ[devices_keyword], self._device_mesh_cpu.get_group("tp")
         )
         self.visible_devices_set = set(",".join(visible_devices).split(","))
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(self.visible_devices_set)))
+        os.environ[devices_keyword] = ",".join(sorted(list(self.visible_devices_set)))
 
     def _verify_config(self, model_hf_config):
         if not self.config.get("max_model_len", None):
@@ -431,6 +433,10 @@ class SGLangRollout(BaseRollout):
         engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {})
         attention_backend = engine_kwargs.get("attention_backend", None)
 
+        enable_memory_saver = True
+        if get_device_name() == "npu":
+            enable_memory_saver = False
+        backend = "fa3" if self.attention_backend != "ascend" else "ascend"
         if first_rank_in_node:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
@@ -438,7 +444,7 @@ class SGLangRollout(BaseRollout):
                 model_path=actor_module,
                 dtype=self.config.dtype,
                 mem_fraction_static=self.config.gpu_memory_utilization,
-                enable_memory_saver=True,
+                enable_memory_saver=enable_memory_saver,
                 base_gpu_id=0,
                 gpu_id_step=1,
                 tp_size=self._tp_size,
@@ -457,8 +463,8 @@ class SGLangRollout(BaseRollout):
                 # log_requests=True,
                 # log_requests_level=2,
                 # max_running_requests=1,
-                mm_attention_backend="fa3",
-                attention_backend=attention_backend if attention_backend is not None else "fa3",
+                mm_attention_backend=backend,
+                attention_backend=backend,
                 # In async mode, we want token in token out.
                 skip_tokenizer_init=self.config.mode == "async",
             )
