@@ -87,7 +87,7 @@ class TestNsightSystemsProfiler(unittest.TestCase):
     """
 
     def setUp(self):
-        self.config = ProfilerConfig(all_ranks=True)
+        self.config = ProfilerConfig(enable=True, all_ranks=True)
         self.rank = 0
         self.profiler = NsightSystemsProfiler(self.rank, self.config, tool_config=NsightToolConfig(discrete=False))
 
