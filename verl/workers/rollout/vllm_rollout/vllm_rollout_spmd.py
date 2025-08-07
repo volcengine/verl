@@ -459,7 +459,10 @@ class vLLMAsyncRollout:
     def init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
-        all_kwargs[0]["local_rank"] = 0
+        if os.environ.get("RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES", "").lower() in ("1", "true"):
+            all_kwargs[0]["local_rank"] = int(os.environ.get("RAY_LOCAL_RANK", 0))
+        else:
+            all_kwargs[0]["local_rank"] = 0
 
         self.vllm_config = all_kwargs[0]["vllm_config"]
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
