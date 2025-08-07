@@ -33,11 +33,26 @@ def _unwrap_ray_remote(cls):
 
 
 @ray.remote(num_cpus=1)
-class PatchedvLLMServer(_unwrap_ray_remote(AsyncvLLMServer)):
+class TokenResponseVllmServer(_unwrap_ray_remote(AsyncvLLMServer)):
+    """
+    Custom vLLM server for AgentLightning that extends AsyncvLLMServer with instrumentation.
+
+    Inheritance: AsyncvLLMServer -> AsyncServerBase
+    - AsyncvLLMServer: Base class that wraps vLLM AsyncLLM with external Ray distributed executor
+    - Handles OpenAI-compatible API endpoints and vLLM engine initialization
+
+    Customizations:
+    1. Adds vLLM instrumentation via instrument_vllm() for monitoring/tracing
+    2. Disables multi-turn tool configuration by setting tool_config_path to "/dev/null"
+    3. Ray remote decorator for distributed execution
+    """
+
     def __init__(self, *args, **kwargs):
+        # Add instrumentation for monitoring and tracing vLLM operations
         instrument_vllm()
         super().__init__(*args, **kwargs)
 
+        # Customize configuration to disable multi-turn tool usage
         self.config = deepcopy(self.config)
         self.config.rollout.multi_turn.tool_config_path = "/dev/null"
 
@@ -50,6 +65,7 @@ class PatchedvLLMServer(_unwrap_ray_remote(AsyncvLLMServer)):
         request = ChatCompletionRequest(**request_json)
         generator = await self.openai_serving_chat.create_chat_completion(request, raw_request)
 
+        # The response here is non-standard, so we need to handle it differently.
         if isinstance(generator, ErrorResponse):
             return JSONResponse(content=generator.model_dump(), status_code=generator.code)
         if request.stream:

@@ -17,91 +17,24 @@
 
 import asyncio
 import random
-import socket
 import threading
-import time
 import uuid
 from typing import Optional
 
 import numpy as np
 import requests
 import torch
-from agentlightning import LLM, AgentLightningServer, NamedResources, Rollout, configure_logger
-from flask import Flask, Response, abort, request
+from agentlightning import LLM, AgentLightningServer, NamedResources, Rollout
+from flask import Flask, Response, request
 from tensordict import TensorDict
+from utils import get_left_padded_ids_and_attention_mask, get_right_padded_ids_and_attention_mask
 
 from verl import DataProto
 
-configure_logger()
 
-
-def get_left_padded_ids_and_attention_mask(ids: list[int], max_length: int, pad_token_id: int):
+class AgentManager:
     """
-    Left-pad (or truncate) a sequence of token IDs to a fixed length,
-    and build the corresponding attention mask.
-
-    Args:
-        ids:             the original list of token IDs.
-        max_length:      desired total length after padding/truncation.
-        pad_token_id:    ID to use for padding.
-
-    Returns:
-        padded_ids:      list of length == max_length.
-        attention_mask:  list of same length: 1 for non-pad tokens, 0 for pads.
-    """
-    seq_len = len(ids)
-
-    if seq_len >= max_length:
-        # too long → truncate from the left, keep the last max_length tokens
-        trimmed = ids[-max_length:]
-        attention_mask = [1] * max_length
-        return trimmed, attention_mask
-
-    # too short → pad on the left
-    pad_len = max_length - seq_len
-    padded_ids = [pad_token_id] * pad_len + ids
-    attention_mask = [0] * pad_len + [1] * seq_len
-    return padded_ids, attention_mask
-
-
-def get_right_padded_ids_and_attention_mask(ids: list[int], max_length: int, pad_token_id: int):
-    """
-    Right-pad (or truncate) a sequence of token IDs to a fixed length,
-    and build the corresponding attention mask.
-
-    Args:
-        ids:            the original list of token IDs.
-        max_length:     desired total length after padding/truncation.
-        pad_token_id:   ID to use for padding.
-
-    Returns:
-        padded_ids:     list of length == max_length.
-        attention_mask: list of same length: 1 for non-pad tokens, 0 for pads.
-    """
-    seq_len = len(ids)
-
-    if seq_len >= max_length:
-        # too long → truncate to the first max_length tokens
-        trimmed = ids[:max_length]
-        attention_mask = [1] * max_length
-        return trimmed, attention_mask
-
-    # too short → pad on the right
-    pad_len = max_length - seq_len
-    padded_ids = ids + [pad_token_id] * pad_len
-    attention_mask = [1] * seq_len + [0] * pad_len
-    return padded_ids, attention_mask
-
-
-def _find_available_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
-
-
-class AgentModeDaemon:
-    """
-    AgentModeDaemon using the AgentLightningServer SDK.
+    Agent manager is built with Agent-Lightning SDK.
 
     This class manages the server lifecycle, task queueing, and results
     retrieval, while also running a proxy server for LLM requests. It maintains
@@ -110,30 +43,25 @@ class AgentModeDaemon:
 
     def __init__(
         self,
-        port,
-        train_rollout_n,
-        train_information,
-        tokenizer,
-        mini_batch_size,
-        pad_token_id,
-        reward_fillna_value=0.0,
-        llm_timeout_seconds=600.0,
+        server_port: int,
+        proxy_port: int,
+        train_rollout_n: int,
+        train_information: dict,
+        mini_batch_size: int,
+        pad_token_id: int,
     ):
-        # Server and Task Configuration
-        self.server_port = port
-        self.llm_timeout_seconds = llm_timeout_seconds
+        self.server_port = server_port
+        self.proxy_port = proxy_port
+        self.llm_timeout_seconds = 300.0
         self.server = AgentLightningServer(
             host="0.0.0.0", port=self.server_port, task_timeout_seconds=self.llm_timeout_seconds
         )
-        self.proxy_port = _find_available_port()  # Run proxy on a different port
 
         # Training and Data Configuration
         self.train_rollout_n = train_rollout_n
         self.train_information = train_information
         self.mini_batch_size = mini_batch_size
         self.pad_token_id = pad_token_id
-        self.tokenizer = tokenizer
-        self.reward_fillna_value = reward_fillna_value
 
         # Internal State
         self.backend_llm_server_addresses: list[str] = []
@@ -145,68 +73,26 @@ class AgentModeDaemon:
         self.is_train = True
 
     def _start_proxy_server(self):
-        """
-        Initializes and runs a Flask-based proxy server in a separate thread.
-        This proxy load-balances requests to the actual backend LLM servers.
-        """
+        """Flask-based proxy server for load balancing LLM requests."""
         app = Flask(__name__)
-
-        num_requests = 0
-        last_request_time = 0
 
         @app.route("/v1/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
         def proxy(path):
-            if not self.backend_llm_server_addresses:
-                abort(503, description="No backend LLM servers available.")
-
-            # Randomly choose a backend server for load balancing
             target_server = random.choice(self.backend_llm_server_addresses)
             target_url = f"http://{target_server}/v1/{path}"
-
-            # Copy client request headers, removing the Host header
             headers = {key: value for key, value in request.headers if key.lower() != "host"}
 
-            # Log the request for debugging
-            nonlocal num_requests, last_request_time
-            current_time = time.time()
-            num_requests += 1
-            if current_time - last_request_time > 60 or num_requests == 1 or num_requests % 100 == 0:
-                print(f"Proxying {request.method} request to {target_server}. Request data: {request.get_data()}")
-            last_request_time = current_time
-
-            try:
-                # Forward the request to the target backend
-                resp = requests.request(
-                    method=request.method,
-                    url=target_url,
-                    headers=headers,
-                    params=request.args,
-                    data=request.get_data(),
-                    cookies=request.cookies,
-                    allow_redirects=False,
-                    timeout=self.llm_timeout_seconds,
-                )
-                # Filter out hop-by-hop headers before returning the response
-                excluded_headers = [
-                    "content-encoding",
-                    "content-length",
-                    "transfer-encoding",
-                    "connection",
-                    "keep-alive",
-                    "proxy-authenticate",
-                    "proxy-authorization",
-                    "te",
-                    "trailers",
-                    "upgrade",
-                ]
-                response_headers = [
-                    (name, value) for name, value in resp.raw.headers.items() if name.lower() not in excluded_headers
-                ]
-                if resp.status_code == 200:
-                    return Response(resp.content, status=resp.status_code, headers=response_headers)
-                return Response(resp.content, resp.status_code, response_headers)
-            except requests.exceptions.RequestException as e:
-                abort(500, description=f"Error proxying request: {e}")
+            resp = requests.request(
+                method=request.method,
+                url=target_url,
+                headers=headers,
+                params=request.args,
+                data=request.get_data(),
+                cookies=request.cookies,
+                allow_redirects=False,
+                timeout=300,
+            )
+            return Response(resp.content, resp.status_code, resp.headers.items())
 
         def run_app():
             app.run(host="0.0.0.0", port=self.proxy_port, threaded=True, debug=False)
@@ -219,20 +105,13 @@ class AgentModeDaemon:
         """Starts the main AgentLightningServer and the proxy server."""
 
         def run_server():
-            """Run the AgentLightningServer in a separate thread."""
             asyncio.run(self.server.run_forever())
 
         self._server_thread = threading.Thread(target=run_server, daemon=True)
         self._server_thread.start()
 
-        # Wait for the server's internal startup event to be set.
-        print("Waiting for AgentLightningServer to start...")
-        is_ready = self.server.startup_event.wait(timeout=20.0)  # Wait up to 20s
-        if not is_ready:
-            raise RuntimeError("AgentLightningServer failed to start within the timeout period.")
-
-        print(f"AgentLightningServer control plane running on port {self.server_port}")
-
+        self.server.startup_event.wait(timeout=20.0)
+        print(f"AgentLightningServer running on port {self.server_port}")
         self._start_proxy_server()
 
     async def _async_set_up(self, data, server_addresses, is_train=True):
@@ -261,15 +140,11 @@ class AgentModeDaemon:
             original_sample["data_id"] = data_id
 
             # For training, each sample is rolled out multiple times
-            for j in range(rollouts_per_sample):
-                task_metadata = {"data_id": data_id, "is_train": is_train}
-
-                # Data ID is different from Rollout ID, as one data can have multiple rollouts.
+            for _ in range(rollouts_per_sample):
                 rollout_id = await self.server.queue_task(
                     sample=original_sample,
                     mode="train" if is_train else "val",
                     resources_id=resources_id,
-                    metadata=task_metadata,
                 )
                 # Store original sample data to reconstruct batch information later
                 self._task_id_to_original_sample[rollout_id] = original_sample
@@ -277,70 +152,33 @@ class AgentModeDaemon:
 
     def set_up_data_and_server(self, data, server_addresses, is_train=True):
         """Synchronous wrapper for setting up data and server resources."""
-        if not self.server.loop or not self.server.startup_event.is_set():
-            raise RuntimeError("Server is not running or ready.")
-
         coro = self._async_set_up(data, server_addresses, is_train)
         future = asyncio.run_coroutine_threadsafe(coro, self.server.loop)
-        try:
-            future.result(timeout=60)  # Wait for completion with a timeout
-        except Exception as e:
-            print(f"Failed to set up data on server: {e}")
-            raise
+        future.result(timeout=60)
 
-    async def _async_run_until_finished(self, verbose=True):
+    async def _async_run_until_finished(self):
         """Async helper to wait for all tasks to complete."""
         while len(self._completed_rollouts) < self._total_tasks_queued:
             completed_batch = await self.server.retrieve_completed_rollouts()
             for rollout in completed_batch:
                 self._completed_rollouts[rollout.rollout_id] = rollout
-            if verbose:
-                print(f"Completed {len(self._completed_rollouts)}/{self._total_tasks_queued} tasks...")
+            print(f"Completed {len(self._completed_rollouts)}/{self._total_tasks_queued} tasks...")
             await asyncio.sleep(5)
         print("All tasks finished.")
 
-    def run_until_all_finished(self, verbose=True):
+    def run_until_all_finished(self):
         """Synchronously waits for all queued tasks to be completed and reported."""
         if self._total_tasks_queued == 0:
-            print("Warning: No tasks were queued.")
             return
-
-        if not self.server.loop or not self.server.startup_event.is_set():
-            raise RuntimeError("Server is not running or ready.")
-
-        coro = self._async_run_until_finished(verbose)
+        coro = self._async_run_until_finished()
         future = asyncio.run_coroutine_threadsafe(coro, self.server.loop)
-        try:
-            future.result()  # Wait indefinitely for all tasks to complete
-        except Exception as e:
-            print(f"Error while waiting for tasks to finish: {e}")
-            raise
+        future.result()
 
     def get_test_metrics(self):
         """Calculates and returns metrics for a validation run."""
-        assert not self.is_train, "This method should only be called during validation."
-        assert len(self._completed_rollouts) == self._total_tasks_queued
-
-        sample_stat_list = []
-        for rollout_id, rollout in self._completed_rollouts.items():
-            if not rollout.triplets:
-                continue
-            response_length_list = [len(triplet.response.get("token_ids", [])) for triplet in rollout.triplets]
-            final_reward = self._fillna_reward(rollout)
-            sample_stat_list.append(
-                {
-                    "sum_response_length": np.sum(response_length_list),
-                    "mean_response_length": np.mean(response_length_list) if response_length_list else 0,
-                    "turn_count": len(rollout.triplets),
-                    "reward": final_reward,
-                }
-            )
-
         return {
-            "val/reward": np.mean([stat["reward"] for stat in sample_stat_list]),
-            "val/mean_response_length": np.mean([stat["mean_response_length"] for stat in sample_stat_list]),
-            "val/sum_response_length": np.mean([stat["sum_response_length"] for stat in sample_stat_list]),
-            "val/turn_count": np.mean([stat["turn_count"] for stat in sample_stat_list]),
+            "val/reward": np.mean([rollout.final_reward for rollout in self._completed_rollouts.values()]),
+            "val/turn_count": np.mean([len(rollout.triplets) for rollout in self._completed_rollouts.values()]),
         }
 
     def get_train_data_batch(self, max_prompt_length, max_response_length, device):
@@ -354,61 +192,18 @@ class AgentModeDaemon:
         assert self.is_train, "This method should only be called during training."
         assert len(self._completed_rollouts) == self._total_tasks_queued
 
-        # 1. Reconstruct the `finished_id_to_sample_info` structure from completed rollouts
-        finished_id_to_sample_info = {}
-        for rollout_id, rollout in self._completed_rollouts.items():
-            original_sample = self._task_id_to_original_sample[rollout_id]
-
-            if not rollout.triplets:
-                continue
-
-            # The client should report triplets that contain prompt_ids and response_ids.
-            # Example triplet.prompt: {"token_ids": [...]}
-            # Example triplet.response: {"token_ids": [...]}
-            trace_list = [
-                {"prompt_ids": t.prompt.get("token_ids", []), "response_ids": t.response.get("token_ids", [])}
-                for t in rollout.triplets
-            ]
-
-            final_reward = self._fillna_reward(rollout)
-            info = {
-                "reward": final_reward,
-                "trace_list": trace_list,
-                "data_id": original_sample["data_id"],
-            }
-            finished_id_to_sample_info[rollout_id] = info
-        #
-        # --- Data processing and tensor creation logic ---
-        # Get all the reported data.
-        # prompt_ids are left-padded.
-        # response_ids are right-padded.
-        # They are concatenated in the middle.
-        # Discard handling:
-        #   - Those exceeding max_prompt_length will be marked for discard, but not
-        #     discarded here. They are only truncated and marked, to be discarded later.
-        #     This is for the correctness of the advantage calculation.
-        #   - The discard for the PPO mini-batch should also be handled this way.
         input_ids_list, input_attention_mask_list = [], []
         response_ids_list, response_attention_mask_list = [], []
         reward_list, data_id_list, rollout_id_list, turn_index_list, is_drop_list = [], [], [], [], []
-        n_trunc_sample_because_of_response = 0
 
-        for rollout_id, sample_info in finished_id_to_sample_info.items():
-            for turn_index, trace in enumerate(sample_info["trace_list"]):
-                reward_list.append(sample_info["reward"])
-                prompt_ids, response_ids = trace["prompt_ids"], trace["response_ids"]
+        for rollout_id, rollout in self._completed_rollouts.items():
+            original_sample = self._task_id_to_original_sample[rollout_id]
 
-                # Mark samples with prompts exceeding max_prompt_length to be dropped later
-                if len(prompt_ids) > max_prompt_length:
-                    prompt_ids = prompt_ids[:max_prompt_length]
-                    is_drop_list.append(True)
-                else:
-                    is_drop_list.append(False)
+            for turn_index, triplet in enumerate(rollout.triplets):
+                prompt_ids = triplet.prompt["token_ids"]
+                response_ids = triplet.response["token_ids"]
 
-                # Truncate responses that exceed max_response_length
-                if len(response_ids) > max_response_length:
-                    response_ids = response_ids[:max_response_length]
-                    n_trunc_sample_because_of_response += 1
+                reward_list.append(rollout.final_reward)
 
                 # Pad prompts to the left and responses to the right
                 one_input_ids, one_input_attention_mask = get_left_padded_ids_and_attention_mask(
@@ -422,7 +217,7 @@ class AgentModeDaemon:
                 input_attention_mask_list.append(one_input_attention_mask)
                 response_ids_list.append(one_response_ids)
                 response_attention_mask_list.append(one_response_attention_mask)
-                data_id_list.append(sample_info["data_id"])
+                data_id_list.append(original_sample["data_id"])
                 rollout_id_list.append(rollout_id)
                 turn_index_list.append(turn_index)
 
@@ -464,17 +259,12 @@ class AgentModeDaemon:
         )
         data_proto = DataProto(batch=batch)
 
-        data_metrics = {
-            "agent_mode/n_trunc_sample_because_of_response": n_trunc_sample_because_of_response,
-            "agent_mode/n_sample_to_train": n_transition,
-        }
-
         # Add non-tensor data for advantage calculation and logging
         data_proto.non_tensor_batch["data_id_list"] = np.array(data_id_list)
         data_proto.non_tensor_batch["rollout_id_list"] = np.array(rollout_id_list)
         data_proto.non_tensor_batch["turn_index_list"] = np.array(turn_index_list)
 
-        return data_proto, data_metrics
+        return data_proto
 
     def clear_data_and_server(self):
         """Resets the internal state of the daemon for the next run."""
@@ -482,16 +272,3 @@ class AgentModeDaemon:
         self._completed_rollouts.clear()
         self._task_id_to_original_sample.clear()
         self._total_tasks_queued = 0
-        # For a true reset, the server's internal queues would also need clearing.
-        # This implementation assumes that `set_up_data_and_server` is called
-        # for each new run, effectively starting a fresh batch.
-
-    def _fillna_reward(self, rollout):
-        if rollout.final_reward is None:
-            if self.reward_fillna_value is not None:
-                final_reward = self.reward_fillna_value
-            else:
-                raise ValueError(f"Reward is None for rollout {rollout.rollout_id}, please check the reward function.")
-        else:
-            final_reward = rollout.final_reward
-        return final_reward
