@@ -28,12 +28,12 @@ while true; do
     # 启动训练（后台运行）
     echo "启动训练..."
     # 使用引号保护参数，确保正确传递
-    bash examples/sglang_multiturn/run_qwen2.5-3b_gsm8k_multiturn_benchmark.sh "$rate" &
+    bash examples/sglang_multiturn/run_qwen3-4b_dpo_multiturn_benchmark.sh "$rate" &
     TRAIN_PID=$!
     
     # 等待训练完成或超时
-    echo "训练将在60秒后自动终止..."
-    for i in {1..2700}; do
+    echo "训练将在45分钟后自动终止..."
+    for i in {1..600}; do
         # 检查进程是否还在运行
         if ! kill -0 $TRAIN_PID 2>/dev/null; then
             echo "训练进程已结束"
@@ -50,9 +50,14 @@ while true; do
     echo "清理 sglang 进程..."
     pkill -f sglang
     
-    # 等待30秒
+    # 额外清理：确保没有残留的Python进程
+    echo "清理可能的Python训练进程..."
+    pkill -f "python.*train" 2>/dev/null
+    pkill -f "python.*run_qwen" 2>/dev/null
+    
+    # 等待180秒
     echo "等待180秒进行下一组实验..."
-    sleep 180
+    sleep 60
     
     echo "实验 OVER_SAMPLE_RATE = $rate 完成"
     echo "=========================================="

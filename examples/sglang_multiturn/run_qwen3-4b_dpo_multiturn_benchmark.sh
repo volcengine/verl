@@ -1,6 +1,19 @@
+# run on 8xH100
+# make sure your current working directory is the root of the project
+
 set -x
 
 ulimit -n 65535
+
+PROJECT_DIR="$(pwd)"
+CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
+
+function now() {
+    date '+%d-%H-%M'
+}
+
+OVER_SAMPLE_RATE=$1
+
 
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
@@ -15,6 +28,9 @@ hf download \
     Maxwell-Jia/AIME_2024 \
     --repo-type dataset \
     --local-dir $HOME/data/Maxwell-Jia/AIME_2024
+
+
+EXPERIMENT_NAME="qwen3-4b_$(now)_$OVER_SAMPLE_RATE"
 
 
 python3 -m verl.trainer.main_ppo \
@@ -59,12 +75,13 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.multi_turn.tool_config_path=$PROJECT_DIR/recipe/retool/sandbox_fusion_tool_config.yaml \
     actor_rollout_ref.rollout.multi_turn.format=hermes \
     actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.rollout.over_sample_rate=$OVER_SAMPLE_RATE \
     actor_rollout_ref.rollout.val_kwargs.top_p=0.6 \
     actor_rollout_ref.rollout.val_kwargs.temperature=1.0 \
     actor_rollout_ref.rollout.val_kwargs.n=30 \
     trainer.logger=['console','wandb'] \
     trainer.project_name=sglang-dapo-multiturn \
-    trainer.experiment_name=qwen3-4b_dapo_multiturn \
+    trainer.experiment_name=$EXPERIMENT_NAME \
     trainer.n_gpus_per_node=4 \
     trainer.log_val_generations=20 \
     trainer.val_before_train=True \
