@@ -1130,12 +1130,9 @@ class SGLangRollout(BaseRollout):
                     while completed_count < target_completion:
                         await asyncio.sleep(0.1)
 
-                    # cancel remaining tasks
-                    cancelled_count = 0
                     for task in all_tasks:
                         if not task.done():
                             task.cancel()
-                            cancelled_count += 1
 
                     # send abort signal to engine, interrupt all ongoing requests
                     try:
