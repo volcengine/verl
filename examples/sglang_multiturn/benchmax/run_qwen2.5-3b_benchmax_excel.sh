@@ -12,8 +12,8 @@ PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 
 
-TRAIN_DATA="/data/excel/train.parquet"
-VAL_DATA="/data/excel/test.parquet"
+TRAIN_DATA="~/data/excel/train.parquet"
+VAL_DATA="~/data/excel/test.parquet"
 
 TOOL_CONFIG="$CONFIG_PATH/tool_config/benchmax_excel_tool_config.yaml"
 BENCHMAX_CLASS_NAME="benchmax.envs.excel.excel_env.ExcelEnv"
