@@ -34,11 +34,10 @@ from verl import DataProto
 
 class AgentManager:
     """
-    Agent manager is built with Agent-Lightning SDK.
-
     This class manages the server lifecycle, task queueing, and results
-    retrieval, while also running a proxy server for LLM requests. It maintains
-    the original interface for compatibility with the RayPPOTrainer.
+    retrieval, while also running a proxy server for LLM requests.
+
+    Agent manager depends on Agent-Lightning SDK for message passing and rollout management.
     """
 
     def __init__(
@@ -46,7 +45,7 @@ class AgentManager:
         server_port: int,
         proxy_port: int,
         train_rollout_n: int,
-        train_information: dict,
+        sampling_params: dict,
         mini_batch_size: int,
         pad_token_id: int,
     ):
@@ -57,7 +56,7 @@ class AgentManager:
 
         # Training configuration
         self.train_rollout_n = train_rollout_n
-        self.train_information = train_information
+        self.sampling_params = sampling_params
         self.mini_batch_size = mini_batch_size
         self.pad_token_id = pad_token_id
 
@@ -115,8 +114,8 @@ class AgentManager:
             {
                 "main_llm": LLM(
                     endpoint=f"http://127.0.0.1:{self.proxy_port}/v1",
-                    model=self.train_information.get("model", "default-model"),
-                    sampling_parameters={"temperature": self.train_information.get("temperature", 0.7)},
+                    model=self.sampling_params.get("model", "default-model"),
+                    sampling_parameters={"temperature": self.sampling_params.get("temperature", 0.7)},
                 )
             }
         )

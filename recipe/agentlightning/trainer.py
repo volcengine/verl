@@ -17,7 +17,6 @@
 
 import random
 from contextlib import contextmanager
-from copy import deepcopy
 from pprint import pprint
 
 import torch
@@ -34,16 +33,14 @@ from verl.trainer.ppo.metric_utils import (
     compute_timing_metrics,
 )
 from verl.trainer.ppo.ray_trainer import (
-    AdvantageEstimator,
     RayPPOTrainer,
-    apply_kl_penalty,
     compute_advantage,
     compute_response_mask,
 )
 from verl.utils.metric import reduce_metrics
 from verl.utils.tracking import Tracking
 
-from .daemon import AgentModeDaemon
+from .agent_manager import AgentManager
 
 
 @contextmanager
@@ -71,6 +68,10 @@ class AgentLightningTrainer(RayPPOTrainer):
     4. Streamlined validation using agent_mode validation
     """
 
+    def __init__(self, *args, pad_token_id=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.pad_token_id = pad_token_id
+
     def _validate(self):
         assert len(self.val_dataloader) == 1, "Please set val_batch_size to None for better throughput."
 
@@ -78,14 +79,14 @@ class AgentLightningTrainer(RayPPOTrainer):
         test_batch = DataProto.from_single_dict(test_data)
 
         self.async_rollout_manager.wake_up()
-        self.agent_mode_daemon.set_up_data_and_server(
+        self.agent_manager.set_up_data_and_server(
             test_batch.non_tensor_batch,
             self.async_rollout_manager.server_addresses,
             is_train=False,
         )
-        self.agent_mode_daemon.run_until_all_finished()
-        test_metrics = self.agent_mode_daemon.get_test_metrics()
-        self.agent_mode_daemon.clear_data_and_server()
+        self.agent_manager.run_until_all_finished()
+        test_metrics = self.agent_manager.get_test_metrics()
+        self.agent_manager.clear_data_and_server()
         self.async_rollout_manager.sleep()
         return test_metrics
 
@@ -102,34 +103,17 @@ class AgentLightningTrainer(RayPPOTrainer):
             # generate a batch
             with _timer("gen", timing_raw):
                 self.async_rollout_manager.wake_up()
-                self.agent_mode_daemon.set_up_data_and_server(
+                self.agent_manager.set_up_data_and_server(
                     gen_batch.non_tensor_batch, self.async_rollout_manager.server_addresses
                 )
-                self.agent_mode_daemon.run_until_all_finished()
-                batch, agent_metrics = self.agent_mode_daemon.get_train_data_batch(
+                self.agent_manager.run_until_all_finished()
+                batch = self.agent_manager.get_train_data_batch(
                     max_prompt_length=self.config.data.max_prompt_length,
                     max_response_length=self.config.data.max_response_length,
                     device=gen_batch.batch["fake_ids"].device,
                 )
-                metrics.update(agent_metrics)
-                self.agent_mode_daemon.clear_data_and_server()
+                self.agent_manager.clear_data_and_server()
                 self.async_rollout_manager.sleep()
-
-            if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
-                with _timer("gen_max", timing_raw):
-                    gen_baseline_batch = deepcopy(gen_batch)
-                    gen_baseline_batch.meta_info["do_sample"] = False
-                    gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
-
-                    batch = batch.union(gen_baseline_output)
-                    reward_baseline_tensor = self.reward_fn(batch)
-                    reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
-
-                    batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
-
-                    batch.batch["reward_baselines"] = reward_baseline_tensor
-
-                    del gen_baseline_batch, gen_baseline_output
 
             # uid is used for algorithm like GRPO, should be aligned to data id
             batch.non_tensor_batch["uid"] = batch.non_tensor_batch["data_id_list"]
@@ -138,14 +122,6 @@ class AgentLightningTrainer(RayPPOTrainer):
 
             # compute global_valid tokens
             batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
-
-            with _timer("reward", timing_raw):
-                # compute reward model score
-                if self.use_rm:
-                    reward_tensor = self.rm_wg.compute_rm_score(batch)
-                    batch = batch.union(reward_tensor)
-
-                reward_extra_infos_dict = {}
 
             # for agent mode, pad the lengths to calculate old log prob, ref, and values
             batch, pad_size = pad_dataproto_to_divisor(batch, self.actor_rollout_wg.world_size)
@@ -181,18 +157,9 @@ class AgentLightningTrainer(RayPPOTrainer):
             with _timer("adv", timing_raw):
                 # if agent_mode is enabled, there is already token_level_scores
                 # token_level_scores is not needed to compute here
-
-                # compute rewards. apply_kl_penalty if available
-                if self.config.algorithm.use_kl_in_reward:
-                    batch, kl_metrics = apply_kl_penalty(
-                        batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty
-                    )
-                    metrics.update(kl_metrics)
-                else:
-                    batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
+                batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
                 # compute advantages, executed on the driver process
-
                 norm_adv_by_std_in_grpo = self.config.algorithm.get(
                     "norm_adv_by_std_in_grpo", True
                 )  # GRPO adv normalization factor
@@ -215,49 +182,12 @@ class AgentLightningTrainer(RayPPOTrainer):
             batch.reorder(torch.tensor(random_indices).type(torch.int32))
             n_remained_transition = n_transition // mini_batch_size * mini_batch_size
             batch = batch[list(range(n_remained_transition))]
-            metrics["agent_mode/n_dropped_sample_because_of_mini_batch"] = n_transition - n_remained_transition
 
-            # Agent mode note: Change the order of balance batch;
-            #     1. first calculate advantage
-            #     2. then drop the samples (too long prompt & floor to ppo minisize)
-            #     3. balance
-            # balance the number of valid tokens on each dp rank.
-            # Note that this breaks the order of data inside the batch.
-            # Please take care when you implement group based adv computation such as GRPO and rloo
-            if self.config.trainer.balance_batch:
-                self._balance_batch(batch, metrics=metrics)
-
-            # update critic
-            if self.use_critic:
-                with _timer("update_critic", timing_raw):
-                    critic_output = self.critic_wg.update_critic(batch)
-                critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
-                metrics.update(critic_output_metrics)
-
-            # implement critic warmup
-            if self.config.trainer.critic_warmup <= self.global_steps:
-                # update actor
-                with _timer("update_actor", timing_raw):
-                    batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
-                    actor_output = self.actor_rollout_wg.update_actor(batch)
-                actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
-                metrics.update(actor_output_metrics)
-
-            # Log rollout generations if enabled
-            rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
-            if rollout_data_dir:
-                with _timer("dump_rollout_generations", timing_raw):
-                    print(batch.batch.keys())
-                    inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
-                    outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
-                    scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
-                    self._dump_generations(
-                        inputs=inputs,
-                        outputs=outputs,
-                        scores=scores,
-                        reward_extra_infos_dict=reward_extra_infos_dict,
-                        dump_path=rollout_data_dir,
-                    )
+            with _timer("update_actor", timing_raw):
+                batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
+                actor_output = self.actor_rollout_wg.update_actor(batch)
+            actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
+            metrics.update(actor_output_metrics)
 
         # compute training metrics
         metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
@@ -282,18 +212,18 @@ class AgentLightningTrainer(RayPPOTrainer):
         self._load_checkpoint()
 
         assert self.async_rollout_mode, "If agent mode is enabled, async server must be enabled"
-        self.agent_mode_daemon = AgentModeDaemon(
-            self.config.agentlightning.port,
+        self.agent_manager = AgentManager(
+            self.config.actor_rollout_ref.rollout.agent.server_port,
+            self.config.actor_rollout_ref.rollout.agent.proxy_port,
             self.config.actor_rollout_ref.rollout.n,
-            train_information={
+            sampling_params={
                 "model": self.config.actor_rollout_ref.model.path,
                 "temperature": self.config.actor_rollout_ref.rollout.temperature,
             },
-            tokenizer=self.tokenizer,
             mini_batch_size=self.config.actor_rollout_ref.actor.ppo_mini_batch_size,
-            pad_token_id=self.tokenizer.pad_token_id,
+            pad_token_id=self.pad_token_id,
         )
-        self.agent_mode_daemon.start()
+        self.agent_manager.start()
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
