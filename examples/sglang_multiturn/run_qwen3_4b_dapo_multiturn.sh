@@ -65,7 +65,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger=['console','wandb'] \
     trainer.project_name=sglang-dapo-multiturn \
     trainer.experiment_name=qwen3-4b_dapo_multiturn \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node=8 \
     trainer.log_val_generations=20 \
     trainer.val_before_train=True \
     trainer.nnodes=1 \
