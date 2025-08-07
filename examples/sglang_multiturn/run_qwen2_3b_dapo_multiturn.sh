@@ -33,7 +33,7 @@ python3 -m verl.trainer.main_ppo \
     data.custom_cls.name=CustomRLHFDataset \
     custom_reward_function.path=$PROJECT_DIR/recipe/retool/retool.py \
     custom_reward_function.name=compute_score \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-3B-Instruct \
+    actor_rollout_ref.model.path=Qwen/Qwen3-4B-Instruct-2507 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.use_kl_loss=False \
@@ -50,7 +50,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.rollout.mode=async \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.85 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.80 \
     actor_rollout_ref.rollout.multi_stage_wake_up=True \
     actor_rollout_ref.rollout.multi_turn.enable=True \
     actor_rollout_ref.rollout.multi_turn.max_user_turns=16 \
@@ -63,7 +63,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.val_kwargs.n=30 \
     trainer.logger=['console','wandb'] \
     trainer.project_name=sglang-dapo-multiturn \
-    trainer.experiment_name=qwen2_5-3b_dapo_multiturn \
+    trainer.experiment_name=qwen3-4b_dapo_multiturn \
     trainer.n_gpus_per_node=4 \
     trainer.log_val_generations=20 \
     trainer.val_before_train=True \
