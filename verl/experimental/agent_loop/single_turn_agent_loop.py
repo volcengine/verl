@@ -32,25 +32,34 @@ class SingleTurnAgentLoop(AgentLoopBase):
         self.prompt_length = self.config.actor_rollout_ref.rollout.prompt_length
         self.response_length = self.config.actor_rollout_ref.rollout.response_length
 
-    async def run(
-        self, messages: list[dict[str, Any]], sampling_params: dict[str, Any], token_ids: list[int]
-    ) -> AgentLoopOutput:
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         messages = list(kwargs["raw_prompt"])
+        token_ids = kwargs.get("token_ids", None)
+        partial_rollout = False
+        prompt_token_ids = kwargs.get("prompt_token_ids", None)
 
         metrics = {}
         request_id = uuid4().hex
+        prompt_token_ids = await self.loop.run_in_executor(
+            None, lambda: self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=True)
+        )
         if token_ids:
-            prompt_ids = token_ids
+            # partial rollout case:
+            prompt_ids = prompt_token_ids + token_ids
+            partial_rollout = True
         else:
-            prompt_ids = await self.loop.run_in_executor(
-                None, lambda: self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=True)
-            )
+            prompt_ids = prompt_token_ids
 
         with simple_timer("generate_sequences", metrics):
-            response_ids, interrupted = await self.server_manager.generate(
+            response_ids = await self.server_manager.generate(
                 request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params
             )
+        if partial_rollout:
+            # response_id = [prompt_ids-prompt_token_ids,response_ids]
+            response_ids = prompt_ids[len(prompt_token_ids) :] + response_ids
+            # prompt as original
+            prompt_ids = prompt_token_ids
+
         response_mask = [1] * len(response_ids)
 
         output = AgentLoopOutput(
@@ -59,6 +68,5 @@ class SingleTurnAgentLoop(AgentLoopBase):
             response_mask=response_mask[: self.response_length],
             num_turns=2,
             metrics=metrics,
-            interrupt=interrupted,
         )
         return output

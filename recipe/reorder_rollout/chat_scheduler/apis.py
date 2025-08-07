@@ -27,7 +27,6 @@ class RolloutReq:
 
     # maybe we can count the requeue times
     generation: int = 0
-    tokens: list[int] = None
 
 
 @dataclass

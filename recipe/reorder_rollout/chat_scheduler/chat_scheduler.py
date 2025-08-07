@@ -22,6 +22,7 @@ import traceback
 from concurrent.futures.thread import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Iterable, Protocol
 from uuid import uuid4
 
@@ -120,13 +121,11 @@ class ChatCompletionScheduler:
 class _Queue(asyncio.Queue):
     def __init__(self, maxsize=0, blocker: asyncio.Event = None):
         super().__init__(maxsize)
-        self.get_counter = 0
         self.blocker: asyncio.Event = blocker
 
     async def get(self):
         re = await super().get()
         await self.blocker.wait()
-        self.get_counter += 1
         return re
 
     def put_nowait(self, item):
@@ -353,7 +352,11 @@ class MicroBatchScheduler(ChatCompletionScheduler):
                 server_manager=proxy_mgr,
                 tokenizer=self.tokenizer,
             )
-            output = await agent_loop.run(messages, sampling_params, token_ids)
+            kwargs = dict(
+                raw_prompt=messages,
+                token_ids=token_ids,
+            )
+            output = await agent_loop.run(sampling_params, **kwargs)
             return output
 
 
@@ -371,12 +374,11 @@ class _Sample:
     n: int
     # should be placed in another data-structure
     temp_buffer: dict[int, list[int]]
-    joiner_flag: dict[int, bool]
     agent_loop_dict: dict[int, bool]
     staleness: int
 
 
-class PartialPolicy:
+class PartialPolicy(Enum):
     DROP = "drop"
     KEEP = "keep"
 
@@ -428,13 +430,14 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         self.max_in_mem_samples = self.prefetch_factor * self.batch_size
         self.print_rate = 0.1
         self._validate()
-        logger.info(
+        print(
             f"init with resource: tokenizer: {self.tokenizer},model name: {self.model_name}, max \
             prompt length: {self.max_prompt_length}, max response length: {self.max_response_length} \
             max_in_mem_samples: {self.max_in_mem_samples} \
             batch_size: {self.batch_size} \
             prefetch_factor: {self.prefetch_factor} \
-            synchronize_interval: {self.synchronize_interval}"
+            synchronize_interval: {self.synchronize_interval} \
+            partial_policy: {self.partial_policy}"
         )
 
     def _validate(self):
@@ -516,11 +519,15 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
                         batch,
                         gen_batch,
                         generation=0,
+                        model_name=self.model_name,
+                        messages=messages,
                         agent_name=agent_name,
                         trajectory_info=trajectory,
-                        messages=messages.tolist(),
-                        model_name=self.model_name,
                         sampling_params=sampling_params,
+                        n=self.config.n,
+                        temp_buffer={},
+                        agent_loop_dict={},
+                        staleness=0,
                     )
                     self.pending_sample[sample_id] = None
                     # for _ in range(n):
@@ -609,17 +616,40 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
     ):
         n_task_dict = {}
         mgr_dict = {}
+        has_abort = False
         sample_id = rollout_req.sample_id
         sample = self.all_sample[sample_id]
         exception = None
+        partial_sample = False
         try:
-            if len(sample.temp_buffer) == 0:
-                # first time handle in x batch
-                sample.generation = self.batch_counter
             # Only move from pending to active once
-            if sample_id in self.pending_sample:
-                self.pending_sample.pop(sample_id)
-                self.active_sample[sample_id] = None
+            assert sample_id in self.pending_sample, (
+                f"sample_id: {sample_id},pending_sample: {self.pending_sample.keys()}"
+            )
+            self.pending_sample.pop(sample_id)
+            self.active_sample[sample_id] = None
+            logger.debug(f"[ReorderScheduler] _run_agent_loop, sample: {sample_id}")
+            # apply rollout policy
+            # TODO: into a sperate func
+            if len(sample.agent_loop_dict) == sample.n:
+                # done already, apply rollout policy
+                if self.partial_policy == PartialPolicy.KEEP:
+                    # partial rollout case, ship to reduce queue
+                    logger.debug(
+                        f"[ReorderScheduler] _run_agent_loop, sample: {sample_id}, \
+                        partial_policy: {self.partial_policy},ship to reduce"
+                    )
+                    reduce_queue.put_nowait(
+                        RolloutResp(
+                            request=rollout_req,
+                            exception=None,
+                        )
+                    )
+                    return
+                else:
+                    # should drop all previous results
+                    sample.agent_loop_dict = {}
+                    sample.temp_buffer = {}
             for i in range(sample.n):
                 message = None
                 token_ids = None
@@ -630,6 +660,11 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
                 message = sample.messages
                 if i in sample.temp_buffer and self.partial_policy == PartialPolicy.KEEP:
                     token_ids = sample.temp_buffer[i]
+                    partial_sample = True
+                    logger.debug(
+                        f"[ReorderScheduler] _run_agent_loop, sample: {sample_id}, \
+                        partial_policy: {self.partial_policy},token_ids: {token_ids}"
+                    )
                 task = asyncio.create_task(
                     self._run_agent_loop(
                         sample.agent_name,
@@ -641,27 +676,46 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
                     )
                 )
                 n_task_dict[i] = task
-            await asyncio.gather([val for _, val in n_task_dict])
+            await asyncio.gather(*[val for _, val in n_task_dict.items()])
         except asyncio.CancelledError:
             for ids, mgr in mgr_dict.items():
                 if mgr.ray_awaitable is not None:
+                    has_abort = True
                     request_id = mgr.request_id
                     maybe_resp: RequestOutput = await mgr.server_handle.cancel.remote(request_id)
                     if maybe_resp is not None:
                         token_ids = maybe_resp.outputs[0].token_ids
                         sample.temp_buffer[ids] = token_ids
+            for ids in n_task_dict.keys():
+                if not n_task_dict[ids].cancelled() and n_task_dict[ids].done():
+                    logger.debug(
+                        f"[ReorderScheduler] _run_agent_loop cancel, \
+                          sample_id: {sample_id},ids: {n_task_dict[ids].result()}"
+                    )
+                    sample.agent_loop_dict[ids] = n_task_dict[ids].result()
+            logger.debug(f"[ReorderScheduler] _run_agent_loop cancel, sample_id: {sample_id},has_abort: {has_abort}")
+            return
         except Exception as e:
-            logger.exception(f"[ReorderScheduler] _run_agent_loop failed with exception: {e}")
+            traceback.print_exc()
+            print(f"[ReorderScheduler] _run_agent_loop failed with exception: {e}")
             exception = e
         # Update joiner state
         for ids in n_task_dict.keys():
             if n_task_dict[ids].done():
                 sample.agent_loop_dict[ids] = n_task_dict[ids].result()
+        # we don't put it back to the global queue, since we will requeue it later
+        # for active sample
+        if has_abort:
+            (f"[ReorderScheduler] _run_agent_loop abort, sample_id: {sample_id},has_abort: {has_abort}")
+            return
+        if partial_sample:
+            logger.debug(f"partial rollout result: sample_id:{sample_id} result {sample.agent_loop_dict}")
 
         resp = RolloutResp(
             request=rollout_req,
             exception=exception,
         )
+        logger.debug(f"[ReorderScheduler] _run_agent_loop done, resp: {resp}")
         reduce_queue.put_nowait(resp)
         return
 
@@ -687,14 +741,20 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
                     f" queue task: {self.global_data_queue._unfinished_tasks}"
                 )
             rollout_resp: RolloutResp = await self.reduce_data_queue.get()
-            sample = self.all_sample[rollout_resp.request.sample_id]
-            if len(sample.agent_loop_dict) != self.config.n:
-                # do nothing, remain active and wait for requeue
+            sample_id = rollout_resp.request.sample_id
+            sample = self.all_sample[sample_id]
+            if rollout_resp.request.generation != sample.generation:
+                # skip here, since it's stale generation
+                # for partial rollout allow this, the handle_reduce_req will handle
+                # this and send it directly to reduce queue with latest generation
+                print(
+                    f"stale generation, sample_id: {sample_id}, generation: \
+                    {rollout_resp.request.generation}, sample_generation: {sample.generation}"
+                )
                 continue
             if sink_queue is not None:
                 sink_queue.put(rollout_resp)
-            sample_id = rollout_resp.request.sample_id
-            assert sample_id in self.active_sample
+            assert sample_id in self.active_sample, f"sample_id: {sample_id}"
             if rollout_resp.exception is not None:
                 # maybe skip or requeue?  error handling issue
                 # should be handled by supervisor
@@ -708,7 +768,7 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
             gen_batch_proto_list.append(_sample.gen_batch)
             batch_proto_list.append(_sample.batch)
             self.done_sample[sample_id] = _sample
-            _sample.staleness = self.batch_counter - _sample.generation
+            _sample.staleness = _sample.generation
             counter += 1
         batch = concat_data_proto(batch_proto_list)
         gen_batch = concat_data_proto(gen_batch_proto_list)
@@ -764,8 +824,10 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         for sample_id in list(self.active_sample.keys()):
             self.active_sample.pop(sample_id)
             _sample: _Sample = self.all_sample.get(sample_id)
+            _sample.generation += 1
             self.pending_sample[sample_id] = None
             req: RolloutReq = deepcopy(_sample.rollout_req)
+            req.generation = _sample.generation
             self.global_data_queue.put_nowait(req)
         print(
             f"current queue size: {self.global_data_queue.qsize()},"
@@ -788,9 +850,9 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
         print(
             f"[ReorderScheduler] reorder rollout done, cancel all left request, real size: {len(batch_conversations)}"
         )
-        self.global_data_blocker.clear()
         await self.cancel_all_req()
         self._requeue_preempt_req()
+        self.global_data_blocker.clear()
         done_sample_ids = list(self.done_sample.keys())
         for sample_id in done_sample_ids:
             self.done_sample.pop(sample_id)

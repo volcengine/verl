@@ -221,12 +221,13 @@ def main(cfg):
     cfg.actor_rollout_ref.rollout.top_p = 0.6
     cfg.actor_rollout_ref.rollout.top_k = -1
     cfg.actor_rollout_ref.rollout.chat_scheduler.prefetch_factor = 1.5
+    cfg.actor_rollout_ref.rollout.chat_scheduler.partial_policy = "keep"
 
     batch_size = 1024
     cfg.data.train_batch_size = batch_size
     dataset = load_dataset(data_source="gsm8k", limit=5000)
 
-    mode = "use_sync"
+    mode = "use_reorder"
     if mode == "use_native":
         run_native_scheduler(cfg, dataset, batch_size)
     elif mode == "use_reorder":

@@ -93,8 +93,9 @@ class TestReorderScheduler:
         config.actor_rollout_ref.rollout.temperature = 0.5
         config.actor_rollout_ref.rollout.gpu_memory_utilization = 0.5
         config.data.train_batch_size = 3
-        config.actor_rollout_ref.rollout.n = 1
+        config.actor_rollout_ref.rollout.n = 5
         config.actor_rollout_ref.rollout.chat_scheduler.prefetch_factor = 2
+        config.actor_rollout_ref.rollout.chat_scheduler.partial_policy = "keep"
 
         from verl.utils import hf_tokenizer
         from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn

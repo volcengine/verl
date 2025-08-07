@@ -230,9 +230,13 @@ class WorkStealingActor:
                 if self.sink_queue is not None:
                     self.sink_queue.put_nowait(task)
                 # requeue since err like this means coros not execute at all
+                print(f"[WorkStealingActor] run, cancel task, task: {task}")
                 self.global_queue.put_nowait(task)
             except Exception as e:
-                logger.warning(f"Fatal Error: task {task} failed, actor_meta: {self.actor_meta}, error: {e}")
+                import traceback
+
+                traceback.print_exc()
+                print(f"Fatal Error: task {task} failed, actor_meta: {self.actor_meta}, error: {e}")
             finally:
                 self.cur_task = None
                 self.global_queue.task_done()
