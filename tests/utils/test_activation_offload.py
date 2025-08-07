@@ -146,7 +146,7 @@ def _fsdp_activation_offloading_test(rank, world_size, rendezvous_file, strategy
 
     # Record logits after loaded checkpoint and update
     with torch.no_grad():
-        logits_with_offloading = model(input_ids=input_ids2, attention_mask=position_ids2).logits
+        logits_with_offloading = model(input_ids=input_ids2, position_ids=position_ids2).logits
 
     # Step 4: Verify outputs match
     torch.testing.assert_close(logits_without_offloading, logits_with_offloading, atol=0.0, rtol=0.0)
