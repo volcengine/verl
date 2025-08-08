@@ -304,12 +304,11 @@ def apply_monkey_patch(
             module._flash_attention_forward = _ulysses_flash_attention_forward
             print(f"Monkey patch _flash_attention_forward in {model.__module__}")
         else:
-            # transformers>=4.48.0 transformers <= 4.53.0
-            if is_transformers_version_in_range(max_version="4.52.4"):
-                from transformers.integrations import flash_attention
+            # transformers>=4.48.0
+            from transformers.integrations import flash_attention
 
-                flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
-                print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
+            flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
+            print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
 
     patch_forward_with_backends(model, use_fused_kernels=use_fused_kernels, fused_kernels_backend=fused_kernels_backend)
 
