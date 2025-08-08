@@ -305,11 +305,7 @@ def test_tool_agent_with_interaction(init_config):
 
     interaction_config = {
         "interaction": [
-            {
-                "name": "weather",
-                "class_name": "verl.interactions.weather_interaction.WeatherInteraction",
-                "config": {}
-            }
+            {"name": "weather", "class_name": "verl.interactions.weather_interaction.WeatherInteraction", "config": {}}
         ]
     }
     interaction_config_path = "/tmp/interaction_config.json"
@@ -347,12 +343,14 @@ def test_tool_agent_with_interaction(init_config):
         non_tensor_batch={
             "raw_prompt": np.array([np.array(prompt) for prompt in raw_prompts], dtype=object),
             "agent_name": np.array(["tool_agent"] * len(raw_prompts)),
-            "extra_info": np.array([
-                {"interaction_kwargs": {"name": "weather"}},
-                {"interaction_kwargs": {"name": "weather"}},
-                {"interaction_kwargs": {"name": "weather"}},
-                {"interaction_kwargs": {"name": "weather"}},
-            ]),
+            "extra_info": np.array(
+                [
+                    {"interaction_kwargs": {"name": "weather"}},
+                    {"interaction_kwargs": {"name": "weather"}},
+                    {"interaction_kwargs": {"name": "weather"}},
+                    {"interaction_kwargs": {"name": "weather"}},
+                ]
+            ),
         },
     )
     batch = batch.repeat(n)
@@ -386,12 +384,8 @@ def test_tool_agent_with_interaction(init_config):
         valid_tokens = responses[i][response_mask[i].bool()]
         response_without_obs = tokenizer.decode(valid_tokens)
 
-        assert "\udb82\udc89" not in response_without_obs, (
-            f"found \udb82\udc89 in response: {response_without_obs}"
-        )
-        assert "\udb82\udc8a" not in response_without_obs, (
-            f"found \udb82\udc8a in response: {response_without_obs}"
-        )
+        assert "\udb82\udc89" not in response_without_obs, f"found \udb82\udc89 in response: {response_without_obs}"
+        assert "\udb82\udc8a" not in response_without_obs, f"found \udb82\udc8a in response: {response_without_obs}"
         print("=========================")
         print(response_with_obs)
         print("---")

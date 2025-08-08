@@ -1,4 +1,4 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,22 +15,24 @@ import asyncio
 import json
 import logging
 import os
-from typing import List, Dict, Any
+from typing import Any
 from uuid import uuid4
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
 from verl.experimental.agent_loop.tool_parser import FunctionCall, ToolParser
+from verl.interactions.base import BaseInteraction
+from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
 from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.profiler import simple_timer
 from verl.utils.rollout_trace import rollout_trace_op
-from verl.interactions.base import BaseInteraction
-from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
+
 class InteractionAgentLoopOutput(AgentLoopOutput):
-    turn_scores: List[float] = []
+    turn_scores: list[float] = []
+
 
 @register("tool_agent")
 class ToolAgentLoop(AgentLoopBase):
@@ -90,7 +92,7 @@ class ToolAgentLoop(AgentLoopBase):
                 )
             interaction = self.interaction_map[interaction_name]
             await interaction.start_interaction(request_id, **interaction_kwargs)
-        
+
         while True:
             with simple_timer("generate_sequences", metrics):
                 response_ids = await self.server_manager.generate(
@@ -125,12 +127,11 @@ class ToolAgentLoop(AgentLoopBase):
                 responses = await asyncio.gather(*tasks)
             if any(isinstance(item, Exception) for item in responses):
                 break
-            
+
             # Update interaction
             if self.interaction_config_file:
                 assistant_message = await self.loop.run_in_executor(
-                    None,
-                    lambda: self.tokenizer.decode(response_ids)
+                    None, lambda id=response_ids: self.tokenizer.decode(id)
                 )
                 messages.append({"role": "assistant", "content": assistant_message})
                 should_terminate_sequence, interaction_responses, reward, metrics = await interaction.generate_response(
@@ -138,7 +139,7 @@ class ToolAgentLoop(AgentLoopBase):
                 )
                 turn_scores.append(reward)
                 responses = responses + [{"role": "user", "content": interaction_responses}]
-                
+
             # append response_ids
             response_ids = await self.loop.run_in_executor(
                 None,
@@ -205,7 +206,6 @@ class ToolAgentLoop(AgentLoopBase):
             "content": tool_response_text,
         }
 
-
     @classmethod
     def _initialize_interactions(cls, interaction_config_file):
         """Initialize interactions from configuration.
@@ -214,7 +214,7 @@ class ToolAgentLoop(AgentLoopBase):
         """
         if interaction_config_file is None:
             return {}
-        
+
         interaction_map = initialize_interactions_from_config(interaction_config_file)
         logger.info(f"Initialize interactions from configuration: interaction_map: {list(interaction_map.keys())}")
         return interaction_map
