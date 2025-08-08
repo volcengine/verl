@@ -5,8 +5,7 @@ ulimit -n 65535
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 
-alias hf="huggingface-cli"
-
+pip install --upgrade "huggingface-hub>=0.34.0"
 hf download \
     BytedTsinghua-SIA/DAPO-Math-17k \
     --repo-type dataset \
