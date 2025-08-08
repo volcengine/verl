@@ -706,7 +706,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=get_device_id())
 
         with self.ulysses_sharding_manager:
-            data = self.ulysses_sharding_manager.preprocess_data(data=data)
             data = data.to("cpu")  # data will to device with each micro batch on actor.update_policy
 
             # perform training
