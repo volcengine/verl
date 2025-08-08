@@ -73,7 +73,13 @@ do_sample: True
 # number of responses (i.e. num sample times). > 1 for grpo
 n: 1
 
-# Whether to wake up inference engine in multi-stage to reduce peak memory during training-rollout transition.
+# The over_sample_rate parameter controls the early termination threshold for training rollouts,
+# where the system will abort remaining requests when (1 - over_sample_rate) * total_requests completions are reached.
+over_sample_rate: 0
+
+# Whether to wake up inference engine in multi-stage for SGLang
+# to reduce peak memory during training-rollout transition.
+# This is only effective for SGLang rollout.
 multi_stage_wake_up: false
 
 # Extra inference engine arguments (vllm, sglang).

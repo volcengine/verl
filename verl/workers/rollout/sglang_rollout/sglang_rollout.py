@@ -159,6 +159,20 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
     async def flush_cache(self):
         return await self.tokenizer_manager.flush_cache()
 
+    async def abort_request(self, rid: str = "", abort_all: bool = False):
+        """Abort a specific request or all requests.
+
+        Args:
+            rid: The request ID to abort. If empty and abort_all is False, no action is taken.
+            abort_all: If True, abort all running requests regardless of rid.
+        """
+        try:
+            result = self.tokenizer_manager.abort_request(rid=rid, abort_all=abort_all)
+            return result if result is not None else {"status": "aborted"}
+        except Exception as e:
+            logger.error(f"Failed to abort requests: {e}")
+            raise
+
 
 # NOTE(sgm): add for verl. We can optimize it by making
 #  the dataloader yield List[int] without padding.
@@ -861,7 +875,9 @@ class SGLangRollout(BaseRollout):
                 # Only continue the conversation if the prompt length is not greater than max_model_len - 1,
                 # since SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra
                 # token accounts for the EOS token).
-                if len(_req.get_generation_prompt_ids(self.processing_class)) + 1 >= self.config.max_model_len:
+                prompt_length = len(_req.get_generation_prompt_ids(self.processing_class))
+
+                if prompt_length + 1 >= self.config.max_model_len:
                     finish_reason_type = FinishReasonTypeEnum.LENGTH
                     break
 
@@ -1013,9 +1029,11 @@ class SGLangRollout(BaseRollout):
         self, generation_prompt_ids: list[int], sampling_params: dict, image_data: Optional[list[Any]] = None
     ) -> dict:
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
+
         kwargs = sampling_params.copy()
         kwargs["max_new_tokens"] = max_new_tokens
         kwargs["n"] = 1  # group size is supported in preprocess
+
         output = await self._engine.async_generate(
             input_ids=generation_prompt_ids,
             sampling_params=kwargs,
@@ -1050,16 +1068,6 @@ class SGLangRollout(BaseRollout):
 
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
-    def generate_sequences_with_tools(self, prompts: DataProto, **kwargs) -> DataProto:
-        logger.warning(
-            "`generate_sequences_with_tools` is deprecated, please use `generate_sequences(...)`",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._req_level_generate_sequences(prompts, **kwargs)
-
-    @GPUMemoryLogger(role="sglang rollout", logger=logger)
-    @torch.no_grad()
     def _req_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         """Generates multi-turn sequences for a batch of prompts.
         For multi-turn generation, each prompt is processed separately via
@@ -1071,16 +1079,103 @@ class SGLangRollout(BaseRollout):
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
         tgt_device = prompts.batch["input_ids"].device
+
         if self._tp_rank == 0:
             req_list = self._preprocess_prompt_to_async_rollout_requests(
                 prompts,
             )
-            loop = asyncio.get_event_loop()
-            output_req_list = loop.run_until_complete(
-                asyncio.gather(
-                    *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
-                )
-            )
+
+            # add progress monitoring and abort function
+            total_requests = len(req_list)
+            target_completion = int(total_requests * (1 - self.config.over_sample_rate))
+            # abort when target_completion of requests are completed
+            completed_count = 0
+            aborted_requests = []
+
+            # distinguish training and validation
+            if is_validate:
+                # validation mode: process all requests without abort
+                async def process_all_requests():
+                    return await asyncio.gather(
+                        *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
+                    )
+
+                loop = asyncio.get_event_loop()
+                output_req_list = loop.run_until_complete(process_all_requests())
+            else:
+                completion_lock = asyncio.Lock()
+                all_tasks = []
+
+                async def process_request_with_monitoring(req):
+                    nonlocal completed_count
+                    try:
+                        result = await self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
+
+                        async with completion_lock:
+                            if completed_count < target_completion:
+                                completed_count += 1
+                            return result
+                    except asyncio.CancelledError:
+                        # request is cancelled, return padding
+                        logger.info(f"Request {req.request_id} was cancelled, creating padding")
+                        aborted_requests.append(req.request_id)
+                        return self._create_padding_request(req)
+                    except Exception as e:
+                        logger.error(f"Uncaught exception in process_request_with_monitoring: {e}")
+                        logger.error("This shall not happen, please check the code")
+                        raise e
+
+                async def monitor_and_cancel():
+                    nonlocal completed_count
+                    while completed_count < target_completion:
+                        await asyncio.sleep(0.1)
+
+                    for task in all_tasks:
+                        if not task.done():
+                            task.cancel()
+
+                    # send abort signal to engine, interrupt all ongoing requests
+                    try:
+                        await self._engine.abort_request(abort_all=True)
+                    except Exception as e:
+                        logger.error(f"Failed to send abort signal to engine: {e}")
+
+                async def run_with_cancellation():
+                    nonlocal all_tasks
+
+                    # create all tasks
+                    all_tasks = [asyncio.create_task(process_request_with_monitoring(req)) for req in req_list]
+
+                    # start monitoring task
+                    monitor_task = asyncio.create_task(monitor_and_cancel())
+
+                    try:
+                        # wait for all tasks to complete (including cancelled ones)
+                        results = await asyncio.gather(*all_tasks, return_exceptions=True)
+
+                        # process results, convert exceptions to padding
+                        output_req_list = []
+                        for i, result in enumerate(results):
+                            if isinstance(result, Exception):
+                                # if it is an exception (including CancelledError), create padding
+                                logger.warning(f"Task {i} resulted in exception: {result}")
+                                output_req_list.append(self._create_padding_request(req_list[i]))
+                            else:
+                                output_req_list.append(result)
+
+                        return output_req_list
+                    finally:
+                        # cancel monitoring task
+                        monitor_task.cancel()
+                        try:
+                            await monitor_task
+                        except asyncio.CancelledError:
+                            pass
+
+                # run async tasks
+                loop = asyncio.get_event_loop()
+                output_req_list = loop.run_until_complete(run_with_cancellation())
+
             sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
         else:
             sorted_output_req_list = None
@@ -1267,6 +1362,88 @@ class SGLangRollout(BaseRollout):
             batch=batch,
             non_tensor_batch=non_tensor_batch,
         )
+
+    def _create_padding_request(self, original_req: AsyncRolloutRequest) -> AsyncRolloutRequest:
+        # create a padding request to replace the aborted request
+        # the padding request has the following characteristics:
+        # 1. state is COMPLETED, but contains empty response
+        # 2. response_loss_mask is all 0, ensuring it is ignored in loss calculation
+        # 3. keep the original request structure, but the content is empty
+        # create padding response_ids (all pad_token_id)
+        padding_response_length = self.config.response_length
+        padding_response_ids = torch.full(
+            (1, padding_response_length),
+            self.pad_token_id,
+            dtype=torch.long,
+            device=original_req.input_ids.device if original_req.input_ids is not None else "cpu",
+        )
+
+        # create padding attention_mask (all 0)
+        padding_response_attention_mask = torch.zeros(
+            (1, padding_response_length),
+            dtype=torch.long,
+            device=original_req.attention_mask.device if original_req.attention_mask is not None else "cpu",
+        )
+
+        # create padding position_ids
+        if original_req.position_ids is not None:
+            prompt_length = original_req.prompt_ids.shape[-1] if original_req.prompt_ids is not None else 0
+            padding_response_position_ids = torch.arange(
+                prompt_length, prompt_length + padding_response_length, dtype=torch.long
+            ).unsqueeze(0)
+            if original_req.position_ids.dim() == 2:
+                # if it is a 2D tensor (e.g. qwen2vl)
+                padding_response_position_ids = padding_response_position_ids.repeat(
+                    original_req.position_ids.shape[0], 1
+                )
+        else:
+            padding_response_position_ids = None
+
+        # create padding loss_mask (all 0, ensuring it is ignored)
+        padding_response_loss_mask = torch.zeros(
+            (1, padding_response_length),
+            dtype=torch.long,
+            device=original_req.loss_mask.device if original_req.loss_mask is not None else "cpu",
+        )
+
+        padding_req = AsyncRolloutRequest(
+            batch_data_id=original_req.batch_data_id,
+            rollout_offset=original_req.rollout_offset,
+            request_id=original_req.request_id + "_padding",
+            state=AsyncRolloutRequestStateEnum.COMPLETED,
+            messages=original_req.messages,
+            multi_modal_keys=original_req.multi_modal_keys,
+            multi_modal_data=original_req.multi_modal_data,
+            multi_modal_inputs=original_req.multi_modal_inputs,
+            tool_schemas=original_req.tool_schemas,
+            tools_kwargs=original_req.tools_kwargs,
+            interaction_kwargs=original_req.interaction_kwargs,
+            input_ids=original_req.input_ids,
+            prompt_ids=original_req.prompt_ids,
+            response_ids=padding_response_ids,
+            attention_mask=original_req.attention_mask,
+            prompt_attention_mask=original_req.prompt_attention_mask,
+            response_attention_mask=padding_response_attention_mask,
+            position_ids=original_req.position_ids,
+            prompt_position_ids=original_req.prompt_position_ids,
+            response_position_ids=padding_response_position_ids,
+            loss_mask=original_req.loss_mask,
+            prompt_loss_mask=original_req.prompt_loss_mask,
+            response_loss_mask=padding_response_loss_mask,
+            reward_scores={},
+            max_prompt_len=original_req.max_prompt_len,
+            max_response_len=original_req.max_response_len,
+            metrics={},
+            output_token_ids=None,
+            rollout_log_probs=None,
+            use_inference_chat_template=original_req.use_inference_chat_template,
+            tokenization_sanity_check_mode=original_req.tokenization_sanity_check_mode,
+            generation_prompt_ids=original_req.generation_prompt_ids,
+            base_conv_wo_gen_prompt_end_pos=original_req.base_conv_wo_gen_prompt_end_pos,
+            base_conv_with_gen_prompt_end_pos=original_req.base_conv_with_gen_prompt_end_pos,
+            processing_class=self.processing_class,
+        )
+        return padding_req
 
     def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: int = 1) -> list[AsyncRolloutRequest]:
         assert "raw_prompt" in prompts.non_tensor_batch, (
