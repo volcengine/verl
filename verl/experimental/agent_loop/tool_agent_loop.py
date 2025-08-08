@@ -60,7 +60,8 @@ class ToolAgentLoop(AgentLoopBase):
         cls.system_prompt = tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
         # Initialize interactions from config file
         cls.interaction_config_file = config.actor_rollout_ref.rollout.multi_turn.interaction_config_path
-        cls.interaction_map: dict[str, BaseInteraction] = cls._initialize_interactions(cls.interaction_config_file)
+        if cls.interaction_config_file:
+            cls.interaction_map: dict[str, BaseInteraction] = cls._initialize_interactions(cls.interaction_config_file)
 
     @rollout_trace_op
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
@@ -78,7 +79,7 @@ class ToolAgentLoop(AgentLoopBase):
         tools_kwargs = kwargs.get("tools_kwargs", {})
 
         user_turns, assistant_turns = 0, 0
-        if self.interaction_map:
+        if self.interaction_config_file:
             # Initialize interaction
             interaction_kwargs = kwargs["extra_info"]["interaction_kwargs"]
             interaction_name = interaction_kwargs.get("name", "gsm8k")  # Default to gsm8k for backward compatibility
@@ -88,6 +89,7 @@ class ToolAgentLoop(AgentLoopBase):
                     f"{list(self.interaction_map.keys())}"
                 )
             interaction = self.interaction_map[interaction_name]
+            await interaction.start_interaction(request_id, **interaction_kwargs)
         
         while True:
             with simple_timer("generate_sequences", metrics):
@@ -125,18 +127,18 @@ class ToolAgentLoop(AgentLoopBase):
                 break
             
             # Update interaction
-            if self.interaction_map:
-                messages.append(responses)
+            if self.interaction_config_file:
+                assistant_message = await self.loop.run_in_executor(
+                    None,
+                    lambda: self.tokenizer.decode(response_ids)
+                )
+                messages.append({"role": "assistant", "content": assistant_message})
                 should_terminate_sequence, interaction_responses, reward, metrics = await interaction.generate_response(
-                    request_id, messages, interaction_kwargs
+                    request_id, messages, **interaction_kwargs
                 )
                 turn_scores.append(reward)
                 responses = responses + [{"role": "user", "content": interaction_responses}]
-                if should_terminate_sequence:
-                    metrics["termination_reason"] = "interaction_terminated"
-                    break
                 
-
             # append response_ids
             response_ids = await self.loop.run_in_executor(
                 None,
@@ -154,10 +156,12 @@ class ToolAgentLoop(AgentLoopBase):
             prompt_ids += response_ids
             response_mask += [0] * len(response_ids)
             user_turns += 1
+            if self.interaction_config_file and should_terminate_sequence:
+                metrics["termination_reason"] = "interaction_terminated"
+                break
 
         response_ids = prompt_ids[-len(response_mask) :]
         prompt_ids = prompt_ids[: len(prompt_ids) - len(response_mask)]
-
         output = InteractionAgentLoopOutput(
             prompt_ids=prompt_ids,
             response_ids=response_ids[: self.response_length],
@@ -201,7 +205,9 @@ class ToolAgentLoop(AgentLoopBase):
             "content": tool_response_text,
         }
 
-    def _initialize_interactions(self, interaction_config_file: str):
+
+    @classmethod
+    def _initialize_interactions(cls, interaction_config_file):
         """Initialize interactions from configuration.
         Returns:
             dict[str, BaseInteraction]: A dictionary mapping interaction names to interaction instances.
