@@ -84,7 +84,9 @@ class ToolAgentLoop(AgentLoopBase):
         if self.interaction_config_file:
             # Initialize interaction
             interaction_kwargs = kwargs["extra_info"]["interaction_kwargs"]
-            interaction_name = interaction_kwargs.get("name", "gsm8k")  # Default to gsm8k for backward compatibility
+            if "name" not in interaction_kwargs:
+                raise ValueError("'name' key is required in interaction_kwargs")
+            interaction_name = interaction_kwargs["name"]
             if interaction_name not in self.interaction_map:
                 raise ValueError(
                     f"Interaction '{interaction_name}' not found in interaction_map. Available interactions: "
