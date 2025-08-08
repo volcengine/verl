@@ -305,7 +305,7 @@ def apply_monkey_patch(
             print(f"Monkey patch _flash_attention_forward in {model.__module__}")
         else:
             # transformers>=4.48.0 transformers <= 4.53.0
-            if is_transformers_version_in_range(max_version="4.52."):
+            if is_transformers_version_in_range(max_version="4.52.4"):
                 from transformers.integrations import flash_attention
 
                 flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
