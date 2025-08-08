@@ -17,10 +17,14 @@ from dataclasses import dataclass, field
 
 import torch
 
+import os
+import datetime
+
 from verl.single_controller.base import Worker
 from verl import DataProto
 import ray
 
+from verl.single_controller.base.decorator import register, make_nd_compute_dataproto_dispatch_fn
 
 from verl.base_config import BaseConfig
 
@@ -121,26 +125,54 @@ class RolloutConfig(BaseConfig):
 class RolloutWorker(Worker):
     def __init__(self, config: RolloutConfig) -> None:
         super().__init__()
+        self.config = config
         import torch.distributed
+
+        self.device_name = get_device_name()
 
         if not torch.distributed.is_initialized():
             rank = int(os.environ.get("RANK", 0))
             world_size = int(os.environ.get("WORLD_SIZE", 1))
             torch.distributed.init_process_group(
-                backend=f"cpu:gloo,{get_device_name()}:{get_nccl_backend()}",
+                backend=f"cpu:gloo,{self.device_name}:{get_nccl_backend()}",
                 rank=rank,
                 world_size=world_size,
                 timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
 
+        from torch.distributed.device_mesh import init_device_mesh
+
+        # TODO(sgm): support FSDP hybrid shard for larger model
+        infer_tp = self.config.tensor_model_parallel_size
+        dp = self.world_size // infer_tp
+        assert self.world_size % infer_tp == 0, (
+            f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
+        )
+        rollout_device_mesh = init_device_mesh(
+            self.device_name, mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
+        )
+
+        rollout_name = self.config.name
+
+        if rollout_name == "hf":
+            self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
+        else:
+            is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
+            self._register_dispatch_collect_info(
+                "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+            )
+
         # build rollout engine here
+        if self.config.name == "hf":
+            pass
+        elif self.config.name == "vllm":
+            pass
+        elif self.config.name == "sglang":
+            pass
 
-
-        # setup device mesh binding logics
-
-
-
+        
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="infer"))
     def generate_sequences(self, data: DataProto):
         """Given a batch of prompts, return a batch of responses. Internally, it can use 
         """
