@@ -132,8 +132,11 @@ class RLHFDataset(Dataset):
             tokenizer = self.tokenizer
             prompt_key = self.prompt_key
             self.dataframe = self.dataframe.filter(
-                lambda doc: len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)
-                               ) <= self.max_prompt_length,
+                lambda doc: len(
+                    tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)
+                    if tokenizer.chat_template
+                    else tokenizer.encode('\n'.join([f"{message['role']}: {message['content']}" for message in doc[prompt_key]]))
+                ) <= self.max_prompt_length,
                 num_proc=self.num_workers,
                 desc=f"Filtering prompts longer than {self.max_prompt_length} tokens")
 
@@ -184,7 +187,11 @@ class RLHFDataset(Dataset):
             row_dict["multi_modal_data"] = {"image": images}
             row_dict["multi_modal_inputs"] = dict(model_inputs)
         else:
-            raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            if self.tokenizer.chat_template:
+                raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            else:
+                message_text_list = [f"{message['role']}: {message['content']}" for message in messages]
+                raw_prompt = '\n'.join(message_text_list)
             model_inputs = self.tokenizer(raw_prompt, return_tensors='pt', add_special_tokens=False)
             input_ids = model_inputs.pop('input_ids')
             attention_mask = model_inputs.pop('attention_mask')

@@ -1,4 +1,8 @@
 # requirements.txt records the full set of dependencies for development
+torch==2.6.0
+torchvision==0.21.0
+torchaudio==2.6.0
+
 accelerate
 codetiming
 datasets
@@ -6,7 +10,7 @@ dill
 flash-attn
 hydra-core
 liger-kernel
-numpy
+numpy==1.26.4
 pandas
 datasets
 peft
@@ -18,5 +22,5 @@ ray[default]
 tensordict<=0.6.2
 torchdata
 transformers
-# vllm==0.6.3.post1
+vllm==0.6.3.post1
 wandb
