@@ -47,6 +47,9 @@ optim:
   # LR warmup style: "constant" or "cosine"
   warmup_style: constant
 
+  # fsdp specific config
+  fsdp: {}
+
 # configs for FSDP
 fsdp_config:
 

@@ -230,11 +230,12 @@ def init_megatron_optim_config(optim_config: dict) -> OptimizerConfig:
         "use_distributed_optimizer": True,
     }
     config_kwargs.update(optim_config)
+    config_kwargs.pop("megatron")
+    config_kwargs.update(optim_config.megatron)
 
     # Filter for arguments that are valid for OptimizerConfig
     valid_field_names = {f.name for f in fields(OptimizerConfig)}
     filtered_kwargs = {k: v for k, v in config_kwargs.items() if k in valid_field_names}
-
     return OptimizerConfig(**filtered_kwargs)
 
 
