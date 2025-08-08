@@ -83,14 +83,20 @@ class AsyncServerBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
+    async def generate(
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
+    ) -> list[int]:
         """Generate response ids given prompt ids.
 
         Args:
             prompt_ids (List[int]): prompt ids
             sampling_params (Dict[str, Any]): sampling params
             request_id (str): request id
-
+            image_data (Optional[list[Any]]): image data
         Returns:
             List[int]: response ids
         """
