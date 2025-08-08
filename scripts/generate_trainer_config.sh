@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euox pipefail
 
-
 # Define config specifications: "config_name:output_file:config_arg"
 CONFIG_SPECS=(
     "ppo_trainer:_generated_ppo_trainer.yaml:"
