@@ -101,17 +101,6 @@ def _set_envs_and_config(server_args: ServerArgs):
     # Set ulimit
     set_ulimit()
 
-    # Fix triton bugs
-    try:
-        from sglang.srt.utils import maybe_set_triton_cache_manager
-
-        if server_args.tp_size * server_args.dp_size > 1:
-            # FIXME: remove this after https://github.com/triton-lang/triton/pull/4295 is used as a dependency.
-            maybe_set_triton_cache_manager()
-    except ImportError:
-        # Fixed in sglang 0.4.9
-        pass
-
     # Check flashinfer version
     if server_args.attention_backend == "flashinfer":
         assert_pkg_version(
@@ -180,6 +169,22 @@ def _pre_process_inputs(
     # remove the left padding in the prompt token_id
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
     return prompt_token_ids[non_pad_index:]
+
+
+def _extract_logprob_from_output(output):
+    """
+    extract log_prob from single sglang inference output
+    """
+
+    def _map_each_response(resp):
+        input_token_logprobs = resp["meta_info"]["input_token_logprobs"]
+        log_probs, output_token_ids = zip(
+            *[(log_prob, token_ids) for log_prob, token_ids, _ in input_token_logprobs[1:]], strict=False
+        )
+        return torch.tensor(output_token_ids), torch.tensor(log_probs)
+
+    output_token_ids, log_probs = _map_each_response(output)
+    return output_token_ids, log_probs
 
 
 # NOTE(linjunrong): adhoc
@@ -983,7 +988,19 @@ class SGLangRollout(BaseRollout):
         tool_reward_scores = dict(tool_reward_scores)
         all_rewards = {**tool_reward_scores, **{"user_turn_rewards": user_turn_rewards}}
         _req.finalize(self.processing_class, all_rewards, finish_reason_type)
-
+        if self.config.calculate_log_probs:
+            # 把input_ids输入sglang内生成一遍，并设置max_new_tokens=0，以生成log_probs
+            debug_sampling_params = {**self.sampling_params}
+            debug_sampling_params["max_new_tokens"] = 0
+            output = await self._engine.async_generate(
+                prompt=None,
+                input_ids=_req.input_ids,
+                sampling_params=debug_sampling_params,
+                return_logprob=True,
+                logprob_start_len=0,
+            )
+            # len(input_token_logprobs) = len(input_tokens)-1，because logprob of 1st token is None
+            _req.output_token_ids, _req.rollout_log_probs = _extract_logprob_from_output(output)
         return _req
 
     async def _handle_engine_call(
@@ -1085,6 +1102,9 @@ class SGLangRollout(BaseRollout):
         reward_scores = []
         multi_modal_inputs = []
         request_ids = []
+        if self.config.calculate_log_probs:
+            output_logprobs = []
+            rollout_output_token_ids = []
 
         for req in sorted_output_req_list:
             assert req.state == AsyncRolloutRequestStateEnum.COMPLETED, f"Request {req.request_id} is not completed"
@@ -1125,6 +1145,10 @@ class SGLangRollout(BaseRollout):
             reward_scores.append(req.reward_scores)
             multi_modal_inputs.append(req.multi_modal_inputs)
             request_ids.append(req.request_id)
+            if self.config.calculate_log_probs:
+                # extract output log_probs
+                output_logprobs.append(req.rollout_log_probs[-len(req.response_ids) :])
+                rollout_output_token_ids.append(req.output_token_ids[-len(req.response_ids) :])
 
         prompt_ids = pad_sequence(
             prompt_ids,
@@ -1189,6 +1213,17 @@ class SGLangRollout(BaseRollout):
         response_loss_mask = pad_sequence(response_loss_mask, batch_first=True, padding_value=0)
         if response_loss_mask.shape[1] < self.config.response_length:
             response_loss_mask = pad_sequence_to_length(response_loss_mask, self.config.response_length, 0)
+        if self.config.calculate_log_probs:
+            output_logprobs = pad_sequence(output_logprobs, padding_value=0.0, batch_first=True)
+            output_logprobs = pad_sequence_to_length(
+                output_logprobs, pad_token_id=0.0, max_seq_len=response_ids.shape[-1]
+            ).to(tgt_device)
+            rollout_output_token_ids = pad_sequence(
+                rollout_output_token_ids, padding_value=self.pad_token_id, batch_first=True
+            )
+            rollout_output_token_ids = pad_sequence_to_length(
+                rollout_output_token_ids, pad_token_id=self.pad_token_id, max_seq_len=response_ids.shape[-1]
+            ).to(tgt_device)
 
         input_ids = torch.cat((prompt_ids, response_ids), dim=-1)
         attention_mask = torch.cat((prompt_attention_mask, response_attention_mask), dim=-1)
@@ -1206,6 +1241,9 @@ class SGLangRollout(BaseRollout):
             },
             batch_size=len(sorted_output_req_list),
         )
+        if self.config.calculate_log_probs:
+            batch["rollout_log_probs"] = output_logprobs
+            batch["rollout_output_token_ids"] = rollout_output_token_ids
 
         # free cache engine
         if self._engine is not None and self._tp_rank == 0:
