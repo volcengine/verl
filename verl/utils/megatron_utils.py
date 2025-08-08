@@ -219,16 +219,18 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
 
 
 def init_megatron_optim_config(optim_config: dict) -> OptimizerConfig:
+    # We enable some optimization configurations by default. For all other Megatron configurations,
+    # please check the official Megatron documentation.
+    # https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/optimizer/optimizer_config.py
     config = OptimizerConfig(
-        optimizer=optim_config.get("optimizer", "adam"),
-        lr=optim_config.get("lr"),
-        min_lr=optim_config.get("min_lr", None),
-        clip_grad=optim_config.get("clip_grad", 1.0),
-        weight_decay=optim_config.get("weight_decay", 0.01),
         bf16=True,
         params_dtype=torch.bfloat16,
         use_distributed_optimizer=True,
     )
+    for name, value in optim_config.items():
+        if hasattr(config, name):
+            setattr(config, name, value)
+
     return config
 
 
