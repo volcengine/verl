@@ -453,7 +453,7 @@ class FSDPSFTTrainer:
 
     def training_step(self, batch: TensorDict):
         start_time = time.time()
-        
+
         self.fsdp_model.train()
 
         log_gpu_memory_usage("Before optimizer zero_grad", logger=logger)
@@ -495,17 +495,21 @@ class FSDPSFTTrainer:
         log_gpu_memory_usage("After offload weights", logger=logger)
 
         step_loss = torch.tensor(step_loss).to(self.device_name)
-        
+
         # compute time spent per step
         end_time = time.time()
         spend_time_per_step = end_time - start_time
-        
+
         if is_cuda_available:
             torch.distributed.all_reduce(step_loss, op=torch.distributed.ReduceOp.AVG)
         elif is_npu_available:
             torch.distributed.all_reduce(step_loss)
             step_loss /= self.device_mesh.size(0)
-        return {"train/loss": step_loss.detach().item(), "train/lr(1e-3)": lr * 1e3, "train/time(s)": spend_time_per_step}
+        return {
+            "train/loss": step_loss.detach().item(),
+            "train/lr(1e-3)": lr * 1e3,
+            "train/time(s)": spend_time_per_step,
+        }
 
     def validation_step(self, batch: TensorDict):
         self.fsdp_model.eval()

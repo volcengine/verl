@@ -4,7 +4,7 @@ set -x
 nnodes=1
 nproc_per_node=8
 
-project_name=retool
+project_name=retool_sft
 experiment_name=multiturn-sft-qwen-2.5-7b-instruct
 
 TRAIN_DATA=PATH/TO/ReTool-SFT/data/train-00000-of-00001.parquet
