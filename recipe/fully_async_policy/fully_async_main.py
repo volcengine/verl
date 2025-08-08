@@ -204,6 +204,7 @@ class FullyAsyncTaskRunner:
 
         self.components["tokenizer"] = tokenizer
         self.components["processor"] = processor
+        self.components["config"] = config  # 保存config以供其他方法使用
 
         # 创建worker映射和资源池
         print("Creating worker mapping and resource pools...")
@@ -244,14 +245,22 @@ class FullyAsyncTaskRunner:
         self._create_trainer(config)
 
         # 设置参数同步
-        # print("Setting up parameter synchronization...")
-        # param_synchronizer = AsyncParameterSynchronizer(
-        #     config=config,
-        #     actor_wg=self.components["trainer"].actor_wg,
-        #     rollouter=self.components["rollouter"],
-        # )
-        # self.components["param_synchronizer"] = param_synchronizer
-        # print("All components initialized successfully")
+        print("Setting up parameter synchronization...")
+        from recipe.fully_async_policy.param_sync import ParameterSynchronizer
+
+        param_synchronizer = ParameterSynchronizer(
+            config=config,
+            actor_wg=self.components["trainer"],
+            rollout_wg=self.components["rollouter"],
+        )
+
+        # 将参数同步器设置到trainer和rollouter
+        ray.get(self.components["trainer"].set_parameter_synchronizer.remote(param_synchronizer))
+        ray.get(self.components["rollouter"].set_parameter_synchronizer.remote(param_synchronizer))
+
+        self.components["param_synchronizer"] = param_synchronizer
+        print("Parameter synchronizer initialized successfully")
+        print("All components initialized successfully")
 
     def _create_rollouter(self, config) -> None:
         """创建Rollouter"""
@@ -312,7 +321,6 @@ class FullyAsyncTaskRunner:
         print("Starting Rollouter in background...")
         rollouter_future = self.components["rollouter"].fit.remote()
         trainer_future = self.components["trainer"].fit.remote()
-        # self._monitor_components()
 
         print("Starting Trainer...")
         time.sleep(10)
@@ -323,136 +331,6 @@ class FullyAsyncTaskRunner:
         self.components["message_queue_client"].clear_queue()
 
         print("Training completed or interrupted")
-
-    def _monitor_components(self):
-        """监控组件状态"""
-        print("Starting component monitoring...")
-
-        last_stats_time = time.time()
-        stats_interval = 60.0  # 60秒报告一次统计
-
-        while self.running and not self.shutdown_event.is_set():
-            try:
-                # 等待一段时间或直到收到停止信号
-                if self.shutdown_event.wait(timeout=10.0):
-                    break
-
-                # 定期报告统计信息
-                current_time = time.time()
-                if current_time - last_stats_time >= stats_interval:
-                    self._log_component_statistics()
-                    last_stats_time = current_time
-
-                # 检查组件健康状态
-                self._check_component_health()
-
-            except Exception as e:
-                print(f"Error in component monitoring: {e}")
-
-        print("Component monitoring stopped")
-
-    def _log_component_statistics(self):
-        """记录组件统计信息"""
-        try:
-            # 获取Trainer统计
-            trainer_stats = self.components["trainer"].get_statistics()
-
-            # 获取Rollouter统计
-            rollouter_stats = ray.get(self.components["rollouter"].get_statistics.remote(), timeout=5.0)
-
-            # 获取队列统计
-            queue_stats = self.components["message_queue_client"].get_statistics()
-
-            print("=== Component Statistics ===")
-            print(
-                f"Trainer - Steps: {trainer_stats['global_steps']}, "
-                f"Samples: {trainer_stats['processed_samples']}, "
-                f"Param version: {trainer_stats['current_param_version']}"
-            )
-
-            print(
-                f"Rollouter - Generated: {rollouter_stats['total_generated_samples']}, "
-                f"Dropped: {rollouter_stats['dropped_stale_samples']}, "
-                f"Errors: {rollouter_stats['generation_errors']}"
-            )
-
-            print(
-                f"Queue - Size: {queue_stats['queue_size']}, "
-                f"Produced: {queue_stats['total_produced']}, "
-                f"Consumed: {queue_stats['total_consumed']}"
-            )
-
-        except Exception as e:
-            print(f"Error getting component statistics: {e}")
-
-    def _check_component_health(self):
-        """检查组件健康状态"""
-        try:
-            # 检查trainer是否仍在运行
-            if hasattr(self.components["trainer"], "global_steps"):
-                current_steps = self.components["trainer"].global_steps
-                # 可以添加更多健康检查逻辑
-                print(current_steps)
-
-            # 检查rollouter是否仍在运行
-            rollouter_stats = ray.get(self.components["rollouter"].get_statistics.remote(), timeout=5.0)
-
-            if not rollouter_stats["is_running"]:
-                print("Rollouter is not running!")
-                # 可以尝试重启或报告错误
-
-        except Exception as e:
-            print(f"Health check failed: {e}")
-
-    def _cleanup_resources(self):
-        """清理资源"""
-        print("Cleaning up resources...")
-
-        try:
-            # 停止Rollouter
-            if "rollouter" in self.components:
-                print("Shutting down Rollouter...")
-                try:
-                    shutdown_future = self.components["rollouter"].shutdown.remote()
-                    ray.get(shutdown_future, timeout=10.0)
-                except Exception as e:
-                    print(f"Error shutting down Rollouter: {e}")
-
-            # 清理MessageQueue
-            if "message_queue_client" in self.components:
-                print("Cleaning up MessageQueue...")
-                try:
-                    self.components["message_queue_client"].shutdown()
-                except Exception as e:
-                    print(f"Error cleaning up MessageQueue: {e}")
-
-            # 清理参数同步器
-            if "param_synchronizer" in self.components:
-                print("Cleaning up parameter synchronizer...")
-                # TODO: 添加参数同步器的清理逻辑
-
-            print("Resource cleanup completed")
-
-        except Exception as e:
-            print(f"Error during cleanup: {e}")
-
-    def get_training_status(self) -> dict:
-        """获取训练状态"""
-        if not self.running or "trainer" not in self.components:
-            return {"status": "not_running"}
-
-        try:
-            trainer_stats = self.components["trainer"].get_statistics()
-            rollouter_stats = ray.get(self.components["rollouter"].get_statistics.remote(), timeout=5.0)
-
-            return {
-                "status": "running",
-                "trainer_stats": trainer_stats,
-                "rollouter_stats": rollouter_stats,
-            }
-        except Exception as e:
-            print(f"Error getting training status: {e}")
-            return {"status": "error", "error": str(e)}
 
 
 @hydra.main(config_path="config", config_name="fully_async_ppo_trainer", version_base=None)

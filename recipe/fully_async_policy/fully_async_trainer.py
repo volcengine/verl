@@ -22,7 +22,6 @@ from typing import Any
 import numpy as np
 import ray
 from omegaconf import OmegaConf
-from tqdm import tqdm
 
 from recipe.fully_async_policy.message_queue import MessageQueueClient, QueueSample
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
@@ -127,6 +126,11 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.current_param_version = 0
         self.param_sync_count = 0
 
+        # 参数同步相关状态
+        self._weights_info = None
+        self._is_actor = False  # 将在init_worker_group中设置
+        self._is_rollout = False
+
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """设置消息队列客户端"""
         with self.lock:
@@ -136,6 +140,60 @@ class FullyAsyncTrainer(RayPPOTrainer):
         """设置参数同步器"""
         with self.lock:
             self.param_synchronizer = param_synchronizer
+
+    def _get_actor_params(self):
+        """
+        获取actor参数 - 基于one_step_off_policy的实现
+        """
+        if not hasattr(self, "actor_wg") or self.actor_wg is None:
+            raise ValueError("Actor worker group not initialized")
+
+        # 从actor worker group获取参数
+        actor_workers = self.actor_wg.workers
+        if not actor_workers:
+            raise ValueError("No actor workers available")
+
+        # 获取第一个actor worker的参数信息
+        params_future = actor_workers[0]._get_actor_params.remote()
+        params = ray.get(params_future, timeout=10.0)
+        return params
+
+    def get_actor_weights_info(self):
+        """
+        获取actor权重信息 - 基于one_step_off_policy的模式
+        """
+        if hasattr(self, "_weights_info") and self._weights_info is not None:
+            return self._weights_info
+
+        if not hasattr(self, "actor_wg") or self.actor_wg is None:
+            raise ValueError("Actor worker group not initialized")
+
+        # 从actor worker group获取权重信息
+        weights_info_future = self.actor_wg.get_actor_weights_info.remote()
+        weights_info = ray.get(weights_info_future, timeout=10.0)
+
+        # 缓存权重信息
+        self._weights_info = weights_info[0] if isinstance(weights_info, list) else weights_info
+        return self._weights_info
+
+    def sync_rollout_weights(self):
+        """
+        同步rollout权重 - Actor端的同步操作
+        """
+        if not hasattr(self, "actor_wg") or self.actor_wg is None:
+            logger.warning("Actor worker group not initialized for sync")
+            return False
+
+        try:
+            # 触发actor worker group的参数同步
+            sync_future = self.actor_wg.sync_rollout_weights.remote()
+            ray.get(sync_future, timeout=30.0)
+            logger.debug("Actor weights sync completed")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to sync actor weights: {e}")
+            return False
 
     def _get_samples_from_queue(self) -> tuple[None, None] | tuple[int, Any]:
         """
@@ -287,7 +345,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         from verl.utils.tracking import Tracking
 
-        logger = Tracking(
+        self.logger = Tracking(
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
             default_backend=self.config.trainer.logger,
@@ -330,7 +388,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
                 queue_stats = self.message_queue_client.get_statistics()
                 print(f"Queue status before getting samples: {queue_stats}")
 
-                if queue_stats.get('queue_size', 0) == 0:
+                if queue_stats.get("queue_size", 0) == 0:
                     print("WARNING: Queue is empty, will block waiting for samples")
 
             metrics = {}
@@ -399,35 +457,22 @@ class FullyAsyncTrainer(RayPPOTrainer):
             # self._post_batch_processing(batch)
 
             print("step end")
-            #
-            # # TODO: make a canonical logger that supports various backend
-            # print(data=metrics, step=self.global_steps)
-            #
-            # # progress_bar.update(1)
-            # self.global_steps += 1
+
+            # 在训练步骤结束后触发参数同步
+            self._trigger_parameter_sync_after_step()
+
+            # TODO: make a canonical logger that supports various backend
+            print(data=metrics, step=self.global_steps)
+
+            # progress_bar.update(1)
+            self.global_steps += 1
             print("is_last_step")
             # if is_last_step:
             #     pprint(f"Final validation metrics: {last_val_metrics}")
             #     print("is_last_step")
             #     # progress_bar.close()
             #     return
-            #
-            #
-            # # 检查队列状态
-            # if self.message_queue_client:
-            #     queue_stats = self.message_queue_client.get_statistics()
-            #     print(f"Queue status before getting samples: {queue_stats}")
-            #
-            #     if queue_stats.get('queue_size', 0) == 0:
-            #         print("WARNING: Queue is empty, will block waiting for samples")
-            #
-            # with marked_timer("gen", timing_raw, color="red"):
-            #     epoch, batch = self._get_samples_from_queue()
-            #     if batch is None:
-            #         break
-
-
-
+            ray.get(self.param_synchronizer.sync_weights.remote(self.global_steps))
 
     def get_statistics(self) -> dict:
         """获取训练统计信息"""
@@ -443,6 +488,59 @@ class FullyAsyncTrainer(RayPPOTrainer):
             "queue_total_consumed": queue_stats.get("total_consumed", 0),
             "queue_dropped_samples": queue_stats.get("dropped_samples", 0),
         }
+
+    def _trigger_parameter_sync_after_step(self):
+        """
+        在训练步骤结束后触发参数同步
+        这确保rollouter总是使用最新训练的参数
+        """
+        if not self.param_synchronizer:
+            logger.debug("No parameter synchronizer available, skipping sync")
+            return
+
+        try:
+            # 更新参数版本号
+            new_version = self.current_param_version + 1
+
+            print(
+                f"[TRAINER] Triggering parameter sync after training step {self.global_steps}, version: {new_version}"
+            )
+            logger.info(f"Triggering parameter sync after training step {self.global_steps}, version: {new_version}")
+
+            # 异步触发参数同步，不阻塞训练流程
+            import threading
+
+            sync_thread = threading.Thread(target=self._async_parameter_sync, args=(new_version,), daemon=True)
+            sync_thread.start()
+
+        except Exception as e:
+            logger.error(f"Error triggering parameter sync: {e}")
+
+    def _async_parameter_sync(self, new_version: int):
+        """
+        异步执行参数同步，避免阻塞训练流程
+
+        Args:
+            new_version: 新的参数版本号
+        """
+        try:
+            # 执行参数同步
+            success = self.param_synchronizer.sync_to_rollouter(new_version)
+
+            if success:
+                # 更新本地参数版本
+                with self.lock:
+                    self.current_param_version = new_version
+                    self.param_sync_count += 1
+
+                print(f"[TRAINER] Parameter sync completed successfully for version {new_version}")
+                logger.info(f"Parameter sync completed successfully for version {new_version}")
+            else:
+                print(f"[TRAINER] Parameter sync failed for version {new_version}")
+                logger.warning(f"Parameter sync failed for version {new_version}")
+
+        except Exception as e:
+            logger.error(f"Error in async parameter sync: {e}")
 
     def update_param_version(self, param_version: int) -> bool:
         """

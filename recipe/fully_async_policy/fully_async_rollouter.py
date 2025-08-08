@@ -138,6 +138,11 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.sync_in_progress = False
         self.sync_lock = threading.Lock()
 
+        # 参数同步状态 - 基于one_step_off_policy模式
+        self._weights_info = None
+        self._is_rollout = True  # rollouter是rollout角色
+        self._is_actor = False
+
         self.max_queue_size = max_queue_size
 
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
