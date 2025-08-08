@@ -31,10 +31,16 @@ gpu_memory_utilization: 0.5
 # Whether to ignore EOS and continue generating after EOS is hit.
 ignore_eos: False
 
-# Whether to disable CUDA graph. Default True to allow cache freeing.
-enforce_eager: True
+# Whether to disable CUDA graph. Default False to best performance.
+enforce_eager: False
 
-# Whether to free engine KVCache after generation. Set enforce_eager=True when enabled.
+# batch size of cudagraph to capture. Require enforce_eager: False to use this option
+# Since cudagraph in inference engine can not be offloaded during update policy,
+# you can use smaller batch size to save memory used in cuda graph, eg: [1 ,2, 4, 8, 16, 32]
+# supported engines: vllm
+cudagraph_capture_sizes: null
+
+# Whether to free engine KVCache after generation.
 free_cache_engine: True
 
 # TP size for rollout. Not effective for hf
