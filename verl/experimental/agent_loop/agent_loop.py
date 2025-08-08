@@ -25,10 +25,10 @@ import ray
 import torch
 from cachetools import LRUCache
 from omegaconf import DictConfig, OmegaConf
-from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
 from transformers import AutoTokenizer
 
+from verl.experimental.agent_loop.utils import AgentLoopOutput, _InternalAgentLoopOutput, agent_loop_perf
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils import hf_tokenizer
@@ -104,43 +104,6 @@ class AsyncLLMServerManager:
         return output
 
 
-class AgentLoopMetrics(BaseModel):
-    """Agent loop performance metrics."""
-
-    generate_sequences: float = 0.0
-    tool_calls: float = 0.0
-
-
-class AgentLoopOutput(BaseModel):
-    """Agent loop output."""
-
-    prompt_ids: list[int]
-    """Prompt token ids."""
-    response_ids: list[int]
-    """Response token ids including LLM generated token, tool response token."""
-    response_mask: list[int]
-    """Response mask, 1 for LLM generated token, 0 for tool response token."""
-    num_turns: int = 0
-    """Number of chat turns, including user, assistant, tool."""
-    metrics: AgentLoopMetrics
-    """Auxiliary performance metrics"""
-
-
-class _InternalAgentLoopOutput(AgentLoopOutput):
-    """Internal agent loop output with padded sequences."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    prompt_ids: torch.Tensor
-    """Padded prompt token ids."""
-    response_ids: torch.Tensor
-    """Padded response token ids."""
-    response_mask: torch.Tensor
-    """Padded response mask."""
-    attention_mask: torch.Tensor
-    """Padded attention mask."""
-
-
 # make hydra.utils.instantiate happy
 class _DummyConfig:
     def __init__(self, config: DictConfig) -> None:
@@ -213,6 +176,27 @@ def register(agent_name: str):
         return subclass
 
     return decorator
+
+
+def get_registry_keys():
+    """Get agent loop registry keys.
+
+    Returns:
+        List[str]: agent loop registry keys.
+    """
+    return _agent_loop_registry.keys()
+
+
+def get_registry_detail(key):
+    """Get agent loop config.
+
+    Args:
+        key (str): agent loop name.
+
+    Returns:
+        DictConfig: agent loop config.
+    """
+    return _agent_loop_registry[key]
 
 
 @ray.remote
@@ -545,32 +529,10 @@ class AgentLoopManager:
 
         # calculate performance metrics
         metrics = [output.meta_info["metrics"] for output in outputs]  # List[List[Dict[str, str]]]
-        timing = self._performance_metrics(metrics, output)
+        timing = agent_loop_perf(metrics, output)
 
         output.meta_info = {"timing": timing}
         return output
-
-    def _performance_metrics(self, metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:
-        timing = {}
-        t_generate_sequences = np.array([metric["generate_sequences"] for chunk in metrics for metric in chunk])
-        t_tool_calls = np.array([metric["tool_calls"] for chunk in metrics for metric in chunk])
-        timing["agent_loop/generate_sequences/min"] = t_generate_sequences.min()
-        timing["agent_loop/generate_sequences/max"] = t_generate_sequences.max()
-        timing["agent_loop/generate_sequences/mean"] = t_generate_sequences.mean()
-        timing["agent_loop/tool_calls/min"] = t_tool_calls.min()
-        timing["agent_loop/tool_calls/max"] = t_tool_calls.max()
-        timing["agent_loop/tool_calls/mean"] = t_tool_calls.mean()
-
-        # batch sequence generation is bounded by the slowest sample
-        slowest = np.argmax(t_generate_sequences + t_tool_calls)
-        attention_mask = output.batch["attention_mask"][slowest]
-        prompt_length = output.batch["prompts"].shape[1]
-        timing["agent_loop/slowest/generate_sequences"] = t_generate_sequences[slowest]
-        timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
-        timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
-        timing["agent_loop/slowest/response_length"] = attention_mask[prompt_length:].sum().item()
-
-        return timing
 
     def wake_up(self):
         """Wake up all rollout server instances."""

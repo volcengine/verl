@@ -13,6 +13,10 @@
 # limitations under the License.
 
 
+import asyncio
+import functools
+
+from fastapi import Request
 from msgspec import field
 from packaging import version as vs
 from vllm.lora.models import LoRAModel
@@ -120,3 +124,39 @@ class VLLMHijack:
 def is_version_ge(pkg: str = "vllm", minver: str = "0.7.3"):
     """check if the package version is greater than or equal to the minimum version"""
     return vs.parse(get_version(pkg)) >= vs.parse(minver)
+
+
+# copy from vllm
+def with_cancellation(handler_func):
+    # Functools.wraps is required for this wrapper to appear to fastapi as a
+    # normal route handler, with the correct request type hinting.
+    @functools.wraps(handler_func)
+    async def wrapper(*args, **kwargs):
+        # The request is either the second positional arg or `raw_request`
+        request = args[1] if len(args) > 1 else kwargs["raw_request"]
+
+        handler_task = asyncio.create_task(handler_func(*args, **kwargs))
+        cancellation_task = asyncio.create_task(listen_for_disconnect(request))
+
+        done, pending = await asyncio.wait([handler_task, cancellation_task], return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+
+        if handler_task in done:
+            return handler_task.result()
+        return None
+
+    return wrapper
+
+
+async def listen_for_disconnect(request: Request) -> None:
+    """Returns if a disconnect message is received"""
+    while True:
+        message = await request.receive()
+        if message["type"] == "http.disconnect":
+            if request.app.state.enable_server_load_tracking:
+                # on timeout/cancellation the BackgroundTask in load_aware_call
+                # cannot decrement the server load metrics.
+                # Must be decremented by with_cancellation instead.
+                request.app.state.server_load_metrics -= 1
+            break

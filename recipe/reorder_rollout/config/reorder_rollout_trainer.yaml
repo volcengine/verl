@@ -1,0 +1,48 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+# config for actor, rollout and reference model
+actor_rollout_ref:
+  # Rollout model config.
+  rollout:
+
+    # actor_rollout_ref.rollout.name: hf/vllm/sglang.
+    name: vllm
+
+    # sync: LLM, async: AsyncLLM
+    mode: sync
+
+    #whether to use reorder mode
+    reorder_mode: False
+
+    chat_scheduler:
+
+      # dataloader will load prefetch_factor * batch_sample at most for one rollout turn
+      prefetch_factor: 2
+      
+      # synchronize interval for reorder scheduler, each synchroize will force consume all
+      # samples, include the long tail samples
+      synchronize_interval: null
+
+      partial_policy: "keep"
+
+      # name of chat scheduler
+      name: reorder
+
+      micro_batch:
+        
+        # for each dp rank, max number of inflight requests
+        max_inflight_req: null
+
+        # deprecated, use max_inflight_req instead
+        enable_work_stealing: False
+  actor:
+    use_dynamic_bsz: True
+
+trainer:
+  project_name: verl-stream-rollout
