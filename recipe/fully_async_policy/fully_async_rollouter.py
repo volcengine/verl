@@ -155,6 +155,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
         with self.lock:
             self.param_synchronizer = param_synchronizer
 
+    def get_rollout_wg(self):
+        """获取 rollout worker group"""
+        return self.rollout_wg
+
     def _validate_config(self):
         # 验证异步训练配置
         if not hasattr(self.config, "async_training"):

@@ -46,36 +46,17 @@ class FullyAsyncTrainer(RayPPOTrainer):
     """
 
     def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-        device_name=None,
+            self,
+            config,
+            tokenizer,
+            role_worker_mapping: dict[Role, WorkerType],
+            resource_pool_manager: ResourcePoolManager,
+            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+            processor=None,
+            reward_fn=None,
+            val_reward_fn=None,
+            device_name=None,
     ):
-        """
-        Initialize distributed PPO trainer with Ray backend.
-        Note that this trainer runs on the driver process on a single CPU/GPU node.
-
-        Args:
-            config: Configuration object containing training parameters.
-            tokenizer: Tokenizer used for encoding and decoding text.
-            role_worker_mapping (dict[Role, WorkerType]): Mapping from roles to worker classes.
-            resource_pool_manager (ResourcePoolManager): Manager for Ray resource pools.
-            ray_worker_group_cls (RayWorkerGroup, optional): Class for Ray worker groups. Defaults to RayWorkerGroup.
-            processor: Optional data processor, used for multimodal data
-            reward_fn: Function for computing rewards during training.
-            val_reward_fn: Function for computing rewards during validation.
-            train_dataset (Optional[Dataset], optional): Training dataset. Defaults to None.
-            val_dataset (Optional[Dataset], optional): Validation dataset. Defaults to None.
-            collate_fn: Function to collate data samples into batches.
-            train_sampler (Optional[Sampler], optional): Sampler for the training dataset. Defaults to None.
-            device_name (str, optional): Device name for training (e.g., "cuda", "cpu"). Defaults to None.
-        """
 
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -141,59 +122,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
         with self.lock:
             self.param_synchronizer = param_synchronizer
 
-    def _get_actor_params(self):
-        """
-        获取actor参数 - 基于one_step_off_policy的实现
-        """
-        if not hasattr(self, "actor_wg") or self.actor_wg is None:
-            raise ValueError("Actor worker group not initialized")
-
-        # 从actor worker group获取参数
-        actor_workers = self.actor_wg.workers
-        if not actor_workers:
-            raise ValueError("No actor workers available")
-
-        # 获取第一个actor worker的参数信息
-        params_future = actor_workers[0]._get_actor_params.remote()
-        params = ray.get(params_future, timeout=10.0)
-        return params
-
-    def get_actor_weights_info(self):
-        """
-        获取actor权重信息 - 基于one_step_off_policy的模式
-        """
-        if hasattr(self, "_weights_info") and self._weights_info is not None:
-            return self._weights_info
-
-        if not hasattr(self, "actor_wg") or self.actor_wg is None:
-            raise ValueError("Actor worker group not initialized")
-
-        # 从actor worker group获取权重信息
-        weights_info_future = self.actor_wg.get_actor_weights_info.remote()
-        weights_info = ray.get(weights_info_future, timeout=10.0)
-
-        # 缓存权重信息
-        self._weights_info = weights_info[0] if isinstance(weights_info, list) else weights_info
-        return self._weights_info
-
-    def sync_rollout_weights(self):
-        """
-        同步rollout权重 - Actor端的同步操作
-        """
-        if not hasattr(self, "actor_wg") or self.actor_wg is None:
-            logger.warning("Actor worker group not initialized for sync")
-            return False
-
-        try:
-            # 触发actor worker group的参数同步
-            sync_future = self.actor_wg.sync_rollout_weights.remote()
-            ray.get(sync_future, timeout=30.0)
-            logger.debug("Actor weights sync completed")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to sync actor weights: {e}")
-            return False
+    def get_actor_wg(self):
+        """获取 actor worker group"""
+        return self.actor_wg
 
     def _get_samples_from_queue(self) -> tuple[None, None] | tuple[int, Any]:
         """
@@ -457,22 +388,14 @@ class FullyAsyncTrainer(RayPPOTrainer):
             # self._post_batch_processing(batch)
 
             print("step end")
-
             # 在训练步骤结束后触发参数同步
             self._trigger_parameter_sync_after_step()
-
-            # TODO: make a canonical logger that supports various backend
-            print(data=metrics, step=self.global_steps)
-
             # progress_bar.update(1)
             self.global_steps += 1
-            print("is_last_step")
-            # if is_last_step:
-            #     pprint(f"Final validation metrics: {last_val_metrics}")
-            #     print("is_last_step")
-            #     # progress_bar.close()
-            #     return
-            ray.get(self.param_synchronizer.sync_weights.remote(self.global_steps))
+            print(f"is_last_step {is_last_step}")
+            if is_last_step:
+                print("is_last_step")
+                return
 
     def get_statistics(self) -> dict:
         """获取训练统计信息"""
@@ -494,79 +417,12 @@ class FullyAsyncTrainer(RayPPOTrainer):
         在训练步骤结束后触发参数同步
         这确保rollouter总是使用最新训练的参数
         """
-        if not self.param_synchronizer:
-            logger.debug("No parameter synchronizer available, skipping sync")
-            return
-
-        try:
-            # 更新参数版本号
-            new_version = self.current_param_version + 1
-
-            print(
-                f"[TRAINER] Triggering parameter sync after training step {self.global_steps}, version: {new_version}"
-            )
-            logger.info(f"Triggering parameter sync after training step {self.global_steps}, version: {new_version}")
-
-            # 异步触发参数同步，不阻塞训练流程
-            import threading
-
-            sync_thread = threading.Thread(target=self._async_parameter_sync, args=(new_version,), daemon=True)
-            sync_thread.start()
-
-        except Exception as e:
-            logger.error(f"Error triggering parameter sync: {e}")
-
-    def _async_parameter_sync(self, new_version: int):
-        """
-        异步执行参数同步，避免阻塞训练流程
-
-        Args:
-            new_version: 新的参数版本号
-        """
-        try:
-            # 执行参数同步
-            success = self.param_synchronizer.sync_to_rollouter(new_version)
-
-            if success:
-                # 更新本地参数版本
-                with self.lock:
-                    self.current_param_version = new_version
-                    self.param_sync_count += 1
-
-                print(f"[TRAINER] Parameter sync completed successfully for version {new_version}")
-                logger.info(f"Parameter sync completed successfully for version {new_version}")
-            else:
-                print(f"[TRAINER] Parameter sync failed for version {new_version}")
-                logger.warning(f"Parameter sync failed for version {new_version}")
-
-        except Exception as e:
-            logger.error(f"Error in async parameter sync: {e}")
-
-    def update_param_version(self, param_version: int) -> bool:
-        """
-        更新trainer的参数版本，用于跟踪与rollouter的参数同步状态
-
-        Args:
-            param_version: 新的参数版本号
-
-        Returns:
-            bool: 是否成功更新
-        """
-        try:
-            with self.lock:
-                old_version = self.current_param_version
-                self.current_param_version = param_version
-                self.param_sync_count += 1
-
-                # 更新消息队列的参数版本
-                if self.message_queue_client:
-                    self.message_queue_client.update_param_version(param_version)
-
-                print(f"Updated trainer param version from {old_version} to {param_version}")
-                return True
-        except Exception as e:
-            logger.error(f"Error updating param version: {e}")
-            return False
+        new_version = self.current_param_version + 1
+        print(
+            f"[TRAINER] Triggering parameter sync after training step {self.global_steps}, version: {new_version}"
+        )
+        logger.info(f"Triggering parameter sync after training step {self.global_steps}, version: {new_version}")
+        ray.get(self.param_synchronizer.sync_weights.remote(new_version))
 
     def _compute_sample_freshness_metrics(self, batch_samples: list[QueueSample]) -> dict:
         """

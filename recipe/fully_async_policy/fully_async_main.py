@@ -248,15 +248,17 @@ class FullyAsyncTaskRunner:
         print("Setting up parameter synchronization...")
         from recipe.fully_async_policy.param_sync import ParameterSynchronizer
 
-        param_synchronizer = ParameterSynchronizer(
+        param_synchronizer = ParameterSynchronizer.remote(
             config=config,
-            actor_wg=self.components["trainer"],
-            rollout_wg=self.components["rollouter"],
+            trainer=self.components["trainer"],
+            rollouter=self.components["rollouter"],
         )
 
         # 将参数同步器设置到trainer和rollouter
         ray.get(self.components["trainer"].set_parameter_synchronizer.remote(param_synchronizer))
         ray.get(self.components["rollouter"].set_parameter_synchronizer.remote(param_synchronizer))
+
+        ray.get(param_synchronizer.sync_weights.remote(0))
 
         self.components["param_synchronizer"] = param_synchronizer
         print("Parameter synchronizer initialized successfully")
@@ -331,6 +333,64 @@ class FullyAsyncTaskRunner:
         self.components["message_queue_client"].clear_queue()
 
         print("Training completed or interrupted")
+
+    def _cleanup_resources(self):
+        """清理所有资源"""
+        try:
+            # 关闭线程池
+            if hasattr(self, 'thread_executor') and self.thread_executor:
+                print("Shutting down thread executor...")
+                self.thread_executor.shutdown(wait=True, timeout=10.0)
+
+            # 清理logger
+            if hasattr(self, 'logger') and self.logger:
+                try:
+                    if hasattr(self.logger, 'close'):
+                        self.logger.close()
+                    elif hasattr(self.logger, 'finish'):
+                        self.logger.finish()
+                except Exception as e:
+                    print(f"Error closing logger: {e}")
+
+            # 清理validation logger
+            if hasattr(self, 'validation_generations_logger') and self.validation_generations_logger:
+                try:
+                    if hasattr(self.validation_generations_logger, 'close'):
+                        self.validation_generations_logger.close()
+                except Exception as e:
+                    print(f"Error closing validation logger: {e}")
+
+            # 清理异步rollout管理器
+            if hasattr(self, "async_rollout_manager") and self.async_rollout_manager:
+                try:
+                    if hasattr(self.async_rollout_manager, 'shutdown'):
+                        self.async_rollout_manager.shutdown()
+                except Exception as e:
+                    print(f"Error cleaning up async rollout manager: {e}")
+
+            # 清理worker groups
+            if hasattr(self, 'rollout_wg') and self.rollout_wg:
+                try:
+                    if hasattr(self.rollout_wg, 'shutdown'):
+                        self.rollout_wg.shutdown()
+                except Exception as e:
+                    print(f"Error cleaning up rollout worker group: {e}")
+
+            # 强制垃圾回收
+            import gc
+            gc.collect()
+
+        except Exception as e:
+            print(f"Error during resource cleanup: {e}")
+
+    def __del__(self):
+        """析构函数 - 确保资源清理"""
+        try:
+            if hasattr(self, 'running') and self.running:
+                print("Warning: FullyAsyncRollouter being deleted while still running")
+                self.shutdown()
+        except Exception as e:
+            print(f"Error in destructor: {e}")
 
 
 @hydra.main(config_path="config", config_name="fully_async_ppo_trainer", version_base=None)

@@ -28,18 +28,13 @@ class ParameterSynchronizer:
     合并了原有的多个同步器类的功能
     """
 
-    def __init__(self, config, actor_wg, rollout_wg):
-        """
-        初始化统一参数同步器
+    def __init__(self, config, trainer, rollouter):
 
-        Args:
-            config: 配置对象
-            actor_wg: trainer actor引用（用于async模式）
-            rollout_wg: rollouter actor引用（用于async模式）
-        """
         self.config = config
-        self.actor_wg = actor_wg
-        self.rollout_wg = rollout_wg
+        self.trainer = trainer
+        self.rollouter = rollouter
+        self.actor_wg = ray.get(trainer.get_actor_wg.remote())
+        self.rollout_wg = ray.get(rollouter.get_rollout_wg.remote())
 
         # 基础属性
         self.weights_info = None
@@ -78,5 +73,9 @@ class ParameterSynchronizer:
     def sync_weights(self, version):
         self.current_version = version
         logger.debug(f"Starting weight synchronization (version {self.current_version})...")
+
+        # TODO 暂停及恢复rollout
+        print("TODO 暂停及恢复rollout")
         self.actor_wg.sync_rollout_weights()
         ray.get(self.rollout_wg.sync_rollout_weights())
+        print("sync_weights success")
