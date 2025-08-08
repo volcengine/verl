@@ -36,8 +36,8 @@ from verl.models.llama.megatron import ParallelLlamaForCausalLMRmPadPP
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
-from verl.utils.megatron.optimizer import get_megatron_optimizer
-from verl.utils.megatron_utils import get_model, init_megatron_optim_config, mcore_model_parallel_config
+from verl.utils.megatron.optimizer import get_megatron_optimizer, init_megatron_optim_config
+from verl.utils.megatron_utils import get_model, mcore_model_parallel_config
 
 
 @ray.remote
