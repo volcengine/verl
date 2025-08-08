@@ -118,29 +118,34 @@ class ToolAgentLoop(AgentLoopBase):
 
             # no tool calls
             _, tool_calls = await self.tool_parser.extract_tool_calls(response_ids)
+            if self.interaction_config_file:
+                assistant_message = await self.loop.run_in_executor(
+                    None, lambda id=response_ids: self.tokenizer.decode(id)
+                )
+                messages.append({"role": "assistant", "content": assistant_message})
+                if not tool_calls:
+                    user_turns += 1
+                    (
+                        should_terminate_sequence,
+                        interaction_responses,
+                        reward,
+                        metrics,
+                    ) = await interaction.generate_response(request_id, messages, **interaction_kwargs)
+                    turn_scores.append(reward)
+                    responses = [{"role": "user", "content": interaction_responses}]
+
             if not tool_calls:
                 break
-
             # call tools
             tasks = []
             for tool_call in tool_calls[: self.max_parallel_calls]:
                 tasks.append(self._call_tool(tool_call, tools_kwargs))
             with simple_timer("tool_calls", metrics):
                 responses = await asyncio.gather(*tasks)
+                if self.interaction_config_file:
+                    messages += responses
             if any(isinstance(item, Exception) for item in responses):
                 break
-
-            # Update interaction
-            if self.interaction_config_file:
-                assistant_message = await self.loop.run_in_executor(
-                    None, lambda id=response_ids: self.tokenizer.decode(id)
-                )
-                messages.append({"role": "assistant", "content": assistant_message})
-                should_terminate_sequence, interaction_responses, reward, metrics = await interaction.generate_response(
-                    request_id, messages, **interaction_kwargs
-                )
-                turn_scores.append(reward)
-                responses = responses + [{"role": "user", "content": interaction_responses}]
 
             # append response_ids
             response_ids = await self.loop.run_in_executor(
@@ -158,8 +163,8 @@ class ToolAgentLoop(AgentLoopBase):
 
             prompt_ids += response_ids
             response_mask += [0] * len(response_ids)
-            user_turns += 1
-            if self.interaction_config_file and should_terminate_sequence:
+            # user_turns += 1
+            if self.interaction_config_file and not tool_calls and should_terminate_sequence:
                 metrics["termination_reason"] = "interaction_terminated"
                 break
 

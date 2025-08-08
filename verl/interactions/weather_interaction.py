@@ -51,13 +51,12 @@ class WeatherInteraction(BaseInteraction):
     async def generate_response(
         self, instance_id: str, messages: list[dict[str, Any]], **kwargs
     ) -> tuple[bool, str, float, dict]:
-        content = ""
+        content = "no tool call"
         for i in range(len(messages) - 1, -1, -1):
             item = messages[i]
             if item.get("role") == "tool":
                 content = item.get("content")
                 break
-
         self._instance_dict[instance_id]["response"] = content
 
         reward = await self.calculate_score(instance_id)
@@ -65,14 +64,15 @@ class WeatherInteraction(BaseInteraction):
             response = "Thank you for your weather query!"
             should_terminate_sequence = True
         else:
-            response = "I noticed you have a question about weather. How else can I help?"
+            response = "Please use the weather tool to get the weather information."
             should_terminate_sequence = False
-
         return should_terminate_sequence, response, reward, {}
 
     async def calculate_score(self, instance_id: str, **kwargs) -> float:
         # For weather interaction, we can implement a more complex scoring logic
         # For now, we'll just return a default score of 1.0
+        if self._instance_dict[instance_id]["response"] == "no tool call":
+            return 0.0
         return 1.0
 
     async def finalize_interaction(self, instance_id: str, **kwargs) -> None:
