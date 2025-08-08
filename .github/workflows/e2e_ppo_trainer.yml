@@ -238,7 +238,6 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install --no-deps -e .[test,gpu,vllm,geo,trl]
-          pip install "transformers[hf_xet]<4.53.0" # TODO: Fix for transformers 4.53.0
       # Geo3k
       - name: Prepare GEO3K dataset
         run: |
