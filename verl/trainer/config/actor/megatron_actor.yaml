@@ -40,6 +40,8 @@ optim:
   # use checkpoint optimizer parameter scheduler
   use_checkpoint_opt_param_scheduler: False
 
+  override_optimizer_config: {}
+
 megatron:
 
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
