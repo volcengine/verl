@@ -119,7 +119,10 @@ class MessageQueue:
         print("get_samples")
         with self.lock:
             while len(self.queue) < min_batch_count and self.running:
-                print("consumer_condition")
+                print(f"consumer_condition {len(self.queue)}")
+                for data in self.queue:
+                    if data is None:
+                        return []
                 self.consumer_condition.wait()
 
             # 如果队列已关闭且没有足够样本，返回空列表
@@ -135,7 +138,7 @@ class MessageQueue:
                     if data is None:
                         return []
                     else:
-                        samples.append(self.queue.popleft())
+                        samples.append(data)
 
             self.total_consumed += len(samples)
             return samples
@@ -174,7 +177,7 @@ class MessageQueue:
 
     def shutdown(self):
         """关闭消息队列"""
-        with self.lock:  # 修正：需要加锁
+        with self.lock:
             self.running = False
             # 通知所有等待的线程，让它们能够退出
             self.consumer_condition.notify_all()

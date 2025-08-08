@@ -285,9 +285,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
         # load checkpoint before doing anything
         self._load_checkpoint()
 
-        self.total_training_steps = self.config.trainer.total_training_steps
-
-        print(f"Total training steps: {self.total_training_steps}")
         # we start from step 1
         self.global_steps += 1
         last_val_metrics = None
@@ -309,7 +306,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
             metrics = {}
             timing_raw = {}
 
-            is_last_step = self.global_steps >= self.total_training_steps
+            is_last_step = False
 
             with marked_timer("step", timing_raw):
                 with marked_timer("gen", timing_raw, color="red"):
@@ -352,8 +349,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
                 batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
                 print("_log_rollout")
                 self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
-                print("_validate_metrics")
-                last_val_metrics = self._validate_metrics(is_last_step, last_val_metrics, metrics, timing_raw)
                 print("_check_save_checkpoint")
                 self._check_save_checkpoint(is_last_step, timing_raw)
 
@@ -366,12 +361,8 @@ class FullyAsyncTrainer(RayPPOTrainer):
             print("_trigger_parameter_sync_after_step")
 
             self._trigger_parameter_sync_after_step()
-            print("global_steps")
+            print(f"global_steps: {self.global_steps}")
             self.global_steps += 1
-            print(f"is_last_step {is_last_step}")
-            if is_last_step:
-                print("is_last_step")
-                return
 
     def get_statistics(self) -> dict:
         """获取训练统计信息"""

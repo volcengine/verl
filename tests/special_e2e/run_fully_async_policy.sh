@@ -114,14 +114,12 @@ common_params=(
     trainer.val_before_train=False
     trainer.test_freq=-1
     trainer.save_freq=-1
-    trainer.total_epochs=2
-    trainer.total_training_steps=10
     trainer.resume_mode=disable
     trainer.nnodes=1
     trainer.n_gpus_per_node=${n_gpus_training}
     rollout.nnodes=1
     rollout.n_gpus_per_node=${n_gpus_rollout}
-    rollout.total_rollout_steps=100
+    rollout.total_rollout_steps=10
     rollout.total_epochs=10
     # Fully async specific configurations
     async_training.staleness_threshold=${staleness_threshold}
