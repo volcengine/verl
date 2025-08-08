@@ -1,0 +1,4 @@
+# Always store code with LF in repo
+*.py text eol=lf
+*.sh text eol=lf
+*.md text eol=lf
