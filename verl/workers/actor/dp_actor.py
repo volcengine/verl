@@ -429,7 +429,7 @@ class DataParallelPPOActor(BasePPOActor):
                     # gpg -> verl.trainer.ppo.core_algos.compute_policy_loss_gpg
                     # clip_cov -> verl.trainer.ppo.core_algos.compute_policy_loss_clip_cov
                     policy_loss_fn = get_policy_loss_fn(loss_mode)
-                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower, ratio = policy_loss_fn(
+                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = policy_loss_fn(
                         old_log_prob=old_log_prob,
                         log_prob=log_prob,
                         advantages=advantages,
@@ -448,6 +448,12 @@ class DataParallelPPOActor(BasePPOActor):
 
                     if self.config.use_kl_loss:
                         ref_log_prob = model_inputs["ref_log_prob"]
+
+                        negative_approx_kl = log_prob - old_log_prob
+                        # Clamp negative_approx_kl for stability
+                        negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
+                        ratio = torch.exp(negative_approx_kl)
+                        
                         # compute kl loss
                         kld = kl_penalty(
                             logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type
