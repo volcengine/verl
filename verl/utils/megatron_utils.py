@@ -222,16 +222,20 @@ def init_megatron_optim_config(optim_config: dict) -> OptimizerConfig:
     # We enable some optimization configurations by default. For all other Megatron configurations,
     # please check the official Megatron documentation.
     # https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/optimizer/optimizer_config.py
-    config = OptimizerConfig(
-        bf16=True,
-        params_dtype=torch.bfloat16,
-        use_distributed_optimizer=True,
-    )
-    for name, value in optim_config.items():
-        if hasattr(config, name):
-            setattr(config, name, value)
+    from dataclasses import fields
 
-    return config
+    config_kwargs = {
+        "bf16": True,
+        "params_dtype": torch.bfloat16,
+        "use_distributed_optimizer": True,
+    }
+    config_kwargs.update(optim_config)
+
+    # Filter for arguments that are valid for OptimizerConfig
+    valid_field_names = {f.name for f in fields(OptimizerConfig)}
+    filtered_kwargs = {k: v for k, v in config_kwargs.items() if k in valid_field_names}
+
+    return OptimizerConfig(**filtered_kwargs)
 
 
 def mcore_model_parallel_config(

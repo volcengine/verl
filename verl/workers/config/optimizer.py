@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Optional
 
 from omegaconf import MISSING
@@ -92,5 +92,11 @@ class McoreOptimizerConfig(OptimizerConfig):
     use_checkpoint_opt_param_scheduler: bool = False
 
     def __init__(self, **kwargs):
-        for key, value in kwargs.items():
+        config_fields = {f.name for f in fields(self)}
+        known_kwargs = {k: v for k, v in kwargs.items() if k in config_fields}
+        extra_kwargs = {k: v for k, v in kwargs.items() if k not in config_fields}
+
+        super().__init__(**known_kwargs)
+
+        for key, value in extra_kwargs.items():
             setattr(self, key, value)
