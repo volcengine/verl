@@ -13,10 +13,8 @@
 # limitations under the License.
 
 import os
-import signal
 import socket
 import threading
-import time
 from pprint import pprint
 
 import hydra
@@ -33,14 +31,14 @@ from verl.utils.fs import copy_to_local
 
 def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
     """
-    创建资源池管理器
+    Create resource pool manager
 
     Args:
-        config: 配置对象
-        roles: 需要创建资源池的角色列表
+        config: Configuration object
+        roles: List of roles that need to create resource pools
 
     Returns:
-        ResourcePoolManager: 资源池管理器
+        ResourcePoolManager: Resource pool manager
     """
     # 构建资源池规格
     resource_pool_spec = {}
@@ -73,13 +71,13 @@ def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
 
 def create_role_worker_mapping(config):
     """
-    创建角色到worker类的映射
+    Create mapping from roles to worker classes
 
     Args:
-        config: 配置对象
+        config: Configuration object
 
     Returns:
-        dict: 角色到worker类的映射
+        dict: Mapping from roles to worker classes
     """
     # 根据策略选择worker类
     if config.actor_rollout_ref.actor.strategy == "fsdp2":
@@ -121,7 +119,6 @@ def create_role_worker_mapping(config):
         Role.Critic: ray.remote(CriticWorker),
     }
 
-    # 添加reward model（如果启用）
     if config.reward_model.enable:
         if config.reward_model.strategy == "fsdp2":
             from verl.workers.fsdp_workers import RewardModelWorker
@@ -153,36 +150,23 @@ class FullyAsyncTaskRunner:
     def run(self, config):
         """运行完全异步的PPO训练"""
         print("Starting fully async PPO training...")
-        # 初始化基础组件
         self._initialize_components(config)
-        # 启动训练流程
         self._run_training_loop()
 
     def _initialize_components(self, config) -> None:
-        """
-        初始化所有组件
-
-        Args:
-            config: 配置对象
-
-        Returns:
-            bool: 是否初始化成功
-        """
-        # 打印配置信息
         print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
         pprint(OmegaConf.to_container(config, resolve=True))
         OmegaConf.resolve(config)
 
-        # 初始化模型路径和tokenizer
         print("Initializing model and tokenizer...")
         local_path = copy_to_local(
             config.actor_rollout_ref.model.path, use_shm=config.actor_rollout_ref.model.get("use_shm", False)
         )
-        # Instantiate the tokenizer and processor.
         from verl.utils import hf_processor, hf_tokenizer
 
         trust_remote_code = config.data.get("trust_remote_code", False)
         tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+
         # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
@@ -190,13 +174,11 @@ class FullyAsyncTaskRunner:
         self.components["processor"] = processor
         self.components["config"] = config  # 保存config以供其他方法使用
 
-        # 创建worker映射和资源池
         print("Creating worker mapping and resource pools...")
         role_worker_mapping, ray_worker_group_cls = create_role_worker_mapping(config)
         self.components["role_worker_mapping"] = role_worker_mapping
         self.components["ray_worker_group_cls"] = ray_worker_group_cls
 
-        # 创建奖励函数
         print("Loading reward functions...")
         reward_fn = load_reward_manager(
             config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
@@ -207,12 +189,11 @@ class FullyAsyncTaskRunner:
         self.components["reward_fn"] = reward_fn
         self.components["val_reward_fn"] = val_reward_fn
 
-        # 创建MessageQueue
         self.max_queue_size = (
-                config.async_training.staleness_threshold
-                * config.data.train_batch_size
-                * config.actor_rollout_ref.rollout.n
-        ) * 10 # x 10 避免死锁
+            config.async_training.staleness_threshold
+            * config.data.train_batch_size
+            * config.actor_rollout_ref.rollout.n
+        ) * 10  # x 10 avoid deadlock
         print("Creating MessageQueue...")
         message_queue = MessageQueue.remote(config, self.max_queue_size)
         message_queue_client = MessageQueueClient(message_queue)
@@ -220,15 +201,12 @@ class FullyAsyncTaskRunner:
         self.components["message_queue"] = message_queue
         self.components["message_queue_client"] = message_queue_client
 
-        # 创建Rollouter
         print("Creating FullyAsyncRollouter...")
         self._create_rollouter(config)
 
-        # 创建Trainer
         print("Creating FullyAsyncTrainer...")
         self._create_trainer(config)
 
-        # 设置参数同步
         print("Setting up parameter synchronization...")
         from recipe.fully_async_policy.param_sync import ParameterSynchronizer
 
@@ -239,18 +217,15 @@ class FullyAsyncTaskRunner:
             mq=self.components["message_queue_client"],
         )
 
-        # 将参数同步器设置到trainer和rollouter
         ray.get(self.components["trainer"].set_parameter_synchronizer.remote(param_synchronizer))
         ray.get(self.components["rollouter"].set_parameter_synchronizer.remote(param_synchronizer))
 
-        # 首先同步一次参数
         ray.get(param_synchronizer.sync_weights.remote(0))
 
         self.components["param_synchronizer"] = param_synchronizer
         print("All components initialized successfully")
 
     def _create_rollouter(self, config) -> None:
-        """创建Rollouter"""
         pprint(self.components)
         rollouter = FullyAsyncRollouter.remote(
             config=config,
@@ -269,7 +244,6 @@ class FullyAsyncTaskRunner:
         print("Rollouter created and initialized successfully")
 
     def _create_trainer(self, config) -> None:
-        """创建Trainer"""
         trainer_role_mapping = {
             role: worker_cls
             for role, worker_cls in self.components["role_worker_mapping"].items()
@@ -288,14 +262,12 @@ class FullyAsyncTaskRunner:
             device_name=config.trainer.device,
         )
 
-        # 初始化Trainer
         ray.get(trainer.init_workers.remote())
         ray.get(trainer.set_message_queue_client.remote(self.components["message_queue_client"]))
         self.components["trainer"] = trainer
         print("FullyAsyncTrainer created and initialized successfully")
 
     def _run_training_loop(self):
-        """运行训练循环"""
         self.running = True
 
         print("Starting Rollouter in background...")
@@ -312,10 +284,9 @@ class FullyAsyncTaskRunner:
 
 @hydra.main(config_path="config", config_name="fully_async_ppo_trainer", version_base=None)
 def main(config):
-    """主入口函数"""
     from verl.trainer.main_ppo import run_ppo
 
-    # 确保异步训练配置存在
+    # Ensure async training config exists
     if not hasattr(config, "async_training"):
         raise RuntimeError("must set async_training config")
     run_ppo(config, task_runner_class=FullyAsyncTaskRunner)

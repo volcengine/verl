@@ -29,38 +29,24 @@ from verl.utils.tracking import ValidationGenerationsLogger
 @ray.remote(num_cpus=10, max_concurrency=10)
 class FullyAsyncRollouter(RayPPOTrainer):
     """
-    异步样本生成器，负责持续生成训练样本并放入MessageQueue
-    基于OneStepOffRayTrainer的成熟实现改进
+    Asynchronous sample generator, responsible for continuously generating training samples
+    and putting them into MessageQueue
+    Based on the mature implementation improvements of OneStepOffRayTrainer
     """
 
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            device_name=None,
-            max_queue_size=1000,
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        device_name=None,
+        max_queue_size=1000,
     ):
-        """
-        Initialize distributed PPO trainer with Ray backend.
-        Note that this trainer runs on the driver process on a single CPU/GPU node.
-
-        Args:
-            config: Configuration object containing training parameters.
-            tokenizer: Tokenizer used for encoding and decoding text.
-            role_worker_mapping (dict[Role, WorkerType]): Mapping from roles to worker classes.
-            resource_pool_manager (ResourcePoolManager): Manager for Ray resource pools.
-            ray_worker_group_cls (RayWorkerGroup, optional): Class for Ray worker groups. Defaults to RayWorkerGroup.
-            processor: Optional data processor, used for multimodal data
-            reward_fn: Function for computing rewards during training.
-            val_reward_fn: Function for computing rewards during validation.
-            device_name (str, optional): Device name for training (e.g., "cuda", "cpu"). Defaults to None.
-        """
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
         self.processor = processor
@@ -86,7 +72,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.use_reference_policy = False
         self.use_rm = False
 
-        # 创建数据集
+        # Create datasets
         print("Creating datasets...")
         from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
         from verl.utils.dataset.rl_dataset import collate_fn
@@ -107,16 +93,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.total_rollout_steps = total_rollout_steps
         print(f"Total rollout steps: {self.total_rollout_steps}")
 
-        # rollouter 参数配置
+        # Rollouter parameter configuration
         self.message_queue_client = None
 
         self.current_param_version = 0
 
-        # 新鲜度控制 - 改进的配置管理
+        # Freshness control - improved configuration management
         async_config = config.async_training
         self.staleness_threshold = async_config.get("staleness_threshold", 3)
 
-        # 统计信息
+        # Statistics
         self.total_generated_samples = 0
         self.dropped_stale_samples = 0
         self.param_sync_requests = 0
@@ -125,7 +111,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.rollout_wg = None
         self.message_queue_client = None
 
-        # 并发控制
+        # Concurrency control
         self.running = False
         self.paused = False
         self.generation_thread = None
@@ -134,48 +120,43 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.lock = threading.RLock()
         self.condition = threading.Condition(self.lock)
 
-        # 暂停/恢复统计信息
+        # Pause/resume statistics
         self.pause_count = 0
         self.resume_count = 0
         self.total_pause_time = 0.0
         self.last_pause_time = None
 
-        # 参数同步相关
+        # Parameter synchronization related
         self.param_synchronizer = None
         self.last_sync_time = 0
         self.sync_in_progress = False
         self.sync_lock = threading.Lock()
 
-        # 参数同步状态 - 基于one_step_off_policy模式
-        self._weights_info = None
-        self._is_rollout = True  # rollouter是rollout角色
-        self._is_actor = False
-
         self.max_queue_size = max_queue_size
 
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
-        """设置消息队列客户端"""
+        """Set message queue client"""
         with self.lock:
             self.message_queue_client = message_queue_client
 
     def set_parameter_synchronizer(self, param_synchronizer):
-        """设置参数同步器"""
+        """Set parameter synchronizer"""
         with self.lock:
             self.param_synchronizer = param_synchronizer
 
     def get_rollout_wg(self):
-        """获取 rollout worker group"""
+        """Get rollout worker group"""
         return self.rollout_wg
 
     def update_param_version(self, version: int):
-        """更新当前参数版本"""
+        """Update current parameter version"""
         with self.lock:
             old_version = self.current_param_version
             self.current_param_version = version
             print(f"Parameter version updated from {old_version} to {version}")
 
     def _validate_config(self):
-        # 验证异步训练配置
+        # Validate asynchronous training configuration
         if not hasattr(self.config, "async_training"):
             raise ValueError("Missing async_training configuration")
 

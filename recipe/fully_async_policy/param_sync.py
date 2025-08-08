@@ -23,9 +23,9 @@ logger = logging.getLogger(__name__)
 @ray.remote
 class ParameterSynchronizer:
     """
-    统一的参数同步器，负责在actor和rollout之间同步模型参数
-    基于one_step_off_policy的成熟同步模式实现
-    合并了原有的多个同步器类的功能
+    Unified parameter synchronizer, responsible for synchronizing model parameters between actor and rollout
+    Based on the mature synchronization mode implementation of one_step_off_policy
+    Merges the functions of the original multiple synchronizer classes
     """
 
     def __init__(self, config, trainer, rollouter, mq):
@@ -36,23 +36,23 @@ class ParameterSynchronizer:
         self.actor_wg = ray.get(trainer.get_actor_wg.remote())
         self.rollout_wg = ray.get(rollouter.get_rollout_wg.remote())
 
-        # 基础属性
+        # Basic attributes
         self.weights_info = None
         self.sync_group_initialized = False
         self.sync_group_name = "actor_rollout"
 
-        # 统计信息
+        # Statistics
         self.current_version = 0
 
         self._init_weights_info()
         self._init_sync_group()
 
     def get_current_param_version(self) -> int:
-        """获取当前参数版本号"""
+        """Get current parameter version number"""
         return self.current_version
 
     def get_weights_info(self):
-        """获取权重信息"""
+        """Get weights info"""
         return self.weights_info
 
     def _init_weights_info(self):
@@ -74,16 +74,16 @@ class ParameterSynchronizer:
         self.current_version = version
         print(f"Starting weight synchronization (version {self.current_version})...")
 
-        print("pause rollout")
         ray.get(self.rollouter.pause.remote())
 
-        # 更新MQ 版本
+        # Update MQ version
         self.mq_client.update_param_version(version)
 
+        # sync weights
         self.actor_wg.sync_rollout_weights()
         ray.get(self.rollout_wg.sync_rollout_weights())
 
-        # 更新 rollout 版本
+        # Update rollout version
         ray.get(self.rollouter.update_param_version.remote(version))
         ray.get(self.rollouter.resume.remote())
         print("sync_weights success")

@@ -13,10 +13,8 @@
 # limitations under the License.
 
 import logging
-import threading
 import time
 import warnings
-from pprint import pprint
 from typing import Any
 
 import numpy as np
@@ -46,18 +44,17 @@ class FullyAsyncTrainer(RayPPOTrainer):
     """
 
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            device_name=None,
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        device_name=None,
     ):
-
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
         self.processor = processor
@@ -97,43 +94,35 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         self._validate_config()
 
-        self.lock = threading.RLock()
         self.message_queue_client = None
         self.param_synchronizer = None
 
-        # 统计信息
+        # Statistics
         self.processed_samples = 0
         self.stale_samples_processed = 0
         self.current_param_version = 0
 
-        # 参数同步相关状态
-        self._weights_info = None
-        self._is_actor = False  # 将在init_worker_group中设置
-        self._is_rollout = False
-
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
-        """设置消息队列客户端"""
-        with self.lock:
-            self.message_queue_client = message_queue_client
+        """Set message queue client"""
+        self.message_queue_client = message_queue_client
 
     def set_parameter_synchronizer(self, param_synchronizer):
-        """设置参数同步器"""
-        with self.lock:
-            self.param_synchronizer = param_synchronizer
+        """Set parameter synchronizer"""
+        self.param_synchronizer = param_synchronizer
 
     def get_actor_wg(self):
-        """获取 actor worker group"""
+        """Get actor worker group"""
         return self.actor_wg
 
     def _get_samples_from_queue(self) -> tuple[None, None] | tuple[int, Any]:
         """
-        从消息队列获取样本并组成gen_batch_output
+        Get samples from message queue and compose gen_batch_output
 
         Returns:
             tuple: (epoch, batch_dict, gen_batch_output)
         """
 
-        # 计算需要获取的样本数量
+        # Calculate the number of samples needed
         n_responses_per_prompt = self.config.actor_rollout_ref.rollout.n
         batch_size = self.config.data.train_batch_size
         required_samples = n_responses_per_prompt * batch_size
@@ -143,7 +132,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
             flush=True,
         )
 
-        # 从队列获取样本
+        # Get samples from queue
         consumer_start = time.time()
         queue_samples = self.message_queue_client.get_samples(min_batch_count=required_samples)
         consumer_end = time.time()
@@ -157,7 +146,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         queue_samples = [ray.cloudpickle.loads(x) for x in queue_samples]
         print(queue_samples)
 
-        # 组装 batch
+        # Assemble batch
         batch = self._assemble_gen_batch_output_from_queue_samples(queue_samples)
 
         print("=" * 200)
@@ -167,15 +156,15 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
     def _assemble_gen_batch_output_from_queue_samples(self, queue_samples: list[QueueSample]):
         """
-        从队列样本中组装gen_batch_output
+        Assemble gen_batch_output from queue samples
 
         Args:
-            queue_samples: 队列中的样本列表
-            n_responses_per_prompt: 每个prompt的响应数量
-            batch_size: 批次大小
+            queue_samples: List of samples from queue
+            n_responses_per_prompt: Number of responses per prompt
+            batch_size: Batch size
 
         Returns:
-            DataProto: 组装好的gen_batch_output
+            DataProto: Assembled gen_batch_output
         """
         import numpy as np
 
@@ -186,7 +175,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         print(f"Assembling batch from {len(queue_samples)} queue samples")
 
-        # 提取所有样本的数据和元数据
+        # Extract data and metadata from all samples
         sample_data_list = []
         rollout_metadata_list = []
         timing_info = {}
@@ -197,11 +186,11 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         batch = DataProto.from_items(sample_data_list)
 
-        # 收集timing信息和metadata
+        # Collect timing information and metadata
         param_versions = []
         sample_timestamps = []
         for metadata in rollout_metadata_list:
-            # 提取参数版本和时间戳
+            # Extract parameter version and timestamp
             param_versions.append(metadata.get("rollout_param_version", 0))
             sample_timestamps.append(metadata.get("generation_timestamp", time.time()))
             if "timing" in metadata:
@@ -210,13 +199,13 @@ class FullyAsyncTrainer(RayPPOTrainer):
                         timing_info[timing_key] = []
                     # if isinstance(timing_value, (int, float)):
                     #     timing_info[timing_key].append(timing_value)
-        # 计算平均timing
+        # Calculate average timing
         avg_timing = {}
         for key, values in timing_info.items():
             if values and len(values) > 0:
                 avg_timing[key] = sum(values) / len(values)
 
-        # 创建meta_info
+        # Create meta_info
         meta_info = {
             "timing": avg_timing,
             "queue_sample_count": len(queue_samples),
@@ -287,15 +276,14 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         # we start from step 1
         self.global_steps += 1
-        last_val_metrics = None
         self.max_steps_duration = 0
 
-        # 使用队列模式，不需要传统的dataloader迭代器
-        # 初始化获取第一批数据
+        # Use queue mode, no need for traditional dataloader iterator
+        # Initialize to get the first batch of data
         while True:
             print("while True", flush=True)
 
-            # 检查队列状态
+            # Check queue status
             if self.message_queue_client:
                 queue_stats = self.message_queue_client.get_statistics()
                 print(f"Queue status before getting samples: {queue_stats}")
@@ -317,7 +305,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
                 print("_get_samples_from_queue end")
 
                 # # 更新统计信息
-                # with self.lock:
                 #     self.processed_samples += len(batch) if isinstance(batch, list) else 1
                 #
                 #     # 从meta_info中获取参数版本信息
@@ -352,20 +339,17 @@ class FullyAsyncTrainer(RayPPOTrainer):
                 print("_check_save_checkpoint")
                 self._check_save_checkpoint(is_last_step, timing_raw)
 
-            print("_stop_profiling")
-            # self._stop_profiling(do_profile, timing_raw)
             print("_collect_metrics")
             # self._collect_metrics(batch, epoch, metrics, timing_raw)
 
-            # 在训练步骤结束后触发参数同步
+            # Trigger parameter synchronization after training step
             print("_trigger_parameter_sync_after_step")
-
             self._trigger_parameter_sync_after_step()
             print(f"global_steps: {self.global_steps}")
             self.global_steps += 1
 
     def get_statistics(self) -> dict:
-        """获取训练统计信息"""
+        """Get training statistics"""
         queue_stats = self.message_queue_client.get_statistics() if self.message_queue_client else {}
         return {
             "global_steps": self.global_steps,
@@ -380,37 +364,40 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
     def _trigger_parameter_sync_after_step(self):
         """
-        在训练步骤结束后触发参数同步
-        这确保rollouter总是使用最新训练的参数
+        Trigger parameter synchronization after training step
+        This ensures rollouter always uses the latest trained parameters
         """
         self.current_param_version = self.current_param_version + 1
         print(
-            f"[TRAINER] Triggering parameter sync after training step {self.global_steps}, version: {self.current_param_version}"
+            f"[TRAINER] Triggering parameter sync after "
+            f"training step {self.global_steps}, version: {self.current_param_version}"
         )
-        logger.info(f"Triggering parameter sync after training step {self.global_steps}, version: {self.current_param_version}")
+        logger.info(
+            f"Triggering parameter sync after training step {self.global_steps}, version: {self.current_param_version}"
+        )
         ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version))
 
     def _compute_sample_freshness_metrics(self, batch_samples: list[QueueSample]) -> dict:
         """
-        计算样本新鲜度指标
+        Compute sample freshness metrics
 
         Args:
-            batch_samples: 队列样本列表
+            batch_samples: List of queue samples
 
         Returns:
-            dict: 新鲜度指标字典
+            dict: Dictionary of freshness metrics
         """
         if not batch_samples:
             return {}
 
         try:
-            # 提取参数版本和时间戳
+            # Extract parameter versions and timestamps
             sample_ages = []
             sample_latencies = []
             current_time = time.time()
 
             for sample in batch_samples:
-                # 从rollout_metadata中获取信息
+                # Get information from rollout_metadata
                 if hasattr(sample, "rollout_metadata") and sample.rollout_metadata:
                     rollout_version = sample.rollout_metadata.get("rollout_param_version", 0)
                     generation_time = sample.rollout_metadata.get("generation_timestamp", current_time)
