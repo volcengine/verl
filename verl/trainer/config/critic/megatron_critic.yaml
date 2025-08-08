@@ -50,6 +50,9 @@ optim:
   # use checkpoint optimizer parameter scheduler
   use_checkpoint_opt_param_scheduler: False
 
+  # override optimizer config, e.g. enable cpu adam
+  override_optimizer_config: {}
+
 # model config for the critic
 model:
 

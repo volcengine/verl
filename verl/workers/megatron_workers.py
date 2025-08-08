@@ -249,8 +249,12 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     def _build_model_optimizer(
         self, model_path, optim_config, override_model_config, override_transformer_config, override_ddp_config=None
     ):
-        from verl.utils.megatron.optimizer import get_megatron_optimizer, get_megatron_optimizer_param_scheduler
-        from verl.utils.megatron_utils import McoreModuleWrapperConfig, init_megatron_optim_config, make_megatron_module
+        from verl.utils.megatron.optimizer import (
+            get_megatron_optimizer,
+            get_megatron_optimizer_param_scheduler,
+            init_megatron_optim_config,
+        )
+        from verl.utils.megatron_utils import McoreModuleWrapperConfig, make_megatron_module
         from verl.utils.model import get_generation_config, print_model_size
 
         self._init_hf_config_and_tf_config(
@@ -857,8 +861,12 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
     def _build_critic_model_optimizer(
         self, model_path, optim_config, override_model_config, override_transformer_config, override_ddp_config
     ):
-        from verl.utils.megatron.optimizer import get_megatron_optimizer, get_megatron_optimizer_param_scheduler
-        from verl.utils.megatron_utils import McoreModuleWrapperConfig, init_megatron_optim_config, make_megatron_module
+        from verl.utils.megatron.optimizer import (
+            get_megatron_optimizer,
+            get_megatron_optimizer_param_scheduler,
+            init_megatron_optim_config,
+        )
+        from verl.utils.megatron_utils import McoreModuleWrapperConfig, make_megatron_module
         from verl.utils.model import print_model_size
 
         self._init_hf_config_and_tf_config(
