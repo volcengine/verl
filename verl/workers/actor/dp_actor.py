@@ -453,7 +453,7 @@ class DataParallelPPOActor(BasePPOActor):
                             logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type
                         )
                         kl_loss = agg_loss(loss_mat=kld * ratio, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-                        policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef * ratio
+                        policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
 
                         micro_batch_metrics["actor/kl_loss"] = kl_loss.detach().item() * loss_scale_factor
                         micro_batch_metrics["actor/kl_coef"] = self.config.kl_loss_coef
