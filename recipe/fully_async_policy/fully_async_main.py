@@ -153,26 +153,10 @@ class FullyAsyncTaskRunner:
     def run(self, config):
         """运行完全异步的PPO训练"""
         print("Starting fully async PPO training...")
-        # 设置信号处理
-        self._setup_signal_handlers()
         # 初始化基础组件
         self._initialize_components(config)
-        # time.sleep(60)
         # 启动训练流程
         self._run_training_loop()
-
-        # self._cleanup_resources()
-
-    def _setup_signal_handlers(self):
-        """设置信号处理器"""
-
-        def signal_handler(signum, frame):
-            print(f"Received signal {signum}, initiating shutdown...")
-            self.running = False
-            self.shutdown_event.set()
-
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
 
     def _initialize_components(self, config) -> None:
         """
@@ -225,10 +209,10 @@ class FullyAsyncTaskRunner:
 
         # 创建MessageQueue
         self.max_queue_size = (
-            config.async_training.staleness_threshold
-            * config.data.train_batch_size
-            * config.actor_rollout_ref.rollout.n
-        )
+                config.async_training.staleness_threshold
+                * config.data.train_batch_size
+                * config.actor_rollout_ref.rollout.n
+        ) * 10 # x 10 避免死锁
         print("Creating MessageQueue...")
         message_queue = MessageQueue.remote(config, self.max_queue_size)
         message_queue_client = MessageQueueClient(message_queue)
@@ -237,7 +221,7 @@ class FullyAsyncTaskRunner:
         self.components["message_queue_client"] = message_queue_client
 
         # 创建Rollouter
-        print("Creating Rollouter...")
+        print("Creating FullyAsyncRollouter...")
         self._create_rollouter(config)
 
         # 创建Trainer
@@ -252,16 +236,17 @@ class FullyAsyncTaskRunner:
             config=config,
             trainer=self.components["trainer"],
             rollouter=self.components["rollouter"],
+            mq=self.components["message_queue_client"],
         )
 
         # 将参数同步器设置到trainer和rollouter
         ray.get(self.components["trainer"].set_parameter_synchronizer.remote(param_synchronizer))
         ray.get(self.components["rollouter"].set_parameter_synchronizer.remote(param_synchronizer))
 
+        # 首先同步一次参数
         ray.get(param_synchronizer.sync_weights.remote(0))
 
         self.components["param_synchronizer"] = param_synchronizer
-        print("Parameter synchronizer initialized successfully")
         print("All components initialized successfully")
 
     def _create_rollouter(self, config) -> None:
@@ -277,21 +262,14 @@ class FullyAsyncTaskRunner:
             device_name=config.trainer.device,
             max_queue_size=self.max_queue_size,
         )
-        print(rollouter)
 
-        print("========== rollouter init workers ======")
-
-        # 初始化Rollouter
         ray.get(rollouter.init_workers.remote())
-
         ray.get(rollouter.set_message_queue_client.remote(self.components["message_queue_client"]))
-
         self.components["rollouter"] = rollouter
         print("Rollouter created and initialized successfully")
 
     def _create_trainer(self, config) -> None:
         """创建Trainer"""
-        # 创建trainer角色映射（排除Rollout）
         trainer_role_mapping = {
             role: worker_cls
             for role, worker_cls in self.components["role_worker_mapping"].items()
@@ -324,73 +302,12 @@ class FullyAsyncTaskRunner:
         rollouter_future = self.components["rollouter"].fit.remote()
         trainer_future = self.components["trainer"].fit.remote()
 
-        print("Starting Trainer...")
-        time.sleep(10)
-        print("Starting Trainer...")
-
         ray.get(rollouter_future)
         ray.get(trainer_future)
+
         self.components["message_queue_client"].clear_queue()
 
         print("Training completed or interrupted")
-
-    def _cleanup_resources(self):
-        """清理所有资源"""
-        try:
-            # 关闭线程池
-            if hasattr(self, 'thread_executor') and self.thread_executor:
-                print("Shutting down thread executor...")
-                self.thread_executor.shutdown(wait=True, timeout=10.0)
-
-            # 清理logger
-            if hasattr(self, 'logger') and self.logger:
-                try:
-                    if hasattr(self.logger, 'close'):
-                        self.logger.close()
-                    elif hasattr(self.logger, 'finish'):
-                        self.logger.finish()
-                except Exception as e:
-                    print(f"Error closing logger: {e}")
-
-            # 清理validation logger
-            if hasattr(self, 'validation_generations_logger') and self.validation_generations_logger:
-                try:
-                    if hasattr(self.validation_generations_logger, 'close'):
-                        self.validation_generations_logger.close()
-                except Exception as e:
-                    print(f"Error closing validation logger: {e}")
-
-            # 清理异步rollout管理器
-            if hasattr(self, "async_rollout_manager") and self.async_rollout_manager:
-                try:
-                    if hasattr(self.async_rollout_manager, 'shutdown'):
-                        self.async_rollout_manager.shutdown()
-                except Exception as e:
-                    print(f"Error cleaning up async rollout manager: {e}")
-
-            # 清理worker groups
-            if hasattr(self, 'rollout_wg') and self.rollout_wg:
-                try:
-                    if hasattr(self.rollout_wg, 'shutdown'):
-                        self.rollout_wg.shutdown()
-                except Exception as e:
-                    print(f"Error cleaning up rollout worker group: {e}")
-
-            # 强制垃圾回收
-            import gc
-            gc.collect()
-
-        except Exception as e:
-            print(f"Error during resource cleanup: {e}")
-
-    def __del__(self):
-        """析构函数 - 确保资源清理"""
-        try:
-            if hasattr(self, 'running') and self.running:
-                print("Warning: FullyAsyncRollouter being deleted while still running")
-                self.shutdown()
-        except Exception as e:
-            print(f"Error in destructor: {e}")
 
 
 @hydra.main(config_path="config", config_name="fully_async_ppo_trainer", version_base=None)

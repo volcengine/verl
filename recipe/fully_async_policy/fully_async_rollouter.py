@@ -34,17 +34,17 @@ class FullyAsyncRollouter(RayPPOTrainer):
     """
 
     def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-        device_name=None,
-        max_queue_size=1000,
+            self,
+            config,
+            tokenizer,
+            role_worker_mapping: dict[Role, WorkerType],
+            resource_pool_manager: ResourcePoolManager,
+            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+            processor=None,
+            reward_fn=None,
+            val_reward_fn=None,
+            device_name=None,
+            max_queue_size=1000,
     ):
         """
         Initialize distributed PPO trainer with Ray backend.
@@ -98,6 +98,14 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self._validate_config()
         pprint(f"Rollouter _create_dataloader...\n{train_dataset}\n{val_dataset}")
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
+
+        total_rollout_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
+
+        if self.config.rollout.total_rollout_steps is not None:
+            total_rollout_steps = self.config.rollout.total_rollout_steps
+
+        self.total_rollout_steps = total_rollout_steps
+        print(f"Total rollout steps: {self.total_rollout_steps}")
 
         # rollouter 参数配置
         self.message_queue_client = None
@@ -159,6 +167,13 @@ class FullyAsyncRollouter(RayPPOTrainer):
         """获取 rollout worker group"""
         return self.rollout_wg
 
+    def update_param_version(self, version: int):
+        """更新当前参数版本"""
+        with self.lock:
+            old_version = self.current_param_version
+            self.current_param_version = version
+            print(f"Parameter version updated from {old_version} to {version}")
+
     def _validate_config(self):
         # 验证异步训练配置
         if not hasattr(self.config, "async_training"):
@@ -184,18 +199,19 @@ class FullyAsyncRollouter(RayPPOTrainer):
         """
         Create a continuous data iterator across epoch
         """
-        for epoch in range(self.config.trainer.total_epochs):
+        for epoch in range(self.config.rollout.total_epochs):
             iterator = iter(self.train_dataloader)
             for batch_dict in iterator:
                 yield epoch, batch_dict
 
     def fit(self):
         """开始异步生成样本 - 改进的主运行逻辑"""
-        print("Starting Rollouter...")
+        print("Starting FullyAsyncRollouter...")
+
         if self.message_queue_client is None:
             raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
-        # if self.param_synchronizer is None:
-        #     raise ValueError("param_synchronizer client not set. Call set_parameter_synchronizer() first.")
+        if self.param_synchronizer is None:
+            raise ValueError("param_synchronizer client not set. Call set_parameter_synchronizer() first.")
 
         # 设置运行状态
         with self.lock:
@@ -279,8 +295,11 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             metrics = {}
             timing_raw = {}
-            batch, gen_batch = self._prepare_generate_batch(batch_dict)
-            is_last_step = self.global_steps >= self.total_training_steps
+
+            with self.lock:
+                batch, gen_batch = self._prepare_generate_batch(batch_dict)
+
+            is_last_step = self.global_steps >= self.total_rollout_steps
 
             # generate a batch
             with marked_timer("gen", timing_raw, color="red"):
@@ -333,6 +352,12 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         with self.lock:
             self.running = False
+
+        # 发送终止信号
+        self.message_queue_client.put_sample(
+            sample=None,
+            param_version=self.current_param_version,
+        )
 
     def _monitor_loop(self):
         """监控线程 - 监控状态并处理控制信号"""
@@ -390,7 +415,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
             return True  # 出错时暂停生成
 
     def pause(self) -> bool:
-        """暂停生成 - 供外部调用"""
+        """暂停生成
+        TODO 集成 Partial Rollout
+        """
+        print("[rollouter] pause")
         with self.lock:
             if not self.running:
                 return False
@@ -402,7 +430,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
             return True
 
     def resume(self) -> bool:
-        """恢复生成 - 供外部调用"""
+        """恢复生成
+        TODO 集成 Partial Rollout
+        """
+        print("[rollouter] resume")
         with self.lock:
             if not self.running:
                 return False
@@ -414,45 +445,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
             self.condition.notify_all()
             print("Generation resumed")
             return True
-
-    def shutdown(self):
-        """关闭Rollouter - 改进的关闭逻辑"""
-        print("Shutting down Rollouter...")
-
-        with self.lock:
-            self.running = False
-            self.paused = False
-            self.condition.notify_all()
-
-        # 等待生成线程结束
-        if self.generation_thread and self.generation_thread.is_alive():
-            print("Waiting for generation thread to finish...")
-            self.generation_thread.join(timeout=10.0)
-
-            if self.generation_thread.is_alive():
-                print("Generation thread did not finish within timeout")
-
-        # 等待监控线程结束
-        if self.monitor_thread and self.monitor_thread.is_alive():
-            print("Waiting for monitor thread to finish...")
-            self.monitor_thread.join(timeout=5.0)
-
-            if self.monitor_thread.is_alive():
-                print("Monitor thread did not finish within timeout")
-
-        # 关闭线程池
-        if self.thread_executor:
-            self.thread_executor.shutdown(wait=True)
-
-        # 清理异步rollout管理器
-        if hasattr(self, "async_rollout_manager"):
-            try:
-                # TODO: 添加异步rollout管理器的清理逻辑
-                pass
-            except Exception as e:
-                print(f"Error cleaning up async rollout manager: {e}")
-
-        print("Rollouter shutdown complete")
 
     def get_statistics(self) -> dict:
         with self.lock:
@@ -468,102 +460,3 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 "queue_size": f"{queue_stats['queue_size']}",
             }
             return stats
-
-    def update_rollout_weights(self, param_version: int) -> bool:
-        """
-        更新rollout模型参数 - 改进的参数同步实现
-        这个方法由外部Trainer调用
-
-        Args:
-            param_version: 新的参数版本号
-
-        Returns:
-            bool: 是否成功更新参数
-        """
-        print(f"Updating rollout weights to version {param_version}")
-
-        with self.sync_lock:
-            if self.sync_in_progress:
-                print(f"Sync already in progress, skipping version {param_version}")
-                return False
-
-            self.sync_in_progress = True
-
-        try:
-            # 暂停rollout - 带超时机制
-            if not self.rollout_controller.pause(timeout=10.0):
-                print("Failed to pause rollout within timeout")
-                return False
-
-            # 等待当前generation完成（如果有的话）
-            time.sleep(0.1)
-
-            # 执行参数同步
-            sync_success = self._execute_parameter_sync(param_version)
-
-            if sync_success:
-                self.current_param_version = param_version
-                self.param_sync_requests += 1
-                self.last_sync_time = time.time()
-                print(f"Successfully updated rollout weights to version {param_version}")
-            else:
-                print(f"Failed to sync parameters to version {param_version}")
-
-        except Exception as e:
-            print(f"Error during parameter sync: {e}")
-            sync_success = False
-        finally:
-            # 恢复rollout
-            self.rollout_controller.resume()
-            self.sync_in_progress = False
-
-        return sync_success
-
-    def _execute_parameter_sync(self, param_version: int) -> bool:
-        """
-        执行实际的参数同步 - 改进的同步逻辑
-
-        Args:
-            param_version: 目标参数版本
-
-        Returns:
-            bool: 是否同步成功
-        """
-        try:
-            # 暂停推理引擎
-            if self.async_rollout_mode and hasattr(self, "async_rollout_manager"):
-                # 对于异步模式，暂停服务器
-                pass  # 异步服务器的暂停在 pause() 中已经处理
-            else:
-                # 对于同步模式，使用sleep/wake_up机制
-                sleep_futures = self.rollout_wg.sleep()
-                ray.get(sleep_futures)
-
-            # 执行参数同步
-            if self.param_synchronizer:
-                self.param_synchronizer.sync_weights()
-                print("Parameter synchronization completed via synchronizer")
-            else:
-                # 直接使用rollout worker group的同步机制
-                if hasattr(self.rollout_wg, "sync_rollout_weights"):
-                    sync_futures = self.rollout_wg.sync_rollout_weights()
-                    ray.get(sync_futures)
-                    print("Parameter synchronization completed via rollout worker group")
-                else:
-                    print("No parameter synchronization mechanism available")
-                    return False
-
-            # 恢复推理引擎
-            if self.async_rollout_mode and hasattr(self, "async_rollout_manager"):
-                # 对于异步模式，恢复服务器
-                pass  # 异步服务器的恢复在 resume() 中已经处理
-            else:
-                # 对于同步模式，唤醒workers
-                wake_futures = self.rollout_wg.wake_up()
-                ray.get(wake_futures)
-
-            return True
-
-        except Exception as e:
-            print(f"Parameter sync execution failed: {e}")
-            return False

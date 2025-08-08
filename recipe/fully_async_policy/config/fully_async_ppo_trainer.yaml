@@ -24,6 +24,8 @@ rollout:
   mode: async                        # rollout模式: sync, async
   name: vllm                         # rollout引擎: vllm, sglang
   n: 4                               # 每个prompt生成的响应数量
+  total_rollout_steps: 100
+  total_epochs: 10
 
 data:
   gen_batch_size: 32

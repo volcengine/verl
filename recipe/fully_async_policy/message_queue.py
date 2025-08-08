@@ -131,7 +131,11 @@ class MessageQueue:
             samples = []
             for _ in range(batch_count):
                 if self.queue:
-                    samples.append(self.queue.popleft())
+                    data = self.queue.popleft()
+                    if data is None:
+                        return []
+                    else:
+                        samples.append(self.queue.popleft())
 
             self.total_consumed += len(samples)
             return samples

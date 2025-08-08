@@ -105,7 +105,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.processed_samples = 0
         self.stale_samples_processed = 0
         self.current_param_version = 0
-        self.param_sync_count = 0
 
         # 参数同步相关状态
         self._weights_info = None
@@ -133,8 +132,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
         Returns:
             tuple: (epoch, batch_dict, gen_batch_output)
         """
-        if self.message_queue_client is None:
-            raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
 
         # 计算需要获取的样本数量
         n_responses_per_prompt = self.config.actor_rollout_ref.rollout.n
@@ -268,11 +265,11 @@ class FullyAsyncTrainer(RayPPOTrainer):
         to construct the PPO dataflow.
         The light-weight advantage computation is done on the driver process.
         """
-
-        print("FullyAsyncTrainer run")
-
+        print("Starting FullyAsyncTrainer...")
         if self.message_queue_client is None:
             raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
+        if self.param_synchronizer is None:
+            raise ValueError("param_synchronizer client not set. Call set_parameter_synchronizer() first.")
 
         from verl.utils.tracking import Tracking
 
@@ -288,22 +285,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
         # load checkpoint before doing anything
         self._load_checkpoint()
 
-        # perform validation before training
-        # currently, we only support validation using the reward_function.
-        if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-            val_metrics = self._validate()
-            assert val_metrics, f"{val_metrics=}"
-            pprint(f"Initial validation metrics: {val_metrics}")
-            print(data=val_metrics, step=self.global_steps)
-            if self.config.trainer.get("val_only", False):
-                return
-        # TODO 需要从
         self.total_training_steps = self.config.trainer.total_training_steps
 
         print(f"Total training steps: {self.total_training_steps}")
-        # add tqdm
-        # progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
-
         # we start from step 1
         self.global_steps += 1
         last_val_metrics = None
@@ -324,13 +308,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
             metrics = {}
             timing_raw = {}
-
-            do_profile = (
-                self.global_steps in self.config.trainer.profile_steps
-                if self.config.trainer.profile_steps is not None
-                else False
-            )
-            self._start_profiling(do_profile, timing_raw)
 
             is_last_step = self.global_steps >= self.total_training_steps
 
@@ -384,13 +361,12 @@ class FullyAsyncTrainer(RayPPOTrainer):
             # self._stop_profiling(do_profile, timing_raw)
             print("_collect_metrics")
             # self._collect_metrics(batch, epoch, metrics, timing_raw)
-            print("_post_batch_processing")
-            # self._post_batch_processing(batch)
 
-            print("step end")
             # 在训练步骤结束后触发参数同步
+            print("_trigger_parameter_sync_after_step")
+
             self._trigger_parameter_sync_after_step()
-            # progress_bar.update(1)
+            print("global_steps")
             self.global_steps += 1
             print(f"is_last_step {is_last_step}")
             if is_last_step:
@@ -405,7 +381,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
             "processed_samples": self.processed_samples,
             "stale_samples_processed": self.stale_samples_processed,
             "current_param_version": self.current_param_version,
-            "param_sync_count": self.param_sync_count,
             "queue_size": queue_stats.get("queue_size", 0),
             "queue_total_produced": queue_stats.get("total_produced", 0),
             "queue_total_consumed": queue_stats.get("total_consumed", 0),
@@ -417,12 +392,12 @@ class FullyAsyncTrainer(RayPPOTrainer):
         在训练步骤结束后触发参数同步
         这确保rollouter总是使用最新训练的参数
         """
-        new_version = self.current_param_version + 1
+        self.current_param_version = self.current_param_version + 1
         print(
-            f"[TRAINER] Triggering parameter sync after training step {self.global_steps}, version: {new_version}"
+            f"[TRAINER] Triggering parameter sync after training step {self.global_steps}, version: {self.current_param_version}"
         )
-        logger.info(f"Triggering parameter sync after training step {self.global_steps}, version: {new_version}")
-        ray.get(self.param_synchronizer.sync_weights.remote(new_version))
+        logger.info(f"Triggering parameter sync after training step {self.global_steps}, version: {self.current_param_version}")
+        ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version))
 
     def _compute_sample_freshness_metrics(self, batch_samples: list[QueueSample]) -> dict:
         """

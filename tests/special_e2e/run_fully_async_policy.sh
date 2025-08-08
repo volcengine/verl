@@ -121,6 +121,8 @@ common_params=(
     trainer.n_gpus_per_node=${n_gpus_training}
     rollout.nnodes=1
     rollout.n_gpus_per_node=${n_gpus_rollout}
+    rollout.total_rollout_steps=100
+    rollout.total_epochs=10
     # Fully async specific configurations
     async_training.staleness_threshold=${staleness_threshold}
     async_training.sync_timeout=${sync_timeout}

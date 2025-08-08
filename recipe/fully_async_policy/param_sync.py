@@ -28,11 +28,11 @@ class ParameterSynchronizer:
     合并了原有的多个同步器类的功能
     """
 
-    def __init__(self, config, trainer, rollouter):
-
+    def __init__(self, config, trainer, rollouter, mq):
         self.config = config
         self.trainer = trainer
         self.rollouter = rollouter
+        self.mq_client = mq
         self.actor_wg = ray.get(trainer.get_actor_wg.remote())
         self.rollout_wg = ray.get(rollouter.get_rollout_wg.remote())
 
@@ -72,10 +72,18 @@ class ParameterSynchronizer:
 
     def sync_weights(self, version):
         self.current_version = version
-        logger.debug(f"Starting weight synchronization (version {self.current_version})...")
+        print(f"Starting weight synchronization (version {self.current_version})...")
 
-        # TODO 暂停及恢复rollout
-        print("TODO 暂停及恢复rollout")
+        print("pause rollout")
+        ray.get(self.rollouter.pause.remote())
+
+        # 更新MQ 版本
+        self.mq_client.update_param_version(version)
+
         self.actor_wg.sync_rollout_weights()
         ray.get(self.rollout_wg.sync_rollout_weights())
+
+        # 更新 rollout 版本
+        ray.get(self.rollouter.update_param_version.remote(version))
+        ray.get(self.rollouter.resume.remote())
         print("sync_weights success")
