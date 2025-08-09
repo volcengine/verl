@@ -23,17 +23,10 @@ The update of base image is not frequent, and the app image can be built on top 
 ## Application Image
 
 From this version, we divide images built for vLLM and SGLang as the divergence of dependent packages like FlashInfer.
+There are 2 types of application images available:
 
-There are four types of application images available:
-
-- **vLLM with FSDP and Megatron**: ``verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.2-te2.2``, with Deep-EP support: ``verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.2-te2.2-deepep``.
-- **SGLang with FSDP and Megatron**: ``verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.2-te2.2`` (need vLLM support, but can have some package conflicts), with Deep-EP support: ``verlai/verl:app-verl0.4-sglang0.4.6.post5-vllm0.8.5-mcore0.12.2-te2.2-deepep``.
-- **Preview version of SGLang with FSDP and Megatron, CUDA 12.6**: ``verlai/verl:app-verl0.5-sglang0.4.8-mcore0.12.2-te2.2``
-- **Preview version of SGLang with FSDP and Megatron, CUDA 12.8**: ``verlai/verl:app-preview-verl0.5-sglang0.4.8-mcore0.12.2-te2.2``
-
-For Megatron 0.13.0, we offer preview images, to use latest codes, just replace ``mcore0.12.2`` with ``mcore0.13.0-preview`` in the above image tag.
-
-The latest vLLM support is coming soon.
+- **vLLM with FSDP and Megatron**: ``verlai/verl:app-verl0.5-vllm0.9.1-mcore0.12.2-te2.2``
+- **SGLang with FSDP and Megatron**: ``verlai/verl:app-verl0.5-sglang0.4.9.post6-mcore0.12.2-te2.2``
 
 Docker images with Megatron backends are runnable with large language model like ``Qwen/Qwen3-235B-A22B``, ``deepseek-ai/DeepSeek-V3-0324`` post-training. Refer to the :doc:`Large Language Model Post-Training documentation<../perf/dpsk>` for more details.
 

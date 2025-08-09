@@ -73,6 +73,7 @@ actor_rollout_ref:
     log_prob_micro_batch_size_per_gpu: null
     log_prob_use_dynamic_bsz: ${oc.select:actor_rollout_ref.actor.use_dynamic_bsz,false}
     log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_token_len_per_gpu,16384}
+    model: null
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
@@ -84,7 +85,7 @@ actor_rollout_ref:
     entropy_from_logits_with_chunking: false
     entropy_checkpointing: false
   rollout:
-    name: vllm
+    name: ???
     mode: sync
     temperature: 1.0
     top_k: -1
@@ -94,7 +95,8 @@ actor_rollout_ref:
     dtype: bfloat16
     gpu_memory_utilization: 0.5
     ignore_eos: false
-    enforce_eager: true
+    enforce_eager: false
+    cudagraph_capture_sizes: null
     free_cache_engine: true
     tensor_model_parallel_size: 2
     max_num_batched_tokens: 8192
@@ -143,10 +145,13 @@ actor_rollout_ref:
     trace:
       backend: null
       token2text: false
+    skip_rollout: false
+    skip_dump_dir: /tmp/rollout_dump
     enable_chunked_prefill: true
     load_format: dummy_dtensor
     layered_summon: false
   hybrid_engine: true
+  nccl_timeout: 600
   model:
     path: ~/models/deepseek-llm-7b-chat
     custom_chat_template: null
@@ -188,6 +193,7 @@ trainer:
   total_epochs: 30
   total_training_steps: null
   profile_steps: null
+  profile_continuous_steps: false
   controller_nsight_options:
     trace: cuda,nvtx,cublas,ucx
     cuda-memory-usage: 'true'

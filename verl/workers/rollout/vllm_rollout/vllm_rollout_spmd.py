@@ -26,6 +26,7 @@ When working with Megatron:
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
+import getpass
 import logging
 import os
 import pickle
@@ -42,9 +43,10 @@ import torch
 import torch.distributed
 import zmq
 from filelock import FileLock
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, ListConfig, OmegaConf
 from tensordict import TensorDict
 from vllm import LLM, SamplingParams
+from vllm.config import CompilationConfig, CompilationLevel
 from vllm.distributed import parallel_state as vllm_ps
 from vllm.lora.request import LoRARequest
 from vllm.model_executor.sampling_metadata import SamplingMetadata
@@ -52,6 +54,7 @@ from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
 from verl.utils.profiler import GPUMemoryLogger
+from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
 
@@ -162,6 +165,18 @@ class vLLMRollout(BaseRollout):
         if config.get("limit_images", None):  # support for multi-image data
             engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
 
+        compilation_config = {}
+
+        cudagraph_capture_sizes = config.get("cudagraph_capture_sizes")
+        # enforce_eager must be False to use cudagraph
+        if not config.enforce_eager and cudagraph_capture_sizes:
+            if isinstance(cudagraph_capture_sizes, ListConfig):
+                compilation_config["compilation_config"] = CompilationConfig(
+                    level=CompilationLevel.PIECEWISE, cudagraph_capture_sizes=cudagraph_capture_sizes
+                )
+            else:
+                logger.warning(f"cudagraph_capture_sizes must be a list, but got {cudagraph_capture_sizes}")
+
         self.inference_engine = LLM(
             model=model_path,
             enable_sleep_mode=config.free_cache_engine,
@@ -173,6 +188,7 @@ class vLLMRollout(BaseRollout):
             disable_custom_all_reduce=True,
             skip_tokenizer_init=False,
             max_model_len=max_model_len,
+            max_num_seqs=config.max_num_seqs,
             load_format=load_format,
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
@@ -180,6 +196,7 @@ class vLLMRollout(BaseRollout):
             enable_prefix_caching=True,
             trust_remote_code=trust_remote_code,
             seed=config.get("seed", 0),
+            **compilation_config,
             **lora_kwargs,
             **engine_kwargs,
         )
@@ -275,15 +292,14 @@ class vLLMRollout(BaseRollout):
                 {"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch.pop("raw_prompt_ids")
             ]
 
-        # ensure the type of `prompt_token_ids` passed to vllm is list[int]
-        # https://github.com/volcengine/verl/pull/772
         for input_data in vllm_inputs:
-            if isinstance(input_data["prompt_token_ids"], np.ndarray):
-                input_data["prompt_token_ids"] = input_data["prompt_token_ids"].tolist()
-            elif not isinstance(input_data["prompt_token_ids"], list):
+            # Ensure token IDs are lists or numpy arrays
+            if not isinstance(input_data["prompt_token_ids"], list | np.ndarray):
                 raise TypeError(
                     f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}"
                 )
+
+            input_data["prompt_token_ids"] = list(input_data["prompt_token_ids"])
 
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
@@ -423,10 +439,10 @@ class vLLMAsyncRollout:
         socket_type = "ipc" if tensor_parallel_size <= local_world_size else "tcp"
 
         # File lock to prevent multiple workers listen to same port
-        with FileLock("/tmp/verl_vllm_zmq.lock"):
+        with FileLock(f"/tmp/verl_vllm_zmq_{getpass.getuser()}.lock"):
             if socket_type == "ipc":
                 pid = os.getpid()
-                address = f"ipc:///tmp/verl_vllm_zmq_{pid}.ipc"
+                address = f"ipc:///tmp/verl_vllm_zmq_{pid}_{getpass.getuser()}.ipc"
             else:
                 ip, port = self._get_free_port()
                 address = f"tcp://{ip}:{port}"
@@ -459,8 +475,7 @@ class vLLMAsyncRollout:
     def init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
-        all_kwargs[0]["local_rank"] = 0
-
+        all_kwargs[0]["local_rank"] = 0 if not ray_noset_visible_devices() else int(os.environ.get("RAY_LOCAL_RANK", 0))
         self.vllm_config = all_kwargs[0]["vllm_config"]
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)

@@ -28,6 +28,7 @@ RM_PAD=${RM_PAD:-True}
 FUSED_KERNELS=${FUSED_KERNELS:-False}
 FUSED_KERNEL_BACKEND=${FUSED_KERNEL_BACKEND:-torch} # or 'triton' for triton backend
 ADV_ESTIMATOR=${ADV_ESTIMATOR:-gae}
+LOSS_MODE=${LOSS_MODE:-vanilla}
 USE_KL=${USE_KL:-False}
 CUSTOM_REWARD_FN=${CUSTOM_REWARD_FN:-False}
 ENABLE_CHUNKED_PREFILL=${ENABLE_CHUNKED_PREFILL:-True} # For vLLM VLM placeholder issue: https://github.com/vllm-project/vllm/issues/15185
@@ -112,6 +113,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size="${SP_SIZE}" \
     actor_rollout_ref.actor.checkpoint.save_contents=${CHECKPOINT_CONTENTS} \
     actor_rollout_ref.actor.use_kl_loss="${USE_KL}" \
+    actor_rollout_ref.actor.policy_loss.loss_mode="${LOSS_MODE}" \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name="${ENGINE}" \

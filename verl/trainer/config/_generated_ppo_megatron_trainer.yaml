@@ -57,6 +57,7 @@ actor_rollout_ref:
       lr_wsd_decay_style: exponential
       lr_wsd_decay_steps: null
       use_checkpoint_opt_param_scheduler: false
+      override_optimizer_config: {}
     use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
     data_loader_seed: null
     load_weight: true
@@ -121,7 +122,7 @@ actor_rollout_ref:
       save_path: null
     load_weight: true
   rollout:
-    name: vllm
+    name: ???
     mode: sync
     temperature: 1.0
     top_k: -1
@@ -131,7 +132,8 @@ actor_rollout_ref:
     dtype: bfloat16
     gpu_memory_utilization: 0.5
     ignore_eos: false
-    enforce_eager: true
+    enforce_eager: false
+    cudagraph_capture_sizes: null
     free_cache_engine: true
     tensor_model_parallel_size: 1
     max_num_batched_tokens: 8192
@@ -180,6 +182,8 @@ actor_rollout_ref:
     trace:
       backend: null
       token2text: false
+    skip_rollout: false
+    skip_dump_dir: /tmp/rollout_dump
     enable_chunked_prefill: false
     load_format: dummy_megatron
     layer_name_map:
@@ -220,6 +224,7 @@ trainer:
   total_epochs: 30
   total_training_steps: null
   profile_steps: null
+  profile_continuous_steps: false
   project_name: verl_examples
   experiment_name: gsm8k
   logger:
@@ -308,6 +313,7 @@ critic:
     lr_wsd_decay_style: exponential
     lr_wsd_decay_steps: null
     use_checkpoint_opt_param_scheduler: false
+    override_optimizer_config: {}
   model:
     path: ~/models/deepseek-llm-7b-chat
     tokenizer_path: ${oc.select:actor_rollout_ref.model.path,"~/models/deepseek-llm-7b-chat"}
