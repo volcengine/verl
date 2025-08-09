@@ -53,6 +53,10 @@ reward_manager: naive
 # custom reward function executed async on CPU, during log_prob
 launch_reward_fn_async: False
 
+# Whether to launch custom reward function in a new thread during log_prob
+# keep batch read-only during reward computation
+launch_reward_fn_sub_thread: False
+
 # Cloud/local sandbox fusion configuration for custom reward logic
 sandbox_fusion:
 
