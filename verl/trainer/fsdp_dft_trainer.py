@@ -90,7 +90,7 @@ def extract_step(path):
     return None
 
 
-class FSDPSFTTrainer:
+class FSDPDFTTrainer:
     def __init__(
         self,
         config,
@@ -801,7 +801,7 @@ class FSDPSFTTrainer:
                     return
 
 
-def run_sft(config):
+def run_dft(config):
     device_name = get_device_name()
     local_rank, rank, world_size = initialize_global_process_group()
 
@@ -820,7 +820,7 @@ def run_sft(config):
     train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
     val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
 
-    trainer = FSDPSFTTrainer(
+    trainer = FSDPDFTTrainer(
         config=config,
         device_mesh=device_mesh,
         ulysses_device_mesh=ulysses_device_mesh,
@@ -836,7 +836,7 @@ def run_sft(config):
 
 @hydra.main(config_path="config", config_name="sft_trainer", version_base=None)
 def main(config):
-    run_sft(config)
+    run_dft(config)
 
 
 def create_sft_dataset(data_paths, data_config, tokenizer):
