@@ -464,7 +464,7 @@ def compute_reward_metrics(batch: DataProto) -> dict[str, Any]:
             - train/reward/min: Minimum sequence reward
     """
     seq_reward_tensor = batch.batch["token_level_scores"].sum(-1)
-    
+
     return {
         "train/reward/mean": seq_reward_tensor.mean().detach().item(),
         "train/reward/std": seq_reward_tensor.std().detach().item(),

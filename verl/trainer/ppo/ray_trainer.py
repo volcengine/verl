@@ -575,25 +575,33 @@ class RayPPOTrainer:
             print(f"Warning: Could not set total_training_steps in config. Structure missing? Error: {e}")
 
     def _extract_reward_extra_infos(self, batch: DataProto) -> dict[str, list]:
-        """Extract reward extra info from batch.non_tensor_batch for dump_generations.
-        """
+        """Extract reward extra info from batch.non_tensor_batch for dump_generations."""
         reward_extra_infos_dict = {}
-        
-        if hasattr(batch, 'non_tensor_batch') and batch.non_tensor_batch:
+
+        if hasattr(batch, "non_tensor_batch") and batch.non_tensor_batch:
             # Standard keys that are not reward extra info
             standard_keys = {
-                'uid', 'data_source', '__num_turns__', 'seq_reward', 'seq_final_reward', 
-                'raw_prompt_ids', 'raw_prompt', 'multi_modal_data', 'tools_kwargs', 
-                'interaction_kwargs', 'agent_name', 'index'
+                "uid",
+                "data_source",
+                "__num_turns__",
+                "seq_reward",
+                "seq_final_reward",
+                "raw_prompt_ids",
+                "raw_prompt",
+                "multi_modal_data",
+                "tools_kwargs",
+                "interaction_kwargs",
+                "agent_name",
+                "index",
             }
-            
+
             for key, values in batch.non_tensor_batch.items():
-                if key not in standard_keys and isinstance(values, (list, np.ndarray)):
-                    reward_extra_infos_dict[key] = values.tolist() if isinstance(values, np.ndarray) else values
-                    
+                if key not in standard_keys and isinstance((list, np.ndarray), values):
+                    reward_extra_infos_dict[key] = values.tolist() if isinstance(np.ndarray, values) else values
+
         return reward_extra_infos_dict
 
-    def _dump_generations(self, inputs, outputs, scores, reward_extra_infos_dict, dump_path):
+    def _dump_generations(self, inputs, outputs, gts, scores, reward_extra_infos_dict, dump_path):
         """Dump rollout/validation samples as JSONL."""
         os.makedirs(dump_path, exist_ok=True)
         filename = os.path.join(dump_path, f"{self.global_steps}.jsonl")
@@ -1056,8 +1064,6 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
-
-
     def fit(self):
         """
         The training loop of PPO.
@@ -1110,7 +1116,7 @@ class RayPPOTrainer:
         )
         next_step_profile = False
 
-        #dynamic filter
+        # dynamic filter
 
         self.gen_steps = 1
         accumulated_batch = None
@@ -1118,12 +1124,13 @@ class RayPPOTrainer:
         num_gen_batches = 0
         prompt_bsz = self.config.data.train_batch_size
         self.reward_step = 0
-        
+
         # Display dynamic filter settings
         if self.config.algorithm.dynamic_filter.enable:
             print(f"[DF] Dynamic Filter ENABLED - Target batch size: {prompt_bsz} prompts")
             print(f"[DF] Filter metric: {self.config.algorithm.dynamic_filter.metric}")
-            print(f"[DF] Max generation batches: {self.config.algorithm.dynamic_filter.get('max_num_gen_batches', 'unlimited')}")
+            max_gen_batches = self.config.algorithm.dynamic_filter.get("max_num_gen_batches", "unlimited")
+            print(f"[DF] Max genbatches: {max_gen_batches}")
         else:
             print(f"[Normal] Dynamic Filter DISABLED - Processing single batches of {prompt_bsz} prompts")
 
@@ -1133,7 +1140,7 @@ class RayPPOTrainer:
                 timing_raw = {}
 
                 # dynamic filter
-                num_gen_batches+=1
+                num_gen_batches += 1
 
                 with marked_timer("start_profile", timing_raw):
                     self._start_profiling(
@@ -1215,31 +1222,38 @@ class RayPPOTrainer:
                         reward_tensor = self.rm_wg.compute_rm_score(batch)
                         batch = batch.union(reward_tensor)
 
-                    if self.config.algorithm.dynamic_filter.enable or not self.config.reward_model.launch_reward_fn_async:
+                    if (
+                        self.config.algorithm.dynamic_filter.enable
+                        or not self.config.reward_model.launch_reward_fn_async
+                    ):
                         reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
                         batch.batch["token_level_scores"] = reward_tensor
 
                         if reward_extra_infos_dict:
-                            batch.non_tensor_batch.update(
-                                {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
-                            )
-                    if self.reward_step <self.global_steps:
+                            batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+                    if self.reward_step < self.global_steps:
                         self.reward_step += 1
-                        
+
                         # update train/reward in metric only once per step using the not filtered batch
                         reward_metrics = compute_reward_metrics(batch)
                         metrics.update(reward_metrics)
                         logger.log(data=metrics, step=self.global_steps)
-                        print(f"[DF] Reward: {reward_metrics['train/reward/mean']:.4f} ± {reward_metrics['train/reward/std']:.4f} (max: {reward_metrics['train/reward/max']:.4f}, min: {reward_metrics['train/reward/min']:.4f})")
-
-
+                        reward_mean = reward_metrics["train/reward/mean"]
+                        reward_std = reward_metrics["train/reward/std"]
+                        reward_max = reward_metrics["train/reward/max"]
+                        reward_min = reward_metrics["train/reward/min"]
+                        print(
+                            f"[DF] Reward: {reward_mean:.4f} ± {reward_std:.4f} "
+                            f"(max: {reward_max:.4f}, min: {reward_min:.4f})"
+                        )
 
                     if self.config.algorithm.dynamic_filter.enable:
                         # NOTE: When prompts after filtering is less than train batch size,
                         # we skip to the next generation batch
                         metric_name = self.config.algorithm.dynamic_filter.metric
-                        
-                        print(f"[DF] Generation batch {num_gen_batches}: Processing {len(batch.batch['responses'])} trajectories")
+
+                        num_trajectories = len(batch.batch["responses"])
+                        print(f"[DF] Generation batch {num_gen_batches}: Processing {num_trajectories} trajectories")
                         if metric_name == "seq_final_reward":
                             # Turn to numpy for easier filtering
                             raise ValueError("seq_final_reward is not supported for dynamic filter")
@@ -1247,9 +1261,7 @@ class RayPPOTrainer:
                             #     batch.batch["token_level_rewards"].sum(dim=-1).numpy()
                             # )
                         elif metric_name == "seq_reward":
-                            batch.non_tensor_batch["seq_reward"] = (
-                                batch.batch["token_level_scores"].sum(dim=-1).numpy()
-                            )
+                            batch.non_tensor_batch["seq_reward"] = batch.batch["token_level_scores"].sum(dim=-1).numpy()
 
                         # Collect the sequence reward for each trajectory
                         prompt_uid2metric_vals = defaultdict(list)
@@ -1267,14 +1279,16 @@ class RayPPOTrainer:
                             for uid, std in prompt_uid2metric_std.items()
                             if std > 0 or len(prompt_uid2metric_vals[uid]) == 1
                         ]
-                        
+
                         total_prompts_this_batch = len(prompt_uid2metric_std)
                         kept_prompts_this_batch = len(kept_prompt_uids)
                         filtered_prompts_this_batch = total_prompts_this_batch - kept_prompts_this_batch
-                        
-                        print(f"[DF] Filtering: {kept_prompts_this_batch}/{total_prompts_this_batch} prompts kept, "
-                              f"{filtered_prompts_this_batch} filtered out")
-                        
+
+                        print(
+                            f"[DF] Filtering: {kept_prompts_this_batch}/{total_prompts_this_batch} prompts kept, "
+                            f"{filtered_prompts_this_batch} filtered out"
+                        )
+
                         num_prompt_in_batch += kept_prompts_this_batch
 
                         kept_traj_idxs = []
@@ -1284,17 +1298,21 @@ class RayPPOTrainer:
 
                         batch = batch[kept_traj_idxs]
                         kept_trajectories_this_batch = len(kept_traj_idxs)
-                        
-                        accumulated_batch = batch if accumulated_batch is None else DataProto.concat([accumulated_batch, batch])
-                        accumulated_trajectories = len(accumulated_batch.batch['responses']) if accumulated_batch else 0
-                        
-                        print(f"[DF] Trajectories: {kept_trajectories_this_batch} kept this batch, "
-                              f"{accumulated_trajectories} total accumulated")
+
+                        accumulated_batch = (
+                            batch if accumulated_batch is None else DataProto.concat([accumulated_batch, batch])
+                        )
+                        accumulated_trajectories = len(accumulated_batch.batch["responses"]) if accumulated_batch else 0
+
+                        print(
+                            f"[DF] Trajectories: {kept_trajectories_this_batch} kept this batch, "
+                            f"{accumulated_trajectories} total accumulated"
+                        )
                         if num_prompt_in_batch < prompt_bsz:
                             print(f"[DF] Status: {num_prompt_in_batch}/{prompt_bsz} prompts collected, need more data")
                             max_num_gen_batches = self.config.algorithm.dynamic_filter.max_num_gen_batches
                             if max_num_gen_batches <= 0 or num_gen_batches < max_num_gen_batches:
-                                print(f"[DF] Continue generating (batch {num_gen_batches+1})...")
+                                print(f"[DF] Continue generating (batch {num_gen_batches + 1})...")
                                 continue
                             else:
                                 raise ValueError(
@@ -1306,8 +1324,11 @@ class RayPPOTrainer:
                             # Align the batch
                             traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
                             batch = accumulated_batch[:traj_bsz]
-                            
-                            print(f"[DF] SUCCESS: Collected {num_prompt_in_batch} prompts in {num_gen_batches} generation batches")
+
+                            print(
+                                f"[DF] SUCCESS: Collected {num_prompt_in_batch} prompts in "
+                                f"{num_gen_batches} generation batches"
+                            )
                             print(f"[DF] Final batch: {len(batch.batch['responses'])} trajectories ready for training")
                     else:
                         # Non-dynamic filter case - always complete after processing one batch
@@ -1329,9 +1350,12 @@ class RayPPOTrainer:
                     with marked_timer("reward", timing_raw, color="yellow"):
                         # compute reward model score
 
-                        if self.config.reward_model.launch_reward_fn_async and not self.config.algorithm.dynamic_filter.enable:
+                        if (
+                            self.config.reward_model.launch_reward_fn_async
+                            and not self.config.algorithm.dynamic_filter.enable
+                        ):
                             future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
-                            
+
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
@@ -1367,12 +1391,17 @@ class RayPPOTrainer:
 
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
-                        if self.config.reward_model.launch_reward_fn_async and not self.config.algorithm.dynamic_filter.enable:
+                        if (
+                            self.config.reward_model.launch_reward_fn_async
+                            and not self.config.algorithm.dynamic_filter.enable
+                        ):
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                             batch.batch["token_level_scores"] = reward_tensor
 
                             if reward_extra_infos_dict:
-                                batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+                                batch.non_tensor_batch.update(
+                                    {k: np.array(v) for k, v in reward_extra_infos_dict.items()}
+                                )
 
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
@@ -1398,9 +1427,6 @@ class RayPPOTrainer:
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                             config=self.config.algorithm,
                         )
-
-
-
 
                     # update critic
                     if self.use_critic:
@@ -1430,9 +1456,7 @@ class RayPPOTrainer:
                                 for item in batch
                             ]
 
-                            
                             reward_extra_infos_dict = self._extract_reward_extra_infos(batch)
-                            
 
                             self._dump_generations(
                                 inputs=inputs,
@@ -1523,10 +1547,10 @@ class RayPPOTrainer:
                     print(f"[DF] Step {self.global_steps} completed: Used {num_gen_batches} generation batches")
                 elif not self.config.algorithm.dynamic_filter.enable:
                     print(f"[Normal] Step {self.global_steps} completed: Single batch processing")
-                
+
                 # Reset dynamic filter state for next training step
                 self.gen_steps += 1
-                num_gen_batches = 0 
+                num_gen_batches = 0
                 num_prompt_in_batch = 0
                 accumulated_batch = None
                 if is_last_step:
