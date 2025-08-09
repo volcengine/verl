@@ -23,59 +23,59 @@ import numpy as np
 def weighted_mean(values: list, weights: Optional[list] = None) -> float:
     """
     Calculate weighted mean of values.
-    
+
     Args:
         values: List of values to average
         weights: Optional list of weights (e.g., sample counts per rank)
-    
+
     Returns:
         Weighted mean if weights provided, otherwise simple mean
-        
+
     Example:
         >>> weighted_mean([0.8, 0.6], [100, 200])
         0.6666666666666666  # (100*0.8 + 200*0.6) / 300
     """
     if weights is None or len(weights) == 0:
         return np.mean(values)
-    
+
     values = np.array(values)
     weights = np.array(weights)
-    
+
     if len(values) != len(weights):
         raise ValueError(f"Values (len={len(values)}) and weights (len={len(weights)}) must have same length")
-    
+
     weight_sum = np.sum(weights)
     if weight_sum == 0:
         return np.nan
-        
+
     return np.sum(values * weights) / weight_sum
 
 
 def reduce_metrics(
-    metrics: dict[str, list[Any]], 
+    metrics: dict[str, list[Any]],
     weights: Optional[dict[str, list[float]]] = None,
-    reduction_strategy: Optional[dict[str, str]] = None
+    reduction_strategy: Optional[dict[str, str]] = None,
 ) -> dict[str, Any]:
     """
     Reduces a dictionary of metric lists by computing aggregated values.
-    
+
     This function properly handles metric reduction across distributed ranks,
     supporting weighted averaging for non-linear metrics like means.
-    
+
     The reduce operation is determined by (in priority order):
     1. Custom reduction_strategy if provided
     2. Key name patterns:
        - If key contains "max" -> np.max
-       - If key contains "min" -> np.min  
+       - If key contains "min" -> np.min
        - If key contains "sum" -> np.sum
     3. Otherwise -> weighted mean (if weights provided) or simple mean
 
     Args:
         metrics: A dictionary mapping metric names to lists of metric values.
-        weights: Optional dictionary mapping metric names to lists of weights 
-                (e.g., sample counts per rank). If provided for a metric, 
+        weights: Optional dictionary mapping metric names to lists of weights
+                (e.g., sample counts per rank). If provided for a metric,
                 weighted average will be used instead of simple average.
-        reduction_strategy: Optional dictionary mapping metric names to reduction 
+        reduction_strategy: Optional dictionary mapping metric names to reduction
                           methods ("mean", "weighted_mean", "max", "min", "sum").
 
     Returns:
@@ -89,13 +89,13 @@ def reduce_metrics(
         ... }
         >>> reduce_metrics(metrics)
         {"loss": 2.0, "max_reward": 8.0}
-        
+
         >>> # With weights for proper distributed averaging
         >>> metrics = {"mean_accuracy": [0.8, 0.6]}
         >>> weights = {"mean_accuracy": [100, 200]}  # samples per rank
         >>> reduce_metrics(metrics, weights)
         {"mean_accuracy": 0.6666666666666666}  # (100*0.8 + 200*0.6) / 300
-        
+
         >>> # With custom strategy
         >>> strategy = {"total_tokens": "sum"}
         >>> metrics = {"total_tokens": [1000, 2000, 3000]}
@@ -103,12 +103,12 @@ def reduce_metrics(
         {"total_tokens": 6000}
     """
     result = {}
-    
+
     for key, values in metrics.items():
         if len(values) == 0:
             result[key] = np.nan
             continue
-            
+
         # Determine reduction method
         if reduction_strategy and key in reduction_strategy:
             method = reduction_strategy[key]
@@ -121,7 +121,7 @@ def reduce_metrics(
         else:
             # Use weighted mean if weights are provided for this metric
             method = "weighted_mean" if weights and key in weights else "mean"
-        
+
         # Apply reduction
         if method == "max":
             result[key] = np.max(values)
@@ -134,5 +134,5 @@ def reduce_metrics(
             result[key] = weighted_mean(values, w)
         else:  # mean
             result[key] = np.mean(values)
-    
+
     return result
