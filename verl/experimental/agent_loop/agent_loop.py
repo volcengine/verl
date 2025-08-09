@@ -124,6 +124,8 @@ class AgentLoopOutput(BaseModel):
     """Number of chat turns, including user, assistant, tool."""
     metrics: AgentLoopMetrics
     """Auxiliary performance metrics"""
+    extra_fields: dict[str, Any] = {}
+    """Extra fields for dynamic addition."""
 
 
 class _InternalAgentLoopOutput(AgentLoopOutput):
@@ -139,6 +141,8 @@ class _InternalAgentLoopOutput(AgentLoopOutput):
     """Padded response mask."""
     attention_mask: torch.Tensor
     """Padded attention mask."""
+    extra_fields: dict[str, Any] = {}
+    """Extra fields for dynamic addition."""
 
 
 # make hydra.utils.instantiate happy
@@ -393,6 +397,7 @@ class AgentLoopWorker:
                 attention_mask=attention_mask,
                 num_turns=output.num_turns,
                 metrics=output.metrics,
+                extra_fields=output.extra_fields,
             )
 
     def _postprocess(self, inputs: list[_InternalAgentLoopOutput]) -> DataProto:
@@ -420,7 +425,16 @@ class AgentLoopWorker:
 
         num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
         metrics = [input.metrics.model_dump() for input in inputs]
-        return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
+
+        # Collect extra fields from all inputs and convert them to np.ndarray
+        extra_fields = {}
+        for key in inputs[0].extra_fields.keys():
+            extra_fields[key] = np.array([input.extra_fields[key] for input in inputs])
+
+        non_tensor_batch = {"__num_turns__": num_turns}
+        non_tensor_batch.update(extra_fields)
+
+        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch, meta_info={"metrics": metrics})
 
 
 async def get_trajectory_info(step, index, validate):

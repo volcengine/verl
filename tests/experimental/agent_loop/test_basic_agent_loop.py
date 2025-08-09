@@ -368,6 +368,22 @@ def test_tool_agent_with_interaction(init_config):
             # [user, assistant+tool, assistant, user]
             assert num_turns[i] == 4
 
+    # Check turn_scores
+    assert "turn_scores" in result.non_tensor_batch, "turn_scores should be present in non_tensor_batch"
+    turn_scores = result.non_tensor_batch["turn_scores"]
+    assert len(turn_scores) == len(raw_prompts) * n, (
+        f"Expected {len(raw_prompts) * n} turn_scores, got {len(turn_scores)}"
+    )
+
+    # Verify turn_scores structure
+    for i, scores in enumerate(turn_scores):
+        assert isinstance(scores, list | np.ndarray), f"turn_scores[{i}] should be numpy.ndarray, got {type(scores)}"
+        # For each query, check that scores are numeric
+        for j, score in enumerate(scores):
+            assert isinstance(score, int | float | np.number), (
+                f"turn_scores[{i}][{j}] should be a number, got {type(score)}"
+            )
+
     # Check response_mask
     tokenizer = hf_tokenizer(init_config.actor_rollout_ref.model.path)
     responses = result.batch["responses"]

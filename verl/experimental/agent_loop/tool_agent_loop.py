@@ -30,10 +30,6 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-class InteractionAgentLoopOutput(AgentLoopOutput):
-    turn_scores: list[float] = []
-
-
 @register("tool_agent")
 class ToolAgentLoop(AgentLoopBase):
     @classmethod
@@ -170,13 +166,13 @@ class ToolAgentLoop(AgentLoopBase):
 
         response_ids = prompt_ids[-len(response_mask) :]
         prompt_ids = prompt_ids[: len(prompt_ids) - len(response_mask)]
-        output = InteractionAgentLoopOutput(
+        output = AgentLoopOutput(
             prompt_ids=prompt_ids,
             response_ids=response_ids[: self.response_length],
             response_mask=response_mask[: self.response_length],
             num_turns=user_turns + assistant_turns + 1,
             metrics=metrics,
-            turn_scores=turn_scores,
+            extra_fields={"turn_scores": turn_scores},
         )
         return output
 
