@@ -44,6 +44,7 @@ def test_vllm_rollout_with_yarn_position_embeddings():
             "free_cache_engine": False,
             "disable_log_stats": True,
             "max_model_len": 35000 + 512,
+            "max_num_seqs": 1024,
             "load_format": "auto",
             "val_kwargs": {
                 "top_k": -1,

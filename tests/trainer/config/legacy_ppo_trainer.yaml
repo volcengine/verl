@@ -421,7 +421,7 @@ actor_rollout_ref:
     ignore_eos: False
 
     # Whether to disable CUDA graph. Default True to allow cache freeing.
-    enforce_eager: True
+    enforce_eager: False
 
     # Whether to free engine KVCache after generation. Set enforce_eager=True when enabled.
     free_cache_engine: True
