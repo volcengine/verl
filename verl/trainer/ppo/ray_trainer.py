@@ -48,6 +48,7 @@ from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
+    compute_reward_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
     process_validation_metrics,
@@ -1226,21 +1227,10 @@ class RayPPOTrainer:
                         self.reward_step += 1
                         
                         # update train/reward in metric only once per step using the not filtered batch
-
-                        seq_reward_tensor = batch.batch["token_level_scores"].sum(-1)
-                        mean_seq_reward = seq_reward_tensor.mean().item()
-                        std_seq_reward = seq_reward_tensor.std().item()
-                        max_seq_reward = seq_reward_tensor.max().item()
-                        min_seq_reward = seq_reward_tensor.min().item()
-
-                        metrics.update({
-                            "train/reward/mean": mean_seq_reward,
-                            "train/reward/std": std_seq_reward,
-                            "train/reward/max": max_seq_reward,
-                            "train/reward/min": min_seq_reward,
-                        })
+                        reward_metrics = compute_reward_metrics(batch)
+                        metrics.update(reward_metrics)
                         logger.log(data=metrics, step=self.global_steps)
-                        print(f"[DF] Reward: {mean_seq_reward:.4f} ± {std_seq_reward:.4f} (max: {max_seq_reward:.4f}, min: {min_seq_reward:.4f})")
+                        print(f"[DF] Reward: {reward_metrics['train/reward/mean']:.4f} ± {reward_metrics['train/reward/std']:.4f} (max: {reward_metrics['train/reward/max']:.4f}, min: {reward_metrics['train/reward/min']:.4f})")
 
 
 

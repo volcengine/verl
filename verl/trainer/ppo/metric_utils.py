@@ -444,3 +444,30 @@ def process_validation_metrics(
                 data_src2var2metric2val[data_source][var_name][metric_name] = np.mean(prompt_vals)
 
     return data_src2var2metric2val
+
+
+def compute_reward_metrics(batch: DataProto) -> dict[str, Any]:
+    """
+    Computes reward-related metrics from a batch of data for PPO training.
+
+    This function calculates statistics (mean, std, max, min) for sequence-level rewards
+    derived from token-level scores.
+
+    Args:
+        batch: A DataProto object containing batch data with token-level scores
+
+    Returns:
+        A dictionary of reward metrics including:
+            - train/reward/mean: Mean sequence reward
+            - train/reward/std: Standard deviation of sequence rewards
+            - train/reward/max: Maximum sequence reward
+            - train/reward/min: Minimum sequence reward
+    """
+    seq_reward_tensor = batch.batch["token_level_scores"].sum(-1)
+    
+    return {
+        "train/reward/mean": seq_reward_tensor.mean().detach().item(),
+        "train/reward/std": seq_reward_tensor.std().detach().item(),
+        "train/reward/max": seq_reward_tensor.max().detach().item(),
+        "train/reward/min": seq_reward_tensor.min().detach().item(),
+    }
