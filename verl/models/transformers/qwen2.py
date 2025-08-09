@@ -17,12 +17,11 @@ from typing import Callable, Optional
 import torch
 from transformers.cache_utils import Cache
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
-
-# Import compatibility wrapper for flash_attn_supports_top_left_mask
-from verl.utils.transformers_compat import flash_attn_supports_top_left_mask
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb, repeat_kv
 from transformers.utils import logging
 
+# Import compatibility wrapper for flash_attn_supports_top_left_mask
+from verl.utils.transformers_compat import flash_attn_supports_top_left_mask
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,

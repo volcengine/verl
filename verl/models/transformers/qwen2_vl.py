@@ -19,9 +19,6 @@ from typing import Optional
 
 import torch
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
-
-# Import compatibility wrapper for flash_attn_supports_top_left_mask
-from verl.utils.transformers_compat import flash_attn_supports_top_left_mask
 from transformers.models.qwen2_vl.modeling_qwen2_vl import (
     Qwen2VLCausalLMOutputWithPast,
     Qwen2VLForConditionalGeneration,
@@ -29,6 +26,9 @@ from transformers.models.qwen2_vl.modeling_qwen2_vl import (
 from transformers.utils import is_flash_attn_greater_or_equal
 
 from verl.models.transformers.monkey_patch import is_transformers_version_in_range
+
+# Import compatibility wrapper for flash_attn_supports_top_left_mask
+from verl.utils.transformers_compat import flash_attn_supports_top_left_mask
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
