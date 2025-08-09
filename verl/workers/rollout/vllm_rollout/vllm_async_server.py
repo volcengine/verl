@@ -14,6 +14,7 @@
 import logging
 import os
 import pickle
+from concurrent.futures import Future
 from typing import Any, Callable, Optional
 
 import ray
@@ -32,6 +33,7 @@ from vllm.inputs import TokensPrompt
 from vllm.outputs import RequestOutput
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.executor.abstract import Executor
+from vllm.v1.outputs import ModelRunnerOutput
 from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl.utils.fs import copy_to_local
@@ -58,10 +60,10 @@ def _get_model_runner_workers(vllm_config, init_ray: bool = True):
         actor_name for actor_name in ray.util.list_named_actors() if actor_name.startswith(f"{wg_prefix}WorkerDict")
     ]
 
-    vllm_tp_size = vllm_config.parallel_config.tensor_parallel_size
-    assert len(actor_names) == vllm_dp_size * vllm_tp_size, (
+    vllm_mp_size = vllm_config.parallel_config.tensor_parallel_size * vllm_config.parallel_config.pipeline_parallel_size
+    assert len(actor_names) == vllm_dp_size * vllm_mp_size, (
         f"instance_id: {vllm_config.instance_id} has {len(actor_names)} actors, but vllm_dp_size: "
-        f"{vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = {vllm_dp_size * vllm_tp_size} is expected."
+        f"{vllm_dp_size} * vllm_mp_size: {vllm_mp_size} = {vllm_dp_size * vllm_mp_size} is expected."
     )
 
     def get_pg_index_and_local_rank(actor_name) -> tuple[int, int]:
@@ -72,7 +74,7 @@ def _get_model_runner_workers(vllm_config, init_ray: bool = True):
 
     # sort actor names by pg_index and local_rank
     actor_names = sorted(actor_names, key=get_pg_index_and_local_rank)
-    actor_names = actor_names[vllm_dp_rank * vllm_tp_size : (vllm_dp_rank + 1) * vllm_tp_size]
+    actor_names = actor_names[vllm_dp_rank * vllm_mp_size : (vllm_dp_rank + 1) * vllm_mp_size]
     workers: list[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
     print(f"instance_id: {vllm_config.instance_id} initializes with external actors: {actor_names}")
 
@@ -83,6 +85,7 @@ class ExternalRayDistributedExecutor(Executor):
     """An executor that engines are launched by external ray actors."""
 
     uses_ray: bool = False
+    supports_pp: bool = False
 
     def _init_executor(self) -> None:
         self.workers = _get_model_runner_workers(vllm_config=self.vllm_config, init_ray=True)
@@ -127,15 +130,25 @@ class ExternalZeroMQDistributedExecutor(Executor):
     """An executor that engines are launched by external ray actors."""
 
     uses_ray: bool = False
+    supports_pp: bool = True
 
     def _init_executor(self) -> None:
+        import threading
+
         addresses = os.environ["VERL_VLLM_ZMQ_ADDRESSES"].split(",")
         self.context = zmq.Context()
         self.sockets = []
+        self.recv_complete_events = []
         for address in addresses:
             socket = self.context.socket(zmq.REQ)
             socket.connect(address)
             self.sockets.append(socket)
+
+            # These threading events are used to make sure
+            # each socket.send call is strictly followed by a socket.recv call, before another socket.send call.
+            recv_complete = threading.Event()
+            recv_complete.set()
+            self.recv_complete_events.append(recv_complete)
 
         kwargs = dict(
             vllm_config=self.vllm_config,
@@ -148,30 +161,103 @@ class ExternalZeroMQDistributedExecutor(Executor):
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
 
+        from concurrent.futures import ThreadPoolExecutor
+
+        # For pipeline parallel, we use a thread pool for asynchronous
+        # execute_model.
+        self.io_thread_pool: Optional[ThreadPoolExecutor] = None
+        if self.max_concurrent_batches > 1:
+            # Note: must use only 1 IO thread to keep dequeue sequence
+            # from the response queue
+            self.io_thread_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="zmq_exec_io")
+
+        self.output_rank = self._get_output_rank()
+
+    def send(self, socket, recv_complete, data):
+        recv_complete.wait()  # Wait for previous recv to complete
+        recv_complete.clear()  # Block future sends
+        socket.send(data)
+
     def collective_rpc(
         self,
         method: str | Callable,
         timeout: Optional[float] = None,
         args: tuple = (),
         kwargs: Optional[dict[str, Any]] = None,
+        non_block: bool = False,
+        unique_reply_rank: Optional[int] = None,
     ) -> list[Any]:
+        """
+        Execute a method on all workers.
+        Args:
+            method: The method to execute.
+            timeout: The timeout for the method execution.
+            args: The arguments to pass to the method.
+            kwargs: The keyword arguments to pass to the method.
+            non_block: Whether to execute the method asynchronously.
+            unique_reply_rank: The rank of the worker to receive the reply.
+        Returns:
+            A list of outputs from the workers.
+        """
         if isinstance(method, str):
             sent_method = method
         else:
             sent_method = pickle.dumps(method)
+        kwargs = {} if kwargs is None else kwargs
         del method
 
-        message = pickle.dumps((sent_method, args, kwargs or {}))
-        for socket in self.sockets:
-            socket.send(message, zmq.DONTWAIT)
+        message = pickle.dumps((sent_method, args, kwargs, unique_reply_rank))
+        # TODO(haibin.lin): optimize with only necessary ranks
+        for socket, recv_complete in zip(self.sockets, self.recv_complete_events, strict=True):
+            self.send(socket, recv_complete, message)
+
+        def recv_response(socket: zmq.Socket, recv_complete):
+            try:
+                val = pickle.loads(socket.recv())
+                return val
+            finally:
+                recv_complete.set()  # Allow next send
 
         outputs = []
-        for socket in self.sockets:
-            outputs.append(pickle.loads(socket.recv()))
+        for i, (socket, recv_complete) in enumerate(zip(self.sockets, self.recv_complete_events, strict=True)):
+            if non_block:
+                val = self.io_thread_pool.submit(recv_response, socket, recv_complete)
+            else:
+                val = recv_response(socket, recv_complete)
+            # non-reply rank
+            if unique_reply_rank is not None and unique_reply_rank != i:
+                continue
+            outputs.append(val)
         return outputs
 
     def check_health(self):
         return
+
+    def execute_model(
+        self,
+        scheduler_output,
+    ) -> ModelRunnerOutput | Future[ModelRunnerOutput]:
+        non_block = self.max_concurrent_batches > 1
+        output = self.collective_rpc(
+            "execute_model", args=(scheduler_output,), unique_reply_rank=self.output_rank, non_block=non_block
+        )
+        return output[0]
+
+    @property
+    def max_concurrent_batches(self) -> int:
+        return self.parallel_config.pipeline_parallel_size
+
+    def _get_output_rank(self) -> int:
+        # Only returns ModelRunnerOutput from TP rank=0 and PP rank=-1
+        # (the first TP worker of the last PP stage).
+        # Example:
+        # Assuming TP=8, PP=4, then the world_size=32
+        # 0-7, PP rank 0
+        # 8-15, PP rank 1
+        # 16-23, PP rank 2
+        # 24-31, PP rank 3
+        # so world_size - tp_size = 32 - 8 = 24 should be PP rank = -1 (i.e. 3)
+        return self.parallel_config.world_size - self.parallel_config.tensor_parallel_size
 
 
 @ray.remote(num_cpus=1)
@@ -217,6 +303,7 @@ class AsyncvLLMServer(AsyncServerBase):
         config = config.rollout
 
         tensor_parallel_size = config.get("tensor_model_parallel_size", 1)
+        pipeline_parallel_size = config.get("pipeline_model_parallel_size", 1)
         max_num_batched_tokens = config.get("max_num_batched_tokens", 8192)
         max_model_len = config.max_model_len if config.max_model_len else config.prompt_length + config.response_length
         self.max_model_len = int(max_model_len)
@@ -259,6 +346,7 @@ class AsyncvLLMServer(AsyncServerBase):
             enable_sleep_mode=config.free_cache_engine,
             override_generation_config=kwargs,
             tensor_parallel_size=tensor_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
             distributed_executor_backend=distributed_executor_backend,
             dtype=config.dtype,
             enforce_eager=config.enforce_eager,
