@@ -169,6 +169,11 @@ def get_rollout_config(
                 "use_inference_chat_template": False,
                 "tokenization_sanity_check_mode": "strict",
             },
+            "engine_kwargs": {
+                "sglang": {
+                    "token_out": False,
+                }
+            },
             "calculate_log_probs": False,
             "max_model_len": None,
             **sampling_params,
