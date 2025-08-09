@@ -18,7 +18,17 @@ from dataclasses import dataclass
 from typing import Optional
 
 import torch
-from transformers.modeling_flash_attention_utils import _flash_attention_forward, flash_attn_supports_top_left_mask
+from transformers.modeling_flash_attention_utils import _flash_attention_forward
+
+# Handle version compatibility for flash_attn_supports_top_left_mask
+# This function was added in newer versions of transformers
+try:
+    from transformers.modeling_flash_attention_utils import flash_attn_supports_top_left_mask
+except ImportError:
+    # For older versions of transformers that don't have this function
+    # Default to False as a safe fallback for older versions
+    def flash_attn_supports_top_left_mask():
+        return False
 from transformers.models.qwen2_vl.modeling_qwen2_vl import (
     Qwen2VLCausalLMOutputWithPast,
     Qwen2VLForConditionalGeneration,

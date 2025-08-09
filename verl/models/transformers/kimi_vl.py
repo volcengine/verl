@@ -17,7 +17,17 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 from transformers.cache_utils import Cache
-from transformers.modeling_flash_attention_utils import _flash_attention_forward, flash_attn_supports_top_left_mask
+from transformers.modeling_flash_attention_utils import _flash_attention_forward
+
+# Handle version compatibility for flash_attn_supports_top_left_mask
+# This function was added in newer versions of transformers
+try:
+    from transformers.modeling_flash_attention_utils import flash_attn_supports_top_left_mask
+except ImportError:
+    # For older versions of transformers that don't have this function
+    # Default to False as a safe fallback for older versions
+    def flash_attn_supports_top_left_mask():
+        return False
 
 from verl.models.transformers.monkey_patch import is_transformers_version_in_range
 from verl.utils.ulysses import (
