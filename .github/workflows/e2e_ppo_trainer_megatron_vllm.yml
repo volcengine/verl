@@ -124,25 +124,31 @@ jobs:
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
+      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron, use mbridge e2e to pre-load and save (Deepseek)
         run: |
           ray stop --force
-          ALL_OFFLOAD=True SAVE_FREQ=1 MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct bash tests/special_e2e/run_ppo_trainer_megatron.sh
+          ALL_OFFLOAD=True SAVE_FREQ=1 MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 USE_MBRIDGE=True USE_DIST_CKPT=False \
+          bash tests/special_e2e/run_ppo_trainer_megatron.sh
+      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron, use mbridge e2e to pre-load and save (Deepseek)
+        run: |
+          ray stop --force
+          RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 SAVE_FREQ=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 USE_MBRIDGE=True USE_DIST_CKPT=False \
+          bash tests/special_e2e/run_ppo_trainer_megatron.sh
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force
           export VLLM_USE_V1=1
           ray start --head
-          MODE=async USE_FUSED_KERNELS=True RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 bash tests/special_e2e/run_ppo_trainer_megatron.sh
+          MODE=async USE_FUSED_KERNELS=True MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 SAVE_FREQ=2 bash tests/special_e2e/run_ppo_trainer_megatron.sh
       - name: Test Megatron checkpoints merging function (DeepSeek Actor and Critic)
         run: |
           exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"
-          python -m verl.model_merger test --backend megatron --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
-          python -m verl.model_merger test --backend megatron --is-value-model --local_dir checkpoints/verl-test/${exp_name}/global_step_1/critic --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/critic/huggingface
+          python -m verl.model_merger test --backend megatron --local_dir checkpoints/verl-test/${exp_name}/global_step_2/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_2/actor/huggingface
+          python -m verl.model_merger test --backend megatron --is-value-model --local_dir checkpoints/verl-test/${exp_name}/global_step_2/critic --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_2/critic/huggingface
       - name: Test Megatron distributed checkpoints merging function (DeepSeek)
         run: |
           exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"
-          torchrun --nproc_per_node 4 --nnodes 1  -m verl.model_merger merge --backend megatron --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --target_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/hf_model
+          torchrun --nproc_per_node 4 --nnodes 1  -m verl.model_merger merge --backend megatron --local_dir checkpoints/verl-test/${exp_name}/global_step_2/actor --target_dir checkpoints/verl-test/${exp_name}/global_step_2/actor/hf_model
       - name: Running GRPO GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Deepseek)
         run: |
           ray stop --force
@@ -248,7 +254,8 @@ jobs:
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
         run: |
           ray stop --force
-          SAVE_FREQ=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 SKIP_SAVE_HF_MODEL=1 bash tests/special_e2e/run_ppo_trainer_megatron.sh +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_first_pipeline_stage=8 +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=4 actor_rollout_ref.actor.megatron.use_dist_checkpointing=true actor_rollout_ref.actor.megatron.dist_checkpointing_path=checkpoints/verl-test/qwen2.5-0.5b-megatron actor_rollout_ref.ref.megatron.use_dist_checkpointing=true actor_rollout_ref.ref.megatron.dist_checkpointing_path=checkpoints/verl-test/qwen2.5-0.5b-megatron critic.megatron.use_dist_checkpointing=true critic.megatron.dist_checkpointing_path=checkpoints/verl-test/qwen2.5-0.5b-megatron reward_model.megatron.use_dist_checkpointing=true reward_model.megatron.dist_checkpointing_path=checkpoints/verl-test/qwen2.5-0.5b-megatron
+          SAVE_FREQ=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 SKIP_SAVE_HF_MODEL=1 USE_DIST_CKPT=True DIST_CKPT_PATH=checkpoints/verl-test/qwen2.5-0.5b-megatron \
+          bash tests/special_e2e/run_ppo_trainer_megatron.sh +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_first_pipeline_stage=8 +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=4
           cp -r checkpoints checkpoints-dut
           SAVE_FREQ=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 bash tests/special_e2e/run_ppo_trainer_megatron.sh
       - name: Test Megatron checkpoints merging function (Qwen Actor and Critic)
