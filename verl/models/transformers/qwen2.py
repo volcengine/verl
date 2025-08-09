@@ -18,15 +18,8 @@ import torch
 from transformers.cache_utils import Cache
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 
-# Handle version compatibility for flash_attn_supports_top_left_mask
-# This function was added in newer versions of transformers
-try:
-    from transformers.modeling_flash_attention_utils import flash_attn_supports_top_left_mask
-except ImportError:
-    # For older versions of transformers that don't have this function
-    # Default to False as a safe fallback for older versions
-    def flash_attn_supports_top_left_mask():
-        return False
+# Import compatibility wrapper for flash_attn_supports_top_left_mask
+from verl.utils.transformers_compat import flash_attn_supports_top_left_mask
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb, repeat_kv
 from transformers.utils import logging
 
