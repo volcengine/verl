@@ -436,62 +436,40 @@ class SGLangRollout(BaseRollout):
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
             print(f"Initializing SGLang server on rank {rank} with tp_rank {self._tp_rank}, ")
-            self._engine = AsyncHttpServerEngineAdapter(
-                model_path=actor_module,
-                dtype=self.config.dtype,
-                mem_fraction_static=self.config.gpu_memory_utilization,
-                enable_memory_saver=True,
-                base_gpu_id=0,
-                gpu_id_step=1,
-                tp_size=self._tp_size,
-                node_rank=node_rank,
-                load_format=load_format,
-                dist_init_addr=dist_init_addr,
-                nnodes=nnodes,
-                trust_remote_code=trust_remote_code,
+
+            args = {
+                "model_path": actor_module,
+                "dtype": self.config.dtype,
+                "mem_fraction_static": self.config.gpu_memory_utilization,
+                "enable_memory_saver": True,
+                "base_gpu_id": 0,
+                "gpu_id_step": 1,
+                "tp_size": self._tp_size,
+                "node_rank": node_rank,
+                "load_format": load_format,
+                "dist_init_addr": dist_init_addr,
+                "nnodes": nnodes,
+                "trust_remote_code": trust_remote_code,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
-                port=30000 + rank + 1,
+                "port": 30000 + rank + 1,
                 # NOTE(Chenyang): if you want to debug the SGLang engine output
                 # please set the following parameters
                 # Otherwise, it will make the engine run too slow
-                log_level="error",
+                "log_level": "info",
                 # log_requests=True,
                 # log_requests_level=2,
                 # max_running_requests=1,
-                mm_attention_backend="fa3",
-                attention_backend=attention_backend if attention_backend is not None else "fa3",
+                "mm_attention_backend": "fa3",
+                "attention_backend": attention_backend if attention_backend is not None else "fa3",
                 # In async mode, we want token in token out.
-                skip_tokenizer_init=self.config.mode == "async",
-            )
-            # self._engine = AsyncEngine(
-            #     model_path=actor_module,
-            #     dtype=self.config.dtype,
-            #     mem_fraction_static=self.config.gpu_memory_utilization,
-            #     enable_memory_saver=True,
-            #     base_gpu_id=0,
-            #     gpu_id_step=1,
-            #     tp_size=self._tp_size,
-            #     node_rank=node_rank,
-            #     load_format=load_format,
-            #     dist_init_addr=dist_init_addr,
-            #     nnodes=nnodes,
-            #     trust_remote_code=trust_remote_code,
-            #     # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
-            #     # when random.seed is being set during training
-            #     port=30000 + rank,
-            #     # NOTE(Chenyang): if you want to debug the SGLang engine output
-            #     # please set the following parameters
-            #     # Otherwise, it will make the engine run too slow
-            #     # log_level="INFO",
-            #     # log_requests=True,
-            #     # log_requests_level=2,
-            #     # max_running_requests=1,
-            #     mm_attention_backend="fa3",
-            #     attention_backend="fa3",
-            #     # In async mode, we want token in token out.
-            #     skip_tokenizer_init=self.config.mode == "async",
-            # )
+                "skip_tokenizer_init": self.config.mode == "async",
+            }
+
+            if self.config.multi_turn.sglang_engine_mode=="server":
+                self._engine = AsyncHttpServerEngineAdapter(**args)
+            else:
+                self._engine = AsyncEngine(**args)
         else:
             self._engine = None
 
