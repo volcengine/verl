@@ -23,11 +23,4 @@ megatron:
   override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
   use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
 
-profile:
-  use_profile: False
-  profile_ranks: null
-  step_start: -1
-  step_end: -1
-  save_path: null
-
 load_weight: True

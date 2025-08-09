@@ -51,10 +51,11 @@ def run_ppo(config) -> None:
     # Create a remote instance of the TaskRunner class, and
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
     if (
-        OmegaConf.select(config.trainer, "profile_steps") is not None
-        and len(OmegaConf.select(config.trainer, "profile_steps")) > 0
+        config.global_profiler.tool == "nsys"
+        and OmegaConf.select(config.global_profiler, "steps") is not None
+        and len(OmegaConf.select(config.global_profiler, "steps")) > 0
     ):
-        nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
+        nsight_options = OmegaConf.to_container(config.global_profiler.tool_config.nsys.controller_nsight_options)
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
     else:
         runner = TaskRunner.remote()

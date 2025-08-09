@@ -64,13 +64,16 @@ def run_ppo(config) -> None:
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
     if (
         is_cuda_available
-        and config.trainer.get("profile_steps") is not None
-        and len(config.trainer.get("profile_steps", [])) > 0
+        and config.global_profiler.tool == "nsys"
+        and config.global_profiler.get("steps") is not None
+        and len(config.global_profiler.get("steps", [])) > 0
     ):
         from verl.utils.import_utils import is_nvtx_available
 
         assert is_nvtx_available(), "nvtx is not available in CUDA platform. Please 'pip3 install nvtx'"
-        nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
+        nsight_options = OmegaConf.to_container(
+            config.global_profiler.global_tool_config.nsys.controller_nsight_options
+        )
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
     else:
         runner = TaskRunner.remote()

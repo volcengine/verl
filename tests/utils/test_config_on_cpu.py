@@ -79,7 +79,7 @@ class TestPrintCfgCommand(unittest.TestCase):
 
         # Run the command
         result = subprocess.run(
-            ["python3", "scripts/print_cfg.py", "critic.profiler.discrete=True", "+critic.profiler.extra.any_key=val"],
+            ["python3", "scripts/print_cfg.py", "+critic.profiler.extra.any_key=val"],
             capture_output=True,
             text=True,
         )
@@ -90,7 +90,6 @@ class TestPrintCfgCommand(unittest.TestCase):
         # Verify the output contains expected config information
         self.assertIn("critic", result.stdout)
         self.assertIn("profiler", result.stdout)
-        self.assertIn("discrete=True", result.stdout)
         self.assertIn("extra={'any_key': 'val'}", result.stdout)
 
 

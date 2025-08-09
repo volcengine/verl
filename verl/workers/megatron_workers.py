@@ -55,6 +55,7 @@ from verl.utils.profiler import (
     DistProfiler,
     DistProfilerExtension,
     GPUMemoryLogger,
+    ProfilerConfig,
     log_gpu_memory_usage,
     simple_timer,
 )
@@ -213,8 +214,31 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
-        profiler_config = omega_conf_to_dataclass(config.get("profiler"))
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
+        if self._is_actor:
+            omega_profiler_config = config.actor.get("profiler", {})
+        elif self._is_rollout:
+            # NOTE: In colocation mode, rollout config may not take effect (follow the actor config)
+            # This is for extendability in AsyncRL cases
+            omega_profiler_config = config.rollout.get("profiler", {})
+        elif self._is_ref:
+            omega_profiler_config = config.ref.get("profiler", {})
+        else:
+            raise ValueError(
+                f"Invalid role {self.role}, should be one of "
+                "['actor', 'rollout', 'ref', 'actor_rollout', 'actor_rollout_ref']"
+            )
+        # omega_profiler_config is DictConfig
+        # profiler_config is a ProfilerConfig dataclass
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
+        )
 
         # TODO(sgm): Currently, we only support reference model param offload
         # will support other offload later
@@ -804,7 +828,18 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 class CriticWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config: McoreCriticConfig):
         Worker.__init__(self)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler")))
+
+        omega_profiler_config = config.get("profiler", {})
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
+        )
         self.config: McoreCriticConfig = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -1072,8 +1107,19 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
 
     def __init__(self, config):
         Worker.__init__(self)
+
+        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), dataclass_type=ProfilerConfig)
+        omega_profiler_config = config.get("profiler", {})
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
         DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
+            self,
+            DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config),
         )
         self.config = config
 

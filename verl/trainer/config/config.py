@@ -45,14 +45,12 @@ class ProfileConfig(BaseConfig):
     The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
 
     Args:
-        use_profile (bool): Whether to enable profiling.
         profile_ranks (Optional[list[int]]): List of ranks to profile. None means all ranks.
         step_start (int): Starting step for profiling.
         step_end (int): Ending step for profiling.
         save_path (Optional[str]): Path to save profiling results.
     """
 
-    use_profile: bool = False
     profile_ranks: Optional[list[int]] = None
     step_start: int = -1
     step_end: int = -1

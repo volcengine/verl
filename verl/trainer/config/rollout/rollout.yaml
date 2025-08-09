@@ -225,3 +225,28 @@ skip_rollout: False
 # Specifies the filesystem path where rollout data should be cached when skip_rollout is enabled.
 # Note: Giving path under /tmp/ray/session* is not recommended as these are temporary Ray cluster directories.
 skip_dump_dir: /tmp/rollout_dump
+
+# profile the rollout model in `generate_sequence` 
+profiler:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.utils.profiler.ProfilerConfig
+
+  # profiler tool, default same as profiler.tool in global config
+  # choices: nsys, npu, torch
+  tool: ${oc.select:global_profiler.tool,null}
+
+  # whether enable profile on ref
+  enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
+  
+  # Whether to profile all ranks.
+  all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
+
+  # The ranks that will be profiled. [] or [0,1,...]
+  ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
+
+  # profile results saving path
+  save_path: ${oc.select:global_profiler.save_path,null}
+
+  # specific tool config
+  tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}
