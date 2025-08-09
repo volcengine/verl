@@ -31,4 +31,4 @@ except ImportError:
         return False
 
 
-__all__ = ['flash_attn_supports_top_left_mask']
+__all__ = ["flash_attn_supports_top_left_mask"]
