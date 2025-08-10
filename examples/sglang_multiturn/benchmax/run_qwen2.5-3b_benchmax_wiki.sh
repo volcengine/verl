@@ -1,4 +1,4 @@
-# run on 8xH20
+# run on 4xH20
 # make sure your current working directory is the root of the project
 # Specifically note the last 3 lines
 # The first line points to tool config, which is necessary for initializing tools from the benchmax environment
@@ -12,8 +12,8 @@ PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 
 
-TRAIN_DATA="~/data/wiki/train.parquet"
-VAL_DATA="~/data/wiki/test.parquet"
+TRAIN_DATA="$HOME/data/wiki/train.parquet"
+VAL_DATA="$HOME/data/wiki/test.parquet"
 
 TOOL_CONFIG="$CONFIG_PATH/tool_config/benchmax_wiki_tool_config.yaml"
 BENCHMAX_CLASS_NAME="benchmax.envs.wikipedia.wiki_env.WikipediaEnv"

@@ -1,4 +1,4 @@
-# run on 8xH20
+# run on 4xH20
 # make sure your current working directory is the root of the project
 # Specifically note the last 3 lines
 # The first line points to tool config, which is necessary for initializing tools from the benchmax environment
@@ -12,11 +12,11 @@ PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 
 
-TRAIN_DATA="~/data/math/train.parquet"
-VAL_DATA="~/data/math/test.parquet"
+TRAIN_DATA="$HOME/data/math/train.parquet"
+VAL_DATA="$HOME/data/math/test.parquet"
 
 TOOL_CONFIG="$CONFIG_PATH/tool_config/benchmax_math_tool_config.yaml"
-BENCHMAX_CLASS_NAME="benchmax.envs.wikipedia.math_env.MathEnv"
+BENCHMAX_CLASS_NAME="benchmax.envs.math.math_env.MathEnv"
 
 
 PYTHONPATH="$PYTHONPATH:$(pwd)" python -m verl.trainer.main_ppo \
@@ -56,8 +56,8 @@ PYTHONPATH="$PYTHONPATH:$(pwd)" python -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.val_before_train=False \
     trainer.logger=['console','wandb'] \
-    trainer.project_name='wiki_search' \
-    trainer.experiment_name='qwen2.5-3b-instruct_wiki_search' \
+    trainer.project_name='benchmax_math' \
+    trainer.experiment_name='qwen2.5-3b-benchmax_math' \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=100 \

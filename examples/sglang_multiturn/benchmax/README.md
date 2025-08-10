@@ -99,7 +99,7 @@ Your benchmax environment, with its tools and reward functions, is now directly 
 - Run training
     
     ```bash
-    sh examples/sglang_multiturn/benchmax/run_qwen2.5-3b_benchmax_multiturn_wiki.sh
+    sh examples/sglang_multiturn/benchmax/run_qwen2.5-3b_benchmax_wiki.sh
     ```
 
 **Excel**
