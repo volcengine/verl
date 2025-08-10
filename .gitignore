@@ -125,3 +125,6 @@ logs
 log
 outputs
 .history
+*.err
+*.out
+models/*
