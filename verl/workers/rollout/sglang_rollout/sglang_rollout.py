@@ -432,10 +432,17 @@ class SGLangRollout(BaseRollout):
         engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {})
         attention_backend = engine_kwargs.get("attention_backend", None)
 
-        if first_rank_in_node:
+        print(f"Distributed settings: tp_size_per_node={tp_size_per_node}, node_rank={node_rank}, "
+              f"first_rank_in_node={first_rank_in_node}, tp_rank={self._tp_rank}, tp_size={self._tp_size}, "
+              f"nnodes={nnodes}, dist_init_addr={dist_init_addr}")
+
+        is_server_mode = (self.config.multi_turn.sglang_engine_mode == "server")
+        effective_first = first_rank_in_node or is_server_mode
+
+        if effective_first:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-            print(f"Initializing SGLang server on rank {rank} with tp_rank {self._tp_rank}, ")
+            print(f"Initializing SGLang server on rank {rank} with node rank {node_rank} with tp_rank {self._tp_rank}, ")
 
             args = {
                 "model_path": actor_module,
@@ -452,11 +459,12 @@ class SGLangRollout(BaseRollout):
                 "trust_remote_code": trust_remote_code,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
-                "port": 30000 + rank + 1,
+                "port": 30000 + rank + 2,
                 # NOTE(Chenyang): if you want to debug the SGLang engine output
                 # please set the following parameters
                 # Otherwise, it will make the engine run too slow
                 "log_level": "info",
+                # "log_level": "error",
                 # log_requests=True,
                 # log_requests_level=2,
                 # max_running_requests=1,
@@ -466,7 +474,8 @@ class SGLangRollout(BaseRollout):
                 "skip_tokenizer_init": self.config.mode == "async",
             }
 
-            if self.config.multi_turn.sglang_engine_mode=="server":
+            if is_server_mode:
+                args['first_rank_in_node'] = first_rank_in_node
                 self._engine = AsyncHttpServerEngineAdapter(**args)
             else:
                 self._engine = AsyncEngine(**args)

@@ -62,7 +62,6 @@ from sglang.srt.utils import kill_process_tree, MultiprocessingSerializer
 from sglang.srt.managers.tokenizer_manager import (
     UpdateWeightsFromTensorReqInput,
 )
-from yaml import serialize
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -103,6 +102,7 @@ def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIME
     p.start()
 
     if server_args.node_rank != 0:
+        print(f"Server process started with PID {p.pid} for node rank {server_args.node_rank}", flush=True)
         return p
 
     base_url = server_args.url()
@@ -182,6 +182,7 @@ class HttpServerEngineAdapter(EngineBase):
         timeout: float = DEFAULT_TIMEOUT,
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_delay: float = DEFAULT_RETRY_DELAY,
+        first_rank_in_node: bool = False,
         **kwargs: Any,
     ) -> None:
         """Initialize the HTTP server engine adapter.
@@ -212,7 +213,11 @@ class HttpServerEngineAdapter(EngineBase):
         self.node_rank: int = self.server_args.node_rank
 
         logger.info(f"Launch HttpServerEngineAdapter at: {self.server_args.host}:{self.server_args.port}")
-        self.process: multiprocessing.Process = launch_server_process(self.server_args, self.timeout)
+        if first_rank_in_node:
+            print(f"Server process launched with for node rank {self.node_rank}", flush=True)
+            self.process: multiprocessing.Process = launch_server_process(self.server_args, self.timeout)
+        else:
+            print(f"Waiting for server process to start for node rank {self.node_rank}", flush=True)
 
         if self.node_rank == 0 and self.router_ip and self.router_port:
             self._register_with_router()
@@ -587,6 +592,7 @@ class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_delay: float = DEFAULT_RETRY_DELAY,
         max_connections: int = DEFAULT_MAX_CONNECTIONS,
+        first_rank_in_node: bool = False,
         **kwargs: Any,
     ) -> None:
         """Initialize the async HTTP server engine adapter.
@@ -606,7 +612,7 @@ class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
                 Defaults to DEFAULT_MAX_CONNECTIONS.
             **kwargs (Any): Additional arguments passed to ServerArgs
         """
-        super().__init__(router_ip, router_port, timeout, max_retries, retry_delay, **kwargs)
+        super().__init__(router_ip, router_port, timeout, max_retries, retry_delay, first_rank_in_node, **kwargs)
         # Similar to AsyncEngine, track if we need to reload weights
         self._need_reload: bool = True
         self._session: Optional[aiohttp.ClientSession] = None
