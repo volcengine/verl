@@ -59,6 +59,11 @@ from sglang.srt.entrypoints.http_server import launch_server
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import kill_process_tree, MultiprocessingSerializer
 
+from sglang.srt.managers.tokenizer_manager import (
+    UpdateWeightsFromTensorReqInput,
+)
+from yaml import serialize
+
 # Configure logger
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -295,9 +300,7 @@ class HttpServerEngineAdapter(EngineBase):
 
     def update_weights_from_tensor(
         self,
-        serialized_named_tensors: List[str],
-        load_format: Optional[str] = None,
-        flush_cache: bool = False,
+        req: UpdateWeightsFromTensorReqInput
     ) -> Dict[str, Any]:
         """Update model weights from tensor data.
 
@@ -318,6 +321,12 @@ class HttpServerEngineAdapter(EngineBase):
             The model should be on GPUs rather than CPU for this functionality to work properly.
             If you encounter issues, ensure your model is loaded on GPU devices rather than CPU.
         """
+        import base64
+        named_tensors = req.serialized_named_tensors
+        load_format = req.load_format
+        flush_cache = req.flush_cache
+
+        serialized_named_tensors = base64.b64encode(MultiprocessingSerializer.serialize(named_tensors)).decode("utf-8")
         return self._make_request(
             "update_weights_from_tensor",
             {
@@ -731,9 +740,7 @@ class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
 
     async def update_weights_from_tensor(
         self,
-        named_tensors: List[str],
-        load_format: Optional[str] = None,
-        flush_cache: bool = True,
+        req: UpdateWeightsFromTensorReqInput,
     ) -> Dict[str, Any]:
         """Update model weights from tensor data asynchronously.
 
@@ -747,14 +754,14 @@ class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
         Returns:
             Dict[str, Any]: Server response containing update status
         """
-        # serialized_named_tensors=[
-        #     MultiprocessingSerializer.serialize(named_tensors) for _ in range(self.server_args.tp_size)
-        # ]
         import base64
+        named_tensors = req.serialized_named_tensors
+        load_format = req.load_format
+        flush_cache = req.flush_cache
 
         serialized_named_tensors = [
-            base64.b64encode(MultiprocessingSerializer.serialize(named_tensors)).decode("utf-8")
-            for _ in range(self.server_args.tp_size)
+            base64.b64encode(named_tensor).decode("utf-8")
+            for named_tensor in named_tensors
         ]
         return await self._make_async_request(
             "update_weights_from_tensor",
