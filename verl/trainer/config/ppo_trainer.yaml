@@ -40,6 +40,9 @@ actor_rollout_ref:
   # Whether it's a hybrid engine, currently only supports hybrid engine
   hybrid_engine: true
 
+  # Timeout for operations executed against the process group
+  nccl_timeout: 600
+
   # common configs for the model
   model:
 

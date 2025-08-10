@@ -92,3 +92,4 @@ class McoreOptimizerConfig(OptimizerConfig):
     lr_wsd_decay_style: str = "exponential"
     lr_wsd_decay_steps: Optional[int] = None
     use_checkpoint_opt_param_scheduler: bool = False
+    override_optimizer_config: Optional[dict] = None

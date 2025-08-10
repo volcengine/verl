@@ -51,6 +51,12 @@ Below are key factors for tuning vLLM-based rollout. Before tuning, we recommend
   Carefully balance the trade-off between more replicas and higher memory usage.
   Our experiment in Sec. 8.4 of `HybridFlow paper <https://arxiv.org/pdf/2409.19256v2>`_ evaluate this trade-off.
 
+- Balance performance and memory using ``cudagraph_capture_sizes``.
+  If ``cudagraph_capture_sizes`` is set, vLLM will try to capture the model execution graph for different batch sizes.
+  Since cudagraph memory can not be offloaded to cpu, The memory stay in gpu when update actor is running. 
+  Using smaller batch sizes can avoid OOM but slightly reduce throughput.
+  Must to set ``enforce_eager=False`` to use ``cudagraph_capture_sizes``.
+
 More tuning details such as dealing with Preemption and Chunked-prefill
 can be found in `vLLM official tuning guide <https://docs.vllm.ai/en/latest/performance/optimization.html>`_ 
 

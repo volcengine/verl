@@ -1,21 +1,18 @@
 set -x
 
-# 0. download the config
-# only need to download the `configuration_deepseek.py`, `config.json`, `tokenizer_config.json`, `tokenizer.json` and `generation_config.json`
-# remove the `quantization_config` in the `config.json`
-# set `num_nextn_predict_layers=0` to disable MTP, which is not currently supported
+# # 0. download HF checkpoint
+# # remove the `quantization_config` in the `config.json`
+# # set `num_nextn_predict_layers=0` to disable MTP, which is not currently supported
+# huggingface-cli download deepseek-ai/DeepSeek-V3-0324
 
-huggingface-cli download deepseek-ai/DeepSeek-V3-0324 configuration_deepseek.py config.json
-
-# 1. download the dist_ckpt format model from https://huggingface.co/BearBiscuit05/dpsk-v3-671B-BF16-dist_ckpt/tree/main
-# change the HF_MODEL_PATH and DIST_CKPT_PATH to your own path
-DIST_CKPT_PATH="<path_to_dist_ckpt>"
+# no offline dist checkpoint needed, now with mbridge>=0.13.0, we can directly init model from huggingface downloaded fp8 weights
+# tested on docker://verlai/verl:app-verl0.5-vllm0.10.0-mcore0.13.0-te2.2
 LLM="<path_to_dsv3_config>"
 
 
 # 2. run the script
-gsm8k_train_path=/data/gsm8k/train.parquet
-gsm8k_test_path=/data/gsm8k/test.parquet
+gsm8k_train_path=/root/data/gsm8k/train.parquet
+gsm8k_test_path=/root/data/gsm8k/test.parquet
 train_files=$gsm8k_train_path
 test_files=$gsm8k_test_path
 
@@ -33,21 +30,23 @@ CRITIC_GRAD_OFFLOAD=${CRITIC_GRAD_OFFLOAD:-$COMMON_GRAD_OFFLOAD}
 CRITIC_OPTIMIZER_OFFLOAD=${CRITIC_OPTIMIZER_OFFLOAD:-$COMMON_OPTIMIZER_OFFLOAD}
 RM_PARAM_OFFLOAD=${RM_PARAM_OFFLOAD:-$COMMON_PARAM_OFFLOAD}
 
-# 512 H20(96GB)
-NODES=64
+# 256 H100(80GB)
+NODES=32
 PP=16
 TP=1
-EP=32
+EP=16
 ETP=1
 INFER_TP=32
 # consider TP/ETP, and enable recompute if short of memory
 
 # full recompute
-# +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_method=uniform \
-# +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_granularity=full \
-# +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_num_layers=1 \
 
 n_resp_per_prompt=4
+max_prompt_length=2048
+max_response_length=4096
+use_dynamic_bsz=True
+actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 1))
+infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 
 # RAY_ADDRESS='auto' ray job submit --working-dir . --
 python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megatron_trainer'\
@@ -55,8 +54,8 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     data.train_files="$train_files" \
     data.val_files="$test_files" \
     data.train_batch_size=512 \
-    data.max_prompt_length=2048 \
-    data.max_response_length=4096 \
+    data.max_prompt_length=$max_prompt_length \
+    data.max_response_length=$max_response_length \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path=$LLM \
@@ -81,8 +80,15 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     trainer.nnodes=$NODES \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_first_pipeline_stage=3 \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=2 \
+    actor_rollout_ref.model.use_fused_kernels=True \
+    actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
+    actor_rollout_ref.ref.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
+    actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
+    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${actor_ppo_max_token_len} \
+    actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
+    actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_first_pipeline_stage=4 \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=1 \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=$PP \
     actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=$PP \
     actor_rollout_ref.actor.megatron.tensor_model_parallel_size=$TP \
@@ -95,10 +101,10 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.actor.megatron.optimizer_offload=${ACTOR_OPTIMIZER_OFFLOAD} \
     actor_rollout_ref.actor.megatron.grad_offload=${ACTOR_GRAD_OFFLOAD} \
     actor_rollout_ref.ref.megatron.param_offload=${REF_PARAM_OFFLOAD} \
-    actor_rollout_ref.actor.megatron.use_dist_checkpointing=True \
-    actor_rollout_ref.ref.megatron.use_dist_checkpointing=True \
-    actor_rollout_ref.actor.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
-    actor_rollout_ref.ref.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_method=uniform \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_granularity=full \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_num_layers=1 \
+    actor_rollout_ref.actor.megatron.use_mbridge=True \
     trainer.default_local_dir=$CKPT_DIR \
     trainer.val_before_train=False \
     trainer.total_epochs=100 $@
