@@ -30,6 +30,7 @@ from utils_sglang import (
 
 from verl.protocol import DataProto
 from verl.tools.benchmax_tool import BenchmaxToolAdapter
+from verl.tools.schemas import ToolResponse
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
 from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
 
@@ -187,7 +188,7 @@ class TestRolloutWithBenchmaxTools:
             for turn in expect_turn_array
         ]
         preencode_tool_return_array = [
-            qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True)
+            ToolResponse(text=qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True))
             for turn in tool_return_array
         ]
         return prompts, preencode_turn_array, preencode_tool_return_array
@@ -213,7 +214,14 @@ class TestRolloutWithBenchmaxTools:
         ]
         input_ids, attention_mask, position_ids = prepare_inputs(qwen_tokenizer, prompts, 1000)
         tools_kwargs = np.array(
-            [{}],
+            [{
+                "search_wikipedia": {
+                    "create_kwargs": {"dummy": "dummy"}
+                },
+                "get_wikipedia_article": {
+                    "create_kwargs": {"dummy": "dummy"}
+                },
+            }],
             dtype=object,
         )
         prompt_dict = TensorDict(
@@ -364,7 +372,7 @@ class TestRolloutWithBenchmaxTools:
         benchmax_counter = 0
         for msg in output_req.messages:
             if msg.role == "tool":
-                assert msg.content == tool_return_array[benchmax_counter]
+                assert msg.content[0]["text"] == tool_return_array[benchmax_counter].text
                 benchmax_counter += 1
         assert benchmax_counter == 2
 

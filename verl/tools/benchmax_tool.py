@@ -19,7 +19,7 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from verl.tools.base_tool import BaseTool, OpenAIFunctionToolSchema
-from verl.tools.schemas import OpenAIFunctionSchema
+from verl.tools.schemas import OpenAIFunctionSchema, ToolResponse
 
 try:
     from benchmax.envs.base_env import BaseEnv, ToolDefinition
@@ -61,21 +61,21 @@ class BenchmaxToolAdapter(BaseTool):
         )
         super().__init__(config={}, tool_schema=tool_schema)
 
-    async def create(self, instance_id: Optional[str] = None, **kwargs) -> str:
+    async def create(self, instance_id: Optional[str] = None, **kwargs) -> tuple[str, ToolResponse]:
         """Mint an ID."""
         instance_id = instance_id or str(uuid4())
         if instance_id not in self.initialized_requests:
             self.initialized_requests.add(instance_id)
             self._benchmax_env.init_rollout(instance_id, **kwargs)
-        return instance_id
+        return instance_id, ToolResponse()
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **_) -> tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **_) -> tuple[ToolResponse, float, dict]:
         """
         Forward the call to the underlying benchmax env tool, injecting `rollout_id`
         so everything downstream can treat it as part of the correct rollout.
         """
         response = self._benchmax_env.run_tool(instance_id, self._tool_def.name, **parameters)
-        return str(response), 0.0, {}  # (tool_response, step_reward, metrics)
+        return ToolResponse(text=str(response)), 0.0, {}  # (tool_response, step_reward, metrics)
 
     async def calc_reward(self, *args, **kwargs) -> float:
         """No per-step reward in this generic adapter."""
@@ -92,7 +92,7 @@ class BenchmaxToolAdapter(BaseTool):
         Get the workspace directory for the given instance_id.
         This is useful for tools that need to access files or directories.
         """
-        return self._benchmax_env.get_rollout_workspace(instance_id)
+        return self._benchmax_env.get_rollout_workspace(instance_id) or ""
 
 
 def benchmax_env_to_tool_list(benchmax_env: Any) -> list[BaseTool]:
