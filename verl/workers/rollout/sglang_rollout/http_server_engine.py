@@ -134,6 +134,7 @@ def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIME
     p.start()
 
     if server_args.node_rank != 0:
+        print(f"Server process started with PID {p.pid} for node rank {server_args.node_rank}", flush=True)
         return p
 
     p.start()
