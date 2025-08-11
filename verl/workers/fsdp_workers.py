@@ -75,7 +75,7 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing
 from verl.utils.py_functional import convert_to_regular_types
-from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig
+from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, RolloutConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 logger = logging.getLogger(__file__)
@@ -513,11 +513,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
             )
 
+        rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
+
         if rollout_name == "hf":
             from verl.workers.rollout import HFRollout
             from verl.workers.sharding_manager.base import BaseShardingManager
 
-            rollout = HFRollout(module=self.actor_module_fsdp, config=self.config.rollout)
+            rollout = HFRollout(module=self.actor_module_fsdp, config=rollout_config)
             rollout_sharding_manager = BaseShardingManager()
             # TODO: a sharding manager that do nothing?
 
@@ -535,10 +537,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # lora_kwargs = {}
             from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 
-            vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
+            vllm_rollout_cls = vLLMRollout if rollout_config.mode == "sync" else vLLMAsyncRollout
             rollout = vllm_rollout_cls(
                 model_path=local_path,
-                config=self.config.rollout,
+                config=rollout_config,
                 tokenizer=self.tokenizer,
                 model_hf_config=self.actor_model_config,
                 device_mesh=rollout_device_mesh,
@@ -577,7 +579,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
             rollout = SGLangRollout(
                 actor_module=local_path,
-                config=self.config.rollout,
+                config=rollout_config,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
                 model_hf_config=self.actor_model_config,
                 trust_remote_code=trust_remote_code,

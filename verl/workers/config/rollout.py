@@ -1,0 +1,119 @@
+from dataclasses import dataclass, field
+from verl.base_config import BaseConfig
+
+
+__all__ = ["SamplingConfig", "vLLMEngineConfig", "SGLangEngineConfig", "EngineConfig", 
+           "MultiTurnConfig", "CustomAsyncServerConfig", "AgentLoopConfig", "TraceConfig", "RolloutConfig"]
+
+@dataclass
+class SamplingConfig(BaseConfig):
+    temperature: float = 1.0
+    top_k: int = -1
+    top_p: float = 1.0
+    do_sample: bool = True
+    n: int = 1
+
+
+@dataclass
+class vLLMEngineConfig(BaseConfig):
+    swap_space: int = None
+    disable_mm_preprocessor_cache: bool = True
+
+
+@dataclass
+class SGLangEngineConfig(BaseConfig):
+    attention_backend: str = None
+
+
+@dataclass
+class EngineConfig(BaseConfig):
+    vllm: vLLMEngineConfig = field(default_factory=vLLMEngineConfig)
+    sglang: SGLangEngineConfig = field(default_factory=SGLangEngineConfig)
+
+
+
+@dataclass
+class MultiTurnConfig(BaseConfig):
+    enable: bool = False
+    max_assistant_turns: int = None
+    tool_config_path: str = None
+    max_user_turns: int = None
+    max_parallel_calls: int = 1
+    max_tool_response_length: int = 256
+    tool_response_truncate_side: str = "middle"
+    interaction_config_path: str = None
+    use_inference_chat_template: bool = False
+    tokenization_sanity_check_mode: str = "strict"
+    format: str = "hermes"
+
+
+@dataclass
+class CustomAsyncServerConfig(BaseConfig):
+    path: str = None
+    name: str = None
+
+
+@dataclass
+class AgentLoopConfig(BaseConfig):
+    num_workers: int = 8
+    agent_loop_config_path: str = None
+    custom_async_server: CustomAsyncServerConfig = field(default_factory=CustomAsyncServerConfig)
+
+
+@dataclass
+class TraceConfig(BaseConfig):
+    backend: str = None
+    token2text: bool = False
+
+
+@dataclass
+class RolloutConfig(BaseConfig):
+    name: str
+    mode: str = "sync"
+
+    temperature: float = 1.0
+    top_k: int = -1
+    top_p: float = 1.0
+    do_sample: bool = True
+    n: int = 1
+
+    prompt_length: int = 512
+    response_length: int = 512
+
+    dtype: str = "bfloat16"
+    gpu_memory_utilization: float = 0.5
+    ignore_eos: bool = False
+    enforce_eager: bool = True
+    cudagraph_capture_sizes: list = None
+    free_cache_engine: bool = True
+    tensor_model_parallel_size: int = 2
+    max_num_batched_tokens: int = 8192
+
+    # TODO: enable train_kwargs
+    # train_sampling_config: SamplingConfig = field(default_factory=SamplingConfig)
+
+    val_kwargs: SamplingConfig = field(default_factory=SamplingConfig)
+
+    max_model_len: int = None
+    max_num_seqs: int = 1024
+
+    # note that the logprob computation should belong to the actor
+    log_prob_micro_batch_size: int = None
+    log_prob_micro_batch_size_per_gpu: int = None
+    log_prob_use_dynamic_bsz: bool = False
+    log_prob_max_token_len_per_gpu: int = 16384
+
+    disable_log_stats: bool = True
+    
+    multi_stage_wake_up: bool = False
+    engine_kwargs: EngineConfig = field(default_factory=EngineConfig)
+
+    calculate_log_probs: bool = False
+
+    multi_turn: MultiTurnConfig = field(default_factory=MultiTurnConfig)
+    
+    update_weights_bucket_megabytes: int = 512
+
+    skip_rollout: bool = False
+    skip_dump_dir: str = "/tmp/rollout_dump"
+

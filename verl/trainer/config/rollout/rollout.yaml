@@ -1,3 +1,6 @@
+# Target class for this configuration
+_target_: verl.workers.config.RolloutConfig
+
 # actor_rollout_ref.rollout.name: hf/vllm/sglang. The default value will be removed in the future
 name: ???
 
@@ -84,9 +87,11 @@ multi_stage_wake_up: false
 
 # Extra inference engine arguments (vllm, sglang).
 engine_kwargs:
+  _target_: verl.workers.config.EngineConfig
 
   # for vllm
   vllm:
+    _target_: verl.workers.config.vLLMEngineConfig
 
     # Swap space (in GB) used by inference engine. null uses default (e.g., 4 GB).
     swap_space: null
@@ -96,12 +101,14 @@ engine_kwargs:
 
   # for sglang
   sglang:
+    _target_: verl.workers.config.SGLangEngineConfig
 
     # The attention backend for sglang engine. Options: flashinfer, triton, flashmla, null for default.
     attention_backend: null
 
 # Sampling parameters used during validation.
 val_kwargs:
+  _target_: verl.workers.config.SamplingConfig
 
   # sampling parameters for validation
   # Top-k sampling parameter. -1 for vLLM rollout, 0 for HF rollout.
@@ -121,6 +128,7 @@ val_kwargs:
 
 # Multi-turn interaction config for tools or chat.
 multi_turn:
+  _target_: verl.workers.config.MultiTurnConfig
 
   # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
   enable: False
@@ -169,6 +177,7 @@ calculate_log_probs: False
 
 # [Experimental] agent loop based rollout configs
 agent:
+  _target_: verl.workers.config.AgentLoopConfig
 
   # Number of agent loop workers
   num_workers: 8
@@ -187,6 +196,7 @@ agent:
 
   # custom async server configs
   custom_async_server:
+    _target_: verl.workers.config.CustomAsyncServerConfig
 
     # Path to the custom async server implementation
     path: null
@@ -210,6 +220,7 @@ update_weights_bucket_megabytes: 512
 
 # trace rollout data
 trace:
+  _target_: verl.workers.config.TraceConfig
 
   # trace backend, support mlflow, weave
   backend: null

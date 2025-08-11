@@ -16,6 +16,7 @@
 from dataclasses import dataclass, field
 
 import torch
+import logging
 
 import os
 import datetime
@@ -25,6 +26,8 @@ from verl import DataProto
 import ray
 
 from verl.single_controller.base.decorator import register, make_nd_compute_dataproto_dispatch_fn
+from verl.utils.profiler import log_gpu_memory_usage
+from verl.utils.fs import copy_to_local
 
 from verl.base_config import BaseConfig
 
@@ -94,6 +97,8 @@ class RolloutConfig(BaseConfig):
     train_sampling_config: SamplingConfig = field(default_factory=SamplingConfig)
     val_sampling_config: SamplingConfig = field(default_factory=SamplingConfig)
 
+    model_path: str = None
+
     prompt_length: int = 512
     response_length: int = 512
     dtype: str = "bfloat16"
@@ -119,6 +124,10 @@ class RolloutConfig(BaseConfig):
     calculate_log_probs: bool = False
     update_weights_bucket_megabytes: int = 512
 
+
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 @ray.remote
@@ -164,12 +173,50 @@ class RolloutWorker(Worker):
             )
 
         # build rollout engine here
-        if self.config.name == "hf":
-            pass
-        elif self.config.name == "vllm":
-            pass
+        if self.config.name == "vllm":
+            from verl.workers.rollout.vllm_rollout import vLLMRollout
+
+            log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
+            local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
+            lora_kwargs = (
+                {"lora_kwargs": {"enable_lora": True, "max_loras": 1, "max_lora_rank": self._lora_rank}}
+                if self._is_lora
+                else {}
+            )
+            from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
+
+            vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
+            rollout = vllm_rollout_cls(
+                model_path=local_path,
+                config=self.config.rollout,
+                tokenizer=self.tokenizer,
+                model_hf_config=self.actor_model_config,
+                device_mesh=rollout_device_mesh,
+                trust_remote_code=trust_remote_code,
+                **lora_kwargs,
+            )
         elif self.config.name == "sglang":
-            pass
+            from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
+
+            # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to
+            # SGLang's model_runner would check CUDA device capability. However, due to verl's setting,
+            # the main process of ray can not find any CUDA device, which would potentially lead to:
+            # "RuntimeError: No CUDA GPUs are available".
+            # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and
+            # we import it here use the abs path.
+            # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
+            from verl.workers.sharding_manager.fsdp_sglang import FSDPSGLangShardingManager
+
+            local_path = copy_to_local(self.config.model.path)
+            log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
+            rollout = SGLangRollout(
+                actor_module=local_path,
+                config=self.config.rollout,
+                processing_class=self.processor if self.processor is not None else self.tokenizer,
+                model_hf_config=self.actor_model_config,
+                trust_remote_code=trust_remote_code,
+            )
+            log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
 
         
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="infer"))
@@ -177,9 +224,4 @@ class RolloutWorker(Worker):
         """Given a batch of prompts, return a batch of responses. Internally, it can use 
         """
         pass
-
-    
-    
-
-
 
