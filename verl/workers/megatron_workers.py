@@ -61,7 +61,7 @@ from verl.utils.profiler import (
 )
 from verl.utils.profiler.performance import reduce_timing
 from verl.workers.actor.megatron_actor import MegatronPPOActor
-from verl.workers.config import McoreCriticConfig
+from verl.workers.config import McoreCriticConfig, RolloutConfig
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
 
@@ -380,6 +380,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             "qkv_layer_name": "self_attention.linear_qkv.",
             "gate_proj_layer_name": "linear_fc1.",
         }
+
+        rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
+
         if self.config.rollout.name == "vllm":
             from torch.distributed.device_mesh import init_device_mesh
 
@@ -405,7 +408,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
             rollout = vllm_rollout_cls(
                 model_path=local_path,
-                config=self.config.rollout,
+                config=rollout_config,
                 tokenizer=self.tokenizer,
                 model_hf_config=self.actor_model_config,
                 device_mesh=rollout_device_mesh,
@@ -466,7 +469,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=None)
             rollout = SGLangRollout(
                 actor_module=local_path,
-                config=self.config.rollout,
+                config=rollout_config,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
                 model_hf_config=self.actor_model_config,
                 trust_remote_code=trust_remote_code,

@@ -57,6 +57,7 @@ from verl import DataProto
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
+from verl.workers.config import RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 
 logger = logging.getLogger(__file__)
@@ -79,7 +80,7 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
 
 
 class vLLMRollout(BaseRollout):
-    def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
+    def __init__(self, model_path: str, config: RolloutConfig, tokenizer, model_hf_config, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
 
         Args:

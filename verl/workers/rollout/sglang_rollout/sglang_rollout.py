@@ -29,7 +29,6 @@ import numpy as np
 import sglang.srt.entrypoints.engine
 import torch
 import torch.distributed as dist
-from omegaconf import DictConfig
 from sglang.srt.managers.tokenizer_manager import (
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
@@ -60,6 +59,7 @@ from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.net_utils import is_ipv6
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
+from verl.workers.config import RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.schemas import (
     AsyncRolloutRequest,
@@ -247,7 +247,7 @@ class SGLangRollout(BaseRollout):
     def __init__(
         self,
         actor_module: str,
-        config: DictConfig,
+        config: RolloutConfig,
         processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
         model_hf_config,
         port=None,
