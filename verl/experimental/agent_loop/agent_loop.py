@@ -160,7 +160,7 @@ class AgentLoopBase(ABC):
         self,
         trainer_config: _DummyConfig,
         server_manager: AsyncLLMServerManager,
-        processing_class: AutoTokenizer|AutoProcessor,
+        processor: AutoTokenizer|AutoProcessor,
         **kwargs
     ):
         """Initialize agent loop, each sample will have its own loop instance.
@@ -168,21 +168,21 @@ class AgentLoopBase(ABC):
         Args:
             trainer_config (_DummyConfig): trainer config.
             server_manager (AsyncLLMServerManager): OpenAI compatible LLM server manager.
-            processing_class (AutoTokenizer|AutoProcessor): Processing class for processing messages.
+            processor (AutoTokenizer|AutoProcessor): Processing class for processing messages.
         """
-        self.init_class(trainer_config.config, processing_class, **kwargs)
+        self.init_class(trainer_config.config, processor, **kwargs)
         self.config = trainer_config.config
         self.server_manager = server_manager
-        self.processing_class = processing_class
+        self.processor = processor
         self.loop = asyncio.get_running_loop()
 
     @classmethod
-    def init_class(cls, config: DictConfig, processing_class: AutoTokenizer|AutoProcessor, **kwargs):
+    def init_class(cls, config: DictConfig, processor: AutoTokenizer|AutoProcessor, **kwargs):
         """This is used to do heavy initialization work that should shared across all instances. It's only called once.
 
         Args:
             config (DictConfig): trainer config.
-            processing_class (AutoTokenizer|AutoProcessor): Processing class for processing messages.
+            processor (AutoTokenizer|AutoProcessor): Processing class for processing messages.
             **kwargs: extra kwargs from config file passed in by `hydra.utils.instantiate`.
         """
         if cls._class_initialized:
@@ -372,7 +372,7 @@ class AgentLoopWorker:
                 config=agent_loop_config,
                 trainer_config=_DummyConfig(config=self.config),
                 server_manager=self.server_manager,
-                processing_class=self.processor if self.processor is not None else self.tokenizer,
+                processor=self.processor if self.processor is not None else self.tokenizer,
             )
             output = await agent_loop.run(messages, sampling_params, image_data=image_data, tools_kwargs=tools_kwargs)
             return output

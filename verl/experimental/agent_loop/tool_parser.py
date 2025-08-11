@@ -42,8 +42,8 @@ class FunctionCall(BaseModel):
 class ToolParser(ABC):
     _registry: dict[str, type["ToolParser"]] = {}
 
-    def __init__(self, processing_class) -> None:
-        self.processing_class = processing_class
+    def __init__(self, processor) -> None:
+        self.processor = processor
 
     @abstractmethod
     async def extract_tool_calls(self, responses_ids: list[int]) -> tuple[str, list[FunctionCall]]:
@@ -58,10 +58,10 @@ class ToolParser(ABC):
         raise NotImplementedError
 
     @classmethod
-    def get_tool_parser(cls, name: str, processing_class):
+    def get_tool_parser(cls, name: str, processor):
         if name not in cls._registry:
             raise ValueError(f"Unknown tool parser: {name}")
-        return cls._registry[name](processing_class)
+        return cls._registry[name](processor)
 
     @classmethod
     def register(cls, name: str):
@@ -76,8 +76,8 @@ class ToolParser(ABC):
 class HermesToolParser(ToolParser):
     """Adapted from https://github.com/vllm-project/vllm/blob/v0.9.1/vllm/entrypoints/openai/tool_parsers/hermes_tool_parser.py"""
 
-    def __init__(self, processing_class) -> None:
-        super().__init__(processing_class)
+    def __init__(self, processor) -> None:
+        super().__init__(processor)
 
         self.tool_call_start_token: str = "<tool_call>"
         self.tool_call_end_token: str = "</tool_call>"
@@ -86,7 +86,7 @@ class HermesToolParser(ToolParser):
     @rollout_trace_op
     async def extract_tool_calls(self, responses_ids: list[int]) -> tuple[str, list[FunctionCall]]:
         loop = asyncio.get_running_loop()
-        text = await loop.run_in_executor(None, self.processing_class.decode, responses_ids)
+        text = await loop.run_in_executor(None, self.processor.decode, responses_ids)
         if self.tool_call_start_token not in text or self.tool_call_end_token not in text:
             return text, []
 

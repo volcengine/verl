@@ -44,7 +44,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
         request_id = uuid4().hex
         prompt_ids = await self.loop.run_in_executor(
             None,
-            lambda: self.processing_class.apply_chat_template(
+            lambda: self.processor.apply_chat_template(
                 messages, add_generation_prompt=True, tokenize=True, **self.apply_chat_template_kwargs
             ),
         )

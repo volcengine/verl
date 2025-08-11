@@ -31,15 +31,15 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 @register("tool_agent")
 class ToolAgentLoop(AgentLoopBase):
     @classmethod
-    def init_class(cls, config, processing_class, **kwargs):
+    def init_class(cls, config, processor, **kwargs):
         if cls._class_initialized:
             return
         cls._class_initialized = True
         print("Performing class-level ToolAgentLoop initialization")
 
         # Initialize tools from config file
-        cls.processing_class = processing_class
-        cls.tokenizer = getattr(processing_class, "tokenizer", None)
+        cls.processor = processor
+        cls.tokenizer = getattr(processor, "tokenizer", None)
         cls.max_user_turns = config.actor_rollout_ref.rollout.multi_turn.max_user_turns
         cls.max_assistant_turns = config.actor_rollout_ref.rollout.multi_turn.max_assistant_turns
         cls.max_parallel_calls = config.actor_rollout_ref.rollout.multi_turn.max_parallel_calls
@@ -49,14 +49,14 @@ class ToolAgentLoop(AgentLoopBase):
         tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
         cls.tools = {tool.name: tool for tool in tool_list}
         cls.tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
-        cls.tool_parser = ToolParser.get_tool_parser(config.actor_rollout_ref.rollout.multi_turn.format, cls.processing_class)
+        cls.tool_parser = ToolParser.get_tool_parser(config.actor_rollout_ref.rollout.multi_turn.format, cls.processor)
         print(f"Initialized tools: {cls.tools}")
 
         cls.apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
         cls.prompt_length = config.actor_rollout_ref.rollout.prompt_length
         cls.response_length = config.actor_rollout_ref.rollout.response_length
         if cls.tokenizer:
-            # This is when processing_class is a processor
+            # This is when processor is a processor
             cls.system_prompt = cls.tokenizer.apply_chat_template(
               [{}],
               add_generation_prompt=False,
@@ -64,8 +64,8 @@ class ToolAgentLoop(AgentLoopBase):
               **cls.apply_chat_template_kwargs
         )
         else:
-            # This is when processing_class is a tokenizer
-            cls.system_prompt = cls.processing_class.apply_chat_template(
+            # This is when processor is a tokenizer
+            cls.system_prompt = cls.processor.apply_chat_template(
               [{}],
               add_generation_prompt=False,
               tokenize=True,
@@ -84,7 +84,7 @@ class ToolAgentLoop(AgentLoopBase):
         request_id = uuid4().hex
         prompt_ids = await self.loop.run_in_executor(
             None,
-            lambda: self.processing_class.apply_chat_template(
+            lambda: self.processor.apply_chat_template(
                 messages,
                 tools=self.tool_schemas,
                 add_generation_prompt=True,
@@ -140,7 +140,7 @@ class ToolAgentLoop(AgentLoopBase):
             # append tool_response_ids
             tool_response_ids = await self.loop.run_in_executor(
                 None,
-                lambda messages=tool_responses: self.processing_class.apply_chat_template(
+                lambda messages=tool_responses: self.processor.apply_chat_template(
                     messages, add_generation_prompt=True, tokenize=True, **self.apply_chat_template_kwargs
                 ),
             )
@@ -201,7 +201,7 @@ class ToolAgentLoop(AgentLoopBase):
                 tool_response_text = tool_response_text[:length] + "...(truncated)..." + tool_response_text[-length:]
 
         if self.tokenizer:
-            # This is when processing_class is a processor
+            # This is when processor is a processor
             output = {
                 "role": "tool",
                 "content": [
@@ -212,7 +212,7 @@ class ToolAgentLoop(AgentLoopBase):
                 ],
             }
         else:
-            # This is when processing_class is a tokenizer
+            # This is when processor is a tokenizer
             output = {
                 "role": "tool",
                 "content": tool_response_text,
