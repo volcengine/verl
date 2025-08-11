@@ -230,6 +230,20 @@ they can call ``AsyncLLMServerManager.generate`` to generate response_ids.
            """
            ...
 
+Migration guide from SGLang multi_turn
+--------------------------------------
+
+SGLang multi_turn functionality is moved to two new agent loop:
+
+- ToolAgentLoop: if ``multi_turn.tool_config_path`` is set.
+- InteractionAgentLoop: if ``multi_turn.interaction_config_path`` is set.
+
+Set ``multi_turn.enable=True`` will automatically switch to new agent loop by default, and should work same as the old implementation.
+If you encounter any compatibility problem, please fire a github issue to us.
+
+For backward compatibility, we provide an option ``multi_turn.force_use_sglang_multi_turn=False`` to switch back to old implementation,
+but be aware that it will be soon removed in future releaes.
+
 Next
 ----
 
