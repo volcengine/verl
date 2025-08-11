@@ -8,12 +8,7 @@ DISCRETE=False
 # profiling NPU options
 SAVE_PATH="$HOME/profile_data"
 LEVEL="level1"
-WITH_MEMORY=False
-RECORD_SHAPES=False
-WITH_NPU=True
-WITH_CPU=True
-WITH_MODULE=False
-WITH_STACK=False
+CONTENTS=['npu','cpu']
 ANALYSIS=True
 
 python3 -m verl.trainer.main_ppo \
@@ -28,15 +23,16 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-7B-Instruct \
     actor_rollout_ref.actor.optim.lr=5e-8 \
     actor_rollout_ref.model.use_remove_padding=False \
-    actor_rollout_ref.profiler.all_ranks=$PROFILE_RANKS_ALL \
-    actor_rollout_ref.profiler.discrete=$DISCRETE \
+    actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
-    actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.actor.profiler.enable=True \
+    actor_rollout_ref.actor.profiler.ranks=$PROFILE_RANKS \
+    actor_rollout_ref.actor.profiler.all_ranks=$PROFILE_RANKS_ALL \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
@@ -48,15 +44,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
-    trainer.npu_profile.options.save_path=$SAVE_PATH \
-    trainer.npu_profile.options.level=$LEVEL \
-    trainer.npu_profile.options.with_memory=$WITH_MEMORY \
-    trainer.npu_profile.options.record_shapes=$RECORD_SHAPES \
-    trainer.npu_profile.options.with_npu=$WITH_NPU \
-    trainer.npu_profile.options.with_cpu=$WITH_CPU \
-    trainer.npu_profile.options.with_module=$WITH_MODULE \
-    trainer.npu_profile.options.with_stack=$WITH_STACK \
-    trainer.npu_profile.options.analysis=$ANALYSIS \
     trainer.critic_warmup=0 \
     trainer.logger=console \
     trainer.project_name='verl_grpo_example_gsm8k' \
@@ -66,5 +53,12 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
     trainer.total_epochs=5 \
-    trainer.profile_steps=$PROFILE_STEPS \
-    trainer.device=npu $@
+    trainer.device=npu \
+    profiler.tool=npu \
+    profiler.steps=$PROFILE_STEPS \
+    profiler.save_path=$SAVE_PATH \
+    profiler.tool_config.npu.discrete=$DISCRETE \
+    profiler.tool_config.npu.contents=$CONTENTS \
+    profiler.tool_config.npu.level=$LEVEL \
+    profiler.tool_config.npu.analysis=$ANALYSIS \
+    $@
