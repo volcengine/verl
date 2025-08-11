@@ -15,6 +15,7 @@
 from dataclasses import dataclass, field
 
 from verl.base_config import BaseConfig
+from verl.utils.profiler import ProfilerConfig
 
 __all__ = [
     "SamplingConfig",
@@ -133,9 +134,21 @@ class RolloutConfig(BaseConfig):
 
     calculate_log_probs: bool = False
 
+    agent: AgentLoopConfig = field(default_factory=AgentLoopConfig)
+
+    trace: TraceConfig = field(default_factory=TraceConfig)
+
     multi_turn: MultiTurnConfig = field(default_factory=MultiTurnConfig)
 
     update_weights_bucket_megabytes: int = 512
 
     skip_rollout: bool = False
+    
     skip_dump_dir: str = "/tmp/rollout_dump"
+
+    profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
+
+    enable_chunked_prefill: bool = True
+    load_format: str = "dummy_dtensor"
+
+    layered_summon: bool = False

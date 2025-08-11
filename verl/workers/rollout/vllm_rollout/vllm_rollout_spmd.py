@@ -153,11 +153,13 @@ class vLLMRollout(BaseRollout):
         lora_kwargs = kwargs.pop("lora_kwargs", {})
         self.lora_kwargs = lora_kwargs
         # copy it to avoid secretly modifying the engine config
-        engine_kwargs = (
-            {}
-            if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs
-            else OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
-        )
+        if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs:
+            engine_kwargs = {}
+        elif isinstance(config.engine_kwargs.vllm, DictConfig):
+            engine_kwargs = OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm)):
+        else:
+            engine_kwargs = config.engine_kwargs.vllm
+
         # For each vLLM engine parameter,
         # - `None` means not setting it, so we pop it, and leave it to vLLM default value
         #    (which can vary across different vLLM versions);
