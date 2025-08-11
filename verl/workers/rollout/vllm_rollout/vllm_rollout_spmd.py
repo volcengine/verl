@@ -33,7 +33,6 @@ import os
 import pickle
 import socket
 from contextlib import contextmanager
-from copy import deepcopy
 from types import MethodType
 from typing import Any
 
@@ -44,7 +43,7 @@ import torch.distributed
 import zmq
 import zmq.asyncio
 from filelock import FileLock
-from omegaconf import DictConfig, ListConfig, OmegaConf
+from omegaconf import DictConfig, ListConfig
 from tensordict import TensorDict
 from vllm import LLM, SamplingParams
 from vllm.config import CompilationConfig, CompilationLevel

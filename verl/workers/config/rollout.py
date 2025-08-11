@@ -72,6 +72,8 @@ class TraceConfig(BaseConfig):
 
 @dataclass
 class RolloutConfig(BaseConfig):
+    _mutable_fields = {"max_model_len"}
+
     name: str = None
     mode: str = "sync"
 

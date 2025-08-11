@@ -139,13 +139,10 @@ actor_rollout_ref:
     'n': 1
     multi_stage_wake_up: false
     engine_kwargs:
-      _target_: verl.workers.config.EngineConfig
       vllm:
-        _target_: verl.workers.config.vLLMEngineConfig
         swap_space: null
         disable_mm_preprocessor_cache: false
       sglang:
-        _target_: verl.workers.config.SGLangEngineConfig
         attention_backend: null
     val_kwargs:
       _target_: verl.workers.config.SamplingConfig
