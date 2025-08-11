@@ -157,7 +157,7 @@ class vLLMRollout(BaseRollout):
         if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs:
             engine_kwargs = {}
         elif isinstance(config.engine_kwargs.vllm, DictConfig):
-            engine_kwargs = OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm)):
+            engine_kwargs = OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
         else:
             engine_kwargs = config.engine_kwargs.vllm
 
