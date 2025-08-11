@@ -129,3 +129,5 @@ outputs
 *.err
 *.out
 models/*
+
+*.whl
