@@ -157,7 +157,11 @@ class AgentLoopBase(ABC):
     _class_initialized = False
 
     def __init__(
-        self, trainer_config: _DummyConfig, server_manager: AsyncLLMServerManager, processing_class: AutoTokenizer|AutoProcessor, **kwargs
+        self,
+        trainer_config: _DummyConfig,
+        server_manager: AsyncLLMServerManager,
+        processing_class: AutoTokenizer|AutoProcessor,
+        **kwargs
     ):
         """Initialize agent loop, each sample will have its own loop instance.
 
@@ -304,6 +308,9 @@ class AgentLoopWorker:
         if "agent_name" not in batch.non_tensor_batch:
             batch.non_tensor_batch["agent_name"] = np.array(["single_turn_agent"] * len(batch), dtype=object)
 
+        tasks = []
+        agent_names = batch.non_tensor_batch["agent_name"]
+        raw_prompts = batch.non_tensor_batch["raw_prompt"]
         if "index" in batch.non_tensor_batch:
             index = batch.non_tensor_batch["index"]
         else:
@@ -323,9 +330,19 @@ class AgentLoopWorker:
             batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
         )
 
-        for agent_name, messages, trajectory, multi_modal, tools_kwarg in zip(agent_names, raw_prompts, trajectory_info, multi_modal_data, tools_kwargs, strict=True):
+        for agent_name, messages, trajectory, multi_modal, tools_kwarg in zip(
+            agent_names, raw_prompts, trajectory_info, multi_modal_data, tools_kwargs, strict=True
+        ):
             tasks.append(
-                asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory, image_data=multi_modal.get("image", None), tools_kwargs=tools_kwarg))
+                asyncio.create_task(
+                    self._run_agent_loop(
+                        agent_name, messages.tolist(), 
+                        sampling_params, 
+                        trajectory, 
+                        image_data=multi_modal.get("image", None), 
+                        tools_kwargs=tools_kwarg
+                    )
+                )
             )
         outputs = await asyncio.gather(*tasks)
 
@@ -414,6 +431,7 @@ class AgentLoopWorker:
         )
         response_mask = response_mask * response_attention_mask
         input_ids = torch.cat([prompt_ids, response_ids], dim=1)
+        attention_mask = torch.cat([prompt_attention_mask, response_attention_mask], dim=1)
         position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
 
         batch = TensorDict(

@@ -67,7 +67,7 @@ class ToolAgentLoop(AgentLoopBase):
         messages: list[dict[str, Any]],
         sampling_params: dict[str, Any],
         image_data: Optional[list[Any]] = None,
-        tools_kwargs: Optional[dict[str, Any]] = None
+        **kwargs
     ) -> AgentLoopOutput:
         metrics = {}
         request_id = uuid4().hex
@@ -81,8 +81,9 @@ class ToolAgentLoop(AgentLoopBase):
         tools_kwargs = kwargs.get("tools_kwargs", {})
 
         if len(prompt_ids)==1 and isinstance(prompt_ids[0], list):
-            # `processor.apply_chat_template` returns [{}], while `tokenizer.apply_chat_template` returns {} for an input of batch size 1
-            # It could be a bug in HuggingFace implementation: https://github.com/huggingface/transformers/blob/37f8b0b53512e6aae0cfd15746c133c101783178/src/transformers/processing_utils.py#L1551C9-L1553C11
+            # `processor.apply_chat_template` returns [{}],
+            # while `tokenizer.apply_chat_template` returns {}
+            # for an input of batch size 1
             prompt_ids = prompt_ids[0]
 
         user_turns, assistant_turns = 0, 0
@@ -129,8 +130,9 @@ class ToolAgentLoop(AgentLoopBase):
                 ),
             )
             if len(tool_response_ids)==1 and isinstance(tool_response_ids[0], list):
-                # `processor.apply_chat_template` returns [{}], while `tokenizer.apply_chat_template` returns {} for an input of batch size 1
-                # It could be a bug in HuggingFace implementation: https://github.com/huggingface/transformers/blob/37f8b0b53512e6aae0cfd15746c133c101783178/src/transformers/processing_utils.py#L1551C9-L1553C11
+            # `processor.apply_chat_template` returns [{}],
+            # while `tokenizer.apply_chat_template` returns {}
+            # for an input of batch size 1
                 tool_response_ids = tool_response_ids[0]
             tool_response_ids = tool_response_ids[len(self.system_prompt) :]
 

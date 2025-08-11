@@ -46,8 +46,9 @@ class SingleTurnAgentLoop(AgentLoopBase):
         )
 
         if len(prompt_ids)==1 and isinstance(prompt_ids[0], list):
-            # `processor.apply_chat_template` returns [{}], while `tokenizer.apply_chat_template` returns {} for an input of batch size 1
-            # It could be a bug in HuggingFace implementation: https://github.com/huggingface/transformers/blob/37f8b0b53512e6aae0cfd15746c133c101783178/src/transformers/processing_utils.py#L1551C9-L1553C11
+            # `processor.apply_chat_template` returns [{}],
+            # while `tokenizer.apply_chat_template` returns {}
+            # for an input of batch size 1
             prompt_ids = prompt_ids[0]
 
         with simple_timer("generate_sequences", metrics):
