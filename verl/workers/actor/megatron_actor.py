@@ -127,6 +127,8 @@ class MegatronPPOActor(BasePPOActor):
             self.prof = Profiler(
                 self.config.profiler, tool_config=self.config.profiler.get("tool_config", {}).get("torch", {})
             )
+        else:
+            self.prof = None
         self.use_fused_kernels = self.config.get("use_fused_kernels", False)
         if self.use_fused_kernels:
             from verl.models.mcore.model_forward_fused import patch_fused_forward
@@ -604,7 +606,7 @@ class MegatronPPOActor(BasePPOActor):
 
         """
         metrics = {}
-        if self.use_torch_profiler and self.prof.enable:
+        if self.use_torch_profiler and self.prof and self.prof.enable:
             self.prof.start()
         for data in dataloader:
             data.to(get_device_id())
@@ -644,10 +646,10 @@ class MegatronPPOActor(BasePPOActor):
                 pass
             else:
                 raise NotImplementedError
-            if self.use_torch_profiler and self.prof.enable:
+            if self.use_torch_profiler and self.prof and self.prof.enable:
                 self.prof.step()
         # add empty cache after each compute
-        if self.use_torch_profiler and self.prof.enable:
+        if self.use_torch_profiler and self.prof and self.prof.enable:
             self.prof.stop_and_save()
             self.prof.stop_trace()
         get_torch_device().empty_cache()
