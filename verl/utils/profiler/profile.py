@@ -73,7 +73,7 @@ class Profiler:
             )
 
     def _validate(self):
-        if self.config.use_profile:
+        if self.config.enable:
             if self.config.profile_ranks is None:
                 print("[WARNING] Profile ranks is not set, default to rank 0")
                 self.config.profile_ranks = [0]
