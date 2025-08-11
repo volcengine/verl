@@ -112,6 +112,7 @@ actor_rollout_ref:
     entropy_from_logits_with_chunking: false
     entropy_checkpointing: false
   rollout:
+    _target_: verl.workers.config.RolloutConfig
     name: ???
     mode: sync
     temperature: 1.0
@@ -138,18 +139,23 @@ actor_rollout_ref:
     'n': 1
     multi_stage_wake_up: false
     engine_kwargs:
+      _target_: verl.workers.config.EngineConfig
       vllm:
+        _target_: verl.workers.config.vLLMEngineConfig
         swap_space: null
         disable_mm_preprocessor_cache: false
       sglang:
+        _target_: verl.workers.config.SGLangEngineConfig
         attention_backend: null
     val_kwargs:
+      _target_: verl.workers.config.SamplingConfig
       top_k: -1
       top_p: 1.0
       temperature: 0
       'n': 1
       do_sample: false
     multi_turn:
+      _target_: verl.workers.config.MultiTurnConfig
       enable: false
       max_assistant_turns: null
       tool_config_path: null
@@ -163,13 +169,16 @@ actor_rollout_ref:
       format: hermes
     calculate_log_probs: false
     agent:
+      _target_: verl.workers.config.AgentLoopConfig
       num_workers: 8
       agent_loop_config_path: null
       custom_async_server:
+        _target_: verl.workers.config.CustomAsyncServerConfig
         path: null
         name: null
     update_weights_bucket_megabytes: 512
     trace:
+      _target_: verl.workers.config.TraceConfig
       backend: null
       token2text: false
     skip_rollout: false

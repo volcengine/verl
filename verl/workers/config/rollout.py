@@ -1,9 +1,33 @@
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from dataclasses import dataclass, field
+
 from verl.base_config import BaseConfig
 
+__all__ = [
+    "SamplingConfig",
+    "vLLMEngineConfig",
+    "SGLangEngineConfig",
+    "EngineConfig",
+    "MultiTurnConfig",
+    "CustomAsyncServerConfig",
+    "AgentLoopConfig",
+    "TraceConfig",
+    "RolloutConfig",
+]
 
-__all__ = ["SamplingConfig", "vLLMEngineConfig", "SGLangEngineConfig", "EngineConfig", 
-           "MultiTurnConfig", "CustomAsyncServerConfig", "AgentLoopConfig", "TraceConfig", "RolloutConfig"]
 
 @dataclass
 class SamplingConfig(BaseConfig):
@@ -29,7 +53,6 @@ class SGLangEngineConfig(BaseConfig):
 class EngineConfig(BaseConfig):
     vllm: vLLMEngineConfig = field(default_factory=vLLMEngineConfig)
     sglang: SGLangEngineConfig = field(default_factory=SGLangEngineConfig)
-
 
 
 @dataclass
@@ -104,16 +127,15 @@ class RolloutConfig(BaseConfig):
     log_prob_max_token_len_per_gpu: int = 16384
 
     disable_log_stats: bool = True
-    
+
     multi_stage_wake_up: bool = False
     engine_kwargs: EngineConfig = field(default_factory=EngineConfig)
 
     calculate_log_probs: bool = False
 
     multi_turn: MultiTurnConfig = field(default_factory=MultiTurnConfig)
-    
+
     update_weights_bucket_megabytes: int = 512
 
     skip_rollout: bool = False
     skip_dump_dir: str = "/tmp/rollout_dump"
-
