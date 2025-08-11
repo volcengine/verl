@@ -42,13 +42,13 @@ class MultiTurnConfig(BaseConfig):
     _mutable_fields = {"max_assistant_turns", "max_user_turns"}
 
     enable: bool = False
-    max_assistant_turns: int = None
-    tool_config_path: str = None
-    max_user_turns: int = None
+    max_assistant_turns: Optional[int] = None
+    tool_config_path: Optional[str] = None
+    max_user_turns: Optional[int] = None
     max_parallel_calls: int = 1
     max_tool_response_length: int = 256
     tool_response_truncate_side: str = "middle"
-    interaction_config_path: str = None
+    interaction_config_path: Optional[str] = None
     use_inference_chat_template: bool = False
     tokenization_sanity_check_mode: str = "strict"
     format: str = "hermes"
@@ -56,20 +56,20 @@ class MultiTurnConfig(BaseConfig):
 
 @dataclass
 class CustomAsyncServerConfig(BaseConfig):
-    path: str = None
-    name: str = None
+    path: Optional[str] = None
+    name: Optional[str] = None
 
 
 @dataclass
 class AgentLoopConfig(BaseConfig):
     num_workers: int = 8
-    agent_loop_config_path: str = None
+    agent_loop_config_path: Optional[str] = None
     custom_async_server: CustomAsyncServerConfig = field(default_factory=CustomAsyncServerConfig)
 
 
 @dataclass
 class TraceConfig(BaseConfig):
-    backend: str = None
+    backend: Optional[str] = None
     token2text: bool = False
 
 
@@ -93,7 +93,7 @@ class RolloutConfig(BaseConfig):
     gpu_memory_utilization: float = 0.5
     ignore_eos: bool = False
     enforce_eager: bool = True
-    cudagraph_capture_sizes: list = None
+    cudagraph_capture_sizes: Optional[list] = None
     free_cache_engine: bool = True
     tensor_model_parallel_size: int = 2
     max_num_batched_tokens: int = 8192
@@ -103,12 +103,12 @@ class RolloutConfig(BaseConfig):
 
     val_kwargs: SamplingConfig = field(default_factory=SamplingConfig)
 
-    max_model_len: int = None
+    max_model_len: Optional[int] = None
     max_num_seqs: int = 1024
 
     # note that the logprob computation should belong to the actor
-    log_prob_micro_batch_size: int = None
-    log_prob_micro_batch_size_per_gpu: int = None
+    log_prob_micro_batch_size: Optional[int] = None
+    log_prob_micro_batch_size_per_gpu: Optional[int] = None
     log_prob_use_dynamic_bsz: bool = False
     log_prob_max_token_len_per_gpu: int = 16384
 
