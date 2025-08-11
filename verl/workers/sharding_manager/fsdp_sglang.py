@@ -126,14 +126,6 @@ class FSDPSGLangShardingManager(BaseShardingManager):
     async def wake_up(self):
         get_torch_device().empty_cache()
 
-        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
-            if self.multi_stage_wake_up:
-                await self.inference_engine.resume_memory_occupation(tags=["weights"])
-                log_gpu_memory_usage("Before resume SGLang weights in sharding manager", logger=logger)
-            else:
-                await self.inference_engine.resume_memory_occupation()
-                log_gpu_memory_usage("Before resume SGLang weights + kv_cache in sharding manager", logger=logger)
-
         log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
         if self.offload_param:
             load_fsdp_model_to_gpu(self.module)
@@ -147,13 +139,24 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         # convert weight keys to match the model config
         params = convert_weight_keys(params, getattr(self.module, "_fsdp_wrapped_module", self.module))
 
+        if self.offload_param:
+            offload_fsdp_model_to_cpu(self.module)
+
+        log_gpu_memory_usage("After offload_param in sharding manager memory", logger=logger)
+
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
+            if self.multi_stage_wake_up:
+                await self.inference_engine.resume_memory_occupation(tags=["weights"])
+                log_gpu_memory_usage("Before resume SGLang weights in sharding manager", logger=logger)
+            else:
+                await self.inference_engine.resume_memory_occupation()
+                log_gpu_memory_usage("Before resume SGLang weights + kv_cache in sharding manager", logger=logger)
+
         # Copy, not share memory
         await self.update_weights(params)
         log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
 
         del params
-        if self.offload_param:
-            offload_fsdp_model_to_cpu(self.module)
         get_torch_device().empty_cache()
         log_gpu_memory_usage("After del state_dict and empty_cache in sharding manager", logger=logger)
 

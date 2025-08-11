@@ -795,7 +795,6 @@ class RayPPOTrainer:
                 cls=self.role_worker_mapping[Role.ActorRollout],
                 config=self.config.actor_rollout_ref,
                 role="actor_rollout",
-                profile_option=self.config.trainer.npu_profile.options,
             )
             self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
         else:
@@ -815,7 +814,6 @@ class RayPPOTrainer:
                 self.role_worker_mapping[Role.RefPolicy],
                 config=self.config.actor_rollout_ref,
                 role="ref",
-                profile_option=self.config.trainer.npu_profile.options,
             )
             self.resource_pool_to_cls[resource_pool]["ref"] = ref_policy_cls
 
@@ -835,13 +833,13 @@ class RayPPOTrainer:
         wg_kwargs = {}  # Setting up kwargs for RayWorkerGroup
         if OmegaConf.select(self.config.trainer, "ray_wait_register_center_timeout") is not None:
             wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
-        if OmegaConf.select(self.config.trainer, "profile_steps") is not None:
-            wg_kwargs["profile_steps"] = OmegaConf.select(self.config.trainer, "profile_steps")
-            assert OmegaConf.select(self.config.trainer, "worker_nsight_options") is not None, (
+        if OmegaConf.select(self.config.global_profiler, "steps") is not None:
+            wg_kwargs["profile_steps"] = OmegaConf.select(self.config.global_profiler, "steps")
+            assert OmegaConf.select(self.config.global_profiler, "worker_nsight_options") is not None, (
                 "worker_nsight_options must be set when profile_steps is set"
             )
             wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
-                OmegaConf.select(self.config.trainer, "worker_nsight_options")
+                OmegaConf.select(self.config.global_profiler, "worker_nsight_options")
             )
         wg_kwargs["device_name"] = self.device_name
 
@@ -1083,8 +1081,8 @@ class RayPPOTrainer:
 
         prev_step_profile = False
         curr_step_profile = (
-            self.global_steps in self.config.trainer.profile_steps
-            if self.config.trainer.profile_steps is not None
+            self.global_steps in self.config.global_profiler.steps
+            if self.config.global_profiler.steps is not None
             else False
         )
         next_step_profile = False
@@ -1097,7 +1095,7 @@ class RayPPOTrainer:
                 with marked_timer("start_profile", timing_raw):
                     self._start_profiling(
                         not prev_step_profile and curr_step_profile
-                        if self.config.trainer.profile_continuous_steps
+                        if self.config.global_profiler.profile_continuous_steps
                         else curr_step_profile
                     )
 
@@ -1341,13 +1339,13 @@ class RayPPOTrainer:
 
                 with marked_timer("stop_profile", timing_raw):
                     next_step_profile = (
-                        self.global_steps + 1 in self.config.trainer.profile_steps
-                        if self.config.trainer.profile_steps is not None
+                        self.global_steps + 1 in self.config.global_profiler.steps
+                        if self.config.global_profiler.steps is not None
                         else False
                     )
                     self._stop_profiling(
                         curr_step_profile and not next_step_profile
-                        if self.config.trainer.profile_continuous_steps
+                        if self.config.global_profiler.profile_continuous_steps
                         else curr_step_profile
                     )
                     prev_step_profile = curr_step_profile

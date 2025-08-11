@@ -37,6 +37,14 @@ class TestConfigComparison(unittest.TestCase):
         "activations_checkpoint_method",
         "activations_checkpoint_granularity",
         "activations_checkpoint_num_layers",
+        "discrete",
+        "profiler",
+        "profile",
+        "use_profile",
+        "npu_profile",
+        "profile_steps",
+        "worker_nsight_options",
+        "controller_nsight_options",
     ]
 
     def _compare_configs_recursively(

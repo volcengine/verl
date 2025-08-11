@@ -23,6 +23,7 @@ data:
     path: null
     name: null
   use_shm: False
+  apply_chat_template_kwargs: {}
 model:
   partial_pretrain: ~/models/gemma-1.1-7b-it
   use_shm: False
