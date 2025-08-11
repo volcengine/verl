@@ -28,6 +28,3 @@ except ImportError:
         Returns False to disable features that require this function.
         """
         return False
-
-
-__all__ = ["flash_attn_supports_top_left_mask"]
