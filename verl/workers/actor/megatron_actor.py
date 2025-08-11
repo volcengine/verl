@@ -122,7 +122,9 @@ class MegatronPPOActor(BasePPOActor):
         self.tf_config = tf_config
         self.actor_module = actor_module
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
-        self.prof = Profiler(self.config.profiler)
+        self.prof = Profiler(
+            self.config.profiler, tool_config=self.config.profiler.get("tool_config", {}).get("torch", {})
+        )
         self.use_fused_kernels = self.config.get("use_fused_kernels", False)
         if self.use_fused_kernels:
             from verl.models.mcore.model_forward_fused import patch_fused_forward
