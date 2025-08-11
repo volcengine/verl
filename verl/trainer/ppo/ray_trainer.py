@@ -840,7 +840,7 @@ class RayPPOTrainer:
                 is not None
             ), "worker_nsight_options must be set when profile_steps is set"
             wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
-                OmegaConf.select(self.config.global_profiler, "worker_nsight_options")
+                OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
             )
         wg_kwargs["device_name"] = self.device_name
 
