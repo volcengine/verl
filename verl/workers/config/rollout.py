@@ -91,7 +91,7 @@ class TraceConfig(BaseConfig):
 
 @dataclass
 class RolloutConfig(BaseConfig):
-    name: str
+    name: str = None
     mode: str = "sync"
 
     temperature: float = 1.0
