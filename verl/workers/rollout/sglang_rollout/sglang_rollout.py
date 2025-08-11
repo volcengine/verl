@@ -108,17 +108,6 @@ def _set_envs_and_config(server_args: ServerArgs):
     # Set ulimit
     set_ulimit()
 
-    # Fix triton bugs
-    try:
-        from sglang.srt.utils import maybe_set_triton_cache_manager
-
-        if server_args.tp_size * server_args.dp_size > 1:
-            # FIXME: remove this after https://github.com/triton-lang/triton/pull/4295 is used as a dependency.
-            maybe_set_triton_cache_manager()
-    except ImportError:
-        # Fixed in sglang 0.4.9
-        pass
-
     # Check flashinfer version
     if server_args.attention_backend == "flashinfer":
         assert_pkg_version(
@@ -1423,7 +1412,10 @@ class SGLangRollout(BaseRollout):
 
         return req_list
 
+    # ==================== server mode public methods ====================
+
     async def chat_completion(self, json_request):
+        """OpenAI chat completion API."""
         assert self._tp_rank == 0, "only called in tp rank 0"
         _input_ids = None
         _attention_mask = None
@@ -1501,6 +1493,7 @@ class SGLangRollout(BaseRollout):
     async def generate(
         self, prompt_ids: torch.Tensor, sampling_params: dict[str, Any], request_id: str
     ) -> torch.Tensor:
+        """Generate sequence with token-in-token-out."""
         with ExitStack() as stack:
             request_sampling_params = self.sampling_params.copy()
             request_sampling_params.update(sampling_params)
@@ -1520,13 +1513,14 @@ class SGLangRollout(BaseRollout):
             logger.debug(f"request {request_id} not in active_req")
 
     async def wake_up(self):
+        """Load model weights and build kv cache."""
         if not self.is_sleep:
             return
         await self.sharding_manager.wake_up()  # pylint: disable=C2801
         self.is_sleep = False
 
-    # this function is left for uniform train-inference resharding
     async def sleep(self):
+        """Offload model weights and discard kv cache."""
         if self.is_sleep:
             return
         await self.sharding_manager.sleep()
