@@ -87,10 +87,13 @@ multi_stage_wake_up: false
 
 # Extra inference engine arguments (vllm, sglang).
 engine_kwargs:
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.workers.config.EngineConfig
 
   # for vllm
   vllm:
+
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.workers.config.vLLMEngineConfig
 
     # Swap space (in GB) used by inference engine. null uses default (e.g., 4 GB).
@@ -101,6 +104,8 @@ engine_kwargs:
 
   # for sglang
   sglang:
+
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.workers.config.SGLangEngineConfig
 
     # The attention backend for sglang engine. Options: flashinfer, triton, flashmla, null for default.
@@ -108,6 +113,8 @@ engine_kwargs:
 
 # Sampling parameters used during validation.
 val_kwargs:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.workers.config.SamplingConfig
 
   # sampling parameters for validation
@@ -128,6 +135,8 @@ val_kwargs:
 
 # Multi-turn interaction config for tools or chat.
 multi_turn:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.workers.config.MultiTurnConfig
 
   # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
@@ -177,6 +186,8 @@ calculate_log_probs: False
 
 # [Experimental] agent loop based rollout configs
 agent:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.workers.config.AgentLoopConfig
 
   # Number of agent loop workers
@@ -196,6 +207,8 @@ agent:
 
   # custom async server configs
   custom_async_server:
+
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.workers.config.CustomAsyncServerConfig
 
     # Path to the custom async server implementation
@@ -220,6 +233,8 @@ update_weights_bucket_megabytes: 512
 
 # trace rollout data
 trace:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.workers.config.TraceConfig
 
   # trace backend, support mlflow, weave
