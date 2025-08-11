@@ -8,107 +8,87 @@ Last updated: 07/24/2025.
 配置
 ----
 
-复用verl/trainer/config/ppo_trainer.yaml中的配置项控制采集的模式和步数，
-通过verl/trainer/config/npu_profile/npu_profile.yaml中的配置项控制例如采集等级等参数。
+使用两级profile设置来控制数据采集
+
+- 全局采集控制：使用verl/trainer/config/ppo_trainer.yaml中的配置项控制采集的模式和步数，
+- 角色profile控制：通过每个角色中的配置项控制等参数。
 
 全局采集控制
 ~~~~~~~~~~~~
 
 通过 ppo_trainer.yaml 中的参数控制采集步数和模式：
 
--  trainer.profile_steps：
-   该参数可以设置为一个包含采集步数的列表，例如[2，
-   4]， 意味着将会采集第二步和第四步。如果该参数为null，则代表不进行采集
--  actor_rollout_ref.profiler：
-   控制采集的ranks和模式
+-  profiler: 控制采集的rank和模式
 
-   -  all_ranks：设为True代表对所有rank进行采集
-   -  ranks：当all_ranks不为True时，
-      通过ranks参数控制需要采集的rank，该参数设置为一个包含采集rank的列表， 例如[0，
-      1]
-   -  discrete：
-      控制采集的模式。当该参数设置为False，代表采集端到端的数据；当该参数设置为True，代表采用离散模式分训练阶段采集数据
+   -  tool: 使用的采集工具，选项有 nsys、npu、torch、torch_memory。
+   -  steps: 此参数可以设置为包含采集步数的列表，例如 [2, 4]，表示将采集第2步和第4步。如果设置为 null，则不进行采集。
+   -  save_path: 保存采集数据的路径。默认值为 "outputs/profile"。
 
-通过 npu_profile.yaml 中的参数控制具体采集行为：
+通过 ``profiler.tool_config.npu`` 中的参数控制具体采集行为：
 
--  save_path：采集数据的存放路径
--  roles: 采集的角色，下列为可选项
+-  level: 采集级别—选项有 level_none、level0、level1 和 level2
 
-   -  rollout_generate：采集rollout的generate_sequences阶段
-   -  actor_compute_log_prob：采集actor的compute_log_prob阶段
-   -  actor_update：采集actor的update_actor阶段
-   -  ref_compute_log_prob：采集ref的compute_ref_log_prob阶段
-   -  all： 采集以上所有阶段
+   -  level_none: 禁用所有基于级别的数据采集（关闭 profiler_level）。
+   -  level0: 采集高级应用数据、底层NPU数据和NPU上的算子执行详情。
+   -  level1: 在level0基础上增加CANN层AscendCL数据和NPU上的AI Core性能指标。
+   -  level2: 在level1基础上增加CANN层Runtime数据和AI CPU指标。
 
--  level：采集等级，可选项为level_none、level0、level1和level2
+-  contents: 控制采集内容的选项列表，例如
+   npu、cpu、memory、shapes、module、stack。
+   
+   -  npu: 是否采集设备端性能数据。
+   -  cpu: 是否采集主机端性能数据。
+   -  memory: 是否启用内存分析。
+   -  shapes: 是否记录张量形状。
+   -  module: 是否记录框架层Python调用栈信息。
+   -  stack: 是否记录算子调用栈信息。
 
-   -  level_none：不采集所有Level层级控制的数据，即关闭profiler_level
-   -  level0：采集上层应用数据、底层NPU数据以及NPU上执行的算子信息
-   -  level1：在level0的基础上多采集CANN层AscendCL数据和NPU上执行的AI
-      Core性能指标信息
-   -  level2：在level1的基础上多采集CANN层Runtime数据以及AI CPU
+-  analysis: 启用自动数据解析。
 
--  record_shapes：是否记录张量形状
--  with_memory：是否启用内存分析
--  with_npu：是否采集device侧性能数据
--  with_cpu：是否采集host侧性能数据
--  with_module：是否记录框架层python调用栈信息
--  with_stack：是否记录算子调用栈信息
--  analysis：是否自动解析数据
+角色profile控制
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+在每个角色的 ``profile`` 字段中，您可以控制该角色的采集模式。
+
+-  enable: 是否为此角色启用性能分析。
+-  all_ranks: 是否从所有rank收集数据。
+-  ranks: 要收集数据的rank列表。如果为空，则不收集数据。
+-  tool_config: 此角色使用的性能分析工具的配置。
 
 示例
 ----
 
 禁用采集
-~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
 
 .. code:: yaml
 
-       trainer:
-           profile_steps: null # disable profile
+      profiler:
+         steps: null # disable profile
 
 端到端采集
-~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: yaml
 
-       trainer:
-           profile_steps: [1, 2, 5]
-       actor_rollout_ref:
-            profiler:
-                discrete: False
-                all_ranks: True
+      profiler:
+         steps: [1, 2, 5]
+         discrete: False
+      actor_rollout_ref:
+         actor:
+            profile:
+               enable: True
+               all_ranks: True
+        # rollout & ref follow actor settings
 
 
 离散模式采集
-~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: yaml
 
-       trainer:
-           profile_steps: [1, 2, 5]
-       actor_rollout_ref:
-            profiler:
-                discrete: True
-                all_ranks: False
-                ranks: [0, 1]
-
-
-离散模式采集actor
-~~~~~~~~~~~~~~~~~~
-
-.. code:: yaml
-
-       trainer:
-           profile_steps: [1, 2, 5]
-           npu_profile:
-                options:
-                    roles: ["actor_compute_log_prob", "actor_update"]
-       actor_rollout_ref:
-            profiler:
-                discrete: True
-                all_ranks: False
-                ranks: [0, 1]
+      profiler:
+         discrete: True
 
 
 可视化

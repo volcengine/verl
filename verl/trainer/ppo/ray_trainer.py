@@ -57,6 +57,7 @@ from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, shou
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
+from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
@@ -794,7 +795,6 @@ class RayPPOTrainer:
                 cls=self.role_worker_mapping[Role.ActorRollout],
                 config=self.config.actor_rollout_ref,
                 role="actor_rollout",
-                profile_option=self.config.trainer.npu_profile.options,
             )
             self.resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
         else:
@@ -814,7 +814,6 @@ class RayPPOTrainer:
                 self.role_worker_mapping[Role.RefPolicy],
                 config=self.config.actor_rollout_ref,
                 role="ref",
-                profile_option=self.config.trainer.npu_profile.options,
             )
             self.resource_pool_to_cls[resource_pool]["ref"] = ref_policy_cls
 
@@ -834,13 +833,13 @@ class RayPPOTrainer:
         wg_kwargs = {}  # Setting up kwargs for RayWorkerGroup
         if OmegaConf.select(self.config.trainer, "ray_wait_register_center_timeout") is not None:
             wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
-        if OmegaConf.select(self.config.trainer, "profile_steps") is not None:
-            wg_kwargs["profile_steps"] = OmegaConf.select(self.config.trainer, "profile_steps")
-            assert OmegaConf.select(self.config.trainer, "worker_nsight_options") is not None, (
+        if OmegaConf.select(self.config.global_profiler, "steps") is not None:
+            wg_kwargs["profile_steps"] = OmegaConf.select(self.config.global_profiler, "steps")
+            assert OmegaConf.select(self.config.global_profiler, "worker_nsight_options") is not None, (
                 "worker_nsight_options must be set when profile_steps is set"
             )
             wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
-                OmegaConf.select(self.config.trainer, "worker_nsight_options")
+                OmegaConf.select(self.config.global_profiler, "worker_nsight_options")
             )
         wg_kwargs["device_name"] = self.device_name
 
@@ -1068,6 +1067,10 @@ class RayPPOTrainer:
             if self.config.trainer.get("val_only", False):
                 return
 
+        if self.config.actor_rollout_ref.rollout.get("skip_rollout", False):
+            rollout_skip = RolloutSkip(self.config, self.actor_rollout_wg)
+            rollout_skip.wrap_generate_sequences()
+
         # add tqdm
         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
 
@@ -1078,8 +1081,8 @@ class RayPPOTrainer:
 
         prev_step_profile = False
         curr_step_profile = (
-            self.global_steps in self.config.trainer.profile_steps
-            if self.config.trainer.profile_steps is not None
+            self.global_steps in self.config.global_profiler.steps
+            if self.config.global_profiler.steps is not None
             else False
         )
         next_step_profile = False
@@ -1092,7 +1095,7 @@ class RayPPOTrainer:
                 with marked_timer("start_profile", timing_raw):
                     self._start_profiling(
                         not prev_step_profile and curr_step_profile
-                        if self.config.trainer.profile_continuous_steps
+                        if self.config.global_profiler.profile_continuous_steps
                         else curr_step_profile
                     )
 
@@ -1336,13 +1339,13 @@ class RayPPOTrainer:
 
                 with marked_timer("stop_profile", timing_raw):
                     next_step_profile = (
-                        self.global_steps + 1 in self.config.trainer.profile_steps
-                        if self.config.trainer.profile_steps is not None
+                        self.global_steps + 1 in self.config.global_profiler.steps
+                        if self.config.global_profiler.steps is not None
                         else False
                     )
                     self._stop_profiling(
                         curr_step_profile and not next_step_profile
-                        if self.config.trainer.profile_continuous_steps
+                        if self.config.global_profiler.profile_continuous_steps
                         else curr_step_profile
                     )
                     prev_step_profile = curr_step_profile

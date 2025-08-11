@@ -31,10 +31,16 @@ gpu_memory_utilization: 0.5
 # Whether to ignore EOS and continue generating after EOS is hit.
 ignore_eos: False
 
-# Whether to disable CUDA graph. Default True to allow cache freeing.
-enforce_eager: True
+# Whether to disable CUDA graph. Default False to best performance.
+enforce_eager: False
 
-# Whether to free engine KVCache after generation. Set enforce_eager=True when enabled.
+# batch size of cudagraph to capture. Require enforce_eager: False to use this option
+# Since cudagraph in inference engine can not be offloaded during update policy,
+# you can use smaller batch size to save memory used in cuda graph, eg: [1 ,2, 4, 8, 16, 32]
+# supported engines: vllm
+cudagraph_capture_sizes: null
+
+# Whether to free engine KVCache after generation.
 free_cache_engine: True
 
 # TP size for rollout. Not effective for hf
@@ -204,9 +210,43 @@ update_weights_bucket_megabytes: 512
 
 # trace rollout data
 trace:
-  
+
   # trace backend, support mlflow, weave
   backend: null
 
   # whether translate token id to text in output
   token2text: False
+
+# When enabled (True), the trainer will attempt to load previously generated rollout data from the specified directory instead of computing new rollouts.
+# If no cached data is found or loading fails, new rollouts will be generated and automatically saved.
+# This feature is useful for debugging or when you want to reuse computation results across multiple runs.
+skip_rollout: False
+
+# Specifies the filesystem path where rollout data should be cached when skip_rollout is enabled.
+# Note: Giving path under /tmp/ray/session* is not recommended as these are temporary Ray cluster directories.
+skip_dump_dir: /tmp/rollout_dump
+
+# profile the rollout model in `generate_sequence` 
+profiler:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.utils.profiler.ProfilerConfig
+
+  # profiler tool, default same as profiler.tool in global config
+  # choices: nsys, npu, torch
+  tool: ${oc.select:global_profiler.tool,null}
+
+  # whether enable profile on ref
+  enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
+  
+  # Whether to profile all ranks.
+  all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
+
+  # The ranks that will be profiled. [] or [0,1,...]
+  ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
+
+  # profile results saving path
+  save_path: ${oc.select:global_profiler.save_path,null}
+
+  # specific tool config
+  tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}

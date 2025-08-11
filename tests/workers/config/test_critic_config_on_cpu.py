@@ -184,29 +184,26 @@ class TestCriticConfig:
         optim = OptimizerConfig(lr=0.1)
         critic_config = CriticConfig(ppo_micro_batch_size_per_gpu=1, strategy="fsdp2", optim=optim)
         assert isinstance(critic_config.profiler, ProfilerConfig)
-        assert critic_config.profiler.discrete is False
         assert critic_config.profiler.all_ranks is False
         assert critic_config.profiler.ranks == []
 
-        custom_profiler = ProfilerConfig(discrete=True, all_ranks=True, ranks=[0, 1])
+        custom_profiler = ProfilerConfig(all_ranks=True, ranks=[0, 1])
         critic_config_custom = CriticConfig(
             profiler=custom_profiler, ppo_micro_batch_size_per_gpu=1, strategy="fsdp2", optim=optim
         )
         assert isinstance(critic_config_custom.profiler, ProfilerConfig)
-        assert critic_config_custom.profiler.discrete is True
         assert critic_config_custom.profiler.all_ranks is True
         assert critic_config_custom.profiler.ranks == [0, 1]
 
-        profiler1 = ProfilerConfig(discrete=True, ranks=[0, 1])
+        profiler1 = ProfilerConfig(enable=True, ranks=[0, 1])
         profiler2 = ProfilerConfig(all_ranks=True, ranks=[1, 2])
 
         union_result = profiler1.union(profiler2)
-        assert union_result.discrete is True
+        assert union_result.enable is True
         assert union_result.all_ranks is True
         assert set(union_result.ranks) == {0, 1, 2}
 
         intersect_result = profiler1.intersect(profiler2)
-        assert intersect_result.discrete is False
         assert intersect_result.all_ranks is False
         assert intersect_result.ranks == [1]
 
