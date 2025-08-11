@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
+from typing import Optional
 
 from verl.base_config import BaseConfig
 from verl.utils.profiler import ProfilerConfig
@@ -76,7 +77,7 @@ class TraceConfig(BaseConfig):
 class RolloutConfig(BaseConfig):
     _mutable_fields = {"max_model_len"}
 
-    name: str = None
+    name: Optional[str] = None
     mode: str = "sync"
 
     temperature: float = 1.0
