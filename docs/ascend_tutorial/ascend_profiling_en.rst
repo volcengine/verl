@@ -20,7 +20,7 @@ Global collection control
 Use parameters in ppo_trainer.yaml to control the collection mode
 and steps.
 
--  profiler: Control the ranks and mode of profiling
+-  global_profiler: Control the ranks and mode of profiling
 
    -  tool: The profiling tool to use, options are nsys, npu, torch,
       torch_memory.
@@ -30,7 +30,7 @@ and steps.
    -  save_path: The path to save the collected data. Default is
       "outputs/profile".
 
-Use parameters in ``profiler.tool_config.npu`` to control npu profiler behavior:
+Use parameters in ``global_profiler.global_tool_config.npu`` to control npu profiler behavior:
 
 -  level: Collection level—options are level_none, level0, level1, and
    level2
@@ -77,7 +77,7 @@ Disabling collection
 
 .. code:: yaml
 
-      profiler:
+      global_profiler:
          steps: null # disable profile
 
 End-to-End collection
@@ -85,7 +85,7 @@ End-to-End collection
 
 .. code:: yaml
 
-      profiler:
+      global_profiler:
          steps: [1, 2, 5]
          discrete: False
       actor_rollout_ref:
@@ -100,7 +100,7 @@ Discrete Mode Collection
 
 .. code:: yaml
 
-      profiler:
+      global_profiler:
          discrete: True
 
 
