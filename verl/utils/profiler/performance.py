@@ -230,7 +230,7 @@ def topk_reduce_ratio_min_max(timing: float, k: int = 10) -> float:
 
     world_size = dist.get_world_size()
     timing_tensor = torch.tensor(timing, dtype=torch.float32, device=get_device_id())
-    tensor_list = [torch.zeros(world_size, dtype=torch.float32, device=get_device_id()) for _ in range(world_size)]
+    tensor_list = [torch.zeros(1, dtype=torch.float32, device=get_device_id()) for _ in range(world_size)]
     torch.distributed.all_gather(tensor_list, timing_tensor)
     tensor_stack = torch.stack(tensor_list)
     timing_min = tensor_stack.min().cpu().item()
