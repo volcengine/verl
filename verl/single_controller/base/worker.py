@@ -62,7 +62,7 @@ class WorkerHelper:
             "This function is deprecated due to typo in name; Please use `get_available_master_addr_port` instead",
             stacklevel=2,
         )
-        return self._get_node_ip().strip("[]"), str(self._get_free_port())
+        return self.get_available_master_addr_port()
 
     def get_available_master_addr_port(self):
         return self._get_node_ip().strip("[]"), str(self._get_free_port())
