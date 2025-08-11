@@ -13,7 +13,7 @@
 # limitations under the License.
 import logging
 import os
-from typing import Any
+from typing import Any, Optional
 from uuid import uuid4
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
@@ -33,21 +33,31 @@ class SingleTurnAgentLoop(AgentLoopBase):
         self.response_length = self.config.actor_rollout_ref.rollout.response_length
         self.apply_chat_template_kwargs = self.config.data.get("apply_chat_template_kwargs", {})
 
-    async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
-        messages = list(kwargs["raw_prompt"])
-
+    async def run(
+        self,
+        messages: list[dict[str, Any]],
+        sampling_params: dict[str, Any],
+        image_data: Optional[list[Any]] = None,
+        tools_kwargs: Optional[dict[str, Any]] = None
+    ) -> AgentLoopOutput:
         metrics = {}
         request_id = uuid4().hex
         prompt_ids = await self.loop.run_in_executor(
             None,
-            lambda: self.tokenizer.apply_chat_template(
+            lambda: self.processor.apply_chat_template(
                 messages, add_generation_prompt=True, tokenize=True, **self.apply_chat_template_kwargs
             ),
         )
 
+        if len(prompt_ids)==1 and isinstance(prompt_ids[0], list):
+            # `processor.apply_chat_template` returns [{}],
+            # while `tokenizer.apply_chat_template` returns {}
+            # for an input of batch size 1
+            prompt_ids = prompt_ids[0]
+
         with simple_timer("generate_sequences", metrics):
             response_ids = await self.server_manager.generate(
-                request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params
+                request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params, image_data=image_data
             )
         response_mask = [1] * len(response_ids)
 
