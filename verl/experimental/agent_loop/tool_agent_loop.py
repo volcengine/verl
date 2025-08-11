@@ -51,9 +51,12 @@ class ToolAgentLoop(AgentLoopBase):
         cls.tool_parser = ToolParser.get_tool_parser(config.actor_rollout_ref.rollout.multi_turn.format, cls.tokenizer)
         print(f"Initialized tools: {cls.tools}")
 
+        cls.apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
         cls.prompt_length = config.actor_rollout_ref.rollout.prompt_length
         cls.response_length = config.actor_rollout_ref.rollout.response_length
-        cls.system_prompt = tokenizer.apply_chat_template([{}], add_generation_prompt=False, tokenize=True)
+        cls.system_prompt = tokenizer.apply_chat_template(
+            [{}], add_generation_prompt=False, tokenize=True, **cls.apply_chat_template_kwargs
+        )
 
     @rollout_trace_op
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
@@ -63,7 +66,11 @@ class ToolAgentLoop(AgentLoopBase):
         prompt_ids = await self.loop.run_in_executor(
             None,
             lambda: self.tokenizer.apply_chat_template(
-                messages, tools=self.tool_schemas, add_generation_prompt=True, tokenize=True
+                messages,
+                tools=self.tool_schemas,
+                add_generation_prompt=True,
+                tokenize=True,
+                **self.apply_chat_template_kwargs,
             ),
         )
         response_mask = []
@@ -109,7 +116,7 @@ class ToolAgentLoop(AgentLoopBase):
             tool_response_ids = await self.loop.run_in_executor(
                 None,
                 lambda messages=tool_responses: self.tokenizer.apply_chat_template(
-                    messages, add_generation_prompt=True, tokenize=True
+                    messages, add_generation_prompt=True, tokenize=True, **self.apply_chat_template_kwargs
                 ),
             )
             tool_response_ids = tool_response_ids[len(self.system_prompt) :]

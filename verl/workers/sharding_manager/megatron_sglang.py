@@ -164,7 +164,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     async def wake_up(self):
         if self.offload_param:
-            load_megatron_model_to_gpu(self.actor_module)
+            load_megatron_model_to_gpu(self.actor_module, load_grad=False)
         if self.bridge is not None:
             per_tensor_param = self.bridge.export_weights(self.actor_module)
         else:
