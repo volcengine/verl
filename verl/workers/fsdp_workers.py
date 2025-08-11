@@ -288,6 +288,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         actor_model_config = AutoConfig.from_pretrained(
             local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
         )
+        # TODO: VL models use VisionAttention, which directly uses flash_attention in transformers>=4.53
+        # which will be patched by _ulysses_flash_attention_forward, but errorly misses position_ids
+        # Maybe support Ulysses in VisionAttention in the future and remove this patch
+        if self.ulysses_sequence_parallel_size > 1 and hasattr(actor_model_config, "vision_config"):
+            actor_model_config.vision_config.attn_implementation = "eager"
 
         # patch for kimi-vl
         if getattr(actor_model_config, "model_type", None) == "kimi_vl":
@@ -1072,6 +1077,12 @@ class CriticWorker(Worker, DistProfilerExtension):
             attn_implementation="flash_attention_2",
             trust_remote_code=config.model.get("trust_remote_code", False),
         )
+        # TODO: VL models use VisionAttention, which directly uses flash_attention in transformers>=4.53
+        # which will be patched by _ulysses_flash_attention_forward, but errorly misses position_ids
+        # Maybe support Ulysses in VisionAttention in the future and remove this patch
+        if self.ulysses_sequence_parallel_size > 1 and hasattr(critic_model_config, "vision_config"):
+            critic_model_config.vision_config.attn_implementation = "eager"
+
         critic_model_config.num_labels = 1
         # patch for kimi-vl
         if getattr(critic_model_config, "model_type", None) == "kimi_vl":
