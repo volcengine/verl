@@ -60,6 +60,15 @@ if [ ! -d "$MODEL_PATH" ]; then
     exit 1
 fi
 
+# Check and prepare dataset
+if [ ! -f "$TRAIN_FILE" ]; then
+    echo "📦 Dataset not found. Preparing GSM8K dataset..."
+    python3 examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
+    # Update file paths to use the processed data location
+    TRAIN_FILE="$HOME/verl/data/gsm8k/train.parquet"
+    TEST_FILE="$HOME/verl/data/gsm8k/test.parquet"
+fi
+
 if [ ! -f "$TRAIN_FILE" ]; then
     echo "❌ Error: Training file does not exist: $TRAIN_FILE"
     exit 1
