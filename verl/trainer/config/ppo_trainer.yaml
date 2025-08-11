@@ -135,17 +135,19 @@ algorithm:
   adv_estimator: gae
 
   # Dynamic filter for DAPO: filters out homogeneous groups, keeps diverse responses
+  # Dynamic filter for DAPO: filters out homogeneous groups, keeps diverse responses
   dynamic_filter:
 
     # Whether to enable dynamic filter
     enable: False
 
     # Metric to use for dynamic filter: currently only "seq_reward" is supported
+    # Metric to use for dynamic filter: currently only "seq_reward" is supported
     metric: seq_reward
 
     # Maximum number of backfill attempts when collecting diverse responses
     # If set to 0 or negative, allows unlimited backfill attempts (use with caution)
-    max_num_gen_batches: 10
+    max_backfill_attempts: 10
 
   # Whether to normalize advantages by std (specific to GRPO)
   norm_adv_by_std_in_grpo: True
