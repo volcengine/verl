@@ -794,12 +794,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         timing_generate = reduce_timing(timing_generate)
         timing_generate.update(
             {
-                "generation_timing/max",
-                timing_generate_max,
-                "generation_timing/min",
-                timing_generate_min,
-                "generation_timing/topk_ratio",
-                timing_generate_topk_ratio,
+                "generation_timing/max": timing_generate_max,
+                "generation_timing/min": timing_generate_min,
+                "generation_timing/topk_ratio": timing_generate_topk_ratio,
             }
         )
         output.meta_info["timing"] = timing_generate
