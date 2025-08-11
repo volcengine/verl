@@ -232,8 +232,9 @@ def topk_reduce_ratio_min_max(timing: float, k: int = 10) -> float:
     timing_tensor = torch.tensor(timing, dtype=torch.float32, device=get_device_id())
     tensor_list = [torch.zeros(world_size, dtype=torch.float32, device=get_device_id()) for _ in range(world_size)]
     torch.distributed.all_gather(tensor_list, timing_tensor)
-    timing_min = tensor_list.min().cpu().item()
-    timing_max = tensor_list.max().cpu().item()
-    top_10_percent = torch.quantile(tensor_list, 1 - k / 100)
-    tail_ratio = torch.mean((tensor_list > top_10_percent).float()).cpu().item()
+    tensor_stack = torch.stack(tensor_list)
+    timing_min = tensor_stack.min().cpu().item()
+    timing_max = tensor_stack.max().cpu().item()
+    top_10_percent = torch.quantile(tensor_stack, 1 - k / 100)
+    tail_ratio = torch.mean((tensor_stack > top_10_percent).float()).cpu().item()
     return tail_ratio, timing_min, timing_max
