@@ -223,10 +223,10 @@ def reduce_timing(
     return timing_generate
 
 
-def topk_reduce_ratio_min_max(timing: float, k: int = 10) -> float:
-    """Calculate topk items take-up ratio"""
+def topk_reduce_ratio_min_max(timing: float, k: int = 10) -> tuple[float, float, float]:
+    """Calculate topk items take-up ratio, and min/max timing across all ranks."""
     if not dist.is_initialized():
-        return -1
+        return -1.0, -1.0, -1.0
 
     world_size = dist.get_world_size()
     timing_tensor = torch.tensor(timing, dtype=torch.float32, device=get_device_id())
@@ -235,6 +235,6 @@ def topk_reduce_ratio_min_max(timing: float, k: int = 10) -> float:
     tensor_stack = torch.stack(tensor_list)
     timing_min = tensor_stack.min().cpu().item()
     timing_max = tensor_stack.max().cpu().item()
-    top_10_percent = torch.quantile(tensor_stack, 1 - k / 100)
-    tail_ratio = torch.mean((tensor_stack > top_10_percent).float()).cpu().item()
+    top_k_percentile = torch.quantile(tensor_stack, 1 - k / 100)
+    tail_ratio = torch.mean((tensor_stack > top_k_percentile).float()).cpu().item()
     return tail_ratio, timing_min, timing_max
