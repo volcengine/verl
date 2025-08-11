@@ -68,7 +68,7 @@ actor_rollout_ref:
       save_path: ${oc.select:global_profiler.save_path,null}
       tool_config:
         nsys:
-          _target_: verl.utils.profiler.config.NsysToolConfig
+          _target_: verl.utils.profiler.config.NsightToolConfig
           discrete: ${oc.select:global_profiler.global_tool_config.nsys.discrete}
         npu:
           _target_: verl.utils.profiler.config.NPUToolConfig
