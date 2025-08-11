@@ -792,9 +792,16 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             timing_generate["generate_sequences"]
         )
         timing_generate = reduce_timing(timing_generate)
-        timing_generate.update("generation_timing/max", timing_generate_max)
-        timing_generate.update("generation_timing/min", timing_generate_min)
-        timing_generate.update("generation_timing/topk_ratio", timing_generate_topk_ratio)
+        timing_generate.update(
+            {
+                "generation_timing/max",
+                timing_generate_max,
+                "generation_timing/min",
+                timing_generate_min,
+                "generation_timing/topk_ratio",
+                timing_generate_topk_ratio,
+            }
+        )
         output.meta_info["timing"] = timing_generate
         output = output.to("cpu")
 
