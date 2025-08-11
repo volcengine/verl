@@ -12,7 +12,7 @@ use_kl_loss=False
 kl_loss_coef=0.0
 
 clip_ratio_low=0.2
-clip_ratio_high=0.28
+clip_ratio_high=0.35 # 0.28
 
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 20))
@@ -126,7 +126,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     trainer.nnodes="${NNODES}" \
     trainer.val_before_train=True \
     trainer.test_freq=5 \
-    trainer.save_freq=50 \
+    trainer.save_freq=200 \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto
