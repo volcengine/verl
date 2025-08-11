@@ -165,7 +165,7 @@ class vLLMRollout(BaseRollout):
         # - `None` means not setting it, so we pop it, and leave it to vLLM default value
         #    (which can vary across different vLLM versions);
         # - Otherwise it's the desired value we want to explicitly set.
-        engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
+        engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None and key != 'extra'}
         if config.get("limit_images", None):  # support for multi-image data
             engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
 
