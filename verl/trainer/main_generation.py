@@ -90,6 +90,7 @@ def main_task(config):
 
     total_samples = len(dataset)
     config_batch_size = config.data.batch_size
+    apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
     num_batch = -(-total_samples // config_batch_size)
     output_lst = [[] for _ in range(config.data.n_samples)]
 
@@ -105,6 +106,7 @@ def main_task(config):
             return_tensors="pt",
             return_dict=True,
             tokenize=True,
+            **apply_chat_template_kwargs,
         )
         input_ids = inputs["input_ids"]
         attention_mask = inputs["attention_mask"]

@@ -115,6 +115,9 @@ data:
     # the name of the curriculum class like `MySampler`
     class_name: null
 
+  # Additional kwargs when calling tokenizer.apply_chat_template
+  apply_chat_template_kwargs: {}
+
 # config for actor, rollout and reference model
 actor_rollout_ref:
 
@@ -421,7 +424,7 @@ actor_rollout_ref:
     ignore_eos: False
 
     # Whether to disable CUDA graph. Default True to allow cache freeing.
-    enforce_eager: True
+    enforce_eager: False
 
     # Whether to free engine KVCache after generation. Set enforce_eager=True when enabled.
     free_cache_engine: True

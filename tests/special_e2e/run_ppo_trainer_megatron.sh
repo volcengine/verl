@@ -138,6 +138,8 @@ else
     ROLLOUT_MODE_ARG=""
 fi
 
+OPTIM_MEMORY_EFFICIENT=${OPTIM_MEMORY_EFFICIENT:-False}
+
 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_megatron_trainer.yaml'\
     algorithm.adv_estimator="${ADV_ESTIMATOR}" \
@@ -151,6 +153,9 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.model.use_fused_kernels=${USE_FUSED_KERNELS} \
     actor_rollout_ref.actor.optim.lr_warmup_steps=$LR_WARMUP_STEPS \
+    +actor_rollout_ref.actor.optim.override_optimizer_config.optimizer_cpu_offload=$OPTIM_MEMORY_EFFICIENT \
+    +actor_rollout_ref.actor.optim.override_optimizer_config.overlap_cpu_optimizer_d2h_h2d=$OPTIM_MEMORY_EFFICIENT \
+    +actor_rollout_ref.actor.optim.override_optimizer_config.use_precision_aware_optimizer=$OPTIM_MEMORY_EFFICIENT \
     actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.actor.use_dynamic_bsz=${USE_DYNAMIC_BSZ} \
@@ -190,6 +195,9 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.ref.megatron.dist_checkpointing_path=${DIST_CKPT_PATH} \
     critic.optim.lr=2e-5 \
     critic.optim.lr_warmup_steps=$LR_WARMUP_STEPS \
+    +critic.optim.override_optimizer_config.optimizer_cpu_offload=$OPTIM_MEMORY_EFFICIENT \
+    +critic.optim.override_optimizer_config.overlap_cpu_optimizer_d2h_h2d=$OPTIM_MEMORY_EFFICIENT \
+    +critic.optim.override_optimizer_config.use_precision_aware_optimizer=$OPTIM_MEMORY_EFFICIENT \
     critic.model.path="${MODEL_PATH}" \
     critic.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     critic.ppo_max_token_len_per_gpu=${forward_max_token_len_per_gpu} \

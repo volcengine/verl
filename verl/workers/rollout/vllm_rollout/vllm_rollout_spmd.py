@@ -26,12 +26,12 @@ When working with Megatron:
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
+import asyncio
 import getpass
 import logging
 import os
 import pickle
 import socket
-import threading
 from contextlib import contextmanager
 from copy import deepcopy
 from types import MethodType
@@ -42,10 +42,12 @@ import ray
 import torch
 import torch.distributed
 import zmq
+import zmq.asyncio
 from filelock import FileLock
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, ListConfig, OmegaConf
 from tensordict import TensorDict
 from vllm import LLM, SamplingParams
+from vllm.config import CompilationConfig, CompilationLevel
 from vllm.distributed import parallel_state as vllm_ps
 from vllm.lora.request import LoRARequest
 from vllm.model_executor.sampling_metadata import SamplingMetadata
@@ -164,6 +166,18 @@ class vLLMRollout(BaseRollout):
         if config.get("limit_images", None):  # support for multi-image data
             engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
 
+        compilation_config = {}
+
+        cudagraph_capture_sizes = config.get("cudagraph_capture_sizes")
+        # enforce_eager must be False to use cudagraph
+        if not config.enforce_eager and cudagraph_capture_sizes:
+            if isinstance(cudagraph_capture_sizes, ListConfig):
+                compilation_config["compilation_config"] = CompilationConfig(
+                    level=CompilationLevel.PIECEWISE, cudagraph_capture_sizes=cudagraph_capture_sizes
+                )
+            else:
+                logger.warning(f"cudagraph_capture_sizes must be a list, but got {cudagraph_capture_sizes}")
+
         self.inference_engine = LLM(
             model=model_path,
             enable_sleep_mode=config.free_cache_engine,
@@ -175,6 +189,7 @@ class vLLMRollout(BaseRollout):
             disable_custom_all_reduce=True,
             skip_tokenizer_init=False,
             max_model_len=max_model_len,
+            max_num_seqs=config.max_num_seqs,
             load_format=load_format,
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
@@ -182,6 +197,7 @@ class vLLMRollout(BaseRollout):
             enable_prefix_caching=True,
             trust_remote_code=trust_remote_code,
             seed=config.get("seed", 0),
+            **compilation_config,
             **lora_kwargs,
             **engine_kwargs,
         )
@@ -431,12 +447,12 @@ class vLLMAsyncRollout:
             else:
                 ip, port = self._get_free_port()
                 address = f"tcp://{ip}:{port}"
-            context = zmq.Context()
+            context = zmq.asyncio.Context()
             self.socket = context.socket(zmq.REP)
             self.socket.bind(address)
 
-        self.loop_thread = threading.Thread(target=self._loop_forever)
-        self.loop_thread.start()
+        loop = asyncio.get_running_loop()
+        self.zmq_loop_task = loop.create_task(self._loop_forever())
 
         return address
 
@@ -447,17 +463,14 @@ class vLLMAsyncRollout:
             port = sock.getsockname()[1]
         return ip, port
 
-    def _loop_forever(self):
+    async def _loop_forever(self):
         while True:
-            message = self.socket.recv()
+            message = await self.socket.recv()
             method, args, kwargs = pickle.loads(message)
-            result = self.execute_method(method, *args, **kwargs)
-            self.socket.send(pickle.dumps(result))
+            result = await self._execute_method(method, *args, **kwargs)
+            await self.socket.send(pickle.dumps(result))
 
-    def get_zeromq_address(self):
-        return self.address
-
-    def init_worker(self, all_kwargs: list[dict[str, Any]]):
+    def _init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
         all_kwargs[0]["local_rank"] = 0 if not ray_noset_visible_devices() else int(os.environ.get("RAY_LOCAL_RANK", 0))
@@ -465,7 +478,7 @@ class vLLMAsyncRollout:
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)
 
-    def load_model(self, *args, **kwargs):
+    def _load_model(self, *args, **kwargs):
         self.inference_engine.load_model(*args, **kwargs)
 
         # inference engine is initialized now, update sharding manager
@@ -474,28 +487,41 @@ class vLLMAsyncRollout:
 
         _monkey_patch_compute_logits(self.inference_engine.worker.model_runner.model, len(self.tokenizer))
 
-    def sleep(self, *args, **kwargs):
+    async def _execute_method(self, method: str | bytes, *args, **kwargs):
+        if method == "init_worker":
+            return self._init_worker(*args, **kwargs)
+        elif method == "load_model":
+            return self._load_model(*args, **kwargs)
+        elif method == "sleep":
+            return await self.sleep(*args, **kwargs)
+        elif method == "wake_up":
+            return await self.wake_up(*args, **kwargs)
+        else:
+            return self.inference_engine.execute_method(method, *args, **kwargs)
+
+    # ==================== server mode public methods ====================
+
+    def get_zeromq_address(self):
+        return self.address
+
+    async def sleep(self, *args, **kwargs):
         """Offload model weights and discard kv cache."""
         if self.is_sleep:
             return
         self.sharding_manager.__exit__(None, None, None)
         self.is_sleep = True
 
-    def wake_up(self, *args, **kwargs):
+    async def wake_up(self, *args, **kwargs):
         """Load model weights and build kv cache."""
         if not self.is_sleep:
             return
         self.sharding_manager.__enter__()  # pylint: disable=C2801
         self.is_sleep = False
 
-    def execute_method(self, method: str | bytes, *args, **kwargs):
-        if method == "init_worker":
-            return self.init_worker(*args, **kwargs)
-        elif method == "load_model":
-            return self.load_model(*args, **kwargs)
-        elif method == "sleep":
-            return self.sleep(*args, **kwargs)
-        elif method == "wake_up":
-            return self.wake_up(*args, **kwargs)
-        else:
-            return self.inference_engine.execute_method(method, *args, **kwargs)
+    async def generate(self, *args, **kwargs):
+        """Generate sequence with token-in-token-out."""
+        raise NotImplementedError
+
+    async def chat_completion(self, json_request):
+        """OpenAI chat completion API."""
+        raise NotImplementedError
