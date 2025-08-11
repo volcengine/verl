@@ -1089,6 +1089,7 @@ class SGLangRollout(BaseRollout):
             total_requests = len(req_list)
             target_completion = int(total_requests * (1 - self.config.over_sample_rate))
             # abort when target_completion of requests are completed
+
             completed_count = 0
             aborted_requests = []
 
@@ -1172,7 +1173,6 @@ class SGLangRollout(BaseRollout):
                         except asyncio.CancelledError:
                             pass
 
-                # run async tasks
                 loop = asyncio.get_event_loop()
                 output_req_list = loop.run_until_complete(run_with_cancellation())
 

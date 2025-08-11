@@ -121,8 +121,6 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
     aborted_mask = (response_length == 0).bool()
     non_aborted_mask = ~aborted_mask
 
-    print("over sample rate in metric_utils: ", non_aborted_mask.sum() / len(non_aborted_mask))
-
     non_aborted_sequence_score = sequence_score[non_aborted_mask]
     non_aborted_sequence_reward = sequence_reward[non_aborted_mask]
 
@@ -142,6 +140,21 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
         valid_values = torch.masked_select(values, response_mask)
         return_diff_var = torch.var(valid_returns - valid_values)
         return_var = torch.var(valid_returns)
+
+    # Aborted samples and non-aborted response length statistics
+    # response_length_non_aborted/*: statistics computed on non-aborted samples only
+    aborted_ratio = torch.mean(aborted_mask.float()).detach().item()
+
+    non_aborted_response_length = response_length[non_aborted_mask]
+    if non_aborted_response_length.numel() > 0:
+        non_aborted_response_length_mean = torch.mean(non_aborted_response_length).detach().item()
+        non_aborted_response_length_max = torch.max(non_aborted_response_length).detach().item()
+        non_aborted_response_length_min = torch.min(non_aborted_response_length).detach().item()
+        non_aborted_response_length_clip_ratio = (
+            torch.mean(torch.eq(non_aborted_response_length, max_response_length).float()).detach().item()
+        )
+    else:
+        raise ValueError("All samples are aborted, this should not happen.")
 
     metrics = {
         # score
@@ -179,6 +192,15 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
         "response_length/clip_ratio": torch.mean(torch.eq(response_length, max_response_length).float())
         .detach()
         .item(),
+        # response length (non-aborted only)
+        # These statistics exclude aborted samples to avoid skew from zeros
+        "response_length_non_aborted/mean": non_aborted_response_length_mean,
+        "response_length_non_aborted/max": non_aborted_response_length_max,
+        "response_length_non_aborted/min": non_aborted_response_length_min,
+        "response_length_non_aborted/clip_ratio": non_aborted_response_length_clip_ratio,
+        # aborted ratio
+        # Fraction of samples whose response length is zero
+        "response/aborted_ratio": aborted_ratio,
         # prompt length
         "prompt_length/mean": torch.mean(prompt_length).detach().item(),
         "prompt_length/max": torch.max(prompt_length).detach().item(),
