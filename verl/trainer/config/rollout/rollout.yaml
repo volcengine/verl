@@ -87,6 +87,7 @@ multi_stage_wake_up: false
 
 # Extra inference engine arguments (vllm, sglang).
 engine_kwargs:
+
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.workers.config.EngineConfig
 
