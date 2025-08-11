@@ -518,6 +518,9 @@ class AgentLoopManager:
             self.agent_loop_workers.append(
                 AgentLoopWorker.options(
                     name=f"agent_loop_worker_{i}",
+                    scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
+                        node_id=ray.get_runtime_context().get_node_id(), soft=True
+                    ),
                 ).remote(self.config, self.async_llm_servers)
             )
 
