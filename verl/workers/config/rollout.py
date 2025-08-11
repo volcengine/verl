@@ -38,6 +38,8 @@ class SamplingConfig(BaseConfig):
 
 @dataclass
 class MultiTurnConfig(BaseConfig):
+    _mutable_fields = {"max_assistant_turns"}
+
     enable: bool = False
     max_assistant_turns: int = None
     tool_config_path: str = None
