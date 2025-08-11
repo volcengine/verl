@@ -59,7 +59,7 @@ from verl.utils.profiler import (
     log_gpu_memory_usage,
     simple_timer,
 )
-from verl.utils.profiler.performance import reduce_timing
+from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
 from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.workers.config import McoreCriticConfig
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
@@ -681,7 +681,13 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         timing_generate.update(self.sharding_manager.timing)
         # We calculate the average timing across all ranks
         # to make sure meta_info["timing"] is the same
+        timing_generate_topk_ratio, timing_generate_min, timing_generate_max = topk_reduce_ratio_min_max(
+            timing_generate["generate_sequences"]
+        )
         timing_generate = reduce_timing(timing_generate)
+        timing_generate.update("generation_timing/max", timing_generate_max)
+        timing_generate.update("generation_timing/min", timing_generate_min)
+        timing_generate.update("generation_timing/topk_ratio", timing_generate_topk_ratio)
         output.meta_info["timing"] = timing_generate
         output = output.to("cpu")
         # clear kv cache

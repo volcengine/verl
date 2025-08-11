@@ -195,7 +195,9 @@ def marked_timer(
     yield from _timer(name, timing_raw)
 
 
-def reduce_timing(timing_raw: dict[str, float]) -> dict[str, float]:
+def reduce_timing(
+    timing_raw: dict[str, float], reduce_op: torch.distributed.ReduceOp = torch.distributed.ReduceOp.AVG
+) -> dict[str, float]:
     """Reduce timing information across all processes.
 
     This function uses distributed communication to gather and sum the timing
@@ -215,7 +217,23 @@ def reduce_timing(timing_raw: dict[str, float]) -> dict[str, float]:
         key_list.append(key)
         timing_list.append(timing_raw[key])
     timing_list = torch.tensor(timing_list, dtype=torch.float32, device=get_device_id())
-    torch.distributed.all_reduce(timing_list, op=torch.distributed.ReduceOp.AVG)
+    torch.distributed.all_reduce(timing_list, op=reduce_op)
     timing_list = [tensor.item() for tensor in timing_list.to("cpu")]
     timing_generate = {key_list[i]: timing_list[i] for i in range(len(key_list))}
     return timing_generate
+
+
+def topk_reduce_ratio_min_max(timing: float, k: int = 10) -> float:
+    """Calculate topk items take-up ratio"""
+    if not dist.is_initialized():
+        return -1
+
+    world_size = dist.get_world_size()
+    timing_tensor = torch.Tensor(timing, dtype=torch.float32, device=get_device_id())
+    tensor_list = [torch.zeros(world_size, dtype=torch.float32, device=get_device_id()) for _ in range(world_size)]
+    torch.distributed.all_gather(tensor_list, timing_tensor)
+    timing_min = tensor_list.min().cpu().item()
+    timing_max = tensor_list.max().cpu().item()
+    top_10_percent = torch.quantile(tensor_list, 1 - k / 100)
+    tail_ratio = torch.mean((tensor_list > top_10_percent).float()).cpu().item()
+    return tail_ratio, timing_min, timing_max
