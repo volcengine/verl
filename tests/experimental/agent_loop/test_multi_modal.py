@@ -44,8 +44,7 @@ def init_config() -> DictConfig:
             ],
         )
 
-    # model_path = "Qwen/Qwen2.5-VL-3B-Instruct"
-    model_path = "/data/group/project3/hf_models/Qwen2.5-VL-3B-Instruct"
+    model_path = "Qwen/Qwen2.5-VL-3B-Instruct"
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.rollout.name = os.getenv("ROLLOUT_NAME", "sglang")
     config.actor_rollout_ref.rollout.mode = "async"
@@ -138,7 +137,7 @@ def test_multimodal_tool_agent(init_config):
             },
         ]
     }
-    tool_config_path = "./multimodal_tool_config.json"
+    tool_config_path = "/tmp/multimodal_tool_config.json"
     with open(tool_config_path, "w") as f:
         json.dump(tool_config, f)
 
