@@ -154,18 +154,13 @@ class vLLMRollout(BaseRollout):
         lora_kwargs = kwargs.pop("lora_kwargs", {})
         self.lora_kwargs = lora_kwargs
         # copy it to avoid secretly modifying the engine config
-        if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs:
-            engine_kwargs = {}
-        elif isinstance(config.engine_kwargs.vllm, DictConfig):
-            engine_kwargs = OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
-        else:
-            engine_kwargs = config.engine_kwargs.vllm
+        engine_kwargs = config.engine_kwargs.get("vllm", {})
 
         # For each vLLM engine parameter,
         # - `None` means not setting it, so we pop it, and leave it to vLLM default value
         #    (which can vary across different vLLM versions);
         # - Otherwise it's the desired value we want to explicitly set.
-        engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None and key != "extra"}
+        engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
         if config.get("limit_images", None):  # support for multi-image data
             engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
 

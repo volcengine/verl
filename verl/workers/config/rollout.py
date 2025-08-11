@@ -19,9 +19,6 @@ from verl.utils.profiler import ProfilerConfig
 
 __all__ = [
     "SamplingConfig",
-    "vLLMEngineConfig",
-    "SGLangEngineConfig",
-    "EngineConfig",
     "MultiTurnConfig",
     "CustomAsyncServerConfig",
     "AgentLoopConfig",
@@ -37,23 +34,6 @@ class SamplingConfig(BaseConfig):
     top_p: float = 1.0
     do_sample: bool = True
     n: int = 1
-
-
-@dataclass
-class vLLMEngineConfig(BaseConfig):
-    swap_space: int = None
-    disable_mm_preprocessor_cache: bool = True
-
-
-@dataclass
-class SGLangEngineConfig(BaseConfig):
-    attention_backend: str = None
-
-
-@dataclass
-class EngineConfig(BaseConfig):
-    vllm: vLLMEngineConfig = field(default_factory=vLLMEngineConfig)
-    sglang: SGLangEngineConfig = field(default_factory=SGLangEngineConfig)
 
 
 @dataclass
@@ -130,7 +110,7 @@ class RolloutConfig(BaseConfig):
     disable_log_stats: bool = True
 
     multi_stage_wake_up: bool = False
-    engine_kwargs: EngineConfig = field(default_factory=EngineConfig)
+    engine_kwargs: dict = field(default_factory=dict)
 
     calculate_log_probs: bool = False
 
@@ -152,3 +132,5 @@ class RolloutConfig(BaseConfig):
     load_format: str = "dummy_dtensor"
 
     layered_summon: bool = False
+
+    layer_name_map: dict = field(default_factory=dict)

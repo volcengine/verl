@@ -88,14 +88,8 @@ multi_stage_wake_up: false
 # Extra inference engine arguments (vllm, sglang).
 engine_kwargs:
 
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-  _target_: verl.workers.config.EngineConfig
-
   # for vllm
   vllm:
-
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-    _target_: verl.workers.config.vLLMEngineConfig
 
     # Swap space (in GB) used by inference engine. null uses default (e.g., 4 GB).
     swap_space: null
@@ -105,9 +99,6 @@ engine_kwargs:
 
   # for sglang
   sglang:
-
-    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-    _target_: verl.workers.config.SGLangEngineConfig
 
     # The attention backend for sglang engine. Options: flashinfer, triton, flashmla, null for default.
     attention_backend: null
