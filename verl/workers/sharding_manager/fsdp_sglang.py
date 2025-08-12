@@ -18,6 +18,7 @@ import asyncio
 import logging
 import os
 
+import torch
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 from torch.distributed.device_mesh import DeviceMesh
@@ -144,6 +145,10 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
         log_gpu_memory_usage("After offload_param in sharding manager memory", logger=logger)
 
+        # sglang need to set _set_allocator_settings to False
+        logger.debug("fsdp sglang sharding_manager _set_allocator_settings to False")
+        torch.cuda.memory._set_allocator_settings("expandable_segments:False")
+
         if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             if self.multi_stage_wake_up:
                 await self.inference_engine.resume_memory_occupation(tags=["weights"])
@@ -184,6 +189,11 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
         # add empty cache after each compute
         get_torch_device().empty_cache()
+
+        # always set _set_allocator_settings to True when using sglang
+        # it is required by fsdp2 to avoid oom
+        logger.debug("fsdp sglang sharding_manager _set_allocator_settings to True")
+        torch.cuda.memory._set_allocator_settings("expandable_segments:True")
 
         # restore random states
         if self.device_mesh is not None:

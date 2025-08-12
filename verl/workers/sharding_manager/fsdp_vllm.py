@@ -18,6 +18,7 @@ import os
 import time
 from collections import OrderedDict
 
+import torch
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
@@ -210,6 +211,10 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                 offload_fsdp_model_to_cpu(self.module)
             log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
 
+            # vllm need to set _set_allocator_settings to False
+            logger.debug("fsdp vllm sharding_manager _set_allocator_settings to False")
+            torch.cuda.memory._set_allocator_settings("expandable_segments:False")
+
             if self.rollout_config.free_cache_engine:
                 if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                     self.inference_engine.wake_up(tags=["weights"])
@@ -244,6 +249,10 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
         # add empty cache after each compute
         get_torch_device().empty_cache()
+
+        # _set_allocator_settings to True is required by fsdp2 to avoid oom
+        logger.debug("fsdp vllm sharding_manager _set_allocator_settings to True")
+        torch.cuda.memory._set_allocator_settings("expandable_segments:True")
 
         # restore random states
         if self.device_mesh is not None:
