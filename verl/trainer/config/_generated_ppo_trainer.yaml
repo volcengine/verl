@@ -376,7 +376,7 @@ algorithm:
   dynamic_filter:
     enable: false
     metric: seq_reward
-    max_num_gen_batches: 10
+    max_backfill_attempts: 10
   norm_adv_by_std_in_grpo: true
   use_kl_in_reward: false
   kl_penalty: kl
