@@ -75,7 +75,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.test_freq=-1 \
     trainer.total_epochs=15 \
     trainer.total_training_steps=6 \
-    profiler.profile_continuous_steps=True \
-    profiler.tool=nsys \
-    profiler.steps=$PROFILE_STEPS \
-    profiler.tool_config.nsys.discrete=$DISCRETE $@
+    global_profiler.profile_continuous_steps=True \
+    global_profiler.tool=nsys \
+    global_profiler.steps=$PROFILE_STEPS \
+    global_profiler.global_tool_config.nsys.discrete=$DISCRETE $@
