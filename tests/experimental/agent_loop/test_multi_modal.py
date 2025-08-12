@@ -141,9 +141,6 @@ def test_multimodal_tool_agent(init_config):
     with open(tool_config_path, "w") as f:
         json.dump(tool_config, f)
 
-    init_config.trainer.n_gpus_per_node = 2
-    init_config.trainer.nnodes = 1
-
     n = 2
     init_config.actor_rollout_ref.rollout.n = n
     init_config.actor_rollout_ref.rollout.multi_turn.tool_config_path = tool_config_path
