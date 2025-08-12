@@ -15,8 +15,8 @@
 Create dataset for calculator
 """
 
-import os
 import argparse
+import os
 import random
 
 import pandas as pd
