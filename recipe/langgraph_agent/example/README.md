@@ -79,6 +79,19 @@ To submit on a SLURM cluster (the script contains SBATCH headers):
 sbatch recipe/langgraph_agent/example/run_qwen2.5_3b.sh
 ```
 
+**Note on `GPUS_PER_NODE` and `NNODES`:**
+
+- `GPUS_PER_NODE`: GPUs per node.  
+  Detection order: `SLURM_GPUS_ON_NODE` (if set) → `GPUS_PER_NODE` → `2`.
+- `NNODES`: number of nodes.  
+  Detection order: `SLURM_JOB_NUM_NODES` (if set) → `NNODES` → `1`.
+- Total GPUs = `GPUS_PER_NODE × NNODES` (must be ≥ 2).
+
+Local override (no `SLURM_*` set):
+```bash
+GPUS_PER_NODE=4 NNODES=2 bash recipe/langgraph_agent/example/run_qwen2.5_3b.sh
+```
+
 After total 39 steps, model should achieve 100% accuray on test dataset:
 - val-aux/lighteval/MATH/reward: 1.0
 - val-aux/num_turns/mean: 9.0, average number of messages include assistant and tool turns.
