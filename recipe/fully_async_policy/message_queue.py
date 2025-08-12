@@ -102,7 +102,7 @@ class MessageQueue:
 
             return True
 
-    def get_samples(self, min_batch_count: int = 1) -> list[Any]:
+    def get_samples(self, min_batch_count: int = 1) -> tuple[list[Any], int]:
         """
         Get batch samples from the queue, wait until enough samples are available
 
@@ -136,7 +136,7 @@ class MessageQueue:
                         samples.append(data)
 
             self.total_consumed += len(samples)
-            return samples
+            return samples, len(self.queue)
 
     def update_param_version(self, version: int):
         """Update current parameter version"""
@@ -217,7 +217,7 @@ class MessageQueueClient:
         """Put batch into queue"""
         return ray.get(self.queue_actor.put_sample.remote(sample, param_version))
 
-    def get_samples(self, min_batch_count: int = 1) -> list[Any]:
+    def get_samples(self, min_batch_count: int = 1) -> tuple[list[Any], int]:
         """Get batch from queue, wait until enough samples are available"""
         return ray.get(self.queue_actor.get_samples.remote(min_batch_count))
 

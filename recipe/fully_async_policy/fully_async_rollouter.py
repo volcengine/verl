@@ -72,7 +72,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.use_reference_policy = False
         self.use_rm = False
 
-        print(f"[ROLLOUTER] Creating datasets...")
+        print(f"[FullyAsyncRollouter] Creating datasets...")
         from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
         from verl.utils.dataset.rl_dataset import collate_fn
 
@@ -81,7 +81,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         train_sampler = create_rl_sampler(config.data, train_dataset)
 
         self._validate_config()
-        print(f"[ROLLOUTER] Rollouter _create_dataloader...\n{train_dataset}\n{val_dataset}")
+        print(f"[FullyAsyncRollouter] Rollouter _create_dataloader...\n{train_dataset}\n{val_dataset}")
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
         total_rollout_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
@@ -90,7 +90,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             total_rollout_steps = self.config.rollout.total_rollout_steps
 
         self.total_rollout_steps = total_rollout_steps
-        print(f"[ROLLOUTER] Total rollout steps: {self.total_rollout_steps}")
+        print(f"[FullyAsyncRollouter] Total rollout steps: {self.total_rollout_steps}")
 
         # Rollouter parameter configuration
         self.message_queue_client = None
@@ -156,12 +156,12 @@ class FullyAsyncRollouter(RayPPOTrainer):
             self.current_param_version = version
             # every time param change, reset train_step_samples
             self.train_step_samples = 0
-            print(f"[ROLLOUTER] Parameter version updated from {old_version} to {version}")
+            print(f"[FullyAsyncRollouter] Parameter version updated from {old_version} to {version}")
 
     def _validate_config(self):
         # Validate asynchronous training configuration
         if not hasattr(self.config, "async_training"):
-            raise ValueError("[ROLLOUTER] Missing async_training configuration")
+            raise ValueError("[FullyAsyncRollouter] Missing async_training configuration")
 
     def _create_actor_rollout_classes(self):
         # only create rollout
@@ -189,7 +189,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 yield epoch, batch_dict
 
     def fit(self):
-        print(f"[ROLLOUTER] Starting FullyAsyncRollouter...")
+        print(f"[FullyAsyncRollouter] Starting FullyAsyncRollouter...")
 
         if self.message_queue_client is None:
             raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
@@ -210,7 +210,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.generation_thread.join()
         self.monitor_thread.join()
 
-        print(f"[ROLLOUTER] Rollouter fit completed")
+        print(f"[FullyAsyncRollouter] Rollouter fit completed")
 
     def _generation_loop(self):
         """
@@ -247,7 +247,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
             val_metrics = self._validate()
             assert val_metrics, f"{val_metrics=}"
-            pprint(f"[ROLLOUTER] Initial validation metrics: {val_metrics}")
+            pprint(f"[FullyAsyncRollouter] Initial validation metrics: {val_metrics}")
             self.logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
                 return
@@ -267,7 +267,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     self.pause()
 
                 while self.paused and self.running:
-                    print(f"[ROLLOUTER] Generation thread paused, waiting...")
+                    print(f"[FullyAsyncRollouter] Generation thread paused, waiting...")
                     self.condition.wait()
 
                 if not self.running:
@@ -319,7 +319,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             self.global_steps += 1
 
             if is_last_step:
-                pprint(f"[ROLLOUTER] Final validation metrics: {last_val_metrics}")
+                pprint(f"[FullyAsyncRollouter] Final validation metrics: {last_val_metrics}")
                 break
 
         with self.lock:
@@ -343,14 +343,14 @@ class FullyAsyncRollouter(RayPPOTrainer):
             # 定期打印统计信息
             current_time = time.time()
             if current_time - last_stats_time >= stats_interval:
-                print(f"[ROLLOUTER] {self.get_statistics()}")
+                print(f"[FullyAsyncRollouter] {self.get_statistics()}")
                 last_stats_time = current_time
             if not self._should_pause_generation():
                 with self.lock:
                     if self.paused:
                         self.paused = False
                         self.condition.notify_all()
-                        print(f"[ROLLOUTER] Generation resumed")
+                        print(f"[FullyAsyncRollouter] Generation resumed")
 
     def _should_pause_generation(self) -> bool:
         """Determine whether the build should be paused"""
@@ -363,7 +363,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             if version_diff > self.staleness_threshold:
                 print(
-                    "[ROLLOUTER] "
+                    "[FullyAsyncRollouter] "
                     f"Should pause due to version_diff > self.staleness_threshold: "
                     f"rollout_version={self.current_param_version}, "
                     f"trainer_version={current_trainer_version}, diff={version_diff}"
@@ -371,25 +371,25 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 return True
 
             if queue_size >= self.max_queue_size:
-                print(f"[ROLLOUTER] Should pause due to full queue: size={queue_size}, max={self.max_queue_size}")
+                print(f"[FullyAsyncRollouter] Should pause due to full queue: size={queue_size}, max={self.max_queue_size}")
                 return True
 
             if self.train_step_samples >= self.max_required_samples:
-                print(f"[ROLLOUTER] Should pause due to step_generated_samples >= max_required_samples: "
+                print(f"[FullyAsyncRollouter] Should pause due to step_generated_samples >= max_required_samples: "
                       f"self.step_generated_samples={self.train_step_samples}, max={self.max_required_samples}")
                 return True
 
             return False
 
         except Exception as e:
-            print(f"[ROLLOUTER] Error checking pause conditions: {e}")
+            print(f"[FullyAsyncRollouter] Error checking pause conditions: {e}")
             return True
 
     def pause(self) -> bool:
         """pause rollout
         TODO integrated Partial Rollout
         """
-        print(f"[ROLLOUTER] pause")
+        print(f"[FullyAsyncRollouter] pause")
         with self.lock:
             if not self.running:
                 return False
@@ -404,7 +404,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         """resume rollout
         TODO integrated Partial Rollout
         """
-        print(f"[ROLLOUTER] resume")
+        print(f"[FullyAsyncRollouter] resume")
         with self.lock:
             if not self.running:
                 return False

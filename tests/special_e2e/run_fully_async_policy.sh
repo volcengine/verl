@@ -51,13 +51,6 @@ n_gpus_training=$((NUM_GPUS - n_gpus_rollout))
 
 # Async training specific configurations
 staleness_threshold=3
-min_batch_count=1
-batch_timeout=30.0
-generation_timeout=30.0
-batch_generation_interval=0.1
-max_sync_retries=3
-sync_timeout=30.0
-sync_retry_delay=1.0
 
 exp_name="$(basename "${MODEL_ID,,}")-fully-async-policy-${ACTOR_STRATEGY}-minimal"
 
@@ -120,11 +113,9 @@ common_params=(
     rollout.nnodes=1
     rollout.n_gpus_per_node=${n_gpus_rollout}
     rollout.total_rollout_steps=10
-    rollout.total_epochs=10
+    rollout.total_epochs=2
     # Fully async specific configurations
     async_training.staleness_threshold=${staleness_threshold}
-    async_training.sync_timeout=${sync_timeout}
-    async_training.sync_retry_delay=${sync_retry_delay}
 )
 
 if [ "${ACTOR_STRATEGY}" == "fsdp2" ]; then
