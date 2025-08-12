@@ -72,7 +72,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.use_reference_policy = False
         self.use_rm = False
 
-        # Create datasets
         print("Creating datasets...")
         from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
         from verl.utils.dataset.rl_dataset import collate_fn
@@ -186,7 +185,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 yield epoch, batch_dict
 
     def fit(self):
-        """开始异步生成样本 - 改进的主运行逻辑"""
         print("Starting FullyAsyncRollouter...")
 
         if self.message_queue_client is None:
@@ -199,15 +197,12 @@ class FullyAsyncRollouter(RayPPOTrainer):
             self.running = True
             self.paused = False
 
-        # 创建并启动生成线程
         self.generation_thread = threading.Thread(target=self._generation_loop, daemon=True)
         self.generation_thread.start()
 
-        # 创建并启动监控线程
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self.monitor_thread.start()
 
-        # 等待线程完成
         self.generation_thread.join()
         self.monitor_thread.join()
 
@@ -215,16 +210,17 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
     def _generation_loop(self):
         """
-        主要的生成循环
 
-        循环入口，需要
-        1. running 判断
-        4. 中断判断
-        3. 新鲜度判断
+        Main Generation Loop
 
-        生成样本过程中，需要
-        1. running 判断
-        2. 中断判断
+        Loop Entry Requirements:
+        1. Running status validation
+        2. Interruption detection
+        3. Freshness validation
+
+        During Sample Generation Process:
+        1. Running status validation
+        2. Interruption detection
         """
 
         from verl.utils.tracking import Tracking
@@ -265,12 +261,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 if self._should_pause_generation():
                     self.pause()
 
-                # 如果被暂停，等待恢复
                 while self.paused and self.running:
                     print("Generation thread paused, waiting...")
                     self.condition.wait()
 
-                # 再次检查运行状态
                 if not self.running:
                     break
 
@@ -292,7 +286,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 gen_batch_output.meta_info.pop("timing", None)
 
             if gen_batch_output is not None:
-                # 准备rollout metadata
+                # prepare rollout metadata
                 rollout_metadata = {
                     "timing": timing_raw,
                     "generation_timestamp": time.time(),
@@ -306,7 +300,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
                         data=sample,
                         rollout_metadata=rollout_metadata,
                     )
-                    # 放入队列
                     success = self.message_queue_client.put_sample(
                         sample=ray.cloudpickle.dumps(queue_sample),
                         param_version=self.current_param_version,
@@ -341,11 +334,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
         )
 
     def _monitor_loop(self):
-        """监控线程 - 监控状态并处理控制信号"""
-        # 主线程保持运行，处理控制信号和状态监控
         last_stats_time = time.time()
-        stats_interval = 30.0  # 30秒报告一次统计
-        check_interval = 5.0  # 5秒检查一次状态
+        stats_interval = 30.0
+        check_interval = 5.0
         while True:
             with self.lock:
                 if not self.running:
@@ -356,7 +347,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
             if current_time - last_stats_time >= stats_interval:
                 print(self.get_statistics())
                 last_stats_time = current_time
-            # 检查是否应该恢复生成
             if not self._should_pause_generation():
                 with self.lock:
                     if self.paused:
@@ -365,18 +355,14 @@ class FullyAsyncRollouter(RayPPOTrainer):
                         print("Generation resumed")
 
     def _should_pause_generation(self) -> bool:
-        """
-        判断是否应该暂停生成，基于新鲜度控制 - 改进的判断逻辑
-        """
+        """Determine whether the build should be paused"""
         try:
             queue_stats = self.message_queue_client.get_statistics()
             queue_size = queue_stats["queue_size"]
             current_trainer_version = queue_stats["current_param_version"]
 
-            # 计算参数版本差异
             version_diff = self.current_param_version - current_trainer_version
 
-            # 如果版本差异过大，暂停生成
             if version_diff >= self.staleness_threshold:
                 print(
                     f"Should pause due to staleness: rollout_version={self.current_param_version}, "
@@ -384,7 +370,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 )
                 return True
 
-            # 如果队列太满，也暂停生成
             if queue_size >= self.max_queue_size:
                 print(f"Should pause due to full queue: size={queue_size}, max={self.max_queue_size}")
                 return True
@@ -393,11 +378,11 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         except Exception as e:
             print(f"Error checking pause conditions: {e}")
-            return True  # 出错时暂停生成
+            return True
 
     def pause(self) -> bool:
-        """暂停生成
-        TODO 集成 Partial Rollout
+        """ pause rollout
+        TODO integrated Partial Rollout
         """
         print("[rollouter] pause")
         with self.lock:
@@ -411,8 +396,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
             return True
 
     def resume(self) -> bool:
-        """恢复生成
-        TODO 集成 Partial Rollout
+        """ resume rollout
+        TODO integrated Partial Rollout
         """
         print("[rollouter] resume")
         with self.lock:

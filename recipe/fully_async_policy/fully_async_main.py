@@ -40,11 +40,10 @@ def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
     Returns:
         ResourcePoolManager: Resource pool manager
     """
-    # 构建资源池规格
     resource_pool_spec = {}
     mapping = {}
 
-    # Actor/Critic资源池（训练相关）
+    # Actor/Critic resource pool
     if any(role in roles for role in [Role.Actor, Role.Critic, Role.RefPolicy, Role.RewardModel]):
         assert config.trainer.n_gpus_per_node > 0, "config.trainer.n_gpus_per_node must be greater than 0"
         assert config.trainer.nnodes > 0, "config.trainer.nnodes must be greater than 0"
@@ -52,12 +51,12 @@ def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
         trainer_pool = [config.trainer.n_gpus_per_node] * config.trainer.nnodes
         resource_pool_spec["trainer_pool"] = trainer_pool
 
-        # 训练相关角色映射到同一个资源池
+        # Map training-related roles to the same resource pool
         for role in [Role.Actor, Role.Critic, Role.RefPolicy, Role.RewardModel]:
             if role in roles:
                 mapping[role] = "trainer_pool"
 
-    # Rollout资源池
+    # Rollout resource pool
     if Role.Rollout in roles:
         assert config.rollout.n_gpus_per_node > 0, "config.rollout.n_gpus_per_node must be greater than 0"
         assert config.rollout.nnodes > 0, "config.rollout.nnodes must be greater than 0"
@@ -79,7 +78,7 @@ def create_role_worker_mapping(config):
     Returns:
         dict: Mapping from roles to worker classes
     """
-    # 根据策略选择worker类
+    # Select worker class based on strategy
     if config.actor_rollout_ref.actor.strategy == "fsdp2":
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
         from recipe.one_step_off_policy.fsdp_workers import (
@@ -148,7 +147,6 @@ class FullyAsyncTaskRunner:
         self.shutdown_event = threading.Event()
 
     def run(self, config):
-        """运行完全异步的PPO训练"""
         print("Starting fully async PPO training...")
         self._initialize_components(config)
         self._run_training_loop()
@@ -172,7 +170,7 @@ class FullyAsyncTaskRunner:
 
         self.components["tokenizer"] = tokenizer
         self.components["processor"] = processor
-        self.components["config"] = config  # 保存config以供其他方法使用
+        self.components["config"] = config
 
         print("Creating worker mapping and resource pools...")
         role_worker_mapping, ray_worker_group_cls = create_role_worker_mapping(config)
@@ -278,7 +276,6 @@ class FullyAsyncTaskRunner:
         ray.get(trainer_future)
 
         self.components["message_queue_client"].clear_queue()
-
         print("Training completed or interrupted")
 
 

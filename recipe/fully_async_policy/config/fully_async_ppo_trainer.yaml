@@ -12,17 +12,10 @@ async_training:
   # 新鲜度控制 (Freshness Control)
   staleness_threshold: 3              # 样本新鲜度阈值
 
-  # 参数同步 (Parameter Synchronization)
-  max_sync_retries: 3                # 参数同步最大重试次数
-  sync_timeout: 30.0                 # 同步超时时间(秒)
-  sync_retry_delay: 1.0              # 重试延迟时间(秒)
-
 # Rollout配置
 rollout:
   nnodes: 1                          # Number of nodes used in the rollout
   n_gpus_per_node: 8                 # Number of GPUs per node
-  mode: async                        # rollout模式: sync, async
-  name: vllm                         # rollout引擎: vllm, sglang
   n: 4                               # 每个prompt生成的响应数量
   total_rollout_steps: 100
   total_epochs: 10

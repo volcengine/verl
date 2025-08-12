@@ -39,8 +39,8 @@ logger = logging.getLogger(__name__)
 @ray.remote
 class FullyAsyncTrainer(RayPPOTrainer):
     """
-    完全异步的PPO训练器，从MessageQueue获取样本进行训练
-    基于OneStepOffRayTrainer的成熟实现改进
+    A fully asynchronous PPO trainer that obtains samples from a MessageQueue for training.
+    Based on an improved implementation of OneStepOffRayTrainer
     """
 
     def __init__(
