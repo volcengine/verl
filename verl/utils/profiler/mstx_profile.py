@@ -173,7 +173,7 @@ class NPUProfiler(DistProfiler):
     def start(self, **kwargs):
         role, profile_step = kwargs.get("role", None), kwargs.get("profile_step", None)
         profile_step = str(profile_step) if profile_step is not None else None
-        if self.this_rank and self.enable:
+        if self.enable and self.this_rank:
             self.this_step = True
             if not self.discrete and NPUProfiler._define_count == 0:
                 self.profile_npu = get_npu_profiler(
@@ -188,7 +188,7 @@ class NPUProfiler(DistProfiler):
                 NPUProfiler._define_count += 1
 
     def stop(self):
-        if self.this_rank and self.enable:
+        if self.enable and self.this_rank:
             self.this_step = False
             if not self.discrete and NPUProfiler._define_count == 1:
                 self.profile_npu.step()
