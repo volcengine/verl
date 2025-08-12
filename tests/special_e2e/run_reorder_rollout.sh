@@ -17,7 +17,7 @@ python3 -m recipe.reorder_rollout.main_reorder_ppo \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
     data.return_raw_chat=$return_raw_chat \
-    data.train_batch_size=1024 \
+    data.train_batch_size=64 \
     data.max_prompt_length=8192 \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
@@ -41,6 +41,7 @@ python3 -m recipe.reorder_rollout.main_reorder_ppo \
     actor_rollout_ref.rollout.multi_turn.format=hermes \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=5 \
+    actor_rollout_ref.rollout.free_cache_engine=True \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
@@ -51,7 +52,7 @@ python3 -m recipe.reorder_rollout.main_reorder_ppo \
     trainer.test_freq=20 \
     trainer.n_gpus_per_node=8 \
     trainer.total_training_steps=2 \
-    actor_rollout_ref.rollout.chat_scheduler.micro_batch.max_inflight_req=288 \
+    actor_rollout_ref.rollout.chat_scheduler.micro_batch.max_inflight_req=32 \
     actor_rollout_ref.rollout.reorder_mode=True \
     actor_rollout_ref.rollout.chat_scheduler.prefetch_factor=1.2 \
     trainer.total_epochs=15 $@

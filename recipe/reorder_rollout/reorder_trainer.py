@@ -19,7 +19,6 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import uuid
-from copy import deepcopy
 from pprint import pprint
 from typing import Iterable, Optional
 
@@ -34,7 +33,7 @@ from tqdm import tqdm
 from recipe.reorder_rollout.utils import gen_next_batch
 from verl.single_controller.ray import RayWorkerGroup
 from verl.single_controller.ray.base import RayClassWithInitArgs, create_colocated_worker_cls
-from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
+from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_throughout_metrics,
@@ -341,36 +340,31 @@ class ReorderRolloutTrainer(RayPPOTrainer):
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
-                        if not self.async_rollout_mode:
-                            stop_iter, gen_batch, batch = gen_next_batch(data_iter)
-                            if stop_iter:
-                                break
-                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                        else:
-                            stop_iter, gen_batch_output, gen_batch, batch = self.async_generate_sequence(
-                                data_iter=data_iter, renew=renew
-                            )
-                            renew = False
-                            if stop_iter:
-                                break
+                        stop_iter, gen_batch_output, gen_batch, batch = self.async_generate_sequence(
+                            data_iter=data_iter, renew=renew
+                        )
+                        renew = False
+                        if stop_iter:
+                            break
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
-                    if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
-                        with marked_timer("gen_max", timing_raw, color="purple"):
-                            gen_baseline_batch = deepcopy(gen_batch)
-                            gen_baseline_batch.meta_info["do_sample"] = False
-                            gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
+                    # TODO implement
+                    # if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
+                    #     with marked_timer("gen_max", timing_raw, color="purple"):
+                    #         gen_baseline_batch = deepcopy(gen_batch)
+                    #         gen_baseline_batch.meta_info["do_sample"] = False
+                    #         gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
 
-                            batch = batch.union(gen_baseline_output)
-                            reward_baseline_tensor = self.reward_fn(batch)
-                            reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
+                    #         batch = batch.union(gen_baseline_output)
+                    #         reward_baseline_tensor = self.reward_fn(batch)
+                    #         reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
 
-                            batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
+                    #         batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
 
-                            batch.batch["reward_baselines"] = reward_baseline_tensor
+                    #         batch.batch["reward_baselines"] = reward_baseline_tensor
 
-                            del gen_baseline_batch, gen_baseline_output
+                    #         del gen_baseline_batch, gen_baseline_output
 
                     batch.non_tensor_batch["uid"] = np.array(
                         [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
@@ -587,7 +581,6 @@ class ReorderRolloutTrainer(RayPPOTrainer):
                     return
 
     def async_generate_sequence(self, data_iter: Iterable, renew=False):
-        self.async_rollout_manager.wake_up()
         if self.reorder_mode:
             stop_iter, gen_batch_output, gen_batch, batch = self.async_rollout_manager.reorder_generate_sequences(
                 data_iter, renew=renew
@@ -599,5 +592,4 @@ class ReorderRolloutTrainer(RayPPOTrainer):
             if stop_iter:
                 return True, None, None, None
             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
-        self.async_rollout_manager.sleep()
         return False, gen_batch_output, gen_batch, batch

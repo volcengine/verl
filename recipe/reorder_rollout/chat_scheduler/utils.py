@@ -19,7 +19,7 @@ import os
 from abc import abstractmethod
 from dataclasses import dataclass
 from heapq import heapify, heappop, heappush
-from typing import Any, Protocol
+from typing import Any, Optional, Protocol
 
 import numpy as np
 import torch
@@ -343,11 +343,12 @@ class _MgrProxy:
         *,
         prompt_ids: list[int],
         sampling_params: dict[str, Any],
+        image_data: Optional[list[Any]] = None,
     ) -> list[int]:
         self.request_id = request_id
         self.server_handle = self.router(request_id)
         self.ray_awaitable = self.server_handle.generate_with_cancel.remote(
-            request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params
+            request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params, image_data=image_data
         )
         result = await self.ray_awaitable
         self.ray_awaitable = None

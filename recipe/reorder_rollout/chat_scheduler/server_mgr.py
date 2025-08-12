@@ -122,30 +122,39 @@ class AsyncLLMServerManager:
 
     def wake_up(self):
         """Wake up all vllm instances."""
+        logger.debug("wake up async_llm_servers")
         ray.get([server.wake_up.remote() for server in self.async_llm_servers])
 
     def sleep(self):
         """Sleep all vllm instances."""
+        logger.debug("sleep async_llm_servers")
         ray.get([server.sleep.remote() for server in self.async_llm_servers])
 
     def generate_sequences(self, batch: DataProto, **sampling_params) -> DataProto:
         """Generate multiple sequences in parallel via chat scheduler."""
         assert self.chat_scheduler is not None, "chat scheduler is not initialized."
+        self.wake_up()
         future = asyncio.run_coroutine_threadsafe(
             self.chat_scheduler.generate_sequences(batch, **sampling_params), self.chat_scheduler_loop
         )
-        return future.result()
+
+        result = future.result()
+        self.sleep()
+        return result
 
     def reorder_generate_sequences(
         self, data_iter, renew, **sampling_params
     ) -> tuple[bool, DataProto, DataProto, DataProto]:
         assert self.chat_scheduler is not None, "chat scheduler is not initialized."
+        self.wake_up()
         assert isinstance(self.chat_scheduler, ReorderSchedulerMixin), "this should mix in ReorderSchedulerMixin"
         future = asyncio.run_coroutine_threadsafe(
             self.chat_scheduler.reorder_generate_sequences(data_iter, renew, **sampling_params),
             self.chat_scheduler_loop,
         )
-        return future.result()
+        result = future.result()
+        self.sleep()
+        return result
 
 
 def chat_scheduler_class(scheduler_str: str) -> type[ChatCompletionScheduler]:

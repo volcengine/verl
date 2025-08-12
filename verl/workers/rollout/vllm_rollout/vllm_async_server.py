@@ -370,13 +370,19 @@ class AsyncvLLMServer(AsyncServerBase):
         return final_res.outputs[0].token_ids
 
     async def generate_with_cancel(
-        self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
     ) -> list[int]:
         with ExitStack() as stack:
             self.active_req[request_id] = asyncio.Event()
             stack.callback(lambda: self.active_req.pop(request_id, None))
             cancel_handle = asyncio.create_task(self.active_req[request_id].wait())
-            generation_handle = asyncio.create_task(self.generate(prompt_ids, sampling_params, request_id))
+            generation_handle = asyncio.create_task(
+                self.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
+            )
             done, pending = await asyncio.wait([generation_handle, cancel_handle], return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
                 task.cancel()
