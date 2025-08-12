@@ -248,25 +248,43 @@ class ChatModel(BaseChatModel):
         content, function_calls = await tool_parser.extract_tool_calls(response_ids)
 
         tool_calls, invalid_tool_calls = [], []
+
         for function_call in function_calls:
             try:
                 args = json.loads(function_call.arguments)
-                if not isinstance(args, dict):
-                    raise json.JSONDecodeError(f"Invalid json tool arguments: {args}")
-                tool_call = ToolCall(
-                    args=args,
+            except json.JSONDecodeError as e:
+                reason = f"Invalid JSON tool arguments: {e}"
+                logger.warning(reason)
+                invalid_tool_calls.append(
+                    InvalidToolCall(
+                        name=function_call.name,
+                        args=function_call.arguments,
+                        id=str(uuid.uuid4()),
+                        error=reason,
+                    )
+                )
+                continue
+
+            if not isinstance(args, dict):
+                reason = f"Tool arguments must be a JSON object, got {type(args).__name__}"
+                logger.warning(reason)
+                invalid_tool_calls.append(
+                    InvalidToolCall(
+                        name=function_call.name,
+                        args=function_call.arguments,
+                        id=str(uuid.uuid4()),
+                        error=reason,
+                    )
+                )
+                continue
+
+            tool_calls.append(
+                ToolCall(
                     name=function_call.name,
+                    args=args,
                     id=str(uuid.uuid4()),
                 )
-                tool_calls.append(tool_call)
-            except json.JSONDecodeError as e:
-                logger.warning(f"Invalid json tool arguments: {e}")
-                tool_call = InvalidToolCall(
-                    args=function_call.arguments,
-                    name=function_call.name,
-                    error=f"Invalid json tool arguments: {e}",
-                )
-                invalid_tool_calls.append(tool_call)
+            )
 
         message = AIMessage(
             content=content,
