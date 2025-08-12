@@ -234,11 +234,12 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
         if OmegaConf.select(self.config.global_profiler, "steps") is not None:
             wg_kwargs["profile_steps"] = OmegaConf.select(self.config.trainer, "steps")
-            assert OmegaConf.select(self.config.global_profiler, "worker_nsight_options") is not None, (
-                "worker_nsight_options must be set when profile_steps is set"
-            )
+            assert (
+                OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
+                is not None
+            ), "worker_nsight_options must be set when profile_steps is set"
             wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
-                OmegaConf.select(self.config.global_profiler, "worker_nsight_options")
+                OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
             )
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():

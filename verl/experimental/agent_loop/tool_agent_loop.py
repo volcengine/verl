@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -22,6 +23,7 @@ from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutp
 from verl.experimental.agent_loop.tool_parser import FunctionCall, ToolParser
 from verl.interactions.base import BaseInteraction
 from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
+from verl.tools.schemas import ToolResponse
 from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.profiler import simple_timer
 from verl.utils.rollout_trace import rollout_trace_op
@@ -33,7 +35,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 @register("tool_agent")
 class ToolAgentLoop(AgentLoopBase):
     @classmethod
-    def init_class(cls, config, tokenizer, **kwargs):
+    def init_class(cls, config, tokenizer, processor, **kwargs):
         if cls._class_initialized:
             return
         cls._class_initialized = True
@@ -41,6 +43,7 @@ class ToolAgentLoop(AgentLoopBase):
 
         # Initialize tools from config file
         cls.tokenizer = tokenizer
+        cls.processor = processor
         cls.max_user_turns = config.actor_rollout_ref.rollout.multi_turn.max_user_turns
         cls.max_assistant_turns = config.actor_rollout_ref.rollout.multi_turn.max_assistant_turns
         cls.max_parallel_calls = config.actor_rollout_ref.rollout.multi_turn.max_parallel_calls
@@ -67,18 +70,33 @@ class ToolAgentLoop(AgentLoopBase):
     @rollout_trace_op
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         messages = list(kwargs["raw_prompt"])
+        image_data = copy.deepcopy(kwargs.get("multi_modal_data", {}).get("image", None))
         metrics = {}
         request_id = uuid4().hex
-        prompt_ids = await self.loop.run_in_executor(
-            None,
-            lambda: self.tokenizer.apply_chat_template(
-                messages,
-                tools=self.tool_schemas,
-                add_generation_prompt=True,
-                tokenize=True,
-                **self.apply_chat_template_kwargs,
-            ),
-        )
+        if self.processor is not None:
+            raw_prompt = await self.loop.run_in_executor(
+                None,
+                lambda: self.processor.apply_chat_template(
+                    messages,
+                    tools=self.tool_schemas,
+                    add_generation_prompt=True,
+                    tokenize=False,
+                    **self.apply_chat_template_kwargs,
+                ),
+            )
+            model_inputs = self.processor(text=[raw_prompt], images=image_data, return_tensors="pt")
+            prompt_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+        else:
+            prompt_ids = await self.loop.run_in_executor(
+                None,
+                lambda: self.tokenizer.apply_chat_template(
+                    messages,
+                    tools=self.tool_schemas,
+                    add_generation_prompt=True,
+                    tokenize=True,
+                    **self.apply_chat_template_kwargs,
+                ),
+            )
         response_mask = []
         turn_scores = []
         tools_kwargs = kwargs.get("tools_kwargs", {})
@@ -101,7 +119,7 @@ class ToolAgentLoop(AgentLoopBase):
         while True:
             with simple_timer("generate_sequences", metrics):
                 response_ids = await self.server_manager.generate(
-                    request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params
+                    request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params, image_data=image_data
                 )
             prompt_ids += response_ids
             response_mask += [1] * len(response_ids)
@@ -150,40 +168,103 @@ class ToolAgentLoop(AgentLoopBase):
             if any(isinstance(item, Exception) for item in responses):
                 break
 
-            # append response_ids
-            response_ids = await self.loop.run_in_executor(
-                None,
-                lambda messages=responses: self.tokenizer.apply_chat_template(
-                    messages, add_generation_prompt=True, tokenize=True
-                ),
-            )
-            response_ids = response_ids[len(self.system_prompt) :]
+            # Extract messages and update multi_modal_data
+            if tool_calls:
+                tool_messages = []
+                new_images_this_turn = []
+                for tool_response in responses:
+                    # Create message from tool response
+                    if tool_response.image or tool_response.video:
+                        # Multi-modal content with structured format
+                        content = []
+                        if tool_response.image:
+                            content.append({"type": "image"})
+                        if tool_response.video:
+                            content.append({"type": "video"})
+                        if tool_response.text:
+                            content.append({"type": "text", "text": tool_response.text})
+                        message = {"role": "tool", "content": content}
+                    else:
+                        # Text-only content
+                        message = {"role": "tool", "content": tool_response.text or ""}
 
-            # NOTE: last turn should not be user turn, or the EOS token reward
-            # can't be propagated to previous token in GAE.
-            if len(response_mask) + len(response_ids) >= self.response_length:
-                break
+                    tool_messages.append(message)
 
-            prompt_ids += response_ids
-            response_mask += [0] * len(response_ids)
-            # user_turns += 1
-            if self.interaction_config_file and not tool_calls and should_terminate_sequence:
-                metrics["termination_reason"] = "interaction_terminated"
-                break
+                    # Handle image data
+                    if tool_response.image:
+                        if image_data is None:
+                            image_data = []
+                        elif not isinstance(image_data, list):
+                            image_data = [image_data]
+
+                        # Add new image data
+                        if isinstance(tool_response.image, list):
+                            image_data.extend(tool_response.image)
+                            new_images_this_turn.extend(tool_response.image)
+                        else:
+                            image_data.append(tool_response.image)
+                            new_images_this_turn.append(tool_response.image)
+
+                    # Handle video data
+                    if tool_response.video:
+                        # Currently not supported, raise informative error
+                        logger.warning("Multimedia type 'video' is not currently supported. Only 'image' is supported.")
+                        raise NotImplementedError(
+                            "Multimedia type 'video' is not currently supported. Only 'image' is supported."
+                        )
+
+                if self.interaction_config_file:
+                    messages += tool_messages
+                # append response_ids
+                if self.processor is not None:
+                    raw_tool_response = await self.loop.run_in_executor(
+                        None,
+                        lambda messages=tool_messages: self.processor.apply_chat_template(
+                            messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+                        ),
+                    )
+                    # Use only the new images from this turn for processing tool responses
+                    current_images = new_images_this_turn if new_images_this_turn else None
+                    model_inputs = self.processor(text=[raw_tool_response], images=current_images, return_tensors="pt")
+                    response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+                else:
+                    response_ids = await self.loop.run_in_executor(
+                        None,
+                        lambda messages=tool_messages: self.tokenizer.apply_chat_template(
+                            messages, add_generation_prompt=True, tokenize=True
+                        ),
+                    )
+                response_ids = response_ids[len(self.system_prompt) :]
+
+                # NOTE: last turn should not be user turn, or the EOS token reward
+                # can't be propagated to previous token in GAE.
+                if len(response_mask) + len(response_ids) >= self.response_length:
+                    break
+
+                prompt_ids += response_ids
+                response_mask += [0] * len(response_ids)
+                # user_turns += 1
+                if self.interaction_config_file and not tool_calls and should_terminate_sequence:
+                    metrics["termination_reason"] = "interaction_terminated"
+                    break
 
         response_ids = prompt_ids[-len(response_mask) :]
         prompt_ids = prompt_ids[: len(prompt_ids) - len(response_mask)]
+
+        multi_modal_data = {"image": image_data} if image_data is not None else {}
+
         output = AgentLoopOutput(
             prompt_ids=prompt_ids,
             response_ids=response_ids[: self.response_length],
             response_mask=response_mask[: self.response_length],
+            multi_modal_data=multi_modal_data,
             num_turns=user_turns + assistant_turns + 1,
             metrics=metrics,
             extra_fields={"turn_scores": turn_scores},
         )
         return output
 
-    async def _call_tool(self, tool_call: FunctionCall, tools_kwargs: dict[str, Any]) -> dict[str, str]:
+    async def _call_tool(self, tool_call: FunctionCall, tools_kwargs: dict[str, Any]) -> ToolResponse:
         """Call tool and return tool response."""
         tool, instance_id = None, None
         try:
@@ -195,8 +276,10 @@ class ToolAgentLoop(AgentLoopBase):
             instance_id, _ = await tool.create(create_kwargs=kwargs.get("create_kwargs", {}))
             tool_execution_response, _, _ = await tool.execute(instance_id, tool_args)
         except Exception as e:
-            logger.exception(f"Error when executing tool: {e}")
-            return e
+            logger.warning(f"Error when executing tool: {e}")
+            return ToolResponse(
+                text=f"Error when executing tool: {e}",
+            )
         finally:
             if tool and instance_id:
                 await tool.release(instance_id)
@@ -211,10 +294,17 @@ class ToolAgentLoop(AgentLoopBase):
                 length = self.max_tool_response_length // 2
                 tool_response_text = tool_response_text[:length] + "...(truncated)..." + tool_response_text[-length:]
 
-        return {
-            "role": "tool",
-            "content": tool_response_text,
-        }
+        # Create ToolResponse from tool execution result
+        tool_response_kwargs = {"text": tool_response_text}
+
+        # Add multimedia data if present
+        for attr_name in ["image", "video"]:
+            if hasattr(tool_execution_response, attr_name):
+                attr_value = getattr(tool_execution_response, attr_name)
+                if attr_value is not None:
+                    tool_response_kwargs[attr_name] = attr_value
+
+        return ToolResponse(**tool_response_kwargs)
 
     @classmethod
     def _initialize_interactions(cls, interaction_config_file):

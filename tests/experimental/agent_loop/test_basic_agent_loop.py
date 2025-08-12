@@ -175,7 +175,8 @@ def test_tool_agent(init_config):
                 "VLLM_LOGGING_LEVEL": "INFO",
                 "VLLM_USE_V1": "1",
             }
-        }
+        },
+        ignore_reinit_error=True,
     )
 
     # =========================== 1. Init rollout manager ===========================
