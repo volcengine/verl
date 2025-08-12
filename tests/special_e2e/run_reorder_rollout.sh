@@ -5,7 +5,7 @@ set -x
 
 # For async rollout mode, dataset should return raw chat.
 rollout_mode="async"
-rollout_name="sglang" # sglang or vllm
+rollout_name="vllm" # sglang or vllm
 if [ "$rollout_mode" = "async" ]; then
     export VLLM_USE_V1=1
     export VLLM_LOGGING_LEVEL="DEBUG"

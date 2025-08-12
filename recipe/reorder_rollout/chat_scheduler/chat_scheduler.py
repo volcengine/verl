@@ -34,7 +34,6 @@ from cachetools import LRUCache
 from omegaconf import DictConfig
 from tensordict import TensorDict
 from typing_extensions import runtime_checkable
-from vllm.outputs import RequestOutput
 
 from recipe.reorder_rollout.chat_scheduler.apis import (
     ReduceResp,
@@ -683,7 +682,7 @@ class ReorderScheduler(MicroBatchScheduler, ReorderSchedulerMixin):
                 if mgr.ray_awaitable is not None:
                     has_abort = True
                     request_id = mgr.request_id
-                    maybe_resp: RequestOutput = await mgr.server_handle.cancel.remote(request_id)
+                    maybe_resp = await mgr.server_handle.cancel.remote(request_id)
                     if maybe_resp is not None:
                         token_ids = maybe_resp.outputs[0].token_ids
                         sample.temp_buffer[ids] = token_ids
