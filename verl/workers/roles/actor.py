@@ -91,7 +91,7 @@ class ActorWorker(Worker, DistProfilerExtension):
             "fused kernels and entropy checkpointing are not supported in the new worker implementation yet"
 
         engine_config = self.create_engine_config(self.config)
-        self.engine = EngineRegistry.new(self.config.actor.strategy, engine_config, "actor")
+        self.engine = EngineRegistry.new(self.config.actor.strategy, engine_config)
     
 
     def create_engine_config(self, actor_config):
