@@ -34,7 +34,7 @@ class Tracking:
         logger: Dictionary of initialized logger instances for each backend.
     """
 
-    supported_backend = ["wandb", "mlflow", "swanlab", "vemlp_wandb", "tensorboard", "console", "clearml"]
+    supported_backend = ["wandb", "mlflow", "swanlab", "vemlp_wandb", "tensorboard", "console", "clearml", "trackio"]
 
     def __init__(self, project_name, experiment_name, default_backend: str | list[str] = "console", config=None):
         if isinstance(default_backend, str):
@@ -57,6 +57,12 @@ class Tracking:
                 settings = wandb.Settings(https_proxy=config["trainer"]["wandb_proxy"])
             wandb.init(project=project_name, name=experiment_name, config=config, settings=settings)
             self.logger["wandb"] = wandb
+
+        if "trackio" in default_backend:
+            import trackio
+
+            trackio.init(project=project_name, name=experiment_name, config=config)
+            self.logger["trackio"] = trackio
 
         if "mlflow" in default_backend:
             import os
@@ -141,9 +147,10 @@ class Tracking:
             self.logger["vemlp_wandb"].finish(exit_code=0)
         if "tensorboard" in self.logger:
             self.logger["tensorboard"].finish()
-
         if "clearnml" in self.logger:
             self.logger["clearnml"].finish()
+        if "trackio" in self.logger:
+            self.logger["trackio"].finish()
 
 
 class ClearMLLogger:
