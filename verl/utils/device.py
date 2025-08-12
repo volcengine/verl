@@ -84,3 +84,12 @@ def get_nccl_backend() -> str:
         return "hccl"
     else:
         raise RuntimeError(f"No available nccl backend found on device type {get_device_name()}.")
+
+
+def expandable_segments(enable: bool = True):
+    """Enable or disable expandable segments for cuda.
+    Args:
+        enable (bool): Whether to enable expandable segments. Default: True.
+    """
+    if is_cuda_available:
+        torch.cuda.memory._set_allocator_settings(f"expandable_segments:{enable}")
