@@ -104,7 +104,7 @@ class TaskRunner:
 
         # Version validation for vllm.
         if config.actor_rollout_ref.rollout.name in ["vllm"]:
-            from verl.utils.vllm_utils import is_version_ge
+            from verl.utils.vllm import is_version_ge
 
             if config.actor_rollout_ref.model.get("lora_rank", 0) > 0:
                 if not is_version_ge(pkg="vllm", minver="0.7.3"):

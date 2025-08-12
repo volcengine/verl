@@ -61,9 +61,9 @@ from verl.experimental.agent_loop.utils import agent_loop_perf
 from verl.protocol import DataProto
 from verl.utils.fs import copy_to_local
 from verl.utils.rollout_trace import rollout_trace_attr
-from verl.utils.tokenizer import hf_tokenizer
+from verl.utils.tokenizer import hf_processor, hf_tokenizer
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))
 
 
@@ -167,6 +167,7 @@ class MicroBatchScheduler(ChatCompletionScheduler):
         self.model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
+        self.processor = hf_processor(local_path, trust_remote_code=True)
         self.max_prompt_length = self.config.prompt_length
         self.max_response_length = self.config.response_length
 
@@ -312,9 +313,7 @@ class MicroBatchScheduler(ChatCompletionScheduler):
         for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
             proxy_mgr = _MgrProxy(routing_method=functools.partial(self._routing, handle=None))
             tasks.append(
-                asyncio.create_task(
-                    self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory, proxy_mgr)
-                )
+                asyncio.create_task(self._run_agent_loop(agent_name, messages, sampling_params, trajectory, proxy_mgr))
             )
         outputs = await asyncio.gather(*tasks)
         output = agent_loop_postprocess(
@@ -352,6 +351,7 @@ class MicroBatchScheduler(ChatCompletionScheduler):
                 trainer_config=_DummyConfig(config=self.original_config),
                 server_manager=proxy_mgr,
                 tokenizer=self.tokenizer,
+                processor=self.processor,
             )
             kwargs = dict(
                 raw_prompt=messages,

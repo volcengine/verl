@@ -37,7 +37,6 @@ class SingleTurnAgentLoop(AgentLoopBase):
         messages = list(kwargs["raw_prompt"])
         token_ids = kwargs.get("token_ids", None)
         partial_rollout = False
-        prompt_token_ids = kwargs.get("prompt_token_ids", None)
 
         metrics = {}
         request_id = uuid4().hex
@@ -50,10 +49,8 @@ class SingleTurnAgentLoop(AgentLoopBase):
         )
         if token_ids:
             # partial rollout case:
-            prompt_ids = prompt_token_ids + token_ids
+            prompt_ids = prompt_ids + token_ids
             partial_rollout = True
-        else:
-            prompt_ids = prompt_token_ids
 
         with simple_timer("generate_sequences", metrics):
             response_ids = await self.server_manager.generate(
@@ -61,9 +58,9 @@ class SingleTurnAgentLoop(AgentLoopBase):
             )
         if partial_rollout:
             # response_id = [prompt_ids-prompt_token_ids,response_ids]
-            response_ids = prompt_ids[len(prompt_token_ids) :] + response_ids
+            response_ids = prompt_ids[len(token_ids) :] + response_ids
             # prompt as original
-            prompt_ids = prompt_token_ids
+            prompt_ids = prompt_ids[: len(token_ids)]
 
         response_mask = [1] * len(response_ids)
 
