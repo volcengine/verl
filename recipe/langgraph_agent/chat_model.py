@@ -250,41 +250,32 @@ class ChatModel(BaseChatModel):
         tool_calls, invalid_tool_calls = [], []
 
         for function_call in function_calls:
+            error = None
             try:
                 args = json.loads(function_call.arguments)
+                if not isinstance(args, dict):
+                    error = f"Tool arguments must be a JSON object, got {type(args).__name__}"
             except json.JSONDecodeError as e:
-                reason = f"Invalid JSON tool arguments: {e}"
-                logger.warning(reason)
+                error = f"Invalid JSON tool arguments: {e}"
+
+            if error:
+                logger.warning(error)
                 invalid_tool_calls.append(
                     InvalidToolCall(
                         name=function_call.name,
                         args=function_call.arguments,
                         id=str(uuid.uuid4()),
-                        error=reason,
+                        error=error,
                     )
                 )
-                continue
-
-            if not isinstance(args, dict):
-                reason = f"Tool arguments must be a JSON object, got {type(args).__name__}"
-                logger.warning(reason)
-                invalid_tool_calls.append(
-                    InvalidToolCall(
+            else:
+                tool_calls.append(
+                    ToolCall(
                         name=function_call.name,
-                        args=function_call.arguments,
+                        args=args,
                         id=str(uuid.uuid4()),
-                        error=reason,
                     )
                 )
-                continue
-
-            tool_calls.append(
-                ToolCall(
-                    name=function_call.name,
-                    args=args,
-                    id=str(uuid.uuid4()),
-                )
-            )
 
         message = AIMessage(
             content=content,
