@@ -13,7 +13,7 @@
 set -xeuo pipefail
 
 # ================= cluster topology =================
-export GPUS_PER_NODE=${SLURM_GPUS_ON_NODE:-${GPUS_PER_NODE:-1}}  # GPUs on this node
+export GPUS_PER_NODE=${SLURM_GPUS_ON_NODE:-${GPUS_PER_NODE:-2}}  # GPUs on this node
 NNODES=${SLURM_JOB_NUM_NODES:-${NNODES:-1}}
 export NNODES
 export RAY_NUM_NODES=$NNODES
