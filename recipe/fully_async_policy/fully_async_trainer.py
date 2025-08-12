@@ -44,16 +44,16 @@ class FullyAsyncTrainer(RayPPOTrainer):
     """
 
     def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-        device_name=None,
+            self,
+            config,
+            tokenizer,
+            role_worker_mapping: dict[Role, WorkerType],
+            resource_pool_manager: ResourcePoolManager,
+            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+            processor=None,
+            reward_fn=None,
+            val_reward_fn=None,
+            device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -128,6 +128,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         required_samples = n_responses_per_prompt * batch_size
 
         print(
+            "[FullyAsyncTrainer] "
             f"Requesting {required_samples} samples from queue (n={n_responses_per_prompt}, batch_size={batch_size})",
             flush=True,
         )
@@ -141,16 +142,12 @@ class FullyAsyncTrainer(RayPPOTrainer):
             logger.warning("required_samples is empty")
             return None, None
 
-        print(f"Retrieved {len(queue_samples)} samples from queue. wait time {consumer_end - consumer_start}")
+        print(f"[FullyAsyncTrainer] Retrieved {len(queue_samples)} samples from queue."
+              f"wait time {consumer_end - consumer_start:.2f} seconds.")
 
         queue_samples = [ray.cloudpickle.loads(x) for x in queue_samples]
-        print(queue_samples)
-
         # Assemble batch
         batch = self._assemble_gen_batch_output_from_queue_samples(queue_samples)
-
-        print("=" * 200)
-        print(batch)
 
         return 0, batch
 
@@ -173,7 +170,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         if not queue_samples:
             raise ValueError("Empty queue_samples provided for batch assembly")
 
-        print(f"Assembling batch from {len(queue_samples)} queue samples")
+        print(f"[FullyAsyncTrainer] Assembling batch from {len(queue_samples)} queue samples")
 
         # Extract data and metadata from all samples
         sample_data_list = []
@@ -215,7 +212,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
             "avg_sample_age": np.mean([time.time() - ts for ts in sample_timestamps]),
         }
 
-        print(meta_info)
+        print(f"[FullyAsyncTrainer] {meta_info}")
 
         return batch
 
@@ -254,7 +251,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         to construct the PPO dataflow.
         The light-weight advantage computation is done on the driver process.
         """
-        print("Starting FullyAsyncTrainer...")
+        print("[FullyAsyncTrainer] Starting FullyAsyncTrainer...")
         if self.message_queue_client is None:
             raise ValueError("MessageQueue client not set. Call set_message_queue_client() first.")
         if self.param_synchronizer is None:
@@ -281,16 +278,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
         # Use queue mode, no need for traditional dataloader iterator
         # Initialize to get the first batch of data
         while True:
-            print("while True", flush=True)
-
-            # Check queue status
-            if self.message_queue_client:
-                queue_stats = self.message_queue_client.get_statistics()
-                print(f"Queue status before getting samples: {queue_stats}")
-
-                if queue_stats.get("queue_size", 0) == 0:
-                    print("WARNING: Queue is empty, will block waiting for samples")
-
             metrics = {}
             timing_raw = {}
 
@@ -301,8 +288,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
                     epoch, batch = self._get_samples_from_queue()
                     if batch is None:
                         break
-
-                print("_get_samples_from_queue end")
 
                 # # 更新统计信息
                 #     self.processed_samples += len(batch) if isinstance(batch, list) else 1
@@ -332,20 +317,15 @@ class FullyAsyncTrainer(RayPPOTrainer):
                 #                     "statistics/current_param_version": self.current_param_version,
                 #                 }
                 #             )
-                print("_process_batch_common")
                 batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
-                print("_log_rollout")
                 self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
-                print("_check_save_checkpoint")
                 self._check_save_checkpoint(is_last_step, timing_raw)
 
-            print("_collect_metrics")
             # self._collect_metrics(batch, epoch, metrics, timing_raw)
 
             # Trigger parameter synchronization after training step
-            print("_trigger_parameter_sync_after_step")
             self._trigger_parameter_sync_after_step()
-            print(f"global_steps: {self.global_steps}")
+            print(f"[FullyAsyncTrainer] global_steps: {self.global_steps}")
             self.global_steps += 1
 
     def get_statistics(self) -> dict:
@@ -369,11 +349,12 @@ class FullyAsyncTrainer(RayPPOTrainer):
         """
         self.current_param_version = self.current_param_version + 1
         print(
-            f"[TRAINER] Triggering parameter sync after "
+            f"[FullyAsyncTrainer] Triggering parameter sync after "
             f"training step {self.global_steps}, version: {self.current_param_version}"
         )
-        logger.info(
-            f"Triggering parameter sync after training step {self.global_steps}, version: {self.current_param_version}"
+        print(
+            f"[FullyAsyncTrainer] Triggering parameter sync"
+            f" after training step {self.global_steps}, version: {self.current_param_version}"
         )
         ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version))
 

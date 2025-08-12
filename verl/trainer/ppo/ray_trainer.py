@@ -1237,7 +1237,6 @@ class RayPPOTrainer:
     def _process_batch_common(self, batch, metrics, timing_raw):
         with marked_timer("reward", timing_raw, color="yellow"):
             # compute reward model score
-            print("marked_timer reward")
             if self.use_rm:
                 reward_tensor = self.rm_wg.compute_rm_score(batch)
                 batch = batch.union(reward_tensor)
@@ -1248,7 +1247,6 @@ class RayPPOTrainer:
                 reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
         # recompute old_log_probs
         with marked_timer("old_log_prob", timing_raw, color="blue"):
-            print("marked_timer old_log_prob")
 
             old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
             entropys = old_log_prob.batch["entropys"]
@@ -1284,8 +1282,6 @@ class RayPPOTrainer:
                     }
                 )
         if self.use_reference_policy:
-            print("marked_timer use_reference_policy")
-
             # compute reference log_prob
             with marked_timer("ref", timing_raw, color="olive"):
                 if not self.ref_in_actor:
@@ -1295,12 +1291,10 @@ class RayPPOTrainer:
                 batch = batch.union(ref_log_prob)
         # compute values
         if self.use_critic:
-            print("marked_timer compute use_critic")
             with marked_timer("values", timing_raw, color="cyan"):
                 values = self.critic_wg.compute_values(batch)
                 batch = batch.union(values)
         with marked_timer("adv", timing_raw, color="brown"):
-            print("marked_timer adv")
             # we combine with rule-based rm
             reward_extra_infos_dict: dict[str, list]
             if self.config.reward_model.launch_reward_fn_async:
@@ -1336,7 +1330,6 @@ class RayPPOTrainer:
             )
         # update critic
         if self.use_critic:
-            print("marked_timer update use_critic")
             with marked_timer("update_critic", timing_raw, color="pink"):
                 critic_output = self.critic_wg.update_critic(batch)
             critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
@@ -1344,7 +1337,6 @@ class RayPPOTrainer:
         # implement critic warmup
         if self.config.trainer.critic_warmup <= self.global_steps:
             # update actor
-            print("marked_timer update_actor")
             with marked_timer("update_actor", timing_raw, color="red"):
                 batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
                 actor_output = self.actor_rollout_wg.update_actor(batch)

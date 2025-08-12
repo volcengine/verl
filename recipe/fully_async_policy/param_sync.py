@@ -60,7 +60,7 @@ class ParameterSynchronizer:
         self.rollout_wg.set_actor_weights_info(self.weights_info)
 
     def _init_sync_group(self):
-        print("Initializing parameter synchronization group...")
+        print("[ParameterSynchronizer] Initializing parameter synchronization group...")
         actor_rollout_workers = self.actor_wg.workers + self.rollout_wg.workers
         collective.create_collective_group(
             actor_rollout_workers,
@@ -72,7 +72,7 @@ class ParameterSynchronizer:
 
     def sync_weights(self, version):
         self.current_version = version
-        print(f"Starting weight synchronization (version {self.current_version})...")
+        print(f"[ParameterSynchronizer] Starting weight synchronization (version {self.current_version})...")
 
         ray.get(self.rollouter.pause.remote())
 
@@ -86,4 +86,4 @@ class ParameterSynchronizer:
         # Update rollout version
         ray.get(self.rollouter.update_param_version.remote(version))
         ray.get(self.rollouter.resume.remote())
-        print("sync_weights success")
+        print("[ParameterSynchronizer] sync_weights success")

@@ -147,16 +147,16 @@ class FullyAsyncTaskRunner:
         self.shutdown_event = threading.Event()
 
     def run(self, config):
-        print("Starting fully async PPO training...")
+        print("[ASYNC MAIN] Starting fully async PPO training...")
         self._initialize_components(config)
         self._run_training_loop()
 
     def _initialize_components(self, config) -> None:
-        print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
+        print(f"[ASYNC MAIN] TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
         pprint(OmegaConf.to_container(config, resolve=True))
         OmegaConf.resolve(config)
 
-        print("Initializing model and tokenizer...")
+        print("[ASYNC MAIN] Initializing model and tokenizer...")
         local_path = copy_to_local(
             config.actor_rollout_ref.model.path, use_shm=config.actor_rollout_ref.model.get("use_shm", False)
         )
@@ -172,12 +172,12 @@ class FullyAsyncTaskRunner:
         self.components["processor"] = processor
         self.components["config"] = config
 
-        print("Creating worker mapping and resource pools...")
+        print("[ASYNC MAIN] Creating worker mapping and resource pools...")
         role_worker_mapping, ray_worker_group_cls = create_role_worker_mapping(config)
         self.components["role_worker_mapping"] = role_worker_mapping
         self.components["ray_worker_group_cls"] = ray_worker_group_cls
 
-        print("Loading reward functions...")
+        print("[ASYNC MAIN] Loading reward functions...")
         reward_fn = load_reward_manager(
             config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
         )
@@ -187,25 +187,24 @@ class FullyAsyncTaskRunner:
         self.components["reward_fn"] = reward_fn
         self.components["val_reward_fn"] = val_reward_fn
 
-        self.max_queue_size = (
-            config.async_training.staleness_threshold
-            * config.data.train_batch_size
-            * config.actor_rollout_ref.rollout.n
-        ) * 10  # x 10 avoid deadlock
-        print("Creating MessageQueue...")
+        self.max_queue_size = ((config.async_training.staleness_threshold + 1)
+                               * config.data.train_batch_size
+                               * config.actor_rollout_ref.rollout.n
+                               ) * 10  # x 10 avoid deadlock
+        print("[ASYNC MAIN] Creating MessageQueue...")
         message_queue = MessageQueue.remote(config, self.max_queue_size)
         message_queue_client = MessageQueueClient(message_queue)
 
         self.components["message_queue"] = message_queue
         self.components["message_queue_client"] = message_queue_client
 
-        print("Creating FullyAsyncRollouter...")
+        print("[ASYNC MAIN] Creating FullyAsyncRollouter...")
         self._create_rollouter(config)
 
-        print("Creating FullyAsyncTrainer...")
+        print("[ASYNC MAIN] Creating FullyAsyncTrainer...")
         self._create_trainer(config)
 
-        print("Setting up parameter synchronization...")
+        print("[ASYNC MAIN] Setting up parameter synchronization...")
         from recipe.fully_async_policy.param_sync import ParameterSynchronizer
 
         param_synchronizer = ParameterSynchronizer.remote(
@@ -221,10 +220,9 @@ class FullyAsyncTaskRunner:
         ray.get(param_synchronizer.sync_weights.remote(0))
 
         self.components["param_synchronizer"] = param_synchronizer
-        print("All components initialized successfully")
+        print("[ASYNC MAIN] All components initialized successfully")
 
     def _create_rollouter(self, config) -> None:
-        pprint(self.components)
         rollouter = FullyAsyncRollouter.remote(
             config=config,
             tokenizer=self.components["tokenizer"],
@@ -239,7 +237,7 @@ class FullyAsyncTaskRunner:
         ray.get(rollouter.init_workers.remote())
         ray.get(rollouter.set_message_queue_client.remote(self.components["message_queue_client"]))
         self.components["rollouter"] = rollouter
-        print("Rollouter created and initialized successfully")
+        print("[ASYNC MAIN] Rollouter created and initialized successfully")
 
     def _create_trainer(self, config) -> None:
         trainer_role_mapping = {
@@ -263,12 +261,12 @@ class FullyAsyncTaskRunner:
         ray.get(trainer.init_workers.remote())
         ray.get(trainer.set_message_queue_client.remote(self.components["message_queue_client"]))
         self.components["trainer"] = trainer
-        print("FullyAsyncTrainer created and initialized successfully")
+        print("[ASYNC MAIN] FullyAsyncTrainer created and initialized successfully")
 
     def _run_training_loop(self):
         self.running = True
 
-        print("Starting Rollouter in background...")
+        print("[ASYNC MAIN] Starting Rollouter in background...")
         rollouter_future = self.components["rollouter"].fit.remote()
         trainer_future = self.components["trainer"].fit.remote()
 
@@ -276,7 +274,7 @@ class FullyAsyncTaskRunner:
         ray.get(trainer_future)
 
         self.components["message_queue_client"].clear_queue()
-        print("Training completed or interrupted")
+        print("[ASYNC MAIN] Training completed or interrupted")
 
 
 @hydra.main(config_path="config", config_name="fully_async_ppo_trainer", version_base=None)

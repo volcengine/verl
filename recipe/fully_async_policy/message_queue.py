@@ -81,7 +81,7 @@ class MessageQueue:
         with self.lock:
             # Check freshness
             staleness = self.current_param_version - param_version
-            if staleness >= self.staleness_threshold:
+            if staleness > self.staleness_threshold:
                 self.dropped_samples += 1
                 logger.debug(f"Dropped stale sample: staleness={staleness}, threshold={self.staleness_threshold}")
                 return False
@@ -113,13 +113,11 @@ class MessageQueue:
             List[Any]: List of retrieved samples
         """
 
-        print("get_samples")
         with self.lock:
             while len(self.queue) < min_batch_count and self.running:
-                print(f"consumer_condition {len(self.queue)}")
-                for data in self.queue:
-                    if data is None:
-                        return []
+                print(f"[MessageQueue] consumer_condition {len(self.queue)}")
+                if len(self.queue) > 0 and self.queue[-1] is None:
+                    return []
                 self.consumer_condition.wait()
 
             # If queue is closed and doesn't have enough samples, return empty list
