@@ -12,7 +12,7 @@ use_kl_loss=False
 kl_loss_coef=0.0
 
 clip_ratio_low=0.2
-clip_ratio_high=0.35 # 0.28
+clip_ratio_high=0.42 # 0.28
 
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 20))
