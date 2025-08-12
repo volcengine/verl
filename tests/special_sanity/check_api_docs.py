@@ -50,6 +50,7 @@ _ALLOW_LIST = [
     "verl.models.mcore.qwen2_5_vl.get_vision_projection_config",
     "verl.models.mcore.mbridge.freeze_moe_router",
     "verl.models.mcore.mbridge.make_value_model",
+    "verl.utils.transformers_compat.flash_attn_supports_top_left_mask",
 ]
 
 
