@@ -117,12 +117,12 @@ class MessageQueue:
             while len(self.queue) < min_batch_count and self.running:
                 print(f"[MessageQueue] consumer_condition {len(self.queue)}")
                 if len(self.queue) > 0 and self.queue[-1] is None:
-                    return []
+                    return [], len(self.queue)
                 self.consumer_condition.wait()
 
             # If queue is closed and doesn't have enough samples, return empty list
             if not self.running and len(self.queue) < min_batch_count:
-                return []
+                return [], len(self.queue)
 
             # Get specified number of samples
             batch_count = min(min_batch_count, len(self.queue))
@@ -131,7 +131,7 @@ class MessageQueue:
                 if self.queue:
                     data = self.queue.popleft()
                     if data is None:
-                        return []
+                        return [], len(self.queue)
                     else:
                         samples.append(data)
 

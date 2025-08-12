@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import logging
+import time
 
 import ray
 from ray.util.collective import collective
@@ -71,6 +72,8 @@ class ParameterSynchronizer:
         )
 
     def sync_weights(self, version):
+        start_time = time.time()
+
         self.current_version = version
         print(f"[ParameterSynchronizer] Starting weight synchronization (version {self.current_version})...")
 
@@ -86,4 +89,6 @@ class ParameterSynchronizer:
         # Update rollout version
         ray.get(self.rollouter.update_param_version.remote(version))
         ray.get(self.rollouter.resume.remote())
-        print("[ParameterSynchronizer] sync_weights success")
+        end_time = time.time()
+
+        print(f"[ParameterSynchronizer] sync_weights success. cost {end_time - start_time} seconds")

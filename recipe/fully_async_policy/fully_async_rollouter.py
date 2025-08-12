@@ -282,13 +282,14 @@ class FullyAsyncRollouter(RayPPOTrainer):
             is_last_step = self.global_steps >= self.total_rollout_steps
 
             # generate a batch
-            with marked_timer("gen", timing_raw, color="red"):
-                if not self.async_rollout_mode:
-                    gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                else:
-                    gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
-                timing_raw.update(gen_batch_output.meta_info["timing"])
-                gen_batch_output.meta_info.pop("timing", None)
+            with self.lock:
+                with marked_timer("gen", timing_raw, color="red"):
+                    if not self.async_rollout_mode:
+                        gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                    else:
+                        gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
+                    timing_raw.update(gen_batch_output.meta_info["timing"])
+                    gen_batch_output.meta_info.pop("timing", None)
 
             if gen_batch_output is not None:
                 # prepare rollout metadata
@@ -332,6 +333,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
         )
 
     def _monitor_loop(self):
+        """
+        Function 1: Log information output
+        Function 2: Trigger rollout recovery
+        """
         last_stats_time = time.time()
         stats_interval = 30.0
         check_interval = 5.0
@@ -346,11 +351,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 print(f"[FullyAsyncRollouter] {self.get_statistics()}")
                 last_stats_time = current_time
             if not self._should_pause_generation():
-                with self.lock:
-                    if self.paused:
-                        self.paused = False
-                        self.condition.notify_all()
-                        print(f"[FullyAsyncRollouter] Generation resumed")
+                self.resume()
 
     def _should_pause_generation(self) -> bool:
         """Determine whether the build should be paused"""
@@ -413,7 +414,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 return True
 
             self.paused = False
-            self.condition.notify_all()
+            self.actor_rollout_wg.resume()
             return True
 
     def get_statistics(self) -> dict:
