@@ -205,20 +205,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             else:
                 params = self.module.state_dict()
             params = convert_weight_keys(params, getattr(self.module, "_fsdp_wrapped_module", self.module))
-            
-            # 添加额外的参数名称转换，将Megatron Core命名转换为HuggingFace命名
-            converted_params = {}
-            for key, value in params.items():
-                # 处理embedding参数
-                if key == "embedding.word_embeddings.weight":
-                    converted_params["model.embed_tokens.weight"] = value
-                elif key == "decoder.final_layernorm.weight":
-                    converted_params["model.norm.weight"] = value
-                elif key == "output_layer.weight":
-                    converted_params["lm_head.weight"] = value
-                else:
-                    converted_params[key] = value
-            params = converted_params
             log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
 
             if self.rollout_config.free_cache_engine:
