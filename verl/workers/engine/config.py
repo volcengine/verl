@@ -21,19 +21,19 @@ class BaseConfig:
 @dataclass(frozen=True)
 class EngineConfig(BaseConfig):
     """Dataclass for Engine configuration."""
+    strategy: str
     model: 'ModelConfig'
     optim: 'OptimConfig'
     system: 'SystemConfig'
     checkpoint: 'CheckpointConfig'
-    ppo_mini_batch_size: int
+    train_mini_batch_size: int
     train_micro_batch_size_per_gpu: int
+    train_max_token_len_per_gpu: int
     infer_micro_batch_size_per_gpu: int
     infer_max_token_len_per_gpu: int
     ulysses_sequence_parallel_size: int
-    strategy: str
     grad_clip: float
     use_dynamic_bsz: bool
-    ppo_max_token_len_per_gpu: int
     module_type: str
     rollout_n: int
 
@@ -171,19 +171,19 @@ def get_engine_config(config,
                       infer_micro_batch_size_per_gpu,
                       infer_max_token_len_per_gpu):
     engine_config = EngineConfig(
+        strategy=config.strategy,
         model=model_config,
         optim=optim_config,
         system=system_config,
         checkpoint=checkpoint_config,
-        ppo_mini_batch_size=config.ppo_mini_batch_size,
+        train_mini_batch_size=config.ppo_mini_batch_size,
         train_micro_batch_size_per_gpu=config.ppo_micro_batch_size_per_gpu,
+        train_max_token_len_per_gpu=config.ppo_max_token_len_per_gpu,
         infer_micro_batch_size_per_gpu=infer_micro_batch_size_per_gpu,
         infer_max_token_len_per_gpu=infer_max_token_len_per_gpu,
         ulysses_sequence_parallel_size=config.ulysses_sequence_parallel_size,
-        strategy=config.strategy,
         grad_clip=config.grad_clip,
         use_dynamic_bsz=config.use_dynamic_bsz,
-        ppo_max_token_len_per_gpu=config.ppo_max_token_len_per_gpu,
         module_type=module_type,
         rollout_n=rollout_n,
     )

@@ -121,7 +121,7 @@ class FSDPEngine(BaseEngine):
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
 
         # normalize config, update engine's member instead of config
-        self.mini_bsz = config.ppo_mini_batch_size
+        self.mini_bsz = config.train_mini_batch_size
         self.mini_bsz = self.mini_bsz * config.rollout_n
         self.mini_bsz = self.mini_bsz // dp
         assert self.mini_bsz > 0, (
@@ -131,11 +131,11 @@ class FSDPEngine(BaseEngine):
 
         if self.config.train_micro_batch_size_per_gpu is not None:
             assert self.mini_bsz % self.config.train_micro_batch_size_per_gpu == 0, (
-                f"normalized ppo_mini_batch_size {self.mini_bsz} should be divisible by "
+                f"normalized train_mini_batch_size {self.mini_bsz} should be divisible by "
                 f"train_micro_batch_size_per_gpu {self.config.train_micro_batch_size_per_gpu}"
             )
             assert self.mini_bsz // self.config.train_micro_batch_size_per_gpu > 0, (
-                f"normalized ppo_mini_batch_size {self.mini_bsz} should be larger than "
+                f"normalized train_mini_batch_size {self.mini_bsz} should be larger than "
                 f"train_micro_batch_size_per_gpu {self.config.train_micro_batch_size_per_gpu}"
             )
 
@@ -699,7 +699,7 @@ class FSDPEngine(BaseEngine):
         # split batch into micro_batches
         mini_batch = data
         if self.config.use_dynamic_bsz:
-            max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
+            max_token_len = self.config.train_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
             micro_batches, _ = prepare_dynamic_batch(mini_batch, max_token_len=max_token_len)
         else:
             micro_batches = mini_batch.split(self.config.train_micro_batch_size_per_gpu)
