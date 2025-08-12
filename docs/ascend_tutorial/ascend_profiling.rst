@@ -18,13 +18,13 @@ Last updated: 07/24/2025.
 
 通过 ppo_trainer.yaml 中的参数控制采集步数和模式：
 
--  profiler: 控制采集的rank和模式
+-  global_profiler: 控制采集的rank和模式
 
    -  tool: 使用的采集工具，选项有 nsys、npu、torch、torch_memory。
    -  steps: 此参数可以设置为包含采集步数的列表，例如 [2, 4]，表示将采集第2步和第4步。如果设置为 null，则不进行采集。
    -  save_path: 保存采集数据的路径。默认值为 "outputs/profile"。
 
-通过 ``profiler.tool_config.npu`` 中的参数控制具体采集行为：
+通过 ``global_profiler.global_tool_config.npu`` 中的参数控制具体采集行为：
 
 -  level: 采集级别—选项有 level_none、level0、level1 和 level2
 
@@ -63,7 +63,7 @@ Last updated: 07/24/2025.
 
 .. code:: yaml
 
-      profiler:
+      global_profiler:
          steps: null # disable profile
 
 端到端采集
@@ -71,7 +71,7 @@ Last updated: 07/24/2025.
 
 .. code:: yaml
 
-      profiler:
+      global_profiler:
          steps: [1, 2, 5]
          discrete: False
       actor_rollout_ref:
@@ -87,7 +87,7 @@ Last updated: 07/24/2025.
 
 .. code:: yaml
 
-      profiler:
+      global_profiler:
          discrete: True
 
 

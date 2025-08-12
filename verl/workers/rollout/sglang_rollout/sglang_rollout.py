@@ -1491,13 +1491,19 @@ class SGLangRollout(BaseRollout):
         # this function is left for uniform train-inference resharding
 
     async def generate(
-        self, prompt_ids: torch.Tensor, sampling_params: dict[str, Any], request_id: str
+        self,
+        prompt_ids: torch.Tensor,
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
     ) -> torch.Tensor:
         """Generate sequence with token-in-token-out."""
         with ExitStack() as stack:
             request_sampling_params = self.sampling_params.copy()
             request_sampling_params.update(sampling_params)
-            awaitable = self._handle_engine_generate(prompt_ids, request_sampling_params, req_id=request_id)
+            awaitable = self._handle_engine_generate(
+                prompt_ids, request_sampling_params, image_data=image_data, req_id=request_id
+            )
             task = asyncio.ensure_future(awaitable)
             self.active_req[request_id] = task
             stack.callback(lambda: self.active_req.pop(request_id, None))

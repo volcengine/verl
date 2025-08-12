@@ -342,10 +342,20 @@ class AsyncvLLMServer(AsyncServerBase):
             assert isinstance(generator, ChatCompletionResponse)
             return JSONResponse(content=generator.model_dump())
 
-    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
+    async def generate(
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
+    ) -> list[int]:
+        # TODO: vllm image_data surportting like sglang async server
+        if image_data is not None:
+            raise NotImplementedError("image_data is not supported for vLLM rollout")
         with ExitStack() as stack:
             self.req_result[request_id] = None
             stack.callback(lambda: self.req_result.pop(request_id, None))
+
         max_tokens = self.max_model_len - len(prompt_ids)
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
         prompt = TokensPrompt(prompt_token_ids=prompt_ids)

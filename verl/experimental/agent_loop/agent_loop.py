@@ -17,7 +17,7 @@ import logging
 import os
 import random
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional
 
 import hydra
 import numpy as np
@@ -26,13 +26,14 @@ import torch
 from cachetools import LRUCache
 from omegaconf import DictConfig, OmegaConf
 from tensordict import TensorDict
-from transformers import AutoTokenizer
+from transformers import AutoProcessor, AutoTokenizer
 
 from verl.experimental.agent_loop.utils import AgentLoopOutput, _InternalAgentLoopOutput, agent_loop_perf
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayWorkerGroup
-from verl.utils import hf_tokenizer
+from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
+from verl.utils.model import compute_position_id_with_mask
 from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
 from verl.workers.rollout.async_server import async_server_class
 
@@ -84,6 +85,7 @@ class AsyncLLMServerManager:
         *,
         prompt_ids: list[int],
         sampling_params: dict[str, Any],
+        image_data: Optional[list[Any]] = None,
     ) -> list[int]:
         """Generate tokens from prompt ids.
 
@@ -100,6 +102,7 @@ class AsyncLLMServerManager:
             request_id=request_id,
             prompt_ids=prompt_ids,
             sampling_params=sampling_params,
+            image_data=image_data,
         )
         return output
 
@@ -117,7 +120,12 @@ class AgentLoopBase(ABC):
     _class_initialized = False
 
     def __init__(
-        self, trainer_config: _DummyConfig, server_manager: AsyncLLMServerManager, tokenizer: AutoTokenizer, **kwargs
+        self,
+        trainer_config: _DummyConfig,
+        server_manager: AsyncLLMServerManager,
+        tokenizer: AutoTokenizer,
+        processor: AutoProcessor,
+        **kwargs,
     ):
         """Initialize agent loop, each sample will have its own loop instance.
 
@@ -125,20 +133,23 @@ class AgentLoopBase(ABC):
             trainer_config (_DummyConfig): trainer config.
             server_manager (AsyncLLMServerManager): OpenAI compatible LLM server manager.
             tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
+            processor (AutoProcessor): Processor for process messages.
         """
-        self.init_class(trainer_config.config, tokenizer, **kwargs)
+        self.init_class(trainer_config.config, tokenizer, processor, **kwargs)
         self.config = trainer_config.config
         self.server_manager = server_manager
         self.tokenizer = tokenizer
+        self.processor = processor
         self.loop = asyncio.get_running_loop()
 
     @classmethod
-    def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer, **kwargs):
+    def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer, processor: AutoProcessor, **kwargs):
         """This is used to do heavy initialization work that should shared across all instances. It's only called once.
 
         Args:
             config (DictConfig): trainer config.
             tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
+            processor (AutoProcessor): Processor for process multi_modal data.
             **kwargs: extra kwargs from config file passed in by `hydra.utils.instantiate`.
         """
         if cls._class_initialized:
@@ -217,12 +228,17 @@ class AgentLoopWorker:
         self.model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
+        self.processor = hf_processor(local_path, trust_remote_code=True)
 
         agent_loop_config_path = config.actor_rollout_ref.rollout.agent.agent_loop_config_path
         if agent_loop_config_path:
             agent_loop_configs = OmegaConf.load(agent_loop_config_path)
             for agent_loop_config in agent_loop_configs:
                 _agent_loop_registry[agent_loop_config.name] = agent_loop_config
+        if self.config.actor_rollout_ref.model.get("custom_chat_template", None) is not None:
+            if self.processor is not None:
+                self.processor.chat_template = self.config.actor_rollout_ref.model.custom_chat_template
+            self.tokenizer.chat_template = self.config.actor_rollout_ref.model.custom_chat_template
 
         trace_config = self.config.actor_rollout_ref.rollout.get("trace", {})
         RolloutTraceConfig.init(
@@ -312,8 +328,9 @@ class AgentLoopWorker:
                 trainer_config=_DummyConfig(config=self.config),
                 server_manager=self.server_manager,
                 tokenizer=self.tokenizer,
+                processor=self.processor,
             )
-            output = await agent_loop.run(sampling_params, **kwargs)
+            output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
 
             # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
             # prompt_ids: left padded with zeros (e.g., [0,0,0,0,1,2,3,4])
@@ -367,14 +384,53 @@ class AgentLoopWorker:
                 response_mask_output["input_ids"] = response_mask_output["input_ids"].unsqueeze(0)
 
             response_mask = response_mask_output["input_ids"] * response_output["attention_mask"]
-
             attention_mask = torch.cat([prompt_output["attention_mask"], response_output["attention_mask"]], dim=1)
+            input_ids = torch.cat([prompt_output["input_ids"], response_output["input_ids"]], dim=1)
+
+            # Handle multi-modal inputs and position_ids calculation
+            # Only support Qwen2VLImageProcessor for multi-modal processing currently
+            # TODO: support other multi-modal inputs
+            multi_modal_inputs = None
+            if (
+                self.processor is not None
+                and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__
+            ):
+                from verl.models.transformers.qwen2_vl import get_rope_index
+
+                images = output.multi_modal_data.get("image", [])
+                current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
+                multi_modal_inputs = self.processor(text=[current_text], images=images, return_tensors="pt")
+                multi_modal_inputs.pop("input_ids", None)
+                multi_modal_inputs.pop("attention_mask", None)
+
+                # We must use dict(multi_modal_inputs) to convert BatchFeature values to a new dict
+                # because np.array() only keeps the keys for BatchFeature.
+                multi_modal_inputs = dict(multi_modal_inputs)
+
+                image_grid_thw = multi_modal_inputs.get("image_grid_thw")
+                video_grid_thw = multi_modal_inputs.get("video_grid_thw")
+                second_per_grid_ts = multi_modal_inputs.get("second_per_grid_ts")
+
+                position_ids = get_rope_index(
+                    self.processor,
+                    input_ids=input_ids.squeeze(0),
+                    image_grid_thw=image_grid_thw,
+                    video_grid_thw=video_grid_thw,
+                    second_per_grid_ts=second_per_grid_ts,
+                    attention_mask=attention_mask.squeeze(0),
+                ).unsqueeze(0)  # (1, 3, seq_len)
+            else:
+                position_ids = compute_position_id_with_mask(attention_mask)  # (1, seq_len)
 
             return _InternalAgentLoopOutput(
                 prompt_ids=prompt_output["input_ids"],
                 response_ids=response_output["input_ids"],
+                input_ids=input_ids,
+                position_ids=position_ids,
                 response_mask=response_mask,
                 attention_mask=attention_mask,
+                multi_modal_inputs=multi_modal_inputs,
+                multi_modal_data=output.multi_modal_data,
                 num_turns=output.num_turns,
                 metrics=output.metrics,
             )
@@ -386,9 +442,8 @@ class AgentLoopWorker:
         response_ids = torch.cat([input.response_ids for input in inputs], dim=0)
         response_mask = torch.cat([input.response_mask for input in inputs], dim=0)
         attention_mask = torch.cat([input.attention_mask for input in inputs], dim=0)
-
-        input_ids = torch.cat([prompt_ids, response_ids], dim=1)
-        position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
+        input_ids = torch.cat([input.input_ids for input in inputs], dim=0)
+        position_ids = torch.cat([input.position_ids for input in inputs], dim=0)
 
         batch = TensorDict(
             {
@@ -397,14 +452,23 @@ class AgentLoopWorker:
                 "response_mask": response_mask,  # [bsz, response_length]
                 "input_ids": input_ids,  # [bsz, prompt_length + response_length]
                 "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
-                "position_ids": position_ids,  # [bsz, prompt_length + response_length]
+                # position_ids: [bsz, 3, prompt_length + response_length] or [bsz, prompt_length + response_length]
+                "position_ids": position_ids,
             },
             batch_size=len(inputs),
         )
 
-        num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
+        non_tensor_batch = {
+            "__num_turns__": np.array([input.num_turns for input in inputs], dtype=np.int32),
+        }
+
+        # Add multi_modal_inputs to non_tensor_batch if any samples have them
+        multi_modal_inputs_list = [input.multi_modal_inputs for input in inputs]
+        if any(mmi is not None for mmi in multi_modal_inputs_list):
+            non_tensor_batch["multi_modal_inputs"] = np.array(multi_modal_inputs_list, dtype=object)
+
         metrics = [input.metrics.model_dump() for input in inputs]
-        return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
+        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch, meta_info={"metrics": metrics})
 
 
 async def get_trajectory_info(step, index, validate):

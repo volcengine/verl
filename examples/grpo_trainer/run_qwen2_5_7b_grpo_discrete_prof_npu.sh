@@ -55,11 +55,11 @@ python3 -m verl.trainer.main_ppo \
     trainer.test_freq=5 \
     trainer.total_epochs=5 \
     trainer.device=npu \
-    profiler.tool=npu \
-    profiler.steps=$PROFILE_STEPS \
-    profiler.save_path=$SAVE_PATH \
-    profiler.tool_config.npu.discrete=$DISCRETE \
-    profiler.tool_config.npu.contents=$CONTENTS \
-    profiler.tool_config.npu.level=$LEVEL \
-    profiler.tool_config.npu.analysis=$ANALYSIS
+    global_profiler.tool=npu \
+    global_profiler.steps=$PROFILE_STEPS \
+    global_profiler.save_path=$SAVE_PATH \
+    global_profiler.global_tool_config.npu.discrete=$DISCRETE \
+    global_profiler.global_tool_config.npu.contents=$CONTENTS \
+    global_profiler.global_tool_config.npu.level=$LEVEL \
+    global_profiler.global_tool_config.npu.analysis=$ANALYSIS
     $@

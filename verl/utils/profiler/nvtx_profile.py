@@ -138,13 +138,13 @@ class NsightSystemsProfiler(DistProfiler):
             self.this_rank = rank in config.ranks
 
     def start(self, **kwargs):
-        if self.this_rank:
+        if self.enable and self.this_rank:
             self.this_step = True
             if not self.discrete:
                 torch.cuda.profiler.start()
 
     def stop(self):
-        if self.this_rank:
+        if self.enable and self.this_rank:
             self.this_step = False
             if not self.discrete:
                 torch.cuda.profiler.stop()

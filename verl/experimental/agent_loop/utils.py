@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any, Optional
+
 import numpy as np
 import torch
 from pydantic import BaseModel, ConfigDict
@@ -35,6 +37,8 @@ class AgentLoopOutput(BaseModel):
     """Response token ids including LLM generated token, tool response token."""
     response_mask: list[int]
     """Response mask, 1 for LLM generated token, 0 for tool response token."""
+    multi_modal_data: Optional[dict[str, Any]] = None
+    """Multi-modal data for multi-modal tools."""
     num_turns: int = 0
     """Number of chat turns, including user, assistant, tool."""
     metrics: AgentLoopMetrics
@@ -50,10 +54,16 @@ class _InternalAgentLoopOutput(AgentLoopOutput):
     """Padded prompt token ids."""
     response_ids: torch.Tensor
     """Padded response token ids."""
+    input_ids: torch.Tensor
+    """Padded input ids(prompt_ids + response_ids)."""
+    position_ids: torch.Tensor
+    """Padded position ids."""
     response_mask: torch.Tensor
     """Padded response mask."""
     attention_mask: torch.Tensor
     """Padded attention mask."""
+    multi_modal_inputs: Optional[dict[str, torch.Tensor]] = None
+    """Multi-modal inputs for processors (e.g., pixel_values, image_grid_thw)."""
 
 
 def agent_loop_perf(metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:
