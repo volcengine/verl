@@ -381,7 +381,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             "gate_proj_layer_name": "linear_fc1.",
         }
 
-        rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout, dataclass_type=RolloutConfig)
+        rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
 
         if self.config.rollout.name == "vllm":
             from torch.distributed.device_mesh import init_device_mesh

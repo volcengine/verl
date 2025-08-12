@@ -513,7 +513,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
             )
 
-        rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout, dataclass_type=RolloutConfig)
+        rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
 
         if rollout_name == "hf":
             from verl.workers.rollout import HFRollout
