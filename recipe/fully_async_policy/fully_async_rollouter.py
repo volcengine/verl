@@ -381,7 +381,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             return True
 
     def pause(self) -> bool:
-        """ pause rollout
+        """pause rollout
         TODO integrated Partial Rollout
         """
         print("[rollouter] pause")
@@ -396,7 +396,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             return True
 
     def resume(self) -> bool:
-        """ resume rollout
+        """resume rollout
         TODO integrated Partial Rollout
         """
         print("[rollouter] resume")
