@@ -542,6 +542,9 @@ class AgentLoopManager:
 
         register_center = ray.get_actor(f"{self.worker_group.name_prefix}_register_center")
         workers_info = ray.get(register_center.get_worker_info.remote())
+        self.rollout_dp_size = self.worker_group.world_size // self.rollout_tp_size
+        # Store the node IDs for the servers
+        self.server_node_ids = [workers_info[i * self.rollout_tp_size] for i in range(self.rollout_dp_size)]
         assert len(workers_info) == self.worker_group.world_size
 
         self.async_llm_servers = [None] * self.rollout_dp_size
@@ -586,10 +589,18 @@ class AgentLoopManager:
 
     def _init_agent_loop_workers(self):
         self.agent_loop_workers = []
-        for i in range(self.config.actor_rollout_ref.rollout.agent.num_workers):
+        num_workers = self.config.actor_rollout_ref.rollout.agent.num_workers
+        num_server_nodes = len(self.server_node_ids)
+
+        for i in range(num_workers):
+            # Round-robin scheduling over the server nodes
+            node_id = self.server_node_ids[i % num_server_nodes]
             self.agent_loop_workers.append(
                 AgentLoopWorker.options(
                     name=f"agent_loop_worker_{i}",
+                    scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
+                        node_id=node_id, soft=True
+                    ),
                 ).remote(self.config, self.async_llm_servers)
             )
 
