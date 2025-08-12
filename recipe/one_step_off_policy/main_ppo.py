@@ -39,6 +39,11 @@ def main(config):
 def run_ppo(config) -> None:
     # Check if Ray is not initialized
     if not ray.is_initialized():
+        allow_external = config.ray_init.allow_external_dashboard
+        dashboard_host = "0.0.0.0" if allow_external else "127.0.0.1"
+        if allow_external:
+            print("⚠️ Ray Dashboard will be accessible from external networks (0.0.0.0). "
+                "Ensure this is intended and secure.")
         # Initialize Ray with a local cluster configuration
         # Set environment variables in the runtime environment to control tokenizer parallelism,
         # NCCL debug level, VLLM logging level, and allow runtime LoRA updating
@@ -46,6 +51,7 @@ def run_ppo(config) -> None:
         ray.init(
             runtime_env=get_ppo_ray_runtime_env(),
             num_cpus=config.ray_init.num_cpus,
+            dashboard_host=dashboard_host,
         )
 
     # Create a remote instance of the TaskRunner class, and

@@ -49,7 +49,12 @@ def main(config):
 
     # Initialize Ray
     if not ray.is_initialized():
-        ray.init(num_cpus=config.ray_init.num_cpus)
+        allow_external = config.ray_init.allow_external_dashboard
+        dashboard_host = "0.0.0.0" if allow_external else "127.0.0.1"
+        if allow_external:
+            print("⚠️ Ray Dashboard will be accessible from external networks (0.0.0.0). "
+                "Ensure this is intended and secure.")
+        ray.init(num_cpus=config.ray_init.num_cpus, dashboard_host=dashboard_host)
 
     # evaluate test_score based on data source
     data_source_reward = defaultdict(list)
