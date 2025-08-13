@@ -56,7 +56,7 @@ class TestProfilerConfig(unittest.TestCase):
         from verl.utils.profiler.config import ProfilerConfig
 
         # Create a new ProfilerConfig instance
-        config = ProfilerConfig(all_ranks=False, ranks=[0], extra={"key": "value"})
+        config = ProfilerConfig(all_ranks=False, ranks=[0])
 
         with self.assertRaises(FrozenInstanceError):
             config.all_ranks = True
@@ -69,10 +69,6 @@ class TestProfilerConfig(unittest.TestCase):
 
         with self.assertRaises(TypeError):
             config["ranks"] = [1, 2, 3]
-
-        assert config["extra"]["key"] == "value"
-        config["extra"]["key"] = "value2"
-        assert config["extra"]["key"] == "value2"
 
 
 class TestNsightSystemsProfiler(unittest.TestCase):
