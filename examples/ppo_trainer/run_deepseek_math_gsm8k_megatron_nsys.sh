@@ -60,6 +60,6 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     trainer.test_freq=-1 \
     trainer.total_epochs=100 \
     trainer.total_training_steps=1 \
-    profiler.tool=nsys \
-    profiler.steps=$PROFILE_STEPS \
-    profiler.tool_config.nsys.discrete=$DISCRETE $@
+    global_profiler.tool=nsys \
+    global_profiler.steps=$PROFILE_STEPS \
+    global_profiler.global_tool_config.nsys.discrete=$DISCRETE $@

@@ -68,6 +68,7 @@ actor_rollout_ref:
       save_path: ${oc.select:global_profiler.save_path,null}
       tool_config:
         nsys:
+          _target_: verl.utils.profiler.config.NsightToolConfig
           discrete: ${oc.select:global_profiler.global_tool_config.nsys.discrete}
         npu:
           _target_: verl.utils.profiler.config.NPUToolConfig
@@ -118,7 +119,7 @@ actor_rollout_ref:
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}
+      tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
     megatron:
       _target_: verl.workers.config.MegatronEngineConfig
       param_offload: false
@@ -137,6 +138,7 @@ actor_rollout_ref:
       use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
     load_weight: true
   rollout:
+    _target_: verl.workers.config.RolloutConfig
     name: ???
     mode: sync
     temperature: 1.0
@@ -169,12 +171,14 @@ actor_rollout_ref:
       sglang:
         attention_backend: null
     val_kwargs:
+      _target_: verl.workers.config.SamplingConfig
       top_k: -1
       top_p: 1.0
       temperature: 0
       'n': 1
       do_sample: false
     multi_turn:
+      _target_: verl.workers.config.MultiTurnConfig
       enable: false
       max_assistant_turns: null
       tool_config_path: null
@@ -188,13 +192,16 @@ actor_rollout_ref:
       format: hermes
     calculate_log_probs: false
     agent:
+      _target_: verl.workers.config.AgentLoopConfig
       num_workers: 8
       agent_loop_config_path: null
       custom_async_server:
+        _target_: verl.workers.config.CustomAsyncServerConfig
         path: null
         name: null
     update_weights_bucket_megabytes: 512
     trace:
+      _target_: verl.workers.config.TraceConfig
       backend: null
       token2text: false
     skip_rollout: false
@@ -206,7 +213,7 @@ actor_rollout_ref:
       all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
       ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
       save_path: ${oc.select:global_profiler.save_path,null}
-      tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}
+      tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
     enable_chunked_prefill: false
     load_format: dummy_megatron
     layer_name_map:
@@ -316,7 +323,7 @@ critic:
     all_ranks: false
     ranks: []
     save_path: ${oc.select:global_profiler.save_path,null}
-    tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}
+    tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
   nccl_timeout: 600
   megatron:
     _target_: verl.workers.config.McoreEngineConfig
@@ -365,7 +372,7 @@ reward_model:
     all_ranks: false
     ranks: []
     save_path: ${oc.select:global_profiler.save_path,null}
-    tool_config: ${oc.select:actor_rollout_ref.actor.tool_config,null}
+    tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
   nccl_timeout: 600
   megatron:
     _target_: verl.workers.config.MegatronEngineConfig
@@ -431,6 +438,7 @@ trainer:
   max_critic_ckpt_to_keep: null
   ray_wait_register_center_timeout: 300
   device: cuda
+  rollout_data_dir: null
 global_profiler:
   _target_: verl.utils.profiler.ProfilerConfig
   tool: null
