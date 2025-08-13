@@ -30,6 +30,9 @@ from verl.utils.profiler import log_gpu_memory_usage
 from verl.utils.fs import copy_to_local
 
 from verl.base_config import BaseConfig
+from verl.workers.config.rollout import RolloutConfig
+
+from verl.utils import hf_processor, hf_tokenizer
 
 from verl.utils.device import (
     get_device_id,
@@ -40,90 +43,7 @@ from verl.utils.device import (
     is_npu_available,
 )
 
-
-@dataclass
-class SamplingConfig(BaseConfig):
-    temperature: float = 1.0
-    top_k: int = -1
-    top_p: float = 1.0
-    do_sample: bool = True
-    n: int = 1
-
-
-
-@dataclass
-class EngineConfig(BaseConfig):
-    pass
-
-
-@dataclass
-class vLLMEngineConfig(EngineConfig):
-    swap_space: int = None
-    disable_mm_preprocessor_cache: bool = True
-
-
-@dataclass
-class SGLangEngineConfig(EngineConfig):
-    attention_backend: str = None
-
-
-@dataclass
-class MultiTurnConfig(BaseConfig):
-    enable: bool = False
-    max_assistant_turns: int = None
-    tool_config_path: str = None
-    max_user_turns: int = None
-    max_parallel_calls: int = 1
-    max_tool_response_length: int = 256
-    tool_response_truncate_side: str = "middle"
-    interaction_config_path: str = None
-    use_inference_chat_template: bool = False
-    tokenization_sanity_check_mode: str = "strict"
-    format: str = "hermes"
-
-
-@dataclass
-class AgentLoopConfig(BaseConfig):
-    num_workers: int = 8
-    agent_loop_config_path: str = None
-
-
-
-@dataclass
-class RolloutConfig(BaseConfig):
-    name: str
-    mode: str = "sync"
-
-    train_sampling_config: SamplingConfig = field(default_factory=SamplingConfig)
-    val_sampling_config: SamplingConfig = field(default_factory=SamplingConfig)
-
-    model_path: str = None
-
-    prompt_length: int = 512
-    response_length: int = 512
-    dtype: str = "bfloat16"
-    gpu_memory_utilization: float = 0.5
-    ignore_eos: bool = False
-    enforce_eager: bool = True
-    free_cache_engine: bool = True
-    tensor_model_parallel_size: int = 2
-    max_num_batched_tokens: int = 8192
-    max_model_len: int = None
-    max_num_seqs: int = 1024
-
-    # note that the logprob computation should belong to the 
-    log_prob_micro_batch_size_per_gpu: int = None
-    log_prob_use_dynamic_bsz: bool = False
-    log_prob_max_token_len_per_gpu: int = 16384
-
-    disable_log_stats: bool = True
-    
-    multi_stage_wake_up: bool = False
-    engine_kwargs: EngineConfig = field(default_factory=EngineConfig)
-
-    calculate_log_probs: bool = False
-    update_weights_bucket_megabytes: int = 512
-
+from transformers import AutoConfig
 
 
 logger = logging.getLogger(__file__)
@@ -172,6 +92,10 @@ class RolloutWorker(Worker):
                 "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
             )
 
+        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+        self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
+        self.model_config = AutoConfig.from_pretrained(local_path)
+
         # build rollout engine here
         if self.config.name == "vllm":
             from verl.workers.rollout.vllm_rollout import vLLMRollout
@@ -185,10 +109,10 @@ class RolloutWorker(Worker):
             )
             from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 
-            vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
+            vllm_rollout_cls = vLLMRollout if self.config.mode == "sync" else vLLMAsyncRollout
             rollout = vllm_rollout_cls(
                 model_path=local_path,
-                config=self.config.rollout,
+                config=self.config,
                 tokenizer=self.tokenizer,
                 model_hf_config=self.actor_model_config,
                 device_mesh=rollout_device_mesh,
@@ -211,7 +135,7 @@ class RolloutWorker(Worker):
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
             rollout = SGLangRollout(
                 actor_module=local_path,
-                config=self.config.rollout,
+                config=self.config,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
                 model_hf_config=self.actor_model_config,
                 trust_remote_code=trust_remote_code,

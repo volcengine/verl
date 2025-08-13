@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from omegaconf import MISSING
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -77,7 +78,7 @@ class TraceConfig(BaseConfig):
 class RolloutConfig(BaseConfig):
     _mutable_fields = {"max_model_len"}
 
-    name: Optional[str] = None
+    name: Optional[str] = MISSING
     mode: str = "sync"
 
     temperature: float = 1.0
