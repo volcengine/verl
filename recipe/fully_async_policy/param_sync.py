@@ -91,4 +91,4 @@ class ParameterSynchronizer:
         ray.get(self.rollouter.resume.remote())
         end_time = time.time()
 
-        print(f"[ParameterSynchronizer] sync_weights success. cost {end_time - start_time} seconds")
+        print(f"[ParameterSynchronizer] sync_weights success. cost {end_time - start_time:.2f} seconds")

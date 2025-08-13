@@ -414,7 +414,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 return True
 
             self.paused = False
-            self.actor_rollout_wg.resume()
+            self.condition.notify_all()
             return True
 
     def get_statistics(self) -> dict:
