@@ -391,8 +391,9 @@ class RayDAPOTrainer(RayPPOTrainer):
                 self.global_steps += 1
                 self.gen_steps += 1
         if skipped_save_checkpoint:
-            # save last_step  checkpoint
+            # save last step checkpoint
+            timing_raw = defaultdict(float)
             with marked_timer("save_checkpoint", timing_raw, "green"):
                 self._save_checkpoint()
-            
-            
+            metrics = {f"timing/{k}": v for k, v in timing_raw.items()}
+            logger.log(data=metrics, step=self.global_steps)
