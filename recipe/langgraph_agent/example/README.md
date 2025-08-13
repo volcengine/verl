@@ -44,6 +44,15 @@ Now, let's prepare two small datasets for training and evaluation:
 python recipe/langgraph_agent/example/create_dataset.py
 ```
 
+- Parameters: `--train_size` (default: 5000), `--test_size` (default: 500), `--output_dir` (default: `data/math_expression_tool`).
+- Example with custom sizes/output:
+```bash
+python recipe/langgraph_agent/example/create_dataset.py \
+  --train_size 10000 \
+  --test_size 1000 \
+  --output_dir data/math_expression_tool
+```
+
 Note that dataset should contain a column `agent_name` with `math_expression`, which is used by `AgentLoopWorker` to select the
 agent loop class.
 | prompt | reward_model | agent_name |
@@ -63,6 +72,24 @@ Generated math expressions are like below, requiring model to call `calculate` m
 Hook all these up and start training:
 ```bash
 bash recipe/langgraph_agent/example/run_qwen2.5_3b.sh 2>&1 | tee train.log
+```
+
+To submit on a SLURM cluster (the script contains SBATCH headers):
+```bash
+sbatch recipe/langgraph_agent/example/run_qwen2.5_3b.sh
+```
+
+**Note on `GPUS_PER_NODE` and `NNODES`:**
+
+- `GPUS_PER_NODE`: GPUs per node.  
+  Detection order: `SLURM_GPUS_ON_NODE` (if set) → `GPUS_PER_NODE` → `2`.
+- `NNODES`: number of nodes.  
+  Detection order: `SLURM_JOB_NUM_NODES` (if set) → `NNODES` → `1`.
+- Total GPUs = `GPUS_PER_NODE × NNODES` (must be ≥ 2).
+
+Local override (no `SLURM_*` set):
+```bash
+GPUS_PER_NODE=4 NNODES=2 bash recipe/langgraph_agent/example/run_qwen2.5_3b.sh
 ```
 
 After total 39 steps, model should achieve 100% accuray on test dataset:
