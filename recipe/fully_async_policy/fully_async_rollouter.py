@@ -283,6 +283,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             # generate a batch
             with self.lock:
+                start_time = time.time()
                 with marked_timer("gen", timing_raw, color="red"):
                     if not self.async_rollout_mode:
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
@@ -290,6 +291,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
                         gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
                     timing_raw.update(gen_batch_output.meta_info["timing"])
                     gen_batch_output.meta_info.pop("timing", None)
+                end_time = time.time()
+                print(f"[FullyAsyncRollouter] rollout time {end_time - start_time:.2f} seconds")
 
             if gen_batch_output is not None:
                 # prepare rollout metadata
@@ -300,6 +303,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 }
                 batch = self._post_generate_batch(batch, gen_batch_output, metrics)
 
+                start_time = time.time()
                 for sample in batch:
                     # for sample in samples:
                     queue_sample = QueueSample(
@@ -316,6 +320,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
                             self.train_step_samples += 1
                         else:
                             self.dropped_stale_samples += 1
+                end_time = time.time()
+                print(f"[FullyAsyncRollouter] mq push time {end_time - start_time:.2f} seconds")
 
             self.global_steps += 1
 

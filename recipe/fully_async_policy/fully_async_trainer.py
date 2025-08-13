@@ -121,7 +121,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
         Returns:
             tuple: (epoch, batch_dict, gen_batch_output)
         """
-
         # Calculate the number of samples needed
         n_responses_per_prompt = self.config.actor_rollout_ref.rollout.n
         batch_size = self.config.data.train_batch_size
@@ -165,6 +164,8 @@ class FullyAsyncTrainer(RayPPOTrainer):
         Returns:
             DataProto: Assembled gen_batch_output
         """
+        start_time = time.time()
+
         import numpy as np
 
         from verl.protocol import DataProto
@@ -214,7 +215,8 @@ class FullyAsyncTrainer(RayPPOTrainer):
             "avg_sample_age": np.mean([time.time() - ts for ts in sample_timestamps]),
         }
 
-        print(f"[FullyAsyncTrainer] {meta_info}")
+        end_time = time.time()
+        print(f"[FullyAsyncTrainer] {meta_info} time elapsed: {end_time - start_time:.2f} seconds")
 
         return batch
 
