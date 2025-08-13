@@ -254,7 +254,7 @@ class AsyncvLLMServer(AsyncServerBase):
             else:
                 logger.warning(f"cudagraph_capture_sizes must be a list, but got {cudagraph_capture_sizes}")
 
-        engine_kwargs = config.get("engine_kwargs", {}).get("vllm", {})
+        engine_kwargs = config.get("engine_kwargs", {}).get("vllm", {}) or {}
 
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
         if config.get("limit_images", None):  # support for multi-image data

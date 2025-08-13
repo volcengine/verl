@@ -428,7 +428,7 @@ class SGLangRollout(BaseRollout):
         tp_size_per_node = self._tp_size // nnodes
         node_rank = self._tp_rank // tp_size_per_node
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0
-        engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {})
+        engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {}) or {}
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
 
         # attention backend will be changed to fa3 if not specified

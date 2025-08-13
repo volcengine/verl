@@ -153,7 +153,7 @@ class vLLMRollout(BaseRollout):
         lora_kwargs = kwargs.pop("lora_kwargs", {})
         self.lora_kwargs = lora_kwargs
         # copy it to avoid secretly modifying the engine config
-        engine_kwargs = config.get("engine_kwargs", {}).get("vllm", {})
+        engine_kwargs = config.get("engine_kwargs", {}).get("vllm", {}) or {}
 
         # For each vLLM engine parameter,
         # - `None` means not setting it, so we pop it, and leave it to vLLM default value
