@@ -19,7 +19,7 @@ import requests
 
 from verl.utils.reward_score.math import last_boxed_only_string, remove_boxed
 
-BASE_URL = "http://localhost:30000"
+BASE_URL = "http://0.0.0.0:8000"
 API_KEY = "EMPTY"
 MAX_RETRIES = 3
 BASE_DELAY = 2

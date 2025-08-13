@@ -1,12 +1,9 @@
 # vllm server
-# CUDA_VISIBLE_DEVICES=0,1,2,3 vllm serve verl-team/GenRM-CI-Test-1.5B --served_model_name genrm-demo
-
-# sglang server
-# CUDA_VISIBLE_DEVICES=0,1,2,3 python -m sglang_router.launch_server --model-path verl-team/GenRM-CI-Test-1.5B --dp-size 4
+# CUDA_VISIBLE_DEVICES=0 vllm serve verl-team/GenRM-CI-Test-1.5B --served_model_name genrm-demo
 
 set -x
 
-CUDA_VISIBLE_DEVICES=4,5,6,7 python3 -m verl.trainer.main_ppo \
+CUDA_VISIBLE_DEVICES=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=${HOME}/data/gsm8k/train.parquet \
     data.val_files=${HOME}/data/gsm8k/test.parquet \
@@ -15,7 +12,7 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 python3 -m verl.trainer.main_ppo \
     data.max_response_length=2048 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-3B-Instruct \
+    actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
@@ -35,8 +32,8 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_func_rm_example_gsm8k' \
-    trainer.experiment_name='qwen2_5_3b_gen_rm' \
-    trainer.n_gpus_per_node=4 \
+    trainer.experiment_name='qwen2_5_0_5b_gen_rm' \
+    trainer.n_gpus_per_node=1 \
     trainer.val_before_train=True \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
