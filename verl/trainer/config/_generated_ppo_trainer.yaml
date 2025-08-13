@@ -51,6 +51,26 @@ actor_rollout_ref:
       num_cycles: 0.5
       warmup_style: constant
     use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
+    profiler:
+      _target_: verl.utils.profiler.ProfilerConfig
+      tool: ${oc.select:global_profiler.tool,null}
+      enable: false
+      all_ranks: false
+      ranks: []
+      save_path: ${oc.select:global_profiler.save_path,null}
+      tool_config:
+        nsys:
+          _target_: verl.utils.profiler.config.NsightToolConfig
+          discrete: ${oc.select:global_profiler.global_tool_config.nsys.discrete}
+        npu:
+          _target_: verl.utils.profiler.config.NPUToolConfig
+          contents: []
+          level: level1
+          analysis: true
+        torch:
+          _target_: verl.utils.profiler.config.TorchProfilerToolConfig
+          step_start: 0
+          step_end: null
     grad_clip: 1.0
     ulysses_sequence_parallel_size: 1
     entropy_from_logits_with_chunking: false
@@ -73,6 +93,15 @@ actor_rollout_ref:
     log_prob_micro_batch_size_per_gpu: null
     log_prob_use_dynamic_bsz: ${oc.select:actor_rollout_ref.actor.use_dynamic_bsz,false}
     log_prob_max_token_len_per_gpu: ${oc.select:actor_rollout_ref.actor.ppo_max_token_len_per_gpu,16384}
+    profiler:
+      _target_: verl.utils.profiler.ProfilerConfig
+      tool: ${oc.select:global_profiler.tool,null}
+      enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
+      all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
+      ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
+      save_path: ${oc.select:global_profiler.save_path,null}
+      tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
+    model: null
     fsdp_config:
       _target_: verl.workers.config.FSDPEngineConfig
       wrap_policy:
@@ -84,6 +113,7 @@ actor_rollout_ref:
     entropy_from_logits_with_chunking: false
     entropy_checkpointing: false
   rollout:
+    _target_: verl.workers.config.RolloutConfig
     name: ???
     mode: sync
     temperature: 1.0
@@ -94,7 +124,8 @@ actor_rollout_ref:
     dtype: bfloat16
     gpu_memory_utilization: 0.5
     ignore_eos: false
-    enforce_eager: true
+    enforce_eager: false
+    cudagraph_capture_sizes: null
     free_cache_engine: true
     tensor_model_parallel_size: 2
     max_num_batched_tokens: 8192
@@ -115,12 +146,14 @@ actor_rollout_ref:
       sglang:
         attention_backend: null
     val_kwargs:
+      _target_: verl.workers.config.SamplingConfig
       top_k: -1
       top_p: 1.0
       temperature: 0
       'n': 1
       do_sample: false
     multi_turn:
+      _target_: verl.workers.config.MultiTurnConfig
       enable: false
       max_assistant_turns: null
       tool_config_path: null
@@ -134,19 +167,33 @@ actor_rollout_ref:
       format: hermes
     calculate_log_probs: false
     agent:
+      _target_: verl.workers.config.AgentLoopConfig
       num_workers: 8
       agent_loop_config_path: null
       custom_async_server:
+        _target_: verl.workers.config.CustomAsyncServerConfig
         path: null
         name: null
     update_weights_bucket_megabytes: 512
     trace:
+      _target_: verl.workers.config.TraceConfig
       backend: null
       token2text: false
+    skip_rollout: false
+    skip_dump_dir: /tmp/rollout_dump
+    profiler:
+      _target_: verl.utils.profiler.ProfilerConfig
+      tool: ${oc.select:global_profiler.tool,null}
+      enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
+      all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
+      ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
+      save_path: ${oc.select:global_profiler.save_path,null}
+      tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
     enable_chunked_prefill: true
     load_format: dummy_dtensor
     layered_summon: false
   hybrid_engine: true
+  nccl_timeout: 600
   model:
     path: ~/models/deepseek-llm-7b-chat
     custom_chat_template: null
@@ -165,66 +212,6 @@ actor_rollout_ref:
     fused_kernel_options:
       impl_backend: torch
     trust_remote_code: false
-  profiler:
-    _target_: verl.utils.profiler.ProfilerConfig
-    discrete: false
-    all_ranks: false
-    ranks: []
-trainer:
-  npu_profile:
-    options:
-      save_path: ./profiler_data
-      roles:
-      - all
-      level: level1
-      with_memory: false
-      record_shapes: false
-      with_npu: true
-      with_cpu: true
-      with_module: false
-      with_stack: false
-      analysis: true
-  balance_batch: true
-  total_epochs: 30
-  total_training_steps: null
-  profile_steps: null
-  controller_nsight_options:
-    trace: cuda,nvtx,cublas,ucx
-    cuda-memory-usage: 'true'
-    cuda-graph-trace: graph
-  worker_nsight_options:
-    trace: cuda,nvtx,cublas,ucx
-    cuda-memory-usage: 'true'
-    cuda-graph-trace: graph
-    capture-range: cudaProfilerApi
-    capture-range-end: null
-    kill: none
-  project_name: verl_examples
-  experiment_name: gsm8k
-  logger:
-  - console
-  - wandb
-  log_val_generations: 0
-  rollout_data_dir: null
-  validation_data_dir: null
-  nnodes: 1
-  n_gpus_per_node: 8
-  save_freq: -1
-  esi_redundant_time: 0
-  resume_mode: auto
-  resume_from_path: null
-  val_before_train: true
-  val_only: false
-  test_freq: -1
-  critic_warmup: 0
-  default_hdfs_dir: null
-  del_local_ckpt_after_load: false
-  default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
-  max_actor_ckpt_to_keep: null
-  max_critic_ckpt_to_keep: null
-  ray_wait_register_center_timeout: 300
-  device: cuda
-  use_legacy_worker_impl: auto
 data:
   tokenizer: null
   use_shm: false
@@ -258,6 +245,7 @@ data:
   datagen:
     path: null
     name: null
+  apply_chat_template_kwargs: {}
 critic:
   _target_: verl.workers.config.FSDPCriticConfig
   rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
@@ -316,9 +304,12 @@ critic:
     async_save: false
   profiler:
     _target_: verl.utils.profiler.ProfilerConfig
-    discrete: false
+    tool: ${oc.select:global_profiler.tool,null}
+    enable: false
     all_ranks: false
     ranks: []
+    save_path: ${oc.select:global_profiler.save_path,null}
+    tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
   forward_micro_batch_size: ${oc.select:.ppo_micro_batch_size,null}
   forward_micro_batch_size_per_gpu: ${oc.select:.ppo_micro_batch_size_per_gpu,null}
   ulysses_sequence_parallel_size: 1
@@ -355,9 +346,12 @@ reward_model:
     memory_limit_mb: 1024
   profiler:
     _target_: verl.utils.profiler.ProfilerConfig
-    discrete: false
+    tool: ${oc.select:global_profiler.tool,null}
+    enable: false
     all_ranks: false
     ranks: []
+    save_path: ${oc.select:global_profiler.save_path,null}
+    tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
   ulysses_sequence_parallel_size: 1
 custom_reward_function:
   path: null
@@ -380,6 +374,57 @@ algorithm:
   pf_ppo:
     reweight_method: pow
     weight_pow: 2.0
+trainer:
+  balance_batch: true
+  total_epochs: 30
+  total_training_steps: null
+  project_name: verl_examples
+  experiment_name: gsm8k
+  logger:
+  - console
+  - wandb
+  log_val_generations: 0
+  rollout_data_dir: null
+  validation_data_dir: null
+  nnodes: 1
+  n_gpus_per_node: 8
+  save_freq: -1
+  esi_redundant_time: 0
+  resume_mode: auto
+  resume_from_path: null
+  val_before_train: true
+  val_only: false
+  test_freq: -1
+  critic_warmup: 0
+  default_hdfs_dir: null
+  del_local_ckpt_after_load: false
+  default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
+  max_actor_ckpt_to_keep: null
+  max_critic_ckpt_to_keep: null
+  ray_wait_register_center_timeout: 300
+  device: cuda
+  use_legacy_worker_impl: auto
+global_profiler:
+  _target_: verl.utils.profiler.ProfilerConfig
+  tool: null
+  steps: null
+  profile_continuous_steps: false
+  save_path: outputs/profile
+  global_tool_config:
+    nsys:
+      _target_: verl.utils.profiler.config.NsightToolConfig
+      discrete: false
+      controller_nsight_options:
+        trace: cuda,nvtx,cublas,ucx
+        cuda-memory-usage: 'true'
+        cuda-graph-trace: graph
+      worker_nsight_options:
+        trace: cuda,nvtx,cublas,ucx
+        cuda-memory-usage: 'true'
+        cuda-graph-trace: graph
+        capture-range: cudaProfilerApi
+        capture-range-end: null
+        kill: none
 ray_init:
   num_cpus: null
   timeline_json_file: null

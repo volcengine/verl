@@ -24,7 +24,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import AutoConfig
 
 from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils import hf_processor, hf_tokenizer, omega_conf_to_dataclass
 from verl.utils.debug import DistProfiler, DistProfilerExtension, log_gpu_memory_usage
 from verl.utils.device import (
@@ -38,7 +38,7 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
-from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
+from verl.utils.profiler import ProfilerConfig
 from verl.workers.fsdp_workers import ActorRolloutRefWorker as ARRWorker
 from verl.workers.fsdp_workers import CriticWorker
 
@@ -71,6 +71,8 @@ class ActorRolloutRefWorker(ARRWorker):
             inference_model = (
                 self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             )
+            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+
             patch_vllm_moe_model_weight_loader(inference_model)
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
@@ -130,8 +132,17 @@ class RolloutWorker(ActorRolloutRefWorker):
         # We can still use ProfilerConfig for testing purpose (tests/utils/test_nvtx_profile.py)
         # as they provides DictConfig-like interface
         # The benefit of creating the dataclass config is to perform validation during __post_init__
-        profiler_config = omega_conf_to_dataclass(config.rollout.get("profiler", {}))
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
+        omega_profiler_config = config.get("profiler", {})
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
+        )
         self._is_rollout = True
         self._is_actor = False
 
@@ -183,6 +194,12 @@ class RolloutWorker(ActorRolloutRefWorker):
         rollout_device_mesh = init_device_mesh(
             device_name, mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"]
         )
+
+        is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
+        self._register_dispatch_collect_info(
+            "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+        )
+
         rollout_name = self.config.rollout.name
         assert rollout_name == "vllm"
 
@@ -213,7 +230,7 @@ class RolloutWorker(ActorRolloutRefWorker):
         self.rollout = rollout
         self.rollout_sharding_manager = rollout_sharding_manager
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO, blocking=False)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"), blocking=False)
     def async_generate_sequences(self, *args, **kwargs):
         return super().generate_sequences(*args, **kwargs)
 

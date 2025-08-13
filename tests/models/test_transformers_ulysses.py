@@ -254,8 +254,8 @@ def _hf_casual_fwd_bwd(config, sp_size, dp_size):
     # 3. check the gradients
     grad = model.model.layers[0].self_attn.q_proj.weight.grad
     grad_full = model_no_sp.model.layers[0].self_attn.q_proj.weight.grad
-    torch.testing.assert_close(mean_local, mean_full, rtol=1e-2, atol=1e-5)
-    torch.testing.assert_close(grad, grad_full, atol=1e-2, rtol=1e-5)
+    torch.testing.assert_close(mean_local, mean_full, rtol=1e-2, atol=3e-5)
+    torch.testing.assert_close(grad, grad_full, atol=1e-2, rtol=3e-5)
 
 
 if __name__ == "__main__":

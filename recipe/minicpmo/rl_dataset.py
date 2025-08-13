@@ -79,6 +79,7 @@ def preprocess(
     batch_vision=False,
     max_length=2048,
     truncation="error",
+    apply_chat_template_kwargs=None,
     logger=None,
 ):
     """
@@ -157,7 +158,9 @@ def preprocess(
         conversations = new_conversations
 
     # TODO change role in conversation for different llm
-    prompt_with_chat_template = tokenizer.apply_chat_template(conversations, add_generation_prompt=True, tokenize=False)
+    prompt_with_chat_template = tokenizer.apply_chat_template(
+        conversations, add_generation_prompt=True, tokenize=False, **(apply_chat_template_kwargs or {})
+    )
 
     input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(
         prompt=prompt_with_chat_template,
@@ -353,7 +356,15 @@ def init_minicpmo_config(processor, config):
 
 
 def process_minicpmo_data(
-    row_dict, messages, tokenizer, minicpmo_config, image_key, max_prompt_length, truncation, logger
+    row_dict,
+    messages,
+    tokenizer,
+    minicpmo_config,
+    image_key,
+    max_prompt_length,
+    truncation,
+    apply_chat_template_kwargs,
+    logger,
 ):
     """Process data for MiniCPM-o model"""
     if len(row_dict[image_key]) == 1:
@@ -376,10 +387,13 @@ def process_minicpmo_data(
         batch_vision=minicpmo_config["batch_vision"],
         max_length=max_prompt_length,
         truncation=truncation,
+        apply_chat_template_kwargs=apply_chat_template_kwargs,
         logger=logger,
     )
 
-    raw_prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+    raw_prompt = tokenizer.apply_chat_template(
+        messages, add_generation_prompt=True, tokenize=False, **(apply_chat_template_kwargs or {})
+    )
     raw_prompt = raw_prompt.replace("<image>", "(<image>./</image>)")
 
     return model_inputs, multi_modal_data, raw_prompt
@@ -427,6 +441,7 @@ class RLHFDataset(Dataset):
         self.return_full_prompt = config.get("return_full_prompt", False)
         self.truncation = config.get("truncation", "error")
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
+        self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
 
         self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
@@ -488,6 +503,7 @@ class RLHFDataset(Dataset):
                 self.image_key,
                 self.max_prompt_length,
                 self.truncation,
+                self.apply_chat_template_kwargs,
                 logger,
             )
             input_ids = model_inputs.pop("input_ids")
@@ -498,7 +514,9 @@ class RLHFDataset(Dataset):
             row_dict["multi_modal_data"] = multi_modal_data
             row_dict["multi_modal_inputs"] = dict(model_inputs)
         else:
-            raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            raw_prompt = self.tokenizer.apply_chat_template(
+                messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+            )
             model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")

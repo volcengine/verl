@@ -61,7 +61,7 @@ from verl.utils.fsdp_utils import (
 from verl.utils.import_utils import import_external_libs
 from verl.utils.py_functional import append_to_dict, convert_to_regular_types
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
-from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
+from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad_and_slice_inputs
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 if is_cuda_available:
@@ -459,7 +459,9 @@ class FSDPEngine(BaseEngine):
 
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
-                    preds_rmpad = gather_outpus_and_unpad(preds_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+                    preds_rmpad = gather_outputs_and_unpad(
+                        preds_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size
+                    )
 
                 # pad it back
                 preds = pad_input(preds_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
@@ -566,13 +568,11 @@ class FSDPEngine(BaseEngine):
             non_tensor_select_keys = ["multi_modal_inputs"]
             num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
             micro_batches = mini_batch.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
-            self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
         elif self.config.use_dynamic_bsz:
             max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
             micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
         else:
             micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
-            self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
 
         mini_batch_metrics = {}
         for micro_batch in micro_batches:
@@ -635,14 +635,14 @@ class FSDPEngine(BaseEngine):
         if device == "cuda":
             if not self.config.model.fsdp_config.param_offload:
                 if model:
-                    load_fsdp_model_to_gpu(self.model_module)
+                    load_fsdp_model_to_gpu(self.module)
                 if optimizer and self.optimizer is not None:
                     load_fsdp_optimizer(self.optimizer, device)
             gc.collect()
         elif device == "cpu":
             if not self.config.model.fsdp_config.param_offload:
                 if model:
-                    offload_fsdp_model_to_cpu(self.model_module)
+                    offload_fsdp_model_to_cpu(self.module)
                 if optimizer and self.optimizer is not None:
                     offload_fsdp_optimizer(self.optimizer)
         else:
@@ -723,5 +723,5 @@ class EngineTrainModeCtx:
         if self.engine._is_offload_param:
             offload_fsdp_model_to_cpu(self.engine.module)
         if self.engine._is_offload_optimizer:
-            offload_fsdp_optimizer(optimizer=self.optimizer)
+            offload_fsdp_optimizer(optimizer=self.engine.optimizer)
         self.engine.mode = None

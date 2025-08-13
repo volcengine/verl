@@ -41,6 +41,7 @@ from verl.trainer.ppo.ray_trainer import (
     compute_response_mask,
 )
 from verl.utils.profiler import marked_timer
+from verl.utils.rollout_skip import RolloutSkip
 
 
 class RayDAPOTrainer(RayPPOTrainer):
@@ -82,6 +83,10 @@ class RayDAPOTrainer(RayPPOTrainer):
             if self.config.trainer.get("val_only", False):
                 return
 
+        if self.config.actor_rollout_ref.rollout.get("skip_rollout", False):
+            rollout_skip = RolloutSkip(self.config, self.actor_rollout_wg)
+            rollout_skip.wrap_generate_sequences()
+
         # add tqdm
         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
 
@@ -89,6 +94,14 @@ class RayDAPOTrainer(RayPPOTrainer):
         self.global_steps += 1
         self.gen_steps += 1
         last_val_metrics = None
+
+        prev_step_profile = False
+        curr_step_profile = (
+            self.global_steps in self.config.global_profiler.steps
+            if self.config.global_profiler.steps is not None
+            else False
+        )
+        next_step_profile = False
 
         timing_raw = defaultdict(float)
         batch = None
@@ -98,20 +111,12 @@ class RayDAPOTrainer(RayPPOTrainer):
             for batch_dict in self.train_dataloader:
                 metrics = {}
 
-                do_profile = (
-                    self.global_steps in self.config.trainer.profile_steps
-                    if self.config.trainer.profile_steps is not None
-                    else False
-                )
                 with marked_timer("start_profile", timing_raw):
-                    if do_profile:
-                        self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
-                        if self.use_reference_policy:
-                            self.ref_policy_wg.start_profile()
-                        if self.use_critic:
-                            self.critic_wg.start_profile()
-                        if self.use_rm:
-                            self.rm_wg.start_profile()
+                    self._start_profiling(
+                        not prev_step_profile and curr_step_profile
+                        if self.config.global_profiler.profile_continuous_steps
+                        else curr_step_profile
+                    )
 
                 new_batch: DataProto = DataProto.from_single_dict(batch_dict)
                 num_gen_batches += 1
@@ -344,14 +349,18 @@ class RayDAPOTrainer(RayPPOTrainer):
                             self._save_checkpoint()
 
                 with marked_timer("stop_profile", timing_raw):
-                    if do_profile:
-                        self.actor_rollout_wg.stop_profile()
-                        if self.use_reference_policy:
-                            self.ref_policy_wg.stop_profile()
-                        if self.use_critic:
-                            self.critic_wg.stop_profile()
-                        if self.use_rm:
-                            self.rm_wg.stop_profile()
+                    next_step_profile = (
+                        self.global_steps + 1 in self.config.global_profiler.steps
+                        if self.config.global_profiler.steps is not None
+                        else False
+                    )
+                    self._stop_profiling(
+                        curr_step_profile and not next_step_profile
+                        if self.config.global_profiler.profile_continuous_steps
+                        else curr_step_profile
+                    )
+                    prev_step_profile = curr_step_profile
+                    curr_step_profile = next_step_profile
 
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))

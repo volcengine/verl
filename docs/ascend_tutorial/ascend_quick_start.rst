@@ -153,9 +153,20 @@ vllm & vllm-ascend
         trainer.total_epochs=1 \
         trainer.device=npu $@
 
+MindSpeed 训练后端
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1. 参考 `MindSpeed Readme <https://gitee.com/ascend/MindSpeed>`_ 说明安装 MindSpeed 加速库。
+
+2. 使能 Verl worker 模型 ``strategy`` 配置为 ``megatron`` ，例如 ``actor_rollout_ref.actor.strategy=megatron``。
+
+3. MindSpeed 自定义入参可通过 ``override_transformer_config`` 参数传入，例如对 actor 模型开启 FA 特性可使用 ``+actor_rollout_ref.actor.megatron.override_transformer_config.use_flash_attn=True``。
+
+4. 更多特性信息可参考 `MindSpeed Verl 文档 <https://gitee.com/ascend/MindSpeed/blob/master/docs/user-guide/verl.md>`_ 。
 
 支持现状
 -----------------------------------
+
+**表1** RL类算法
 
 +-----------+-------------------------+-------------+-------------------+----------------------+
 | algorithm |         model           | rewards mae |  throughput ratio |        hardware      |
@@ -172,8 +183,20 @@ vllm & vllm-ascend
 +-----------+-------------------------+-------------+-------------------+----------------------+
 |   DAPO    | Qwen2.5-7B-instruct     |    3.83%    |        pending    |  Atlas 200T A2 Box16 |
 +-----------+-------------------------+-------------+-------------------+----------------------+
-|  SFT-PEFT | Qwen2.5-0.5B-instruct   |    0.06%    |        0.305      |  Atlas 900 A2 PODc   |
+|   DAPO    | Qwen3-8B-base           |    5.3%     |        pending    |  Atlas 200T A2 Box16 |
 +-----------+-------------------------+-------------+-------------------+----------------------+
+|   DAPO    | Qwen3-14B-base          |    5.9%     |        pending    |  Atlas 200T A2 Box16 |
++-----------+-------------------------+-------------+-------------------+----------------------+
+
+**表2** SFT类算法
+
++-----------+-------------------------+----------------+-------------------+----------------------+
+| algorithm |         model           | loss value mae |  total time ratio |        hardware      |
++-----------+-------------------------+----------------+-------------------+----------------------+
+|  SFT-PEFT | Qwen3-8B                |      0.09%     |       0.618       |  Atlas 900 A2 PODc   |
++-----------+-------------------------+----------------+-------------------+----------------------+
+| ReTool-SFT| Qwen2.5-7B-instruct     |      0.08%     |       0.775       |  Atlas 900 A2 PODc   |
++-----------+-------------------------+----------------+-------------------+----------------------+
 
 精度对比说明
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -189,7 +212,6 @@ vllm & vllm-ascend
 吞吐对比说明
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Ascend npu 和 A100 分别取日志中前4个 step 的 "perf/throughput" 做平均， throughput ratio = npu 平均值 / A100 平均值。 
-
 
 
 计划

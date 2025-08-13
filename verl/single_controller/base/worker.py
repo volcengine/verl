@@ -17,6 +17,7 @@ the class for Worker
 
 import os
 import socket
+import warnings
 from dataclasses import dataclass
 
 import ray
@@ -57,6 +58,13 @@ class WorkerHelper:
             return sock.getsockname()[1]
 
     def get_availale_master_addr_port(self):
+        warnings.warn(
+            "This function is deprecated due to typo in name; Please use `get_available_master_addr_port` instead",
+            stacklevel=2,
+        )
+        return self.get_available_master_addr_port()
+
+    def get_available_master_addr_port(self):
         return self._get_node_ip().strip("[]"), str(self._get_free_port())
 
 
@@ -89,6 +97,53 @@ class Worker(WorkerHelper):
 
         return instance
 
+    def _register_dispatch_collect_info(self, mesh_name: str, dp_rank: int, is_collect: bool):
+        """Register the dp_rank for a given mesh name. This function is meant to be called by the worker
+
+        Args:
+            mesh_name (str):
+                Name of the mesh to register dp_rank for.
+            dp_rank (int):
+                dp_rank to register for the given mesh name.
+            is_collect (bool):
+                Whether the dp_rank is used for collect.
+        """
+        if mesh_name in self.__dispatch_dp_rank or mesh_name in self.__collect_dp_rank:
+            raise ValueError(f"mesh_name {mesh_name} has been registered")
+        self.__dispatch_dp_rank[mesh_name] = dp_rank
+        self.__collect_dp_rank[mesh_name] = is_collect
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def _query_dispatch_info(self, mesh_name: str):
+        """Query the dispatch info for a given mesh name.
+
+        Args:
+            mesh_name (str):
+                Name of the mesh to query dispatch info for.
+
+        Returns:
+            int:
+                The dp_rank for the given mesh name.
+        """
+        assert mesh_name in self.__dispatch_dp_rank, f"{mesh_name} is not registered in {self.__class__.__name__}"
+        # note that each rank store its own dp_rank
+        return self.__dispatch_dp_rank[mesh_name]
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def _query_collect_info(self, mesh_name: str):
+        """Query the collect info for a given mesh name.
+
+        Args:
+            mesh_name (str):
+                Name of the mesh to query collect info for.
+
+        Returns:
+            bool:
+                Whether the dp_rank is used for collect.
+        """
+        assert mesh_name in self.__collect_dp_rank, f"{mesh_name} is not registered in {self.__class__.__name__}"
+        return self.__collect_dp_rank[mesh_name]
+
     def _configure_before_init(self, register_center_name: str, rank: int):
         """Configure worker settings before initialization.
 
@@ -101,7 +156,7 @@ class Worker(WorkerHelper):
         assert isinstance(rank, int), f"rank must be int, instead of {type(rank)}"
 
         if rank == 0:
-            master_addr, master_port = self.get_availale_master_addr_port()
+            master_addr, master_port = self.get_available_master_addr_port()
             rank_zero_info = {
                 "MASTER_ADDR": master_addr,
                 "MASTER_PORT": master_port,
@@ -172,6 +227,8 @@ class Worker(WorkerHelper):
         self._configure_with_store(store=store)
 
         self.fused_worker_dict = {}
+        self.__dispatch_dp_rank = {}
+        self.__collect_dp_rank = {}
 
     def get_fused_worker_by_name(self, worker_name: str):
         """Get a fused worker by its name.
