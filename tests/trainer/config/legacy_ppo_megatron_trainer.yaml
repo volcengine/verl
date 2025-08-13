@@ -184,8 +184,8 @@ actor_rollout_ref:
     # number of responses (i.e. num sample times)
     n: 1
     engine_kwargs: # inference engine parameters, please refer vllm/sglang official doc for detail
-      vllm: null
-      sglang: null
+      vllm: {}
+      sglang: {}
     val_kwargs:
       # sampling parameters for validation
       top_k: -1 # 0 for hf rollout, -1 for vllm rollout

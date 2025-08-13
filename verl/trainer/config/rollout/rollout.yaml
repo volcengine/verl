@@ -88,8 +88,8 @@ multi_stage_wake_up: false
 # Extra inference engine arguments (vllm, sglang), please refer vllm/sglang official doc for detail
 engine_kwargs:
 
-  vllm: null
-  sglang: null
+  vllm: {}
+  sglang: {}
 
 # Sampling parameters used during validation.
 val_kwargs:

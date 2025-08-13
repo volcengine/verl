@@ -181,8 +181,8 @@ Actor/Rollout/Reference Policy
       # for hf rollout
       do_sample: True
       engine_kwargs: # inference engine parameters, please refer vllm/sglang official doc for detail
-        vllm: null
-        sglang: null
+        vllm: {}
+        sglang: {}
 
       n: 1 # for each prompt, sample n responses (i.e. num sample times). set it to values > 1 for grpo, rloo
       val_kwargs:
