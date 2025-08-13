@@ -187,10 +187,11 @@ class FullyAsyncTaskRunner:
         self.components["reward_fn"] = reward_fn
         self.components["val_reward_fn"] = val_reward_fn
 
-        self.max_queue_size = ((config.async_training.staleness_threshold + 1)
-                               * config.data.train_batch_size
-                               * config.actor_rollout_ref.rollout.n
-                               ) * 10  # x 10 avoid deadlock
+        self.max_queue_size = (
+            (config.async_training.staleness_threshold + 1)
+            * config.data.train_batch_size
+            * config.actor_rollout_ref.rollout.n
+        ) * 10  # x 10 avoid deadlock
         print("[ASYNC MAIN] Creating MessageQueue...")
         message_queue = MessageQueue.remote(config, self.max_queue_size)
         message_queue_client = MessageQueueClient(message_queue)

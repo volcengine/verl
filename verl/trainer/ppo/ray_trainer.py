@@ -1247,7 +1247,6 @@ class RayPPOTrainer:
                 reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
         # recompute old_log_probs
         with marked_timer("old_log_prob", timing_raw, color="blue"):
-
             old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
             entropys = old_log_prob.batch["entropys"]
             response_masks = batch.batch["response_mask"]

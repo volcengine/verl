@@ -138,6 +138,26 @@ class MessageQueue:
             self.total_consumed += len(samples)
             return samples, len(self.queue)
 
+    def get_sample(self) -> Any | None:
+        """
+        Get a single sample from the queue, wait until one is available
+
+        Returns:
+            Any: Single sample data or None if queue is closed
+        """
+        with self.lock:
+            while len(self.queue) == 0 and self.running:
+                self.consumer_condition.wait()
+
+            # If queue is closed and empty, return None
+            if not self.running and len(self.queue) == 0:
+                return None
+
+            # Get one sample
+            data = self.queue.popleft()
+            self.total_consumed += 1
+            return data
+
     def update_param_version(self, version: int):
         """Update current parameter version"""
         with self.lock:
@@ -220,6 +240,10 @@ class MessageQueueClient:
     def get_samples(self, min_batch_count: int = 1) -> tuple[list[Any], int]:
         """Get batch from queue, wait until enough samples are available"""
         return ray.get(self.queue_actor.get_samples.remote(min_batch_count))
+
+    def get_sample(self) -> Any | None:
+        """Get single sample from queue, wait until one is available"""
+        return ray.get(self.queue_actor.get_sample.remote())
 
     def update_param_version(self, version: int):
         """Update parameter version"""

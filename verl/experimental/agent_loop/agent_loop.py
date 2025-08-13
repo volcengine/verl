@@ -16,6 +16,7 @@ import heapq
 import logging
 import os
 import random
+import time
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -200,6 +201,81 @@ def register(agent_name: str):
     return decorator
 
 
+def postprocess_agent_loop_outputs(inputs: list[AgentLoopOutput], tokenizer, config) -> DataProto:
+    """Static method to postprocess a list of AgentLoopOutput into DataProto
+
+    Args:
+        inputs: List of AgentLoopOutput
+        tokenizer: Tokenizer instance
+        config: Configuration object
+
+    Returns:
+        DataProto: Processed batch data
+    """
+    # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
+    # prompts: left pad
+    # responses: right pad
+    # input_ids: prompt + response
+    # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
+    # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
+
+    # prompts
+    tokenizer.padding_side = "left"
+    outputs = tokenizer.pad(
+        [{"input_ids": input.prompt_ids} for input in inputs],
+        padding="max_length",
+        max_length=config.actor_rollout_ref.rollout.prompt_length,
+        return_tensors="pt",
+        return_attention_mask=True,
+    )
+    prompt_ids, prompt_attention_mask = outputs["input_ids"], outputs["attention_mask"]
+
+    # responses
+    tokenizer.padding_side = "right"
+    outputs = tokenizer.pad(
+        [{"input_ids": input.response_ids} for input in inputs],
+        padding="max_length",
+        max_length=config.actor_rollout_ref.rollout.response_length,
+        return_tensors="pt",
+        return_attention_mask=True,
+    )
+    response_ids, response_attention_mask = outputs["input_ids"], outputs["attention_mask"]
+
+    # response_mask
+    outputs = tokenizer.pad(
+        [{"input_ids": input.response_mask} for input in inputs],
+        padding="max_length",
+        max_length=config.actor_rollout_ref.rollout.response_length,
+        return_tensors="pt",
+        return_attention_mask=False,
+    )
+    response_mask = outputs["input_ids"]
+    assert response_ids.shape == response_mask.shape, (
+        f"mismatch in response_ids and response_mask shape: {response_ids.shape} vs {response_mask.shape}"
+    )
+    response_mask = response_mask * response_attention_mask
+
+    input_ids = torch.cat([prompt_ids, response_ids], dim=1)
+    attention_mask = torch.cat([prompt_attention_mask, response_attention_mask], dim=1)
+    position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
+
+    batch = TensorDict(
+        {
+            "prompts": prompt_ids,  # [bsz, prompt_length]
+            "responses": response_ids,  # [bsz, response_length]
+            "response_mask": response_mask,  # [bsz, response_length]
+            "input_ids": input_ids,  # [bsz, prompt_length + response_length]
+            "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
+            "position_ids": position_ids,  # [bsz, prompt_length + response_length]
+        },
+        batch_size=len(input_ids),
+    )
+
+    num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
+    metrics = [input.metrics.model_dump() for input in inputs]
+    return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
+
+
 @ray.remote
 class AgentLoopWorker:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
@@ -289,8 +365,59 @@ class AgentLoopWorker:
             )
         outputs = await asyncio.gather(*tasks)
 
-        output = self._postprocess(outputs)
+        output = postprocess_agent_loop_outputs(outputs, self.tokenizer, self.config)
         return output
+
+    async def generate_sequences_no_post(self, batch: DataProto) -> list[AgentLoopOutput]:
+        """Generate sequences from agent loop.
+
+        Args:
+            batch (DataProto): Input batch.
+
+        Returns:
+            list[AgentLoopOutput]: List of agent loop outputs, one per sample in the batch.
+            Each AgentLoopOutput contains:
+            - prompt_ids: prompt token ids
+            - response_ids: response token ids including LLM generated and tool response tokens
+            - response_mask: 1 for LLM generated tokens, 0 for tool response tokens
+            - num_turns: number of chat turns
+            - metrics: performance metrics
+        """
+        config = self.config.actor_rollout_ref.rollout
+        sampling_params = dict(
+            temperature=config.temperature,
+            top_p=config.top_p,
+            repetition_penalty=1.0,
+        )
+
+        # override sampling params for validation
+        if batch.meta_info.get("validate", False):
+            sampling_params["top_p"] = config.val_kwargs.top_p
+            sampling_params["temperature"] = config.val_kwargs.temperature
+
+        # by default, we assume it's a single turn agent
+        if "agent_name" not in batch.non_tensor_batch:
+            batch.non_tensor_batch["agent_name"] = np.array(["single_turn_agent"] * len(batch), dtype=object)
+
+        tasks = []
+        agent_names = batch.non_tensor_batch["agent_name"]
+        raw_prompts = batch.non_tensor_batch["raw_prompt"]
+        if "index" in batch.non_tensor_batch:
+            index = batch.non_tensor_batch["index"]
+        else:
+            index = np.arange(len(raw_prompts))
+
+        trajectory_info = await get_trajectory_info(
+            batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
+        )
+
+        for agent_name, messages, trajectory in zip(agent_names, raw_prompts, trajectory_info, strict=True):
+            tasks.append(
+                asyncio.create_task(self._run_agent_loop(agent_name, messages.tolist(), sampling_params, trajectory))
+            )
+        outputs = await asyncio.gather(*tasks)
+
+        return outputs
 
     async def _run_agent_loop(
         self,
@@ -320,70 +447,6 @@ class AgentLoopWorker:
             output = await agent_loop.run(messages, sampling_params)
             return output
 
-    def _postprocess(self, inputs: list[AgentLoopOutput]) -> DataProto:
-        # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
-        # prompts: left pad
-        # responses: right pad
-        # input_ids: prompt + response
-        # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
-        # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
-
-        # prompts
-        self.tokenizer.padding_side = "left"
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.prompt_ids} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.prompt_length,
-            return_tensors="pt",
-            return_attention_mask=True,
-        )
-        prompt_ids, prompt_attention_mask = outputs["input_ids"], outputs["attention_mask"]
-
-        # responses
-        self.tokenizer.padding_side = "right"
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.response_ids} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.response_length,
-            return_tensors="pt",
-            return_attention_mask=True,
-        )
-        response_ids, response_attention_mask = outputs["input_ids"], outputs["attention_mask"]
-
-        # response_mask
-        outputs = self.tokenizer.pad(
-            [{"input_ids": input.response_mask} for input in inputs],
-            padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.response_length,
-            return_tensors="pt",
-            return_attention_mask=False,
-        )
-        response_mask = outputs["input_ids"]
-        assert response_ids.shape == response_mask.shape, (
-            f"mismatch in response_ids and response_mask shape: {response_ids.shape} vs {response_mask.shape}"
-        )
-        response_mask = response_mask * response_attention_mask
-
-        input_ids = torch.cat([prompt_ids, response_ids], dim=1)
-        attention_mask = torch.cat([prompt_attention_mask, response_attention_mask], dim=1)
-        position_ids = (attention_mask.cumsum(dim=1) - 1) * attention_mask
-
-        batch = TensorDict(
-            {
-                "prompts": prompt_ids,  # [bsz, prompt_length]
-                "responses": response_ids,  # [bsz, response_length]
-                "response_mask": response_mask,  # [bsz, response_length]
-                "input_ids": input_ids,  # [bsz, prompt_length + response_length]
-                "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
-                "position_ids": position_ids,  # [bsz, prompt_length + response_length]
-            },
-            batch_size=len(input_ids),
-        )
-
-        num_turns = np.array([input.num_turns for input in inputs], dtype=np.int32)
-        metrics = [input.metrics.model_dump() for input in inputs]
-        return DataProto(batch=batch, non_tensor_batch={"__num_turns__": num_turns}, meta_info={"metrics": metrics})
-
 
 async def get_trajectory_info(step, index, validate):
     """Get trajectory info.
@@ -405,6 +468,18 @@ async def get_trajectory_info(step, index, validate):
             rollout_n = 0
         trajectory_info.append({"step": step, "sample_index": index[i], "rollout_n": rollout_n, "validate": validate})
     return trajectory_info
+
+
+async def _ray_future_to_asyncio(ray_future):
+    """将Ray future转换为asyncio可等待的对象"""
+    while True:
+        try:
+            # 非阻塞检查Ray future是否完成
+            result = ray.get(ray_future, timeout=0.001)  # 1ms timeout
+            return result
+        except ray.exceptions.GetTimeoutError:
+            # 未完成，让出控制权给其他协程
+            await asyncio.sleep(1)  # 1s sleep
 
 
 class AgentLoopManager:
@@ -511,6 +586,46 @@ class AgentLoopManager:
 
         output.meta_info = {"timing": timing}
         return output
+
+    async def generate_single_sample_async(self, sample: DataProto, sample_id: str) -> tuple[AgentLoopOutput, float]:
+        """
+        异步处理单个样本 - 用于流式推理的核心方法
+
+        Args:
+            sample: 单个样本数据
+            sample_id: 样本ID
+
+        Returns:
+            tuple[AgentLoopOutput, float]: 处理结果和处理时间
+        """
+        start_time = time.time()
+
+        # 使用负载均衡选择 worker
+        worker = self._select_best_worker()
+
+        # 异步处理单个样本
+        output_future = worker.generate_sequences.remote(sample)
+        outputs = await _ray_future_to_asyncio(output_future)
+
+        processing_time = time.time() - start_time
+
+        # outputs 是 AgentLoopOutput 列表，取第一个（因为是单样本）
+        assert len(outputs) == 1, f"Expected single output for single sample, got {len(outputs)}"
+        output = outputs[0]
+
+        # 添加处理时间到metrics
+        output.metrics.generate_sequences = processing_time
+
+        return output, processing_time
+
+    def _select_best_worker(self):
+        """选择最佳的 worker（简单的轮询负载均衡）"""
+        if not hasattr(self, "_worker_index"):
+            self._worker_index = 0
+
+        worker = self.agent_loop_workers[self._worker_index]
+        self._worker_index = (self._worker_index + 1) % len(self.agent_loop_workers)
+        return worker
 
     def _performance_metrics(self, metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:
         timing = {}

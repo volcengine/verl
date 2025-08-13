@@ -44,16 +44,16 @@ class FullyAsyncTrainer(RayPPOTrainer):
     """
 
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            device_name=None,
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -117,6 +117,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
     def _get_samples_from_queue(self) -> tuple[None, None] | tuple[int, Any]:
         """
         Get samples from message queue and compose gen_batch_output
+        Uses a loop to continuously collect samples until enough are gathered
 
         Returns:
             tuple: (epoch, batch_dict, gen_batch_output)
@@ -132,19 +133,39 @@ class FullyAsyncTrainer(RayPPOTrainer):
             flush=True,
         )
 
-        # Get samples from queue
+        # Collect samples using a simple loop calling get_sample
         consumer_start = time.time()
-        queue_samples, queue_len = self.message_queue_client.get_samples(min_batch_count=required_samples)
+        queue_samples = []
+
+        print(f"[FullyAsyncTrainer] Starting sample collection loop, required={required_samples}")
+
+        while len(queue_samples) < required_samples:
+            # 获取单个样本，会一直等待直到有样本或收到None
+            sample = self.message_queue_client.get_sample()
+
+            if sample is None:
+                # 检测到结束信号（None），立即退出
+                logger.info(
+                    f"Detected termination signal (None), stopping sample collection. "
+                    f"Collected {len(queue_samples)}/{required_samples} samples"
+                )
+                break
+
+            queue_samples.append(sample)
+
+            if len(queue_samples) % 10 == 0 or len(queue_samples) >= required_samples:
+                print(f"[FullyAsyncTrainer] Collected {len(queue_samples)}/{required_samples} samples")
+
         consumer_end = time.time()
 
-        if not queue_samples or len(queue_samples) == 0:
-            logger.warning("required_samples is empty")
+        if not queue_samples or len(queue_samples) < required_samples:
+            logger.warning("not enough samples collected after loop")
             return None, None
 
-        print(f"[FullyAsyncTrainer] Retrieved {len(queue_samples)} samples from queue. "
-              f"wait time {consumer_end - consumer_start:.2f} seconds. "
-              f"queue len {queue_len}. "
-              )
+        print(
+            f"[FullyAsyncTrainer] Loop collection completed: {len(queue_samples)}/{required_samples} samples, "
+            f"total wait time: {consumer_end - consumer_start:.2f} seconds"
+        )
 
         queue_samples = [ray.cloudpickle.loads(x) for x in queue_samples]
         # Assemble batch
@@ -154,12 +175,10 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
     def _assemble_gen_batch_output_from_queue_samples(self, queue_samples: list[QueueSample]):
         """
-        Assemble gen_batch_output from queue samples
+        Assemble gen_batch_output from queue samples containing AgentLoopOutput
 
         Args:
-            queue_samples: List of samples from queue
-            n_responses_per_prompt: Number of responses per prompt
-            batch_size: Batch size
+            queue_samples: List of samples from queue, each containing AgentLoopOutput
 
         Returns:
             DataProto: Assembled gen_batch_output
@@ -168,23 +187,29 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         import numpy as np
 
-        from verl.protocol import DataProto
-
         if not queue_samples:
             raise ValueError("Empty queue_samples provided for batch assembly")
 
-        print(f"[FullyAsyncTrainer] Assembling batch from {len(queue_samples)} queue samples")
+        print(f"[FullyAsyncTrainer] Assembling batch from {len(queue_samples)} queue samples with AgentLoopOutput")
 
-        # Extract data and metadata from all samples
-        sample_data_list = []
+        # Extract AgentLoopOutput and metadata from all samples
+        agent_loop_outputs = []
         rollout_metadata_list = []
-        timing_info = {}
+        processing_times = []
 
-        for i, sample in enumerate(queue_samples):
-            sample_data_list.append(sample.data)
+        for sample in queue_samples:
+            # sample.data is now AgentLoopOutput
+            agent_loop_outputs.append(sample.data)
             rollout_metadata_list.append(sample.rollout_metadata)
+            processing_times.append(sample.rollout_metadata.get("processing_time", 0))
 
-        batch = DataProto.from_items(sample_data_list)
+        # Use the static method to postprocess AgentLoopOutput list into DataProto
+        from verl.experimental.agent_loop.agent_loop import AgentLoopWorker
+
+        batch = AgentLoopWorker.postprocess_agent_loop_outputs(agent_loop_outputs, self.tokenizer, self.config)
+
+        # Apply _post_generate_batch logic here
+        batch = self._post_generate_batch_for_agent_outputs(batch, agent_loop_outputs)
 
         # Collect timing information and metadata
         param_versions = []
@@ -193,21 +218,10 @@ class FullyAsyncTrainer(RayPPOTrainer):
             # Extract parameter version and timestamp
             param_versions.append(metadata.get("rollout_param_version", 0))
             sample_timestamps.append(metadata.get("generation_timestamp", time.time()))
-            if "timing" in metadata:
-                for timing_key, timing_value in metadata["timing"].items():
-                    if timing_key not in timing_info:
-                        timing_info[timing_key] = []
-                    # if isinstance(timing_value, (int, float)):
-                    #     timing_info[timing_key].append(timing_value)
-        # Calculate average timing
-        avg_timing = {}
-        for key, values in timing_info.items():
-            if values and len(values) > 0:
-                avg_timing[key] = sum(values) / len(values)
 
         # Create meta_info
         meta_info = {
-            "timing": avg_timing,
+            "timing": {"avg_processing_time": np.mean(processing_times) if processing_times else 0},
             "queue_sample_count": len(queue_samples),
             "rollout_param_versions": param_versions,
             "sample_timestamps": sample_timestamps,
@@ -215,8 +229,47 @@ class FullyAsyncTrainer(RayPPOTrainer):
             "avg_sample_age": np.mean([time.time() - ts for ts in sample_timestamps]),
         }
 
+        batch.meta_info.update(meta_info)
+
         end_time = time.time()
-        print(f"[FullyAsyncTrainer] {meta_info} time elapsed: {end_time - start_time:.2f} seconds")
+        print(
+            f"[FullyAsyncTrainer] Assembled batch with meta_info: "
+            f"{meta_info}, time elapsed: {end_time - start_time:.2f} seconds"
+        )
+
+        return batch
+
+    def _post_generate_batch_for_agent_outputs(self, batch, agent_loop_outputs):
+        """
+        Apply _post_generate_batch logic for AgentLoopOutput
+
+        Args:
+            batch: DataProto created from AgentLoopWorker.postprocess_agent_loop_outputs
+            agent_loop_outputs: List of AgentLoopOutput
+
+        Returns:
+            DataProto: Processed batch with additional metadata
+        """
+        import uuid
+
+        import numpy as np
+        import torch
+
+        from verl.trainer.ppo.ray_trainer import compute_response_mask
+
+        # Add UIDs
+        batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+
+        # response_mask should already be in batch from AgentLoopWorker.postprocess_agent_loop_outputs
+        if "response_mask" not in batch.batch.keys():
+            batch.batch["response_mask"] = compute_response_mask(batch)
+
+        # Balance the number of valid tokens across DP ranks if needed
+        if self.config.trainer.balance_batch:
+            self._balance_batch(batch, metrics={})
+
+        # compute global_valid tokens
+        batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
         return batch
 
@@ -293,7 +346,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
                     if batch is None:
                         break
 
-                # 更新统计信息
+                    # 更新统计信息
                     self.processed_samples += len(batch) if isinstance(batch, list) else 1
 
                     # 从meta_info中获取参数版本信息
