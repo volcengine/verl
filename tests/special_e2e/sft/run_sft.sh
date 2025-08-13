@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.fsdp_sft_trainer"}
+ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
 
 NUM_GPUS=${NUM_GPUS:-8}
 
@@ -29,9 +29,11 @@ project_name="verl-test"
 exp_name="$(basename "${MODEL_ID,,}")-sft-minimal"
 ckpts_home=${ckpts_home:-$HOME/${project_name}/${exp_name}}
 
+
 mkdir -p "${ckpts_home}"
 
-torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
+
+HYDRA_FULL_ERROR=1 torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
     data.prompt_key=extra_info \

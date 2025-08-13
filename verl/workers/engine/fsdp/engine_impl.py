@@ -386,7 +386,7 @@ class FSDPEngine(BaseEngine):
 
 
     def _build_lr_scheduler(self, optimizer):
-        total_steps = self.config.optim.total_training_steps
+        total_steps = self.config.total_training_steps
         num_warmup_steps = int(self.config.optim.lr_warmup_steps)
         warmup_style = self.config.optim.warmup_style
         min_lr_ratio = self.config.optim.min_lr_ratio

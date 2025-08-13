@@ -1,12 +1,12 @@
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, MISSING
 from omegaconf import DictConfig
 from verl.utils.config import omega_conf_to_dataclass
 from typing import Any
+import copy
 
 """
 Basic idea:
 - unify the config feed into the engine by different workers like Actor/Critic
-- no default value
 - unmutable
 """
 
@@ -26,51 +26,47 @@ class EngineConfig(BaseConfig):
     optim: 'OptimConfig'
     system: 'SystemConfig'
     checkpoint: 'CheckpointConfig'
+    total_training_steps: int
+    use_dynamic_bsz: bool
     train_mini_batch_size: int
     train_micro_batch_size_per_gpu: int
     train_max_token_len_per_gpu: int
     infer_micro_batch_size_per_gpu: int
     infer_max_token_len_per_gpu: int
-    ulysses_sequence_parallel_size: int
-    grad_clip: float
-    use_dynamic_bsz: bool
-    module_type: str
-    rollout_n: int
 
 
 @dataclass(frozen=True)
 class ModelConfig(BaseConfig):
     """Dataclass for model configuration."""
     path: str
-    tokenizer_path: str
+    module_type: str
     lora_rank: int
     lora_alpha: int
     target_modules: list[str]
     trust_remote_code: bool
-    custom_chat_template: str
-    override_config: dict
     use_shm: bool
-    enable_gradient_checkpointing: bool
-    enable_activation_offload: bool
-    use_remove_padding: bool
     external_lib: str
-    use_liger: bool
-    use_fused_kernels: bool
-    fused_kernel_options: dict
+    override_config: dict       = None
+    custom_chat_template: str   = None
+    tokenizer_path: str         = None
+    use_liger: bool             = False
+    use_fused_kernels: bool     = False
+    fused_kernel_options: dict  = None
 
 
 @dataclass(frozen=True)
 class OptimConfig(BaseConfig):
     """Dataclass for optimizer configuration."""
+    grad_clip: float
+    betas: tuple[float, float]                      # for AdamW optimizer
+    weight_decay: float                             # for AdamW optimizer
     lr: float
-    betas: tuple[float, float]
-    weight_decay: float
-    total_training_steps: int
-    lr_warmup_steps: int
-    lr_warmup_steps_ratio: float
-    warmup_style: str
-    min_lr_ratio: float
-    num_cycles: float
+    lr_warmup_steps : int           = 0
+    lr_warmup_steps_ratio: float    = 0.0
+    lr_scheduler_style: str         = "constant"
+    lr_scheduler_args: dict         = None
+    # min_lr_ratio: float                           # for cosine scheduler
+    # num_cycles: float                             # for cosine scheduler
 
 
 # TODO: use inheritance for different backend
@@ -80,85 +76,64 @@ class OptimConfig(BaseConfig):
 @dataclass(frozen=True)
 class SystemConfig(BaseConfig):
     """Dataclass for FSDP system configuration."""
-    fsdp_size: int
-    param_offload: bool
-    optimizer_offload: bool
-    wrap_policy: dict
-    reshard_after_forward: bool
-    model_dtype: str
-    mixed_precision: dict
-    offload_policy: bool
-    forward_prefetch: bool
-    use_orig_params: bool
+    fsdp_size: int                      = 1
+    model_dtype: str                    = "fp32"
+    param_offload: bool                 = False
+    optimizer_offload: bool             = False
+    wrap_policy: dict                   = None
+    reshard_after_forward: bool         = False
+    offload_policy: bool                = False
+    forward_prefetch: bool              = False
+    ulysses_sequence_parallel_size: int = 1
+    enable_gradient_checkpointing: bool = False
+    enable_activation_offload: bool     = False
+    use_remove_padding: bool            = False
+    mixed_precision: dict               = None
+    use_orig_params: bool               = False
 
 
 @dataclass(frozen=True)
 class CheckpointConfig(BaseConfig):
     save_contents: list[str]
     load_contents: list[str]
-    async_save: bool
+    async_save: bool                    = False
 
 
-def get_model_config(config):
-    model_config = ModelConfig(
-        path=config.path,
-        tokenizer_path=config.get("tokenizer_path", None),
-        lora_rank=config.lora_rank,
-        lora_alpha=config.lora_alpha,
-        target_modules=config.target_modules,
-        trust_remote_code=config.trust_remote_code,
-        custom_chat_template=config.get("custom_chat_template", None),
-        override_config=config.override_config,
-        use_shm=config.use_shm,
-        enable_gradient_checkpointing=config.enable_gradient_checkpointing,
-        enable_activation_offload=config.enable_activation_offload,
-        use_remove_padding=config.use_remove_padding,
-        external_lib=config.external_lib,
-        use_liger=config.get("use_liger", False),                       # different behaivior between actor and config
-        use_fused_kernels=config.get("use_fused_kernels", False),       # different behaivior between actor and config
-        fused_kernel_options=config.get("fused_kernel_options", None),  # different behaivior between actor and config
-    )
-    return model_config
+def generate_config(new_config_cls, prev_config, provided_fields):
+    field_items = {}
+    for name, f in new_config_cls.__dataclass_fields__.items():
+        field_items[name] = f
+
+    required_fields = field_items.keys()
+    kwargs = copy.deepcopy(provided_fields)
+    missing_fields = required_fields - set(kwargs.keys())
+
+    for field in missing_fields:
+        if field in prev_config:
+            kwargs[field] = prev_config.get(field)
+        elif field_items[field].default != MISSING:
+            default_value = field_items[field].default
+            print(f"{new_config_cls.__name__} missing field: " \
+                  f"`{field}`, will try to apply default value {default_value}.")
+        else:
+            raise ValueError(f"{new_config_cls.__name__} missing field: " \
+                             f"`{field}`.")
+    return new_config_cls(**kwargs)
+
+def get_model_config(config, **kwargs):
+    return generate_config(ModelConfig, config, kwargs)
 
 
-def get_optim_config(config):
-    optim_config = OptimConfig(
-        lr=config.lr,
-        betas=config.get("betas", (0.9, 0.999)),
-        weight_decay=config.weight_decay,
-        total_training_steps=config.total_training_steps,
-        lr_warmup_steps=config.lr_warmup_steps,
-        lr_warmup_steps_ratio=config.lr_warmup_steps_ratio,
-        warmup_style=config.get("warmup_style", "constant"),
-        min_lr_ratio=config.min_lr_ratio,
-        num_cycles=config.num_cycles
-    )
-    return optim_config
+def get_optim_config(config, **kwargs):
+    return generate_config(OptimConfig, config, kwargs)
 
 
-def get_system_config(config):
-    system_config = SystemConfig(
-        fsdp_size=config.fsdp_size,
-        param_offload=config.param_offload,
-        optimizer_offload=config.optimizer_offload,
-        wrap_policy=config.wrap_policy,
-        reshard_after_forward=config.reshard_after_forward,
-        model_dtype=config.get("model_dtype", "fp32"),
-        mixed_precision=config.get("mixed_precision", None),
-        offload_policy=config.offload_policy,
-        forward_prefetch=config.forward_prefetch,
-        use_orig_params=config.get("use_orig_params", False)
-    )
-    return system_config
+def get_system_config(config, **kwargs):
+    return generate_config(SystemConfig, config, kwargs)
 
 
-def get_checkpoint_config(config):
-    checkpoint_config = CheckpointConfig(
-        save_contents=config.save_contents,
-        load_contents=config.load_contents,
-        async_save=config.async_save
-    )
-    return checkpoint_config
+def get_checkpoint_config(config, **kwargs):
+    return generate_config(CheckpointConfig, config, kwargs)
 
 
 def get_engine_config(config,
@@ -166,8 +141,11 @@ def get_engine_config(config,
                       optim_config,
                       system_config,
                       checkpoint_config,
-                      module_type,
-                      rollout_n,
+                      total_training_steps,
+                      use_dynamic_bsz,
+                      train_mini_batch_size,
+                      train_micro_batch_size_per_gpu,
+                      train_max_token_len_per_gpu,
                       infer_micro_batch_size_per_gpu,
                       infer_max_token_len_per_gpu):
     engine_config = EngineConfig(
@@ -176,15 +154,12 @@ def get_engine_config(config,
         optim=optim_config,
         system=system_config,
         checkpoint=checkpoint_config,
-        train_mini_batch_size=config.ppo_mini_batch_size,
-        train_micro_batch_size_per_gpu=config.ppo_micro_batch_size_per_gpu,
-        train_max_token_len_per_gpu=config.ppo_max_token_len_per_gpu,
+        total_training_steps=total_training_steps,
+        use_dynamic_bsz=use_dynamic_bsz,
+        train_mini_batch_size=train_mini_batch_size,
+        train_micro_batch_size_per_gpu=train_micro_batch_size_per_gpu,
+        train_max_token_len_per_gpu=train_max_token_len_per_gpu,
         infer_micro_batch_size_per_gpu=infer_micro_batch_size_per_gpu,
-        infer_max_token_len_per_gpu=infer_max_token_len_per_gpu,
-        ulysses_sequence_parallel_size=config.ulysses_sequence_parallel_size,
-        grad_clip=config.grad_clip,
-        use_dynamic_bsz=config.use_dynamic_bsz,
-        module_type=module_type,
-        rollout_n=rollout_n,
+        infer_max_token_len_per_gpu=infer_max_token_len_per_gpu
     )
     return engine_config
