@@ -107,6 +107,8 @@ trainer:
   # The timeout for ray worker group to wait for the register center to be ready
   ray_wait_register_center_timeout: 300
   device: cuda
+  # Directory for logging rollout data; no dump if null
+  rollout_data_dir: null
 
 global_profiler:
   _target_: verl.utils.profiler.ProfilerConfig

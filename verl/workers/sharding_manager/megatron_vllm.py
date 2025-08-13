@@ -190,7 +190,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
         if self.rollout_config.free_cache_engine:
-            self.inference_engine.sleep(level=1)
+            self.inference_engine.sleep(level=2)
         for model in self.actor_module:
             model.train()
 

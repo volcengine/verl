@@ -73,7 +73,7 @@ class Profiler:
             )
 
     def _validate(self):
-        if self.config.use_profile:
+        if self.enable:
             if self.config.profile_ranks is None:
                 print("[WARNING] Profile ranks is not set, default to rank 0")
                 self.config.profile_ranks = [0]
@@ -84,7 +84,7 @@ class Profiler:
             )
 
     def check(self):
-        return self.prof is not None and not self.skip_prof
+        return self.prof is not None and self.enable
 
     def start(self):
         if self.check():
@@ -107,7 +107,7 @@ class Profiler:
             save_file_name = f"/prof_start_{self.config.step_start}_end_{self.config.step_end}_rank_{self.rank}.json"
             print(f"[Profiler] Saving trace to {self.config.save_path + save_file_name}")
             self.prof.export_chrome_trace(self.config.save_path + save_file_name)
-            self.skip_prof = True
+            self.enable = False
             self.saved = True
 
     def stop_and_save(self):
@@ -118,7 +118,7 @@ class Profiler:
     def stop_trace(self):
         if self.check():
             print(f"[Profiler] Trace stopped for rank {self.rank}")
-            self.skip_prof = True
+            self.enable = False
 
 
 def mark_start_range(

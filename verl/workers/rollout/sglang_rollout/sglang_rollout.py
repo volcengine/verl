@@ -29,7 +29,6 @@ import numpy as np
 import sglang.srt.entrypoints.engine
 import torch
 import torch.distributed as dist
-from omegaconf import DictConfig
 from sglang.srt.managers.tokenizer_manager import (
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
@@ -60,6 +59,7 @@ from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.net_utils import is_ipv6
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
+from verl.workers.config import RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.schemas import (
     AsyncRolloutRequest,
@@ -261,7 +261,7 @@ class SGLangRollout(BaseRollout):
     def __init__(
         self,
         actor_module: str,
-        config: DictConfig,
+        config: RolloutConfig,
         processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
         model_hf_config,
         port=None,
@@ -1597,12 +1597,16 @@ class SGLangRollout(BaseRollout):
         # this function is left for uniform train-inference resharding
 
     async def generate(
-        self, prompt_ids: torch.Tensor, sampling_params: dict[str, Any], request_id: str
+        self,
+        prompt_ids: torch.Tensor,
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
     ) -> torch.Tensor:
         """Generate sequence with token-in-token-out."""
         request_sampling_params = self.sampling_params.copy()
         request_sampling_params.update(sampling_params)
-        output = await self._handle_engine_generate(prompt_ids, request_sampling_params)
+        output = await self._handle_engine_generate(prompt_ids, request_sampling_params, image_data=image_data)
         return output["output_ids"]
 
     async def wake_up(self):
