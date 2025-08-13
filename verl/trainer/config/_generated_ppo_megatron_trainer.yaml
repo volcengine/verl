@@ -438,6 +438,7 @@ trainer:
   max_critic_ckpt_to_keep: null
   ray_wait_register_center_timeout: 300
   device: cuda
+  rollout_data_dir: null
 global_profiler:
   _target_: verl.utils.profiler.ProfilerConfig
   tool: null
