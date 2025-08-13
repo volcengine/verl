@@ -426,18 +426,30 @@ class AgentLoopWorker:
                 from verl.models.transformers.qwen2_vl import get_rope_index
 
                 images = output.multi_modal_data.get("image", [])
-                current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
-                multi_modal_inputs = self.processor(text=[current_text], images=images, return_tensors="pt")
-                multi_modal_inputs.pop("input_ids", None)
-                multi_modal_inputs.pop("attention_mask", None)
+                # Add a check to ensure all elements in the list are valid image objects
+                images = [img for img in images if img is not None]
+                if images:  # Add a check to ensure the list is not empty
+                    current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
+                    multi_modal_inputs = self.processor(text=[current_text], images=images, return_tensors="pt")
+                else:
+                    # Handle the case where there are no valid images
+                    multi_modal_inputs = None
 
-                # We must use dict(multi_modal_inputs) to convert BatchFeature values to a new dict
-                # because np.array() only keeps the keys for BatchFeature.
-                multi_modal_inputs = dict(multi_modal_inputs)
+                if multi_modal_inputs is not None:
+                    multi_modal_inputs.pop("input_ids", None)
+                    multi_modal_inputs.pop("attention_mask", None)
 
-                image_grid_thw = multi_modal_inputs.get("image_grid_thw")
-                video_grid_thw = multi_modal_inputs.get("video_grid_thw")
-                second_per_grid_ts = multi_modal_inputs.get("second_per_grid_ts")
+                    # We must use dict(multi_modal_inputs) to convert BatchFeature values to a new dict
+                    # because np.array() only keeps the keys for BatchFeature.
+                    multi_modal_inputs = dict(multi_modal_inputs)
+
+                    image_grid_thw = multi_modal_inputs.get("image_grid_thw")
+                    video_grid_thw = multi_modal_inputs.get("video_grid_thw")
+                    second_per_grid_ts = multi_modal_inputs.get("second_per_grid_ts")
+                else:
+                    image_grid_thw = None
+                    video_grid_thw = None
+                    second_per_grid_ts = None
 
                 position_ids = get_rope_index(
                     self.processor,

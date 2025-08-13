@@ -199,11 +199,16 @@ class ToolAgentLoop(AgentLoopBase):
 
                         # Add new image data
                         if isinstance(tool_response.image, list):
-                            image_data.extend(tool_response.image)
-                            new_images_this_turn.extend(tool_response.image)
+                            # Ensure all elements in the list are valid image objects
+                            for img in tool_response.image:
+                                if img is not None:  # Add a check to ensure the image is not None
+                                    image_data.append(img)
+                                    new_images_this_turn.append(img)
                         else:
-                            image_data.append(tool_response.image)
-                            new_images_this_turn.append(tool_response.image)
+                            # Ensure the image is not None
+                            if tool_response.image is not None:
+                                image_data.append(tool_response.image)
+                                new_images_this_turn.append(tool_response.image)
 
                     # Handle video data
                     if tool_response.video:
