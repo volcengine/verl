@@ -479,8 +479,8 @@ actor_rollout_ref:
     # Extra inference engine arguments, please refer vllm/sglang official doc for detail
     engine_kwargs:
 
-      vllm:
-      sglang:
+      vllm: null
+      sglang: null
 
     # Sampling parameters used during validation.
     val_kwargs:
