@@ -34,7 +34,7 @@ from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.device import set_expandable_segments, get_device_id, get_device_name, get_torch_device
+from verl.utils.device import get_device_id, get_device_name, get_torch_device, set_expandable_segments
 from verl.utils.fsdp_utils import (
     fsdp_version,
     layered_summon_lora_params,

@@ -26,7 +26,7 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataP
 
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
-from verl.utils.device import set_expandable_segments, get_device_id, get_torch_device
+from verl.utils.device import get_device_id, get_torch_device, set_expandable_segments
 from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
 from verl.utils.model import convert_weight_keys
 from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
