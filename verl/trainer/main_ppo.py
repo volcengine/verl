@@ -253,6 +253,11 @@ class TaskRunner:
 
         from verl.utils.dataset.rl_dataset import collate_fn
 
+        if config.actor_rollout_ref.model.get("custom_chat_template", None) is not None:  
+            tokenizer.chat_template = config.actor_rollout_ref.model.custom_chat_template  
+        if processor is not None:  
+            processor.chat_template = config.actor_rollout_ref.model.custom_chat_template
+
         # Create training and validation datasets.
         train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor, is_train=True)
         val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor, is_train=False)
