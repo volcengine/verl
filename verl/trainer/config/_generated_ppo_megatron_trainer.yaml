@@ -165,11 +165,8 @@ actor_rollout_ref:
     'n': 1
     multi_stage_wake_up: false
     engine_kwargs:
-      vllm:
-        swap_space: null
-        disable_mm_preprocessor_cache: false
-      sglang:
-        attention_backend: null
+      vllm: null
+      sglang: null
     val_kwargs:
       _target_: verl.workers.config.SamplingConfig
       top_k: -1
