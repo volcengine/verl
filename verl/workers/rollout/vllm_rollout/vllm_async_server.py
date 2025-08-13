@@ -254,6 +254,12 @@ class AsyncvLLMServer(AsyncServerBase):
             else:
                 logger.warning(f"cudagraph_capture_sizes must be a list, but got {cudagraph_capture_sizes}")
 
+        engine_kwargs = config.get("engine_kwargs", {}).get("vllm", {})
+
+        engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
+        if config.get("limit_images", None):  # support for multi-image data
+            engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
+
         engine_args = AsyncEngineArgs(
             model=local_path,
             enable_sleep_mode=config.free_cache_engine,
@@ -275,6 +281,7 @@ class AsyncvLLMServer(AsyncServerBase):
             trust_remote_code=trust_remote_code,
             seed=config.get("seed", 0),
             **compilation_config,
+            **engine_kwargs,
         )
 
         # init async llm engine
