@@ -238,7 +238,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
     @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
         if self.rollout_config.free_cache_engine:
-            self.inference_engine.sleep(level=1)
+            self.inference_engine.sleep(level=2)
 
         self.module.train()
 
