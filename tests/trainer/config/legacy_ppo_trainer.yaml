@@ -479,7 +479,10 @@ actor_rollout_ref:
     # Extra inference engine arguments, please refer vllm/sglang official doc for detail
     engine_kwargs:
 
+      # vllm engine config
       vllm: {}
+
+      # sglang engine config
       sglang: {}
 
     # Sampling parameters used during validation.
