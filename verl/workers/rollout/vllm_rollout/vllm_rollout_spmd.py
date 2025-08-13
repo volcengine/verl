@@ -33,7 +33,6 @@ import os
 import pickle
 import socket
 from contextlib import contextmanager
-from copy import deepcopy
 from types import MethodType
 from typing import Any
 
@@ -44,7 +43,7 @@ import torch.distributed
 import zmq
 import zmq.asyncio
 from filelock import FileLock
-from omegaconf import DictConfig, ListConfig, OmegaConf
+from omegaconf import DictConfig, ListConfig
 from tensordict import TensorDict
 from vllm import LLM, SamplingParams
 from vllm.config import CompilationConfig, CompilationLevel
@@ -57,6 +56,7 @@ from verl import DataProto
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
+from verl.workers.config import RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 
 logger = logging.getLogger(__file__)
@@ -79,7 +79,7 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
 
 
 class vLLMRollout(BaseRollout):
-    def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
+    def __init__(self, model_path: str, config: RolloutConfig, tokenizer, model_hf_config, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
 
         Args:
@@ -153,11 +153,8 @@ class vLLMRollout(BaseRollout):
         lora_kwargs = kwargs.pop("lora_kwargs", {})
         self.lora_kwargs = lora_kwargs
         # copy it to avoid secretly modifying the engine config
-        engine_kwargs = (
-            {}
-            if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs
-            else OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
-        )
+        engine_kwargs = config.get("engine_kwargs", {}).get("vllm", {})
+
         # For each vLLM engine parameter,
         # - `None` means not setting it, so we pop it, and leave it to vLLM default value
         #    (which can vary across different vLLM versions);
@@ -204,7 +201,7 @@ class vLLMRollout(BaseRollout):
 
         # Offload vllm model to reduce peak memory usage
         if config.free_cache_engine:
-            self.inference_engine.sleep(level=1)
+            self.inference_engine.sleep(level=2)
 
         kwargs = dict(
             n=1,

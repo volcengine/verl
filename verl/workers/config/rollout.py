@@ -1,9 +1,32 @@
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from dataclasses import dataclass, field
+from typing import Optional
+
 from verl.base_config import BaseConfig
+from verl.utils.profiler import ProfilerConfig
 
+__all__ = [
+    "SamplingConfig",
+    "MultiTurnConfig",
+    "CustomAsyncServerConfig",
+    "AgentLoopConfig",
+    "TraceConfig",
+    "RolloutConfig",
+]
 
-__all__ = ["SamplingConfig", "vLLMEngineConfig", "SGLangEngineConfig", "EngineConfig", 
-           "MultiTurnConfig", "CustomAsyncServerConfig", "AgentLoopConfig", "TraceConfig", "RolloutConfig"]
 
 @dataclass
 class SamplingConfig(BaseConfig):
@@ -15,33 +38,17 @@ class SamplingConfig(BaseConfig):
 
 
 @dataclass
-class vLLMEngineConfig(BaseConfig):
-    swap_space: int = None
-    disable_mm_preprocessor_cache: bool = True
-
-
-@dataclass
-class SGLangEngineConfig(BaseConfig):
-    attention_backend: str = None
-
-
-@dataclass
-class EngineConfig(BaseConfig):
-    vllm: vLLMEngineConfig = field(default_factory=vLLMEngineConfig)
-    sglang: SGLangEngineConfig = field(default_factory=SGLangEngineConfig)
-
-
-
-@dataclass
 class MultiTurnConfig(BaseConfig):
+    _mutable_fields = {"max_assistant_turns", "max_user_turns"}
+
     enable: bool = False
-    max_assistant_turns: int = None
-    tool_config_path: str = None
-    max_user_turns: int = None
+    max_assistant_turns: Optional[int] = None
+    tool_config_path: Optional[str] = None
+    max_user_turns: Optional[int] = None
     max_parallel_calls: int = 1
     max_tool_response_length: int = 256
     tool_response_truncate_side: str = "middle"
-    interaction_config_path: str = None
+    interaction_config_path: Optional[str] = None
     use_inference_chat_template: bool = False
     tokenization_sanity_check_mode: str = "strict"
     format: str = "hermes"
@@ -49,26 +56,28 @@ class MultiTurnConfig(BaseConfig):
 
 @dataclass
 class CustomAsyncServerConfig(BaseConfig):
-    path: str = None
-    name: str = None
+    path: Optional[str] = None
+    name: Optional[str] = None
 
 
 @dataclass
 class AgentLoopConfig(BaseConfig):
     num_workers: int = 8
-    agent_loop_config_path: str = None
+    agent_loop_config_path: Optional[str] = None
     custom_async_server: CustomAsyncServerConfig = field(default_factory=CustomAsyncServerConfig)
 
 
 @dataclass
 class TraceConfig(BaseConfig):
-    backend: str = None
+    backend: Optional[str] = None
     token2text: bool = False
 
 
 @dataclass
 class RolloutConfig(BaseConfig):
-    name: str
+    _mutable_fields = {"max_model_len"}
+
+    name: Optional[str] = None
     mode: str = "sync"
 
     temperature: float = 1.0
@@ -84,7 +93,7 @@ class RolloutConfig(BaseConfig):
     gpu_memory_utilization: float = 0.5
     ignore_eos: bool = False
     enforce_eager: bool = True
-    cudagraph_capture_sizes: list = None
+    cudagraph_capture_sizes: Optional[list] = None
     free_cache_engine: bool = True
     tensor_model_parallel_size: int = 2
     max_num_batched_tokens: int = 8192
@@ -94,26 +103,39 @@ class RolloutConfig(BaseConfig):
 
     val_kwargs: SamplingConfig = field(default_factory=SamplingConfig)
 
-    max_model_len: int = None
+    max_model_len: Optional[int] = None
     max_num_seqs: int = 1024
 
     # note that the logprob computation should belong to the actor
-    log_prob_micro_batch_size: int = None
-    log_prob_micro_batch_size_per_gpu: int = None
+    log_prob_micro_batch_size: Optional[int] = None
+    log_prob_micro_batch_size_per_gpu: Optional[int] = None
     log_prob_use_dynamic_bsz: bool = False
     log_prob_max_token_len_per_gpu: int = 16384
 
     disable_log_stats: bool = True
-    
+
     multi_stage_wake_up: bool = False
-    engine_kwargs: EngineConfig = field(default_factory=EngineConfig)
+    engine_kwargs: dict = field(default_factory=dict)
 
     calculate_log_probs: bool = False
 
+    agent: AgentLoopConfig = field(default_factory=AgentLoopConfig)
+
+    trace: TraceConfig = field(default_factory=TraceConfig)
+
     multi_turn: MultiTurnConfig = field(default_factory=MultiTurnConfig)
-    
+
     update_weights_bucket_megabytes: int = 512
 
     skip_rollout: bool = False
+
     skip_dump_dir: str = "/tmp/rollout_dump"
 
+    profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
+
+    enable_chunked_prefill: bool = True
+    load_format: str = "dummy_dtensor"
+
+    layered_summon: bool = False
+
+    layer_name_map: dict = field(default_factory=dict)

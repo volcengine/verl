@@ -26,7 +26,7 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataP
 
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
-from verl.utils.device import get_device_id, get_torch_device
+from verl.utils.device import get_device_id, get_torch_device, set_expandable_segments
 from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
 from verl.utils.model import convert_weight_keys
 from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
@@ -144,6 +144,10 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
         log_gpu_memory_usage("After offload_param in sharding manager memory", logger=logger)
 
+        # sglang need to set _set_allocator_settings to False
+        logger.debug("fsdp sglang sharding_manager _set_allocator_settings to False")
+        set_expandable_segments(False)
+
         if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             if self.multi_stage_wake_up:
                 await self.inference_engine.resume_memory_occupation(tags=["weights"])
@@ -184,6 +188,11 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
         # add empty cache after each compute
         get_torch_device().empty_cache()
+
+        # always set _set_allocator_settings to True when using sglang
+        # it is required by fsdp2 to avoid oom
+        logger.debug("fsdp sglang sharding_manager _set_allocator_settings to True")
+        set_expandable_segments(True)
 
         # restore random states
         if self.device_mesh is not None:
