@@ -25,6 +25,26 @@ from json import JSONDecodeError
 from typing import Any, Optional
 from uuid import uuid4
 
+# Workaround: avoid duplicate AutoConfig.register conflicts (e.g., 'aimv2')
+try:
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING, AutoConfig
+
+    _orig_ac_register = AutoConfig.register
+
+    def _safe_ac_register(model_type, config, exist_ok=False):
+        return _orig_ac_register(model_type, config, exist_ok=True)
+
+    AutoConfig.register = _safe_ac_register
+
+    _orig_cfg_register = CONFIG_MAPPING.register
+
+    def _safe_cfg_register(key, config, exist_ok=False):
+        return _orig_cfg_register(key, config, exist_ok=True)
+
+    CONFIG_MAPPING.register = _safe_cfg_register
+except Exception:
+    pass
+
 import numpy as np
 import sglang.srt.entrypoints.engine
 import torch
@@ -1103,58 +1123,49 @@ class SGLangRollout(BaseRollout):
                     )
                 )
             else:
-                completion_lock = asyncio.Lock()
                 all_tasks = []
 
-                async def process_request_with_monitoring(req):
-                    nonlocal completed_count
+                async def rollout_a_request_with_cancellation_handler(req):
                     try:
                         result = await self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
-
-                        async with completion_lock:
-                            if completed_count < target_completion:
-                                completed_count += 1
-                            return result
+                        return result
                     except asyncio.CancelledError:
                         # request is cancelled, return padding
                         logger.info(f"Request {req.request_id} was cancelled, creating padding")
                         aborted_requests.append(req.request_id)
                         return self._create_padding_request(req)
 
-                async def monitor_and_cancel():
-                    nonlocal completed_count
-                    while completed_count < target_completion:
-                        await asyncio.sleep(0.1)
-
-                    for task in all_tasks:
-                        if not task.done():
-                            task.cancel()
-
-                    # send abort signal to engine, interrupt all ongoing requests
-                    await self._engine.abort_request(abort_all=True)
-
                 async def run_with_cancellation():
                     nonlocal all_tasks
+                    nonlocal completed_count
+                    all_tasks = [
+                        asyncio.create_task(rollout_a_request_with_cancellation_handler(req)) for req in req_list
+                    ]
 
-                    # create all tasks
-                    all_tasks = [asyncio.create_task(process_request_with_monitoring(req)) for req in req_list]
-
-                    # start monitoring task
-                    monitor_task = asyncio.create_task(monitor_and_cancel())
-
+                    # Wait for target_completion tasks to complete
                     try:
-                        # wait for all tasks to complete (including cancelled ones)
-                        return await asyncio.gather(*all_tasks, return_exceptions=True)
+                        for completed_task in asyncio.as_completed(all_tasks):
+                            await completed_task
+                            completed_count += 1
+                            if completed_count >= target_completion:
+                                break
                     finally:
-                        # cancel monitoring task
-                        monitor_task.cancel()
-                        try:
-                            await monitor_task
-                        except asyncio.CancelledError:
-                            pass
+                        # Cancel remaining tasks
+                        for t in all_tasks:
+                            if not t.done():
+                                t.cancel()
 
-                loop = asyncio.get_event_loop()
-                output_req_list = loop.run_until_complete(run_with_cancellation())
+                        # Wait for all tasks to finish (including cancelled ones)
+                        final_results = await asyncio.gather(*all_tasks, return_exceptions=True)
+
+                        try:
+                            await self._engine.abort_request(abort_all=True)
+                        except Exception as e:
+                            logger.error(f"Failed to send abort signal to SGLang engine: {e}")
+
+                    return final_results
+
+                output_req_list = asyncio.run(run_with_cancellation())
 
             sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
         else:
