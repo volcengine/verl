@@ -1086,16 +1086,6 @@ class SGLangRollout(BaseRollout):
                 prompts,
             )
 
-            # add progress monitoring and abort function
-            total_requests = len(req_list)
-            target_completion = int(total_requests * (1 - self.config.over_sample_rate))
-            print(f"total_requests: {total_requests}")
-            print(f"target_completion: {target_completion}")
-            # abort when target_completion of requests are completed
-
-            completed_count = 0
-            aborted_requests = []
-
             # distinguish training and validation
             if is_validate:
                 # Validation mode: process all requests without abort
@@ -1106,6 +1096,13 @@ class SGLangRollout(BaseRollout):
                     )
                 )
             else:
+                # add progress monitoring and abort function
+                total_requests = len(req_list)
+                target_completion = int(total_requests * (1 - self.config.over_sample_rate))
+                # abort when target_completion of requests are completed
+
+                completed_count = 0
+                aborted_requests = []
                 all_tasks = []
 
                 async def rollout_a_request_with_cancellation_handler(req):
