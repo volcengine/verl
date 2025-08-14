@@ -13,6 +13,14 @@ MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
+
+rollout_mode="async"
+rollout_name="vllm" # sglang or vllm
+if [ "$rollout_mode" = "async" ]; then
+    export VLLM_USE_V1=1
+    return_raw_chat="True"
+fi
+
 # Algorithm parameters
 adv_estimator=grpo
 
@@ -33,10 +41,12 @@ overlong_penalty_factor=1.0
 
 # Training parameters
 loss_agg_mode="token-mean"
-train_prompt_bsz=2
-gen_prompt_bsz=2
+train_prompt_bsz=0
+gen_prompt_bsz=1
 n_resp_per_prompt=3
 train_prompt_mini_bsz=1
+
+total_rollout_steps=10
 
 # Temperature parameters
 temperature=1.0
@@ -67,6 +77,7 @@ common_params=(
     data.max_response_length=${max_response_length}
     data.train_batch_size=${train_prompt_bsz}
     data.gen_batch_size=${gen_prompt_bsz}
+    data.return_raw_chat=${return_raw_chat}
     actor_rollout_ref.rollout.n=${n_resp_per_prompt}
     algorithm.adv_estimator=${adv_estimator}
     algorithm.use_kl_in_reward=${use_kl_in_reward}
@@ -95,6 +106,8 @@ common_params=(
     actor_rollout_ref.rollout.val_kwargs.do_sample=True
     actor_rollout_ref.rollout.val_kwargs.n=1
     actor_rollout_ref.rollout.enable_chunked_prefill=True
+    actor_rollout_ref.rollout.name=${rollout_name}
+    actor_rollout_ref.rollout.mode=${rollout_mode}
     reward_model.reward_manager=dapo
     +reward_model.reward_kwargs.overlong_buffer_cfg.enable=${enable_overlong_buffer}
     +reward_model.reward_kwargs.overlong_buffer_cfg.len=${overlong_buffer_len}
@@ -112,7 +125,7 @@ common_params=(
     trainer.n_gpus_per_node=${n_gpus_training}
     rollout.nnodes=1
     rollout.n_gpus_per_node=${n_gpus_rollout}
-    rollout.total_rollout_steps=10
+    rollout.total_rollout_steps=${total_rollout_steps}
     rollout.total_epochs=2
     # Fully async specific configurations
     async_training.staleness_threshold=${staleness_threshold}
