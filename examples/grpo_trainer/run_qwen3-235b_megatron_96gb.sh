@@ -57,7 +57,7 @@ actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 10 / 10))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 1))
 offload=True
 OPTIM_OFFLOAD=${OPTIM_OFFLOAD:-True}
-gen_tp=16
+gen_tp=8
 train_tp=${TP:-4}
 train_pp=${PP:-8}
 
@@ -128,6 +128,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.optim.clip_grad=1.0 \
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.85 \
+    +actor_rollout_ref.rollout.engine_kwargs.vllm.enable_expert_parallel=True \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
     actor_rollout_ref.rollout.max_num_batched_tokens=$((max_prompt_length + max_response_length)) \
