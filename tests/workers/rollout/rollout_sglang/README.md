@@ -1,241 +1,272 @@
+Of course, here is the English translation of the provided document.
+
 # SGLang Rollout Tests
 
-这个目录包含了专门针对 SGLang 后端的 rollout worker 测试。
+This directory contains tests specifically for the SGLang backend's rollout worker.
 
-## 📁 目录结构
+## 📁 Directory Structure
 
 ```
 tests/workers/rollout/rollout_sglang/
-├── conftest.py                    # SGLang 专用的 pytest 配置和 fixtures
-├── test_http_server_engine.py     # HTTP Server Engine Adapters 测试
-├── run_tests.py                   # 测试运行脚本
-└── README.md                      # 本文档
+├── conftest.py                # Pytest configuration and fixtures specific to SGLang
+├── test_http_server_engine.py   # Tests for HTTP Server Engine Adapters
+├── run_tests.py                 # Test execution script
+└── README.md                    # This document
 ```
 
-## 🎯 测试范围
+## 🎯 Test Scope
 
 ### HTTP Server Engine Adapters
-- `HttpServerEngineAdapter` - 同步 HTTP 适配器
-- `AsyncHttpServerEngineAdapter` - 异步 HTTP 适配器
-- `launch_server_process` - 服务器进程启动函数
 
-### 测试覆盖的功能
-- 服务器初始化和配置
-- HTTP 请求处理（GET/POST）
-- 异步操作支持
-- 错误处理和重试机制
-- 内存管理
-- 分布式权重更新
-- 路由器注册和注销
-- 资源清理
+  - `HttpServerEngineAdapter` - Synchronous HTTP adapter
+  - `AsyncHttpServerEngineAdapter` - Asynchronous HTTP adapter
+  - `launch_server_process` - Server process launch function
 
-## 🔧 测试环境配置
+### Features Covered
 
-### SGLang 依赖
-测试现在使用**真实的 SGLang 模块**进行集成测试，而不是 Mock 对象。
+  - Server initialization and configuration
+  - HTTP request handling (GET/POST)
+  - Asynchronous operation support
+  - Error handling and retry mechanisms
+  - Memory management
+  - Distributed weight updates
+  - Router registration and unregistration
+  - Resource cleanup
 
-#### 安装要求
-确保已安装 SGLang：
+## 🔧 Test Environment Setup
+
+### SGLang Dependencies
+
+The tests now use the **real SGLang module** for integration testing, instead of mock objects.
+
+#### Installation Requirements
+
+Ensure SGLang is installed:
+
 ```bash
 pip install sglang[all]
 ```
 
-#### 环境变量
-- `SGLANG_TEST_MODEL_PATH`: 测试用模型路径（默认：`/tmp/test_model`）
+#### Environment Variables
+
+  - `SGLANG_TEST_MODEL_PATH`: Path to the test model (default: `/tmp/test_model`)
+
+<!-- end list -->
 
 ```bash
 export SGLANG_TEST_MODEL_PATH="/path/to/your/test/model"
 ```
 
-### 测试类型
-- **集成测试**: 使用真实 SGLang 模块，标记为 `@pytest.mark.real_sglang`
-- **单元测试**: 仅 Mock 外部依赖（HTTP 请求、进程管理），标记为 `@pytest.mark.mock_only`
+### Test Types
 
-## 🚀 运行测试
+  - **Integration Tests**: Use the real SGLang module, marked with `@pytest.mark.real_sglang`
+  - **Unit Tests**: Mock only external dependencies (HTTP requests, process management), marked with `@pytest.mark.mock_only`
 
-### 基本运行
+## 🚀 Running Tests
+
+### Basic Execution
+
 ```bash
-# 进入测试目录
+# Navigate to the test directory
 cd tests/workers/rollout/rollout_sglang
 
-# 运行所有测试
+# Run all tests
 python run_tests.py
 
-# 或直接使用 pytest
+# Or use pytest directly
 python -m pytest
 ```
 
-### 按测试类型运行
+### Running by Test Type
+
 ```bash
-# 只运行 Mock 单元测试（不需要真实 SGLang 模型）
+# Run only mock unit tests (does not require a real SGLang model)
 python run_tests.py -m "mock_only"
 
-# 只运行真实 SGLang 集成测试
+# Run only real SGLang integration tests
 python run_tests.py -m "real_sglang"
 
-# 排除慢速测试
+# Exclude slow tests
 python run_tests.py -m "not slow"
 ```
 
-### 带选项运行
+### Running with Options
+
 ```bash
-# 详细输出
+# Verbose output
 python run_tests.py -v
 
-# 带覆盖率报告
+# With coverage report
 python run_tests.py -c
 
-# 生成 HTML 覆盖率报告
+# Generate HTML coverage report
 python run_tests.py -c --html
 
-# 并行运行测试（需要 pytest-xdist）
+# Run tests in parallel (requires pytest-xdist)
 python run_tests.py -p
 
-# 运行特定测试
+# Run a specific test
 python run_tests.py -k "test_init"
 
-# 组合选项
+# Combining options
 python run_tests.py -v -c --html -x
 ```
 
-### 直接使用 pytest
+### Using Pytest Directly
+
 ```bash
-# 基本运行
+# Basic run
 pytest
 
-# 详细输出
+# Verbose output
 pytest -v -s
 
-# 带覆盖率
+# With coverage
 pytest --cov=verl.workers.rollout.sglang_rollout --cov-report=term-missing
 
-# 异步模式
+# Asyncio mode
 pytest --asyncio-mode=auto
 
-# 运行特定测试类
+# Run a specific test class
 pytest test_http_server_engine.py::TestHttpServerEngineAdapter
 
-# 运行特定测试方法
+# Run a specific test method
 pytest test_http_server_engine.py::TestHttpServerEngineAdapter::test_init_with_router_registration
 ```
 
-## 🔧 测试配置
+## 🔧 Test Configuration
 
-### 真实 SGLang 集成
-- **真实模块**: 测试使用真实的 `sglang` 模块和 `ServerArgs` 类
-- **模型要求**: 某些测试可能需要真实的模型文件
-- **环境配置**: 通过环境变量配置测试参数
+### Real SGLang Integration
+
+  - **Real Modules**: Tests use the actual `sglang` module and `ServerArgs` class.
+  - **Model Requirement**: Some tests may require real model files.
+  - **Environment Configuration**: Test parameters are configured via environment variables.
 
 ### Fixtures
-- `basic_adapter_kwargs` - 基本适配器参数
-- `router_adapter_kwargs` - 带路由器配置的参数
-- `non_master_adapter_kwargs` - 非主节点参数
-- `real_adapter_kwargs` - 真实 SGLang 集成参数
-- `sglang_test_model_path` - 测试模型路径
-- `mock_launch_server_process` - Mock 服务器进程启动
-- `mock_requests_*` - Mock HTTP 请求
-- `mock_aiohttp_session` - Mock 异步 HTTP 会话
 
-### 标记（Markers）
-- `@pytest.mark.asyncio` - 异步测试
-- `@pytest.mark.sglang` - SGLang 特定测试
-- `@pytest.mark.integration` - 集成测试
-- `@pytest.mark.slow` - 慢速测试
-- `@pytest.mark.real_sglang` - 需要真实 SGLang 安装的测试
-- `@pytest.mark.mock_only` - 仅使用 Mock 依赖的测试
+  - `basic_adapter_kwargs` - Basic adapter arguments
+  - `router_adapter_kwargs` - Arguments with router configuration
+  - `non_master_adapter_kwargs` - Non-master node arguments
+  - `real_adapter_kwargs` - Arguments for real SGLang integration
+  - `sglang_test_model_path` - Test model path
+  - `mock_launch_server_process` - Mock for server process launch
+  - `mock_requests_*` - Mocks for HTTP requests
+  - `mock_aiohttp_session` - Mock for async HTTP session
 
-## 📊 测试统计
+### Markers
 
-- **总测试用例**: 50+
-- **测试类**: 8 个主要测试类
-- **覆盖的方法**: 所有公共方法
-- **集成程度**: 真实 SGLang 模块 + Mock 外部依赖
+  - `@pytest.mark.asyncio` - Asynchronous test
+  - `@pytest.mark.sglang` - SGLang-specific test
+  - `@pytest.mark.integration` - Integration test
+  - `@pytest.mark.slow` - Slow test
+  - `@pytest.mark.real_sglang` - Test requiring a real SGLang installation
+  - `@pytest.mark.mock_only` - Test using only mock dependencies
 
-## 🐛 故障排除
+## 📊 Test Statistics
 
-### 常见问题
+  - **Total Test Cases**: 50+
+  - **Test Classes**: 8 main test classes
+  - **Methods Covered**: All public methods
+  - **Integration Level**: Real SGLang module + mocked external dependencies
 
-1. **SGLang 导入错误**
-   ```
-   ModuleNotFoundError: No module named 'sglang'
-   ```
-   - 解决方案：安装 SGLang
-   ```bash
-   pip install sglang[all]
-   ```
+## 🐛 Troubleshooting
 
-2. **模型路径错误**
-   ```
-   FileNotFoundError: Model path not found
-   ```
-   - 解决方案：设置正确的模型路径
-   ```bash
-   export SGLANG_TEST_MODEL_PATH="/path/to/valid/model"
-   ```
+### Common Issues
 
-3. **异步测试失败**
-   ```
-   RuntimeError: This event loop is already running
-   ```
-   - 确保使用 `pytest --asyncio-mode=auto`
+1.  **SGLang Import Error**
 
-4. **覆盖率报告问题**
-   ```
-   Coverage.py warning: No data was collected
-   ```
-   - 确保模块路径正确：`verl.workers.rollout.sglang_rollout`
+    ```
+    ModuleNotFoundError: No module named 'sglang'
+    ```
 
-### 调试测试
+      - **Solution**: Install SGLang
+        ```bash
+        pip install sglang[all]
+        ```
+
+2.  **Model Path Error**
+
+    ```
+    FileNotFoundError: Model path not found
+    ```
+
+      - **Solution**: Set the correct model path
+        ```bash
+        export SGLANG_TEST_MODEL_PATH="/path/to/valid/model"
+        ```
+
+3.  **Async Test Failure**
+
+    ```
+    RuntimeError: This event loop is already running
+    ```
+
+      - Ensure you are using `pytest --asyncio-mode=auto`
+
+4.  **Coverage Report Issues**
+
+    ```
+    Coverage.py warning: No data was collected
+    ```
+
+      - Ensure the module path is correct: `verl.workers.rollout.sglang_rollout`
+
+### Debugging Tests
+
 ```bash
-# 运行单个测试并查看详细输出
+# Run a single test with verbose output
 pytest test_http_server_engine.py::TestHttpServerEngineAdapter::test_init_with_router_registration -v -s
 
-# 在测试失败时进入调试器
+# Enter the debugger on test failure
 pytest test_http_server_engine.py --pdb
 
-# 显示最慢的测试
+# Show the slowest tests
 pytest test_http_server_engine.py --durations=10
 
-# 只运行快速的 Mock 测试
+# Run only fast mock tests
 pytest -m "mock_only" -v
 ```
 
-### 性能测试
+### Performance Testing
+
 ```bash
-# 运行所有集成测试（可能较慢）
+# Run all integration tests (can be slow)
 pytest -m "real_sglang" -v
 
-# 跳过慢速测试
+# Skip slow tests
 pytest -m "not slow" -v
 ```
 
-## 🔗 相关文档
+## 🔗 Related Documents
 
-- [主要 rollout 测试](../README_tests.md)
-- [HTTP Server Engine 实现](../../../../verl/workers/rollout/sglang_rollout/http_server_engine.py)
-- [SGLang 官方文档](https://github.com/sgl-project/sglang)
+  - [Main Rollout Tests](https://www.google.com/search?q=../README_tests.md)
+  - [HTTP Server Engine Implementation](../../../../verl/workers/rollout/sglang_rollout/http_server_engine.py)
+  - [SGLang Official Documentation](https://github.com/sgl-project/sglang)
 
-## 📝 贡献指南
+## 📝 Contribution Guidelines
 
-### 添加新测试
-1. 在相应的测试类中添加新方法
-2. 使用描述性的测试方法名
-3. 包含详细的文档字符串
-4. 使用适当的 fixtures
-5. 添加适当的测试标记：
-   - `@pytest.mark.real_sglang` - 如果需要真实 SGLang
-   - `@pytest.mark.mock_only` - 如果只需要 Mock
-   - `@pytest.mark.slow` - 如果测试运行较慢
+### Adding New Tests
 
-### 测试命名约定
-- 测试方法以 `test_` 开头
-- 使用描述性名称，如 `test_init_with_router_registration`
-- 测试类以 `Test` 开头
-- 边缘案例测试包含具体场景描述
+1.  Add a new method to the appropriate test class.
+2.  Use a descriptive test method name.
+3.  Include a detailed docstring.
+4.  Use appropriate fixtures.
+5.  Add appropriate test markers:
+      - `@pytest.mark.real_sglang` - if it requires a real SGLang installation.
+      - `@pytest.mark.mock_only` - if it only requires mocks.
+      - `@pytest.mark.slow` - if the test is slow.
 
-### Mock 使用指南
-- **选择性 Mock**: 只 Mock 外部依赖（HTTP 请求、进程管理等）
-- **保留真实**: 使用真实的 SGLang 模块进行核心逻辑测试
-- 优先使用现有的 fixtures
-- 为新的外部依赖创建新的 fixtures
-- 验证 Mock 对象的调用次数和参数 
+### Test Naming Conventions
+
+  - Test methods should start with `test_`.
+  - Use descriptive names, e.g., `test_init_with_router_registration`.
+  - Test classes should start with `Test`.
+  - Edge case tests should include a description of the specific scenario.
+
+### Mock Usage Guide
+
+  - **Selective Mocking**: Only mock external dependencies (e.g., HTTP requests, process management).
+  - **Keep it Real**: Use the actual SGLang module for core logic testing.
+  - Prioritize using existing fixtures.
+  - Create new fixtures for new external dependencies.
+  - Verify the call counts and arguments of mock objects.
