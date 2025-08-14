@@ -25,26 +25,6 @@ from json import JSONDecodeError
 from typing import Any, Optional
 from uuid import uuid4
 
-# Workaround: avoid duplicate AutoConfig.register conflicts (e.g., 'aimv2')
-try:
-    from transformers.models.auto.configuration_auto import CONFIG_MAPPING, AutoConfig
-
-    _orig_ac_register = AutoConfig.register
-
-    def _safe_ac_register(model_type, config, exist_ok=False):
-        return _orig_ac_register(model_type, config, exist_ok=True)
-
-    AutoConfig.register = _safe_ac_register
-
-    _orig_cfg_register = CONFIG_MAPPING.register
-
-    def _safe_cfg_register(key, config, exist_ok=False):
-        return _orig_cfg_register(key, config, exist_ok=True)
-
-    CONFIG_MAPPING.register = _safe_cfg_register
-except Exception:
-    pass
-
 import numpy as np
 import sglang.srt.entrypoints.engine
 import torch
@@ -1108,6 +1088,7 @@ class SGLangRollout(BaseRollout):
             # add progress monitoring and abort function
             total_requests = len(req_list)
             target_completion = int(total_requests * (1 - self.config.over_sample_rate))
+            print(f"total_requests: {total_requests}")
             print(f"target_completion: {target_completion}")
             # abort when target_completion of requests are completed
 
@@ -1117,11 +1098,12 @@ class SGLangRollout(BaseRollout):
             # distinguish training and validation
             if is_validate:
                 # Validation mode: process all requests without abort
-                output_req_list = asyncio.run(
-                    asyncio.gather(
+                async def _run_validation_tasks():
+                    return await asyncio.gather(
                         *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
                     )
-                )
+
+                output_req_list = asyncio.run(_run_validation_tasks())
             else:
                 all_tasks = []
 
