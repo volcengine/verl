@@ -19,4 +19,3 @@ actor_rollout_ref:
     multi_turn:
       enable: True
       max_assistant_turns: 5
-      sglang_engine_mode: "local"
