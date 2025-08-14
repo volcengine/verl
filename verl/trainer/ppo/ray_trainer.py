@@ -913,7 +913,7 @@ class RayPPOTrainer:
             self.rm_wg.init_model()
 
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
-        self.actor_rollout_wg = self.all_wg[Role.ActorRollout]
+        self.actor_rollout_wg = self.all_wg[str(Role.ActorRollout)]
         self.actor_rollout_wg.init_model()
 
     def _init_async_rollout_manager(self):
