@@ -438,8 +438,11 @@ class SGLangRollout(BaseRollout):
         tp_size_per_node = self._tp_size // nnodes
         node_rank = self._tp_rank // tp_size_per_node
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0
-        engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {})
-        attention_backend = engine_kwargs.get("attention_backend", None)
+        engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {}) or {}
+        engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
+
+        # attention backend will be changed to fa3 if not specified
+        attention_backend = engine_kwargs.pop("attention_backend", None)
 
         print(f"Distributed settings: tp_size_per_node={tp_size_per_node}, node_rank={node_rank}, "
               f"first_rank_in_node={first_rank_in_node}, tp_rank={self._tp_rank}, tp_size={self._tp_size}, "
@@ -483,6 +486,7 @@ class SGLangRollout(BaseRollout):
                 # In async mode for AgentLoop, SGLang support token in token out to avoid the tokenizer
                 # inconsistency issue.
                 skip_tokenizer_init=self.config.mode == "async",
+                **engine_kwargs,
             )
         else:
             self._engine = None

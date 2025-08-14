@@ -68,7 +68,7 @@ EP=${EP:-8}
 ETP=1
 CP=1
 optimizer_offload_fraction=${OFFLOAD_FRACTION:-1.}
-last_layer=${LAST_LAYER:-6}
+LAST_LAYER=${LAST_LAYER:-6}
 
 
 project_name='verl-deepseek-v3'
