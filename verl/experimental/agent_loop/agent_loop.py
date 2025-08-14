@@ -418,7 +418,7 @@ class AgentLoopWorker:
             output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
 
             # Some AgentLoop may have already computed the reward score, e.g SWE-agent.
-            if output.reward_score is None:
+            if output.reward_score is None and not self.config.reward_model.enable:
                 output.reward_score = await self.reward_manager_worker.compute_score.remote(output, kwargs)
 
             # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
