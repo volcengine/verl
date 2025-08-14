@@ -54,6 +54,12 @@ To train your project, configure the following environment variables based on th
 | 128 | 16 | 4 | 8 | 4 | 0 | True | 6 |
 | 256 | 32 | 4 | 8 | 4 | 0 | True | 6 |
 
+### Benchmark
+Here are some benchmark results for DeepSeek / Qwen3-235B. All configurations match the recommended settings based on the number of GPUs.
+
+| model | num gpus | mean response length | rollout time(s) | GPU memory(GB) | CPU memory(GB) | mfu | step time(s) |
+| -- | -- | -- | -- | -- | -- | -- | -- |
+| DeepSeek 671b | 96 | 1960 | 1050 | 0.9 | 1500 | 0.19 | 1700 |
 
 ## Upcoming Optimizations
 
