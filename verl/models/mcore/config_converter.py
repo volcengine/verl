@@ -267,7 +267,7 @@ def hf_to_mcore_config_qwen3moe(
         moe_grouped_gemm=True,
         moe_router_score_function="softmax",
         # Other optimizations
-        persist_layer_norm=False,
+        persist_layer_norm=True,
         bias_activation_fusion=True,
         bias_dropout_fusion=True,
         # Qwen specific
@@ -345,7 +345,7 @@ def hf_to_mcore_config_dpskv3(
         # Other optimizations
         # deallocate_pipeline_outputs=True,
         # gradient_accumulation_fusion=True,
-        persist_layer_norm=False,
+        persist_layer_norm=True,
         bias_activation_fusion=True,
         bias_dropout_fusion=True,
     )

@@ -144,7 +144,7 @@ def convert_checkpoint_from_transformers_to_megatron(
     ):
         global_layer_idx = layer_idx + layer_start
         numel_cur = numel
-        numel += safe_copy(hf_layer.input_layernorm.weight, layer.input_layernorm.weight)
+        numel += safe_copy(hf_layer.input_layernorm.weight, layer.self_attention.linear_qkv.layer_norm_weight)
 
         q = hf_layer.self_attn.q_proj.weight.view(
             [num_key_value_heads, head_dim * num_attention_heads // num_key_value_heads, -1]

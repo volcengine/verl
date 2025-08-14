@@ -171,9 +171,7 @@ class DeepseekV3Model(BaseModelInitializer):
 
     def get_transformer_layer_spec(self, vp_stage=None):
         extra_kwargs = {} if not self.has_vp_stage else {"vp_stage": vp_stage}
-        # Check if use_transformer_engine is specified in config, default to True for backward compatibility
-        use_te = getattr(self.tfconfig, 'use_transformer_engine', False)
-        transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=use_te, **extra_kwargs)
+        transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True, **extra_kwargs)
         return transformer_layer_spec
 
     def get_rope_scaling_args(self) -> dict:
@@ -192,10 +190,8 @@ class DeepseekV3Model(BaseModelInitializer):
         # MTP
         if self.tfconfig.mtp_num_layers is not None and self.tfconfig.mtp_num_layers > 0:
             transformer_layer_spec = self.get_transformer_layer_spec(vp_stage=vp_stage)
-            # Use the same use_transformer_engine setting as the transformer layer spec
-            use_te = getattr(self.tfconfig, 'use_transformer_engine', False)
             mtp_block_spec = get_gpt_mtp_block_spec(
-                self.tfconfig, transformer_layer_spec, use_transformer_engine=use_te, vp_stage=vp_stage
+                self.tfconfig, transformer_layer_spec, use_transformer_engine=True, vp_stage=vp_stage
             )
             kwargs["mtp_block_spec"] = mtp_block_spec
 
