@@ -67,6 +67,7 @@ from verl.workers.rollout.schemas import (
     FinishReasonTypeEnum,
     Message,
 )
+from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerEngineAdapter
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
 
 try:
@@ -431,37 +432,53 @@ class SGLangRollout(BaseRollout):
         engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {})
         attention_backend = engine_kwargs.get("attention_backend", None)
 
-        if first_rank_in_node:
+        print(f"Distributed settings: tp_size_per_node={tp_size_per_node}, node_rank={node_rank}, "
+              f"first_rank_in_node={first_rank_in_node}, tp_rank={self._tp_rank}, tp_size={self._tp_size}, "
+              f"nnodes={nnodes}, dist_init_addr={dist_init_addr}")
+
+        is_server_mode = (self.config.multi_turn.sglang_engine_mode == "server")
+        effective_first = first_rank_in_node or is_server_mode
+
+        if effective_first:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-            self._engine = AsyncEngine(
-                model_path=actor_module,
-                dtype=self.config.dtype,
-                mem_fraction_static=self.config.gpu_memory_utilization,
-                enable_memory_saver=True,
-                base_gpu_id=0,
-                gpu_id_step=1,
-                tp_size=self._tp_size,
-                node_rank=node_rank,
-                load_format=load_format,
-                dist_init_addr=dist_init_addr,
-                nnodes=nnodes,
-                trust_remote_code=trust_remote_code,
+            print(f"Initializing SGLang server on rank {rank} with node rank {node_rank} with tp_rank {self._tp_rank}, ")
+
+            args = {
+                "model_path": actor_module,
+                "dtype": self.config.dtype,
+                "mem_fraction_static": self.config.gpu_memory_utilization,
+                "enable_memory_saver": True,
+                "base_gpu_id": 0,
+                "gpu_id_step": 1,
+                "tp_size": self._tp_size,
+                "node_rank": node_rank,
+                "load_format": load_format,
+                "dist_init_addr": dist_init_addr,
+                "nnodes": nnodes,
+                "trust_remote_code": trust_remote_code,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
-                port=30000 + rank,
+                "port": 30000 + rank + 2,
                 # NOTE(Chenyang): if you want to debug the SGLang engine output
                 # please set the following parameters
                 # Otherwise, it will make the engine run too slow
-                # log_level="INFO",
+                "log_level": "info",
+                # "log_level": "error",
                 # log_requests=True,
                 # log_requests_level=2,
                 # max_running_requests=1,
-                mm_attention_backend="fa3",
-                attention_backend=attention_backend if attention_backend is not None else "fa3",
+                "mm_attention_backend": "fa3",
+                "attention_backend": attention_backend if attention_backend is not None else "fa3",
                 # In async mode, we want token in token out.
-                skip_tokenizer_init=self.config.mode == "async",
-            )
+                "skip_tokenizer_init": self.config.mode == "async",
+            }
+
+            if is_server_mode:
+                args['first_rank_in_node'] = first_rank_in_node
+                self._engine = AsyncHttpServerEngineAdapter(**args)
+            else:
+                self._engine = AsyncEngine(**args)
         else:
             self._engine = None
 
