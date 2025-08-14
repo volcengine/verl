@@ -98,8 +98,8 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         optim_config = engine_cfg.OptimConfig(
             grad_clip=config.grad_clip,  
-            betas=config.get("betas", (0.9, 0.999)),    
-            weight_decay=config.get("weight_decay", 1e-2),  
+            betas=config.optim.get("betas", (0.9, 0.999)),    
+            weight_decay=config.optim.get("weight_decay", 1e-2),  
             lr=config.optim.lr,  
             lr_warmup_steps=config.optim.get("lr_warmup_steps", -1),    
             lr_warmup_steps_ratio=config.optim.lr_warmup_steps_ratio,

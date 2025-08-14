@@ -94,22 +94,91 @@ class ActorWorker(Worker, DistProfilerExtension):
         self.engine = EngineRegistry.new(self.config.actor.strategy, engine_config)
     
 
-    def create_engine_config(self, actor_config):
-        model_config = engine_cfg.get_model_config(actor_config.model)
-        optim_config = engine_cfg.get_optim_config(actor_config.actor.optim)
-        system_config = engine_cfg.get_system_config(actor_config.actor.fsdp_config)
-        ckpt_config = engine_cfg.get_checkpoint_config(actor_config.actor.checkpoint)
+    def create_engine_config(self, config):
+        # ModelConfig Setup
+        model_config = engine_cfg.ModelConfig(
+            path=config.model.path,
+            module_type="causal_lm",
+            lora_rank=config.model.lora_rank,
+            lora_alpha=config.model.lora_alpha,
+            target_modules=config.model.target_modules,
+            trust_remote_code=config.model.trust_remote_code,
+            use_shm=config.model.use_shm,
+            external_lib=config.model.external_lib,
+            override_config=config.model.get("override_config", {}),
+            custom_chat_template=config.model.get("custom_chat_template", None),
+            tokenizer_path=None,
+            use_liger=config.model.get("use_liger", False),
+            use_fused_kernels=config.model.get("use_fused_kernels", False),
+            fused_kernel_options=config.model.get("fused_kernel_options", None),
+        )
 
-        ret = engine_cfg.get_engine_config(actor_config.actor,
-                                            model_config,
-                                            optim_config,
-                                            system_config,
-                                            ckpt_config,
-                                            module_type="causal_lm",
-                                            rollout_n=actor_config.rollout.n,
-                                            infer_micro_batch_size_per_gpu=actor_config.rollout.log_prob_micro_batch_size_per_gpu,
-                                            infer_max_token_len_per_gpu=actor_config.rollout.log_prob_max_token_len_per_gpu)
-        return ret
+        # OptimConfig Setup
+        optim_config = config.actor.optim
+        lr_scheduler_style = optim_config.get("warmup_style", "constant")
+        lr_scheduler_args = None
+        if lr_scheduler_style == "consine":
+            lr_scheduler_args = {
+                "min_lr_ratio": optim_config.get("min_lr_ratio", 0.0),
+                "num_cycles": optim_config.get("num_cycles", 0.5),
+            }
+
+        optim_config = engine_cfg.OptimConfig(
+            grad_clip=config.actor.grad_clip,  
+            betas=optim_config.get("betas", (0.9, 0.999)),    
+            weight_decay=optim_config.get("weight_decay", 1e-2),  
+            lr=optim_config.lr,  
+            lr_warmup_steps=optim_config.get("lr_warmup_steps", -1),    
+            lr_warmup_steps_ratio=optim_config.lr_warmup_steps_ratio,
+            lr_scheduler_style=lr_scheduler_style,
+            lr_scheduler_args=lr_scheduler_args,
+        )
+
+        # SystemConfig Setup
+        fsdp_config = config.actor.fsdp_config
+
+        system_config = engine_cfg.SystemConfig(
+            fsdp_size=fsdp_config.fsdp_size,
+            model_dtype=fsdp_config.get("model_dtype", "fp32"),
+            param_offload=fsdp_config.param_offload,
+            optimizer_offload=fsdp_config.optimizer_offload,
+            wrap_policy=fsdp_config.wrap_policy,
+            reshard_after_forward=fsdp_config.reshard_after_forward,
+            offload_policy=fsdp_config.offload_policy,
+            forward_prefetch=fsdp_config.forward_prefetch,
+            ulysses_sequence_parallel_size=config.actor.ulysses_sequence_parallel_size,
+            enable_gradient_checkpointing=config.model.enable_gradient_checkpointing,
+            enable_activation_offload=config.model.enable_activation_offload,
+            use_remove_padding=config.model.use_remove_padding,
+            mixed_precision=fsdp_config.get("mixed_precision", None),
+            use_orig_params=fsdp_config.get("use_orig_params", False),
+        )
+
+        # CheckpointConfig Setup
+        ckpt_config = engine_cfg.CheckpointConfig(
+            save_contents=config.actor.checkpoint.save_contents,
+            load_contents=config.actor.checkpoint.load_contents,
+            async_save=config.actor.checkpoint.async_save,
+        )
+
+        train_mini_batch_size = config.actor.ppo_mini_batch_size * config.rollout.n
+
+        engine_config = engine_cfg.EngineConfig(
+            strategy=config.actor.strategy,
+            model=model_config,
+            optim=optim_config,
+            system=system_config,
+            checkpoint=ckpt_config,
+            total_training_steps=config.actor.optim.get("total_training_steps", -1),
+            use_dynamic_bsz=config.actor.use_dynamic_bsz,
+            train_mini_batch_size=train_mini_batch_size,
+            train_micro_batch_size_per_gpu=config.actor.ppo_micro_batch_size_per_gpu,
+            train_max_token_len_per_gpu=config.actor.ppo_max_token_len_per_gpu,
+            infer_micro_batch_size_per_gpu=config.rollout.log_prob_micro_batch_size_per_gpu,
+            infer_max_token_len_per_gpu=config.rollout.log_prob_max_token_len_per_gpu,
+        )
+
+        return engine_config
 
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
