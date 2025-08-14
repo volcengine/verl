@@ -231,13 +231,22 @@ class FSDPSFTTrainer:
         )
 
         with init_context():
-            self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
-                local_model_path,
-                config=config,
-                torch_dtype=torch_dtype,
-                attn_implementation="flash_attention_2",
-                trust_remote_code=trust_remote_code,
-            )
+            if self.config.model.get("flash_attn_impl", "flash_attn_2") == 'flash_attn3':
+                self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
+                    local_model_path,
+                    config=config,
+                    torch_dtype=torch_dtype,
+                    attn_implementation="flash_attention_3",
+                    trust_remote_code=trust_remote_code,
+                )
+            else:
+                self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
+                    local_model_path,
+                    config=config,
+                    torch_dtype=torch_dtype,
+                    attn_implementation="flash_attention_2",
+                    trust_remote_code=trust_remote_code,
+                )                
 
             if self.use_remove_padding or self.config.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch

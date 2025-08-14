@@ -283,10 +283,16 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         else:
             torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
-        # override model kwargs
-        actor_model_config = AutoConfig.from_pretrained(
-            local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
-        )
+        if self.config.model.get("flash_attn_impl", "flash_attn_2") == 'flash_attn3':
+            # override model kwargs
+            actor_model_config = AutoConfig.from_pretrained(
+                local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_3"
+            )
+        else:
+            # override model kwargs
+            actor_model_config = AutoConfig.from_pretrained(
+                local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+            )            
 
         # patch for kimi-vl
         if getattr(actor_model_config, "model_type", None) == "kimi_vl":
@@ -1082,12 +1088,20 @@ class CriticWorker(Worker, DistProfilerExtension):
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         from transformers import AutoConfig
-
-        critic_model_config = AutoConfig.from_pretrained(
-            local_path,
-            attn_implementation="flash_attention_2",
-            trust_remote_code=config.model.get("trust_remote_code", False),
-        )
+        
+        if self.config.model.get("flash_attn_impl", "flash_attn_2") == 'flash_attn3':
+            critic_model_config = AutoConfig.from_pretrained(
+                local_path,
+                attn_implementation="flash_attention_3",
+                trust_remote_code=config.model.get("trust_remote_code", False),
+            )
+        else:
+            critic_model_config = AutoConfig.from_pretrained(
+                local_path,
+                attn_implementation="flash_attention_2",
+                trust_remote_code=config.model.get("trust_remote_code", False),
+            )            
+            
         critic_model_config.num_labels = 1
         # patch for kimi-vl
         if getattr(critic_model_config, "model_type", None) == "kimi_vl":
