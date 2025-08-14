@@ -108,10 +108,10 @@ class FSDPEngine(BaseEngine):
 
         fsdp_size = self.config.system.fsdp_size
         self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=fsdp_size)
-        self.use_remove_padding = config.model.use_remove_padding
+        self.use_remove_padding = config.system.use_remove_padding
 
         self.ulysses_device_mesh = None
-        self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
+        self.ulysses_sequence_parallel_size = self.config.system.ulysses_sequence_parallel_size
         dp = self.get_data_parallel_size()
         if self.ulysses_sequence_parallel_size > 1:
             self.ulysses_device_mesh = init_device_mesh(
@@ -122,7 +122,6 @@ class FSDPEngine(BaseEngine):
 
         # normalize config, update engine's member instead of config
         self.mini_bsz = config.train_mini_batch_size
-        self.mini_bsz = self.mini_bsz * config.rollout_n
         self.mini_bsz = self.mini_bsz // dp
         assert self.mini_bsz > 0, (
             f"mini_bsz {self.mini_bsz} should be larger than 0 after "
@@ -229,15 +228,12 @@ class FSDPEngine(BaseEngine):
             use_meta_tensor=not model_config.tie_word_embeddings, mesh=self.device_mesh
         )
 
-        # TODO(ziheng): need to recheck
+
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            # model_config.classifier_dropout = 0.0
-            # model_config.hidden_dropout = "0"
-            # model_config.summary_dropout_prob = 0.0
 
             module = load_torch_module(
-                self.config.module_type,
+                self.config.model.module_type,
                 local_path,
                 torch_dtype,
                 model_config,
@@ -268,7 +264,7 @@ class FSDPEngine(BaseEngine):
             # some parameters may not in torch_dtype
             module.to(torch_dtype)
 
-            if self.config.model.enable_gradient_checkpointing:
+            if self.config.system.enable_gradient_checkpointing:
                 module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
         return module
 
@@ -368,7 +364,7 @@ class FSDPEngine(BaseEngine):
         else:
             raise NotImplementedError(f"Unknown strategy {self.config.strategy}")
 
-        if self.config.model.enable_activation_offload:
+        if self.config.system.enable_activation_offload:
             enable_gradient_checkpointing = self.config.model.enable_gradient_checkpointing
             enable_activation_offloading(module, self.config.strategy, enable_gradient_checkpointing)
         return module
@@ -388,9 +384,7 @@ class FSDPEngine(BaseEngine):
     def _build_lr_scheduler(self, optimizer):
         total_steps = self.config.total_training_steps
         num_warmup_steps = int(self.config.optim.lr_warmup_steps)
-        warmup_style = self.config.optim.warmup_style
-        min_lr_ratio = self.config.optim.min_lr_ratio
-        num_cycles = self.config.optim.num_cycles
+        warmup_style = self.config.optim.lr_scheduler_style
         if num_warmup_steps < 0:
             num_warmup_steps_ratio = self.config.optim.lr_warmup_steps_ratio
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
@@ -403,6 +397,10 @@ class FSDPEngine(BaseEngine):
         if warmup_style == "constant":
             lr_scheduler = get_constant_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=num_warmup_steps)
         elif warmup_style == "cosine":
+            assert "min_lr_ratio" in self.config.optim.lr_scheduler_args, "min_lr_ratio must be specified in lr_scheduler_args"
+            assert "num_cycles" in self.config.optim.lr_scheduler_args, "num_cycles must be specified in lr_scheduler_args"
+            min_lr_ratio = self.config.optim.lr_scheduler_args["min_lr_ratio"]
+            num_cycles = self.config.optim.lr_scheduler_args["num_cycles"]
             lr_scheduler = get_cosine_schedule_with_warmup(
                 optimizer=optimizer,
                 num_warmup_steps=num_warmup_steps,
@@ -742,14 +740,14 @@ class FSDPEngine(BaseEngine):
         Returns:
             grad_norm (float): Norm of gradients before clipping.
         """
-        assert self.config.grad_clip is not None
+        assert self.config.optim.grad_clip is not None
 
         if isinstance(self.module, FSDP):
-            grad_norm = self.module.clip_grad_norm_(self.config.grad_clip)
+            grad_norm = self.module.clip_grad_norm_(self.config.optim.grad_clip)
         elif isinstance(self.module, FSDPModule):
-            grad_norm = fsdp2_clip_grad_norm_(self.module.parameters(), max_norm=self.config.grad_clip)
+            grad_norm = fsdp2_clip_grad_norm_(self.module.parameters(), max_norm=self.config.optim.grad_clip)
         else:
-            grad_norm = torch.nn.utils.clip_grad_norm_(self.module.parameters(), max_norm=self.config.grad_clip)
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.module.parameters(), max_norm=self.config.optim.grad_clip)
 
         # if grad_norm is not finite, skip the update
         if not torch.isfinite(grad_norm):

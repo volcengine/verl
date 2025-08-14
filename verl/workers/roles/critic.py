@@ -62,25 +62,96 @@ class CriticWorker(Worker, DistProfilerExtension):
 
 
     def create_engine_config(self, critic_config):
-        model_config = engine_cfg.get_model_config(critic_config.model)
-        model_config.override_config["num_labels"] = 1
-        model_config.override_config["classifier_dropout"] = 0.0
-        model_config.override_config["hidden_dropout"] = "0"
-        model_config.override_config["summary_dropout_prob"] = 0.0
-        optim_config = engine_cfg.get_optim_config(critic_config.optim)
-        system_config = engine_cfg.get_system_config(critic_config.model.fsdp_config)
-        ckpt_config = engine_cfg.get_checkpoint_config(critic_config.checkpoint)
+        # ModelConfig Setup
+        override_config = {
+            "num_labels": 1,
+            "classifier_dropout": 0.0,
+            "hidden_dropout": "0",
+            "summary_dropout_prob": 0.0,
+        }
 
-        ret = engine_cfg.get_engine_config(critic_config,
-                                            model_config,
-                                            optim_config,
-                                            system_config,
-                                            ckpt_config,
-                                            module_type="token_classification",
-                                            rollout_n=critic_config.rollout_n,
-                                            infer_micro_batch_size_per_gpu=critic_config.forward_micro_batch_size_per_gpu,
-                                            infer_max_token_len_per_gpu=critic_config.forward_max_token_len_per_gpu)
-        return ret
+        model_config = engine_cfg.ModelConfig(
+            path=critic_config.model.path,
+            module_type="token_classification",
+            lora_rank=critic_config.model.lora_rank,
+            lora_alpha=critic_config.model.lora_alpha,
+            target_modules=critic_config.model.target_modules,
+            trust_remote_code=critic_config.model.trust_remote_code,
+            use_shm=critic_config.model.use_shm,
+            external_lib=critic_config.model.external_lib,
+            override_config=override_config,
+            custom_chat_template=None,
+            tokenizer_path=None,
+            use_liger=False,
+            use_fused_kernels=False,
+            fused_kernel_options=None,
+        )
+
+        # OptimConfig Setup
+        lr_scheduler_style = critic_config.optim.get("warmup_style", "constant")
+        lr_scheduler_args = None
+        if lr_scheduler_style == "consine":
+            lr_scheduler_args = {
+                "min_lr_ratio": critic_config.optim.get("min_lr_ratio", 0.0),
+                "num_cycles": critic_config.optim.get("num_cycles", 0.5),
+            }
+
+        optim_config = engine_cfg.OptimConfig(
+            grad_clip=critic_config.grad_clip,  
+            betas=critic_config.get("betas", (0.9, 0.999)),    
+            weight_decay=critic_config.get("weight_decay", 1e-2),  
+            lr=critic_config.optim.lr,  
+            lr_warmup_steps=critic_config.optim.get("lr_warmup_steps", -1),    
+            lr_warmup_steps_ratio=critic_config.optim.lr_warmup_steps_ratio,
+            lr_scheduler_style=lr_scheduler_style,
+            lr_scheduler_args=lr_scheduler_args,
+        )
+
+        # SystemConfig Setup
+        fsdp_config = critic_config.model.fsdp_config
+
+        system_config = engine_cfg.SystemConfig(
+            fsdp_size=fsdp_config.fsdp_size,
+            model_dtype=fsdp_config.get("model_dtype", "fp32"),
+            param_offload=fsdp_config.param_offload,
+            optimizer_offload=fsdp_config.optimizer_offload,
+            wrap_policy=fsdp_config.wrap_policy,
+            reshard_after_forward=fsdp_config.reshard_after_forward,
+            offload_policy=fsdp_config.offload_policy,
+            forward_prefetch=fsdp_config.forward_prefetch,
+            ulysses_sequence_parallel_size=critic_config.ulysses_sequence_parallel_size,
+            enable_gradient_checkpointing=critic_config.model.enable_gradient_checkpointing,
+            enable_activation_offload=critic_config.model.enable_activation_offload,
+            use_remove_padding=critic_config.model.use_remove_padding,
+            mixed_precision=fsdp_config.get("mixed_precision", None),
+            use_orig_params=fsdp_config.get("use_orig_params", False),
+        )
+
+        # CheckpointConfig Setup
+        ckpt_config = engine_cfg.CheckpointConfig(
+            save_contents=critic_config.checkpoint.save_contents,
+            load_contents=critic_config.checkpoint.load_contents,
+            async_save=critic_config.checkpoint.async_save,
+        )
+
+        train_mini_batch_size = critic_config.ppo_mini_batch_size * critic_config.rollout_n
+
+        engine_config = engine_cfg.EngineConfig(
+            strategy=critic_config.strategy,
+            model=model_config,
+            optim=optim_config,
+            system=system_config,
+            checkpoint=ckpt_config,
+            total_training_steps=critic_config.optim.get("total_training_steps", -1),
+            use_dynamic_bsz=critic_config.use_dynamic_bsz,
+            train_mini_batch_size=train_mini_batch_size,
+            train_micro_batch_size_per_gpu=critic_config.ppo_micro_batch_size_per_gpu,
+            train_max_token_len_per_gpu=critic_config.ppo_max_token_len_per_gpu,
+            infer_micro_batch_size_per_gpu=critic_config.forward_micro_batch_size_per_gpu,
+            infer_max_token_len_per_gpu=critic_config.forward_max_token_len_per_gpu,
+        )
+
+        return engine_config
 
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)

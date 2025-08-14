@@ -61,7 +61,7 @@ class OptimConfig(BaseConfig):
     betas: tuple[float, float]                      # for AdamW optimizer
     weight_decay: float                             # for AdamW optimizer
     lr: float
-    lr_warmup_steps : int           = 0
+    lr_warmup_steps : int           = -1
     lr_warmup_steps_ratio: float    = 0.0
     lr_scheduler_style: str         = "constant"
     lr_scheduler_args: dict         = None
