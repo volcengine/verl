@@ -470,18 +470,6 @@ async def get_trajectory_info(step, index, validate):
     return trajectory_info
 
 
-async def _ray_future_to_asyncio(ray_future):
-    """将Ray future转换为asyncio可等待的对象"""
-    while True:
-        try:
-            # 非阻塞检查Ray future是否完成
-            result = ray.get(ray_future, timeout=0.001)  # 1ms timeout
-            return result
-        except ray.exceptions.GetTimeoutError:
-            # 未完成，让出控制权给其他协程
-            await asyncio.sleep(1)  # 1s sleep
-
-
 class AgentLoopManager:
     """Agent loop manager that manages a group of agent loop workers."""
 
@@ -551,10 +539,17 @@ class AgentLoopManager:
 
     def _init_agent_loop_workers(self):
         self.agent_loop_workers = []
-        for i in range(self.config.actor_rollout_ref.rollout.agent.num_workers):
+        # 获取建议的资源配置
+        agent_config = self.config.actor_rollout_ref.rollout.agent
+        max_concurrency = agent_config.get("max_concurrency", 10)
+        num_cpus = agent_config.get("num_cpus", 2)  # 默认2个CPU核心
+
+        for i in range(agent_config.num_workers):
             self.agent_loop_workers.append(
                 AgentLoopWorker.options(
                     name=f"agent_loop_worker_{i}",
+                    max_concurrency=max_concurrency,  # 设置最大并发数
+                    num_cpus=num_cpus,  # 设置CPU资源需求
                 ).remote(self.config, self.async_llm_servers)
             )
 
@@ -603,9 +598,9 @@ class AgentLoopManager:
         # 使用负载均衡选择 worker
         worker = self._select_best_worker()
 
-        # 异步处理单个样本
-        output_future = worker.generate_sequences.remote(sample)
-        outputs = await _ray_future_to_asyncio(output_future)
+        # 异步处理单个样本 - 使用无后处理版本获取原始AgentLoopOutput
+        output_future = worker.generate_sequences_no_post.remote(sample)
+        outputs = await asyncio.wrap_future(output_future.future())
 
         processing_time = time.time() - start_time
 

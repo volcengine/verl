@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import logging
-import threading
 from collections import deque
 from dataclasses import dataclass
 from typing import Any
@@ -30,10 +30,11 @@ class QueueSample:
     rollout_metadata: dict[str, Any]
 
 
-@ray.remote(num_cpus=10, max_concurrency=10)
+@ray.remote(num_cpus=2, max_concurrency=20)
 class MessageQueue:
     """
     Simplified Ray-based asynchronous message queue for communication between Rollouter and Trainer
+    使用 asyncio 实现异步消息队列
     """
 
     def __init__(self, config: DictConfig, max_queue_size: int = 1000):
@@ -50,12 +51,12 @@ class MessageQueue:
         except (AttributeError, RecursionError):
             self.staleness_threshold = 3
 
-        # Threading for message handling
+        # Asyncio for message handling
         self.running = True
 
-        # thread safe
-        self.lock = threading.RLock()
-        self.consumer_condition = threading.Condition(self.lock)
+        # async safe - 在第一次使用时初始化
+        self._lock = None
+        self._consumer_condition = None
 
         # statistic message
         self.total_produced = 0
@@ -67,7 +68,13 @@ class MessageQueue:
             f"staleness_threshold={self.staleness_threshold}"
         )
 
-    def put_sample(self, sample: Any, param_version: int) -> bool:
+    async def _ensure_async_primitives(self):
+        """确保异步原语已初始化"""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+            self._consumer_condition = asyncio.Condition(self._lock)
+
+    async def put_sample(self, sample: Any, param_version: int) -> bool:
         """
         Put a batch sample into the queue
 
@@ -78,7 +85,9 @@ class MessageQueue:
         Returns:
             bool: Whether the sample was successfully put into the queue
         """
-        with self.lock:
+        await self._ensure_async_primitives()
+
+        async with self._lock:
             # Check freshness
             staleness = self.current_param_version - param_version
             if staleness > self.staleness_threshold:
@@ -95,14 +104,14 @@ class MessageQueue:
             self.total_produced += 1
 
             # Notify waiting consumers
-            self.consumer_condition.notify()
+            self._consumer_condition.notify()
 
             if self.total_produced % 100 == 0:
                 logger.debug(f"MessageQueue stats: produced={self.total_produced}, queue_size={len(self.queue)}")
 
             return True
 
-    def get_samples(self, min_batch_count: int = 1) -> tuple[list[Any], int]:
+    async def get_samples(self, min_batch_count: int = 1) -> tuple[list[Any], int]:
         """
         Get batch samples from the queue, wait until enough samples are available
 
@@ -112,13 +121,14 @@ class MessageQueue:
         Returns:
             List[Any]: List of retrieved samples
         """
+        await self._ensure_async_primitives()
 
-        with self.lock:
+        async with self._lock:
             while len(self.queue) < min_batch_count and self.running:
                 print(f"[MessageQueue] consumer_condition {len(self.queue)}")
                 if len(self.queue) > 0 and self.queue[-1] is None:
                     return [], len(self.queue)
-                self.consumer_condition.wait()
+                await self._consumer_condition.wait()
 
             # If queue is closed and doesn't have enough samples, return empty list
             if not self.running and len(self.queue) < min_batch_count:
@@ -138,16 +148,18 @@ class MessageQueue:
             self.total_consumed += len(samples)
             return samples, len(self.queue)
 
-    def get_sample(self) -> Any | None:
+    async def get_sample(self) -> Any | None:
         """
         Get a single sample from the queue, wait until one is available
 
         Returns:
             Any: Single sample data or None if queue is closed
         """
-        with self.lock:
+        await self._ensure_async_primitives()
+
+        async with self._lock:
             while len(self.queue) == 0 and self.running:
-                self.consumer_condition.wait()
+                await self._consumer_condition.wait()
 
             # If queue is closed and empty, return None
             if not self.running and len(self.queue) == 0:
@@ -158,21 +170,27 @@ class MessageQueue:
             self.total_consumed += 1
             return data
 
-    def update_param_version(self, version: int):
+    async def update_param_version(self, version: int):
         """Update current parameter version"""
-        with self.lock:
+        await self._ensure_async_primitives()
+
+        async with self._lock:
             old_version = self.current_param_version
             self.current_param_version = version
             logger.debug(f"Parameter version updated from {old_version} to {version}")
 
-    def get_queue_size(self) -> int:
+    async def get_queue_size(self) -> int:
         """Get current queue length"""
-        with self.lock:
+        await self._ensure_async_primitives()
+
+        async with self._lock:
             return len(self.queue)
 
-    def get_statistics(self) -> dict[str, Any]:
+    async def get_statistics(self) -> dict[str, Any]:
         """Get queue statistics"""
-        with self.lock:
+        await self._ensure_async_primitives()
+
+        async with self._lock:
             return {
                 "queue_size": len(self.queue),
                 "total_produced": self.total_produced,
@@ -183,24 +201,30 @@ class MessageQueue:
                 "max_queue_size": self.max_queue_size,
             }
 
-    def clear_queue(self):
+    async def clear_queue(self):
         """Clear the queue"""
-        with self.lock:
+        await self._ensure_async_primitives()
+
+        async with self._lock:
             cleared_count = len(self.queue)
             self.queue.clear()
             logger.info(f"Cleared {cleared_count} samples from queue")
 
-    def shutdown(self):
+    async def shutdown(self):
         """Shutdown the message queue"""
-        with self.lock:
+        await self._ensure_async_primitives()
+
+        async with self._lock:
             self.running = False
-            # Notify all waiting threads so they can exit
-            self.consumer_condition.notify_all()
+            # Notify all waiting coroutines so they can exit
+            self._consumer_condition.notify_all()
         logger.info("MessageQueue shutdown")
 
-    def get_memory_usage(self) -> dict:
+    async def get_memory_usage(self) -> dict:
         """Get memory usage statistics"""
-        with self.lock:
+        await self._ensure_async_primitives()
+
+        async with self._lock:
             # Estimate memory usage of samples in queue
             import sys
 
@@ -228,43 +252,65 @@ class MessageQueue:
 
 
 class MessageQueueClient:
-    """MessageQueue client for communicating with MessageQueue Actor"""
+    """Asyncio-compatible MessageQueue client for communicating with MessageQueue Actor"""
 
     def __init__(self, queue_actor: Any):
         self.queue_actor = queue_actor
 
-    def put_sample(self, sample: Any, param_version: int) -> bool:
-        """Put batch into queue"""
+    async def put_sample(self, sample: Any, param_version: int) -> bool:
+        """Put batch into queue (async)"""
+        future = self.queue_actor.put_sample.remote(sample, param_version)
+        return await asyncio.wrap_future(future.future())
+
+    async def get_samples(self, min_batch_count: int = 1) -> tuple[list[Any], int]:
+        """Get batch from queue, wait until enough samples are available (async)"""
+        future = self.queue_actor.get_samples.remote(min_batch_count)
+        return await asyncio.wrap_future(future.future())
+
+    async def get_sample(self) -> Any | None:
+        """Get single sample from queue, wait until one is available (async)"""
+        future = self.queue_actor.get_sample.remote()
+        return await asyncio.wrap_future(future.future())
+
+    async def update_param_version(self, version: int):
+        """Update parameter version (async)"""
+        future = self.queue_actor.update_param_version.remote(version)
+        await asyncio.wrap_future(future.future())
+
+    async def get_queue_size(self) -> int:
+        """Get queue size (async)"""
+        future = self.queue_actor.get_queue_size.remote()
+        return await asyncio.wrap_future(future.future())
+
+    async def get_statistics(self) -> dict[str, Any]:
+        """Get statistics (async)"""
+        future = self.queue_actor.get_statistics.remote()
+        return await asyncio.wrap_future(future.future())
+
+    async def clear_queue(self):
+        """Clear queue (async)"""
+        future = self.queue_actor.clear_queue.remote()
+        await asyncio.wrap_future(future.future())
+
+    async def shutdown(self):
+        """Shutdown queue (async)"""
+        future = self.queue_actor.shutdown.remote()
+        await asyncio.wrap_future(future.future())
+
+    async def get_memory_usage(self) -> dict:
+        """Get memory usage statistics (async)"""
+        future = self.queue_actor.get_memory_usage.remote()
+        return await asyncio.wrap_future(future.future())
+
+    # 为了兼容性，保留同步版本的方法（但标记为deprecated）
+    def put_sample_sync(self, sample: Any, param_version: int) -> bool:
+        """Put batch into queue (sync - deprecated, use put_sample instead)"""
         return ray.get(self.queue_actor.put_sample.remote(sample, param_version))
 
-    def get_samples(self, min_batch_count: int = 1) -> tuple[list[Any], int]:
-        """Get batch from queue, wait until enough samples are available"""
+    def get_samples_sync(self, min_batch_count: int = 1) -> tuple[list[Any], int]:
+        """Get batch from queue (sync - deprecated, use get_samples instead)"""
         return ray.get(self.queue_actor.get_samples.remote(min_batch_count))
 
-    def get_sample(self) -> Any | None:
-        """Get single sample from queue, wait until one is available"""
-        return ray.get(self.queue_actor.get_sample.remote())
-
-    def update_param_version(self, version: int):
-        """Update parameter version"""
-        ray.get(self.queue_actor.update_param_version.remote(version))
-
-    def get_queue_size(self) -> int:
-        """Get queue size"""
-        return ray.get(self.queue_actor.get_queue_size.remote())
-
-    def get_statistics(self) -> dict[str, Any]:
-        """Get statistics"""
+    def get_statistics_sync(self) -> dict[str, Any]:
+        """Get statistics (sync - deprecated, use get_statistics instead)"""
         return ray.get(self.queue_actor.get_statistics.remote())
-
-    def clear_queue(self):
-        """Clear queue"""
-        ray.get(self.queue_actor.clear_queue.remote())
-
-    def shutdown(self):
-        """Shutdown queue"""
-        ray.get(self.queue_actor.shutdown.remote())
-
-    def get_memory_usage(self) -> dict:
-        """Get memory usage statistics"""
-        return ray.get(self.queue_actor.get_memory_usage.remote())

@@ -24,7 +24,7 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Rol
 from verl.utils.tracking import ValidationGenerationsLogger
 
 
-@ray.remote(num_cpus=10, max_concurrency=10)
+@ray.remote(num_cpus=10, max_concurrency=100)
 class FullyAsyncRollouter(RayPPOTrainer):
     """
     Asynchronous sample generator, responsible for continuously generating training samples
