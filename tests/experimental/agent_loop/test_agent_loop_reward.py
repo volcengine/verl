@@ -34,7 +34,7 @@ def test_agent_loop_compute_score():
     config.data.return_raw_chat = True
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.actor.use_dynamic_bsz = True
-    config.actor_rollout_ref.rollout.name = "sglang"
+    config.actor_rollout_ref.rollout.name = os.environ["ROLLOUT_NAME"]
     config.actor_rollout_ref.rollout.mode = "async"
     config.actor_rollout_ref.rollout.prompt_length = 1024
     config.actor_rollout_ref.rollout.response_length = 4096
