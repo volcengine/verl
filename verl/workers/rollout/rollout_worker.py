@@ -31,6 +31,7 @@ from verl.utils.fs import copy_to_local
 
 from verl.base_config import BaseConfig
 from verl.workers.config.rollout import RolloutConfig
+from verl.workers.config.model import HFModelConfig
 
 from verl.utils import hf_processor, hf_tokenizer
 
@@ -52,10 +53,10 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 @ray.remote
 class RolloutWorker(Worker):
-    def __init__(self, config: RolloutConfig) -> None:
+    def __init__(self, config: RolloutConfig, model_config: HFModelConfig) -> None:
         super().__init__()
-        self.config = config
         import torch.distributed
+        from torch.distributed.device_mesh import init_device_mesh
 
         self.device_name = get_device_name()
 
@@ -70,7 +71,8 @@ class RolloutWorker(Worker):
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
 
-        from torch.distributed.device_mesh import init_device_mesh
+        self.config = config
+        self.model_config = model_config
 
         # TODO(sgm): support FSDP hybrid shard for larger model
         infer_tp = self.config.tensor_model_parallel_size
@@ -92,19 +94,19 @@ class RolloutWorker(Worker):
                 "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
             )
 
-        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
-        self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
-        self.model_config = AutoConfig.from_pretrained(local_path)
+        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=self.model_config.trust_remote_code)
+        self.processor = hf_processor(local_path, trust_remote_code=self.model_config.trust_remote_code)
+        self.hf_config = AutoConfig.from_pretrained(local_path)
 
         # build rollout engine here
         if self.config.name == "vllm":
             from verl.workers.rollout.vllm_rollout import vLLMRollout
 
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
-            local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
+            local_path = copy_to_local(self.model_config.model_path, use_shm=self.model_config.use_shm)
             lora_kwargs = (
-                {"lora_kwargs": {"enable_lora": True, "max_loras": 1, "max_lora_rank": self._lora_rank}}
-                if self._is_lora
+                {"lora_kwargs": {"enable_lora": True, "max_loras": 1, "max_lora_rank": self.model_config.lora_rank}}
+                if self.model_config.lora_rank > 0
                 else {}
             )
             from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
@@ -114,9 +116,9 @@ class RolloutWorker(Worker):
                 model_path=local_path,
                 config=self.config,
                 tokenizer=self.tokenizer,
-                model_hf_config=self.actor_model_config,
+                model_hf_config=self.model_config.hf_config,
                 device_mesh=rollout_device_mesh,
-                trust_remote_code=trust_remote_code,
+                trust_remote_code=self.model_config.trust_remote_code,
                 **lora_kwargs,
             )
         elif self.config.name == "sglang":
@@ -131,14 +133,14 @@ class RolloutWorker(Worker):
             # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
             from verl.workers.sharding_manager.fsdp_sglang import FSDPSGLangShardingManager
 
-            local_path = copy_to_local(self.config.model.path)
+            local_path = copy_to_local(self.modelh)
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
             rollout = SGLangRollout(
-                actor_module=local_path,
+                actor_module=self.model_config.model_path,
                 config=self.config,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
-                model_hf_config=self.actor_model_config,
-                trust_remote_code=trust_remote_code,
+                model_hf_config=self.model_config.hf_config,
+                trust_remote_code=self.model_config.trust_remote_code,
             )
             log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
 
