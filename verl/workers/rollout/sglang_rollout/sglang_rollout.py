@@ -1006,7 +1006,6 @@ class SGLangRollout(BaseRollout):
         all_rewards = {**tool_reward_scores, **{"user_turn_rewards": user_turn_rewards}}
         _req.finalize(self.processing_class, all_rewards, finish_reason_type)
         if self.config.calculate_log_probs:
-            # 把input_ids输入sglang内生成一遍，并设置max_new_tokens=0，以生成log_probs
             debug_sampling_params = {**self.sampling_params}
             debug_sampling_params["max_new_tokens"] = 0
             output = await self._engine.async_generate(
