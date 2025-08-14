@@ -21,6 +21,7 @@ import os
 
 import hydra
 import ray
+from omegaconf import OmegaConf
 
 from verl.trainer.ppo.reward import load_reward_manager
 
@@ -37,13 +38,16 @@ def run_ppo(config) -> None:
     # isolation, will solve in the future
     os.environ["ENSURE_CUDA_VISIBLE_DEVICES"] = os.environ.get("CUDA_VISIBLE_DEVICES", "")
     if not ray.is_initialized():
+        default_runtime_env = {
+            "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}
+        }
+        ray_init_kwargs = config.ray_kwargs.pop("ray_init", {})
+        runtime_env_kwargs = ray_init_kwargs.pop("runtime_env", {})
+        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
+        ray_init_kwargs["runtime_env"] = runtime_env
+        print(f"ray init kwargs: {ray_init_kwargs}")
         # this is for local ray cluster
-        ray.init(
-            runtime_env={
-                "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}
-            },
-            num_cpus=config.ray_init.num_cpus,
-        )
+        ray.init(**ray_init_kwargs)
 
     runner = TaskRunner.remote()
     ray.get(runner.run.remote(config))

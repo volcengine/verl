@@ -49,7 +49,7 @@ def main(config):
 
     # Initialize Ray
     if not ray.is_initialized():
-        ray.init(num_cpus=config.ray_init.num_cpus)
+        ray.init(**config.ray_kwargs.get("ray_init", {}))
 
     # evaluate test_score based on data source
     data_source_reward = defaultdict(list)
