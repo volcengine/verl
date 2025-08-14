@@ -1096,9 +1096,6 @@ class SGLangRollout(BaseRollout):
                 target_completion = int(total_requests * (1 - self.config.over_sample_rate))
                 # abort when target_completion of requests are completed
 
-                print(f"total_requests: {total_requests}")
-                print(f"target_completion: {target_completion}")
-
                 completed_count = 0
                 aborted_requests = []
                 all_tasks = []
