@@ -515,10 +515,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
 
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
-        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model)
+        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
 
+        # build rollout worker inside hybrid engine
         log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
-        self.rollout_worker = RolloutWorker(config=rollout_config, model_config=model_config)
+        rollout_worker = RolloutWorker(config=rollout_config, model_config=model_config)
         log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
 
         if rollout_name == "vllm":
@@ -564,7 +565,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         else:
             raise NotImplementedError(f"Rollout name: {self.config.rollout.name} is not supported")
 
-        return rollout, rollout_sharding_manager
+        return rollout_worker, rollout_sharding_manager
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -626,7 +627,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
 
         if self._is_rollout:
-            self.rollout, self.rollout_sharding_manager = self._build_rollout(
+            self.rollout_worker, self.rollout_sharding_manager = self._build_rollout(
                 trust_remote_code=self.config.model.get("trust_remote_code", False)
             )
 
@@ -730,21 +731,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         assert self._is_rollout
 
-        meta_info = {
-            "eos_token_id": self.generation_config.eos_token_id
-            if self.generation_config is not None
-            else self.tokenizer.eos_token_id,
-            "pad_token_id": self.generation_config.pad_token_id
-            if self.generation_config is not None
-            else self.tokenizer.pad_token_id,
-        }
-        prompts.meta_info.update(meta_info)
         timing_generate = {}
         with self.rollout_sharding_manager:
             log_gpu_memory_usage("After entering rollout sharding manager", logger=logger)
 
             with simple_timer("generate_sequences", timing_generate):
-                output = self.rollout.generate_sequences(prompts=prompts)
+                output = self.rollout_worker.generate_sequences(prompts=prompts)
 
             log_gpu_memory_usage("After rollout generation", logger=logger)
 
@@ -1698,7 +1690,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 # ================================= Async related workers =================================
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     def _build_rollout(self, trust_remote_code=False):
-        rollout, rollout_sharding_manager = super()._build_rollout(trust_remote_code)
+        rollout_worker, rollout_sharding_manager = super()._build_rollout(trust_remote_code)
 
         # NOTE: rollout is not actually initialized here, it's deferred
         # to be initialized by AsyncvLLMServer.
@@ -1708,9 +1700,9 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         self.vllm_tp_rank = int(os.environ["RANK"]) % self.vllm_tp_size
 
         # used for sleep/wake_up
-        rollout.sharding_manager = rollout_sharding_manager
+        rollout_worker.rollout.sharding_manager = rollout_sharding_manager
 
-        return rollout, rollout_sharding_manager
+        return rollout_worker, rollout_sharding_manager
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def generate_sequences(self, prompts: DataProto):
@@ -1721,17 +1713,17 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     def execute_method(self, method: str | bytes, *args, **kwargs):
         """Called by ExternalRayDistributedExecutor collective_rpc."""
-        return self.rollout._execute_method(method, *args, **kwargs)
+        return self.rollout_worker.execute_method(method, *args, **kwargs)
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     def get_zeromq_address(self):
-        return self.rollout.get_zeromq_address()
+        return self.rollout_worker.get_zeromq_address()
 
     # ============================ SGLang related ============================
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def chat_completion(self, json_request):
-        ret = await self.rollout.chat_completion(json_request)
+        ret = await self.rollout_worker.chat_completion(json_request)
         return ret
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
@@ -1742,19 +1734,17 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         request_id: str,
         image_data: Optional[list[Any]] = None,
     ) -> list[int]:
-        ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
+        ret = await self.rollout_worker.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def wake_up(self):
-        if self.config.rollout.free_cache_engine:
-            await self.rollout.wake_up()
+        await self.rollout_worker.wake_up()
         # return something to block the caller
         return True
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def sleep(self):
-        if self.config.rollout.free_cache_engine:
-            await self.rollout.sleep()
+        await self.rollout_worker.sleep
         # return something to block the caller
         return True
