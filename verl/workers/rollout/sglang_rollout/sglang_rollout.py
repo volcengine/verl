@@ -1096,14 +1096,12 @@ class SGLangRollout(BaseRollout):
 
             # distinguish training and validation
             if is_validate:
-                # validation mode: process all requests without abort
-                async def process_all_requests():
-                    return await asyncio.gather(
+                # Validation mode: process all requests without abort
+                output_req_list = asyncio.run(
+                    asyncio.gather(
                         *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
                     )
-
-                loop = asyncio.get_event_loop()
-                output_req_list = loop.run_until_complete(process_all_requests())
+                )
             else:
                 completion_lock = asyncio.Lock()
                 all_tasks = []
