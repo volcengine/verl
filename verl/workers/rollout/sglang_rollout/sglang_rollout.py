@@ -463,17 +463,18 @@ class SGLangRollout(BaseRollout):
                 trust_remote_code=trust_remote_code,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
-                port=302000 + rank,
-                # NOTE(Chenyang): if you want to debug the SGLang engine output
-                # please set the following parameters
-                # Otherwise, it will make the engine run too slow
-                # log_level="INFO",
+                port=30000 + rank,
+                # NOTE(Chenyang): turn on log_level to see the decoding speed of SGLang Engine
+                # log_level="INFO"
+                # NOTE(Chenyang): turn the following lines to see the input and output of each request
                 # log_requests=True,
                 # log_requests_level=2,
+                # NOTE(Chenyang): turn on max_running_requests to set the max concurrent running requests
                 # max_running_requests=1,
                 mm_attention_backend="fa3",
                 attention_backend=attention_backend if attention_backend is not None else "fa3",
-                # In async mode, we want token in token out.
+                # In async mode for AgentLoop, SGLang support token in token out to avoid the tokenizer
+                # inconsistency issue.
                 skip_tokenizer_init=self.config.mode == "async",
             )
         else:
@@ -1098,13 +1099,12 @@ class SGLangRollout(BaseRollout):
             # distinguish training and validation
             if is_validate:
                 # Validation mode: process all requests without abort
-                async def process_all_requests():
-                    return await asyncio.gather(
+                loop = asyncio.get_event_loop()
+                output_req_list = loop.run_until_complete(
+                    asyncio.gather(
                         *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
                     )
-
-                loop = asyncio.get_event_loop()
-                output_req_list = loop.run_until_complete(process_all_requests())
+                )
             else:
                 all_tasks = []
 
@@ -1384,7 +1384,7 @@ class SGLangRollout(BaseRollout):
         padding_req = AsyncRolloutRequest(
             batch_data_id=original_req.batch_data_id,
             rollout_offset=original_req.rollout_offset,
-            request_id=original_req.request_id + "_padding",
+            request_id=original_req.request_id,
             state=AsyncRolloutRequestStateEnum.COMPLETED,
             messages=original_req.messages,
             multi_modal_keys=original_req.multi_modal_keys,

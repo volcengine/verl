@@ -17,6 +17,10 @@ hf download \
     --repo-type dataset \
     --local-dir $HOME/data/Maxwell-Jia/AIME_2024
 
+# Note that this script is using AgentLoop instead of SGLang Multi-Turn
+# We are concerned that the reward is not actually converge, since the
+# reward of retool is encouraging the model to generate more turns to
+# call more tools. The answers are not actually correct.
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
