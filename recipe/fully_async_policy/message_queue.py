@@ -25,9 +25,25 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class QueueSample:
-    data: Any
-    rollout_metadata: dict[str, Any]
+class RolloutSample:
+    """Enhanced rollout sample containing both original batch info and AgentLoopOutput"""
+
+    # Original batch information (preserved from _prepare_generate_batch)
+    original_batch_dict: dict[str, Any]
+
+    # AgentLoopOutput from generation
+    agent_loop_output: Any  # AgentLoopOutput
+
+    # Metadata
+    sample_id: str
+    epoch: int
+    rollout_n_index: int  # Index within the rollout.n repetitions (0, 1, ..., n-1)
+    original_sample_index: int  # Index of the original sample before repetition
+
+    # Processing metadata
+    processing_time: float
+    generation_timestamp: float
+    param_version: int
 
 
 @ray.remote(num_cpus=2, max_concurrency=20)
@@ -236,13 +252,17 @@ class MessageQueue:
                 sample = list(self.queue)[0]
                 try:
                     sample_size = sys.getsizeof(sample)
-                    if hasattr(sample.data, "batch") and hasattr(sample.data.batch, "__len__"):
-                        # If batch info is available, estimate data size
-                        batch_size = len(sample.data.batch)
-                        sample_size += batch_size * 1000  # Roughly estimate 1KB per batch entry
+                    # Since we now store RolloutSample directly, estimate based on its components
+                    if hasattr(sample, "original_batch_dict") and sample.original_batch_dict:
+                        # Estimate batch data size
+                        batch_data = sample.original_batch_dict.get("batch", {})
+                        sample_size += len(batch_data) * 1000  # Roughly estimate 1KB per batch entry
+                    if hasattr(sample, "agent_loop_output"):
+                        # Estimate AgentLoopOutput size
+                        sample_size += 5000  # Roughly estimate 5KB for AgentLoopOutput
                     total_size = sample_size * sample_count
                 except Exception:
-                    total_size = sample_count * 10000  # Roughly estimate 10KB per sample
+                    total_size = sample_count * 15000  # Roughly estimate 15KB per RolloutSample
 
             return {
                 "queue_samples": sample_count,

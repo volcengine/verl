@@ -21,7 +21,7 @@ import numpy as np
 import ray
 from omegaconf import OmegaConf
 
-from recipe.fully_async_policy.message_queue import MessageQueueClient, QueueSample
+from recipe.fully_async_policy.message_queue import MessageQueueClient, RolloutSample
 from recipe.fully_async_policy.utils import calculate_one_step_size
 from verl.experimental.agent_loop.agent_loop import postprocess_agent_loop_outputs
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
@@ -46,16 +46,16 @@ class FullyAsyncTrainer(RayPPOTrainer):
     """
 
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            device_name=None,
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -104,8 +104,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.stale_samples_processed = 0
         self.current_param_version = 0
 
-        self.required_samples = calculate_one_step_size(self.minimal_bsz,
-                                                        config.actor_rollout_ref.actor.ppo_mini_batch_size)
+        self.required_samples = calculate_one_step_size(
+            self.minimal_bsz, config.actor_rollout_ref.actor.ppo_mini_batch_size
+        )
 
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """Set message queue client"""
@@ -128,8 +129,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
             tuple: (epoch, batch_dict, gen_batch_output)
         """
         print(
-            "[FullyAsyncTrainer] "
-            f"Requesting {self.required_samples} samples from queue",
+            f"[FullyAsyncTrainer] Requesting {self.required_samples} samples from queue",
             flush=True,
         )
 
@@ -166,17 +166,18 @@ class FullyAsyncTrainer(RayPPOTrainer):
         )
 
         queue_samples = [ray.cloudpickle.loads(x) for x in queue_samples]
-        # Assemble batch
+        # Assemble batch - now working directly with RolloutSample objects
         batch = self._assemble_gen_batch_output_from_queue_samples(queue_samples)
 
         return 0, batch
 
-    def _assemble_gen_batch_output_from_queue_samples(self, queue_samples: list[QueueSample]):
+    def _assemble_gen_batch_output_from_queue_samples(self, rollout_samples: list[RolloutSample]):
         """
-        Assemble gen_batch_output from queue samples containing AgentLoopOutput
+        Assemble gen_batch_output from RolloutSample objects
+        从 RolloutSample 对象中组装批次，类似 ray_trainer 的 _post_generate_batch 逻辑
 
         Args:
-            queue_samples: List of samples from queue, each containing AgentLoopOutput
+            rollout_samples: List of RolloutSample objects
 
         Returns:
             DataProto: Assembled gen_batch_output
@@ -184,91 +185,89 @@ class FullyAsyncTrainer(RayPPOTrainer):
         start_time = time.time()
 
         import numpy as np
-
-        if not queue_samples:
-            raise ValueError("Empty queue_samples provided for batch assembly")
-
-        print(f"[FullyAsyncTrainer] Assembling batch from {len(queue_samples)} queue samples with AgentLoopOutput")
-
-        # Extract AgentLoopOutput and metadata from all samples
-        agent_loop_outputs = []
-        rollout_metadata_list = []
-        processing_times = []
-
-        for sample in queue_samples:
-            # sample.data is now AgentLoopOutput
-            agent_loop_outputs.append(sample.data)
-            rollout_metadata_list.append(sample.rollout_metadata)
-            processing_times.append(sample.rollout_metadata.get("processing_time", 0))
-
-        # Use the static method to postprocess AgentLoopOutput list into DataProto
-
-        batch = postprocess_agent_loop_outputs(agent_loop_outputs, self.tokenizer, self.config)
-
-        # Apply _post_generate_batch logic here
-        batch = self._post_generate_batch_for_agent_outputs(batch, agent_loop_outputs)
-
-        # Collect timing information and metadata
-        param_versions = []
-        sample_timestamps = []
-        for metadata in rollout_metadata_list:
-            # Extract parameter version and timestamp
-            param_versions.append(metadata.get("rollout_param_version", 0))
-            sample_timestamps.append(metadata.get("generation_timestamp", time.time()))
-
-        # Create meta_info
-        meta_info = {
-            "timing": {"avg_processing_time": np.mean(processing_times) if processing_times else 0},
-            "queue_sample_count": len(queue_samples),
-            "rollout_param_versions": param_versions,
-            "sample_timestamps": sample_timestamps,
-            "param_version_diversity": len(set(param_versions)),
-            "avg_sample_age": np.mean([time.time() - ts for ts in sample_timestamps]),
-        }
-
-        batch.meta_info.update(meta_info)
-
-        end_time = time.time()
-        print(
-            f"[FullyAsyncTrainer] Assembled batch with meta_info: "
-            f"{meta_info}, time elapsed: {end_time - start_time:.2f} seconds"
-        )
-
-        return batch
-
-    def _post_generate_batch_for_agent_outputs(self, batch, agent_loop_outputs):
-        """
-        Apply _post_generate_batch logic for AgentLoopOutput
-
-        Args:
-            batch: DataProto created from AgentLoopWorker.postprocess_agent_loop_outputs
-            agent_loop_outputs: List of AgentLoopOutput
-
-        Returns:
-            DataProto: Processed batch with additional metadata
-        """
-        import uuid
-
-        import numpy as np
         import torch
 
+        from verl import DataProto
         from verl.trainer.ppo.ray_trainer import compute_response_mask
 
-        # Add UIDs
-        batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+        if not rollout_samples:
+            raise ValueError("Empty rollout_samples provided for batch assembly")
 
-        # response_mask should already be in batch from AgentLoopWorker.postprocess_agent_loop_outputs
-        if "response_mask" not in batch.batch.keys():
-            batch.batch["response_mask"] = compute_response_mask(batch)
+        print(f"[FullyAsyncTrainer] Assembling batch from {len(rollout_samples)} RolloutSample objects")
 
-        # Balance the number of valid tokens across DP ranks if needed
+        # 直接处理 RolloutSample 对象
+        processing_times = [rs.processing_time for rs in rollout_samples]
+
+        # 第一步：从 AgentLoopOutput 创建生成结果的 DataProto
+        agent_loop_outputs = [rs.agent_loop_output for rs in rollout_samples]
+        gen_batch_output = postprocess_agent_loop_outputs(agent_loop_outputs, self.tokenizer, self.config)
+
+        # 第二步：重建原始 batch 信息
+        # 每个 RolloutSample 都是独立的，直接按顺序重建原始数据
+        original_batch_list = []
+        for rs in rollout_samples:
+            original_batch_dict = rs.original_batch_dict
+
+            # 重建 DataProto
+            original_batch_item = DataProto.from_single_dict(
+                {
+                    **{k: v for k, v in original_batch_dict["batch"].items()},
+                    **{f"__{k}": v for k, v in original_batch_dict["non_tensor_batch"].items()},
+                }
+            )
+            original_batch_item.meta_info.update(original_batch_dict["meta_info"])
+            original_batch_list.append(original_batch_item)
+
+        # 合并所有原始样本为一个批次
+        if original_batch_list:
+            original_batch = DataProto.from_items(original_batch_list)
+        else:
+            # 如果没有原始数据，创建空的 DataProto
+            original_batch = DataProto.from_single_dict({})
+
+        # 添加 UID
+        uids = []
+        for rs in rollout_samples:
+            uids.append(f"uid_{rs.sample_id}")
+        original_batch.non_tensor_batch["uid"] = np.array(uids, dtype=object)
+
+        # 直接合并原始数据和生成结果，不需要 repeat
+        # 因为队列中的每个 RolloutSample 都已经是独立的样本
+        final_batch = original_batch.union(gen_batch_output)
+
+        # 计算 response_mask（如果不存在）
+        if "response_mask" not in final_batch.batch.keys():
+            final_batch.batch["response_mask"] = compute_response_mask(final_batch)
+
+        # 平衡批次（如果配置了）
         if self.config.trainer.balance_batch:
-            self._balance_batch(batch, metrics={})
+            self._balance_batch(final_batch, metrics={})
 
-        # compute global_valid tokens
-        batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
+        # 计算全局有效 token 数
+        if "attention_mask" in final_batch.batch:
+            final_batch.meta_info["global_token_num"] = torch.sum(final_batch.batch["attention_mask"], dim=-1).tolist()
 
-        return batch
+        # 收集统计信息和元数据（直接从 RolloutSample 中获取）
+        param_versions = [rs.param_version for rs in rollout_samples]
+        sample_timestamps = [rs.generation_timestamp for rs in rollout_samples]
+
+        # 创建 meta_info
+        final_batch.meta_info.update(
+            {
+                "rollout_param_versions": param_versions,
+                "sample_timestamps": sample_timestamps,
+                "avg_processing_time": np.mean(processing_times) if processing_times else 0,
+                "max_processing_time": np.max(processing_times) if processing_times else 0,
+                "param_version_diversity": len(set(param_versions)) if param_versions else 0,
+                "avg_sample_age": np.mean([time.time() - ts for ts in sample_timestamps]) if sample_timestamps else 0,
+                "assembly_time": time.time() - start_time,
+            }
+        )
+
+        print(f"[FullyAsyncTrainer] Batch assembly completed in {time.time() - start_time:.2f}s")
+        print(f"[FullyAsyncTrainer] {final_batch}")
+
+        return final_batch
 
     def _create_actor_rollout_classes(self):
         # create actor
@@ -411,33 +410,29 @@ class FullyAsyncTrainer(RayPPOTrainer):
         )
         ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version))
 
-    def _compute_sample_freshness_metrics(self, batch_samples: list[QueueSample]) -> dict:
+    def _compute_sample_freshness_metrics(self, rollout_samples: list[RolloutSample]) -> dict:
         """
         Compute sample freshness metrics
 
         Args:
-            batch_samples: List of queue samples
+            rollout_samples: List of RolloutSample objects
 
         Returns:
             dict: Dictionary of freshness metrics
         """
-        if not batch_samples:
+        if not rollout_samples:
             return {}
 
         try:
-            # Extract parameter versions and timestamps
+            # Extract parameter versions and timestamps directly from RolloutSample
             sample_ages = []
             sample_latencies = []
             current_time = time.time()
 
-            for sample in batch_samples:
-                # Get information from rollout_metadata
-                if hasattr(sample, "rollout_metadata") and sample.rollout_metadata:
-                    rollout_version = sample.rollout_metadata.get("rollout_param_version", 0)
-                    generation_time = sample.rollout_metadata.get("generation_timestamp", current_time)
-                else:
-                    rollout_version = 0
-                    generation_time = current_time
+            for sample in rollout_samples:
+                # Get information directly from RolloutSample
+                rollout_version = sample.param_version
+                generation_time = sample.generation_timestamp
 
                 age = max(0, self.current_param_version - rollout_version)
                 latency = max(0, current_time - generation_time)
@@ -462,4 +457,3 @@ class FullyAsyncTrainer(RayPPOTrainer):
         except Exception as e:
             logger.error(f"Error computing freshness metrics: {e}")
             return {"freshness/error": str(e)}
-

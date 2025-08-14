@@ -82,21 +82,23 @@ def create_role_worker_mapping(config):
     if config.actor_rollout_ref.actor.strategy == "fsdp2":
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
         from recipe.one_step_off_policy.fsdp_workers import (
+            CriticWorker,
             DetachActorWorker,
             DetachAsyncRolloutWorker,
-            CriticWorker,
         )
         from verl.single_controller.ray import RayWorkerGroup
+
         ray_worker_group_cls = RayWorkerGroup
 
     elif config.actor_rollout_ref.actor.strategy == "megatron":
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
         from recipe.one_step_off_policy.megatron_workers import (
+            CriticWorker,
             DetachActorWorker,
             DetachAsyncRolloutWorker,
-            CriticWorker,
         )
         from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
+
         ray_worker_group_cls = NVMegatronRayWorkerGroup
 
     else:
@@ -120,7 +122,7 @@ def create_role_worker_mapping(config):
 
     # 添加reference policy（如果需要KL loss或reward）
     if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
-        role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+        role_worker_mapping[Role.RefPolicy] = ray.remote(DetachActorWorker)
 
     return role_worker_mapping, ray_worker_group_cls
 
@@ -219,7 +221,7 @@ class FullyAsyncTaskRunner:
             resource_pool_manager=create_resource_pool_manager(config, roles=[Role.Rollout]),
             ray_worker_group_cls=self.components["ray_worker_group_cls"],
             processor=self.components["processor"],
-            device_name=config.trainer.device
+            device_name=config.trainer.device,
         )
 
         ray.get(rollouter.init_workers.remote())
@@ -275,5 +277,3 @@ def main(config):
 
 if __name__ == "__main__":
     main()
-
-

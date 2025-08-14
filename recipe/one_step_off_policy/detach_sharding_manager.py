@@ -74,5 +74,3 @@ class DetachShardingManager(BaseShardingManager):
             return data
 
         return data.chunk(chunks=self.tp_size)[self.tp_rank]
-
-

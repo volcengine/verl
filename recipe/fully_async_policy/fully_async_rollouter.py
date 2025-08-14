@@ -18,8 +18,9 @@ from pprint import pprint
 import ray
 from omegaconf import OmegaConf
 
-from recipe.fully_async_policy.message_queue import MessageQueueClient, QueueSample
+from recipe.fully_async_policy.message_queue import MessageQueueClient, RolloutSample
 from recipe.fully_async_policy.utils import calculate_one_step_size
+from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
 from verl.utils.tracking import ValidationGenerationsLogger
@@ -34,16 +35,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
     """
 
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            device_name=None
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -135,8 +136,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.queue_full_pause_count = 0  # 队列满导致的暂停次数
 
         # Calculate the samples needed for a train, used to calculate staleness and interrupt rollout
-        self.required_samples = calculate_one_step_size(self.minimal_bsz,
-                                                        config.actor_rollout_ref.actor.ppo_mini_batch_size)
+        self.required_samples = calculate_one_step_size(
+            self.minimal_bsz, config.actor_rollout_ref.actor.ppo_mini_batch_size
+        )
         self.max_required_samples = self.required_samples * (self.staleness_threshold + 1)
 
         # queue size
@@ -216,34 +218,105 @@ class FullyAsyncRollouter(RayPPOTrainer):
         continuous_iterator = self._create_continuous_iterator()
         sample_count = 0
         for epoch, batch_dict in continuous_iterator:
-            # 准备样本数据
-            sample_id = f"sample_{epoch}_{sample_count}"
-            batch, gen_batch = self._prepare_generate_batch(batch_dict)
+            # 类似 _prepare_generate_batch 的逻辑：分离数据
+            original_batch, gen_data = self._prepare_single_generation_data(batch_dict)
 
-            sample_data = {"sample_id": sample_id, "gen_batch": gen_batch, "epoch": epoch, "timestamp": time.time()}
+            # 根据 rollout.n 进行重复
+            n_repeats = self.config.actor_rollout_ref.rollout.n
 
-            await self.pending_samples_queue.put(sample_data)
+            for rollout_n_index in range(n_repeats):
+                sample_id = f"sample_{epoch}_{sample_count}_{rollout_n_index}"
+
+                partial_rollout_sample = RolloutSample(
+                    original_batch_dict=original_batch,
+                    agent_loop_output=None,  # 待处理后填充
+                    sample_id=sample_id,
+                    epoch=epoch,
+                    rollout_n_index=rollout_n_index,
+                    original_sample_index=sample_count,
+                    processing_time=0.0,  # 待处理后填充
+                    generation_timestamp=0.0,  # 待处理后填充
+                    param_version=0,  # 待处理后填充
+                    _gen_data=gen_data,  # 临时字段，处理完后删除
+                )
+
+                # 将生成数据附加到 RolloutSample 中（临时字段）
+
+                await self.pending_samples_queue.put(partial_rollout_sample)
+
+                # 检查是否到达最后一步
+                if self.global_steps >= self.total_rollout_steps:
+                    print(
+                        f"[FullyAsyncRollouter] 达到最大步数，停止添加新样本 "
+                        f"{self.global_steps} >= {self.total_rollout_steps}"
+                    )
+                    break
+
+                self.global_steps += 1
+
             sample_count += 1
-
-            # 检查是否到达最后一步
-            if self.global_steps >= self.total_rollout_steps:
-                print(f"[FullyAsyncRollouter] 达到最大步数，停止添加新样本 {self.global_steps} >= {self.total_rollout_steps}")
-                break
-
-            self.global_steps += 1
 
         # 发送结束信号
         await self.pending_samples_queue.put("DONE")
+
+    def _prepare_single_generation_data(self, batch_dict):
+        """
+        类似 ray_trainer._prepare_generate_batch 的逻辑，但针对单个样本
+        分离出用于生成的数据和需要保留的原始数据
+
+        Returns:
+            tuple: (original_batch_dict, gen_data_for_single_sample)
+        """
+        from verl import DataProto
+
+        # 创建完整的 DataProto
+        full_batch = DataProto.from_single_dict(batch_dict)
+
+        # 定义需要传递给生成服务器的字段
+        batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
+        non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
+
+        # 处理可选字段
+        optional_fields = [
+            "multi_modal_data",
+            "raw_prompt",
+            "tools_kwargs",
+            "interaction_kwargs",
+            "index",
+            "agent_name",
+        ]
+
+        for field in optional_fields:
+            if field in full_batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append(field)
+
+        # 分离数据：gen_batch 用于生成，original_batch 保留原始信息
+        gen_batch = full_batch.pop(
+            batch_keys=batch_keys_to_pop,
+            non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
+        )
+
+        # 添加全局步数到生成数据
+        gen_batch.meta_info["global_steps"] = self.global_steps
+
+        # 保留原始 batch 信息（转换为字典格式以便序列化）
+        original_batch_dict = {
+            "batch": {k: v.clone() if hasattr(v, "clone") else v for k, v in full_batch.batch.items()},
+            "non_tensor_batch": dict(full_batch.non_tensor_batch),
+            "meta_info": dict(full_batch.meta_info),
+        }
+
+        return original_batch_dict, gen_batch
 
     async def _submit_worker(self):
         """流式处理工作协程 - 逐个样本立即提交处理，不等待批次"""
         active_tasks = set()
 
         while True:
-            # 获取待处理样本
-            sample_data = await self.pending_samples_queue.get()
+            # 获取待处理的部分 RolloutSample
+            partial_rollout_sample = await self.pending_samples_queue.get()
 
-            if sample_data == "DONE":
+            if partial_rollout_sample == "DONE":
                 print("收到结束信号，等待剩余任务完成...")
                 # 等待所有活动任务完成
                 if active_tasks:
@@ -261,41 +334,48 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             # 立即提交单个样本处理
             task = asyncio.create_task(
-                self._process_single_sample_streaming(sample_data), name=f"process_{sample_data['sample_id']}"
+                self._process_single_sample_streaming(partial_rollout_sample),
+                name=f"process_{partial_rollout_sample.sample_id}",
             )
             active_tasks.add(task)
 
             # 标记队列任务完成
             self.pending_samples_queue.task_done()
 
-    async def _process_single_sample_streaming(self, sample_data: dict):
+    async def _process_single_sample_streaming(self, partial_rollout_sample):
         """流式处理单个样本"""
         # 检查是否需要暂停处理
         if await self._should_pause_generation():
-            print(f"[FullyAsyncRollouter] 暂停处理样本 {sample_data['sample_id']}")
+            print(f"[FullyAsyncRollouter] 暂停处理样本 {partial_rollout_sample.sample_id}")
             # 暂停时重新放回队列
-            await self.pending_samples_queue.put(sample_data)
+            await self.pending_samples_queue.put(partial_rollout_sample)
             return
 
         start_time = time.time()
-        # 直接使用AgentLoopManager的单样本异步处理能力
+
+        # 从 RolloutSample 中提取生成数据（临时字段）
+        gen_data = partial_rollout_sample._gen_data
+
+        # 将单个样本数据包装成 DataProto (用于 generate_single_sample_async)
+        gen_batch_single = DataProto.from_items([gen_data])
+
+        # 调用异步生成方法
         agent_loop_output, processing_time = await self.async_rollout_manager.generate_single_sample_async(
-            sample_data["gen_batch"], sample_data["sample_id"]
+            gen_batch_single, partial_rollout_sample.sample_id
         )
         end_time = time.time()
 
-        # 组装最终结果
-        final_result = {
-            "sample_id": sample_data["sample_id"],
-            "agent_loop_output": agent_loop_output,
-            "processing_time": processing_time,
-            "timestamp": time.time(),
-            "param_version": self.current_param_version,
-            "epoch": sample_data["epoch"],
-        }
+        # 直接更新 RolloutSample 对象，填充剩余字段
+        partial_rollout_sample.agent_loop_output = agent_loop_output
+        partial_rollout_sample.processing_time = processing_time
+        partial_rollout_sample.generation_timestamp = time.time()
+        partial_rollout_sample.param_version = self.current_param_version
 
-        # 立即放入结果队列
-        await self.result_queue.put(final_result)
+        # 删除临时字段
+        delattr(partial_rollout_sample, "_gen_data")
+
+        # 直接放入结果队列
+        await self.result_queue.put(partial_rollout_sample)
 
         async with self.lock:
             self.processed_sample_count += 1
@@ -304,7 +384,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 self.max_processing_time = processing_time
 
         print(
-            f"[FullyAsyncRollouter] 样本 {sample_data['sample_id']} 处理完成，"
+            f"[FullyAsyncRollouter] 样本 {partial_rollout_sample.sample_id} 处理完成，"
             f"耗时 {processing_time:.2f}s {end_time - start_time:.2f}s"
         )
 
@@ -317,26 +397,13 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     if self.result_queue.empty():
                         break
 
-            # 从结果队列获取处理结果
-            result = await self.result_queue.get()
+            # 从结果队列获取 RolloutSample
+            rollout_sample = await self.result_queue.get()
 
-            # 准备rollout metadata
-            rollout_metadata = {
-                "generation_timestamp": result["timestamp"],
-                "rollout_param_version": result["param_version"],
-                "processing_time": result["processing_time"],
-                "epoch": result["epoch"],
-                "agent_loop_metrics": result["agent_loop_output"].metrics.model_dump(),
-            }
-
-            # 直接将 AgentLoopOutput 放入消息队列
-            queue_sample = QueueSample(
-                data=result["agent_loop_output"],  # 直接存储 AgentLoopOutput
-                rollout_metadata=rollout_metadata,
-            )
+            # 直接将 RolloutSample 放入消息队列
             success = await self.message_queue_client.put_sample(
-                sample=ray.cloudpickle.dumps(queue_sample),
-                param_version=result["param_version"],
+                sample=ray.cloudpickle.dumps(rollout_sample),
+                param_version=rollout_sample.param_version,
             )
 
             async with self.lock:
@@ -347,9 +414,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     self.dropped_stale_samples += 1
 
             print(
-                f"[FullyAsyncRollouter] 🔥 消费样本 {result['sample_id']}: "
+                f"[FullyAsyncRollouter] 消费样本 {rollout_sample.sample_id}: "
                 f"{'成功' if success else '失败'}放入到消息队列, "
-                f"处理时间 {result['processing_time']:.2f}s"
+                f"处理时间 {rollout_sample.processing_time:.2f}s"
             )
 
             # 标记结果队列任务完成
@@ -585,5 +652,3 @@ class FullyAsyncRollouter(RayPPOTrainer):
             }
 
             return stats
-
-

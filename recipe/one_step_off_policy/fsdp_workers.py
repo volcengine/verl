@@ -39,8 +39,7 @@ from verl.utils.fsdp_utils import (
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
-from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
-from verl.workers.fsdp_workers import CriticWorker
+from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -60,12 +59,10 @@ def get_inference_model(rollout):
     """
     inference_engine = rollout.inference_engine
     # 判断inference_engine的类型
-    if hasattr(inference_engine, 'llm_engine'):
+    if hasattr(inference_engine, "llm_engine"):
         # LLM类型 - vLLMRollout
-        inference_model = (
-            inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-        )
-    elif hasattr(inference_engine, 'worker'):
+        inference_model = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+    elif hasattr(inference_engine, "worker"):
         # WorkerWrapperBase类型 - vLLMAsyncRollout
         inference_model = inference_engine.worker.model_runner.model
     else:
@@ -77,7 +74,6 @@ def get_inference_model(rollout):
 
 
 class DetachNcclSync(ActorRolloutRefWorker):
-
     def _get_actor_params(self):
         pass
 
@@ -234,6 +230,7 @@ class DetachRolloutWorker(DetachNcclSync):
         log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
 
         from .detach_sharding_manager import DetachShardingManager
+
         sharding_manager = DetachShardingManager(
             inference_engine=rollout.inference_engine, device_mesh=rollout_device_mesh
         )
@@ -260,7 +257,7 @@ class DetachAsyncRolloutWorker(AsyncActorRolloutRefWorker, DetachRolloutWorker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
-        print(f"[DetachAsyncRolloutWorker] init_model")
+        print("[DetachAsyncRolloutWorker] init_model")
         DetachRolloutWorker.init_model(self)
 
         self.vllm_tp_size = self.config.rollout.tensor_model_parallel_size
@@ -269,5 +266,3 @@ class DetachAsyncRolloutWorker(AsyncActorRolloutRefWorker, DetachRolloutWorker):
 
         # used for sleep/wake_up
         self.rollout.sharding_manager = self.rollout_sharding_manager
-
-

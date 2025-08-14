@@ -27,8 +27,11 @@ from verl.utils.debug import (
 from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.fs import copy_to_local
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
-from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
-from verl.workers.megatron_workers import CriticWorker, RewardModelWorker
+from verl.workers.megatron_workers import (
+    ActorRolloutRefWorker,
+    AsyncActorRolloutRefWorker,
+    CriticWorker,
+)
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -166,6 +169,7 @@ class DetachRolloutWorker(DetachNcclSync):
         log_gpu_memory_usage("After building vllm rollout", logger=logger)
 
         from sharding_manager import DetachShardingManager
+
         rollout_sharding_manager = DetachShardingManager(
             inference_engine=rollout.inference_engine, device_mesh=rollout_device_mesh
         )
