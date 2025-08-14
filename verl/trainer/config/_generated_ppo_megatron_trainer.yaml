@@ -163,6 +163,7 @@ actor_rollout_ref:
     disable_log_stats: true
     do_sample: true
     'n': 1
+    over_sample_rate: 0
     multi_stage_wake_up: false
     engine_kwargs:
       vllm:
