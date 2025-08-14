@@ -1,4 +1,4 @@
-# Copyright 2025 Zhipu AI
+# Copyright 2025 z.ai
 # Copyright 2023-2024 SGLang Team
 # Copyright 2025 ModelBest Inc. and/or its affiliates
 #
@@ -17,14 +17,14 @@
 # This file is adapted from multiple sources:
 # 1. THUDM/slime project
 #    Original source: https://github.com/THUDM/slime/blob/main/slime/backends/sglang_utils/http_server_engine.py
-#    Copyright 2025 Zhipu AI
+#    Copyright 2025 z.ai
 #    Licensed under the Apache License, Version 2.0
 # 2. SGLang project
 #    Original source: https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/http_server_engine.py
 #    Copyright 2023-2024 SGLang Team
 #    Licensed under the Apache License, Version 2.0
 #
-# Modifications made by Zhipu AI and ModelBest Inc. include but are not limited to:
+# Modifications made by z.ai and ModelBest Inc. include but are not limited to:
 # - Enhanced error handling and retry logic
 # - Added async support with connection pooling
 # - Extended functionality for distributed weight updates
@@ -69,12 +69,13 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 # Default configuration constants
 DEFAULT_TIMEOUT = 60.0
-DEFAULT_MAX_RETRIES = 3
+DEFAULT_MAX_RETRIES = 1
 DEFAULT_RETRY_DELAY = 2.0
-DEFAULT_MAX_CONNECTIONS = 4000
+DEFAULT_MAX_CONNECTIONS = 2000
+DEFAULT_MAX_WAIT_TIME = 300.0
 
 
-def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIMEOUT) -> multiprocessing.Process:
+def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIMEOUT, max_wait_time = DEFAULT_MAX_WAIT_TIME) -> multiprocessing.Process:
     """Launch an SGLang HTTP server process and wait for it to be ready.
 
     This function starts a new process running an SGLang HTTP server, then waits
@@ -97,6 +98,8 @@ def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIME
     Note:
         This function will return immediately for non-master nodes (node_rank != 0),
         but the process will still be started and returned.
+        This is for consistency; except for the process obtained by node_rank = 0,
+        other processes have no actual effect.
     """
     p = multiprocessing.Process(target=launch_server, args=(server_args,))
     p.start()
@@ -113,7 +116,6 @@ def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIME
 
     # Health check with overall timeout
     start_time = time.time()
-    max_wait_time = 500.0  # 5 minutes max wait
 
     with requests.Session() as session:
         while time.time() - start_time < max_wait_time:
@@ -153,7 +155,7 @@ def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIME
     return p
 
 
-class HttpServerEngineAdapter(EngineBase):
+class HttpServerAdapter(EngineBase):
     """HTTP-based adapter for SGLang engines.
 
     This adapter allows interaction with SGLang engines through HTTP requests
@@ -183,6 +185,7 @@ class HttpServerEngineAdapter(EngineBase):
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_delay: float = DEFAULT_RETRY_DELAY,
         first_rank_in_node: bool = False,
+        max_start_wait_time: float = DEFAULT_MAX_WAIT_TIME,
         **kwargs: Any,
     ) -> None:
         """Initialize the HTTP server engine adapter.
@@ -201,6 +204,7 @@ class HttpServerEngineAdapter(EngineBase):
             **kwargs (Any): Additional arguments passed to ServerArgs
 
         Note:
+            TODO: @ChangyiYang Enable SGLang router for this http server engine
             If both router_ip and router_port are provided and this is the master node
             (node_rank == 0), the adapter will automatically register with the router.
         """
@@ -211,11 +215,12 @@ class HttpServerEngineAdapter(EngineBase):
         self.retry_delay: float = retry_delay
         self.server_args: ServerArgs = ServerArgs(**kwargs)
         self.node_rank: int = self.server_args.node_rank
+        self.max_start_wait_time: float = max_start_wait_time
 
         logger.info(f"Launch HttpServerEngineAdapter at: {self.server_args.host}:{self.server_args.port}")
         if first_rank_in_node:
             print(f"Server process launched with for node rank {self.node_rank}", flush=True)
-            self.process: multiprocessing.Process = launch_server_process(self.server_args, self.timeout)
+            self.process: multiprocessing.Process = launch_server_process(self.server_args, self.timeout, self.max_start_wait_time)
         else:
             print(f"Waiting for server process to start for node rank {self.node_rank}", flush=True)
 
@@ -275,7 +280,7 @@ class HttpServerEngineAdapter(EngineBase):
 
         url = f"http://{self.server_args.host}:{self.server_args.port}/{endpoint}"
 
-        for attempt in range(self.max_retries + 1):
+        for attempt in range(self.max_retries):
             try:
                 if method.upper() == "GET":
                     response = requests.get(url, timeout=self.timeout)
@@ -489,84 +494,12 @@ class HttpServerEngineAdapter(EngineBase):
         """
         return self._make_request("resume_memory_occupation", {"tags": tags})
 
-    def init_weights_update_group(
-        self, master_address: str, master_port: int, rank_offset: int, world_size: int, group_name: str, backend: str
-    ) -> Dict[str, Any]:
-        """Initialize a distributed weights update group.
-
-        Args:
-            master_address (str): Address of the master node for distributed communication
-            master_port (int): Port of the master node
-            rank_offset (int): Offset for process ranks in the group
-            world_size (int): Total number of processes in the distributed group
-            group_name (str): Name identifier for the process group
-            backend (str): Backend to use for distributed communication (e.g., 'nccl', 'gloo')
-
-        Returns:
-            Dict[str, Any]: Server response indicating group initialization status
-        """
-        return self._make_request(
-            "init_weights_update_group",
-            {
-                "master_address": master_address,
-                "master_port": master_port,
-                "rank_offset": rank_offset,
-                "world_size": world_size,
-                "group_name": group_name,
-                "backend": backend,
-            },
-        )
-
-    def update_weights_from_distributed(
-        self,
-        names: List[str],
-        dtypes: List[Any],
-        shapes: List[Tuple[int, ...]],
-        group_name: str,
-        flush_cache: bool = False,
-    ) -> Dict[str, Any]:
-        """Update model weights from distributed tensors.
-
-        Args:
-            names (List[str]): List of tensor names to update
-            dtypes (List[Any]): List of data types for each tensor (typically torch.dtype)
-            shapes (List[Tuple[int, ...]]): List of tensor shapes
-            group_name (str): Name of the distributed process group
-            flush_cache (bool, optional): Whether to flush cache after updating weights.
-                Defaults to False.
-
-        Returns:
-            Dict[str, Any]: Server response indicating distributed update status
-        """
-        return self._make_request(
-            "update_weights_from_distributed",
-            {
-                "names": names,
-                "dtypes": [str(dtype).replace("torch.", "") for dtype in dtypes],
-                "shapes": shapes,
-                "group_name": group_name,
-                "flush_cache": flush_cache,
-            },
-        )
-
-    def pause_generation(self) -> Dict[str, Any]:
-        """Pause text generation on the server.
-
-        Returns:
-            Dict[str, Any]: Server response indicating pause status
-        """
-        return self._make_request("pause_generation", {})
-
-    def continue_generation(self) -> Dict[str, Any]:
-        """Continue text generation on the server.
-
-        Returns:
-            Dict[str, Any]: Server response indicating continuation status
-        """
-        return self._make_request("continue_generation", {})
 
 
-class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
+
+
+
+class AsyncHttpServerAdapter(HttpServerAdapter):
     """Asynchronous HTTP-based adapter for SGLang engines.
 
     This class inherits from HttpServerEngineAdapter and adds async capabilities
@@ -858,82 +791,6 @@ class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
 
         return response
 
-    async def init_weights_update_group(
-        self, master_address: str, master_port: int, rank_offset: int, world_size: int, group_name: str, backend: str
-    ) -> Dict[str, Any]:
-        """Initialize a distributed weights update group asynchronously.
-
-        Args:
-            master_address (str): Address of the master node for distributed communication
-            master_port (int): Port of the master node
-            rank_offset (int): Offset for process ranks in the group
-            world_size (int): Total number of processes in the distributed group
-            group_name (str): Name identifier for the process group
-            backend (str): Backend to use for distributed communication (e.g., 'nccl', 'gloo')
-
-        Returns:
-            Dict[str, Any]: Server response indicating group initialization status
-        """
-        return await self._make_async_request(
-            "init_weights_update_group",
-            {
-                "master_address": master_address,
-                "master_port": master_port,
-                "rank_offset": rank_offset,
-                "world_size": world_size,
-                "group_name": group_name,
-                "backend": backend,
-            },
-        )
-
-    async def update_weights_from_distributed(
-        self,
-        names: List[str],
-        dtypes: List[Any],
-        shapes: List[Tuple[int, ...]],
-        group_name: str,
-        flush_cache: bool = False,
-    ) -> Dict[str, Any]:
-        """Update model weights from distributed tensors asynchronously.
-
-        Args:
-            names (List[str]): List of tensor names to update
-            dtypes (List[Any]): List of data types for each tensor (typically torch.dtype)
-            shapes (List[Tuple[int, ...]]): List of tensor shapes
-            group_name (str): Name of the distributed process group
-            flush_cache (bool, optional): Whether to flush cache after updating weights.
-                Defaults to False.
-
-        Returns:
-            Dict[str, Any]: Server response indicating distributed update status
-        """
-        return await self._make_async_request(
-            "update_weights_from_distributed",
-            {
-                "names": names,
-                "dtypes": [str(dtype).replace("torch.", "") for dtype in dtypes],
-                "shapes": shapes,
-                "group_name": group_name,
-                "flush_cache": flush_cache,
-            },
-        )
-
-    async def pause_generation(self) -> Dict[str, Any]:
-        """Pause text generation on the server asynchronously.
-
-        Returns:
-            Dict[str, Any]: Server response indicating pause status
-        """
-        return await self._make_async_request("pause_generation", {})
-
-    async def continue_generation(self) -> Dict[str, Any]:
-        """Continue text generation on the server asynchronously.
-
-        Returns:
-            Dict[str, Any]: Server response indicating continuation status
-        """
-        return await self._make_async_request("continue_generation", {})
-
     async def async_generate(
         self,
         prompt: Optional[str] = None,
@@ -1008,7 +865,7 @@ class AsyncHttpServerEngineAdapter(HttpServerEngineAdapter):
             self._session = None
             logger.info("HTTP session closed")
 
-    async def __aenter__(self) -> "AsyncHttpServerEngineAdapter":
+    async def __aenter__(self) -> "AsyncHttpServerAdapter":
         """Async context manager support.
 
         Returns:

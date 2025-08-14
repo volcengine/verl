@@ -67,7 +67,7 @@ from verl.workers.rollout.schemas import (
     FinishReasonTypeEnum,
     Message,
 )
-from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerEngineAdapter
+from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
 
 try:
@@ -436,7 +436,7 @@ class SGLangRollout(BaseRollout):
               f"first_rank_in_node={first_rank_in_node}, tp_rank={self._tp_rank}, tp_size={self._tp_size}, "
               f"nnodes={nnodes}, dist_init_addr={dist_init_addr}")
 
-        is_server_mode = (self.config.multi_turn.sglang_engine_mode == "server")
+        is_server_mode = (self.config.sglang_engine_mode == "server")
         effective_first = first_rank_in_node or is_server_mode
 
         if effective_first:
@@ -475,8 +475,14 @@ class SGLangRollout(BaseRollout):
             }
 
             if is_server_mode:
+                # add server specific args
                 args['first_rank_in_node'] = first_rank_in_node
-                self._engine = AsyncHttpServerEngineAdapter(**args)
+                args['timeout'] = self.config.server.timeout
+                args['max_retries'] = self.config.server.max_retries
+                args['retry_delay'] = self.config.server.retry_delay
+                args['max_connections'] = self.config.server.max_connections
+                args['max_start_wait_time'] = self.config.server.max_start_wait_time
+                self._engine = AsyncHttpServerAdapter(**args)
             else:
                 self._engine = AsyncEngine(**args)
         else:

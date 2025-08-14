@@ -17,8 +17,8 @@ import requests
 
 # Import the module under test
 from verl.workers.rollout.sglang_rollout.http_server_engine import (
-    AsyncHttpServerEngineAdapter,
-    HttpServerEngineAdapter,
+    AsyncHttpServerAdapter,
+    HttpServerAdapter,
     launch_server_process,
 )
 
@@ -119,7 +119,7 @@ class TestHttpServerEngineAdapter:
 
     def test_init_with_router_registration(self, mock_launch_server_process, mock_requests_post, router_adapter_kwargs):
         """Test initialization with router registration."""
-        adapter = HttpServerEngineAdapter(**router_adapter_kwargs)
+        adapter = HttpServerAdapter(**router_adapter_kwargs)
 
         assert adapter.router_ip == "192.168.1.1"
         assert adapter.router_port == 8080
@@ -128,7 +128,7 @@ class TestHttpServerEngineAdapter:
 
     def test_init_without_router(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test initialization without router registration."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         assert adapter.router_ip is None
         assert adapter.router_port is None
@@ -140,7 +140,7 @@ class TestHttpServerEngineAdapter:
             mock_post.side_effect = requests.RequestException("Connection failed")
 
             # Should not raise exception, just log error
-            adapter = HttpServerEngineAdapter(**router_adapter_kwargs)
+            adapter = HttpServerAdapter(**router_adapter_kwargs)
 
             assert adapter.router_ip == "192.168.1.1"
             mock_post.assert_called_once()
@@ -148,7 +148,7 @@ class TestHttpServerEngineAdapter:
     @pytest.mark.mock_only
     def test_make_request_success(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test successful HTTP request."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.post") as mock_post:
             mock_response = Mock()
@@ -168,7 +168,7 @@ class TestHttpServerEngineAdapter:
     @pytest.mark.mock_only
     def test_make_request_get_method(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test HTTP GET request."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.get") as mock_get:
             mock_response = Mock()
@@ -184,7 +184,7 @@ class TestHttpServerEngineAdapter:
     def test_make_request_non_master(self, mock_launch_server_process):
         """Test request from non-master node returns empty dict."""
         kwargs = {"host": "localhost", "port": 8000, "node_rank": 1, "model_path": "/tmp/test_model"}
-        adapter = HttpServerEngineAdapter(**kwargs)
+        adapter = HttpServerAdapter(**kwargs)
         result = adapter._make_request("test_endpoint")
 
         assert result == {}
@@ -192,7 +192,7 @@ class TestHttpServerEngineAdapter:
     @pytest.mark.mock_only
     def test_make_request_retry_logic(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test retry logic for failed requests."""
-        adapter = HttpServerEngineAdapter(max_retries=2, **basic_adapter_kwargs)
+        adapter = HttpServerAdapter(max_retries=2, **basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.post") as mock_post:
             with patch("time.sleep") as mock_sleep:
@@ -212,7 +212,7 @@ class TestHttpServerEngineAdapter:
     @pytest.mark.mock_only
     def test_make_request_http_error(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test HTTP error handling."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.post") as mock_post:
             mock_response = Mock()
@@ -225,7 +225,7 @@ class TestHttpServerEngineAdapter:
     @pytest.mark.mock_only
     def test_make_request_max_retries_exceeded(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test max retries exceeded."""
-        adapter = HttpServerEngineAdapter(max_retries=1, **basic_adapter_kwargs)
+        adapter = HttpServerAdapter(max_retries=1, **basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.post") as mock_post:
             with patch("time.sleep"):
@@ -239,7 +239,7 @@ class TestHttpServerEngineAdapter:
     @pytest.mark.mock_only
     def test_update_weights_from_tensor(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test update_weights_from_tensor method."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {"status": "updated"}
@@ -261,7 +261,7 @@ class TestHttpServerEngineAdapter:
     @pytest.mark.mock_only
     def test_generate(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test generate method."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {"text": "Generated text"}
@@ -286,7 +286,7 @@ class TestHttpServerEngineAdapter:
     @pytest.mark.mock_only
     def test_flush_cache(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test flush_cache method."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.get") as mock_get:
             with patch("time.sleep") as mock_sleep:
@@ -306,7 +306,7 @@ class TestHttpServerEngineAdapter:
     def test_flush_cache_non_master(self, mock_launch_server_process):
         """Test flush_cache for non-master node."""
         kwargs = {"host": "localhost", "port": 8000, "node_rank": 1, "model_path": "/tmp/test_model"}
-        adapter = HttpServerEngineAdapter(**kwargs)
+        adapter = HttpServerAdapter(**kwargs)
         result = adapter.flush_cache()
 
         assert result == {}
@@ -314,7 +314,7 @@ class TestHttpServerEngineAdapter:
     @pytest.mark.mock_only
     def test_memory_management_methods(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test memory release and resume methods."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {"status": "success"}
@@ -332,7 +332,7 @@ class TestHttpServerEngineAdapter:
     @pytest.mark.mock_only
     def test_distributed_weights_methods(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test distributed weights update methods."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {"status": "initialized"}
@@ -394,22 +394,11 @@ class TestHttpServerEngineAdapter:
 
     @pytest.mark.mock_only
     def test_generation_control_methods(self, mock_launch_server_process, basic_adapter_kwargs):
-        """Test pause and continue generation methods."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        """Test generation control methods."""
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch.object(adapter, "_make_request") as mock_request:
-            mock_request.return_value = {"status": "paused"}
-
-            # Test pause_generation
-            result = adapter.pause_generation()
-            assert result == {"status": "paused"}
-            mock_request.assert_called_with("pause_generation", {})
-
-            # Test continue_generation
-            mock_request.return_value = {"status": "continued"}
-            result = adapter.continue_generation()
-            assert result == {"status": "continued"}
-            mock_request.assert_called_with("continue_generation", {})
+            mock_request.return_value = {"status": "success"}
 
     @pytest.mark.mock_only
     def test_shutdown(self, mock_launch_server_process, mock_kill_process_tree, router_adapter_kwargs):
@@ -419,7 +408,7 @@ class TestHttpServerEngineAdapter:
             mock_response.status_code = 200
             mock_post.return_value = mock_response
 
-            adapter = HttpServerEngineAdapter(**router_adapter_kwargs)
+            adapter = HttpServerAdapter(**router_adapter_kwargs)
 
             adapter.shutdown()
 
@@ -440,7 +429,7 @@ class TestHttpServerEngineAdapter:
             # Mock process kill failure
             mock_kill_process_tree.side_effect = Exception("Kill failed")
 
-            adapter = HttpServerEngineAdapter(**router_adapter_kwargs)
+            adapter = HttpServerAdapter(**router_adapter_kwargs)
 
             # Should not raise exceptions
             adapter.shutdown()
@@ -451,7 +440,7 @@ class TestHttpServerEngineAdapter:
     # Edge cases for HttpServerEngineAdapter
     def test_empty_and_none_parameters(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test handling of empty and None parameters."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {"status": "success"}
@@ -464,13 +453,13 @@ class TestHttpServerEngineAdapter:
             result = adapter.update_weights_from_tensor([])
             assert result == {"status": "success"}
 
-            # Test with None tags
-            result = adapter.release_memory_occupation(None)
+            # Test with empty tags
+            result = adapter.release_memory_occupation([])
             assert result == {"status": "success"}
 
     def test_large_payload_handling(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test handling of large payloads."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {"status": "success"}
@@ -487,7 +476,7 @@ class TestHttpServerEngineAdapter:
 
     def test_unicode_and_special_characters(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test handling of unicode and special characters."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {"text": "生成的中文文本 🚀"}
@@ -508,7 +497,7 @@ class TestHttpServerEngineAdapter:
 
     def test_malformed_responses(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test handling of malformed server responses."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.post") as mock_post:
             # Test response without JSON
@@ -524,7 +513,7 @@ class TestHttpServerEngineAdapter:
         """Test various timeout scenarios."""
         # Test with very small timeout
         kwargs = {"host": "localhost", "port": 8000, "node_rank": 0, "model_path": "/tmp/test_model", "timeout": 0.001}
-        adapter = HttpServerEngineAdapter(**kwargs)
+        adapter = HttpServerAdapter(**kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.post") as mock_post:
             mock_post.side_effect = requests.exceptions.Timeout()
@@ -544,7 +533,7 @@ class TestHttpServerEngineAdapter:
             "max_retries": 100,  # Very large
             "retry_delay": 0.001,  # Very small
         }
-        adapter = HttpServerEngineAdapter(**kwargs)
+        adapter = HttpServerAdapter(**kwargs)
 
         assert adapter.timeout == 0.001
         assert adapter.max_retries == 100
@@ -556,7 +545,7 @@ class TestAsyncHttpServerEngineAdapter:
 
     def test_init(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test async adapter initialization."""
-        adapter = AsyncHttpServerEngineAdapter(max_connections=50, **basic_adapter_kwargs)
+        adapter = AsyncHttpServerAdapter(max_connections=50, **basic_adapter_kwargs)
 
         assert adapter.max_connections == 50
         assert adapter._need_reload is True
@@ -565,7 +554,7 @@ class TestAsyncHttpServerEngineAdapter:
     @pytest.mark.asyncio
     async def test_get_session(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test session creation and management."""
-        adapter = AsyncHttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
 
         # Test session creation
         async with adapter._get_session() as session:
@@ -581,7 +570,7 @@ class TestAsyncHttpServerEngineAdapter:
     @pytest.mark.asyncio
     async def test_get_session_error_handling(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test session error handling and recreation."""
-        adapter = AsyncHttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
 
         # Simulate error during session usage
         try:
@@ -600,7 +589,7 @@ class TestAsyncHttpServerEngineAdapter:
         """Test successful async HTTP request."""
 
         # Instantiate adapter
-        adapter = AsyncHttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
 
         mock_response = AsyncMock()
         mock_response.status = 200
@@ -637,7 +626,7 @@ class TestAsyncHttpServerEngineAdapter:
         """Test async GET request using aiohttp and proper context mocking."""
 
         # Instantiate the async adapter
-        adapter = AsyncHttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
 
         mock_response = AsyncMock()
         mock_response.status = 200
@@ -670,7 +659,7 @@ class TestAsyncHttpServerEngineAdapter:
     async def test_make_async_request_non_master(self, mock_launch_server_process):
         """Test async request from non-master node."""
         kwargs = {"host": "localhost", "port": 8000, "node_rank": 1, "model_path": "/tmp/test_model"}
-        adapter = AsyncHttpServerEngineAdapter(**kwargs)
+        adapter = AsyncHttpServerAdapter(**kwargs)
         result = await adapter._make_async_request("test_endpoint")
 
         assert result == {}
@@ -678,7 +667,7 @@ class TestAsyncHttpServerEngineAdapter:
     @pytest.mark.asyncio
     async def test_async_generate(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test async generate method."""
-        adapter = AsyncHttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
 
         with patch.object(adapter, "_make_async_request", new_callable=AsyncMock) as mock_request:
             mock_request.return_value = {"text": "Generated text"}
@@ -692,16 +681,12 @@ class TestAsyncHttpServerEngineAdapter:
             assert result == {"text": "Generated text"}
             mock_request.assert_called_once()
 
-            # Test async_generate alias
-            result2 = await adapter.async_generate(prompt="Test")
-            assert result2 == {"text": "Generated text"}
-
         await adapter.close()
 
     @pytest.mark.asyncio
     async def test_async_memory_management(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test async memory management methods."""
-        adapter = AsyncHttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
 
         with patch.object(adapter, "_make_async_request", new_callable=AsyncMock) as mock_request:
             mock_request.return_value = {"status": "success"}
@@ -709,21 +694,21 @@ class TestAsyncHttpServerEngineAdapter:
             # Test release_memory_occupation
             result = await adapter.release_memory_occupation(["weights"])
             assert result == {"status": "success"}
+            mock_request.assert_called_with("release_memory_occupation", {"tags": ["weights"]})
 
-            # Test resume_memory_occupation (should handle _need_reload)
-            adapter._need_reload = True
+            # Test resume_memory_occupation
             result = await adapter.resume_memory_occupation(["weights"])
             assert result == {"status": "success"}
-            assert adapter._need_reload is False
-            assert mock_request.call_count == 3  # release + release (for reload) + resume
+            mock_request.assert_called_with("resume_memory_occupation", {"tags": ["weights"]})
+            assert mock_request.call_count == 2
 
         await adapter.close()
 
     @pytest.mark.asyncio
     async def test_context_manager(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test async context manager support."""
-        async with AsyncHttpServerEngineAdapter(**basic_adapter_kwargs) as adapter:
-            assert isinstance(adapter, AsyncHttpServerEngineAdapter)
+        async with AsyncHttpServerAdapter(**basic_adapter_kwargs) as adapter:
+            assert isinstance(adapter, AsyncHttpServerAdapter)
             assert adapter._session is None  # Not created yet
 
         # Session should be closed after context exit
@@ -733,7 +718,7 @@ class TestAsyncHttpServerEngineAdapter:
     @pytest.mark.asyncio
     async def test_close_method(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test close method."""
-        adapter = AsyncHttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
 
         # Create a session
         async with adapter._get_session() as session:
@@ -752,7 +737,7 @@ class TestErrorRecovery:
 
     def test_flush_cache_recovery(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test flush cache recovery from failures."""
-        adapter = HttpServerEngineAdapter(max_retries=2, **basic_adapter_kwargs)
+        adapter = HttpServerAdapter(max_retries=2, **basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.get") as mock_get:
             # Simulate multiple failures then success
@@ -769,7 +754,7 @@ class TestErrorRecovery:
 
     def test_flush_cache_max_retries(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test flush cache max retries exceeded."""
-        adapter = HttpServerEngineAdapter(max_retries=1, **basic_adapter_kwargs)
+        adapter = HttpServerAdapter(max_retries=1, **basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.get") as mock_get:
             # All attempts fail
@@ -781,7 +766,7 @@ class TestErrorRecovery:
 
     def test_network_partition_recovery(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test recovery from network partition scenarios."""
-        adapter = HttpServerEngineAdapter(max_retries=3, **basic_adapter_kwargs)
+        adapter = HttpServerAdapter(max_retries=3, **basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.post") as mock_post:
             # Simulate network partition then recovery
@@ -803,7 +788,7 @@ class TestResourceManagement:
         self, mock_launch_server_process, mock_kill_process_tree, basic_adapter_kwargs
     ):
         """Test resource cleanup when exceptions occur."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         # Simulate exception during operation
         with patch.object(adapter, "_make_request", side_effect=Exception("Test error")):
@@ -819,7 +804,7 @@ class TestResourceManagement:
     @pytest.mark.asyncio
     async def test_async_resource_cleanup_on_exception(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test async resource cleanup when exceptions occur."""
-        adapter = AsyncHttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
 
         # Create a session
         async with adapter._get_session():
@@ -838,7 +823,7 @@ class TestResourceManagement:
 
     def test_multiple_shutdown_calls(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test multiple shutdown calls are safe."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         # Multiple shutdown calls should be safe
         adapter.shutdown()
@@ -848,7 +833,7 @@ class TestResourceManagement:
     @pytest.mark.asyncio
     async def test_multiple_async_close_calls(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test multiple async close calls are safe."""
-        adapter = AsyncHttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
 
         # Multiple close calls should be safe
         await adapter.close()
@@ -861,7 +846,7 @@ class TestDataTypeHandling:
 
     def test_torch_dtype_handling(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test handling of PyTorch data types."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {"status": "success"}
@@ -889,7 +874,7 @@ class TestDataTypeHandling:
 
     def test_complex_data_structures(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test handling of complex data structures."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {"status": "success"}
@@ -925,9 +910,9 @@ class TestIntegration:
 
     def test_sync_async_compatibility(self, mock_launch_server_process, mock_requests_post, basic_adapter_kwargs):
         """Test that sync and async adapters have compatible interfaces."""
-        sync_adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        sync_adapter = HttpServerAdapter(**basic_adapter_kwargs)
         async_kwargs = {**basic_adapter_kwargs, "port": 8001}
-        async_adapter = AsyncHttpServerEngineAdapter(**async_kwargs)
+        async_adapter = AsyncHttpServerAdapter(**async_kwargs)
 
         # Both should have the same public methods
         sync_methods = {
@@ -947,7 +932,7 @@ class TestIntegration:
 
     def test_error_scenarios(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test various error scenarios."""
-        adapter = HttpServerEngineAdapter(**basic_adapter_kwargs)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
         # Test with None payload
         with patch.object(adapter, "_make_request") as mock_request:

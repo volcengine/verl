@@ -10,7 +10,7 @@ CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 
 python3 -m verl.trainer.main_ppo \
     --config-path="$CONFIG_PATH" \
-    --config-name='gsm8k_multiturn_grpo' \
+    --config-name='gsm8k_multiturn_grpo_server' \
     algorithm.adv_estimator=grpo \
     data.train_batch_size=256 \
     data.max_prompt_length=1024 \
@@ -33,14 +33,14 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.name=sglang \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=16 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger='["console"]' \
-    trainer.project_name='gsm8k_async_rl' \
+    trainer.logger='["console", "wandb"]' \
+    trainer.project_name='gsm8k_async_rl_server' \
     trainer.experiment_name='qwen2.5-3b_function_rm-gsm8k-async-sgl-multi-w-tool-verify-n16-4cards' \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
@@ -57,5 +57,4 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/gsm8k_tool_config.yaml" \
     actor_rollout_ref.rollout.multi_turn.interaction_config_path="$PROJECT_DIR/examples/sglang_multiturn/config/interaction_config/gsm8k_interaction_config.yaml" \
     actor_rollout_ref.rollout.multi_turn.max_user_turns=1 \
-    actor_rollout_ref.rollout.multi_turn.sglang_engine_mode='server' \
     $@
