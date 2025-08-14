@@ -1122,10 +1122,6 @@ class SGLangRollout(BaseRollout):
                         logger.info(f"Request {req.request_id} was cancelled, creating padding")
                         aborted_requests.append(req.request_id)
                         return self._create_padding_request(req)
-                    except Exception as e:
-                        logger.error(f"Uncaught exception in process_request_with_monitoring: {e}")
-                        logger.error("This shall not happen, please check the code")
-                        raise e
 
                 async def monitor_and_cancel():
                     nonlocal completed_count
@@ -1137,10 +1133,7 @@ class SGLangRollout(BaseRollout):
                             task.cancel()
 
                     # send abort signal to engine, interrupt all ongoing requests
-                    try:
-                        await self._engine.abort_request(abort_all=True)
-                    except Exception as e:
-                        logger.error(f"Failed to send abort signal to engine: {e}")
+                    await self._engine.abort_request(abort_all=True)
 
                 async def run_with_cancellation():
                     nonlocal all_tasks
@@ -1153,19 +1146,7 @@ class SGLangRollout(BaseRollout):
 
                     try:
                         # wait for all tasks to complete (including cancelled ones)
-                        results = await asyncio.gather(*all_tasks, return_exceptions=True)
-
-                        # process results, convert exceptions to padding
-                        output_req_list = []
-                        for i, result in enumerate(results):
-                            if isinstance(result, Exception):
-                                # if it is an exception (including CancelledError), create padding
-                                logger.warning(f"Task {i} resulted in exception: {result}")
-                                output_req_list.append(self._create_padding_request(req_list[i]))
-                            else:
-                                output_req_list.append(result)
-
-                        return output_req_list
+                        return await asyncio.gather(*all_tasks, return_exceptions=True)
                     finally:
                         # cancel monitoring task
                         monitor_task.cancel()
