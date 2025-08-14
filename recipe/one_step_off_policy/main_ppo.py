@@ -62,17 +62,11 @@ class OneStepOffTaskRunner:
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
             from verl.single_controller.ray import RayWorkerGroup
 
-            from .fsdp_workers import (
-                ActorRolloutRefWorker,
-                AsyncActorRolloutRefWorker,
+            from recipe.one_step_off_policy.fsdp_workers import (
+                DetachActorWorker,
+                DetachRolloutWorker,
+                DetachAsyncRolloutWorker,
                 CriticWorker,
-                RolloutWorker,
-            )
-
-            actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
             )
             ray_worker_group_cls = RayWorkerGroup
 
@@ -80,17 +74,11 @@ class OneStepOffTaskRunner:
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
             from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
 
-            from .megatron_workers import (
-                ActorRolloutRefWorker,
-                AsyncActorRolloutRefWorker,
+            from recipe.one_step_off_policy.megatron_workers import (
+                DetachActorWorker,
+                DetachRolloutWorker,
+                DetachAsyncRolloutWorker,
                 CriticWorker,
-                RolloutWorker,
-            )
-
-            actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
             )
             ray_worker_group_cls = NVMegatronRayWorkerGroup
 
@@ -100,8 +88,9 @@ class OneStepOffTaskRunner:
         from .ray_trainer import ResourcePoolManager, Role
 
         role_worker_mapping = {
-            Role.Actor: ray.remote(actor_rollout_cls),
-            Role.Rollout: ray.remote(RolloutWorker),
+            Role.Actor: ray.remote(DetachActorWorker),
+            Role.Rollout: ray.remote(
+                DetachAsyncRolloutWorker if config.actor_rollout_ref.rollout.mode == "async" else DetachRolloutWorker),
             Role.Critic: ray.remote(CriticWorker),
         }
 

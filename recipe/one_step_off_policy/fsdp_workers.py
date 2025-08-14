@@ -39,7 +39,7 @@ from verl.utils.fsdp_utils import (
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import get_generation_config, update_model_config
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
-from verl.workers.fsdp_workers import ActorRolloutRefWorker as ARRWorker
+from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 from verl.workers.fsdp_workers import CriticWorker
 
 logger = logging.getLogger(__file__)
@@ -47,19 +47,13 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 device_name = get_device_name()
 
-__all__ = ["ActorRolloutRefWorker", "AsyncActorRolloutRefWorker", "CriticWorker", "RolloutWorker"]
+__all__ = ["DetachActorWorker", "DetachRolloutWorker", "DetachAsyncRolloutWorker", "CriticWorker"]
 
 
-class ActorRolloutRefWorker(ARRWorker):
+class DetachNcclSync(ActorRolloutRefWorker):
+
     def _get_actor_params(self):
-        assert self._is_actor
-        params = self.actor_module_fsdp.state_dict()
-        from verl.utils.model import convert_weight_keys
-
-        params = convert_weight_keys(
-            params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
-        )
-        return params
+        pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def sync_rollout_weights(self):
@@ -108,7 +102,19 @@ class ActorRolloutRefWorker(ARRWorker):
         return ret
 
 
-class RolloutWorker(ActorRolloutRefWorker):
+class DetachActorWorker(DetachNcclSync):
+    def _get_actor_params(self):
+        assert self._is_actor
+        params = self.actor_module_fsdp.state_dict()
+        from verl.utils.model import convert_weight_keys
+
+        params = convert_weight_keys(
+            params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+        )
+        return params
+
+
+class DetachRolloutWorker(DetachNcclSync):
     def __init__(self, config: DictConfig, role: str):
         Worker.__init__(self)
         assert role == "rollout"
@@ -202,9 +208,9 @@ class RolloutWorker(ActorRolloutRefWorker):
             trust_remote_code=trust_remote_code,
         )
         log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
-        from .vllm_sharding_manager import VLLMShardingManager
 
-        rollout_sharding_manager = VLLMShardingManager(
+        from sharding_manager import DetachShardingManager
+        rollout_sharding_manager = DetachShardingManager(
             inference_engine=rollout.inference_engine, device_mesh=rollout_device_mesh
         )
 
@@ -223,6 +229,12 @@ class RolloutWorker(ActorRolloutRefWorker):
         self._weights_info = weights_info
 
 
-class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
-    def __init__(self, *args, **kwargs):
-        raise NotImplementedError
+class DetachAsyncRolloutWorker(AsyncActorRolloutRefWorker, DetachRolloutWorker):
+    def __init__(self, config: DictConfig, role: str):
+        print(f"[DetachAsyncRolloutWorker] {DetachAsyncRolloutWorker.__mro__}")
+        DetachRolloutWorker.__init__(self, config, role)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def init_model(self):
+        print(f"[DetachAsyncRolloutWorker] init_model")
+        DetachRolloutWorker.init_model(self)

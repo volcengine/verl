@@ -19,6 +19,7 @@ import ray
 from omegaconf import OmegaConf
 
 from recipe.fully_async_policy.message_queue import MessageQueueClient, QueueSample
+from recipe.fully_async_policy.utils import calculate_one_step_size
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
 from verl.utils.tracking import ValidationGenerationsLogger
@@ -33,17 +34,17 @@ class FullyAsyncRollouter(RayPPOTrainer):
     """
 
     def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-        device_name=None,
-        max_queue_size=1000,
+            self,
+            config,
+            tokenizer,
+            role_worker_mapping: dict[Role, WorkerType],
+            resource_pool_manager: ResourcePoolManager,
+            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+            processor=None,
+            reward_fn=None,
+            val_reward_fn=None,
+            device_name=None,
+            max_queue_size=1000,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -53,7 +54,11 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.val_reward_fn = val_reward_fn
 
         self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
+
         assert not self.hybrid_engine
+        assert self.config.data.train_batch_size == 0, "train_batch_size must be zero"
+        assert self.config.data.gen_batch_size == 1, "gen_batch_size must be one"
+
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
@@ -81,16 +86,11 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self._validate_config()
         print(f"[FullyAsyncRollouter] Rollouter _create_dataloader...\n{train_dataset}\n{val_dataset}")
 
-        assert self.config.data.gen_batch_size == 1, "gen_batch_size must be one"
-
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
-        total_rollout_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
-
+        self.total_rollout_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
         if self.config.rollout.total_rollout_steps is not None:
-            total_rollout_steps = self.config.rollout.total_rollout_steps
-
-        self.total_rollout_steps = total_rollout_steps
+            self.total_rollout_steps = min(self.config.rollout.total_rollout_steps, self.total_rollout_steps)
         print(f"[FullyAsyncRollouter] Total rollout steps: {self.total_rollout_steps}")
 
         # Rollouter parameter configuration
@@ -106,12 +106,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.total_generated_samples = 0
         self.train_step_samples = 0
         self.dropped_stale_samples = 0
-
-        # Calculate the samples needed for a train, used to calculate staleness and interrupt rollout
-        n_responses_per_prompt = self.config.actor_rollout_ref.rollout.n
-        batch_size = self.config.data.train_batch_size
-        required_samples = n_responses_per_prompt * batch_size
-        self.max_required_samples = required_samples * (self.staleness_threshold + 1)
 
         # Worker groups
         self.rollout_wg = None
@@ -145,6 +139,12 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.active_sample_count = 0  # 当前正在处理的样本数
         self.queue_full_pause_count = 0  # 队列满导致的暂停次数
 
+        # Calculate the samples needed for a train, used to calculate staleness and interrupt rollout
+        self.required_samples = calculate_one_step_size(self.minimal_bsz,
+                                                        config.actor_rollout_ref.actor.ppo_mini_batch_size)
+        self.max_required_samples = self.required_samples * (self.staleness_threshold + 1)
+
+
     async def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """Set message queue client"""
         async with self.lock:
@@ -172,6 +172,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
         # Validate asynchronous training configuration
         if not hasattr(self.config, "async_training"):
             raise ValueError("[FullyAsyncRollouter] Missing async_training configuration")
+
+        super()._validate_config()
 
     def _create_actor_rollout_classes(self):
         # only create rollout

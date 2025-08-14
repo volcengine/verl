@@ -22,6 +22,8 @@ import ray
 from omegaconf import OmegaConf
 
 from recipe.fully_async_policy.message_queue import MessageQueueClient, QueueSample
+from recipe.fully_async_policy.utils import calculate_one_step_size
+from verl.experimental.agent_loop.agent_loop import postprocess_agent_loop_outputs
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator
@@ -44,16 +46,16 @@ class FullyAsyncTrainer(RayPPOTrainer):
     """
 
     def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-        device_name=None,
+            self,
+            config,
+            tokenizer,
+            role_worker_mapping: dict[Role, WorkerType],
+            resource_pool_manager: ResourcePoolManager,
+            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+            processor=None,
+            reward_fn=None,
+            val_reward_fn=None,
+            device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -102,6 +104,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.stale_samples_processed = 0
         self.current_param_version = 0
 
+        self.required_samples = calculate_one_step_size(self.minimal_bsz,
+                                                        config.actor_rollout_ref.actor.ppo_mini_batch_size)
+
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """Set message queue client"""
         self.message_queue_client = message_queue_client
@@ -122,14 +127,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
         Returns:
             tuple: (epoch, batch_dict, gen_batch_output)
         """
-        # Calculate the number of samples needed
-        n_responses_per_prompt = self.config.actor_rollout_ref.rollout.n
-        batch_size = self.config.data.train_batch_size
-        required_samples = n_responses_per_prompt * batch_size
-
         print(
             "[FullyAsyncTrainer] "
-            f"Requesting {required_samples} samples from queue (n={n_responses_per_prompt}, batch_size={batch_size})",
+            f"Requesting {self.required_samples} samples from queue",
             flush=True,
         )
 
@@ -137,9 +137,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         consumer_start = time.time()
         queue_samples = []
 
-        print(f"[FullyAsyncTrainer] Starting sample collection loop, required={required_samples}")
-
-        while len(queue_samples) < required_samples:
+        while len(queue_samples) < self.required_samples:
             # 获取单个样本，会一直等待直到有样本或收到None
             sample = self.message_queue_client.get_sample()
 
@@ -147,23 +145,23 @@ class FullyAsyncTrainer(RayPPOTrainer):
                 # 检测到结束信号（None），立即退出
                 logger.info(
                     f"Detected termination signal (None), stopping sample collection. "
-                    f"Collected {len(queue_samples)}/{required_samples} samples"
+                    f"Collected {len(queue_samples)}/{self.required_samples} samples"
                 )
                 break
 
             queue_samples.append(sample)
 
-            if len(queue_samples) % 10 == 0 or len(queue_samples) >= required_samples:
-                print(f"[FullyAsyncTrainer] Collected {len(queue_samples)}/{required_samples} samples")
+            if len(queue_samples) % 10 == 0 or len(queue_samples) >= self.required_samples:
+                print(f"[FullyAsyncTrainer] Collected {len(queue_samples)}/{self.required_samples} samples")
 
         consumer_end = time.time()
 
-        if not queue_samples or len(queue_samples) < required_samples:
+        if not queue_samples or len(queue_samples) < self.required_samples:
             logger.warning("not enough samples collected after loop")
             return None, None
 
         print(
-            f"[FullyAsyncTrainer] Loop collection completed: {len(queue_samples)}/{required_samples} samples, "
+            f"[FullyAsyncTrainer] Loop collection completed: {len(queue_samples)}/{self.required_samples} samples, "
             f"total wait time: {consumer_end - consumer_start:.2f} seconds"
         )
 
@@ -206,7 +204,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
         # Use the static method to postprocess AgentLoopOutput list into DataProto
         from verl.experimental.agent_loop.agent_loop import AgentLoopWorker
 
-        batch = AgentLoopWorker.postprocess_agent_loop_outputs(agent_loop_outputs, self.tokenizer, self.config)
+        batch = postprocess_agent_loop_outputs(agent_loop_outputs, self.tokenizer, self.config)
 
         # Apply _post_generate_batch logic here
         batch = self._post_generate_batch_for_agent_outputs(batch, agent_loop_outputs)

@@ -478,7 +478,7 @@ class AgentLoopManager:
 
         Args:
             config (DictConfig): trainer config.
-            worker_group (RayWorkerGroup): ActorRolloutRef worker group.
+            worker_group (RayWorkerGroup): AsyncActorRolloutRefWorker worker group.
         """
         self.config = config
         self.worker_group = worker_group

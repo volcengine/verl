@@ -30,14 +30,14 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-class VLLMShardingManager(BaseShardingManager):
+class DetachShardingManager(BaseShardingManager):
     @check_device_is_available()
     def __init__(self, inference_engine, device_mesh: DeviceMesh):
         self.device_mesh = device_mesh
         self.inference_engine = inference_engine
-        inference_engine.wake_up()
-        assert device_mesh is not None
-        assert inference_engine is not None
+        # inference_engine.wake_up()
+        # assert device_mesh is not None
+        # assert inference_engine is not None
         self.tp_size = self.device_mesh["infer_tp"].size()
         self.tp_rank = self.device_mesh["infer_tp"].get_local_rank()
         self.timing = {}
