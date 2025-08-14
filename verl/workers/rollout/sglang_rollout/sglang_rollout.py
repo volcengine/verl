@@ -463,7 +463,7 @@ class SGLangRollout(BaseRollout):
                 trust_remote_code=trust_remote_code,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
-                port=30000 + rank,
+                port=302000 + rank,
                 # NOTE(Chenyang): if you want to debug the SGLang engine output
                 # please set the following parameters
                 # Otherwise, it will make the engine run too slow
@@ -1088,6 +1088,7 @@ class SGLangRollout(BaseRollout):
             # add progress monitoring and abort function
             total_requests = len(req_list)
             target_completion = int(total_requests * (1 - self.config.over_sample_rate))
+            print(f"target_completion: {target_completion}")
             # abort when target_completion of requests are completed
 
             completed_count = 0
