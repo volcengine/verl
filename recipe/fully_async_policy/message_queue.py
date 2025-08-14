@@ -311,6 +311,10 @@ class MessageQueueClient:
         """Get batch from queue (sync - deprecated, use get_samples instead)"""
         return ray.get(self.queue_actor.get_samples.remote(min_batch_count))
 
+    def get_sample_sync(self) -> Any | None:
+        """Get single sample from queue (sync - deprecated, use get_sample instead)"""
+        return ray.get(self.queue_actor.get_sample.remote())
+
     def get_statistics_sync(self) -> dict[str, Any]:
         """Get statistics (sync - deprecated, use get_statistics instead)"""
         return ray.get(self.queue_actor.get_statistics.remote())

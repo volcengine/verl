@@ -46,7 +46,7 @@ gen_prompt_bsz=1
 n_resp_per_prompt=3
 train_prompt_mini_bsz=1
 
-total_rollout_steps=10
+total_rollout_steps=1000
 
 # Temperature parameters
 temperature=1.0

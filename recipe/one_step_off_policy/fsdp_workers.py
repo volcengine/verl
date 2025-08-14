@@ -50,6 +50,32 @@ device_name = get_device_name()
 __all__ = ["DetachActorWorker", "DetachRolloutWorker", "DetachAsyncRolloutWorker", "CriticWorker"]
 
 
+def get_inference_model(rollout):
+    """
+    根据不同类型的inference_engine获取模型对象
+    Args:
+        rollout: rollout对象，包含inference_engine
+    Returns:
+        model: 模型对象
+    """
+    inference_engine = rollout.inference_engine
+    # 判断inference_engine的类型
+    if hasattr(inference_engine, 'llm_engine'):
+        # LLM类型 - vLLMRollout
+        inference_model = (
+            inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+        )
+    elif hasattr(inference_engine, 'worker'):
+        # WorkerWrapperBase类型 - vLLMAsyncRollout
+        inference_model = inference_engine.worker.model_runner.model
+    else:
+        raise AttributeError(
+            f"Unsupported inference_engine type: {type(inference_engine)}. "
+            f"Expected LLM (with llm_engine attribute) or WorkerWrapperBase (with worker attribute)."
+        )
+    return inference_model
+
+
 class DetachNcclSync(ActorRolloutRefWorker):
 
     def _get_actor_params(self):
@@ -62,9 +88,7 @@ class DetachNcclSync(ActorRolloutRefWorker):
 
         params = self._get_actor_params() if self._is_actor else None
         if self._is_rollout:
-            inference_model = (
-                self.rollout.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-            )
+            inference_model = get_inference_model(self.rollout)
             patch_vllm_moe_model_weight_loader(inference_model)
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
@@ -209,15 +233,15 @@ class DetachRolloutWorker(DetachNcclSync):
         )
         log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
 
-        from sharding_manager import DetachShardingManager
-        rollout_sharding_manager = DetachShardingManager(
+        from .detach_sharding_manager import DetachShardingManager
+        sharding_manager = DetachShardingManager(
             inference_engine=rollout.inference_engine, device_mesh=rollout_device_mesh
         )
 
         log_gpu_memory_usage("After building sharding manager", logger=logger)
 
         self.rollout = rollout
-        self.rollout_sharding_manager = rollout_sharding_manager
+        self.rollout_sharding_manager = sharding_manager
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO, blocking=False)
     def async_generate_sequences(self, *args, **kwargs):
@@ -238,3 +262,12 @@ class DetachAsyncRolloutWorker(AsyncActorRolloutRefWorker, DetachRolloutWorker):
     def init_model(self):
         print(f"[DetachAsyncRolloutWorker] init_model")
         DetachRolloutWorker.init_model(self)
+
+        self.vllm_tp_size = self.config.rollout.tensor_model_parallel_size
+        self.vllm_dp_rank = int(os.environ["RANK"]) // self.vllm_tp_size
+        self.vllm_tp_rank = int(os.environ["RANK"]) % self.vllm_tp_size
+
+        # used for sleep/wake_up
+        self.rollout.sharding_manager = self.rollout_sharding_manager
+
+

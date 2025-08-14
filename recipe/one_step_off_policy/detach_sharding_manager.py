@@ -47,12 +47,14 @@ class DetachShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="vllm sharding_manager", logger=logger)
     def __enter__(self):
-        get_torch_device().set_rng_state(self.gen_random_states)
+        # get_torch_device().set_rng_state(self.gen_random_states)
+        pass
 
     @GPUMemoryLogger(role="vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        self.gen_random_states = get_torch_device().get_rng_state()
-        self.inference_engine.reset_prefix_cache()
+        # self.gen_random_states = get_torch_device().get_rng_state()
+        # self.inference_engine.reset_prefix_cache()
+        pass
 
     @GPUMemoryLogger(role="vllm sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:
@@ -72,3 +74,5 @@ class DetachShardingManager(BaseShardingManager):
             return data
 
         return data.chunk(chunks=self.tp_size)[self.tp_rank]
+
+

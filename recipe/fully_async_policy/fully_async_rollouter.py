@@ -43,8 +43,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             processor=None,
             reward_fn=None,
             val_reward_fn=None,
-            device_name=None,
-            max_queue_size=1000,
+            device_name=None
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -58,7 +57,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         assert not self.hybrid_engine
         assert self.config.data.train_batch_size == 0, "train_batch_size must be zero"
         assert self.config.data.gen_batch_size == 1, "gen_batch_size must be one"
-
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
@@ -125,9 +123,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         # Parameter synchronization related
         self.param_synchronizer = None
 
-        # queue size
-        self.max_queue_size = max_queue_size
-
         self.async_rollout_manager = None
 
         # 流式处理相关配置
@@ -144,6 +139,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
                                                         config.actor_rollout_ref.actor.ppo_mini_batch_size)
         self.max_required_samples = self.required_samples * (self.staleness_threshold + 1)
 
+        # queue size
+        self.max_queue_size = self.max_required_samples * 10  # x 10 avoid deadlock
 
     async def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """Set message queue client"""
@@ -158,6 +155,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
     def get_rollout_wg(self):
         """Get rollout worker group"""
         return self.rollout_wg
+
+    def get_max_queue_size(self):
+        return self.max_queue_size
 
     async def update_param_version(self, version: int):
         """Update current parameter version"""
@@ -227,7 +227,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             # 检查是否到达最后一步
             if self.global_steps >= self.total_rollout_steps:
-                print("[FullyAsyncRollouter] 达到最大步数，停止添加新样本")
+                print(f"[FullyAsyncRollouter] 达到最大步数，停止添加新样本 {self.global_steps} >= {self.total_rollout_steps}")
                 break
 
             self.global_steps += 1
@@ -334,7 +334,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 data=result["agent_loop_output"],  # 直接存储 AgentLoopOutput
                 rollout_metadata=rollout_metadata,
             )
-            success = self.message_queue_client.put_sample(
+            success = await self.message_queue_client.put_sample(
                 sample=ray.cloudpickle.dumps(queue_sample),
                 param_version=result["param_version"],
             )
@@ -432,13 +432,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
             self.running = False
 
         # 发送终止信号
-        self.message_queue_client.put_sample(
+        await self.message_queue_client.put_sample(
             sample=None,
             param_version=self.current_param_version,
         )
 
-    def fit(self):
-        """Start the async rollouter - entry point that sets up and runs async tasks"""
+    async def fit(self):
+        """
+        Start the async rollouter - entry point that sets up and runs async tasks
+        Main async fit method that coordinates all coroutines"""
+
         print("[FullyAsyncRollouter] Starting FullyAsyncRollouter...")
 
         if self.message_queue_client is None:
@@ -446,11 +449,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         if self.param_synchronizer is None:
             raise ValueError("param_synchronizer client not set. Call set_parameter_synchronizer() first.")
 
-        # Run everything in a single async event loop
-        asyncio.run(self._async_fit())
-
-    async def _async_fit(self):
-        """Main async fit method that coordinates all coroutines"""
         # 设置运行状态
         async with self.lock:
             self.running = True
@@ -506,7 +504,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
     async def _should_pause_generation(self) -> bool:
         """Determine whether the build should be paused"""
-        queue_stats = self.message_queue_client.get_statistics()
+        queue_stats = self.message_queue_client.get_statistics_sync()
         queue_size = queue_stats["queue_size"]
         current_trainer_version = queue_stats["current_param_version"]
 
@@ -571,7 +569,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
     async def get_statistics(self) -> dict:
         async with self.lock:
-            queue_stats = self.message_queue_client.get_statistics()
+            queue_stats = self.message_queue_client.get_statistics_sync()
             stats = {
                 "is_running": self.running,
                 "total_generated_samples": self.total_generated_samples,
@@ -587,3 +585,5 @@ class FullyAsyncRollouter(RayPPOTrainer):
             }
 
             return stats
+
+

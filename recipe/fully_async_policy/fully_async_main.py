@@ -177,22 +177,21 @@ class FullyAsyncTaskRunner:
         self.components["reward_fn"] = reward_fn
         self.components["val_reward_fn"] = val_reward_fn
 
-        self.max_queue_size = ((config.async_training.staleness_threshold + 1)
-                               * config.data.train_batch_size
-                               * config.actor_rollout_ref.rollout.n
-                               ) * 10  # x 10 avoid deadlock
-        print("[ASYNC MAIN] Creating MessageQueue...")
-        message_queue = MessageQueue.remote(config, self.max_queue_size)
-        message_queue_client = MessageQueueClient(message_queue)
-
-        self.components["message_queue"] = message_queue
-        self.components["message_queue_client"] = message_queue_client
-
         print("[ASYNC MAIN] Creating FullyAsyncRollouter...")
         self._create_rollouter(config)
 
         print("[ASYNC MAIN] Creating FullyAsyncTrainer...")
         self._create_trainer(config)
+
+        print("[ASYNC MAIN] Creating MessageQueue...")
+        max_queue_size = ray.get(self.components["rollouter"].get_max_queue_size.remote())
+        message_queue = MessageQueue.remote(config, max_queue_size)
+        message_queue_client = MessageQueueClient(message_queue)
+        self.components["message_queue"] = message_queue
+        self.components["message_queue_client"] = message_queue_client
+
+        ray.get(self.components["rollouter"].set_message_queue_client.remote(self.components["message_queue_client"]))
+        ray.get(self.components["trainer"].set_message_queue_client.remote(self.components["message_queue_client"]))
 
         print("[ASYNC MAIN] Setting up parameter synchronization...")
         from recipe.fully_async_policy.param_sync import ParameterSynchronizer
@@ -220,12 +219,10 @@ class FullyAsyncTaskRunner:
             resource_pool_manager=create_resource_pool_manager(config, roles=[Role.Rollout]),
             ray_worker_group_cls=self.components["ray_worker_group_cls"],
             processor=self.components["processor"],
-            device_name=config.trainer.device,
-            max_queue_size=self.max_queue_size,
+            device_name=config.trainer.device
         )
 
         ray.get(rollouter.init_workers.remote())
-        ray.get(rollouter.set_message_queue_client.remote(self.components["message_queue_client"]))
         self.components["rollouter"] = rollouter
         print("[ASYNC MAIN] Rollouter created and initialized successfully")
 
@@ -249,7 +246,6 @@ class FullyAsyncTaskRunner:
         )
 
         ray.get(trainer.init_workers.remote())
-        ray.get(trainer.set_message_queue_client.remote(self.components["message_queue_client"]))
         self.components["trainer"] = trainer
         print("[ASYNC MAIN] FullyAsyncTrainer created and initialized successfully")
 
@@ -279,3 +275,5 @@ def main(config):
 
 if __name__ == "__main__":
     main()
+
+

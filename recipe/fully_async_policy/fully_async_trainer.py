@@ -139,7 +139,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         while len(queue_samples) < self.required_samples:
             # 获取单个样本，会一直等待直到有样本或收到None
-            sample = self.message_queue_client.get_sample()
+            sample = self.message_queue_client.get_sample_sync()
 
             if sample is None:
                 # 检测到结束信号（None），立即退出
@@ -202,7 +202,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
             processing_times.append(sample.rollout_metadata.get("processing_time", 0))
 
         # Use the static method to postprocess AgentLoopOutput list into DataProto
-        from verl.experimental.agent_loop.agent_loop import AgentLoopWorker
 
         batch = postprocess_agent_loop_outputs(agent_loop_outputs, self.tokenizer, self.config)
 
@@ -299,6 +298,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.actor_wg.init_model()
         self.actor_rollout_wg = self.actor_wg  # to be compatible with the functions that not be modified
 
+    def _init_async_rollout_manager(self):
+        pass
+
     def fit(self):
         """
         The training loop of PPO.
@@ -385,7 +387,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
     def get_statistics(self) -> dict:
         """Get training statistics"""
-        queue_stats = self.message_queue_client.get_statistics() if self.message_queue_client else {}
+        queue_stats = self.message_queue_client.get_statistics_sync() if self.message_queue_client else {}
         return {
             "global_steps": self.global_steps,
             "processed_samples": self.processed_samples,
@@ -460,3 +462,4 @@ class FullyAsyncTrainer(RayPPOTrainer):
         except Exception as e:
             logger.error(f"Error computing freshness metrics: {e}")
             return {"freshness/error": str(e)}
+
