@@ -220,7 +220,7 @@ def perform_single_search_batch(
                     total_results += len(retrieval) if isinstance(retrieval, list) else 1
 
                 final_result = "\n---\n".join(pretty_results)
-                result_text = json.dumps({"result": final_result})
+                result_text = json.dumps({"result": final_result}, ensure_ascii=False)
                 metadata["status"] = "success"
                 metadata["total_results"] = total_results
                 metadata["formatted_result"] = final_result
@@ -241,3 +241,4 @@ def perform_single_search_batch(
         logger.error("Batch search: Unknown API state.")
 
     return result_text, metadata
+
