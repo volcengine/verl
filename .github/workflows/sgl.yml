@@ -136,6 +136,7 @@ jobs:
           pytest -s test_sglang_async_rollout_mcp_tools.py
       - name: Test the latest SGLang Rollout async with agent loop
         run: |
+          huggingface-cli download verl-team/gsm8k-v0.4.1 --repo-type dataset --local-dir ~/verl-data/gsm8k
           ROLLOUT_NAME=sglang pytest -svvv tests/experimental/agent_loop
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests
       - name: Test the latest SGLang Rollout async with multimodal delta
