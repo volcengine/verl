@@ -94,6 +94,9 @@ class DataParallelPRIMERewardModel:
                 rm_log_labels = rm_log_labels.to(torch.float32)
 
             else:
+                # SHIRWU
+                # AttributeError: 'tuple' object has no attribute 'logits
+                # print(len(output)) => 1
                 rm_output_logits = output.logits.squeeze(0)
                 rm_log_labels = verl_F.logprobs_from_logits(
                     logits=rm_output_logits,

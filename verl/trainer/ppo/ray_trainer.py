@@ -925,13 +925,13 @@ class RayPPOTrainer:
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
-        if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-            val_metrics = self._validate()
-            assert val_metrics, f"{val_metrics=}"
-            pprint(f"Initial validation metrics: {val_metrics}")
-            logger.log(data=val_metrics, step=self.global_steps)
-            if self.config.trainer.get("val_only", False):
-                return
+        # if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
+        #     val_metrics = self._validate()
+        #     assert val_metrics, f"{val_metrics=}"
+        #     pprint(f"Initial validation metrics: {val_metrics}")
+        #     logger.log(data=val_metrics, step=self.global_steps)
+        #     if self.config.trainer.get("val_only", False):
+        #         return
 
         if self.config.actor_rollout_ref.rollout.get("skip_rollout", False):
             rollout_skip = RolloutSkip(self.config, self.actor_rollout_wg)
@@ -955,6 +955,7 @@ class RayPPOTrainer:
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
+
                 metrics = {}
                 timing_raw = {}
 
@@ -964,7 +965,6 @@ class RayPPOTrainer:
                         if self.config.global_profiler.profile_continuous_steps
                         else curr_step_profile
                     )
-
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
                 # add uid to batch
@@ -979,10 +979,10 @@ class RayPPOTrainer:
                 gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
                 is_last_step = self.global_steps >= self.total_training_steps
-
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
+                        
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
@@ -1010,7 +1010,6 @@ class RayPPOTrainer:
                             batch.batch["reward_baselines"] = reward_baseline_tensor
 
                             del gen_baseline_batch, gen_baseline_output
-
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
@@ -1092,7 +1091,6 @@ class RayPPOTrainer:
                             batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
                         # compute advantages, executed on the driver process
-
                         norm_adv_by_std_in_grpo = self.config.algorithm.get(
                             "norm_adv_by_std_in_grpo", True
                         )  # GRPO adv normalization factor

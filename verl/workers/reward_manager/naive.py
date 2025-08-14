@@ -77,7 +77,7 @@ class NaiveRewardManager(AbstractRewardManager):
             # decode
             prompt_str = self.tokenizer.decode(valid_prompt_ids, skip_special_tokens=True)
             response_str = self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
-
+            
             ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
             data_source = data_item.non_tensor_batch[self.reward_fn_key]
             extra_info = data_item.non_tensor_batch.get("extra_info", {})
