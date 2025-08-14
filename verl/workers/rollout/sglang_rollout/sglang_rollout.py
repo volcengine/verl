@@ -167,12 +167,7 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
             rid: The request ID to abort. If empty and abort_all is False, no action is taken.
             abort_all: If True, abort all running requests regardless of rid.
         """
-        try:
-            result = self.tokenizer_manager.abort_request(rid=rid, abort_all=abort_all)
-            return result if result is not None else {"status": "aborted"}
-        except Exception as e:
-            logger.error(f"Failed to abort requests: {e}")
-            raise
+        return self.tokenizer_manager.abort_request(rid=rid, abort_all=abort_all)
 
 
 # NOTE(sgm): add for verl. We can optimize it by making
@@ -1148,12 +1143,8 @@ class SGLangRollout(BaseRollout):
 
                         # Wait for all tasks to finish (including cancelled ones)
                         final_results = await asyncio.gather(*all_tasks, return_exceptions=True)
-
-                        try:
-                            await self._engine.abort_request(abort_all=True)
-                        except Exception as e:
-                            logger.error(f"Failed to send abort signal to SGLang engine: {e}")
-
+                        # Abort all requests in SGLang engine
+                        await self._engine.abort_request(abort_all=True)
                     return final_results
 
                 loop = asyncio.get_event_loop()
