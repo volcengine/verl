@@ -44,13 +44,13 @@ def main(config):
 def run_prime(config, compute_score=None):
     if not ray.is_initialized():
         default_runtime_env = {"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}}
-        ray_init_kwargs = config.ray_kwargs.pop("ray_init", {})
-        runtime_env_kwargs = ray_init_kwargs.pop("runtime_env", {})
+        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
+        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
         runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
-        ray_init_kwargs["runtime_env"] = runtime_env
+        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
         print(f"ray init kwargs: {ray_init_kwargs}")
         # this is for local ray cluster
-        ray.init(**ray_init_kwargs)
+        ray.init(**OmegaConf.to_container(ray_init_kwargs))
 
     ray.get(main_task.remote(config, compute_score))
 
