@@ -237,9 +237,9 @@ def perform_single_search_batch(
             logger.error(f"Batch search: {error_msg}")
     else:
         metadata["status"] = "unknown_api_state"
-        result_text = json.dumps({"result": "Unknown API state (no response and no error message)."}, ensure_ascii=False)
+        result_text = json.dumps(
+            {"result": "Unknown API state (no response and no error message)."}, ensure_ascii=False
+        )
         logger.error("Batch search: Unknown API state.")
 
     return result_text, metadata
-
-
