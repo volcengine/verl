@@ -15,6 +15,8 @@
 
 from dataclasses import dataclass, field
 
+from typing import Optional, Any
+
 import torch
 import logging
 
@@ -25,7 +27,7 @@ from verl.single_controller.base import Worker
 from verl import DataProto
 import ray
 
-from verl.single_controller.base.decorator import register, make_nd_compute_dataproto_dispatch_fn
+from verl.single_controller.base.decorator import register, make_nd_compute_dataproto_dispatch_fn, Dispatch
 from verl.utils.profiler import log_gpu_memory_usage
 from verl.utils.fs import copy_to_local
 
@@ -51,7 +53,6 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-@ray.remote
 class RolloutWorker(Worker):
     def __init__(self, config: RolloutConfig, model_config: HFModelConfig) -> None:
         super().__init__()
@@ -112,7 +113,7 @@ class RolloutWorker(Worker):
             from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 
             vllm_rollout_cls = vLLMRollout if self.config.mode == "sync" else vLLMAsyncRollout
-            rollout = vllm_rollout_cls(
+            self.rollout = vllm_rollout_cls(
                 model_path=local_path,
                 config=self.config,
                 tokenizer=self.tokenizer,
@@ -135,7 +136,7 @@ class RolloutWorker(Worker):
 
             local_path = copy_to_local(self.modelh)
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
-            rollout = SGLangRollout(
+            self.rollout = SGLangRollout(
                 actor_module=self.model_config.model_path,
                 config=self.config,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
@@ -143,11 +144,67 @@ class RolloutWorker(Worker):
                 trust_remote_code=self.model_config.trust_remote_code,
             )
             log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
+        else:
+            raise ValueError(f"Unknown rollout name: {self.config.name}")
 
         
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="infer"))
-    def generate_sequences(self, data: DataProto):
+    def generate_sequences(self, prompts: DataProto):
         """Given a batch of prompts, return a batch of responses. Internally, it can use 
         """
-        pass
+        meta_info = {
+            "eos_token_id": self.model_config.generation_config.eos_token_id
+            if self.model_config.generation_config is not None
+            else self.tokenizer.eos_token_id,
+            "pad_token_id": self.model_config.generation_config.pad_token_id
+            if self.model_config.generation_config is not None
+            else self.tokenizer.pad_token_id,
+        }
+        prompts.meta_info.update(meta_info)
+
+        output = self.rollout.generate_sequences(prompts=prompts)
+        return output
+
+    # ============================ vLLM related ============================
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    def execute_method(self, method: str | bytes, *args, **kwargs):
+        """Called by ExternalRayDistributedExecutor collective_rpc."""
+        return self.rollout._execute_method(method, *args, **kwargs)
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    def get_zeromq_address(self):
+        return self.rollout.get_zeromq_address()
+
+    # ============================ SGLang related ============================
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
+    async def chat_completion(self, json_request):
+        ret = await self.rollout.chat_completion(json_request)
+        return ret
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
+    async def generate(
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
+    ) -> list[int]:
+        ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
+        return ret
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def wake_up(self):
+        if self.config.free_cache_engine:
+            await self.rollout.wake_up()
+        # return something to block the caller
+        return True
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def sleep(self):
+        if self.config.free_cache_engine:
+            await self.rollout.sleep()
+        # return something to block the caller
+        return True
 
