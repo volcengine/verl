@@ -86,7 +86,7 @@ def get_device_flops(unit="T"):
         flops = 119.5e12
     elif "H20" in device_name:
         flops = 148e12
-    elif "910B" in device_name:
+    elif "910B" in device_name or "Ascend910" in device_name:
         flops = 354e12
     elif "RTX 3070 Ti" in device_name:
         flops = 21.75e12
