@@ -39,12 +39,21 @@ class CollabLLMRewardManager(AbstractRewardManager):
     
     def __call__(self, data: DataProto, return_dict: bool = False) -> torch.Tensor | dict[str, Any]:
 
+        # batched scoring
+        prompt_ids = data.batch["prompts"]
+        prompt_length = prompt_ids.shape[-1]
+        valid_response_length = data.batch["attention_mask"][:, prompt_length:].sum(dim=-1)
+
         data_source = data.non_tensor_batch["data_source"]
         messsages = data.non_tensor_batch["messages"]
         ground_truth = data.non_tensor_batch["ground_truth"]
         extra_info = data.non_tensor_batch["extra_info"]
 
-        reward_tensor = self.compute_score(data_source, messsages, ground_truth, extra_info)
+        scores = self.compute_score(data_source, messsages, ground_truth, extra_info)
+        reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
+        
+        for i in range(len(data)):
+            reward_tensor[i, valid_response_length[i].item() - 1] = scores[i]
 
         if return_dict:
             return {"reward_tensor": reward_tensor}
