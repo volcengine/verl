@@ -1148,7 +1148,8 @@ class SGLangRollout(BaseRollout):
 
                     return final_results
 
-                output_req_list = asyncio.run(run_with_cancellation())
+                loop = asyncio.get_event_loop()
+                output_req_list = loop.run_until_complete(run_with_cancellation())
 
             sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
         else:
