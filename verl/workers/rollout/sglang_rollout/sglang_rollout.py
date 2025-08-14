@@ -166,9 +166,7 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
             rid: The request ID to abort. If empty and abort_all is False, no action is taken.
             abort_all: If True, abort all running requests regardless of rid.
         """
-        result = self.tokenizer_manager.abort_request(rid=rid, abort_all=abort_all)
-        print(f"abort_request result: {result}")
-        return result
+        return self.tokenizer_manager.abort_request(rid=rid, abort_all=abort_all)
 
 
 # NOTE(sgm): add for verl. We can optimize it by making
