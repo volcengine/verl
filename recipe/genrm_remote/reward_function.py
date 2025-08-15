@@ -27,22 +27,22 @@ BASE_DELAY = 2
 MAX_WORKERS = 32
 MODEL_NAME = "genrm-demo"
 GENRM_PROMPT_TEMPLATE = """
-The following is a raw search query and a reformulated search query:
+The following is a search query and an answer:
 
-[Raw Search Query]
+[Search Query]
 
 {problem}
 
-[Reformulated Search Query]
+[Answer]
 
 {solution}
 
-Your task is to review and output whether the reformulated search query is good by the following criteria:
-- It is the answer to the raw search query.
+Your task is to review and output whether the answer is good by the following criteria:
+- It is the answer to the search query.
 - It is concise and explicit.
-- It is shorter than the raw search query.
+- It is shorter than the search query.
 
-For example, if the raw search query is "What is the capital of France?", the reformulated search query should be "Paris".
+For example, if the search query is "What is the capital of France?", the answer be "Paris".
 
 Please put your final answer (i.e., 'True' or 'False') in \\boxed{{}}.
 """.strip()

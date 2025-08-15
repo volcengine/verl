@@ -68,10 +68,10 @@ if __name__ == "__main__":
 
         # Create prompt with instruction
         prompt = f'''
-        Given the following query "{query_text}", please return a concise and explicit phrase that is more likely to lead to a relevant result.
+        Given the following query "{query_text}", please return a short answer to the query.
         Put your answer in a single line after ####.
 
-        For example, if the input query is "What is the capital of France?", the output query should be:
+        For example, if the input query is "What is the capital of France?", the output should be:
 
          #### Paris 
          '''.strip()
