@@ -11,20 +11,79 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import time
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import torch
 
-from recipe.fully_async_policy.utils import RolloutSample
 from verl import DataProto
 from verl.experimental.agent_loop.agent_loop import postprocess_agent_loop_outputs
 from verl.trainer.ppo.ray_trainer import compute_response_mask
 
 
+# Calculate the number of samples needed
+def calculate_one_step_size(minimal_bsz, ppo_mini_batch_size):
+    return minimal_bsz * ppo_mini_batch_size
+
+
+@dataclass
+class RolloutSample:
+    """Enhanced rollout sample containing both original batch info and AgentLoopOutput"""
+
+    # Original batch information
+    full_batch: Any
+
+    # AgentLoopOutput from generation
+    agent_loop_output: Any  # AgentLoopOutput
+
+    # Metadata
+    sample_id: str
+    epoch: int
+    rollout_n_index: int  # Index within the rollout.n repetitions (0, 1, ..., n-1)
+    original_sample_index: int  # Index of the original sample before repetition
+
+    # Processing metadata
+    processing_time: float
+    generation_timestamp: float
+    param_version: int
+
+
+def prepare_single_generation_data(batch_dict, global_steps) -> DataProto:
+    """
+    类似 ray_trainer._prepare_generate_batch 的逻辑，但针对单个样本
+    分离出用于生成的数据和需要保留的原始数据
+
+    Returns:
+        tuple: (original_batch_dict, gen_data_for_single_sample)
+    """
+
+    # 创建完整的 DataProto
+    full_batch = DataProto.from_single_dict(batch_dict)
+
+    # batch : TensorDict { input_ids, attention_mask, position_ids}
+    # non_tensor_batch: raw_prompt_ids, raw_prompt,
+    #                   multi_modal_data, tools_kwargs, interaction_kwargs, index, agent_name,
+    #                   data_source, ability, reward_model
+    # meta_info: {}
+
+    # 定义需要传递给生成服务器的字段
+    batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
+    non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
+
+    full_batch.pop(
+        batch_keys=batch_keys_to_pop,
+        non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
+    )
+    # 添加全局步数到生成数据
+    full_batch.meta_info["global_steps"] = global_steps
+
+    return full_batch
+
+
 def assemble_batch_from_rollout_samples(
-    rollout_samples: list[RolloutSample], tokenizer, config, balance_batch: bool = False
+    rollout_samples: list[RolloutSample], tokenizer, config, balance_batch=None
 ) -> DataProto:
     """
     Assemble gen_batch_output from RolloutSample objects
@@ -60,17 +119,11 @@ def assemble_batch_from_rollout_samples(
     # 每个 RolloutSample 都是独立的，直接按顺序重建原始数据
     original_batch_list = []
     for rs in rollout_samples:
-        original_batch_dict = rs.original_batch_dict
+        item = rs.full_batch.to_items()[0]
+        original_batch_list.append(item)
 
-        # 重建 DataProto
-        original_batch_item = DataProto.from_single_dict(
-            {
-                **{k: v for k, v in original_batch_dict["batch"].items()},
-                **{f"__{k}": v for k, v in original_batch_dict["non_tensor_batch"].items()},
-            }
-        )
-        original_batch_item.meta_info.update(original_batch_dict["meta_info"])
-        original_batch_list.append(original_batch_item)
+    print("=" * 300)
+    print(original_batch_list)
 
     # 合并所有原始样本为一个批次
     if original_batch_list:
@@ -78,6 +131,9 @@ def assemble_batch_from_rollout_samples(
     else:
         # 如果没有原始数据，创建空的 DataProto
         original_batch = DataProto.from_single_dict({})
+
+    print("=" * 300)
+    print(original_batch)
 
     # 添加 UID
     uids = []
@@ -87,16 +143,21 @@ def assemble_batch_from_rollout_samples(
 
     # 直接合并原始数据和生成结果，不需要 repeat
     # 因为队列中的每个 RolloutSample 都已经是独立的样本
-    final_batch = original_batch.union(gen_batch_output)
+    if original_batch.batch is None:
+        final_batch = gen_batch_output
+        # 将 original_batch 的 non_tensor_batch 和 meta_info 合并到 final_batch
+        for key, value in original_batch.non_tensor_batch.items():
+            final_batch.non_tensor_batch[key] = value
+        final_batch.meta_info.update(original_batch.meta_info)
 
     # 计算 response_mask（如果不存在）
     if "response_mask" not in final_batch.batch.keys():
         final_batch.batch["response_mask"] = compute_response_mask(final_batch)
 
     # 简化的批次平衡逻辑（如果需要的话）
-    if balance_batch and hasattr(config, "trainer") and getattr(config.trainer, "balance_batch", False):
+    if balance_batch:
         # 注意：这里简化了批次平衡逻辑，如果需要完整功能需要额外参数
-        print("[BatchUtils] Batch balancing requested but simplified in static function")
+        balance_batch(final_batch, metrics={})
 
     # 计算全局有效 token 数
     if "attention_mask" in final_batch.batch:

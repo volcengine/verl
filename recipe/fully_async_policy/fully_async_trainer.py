@@ -21,8 +21,12 @@ import numpy as np
 import ray
 from omegaconf import OmegaConf
 
+from recipe.fully_async_policy.detach_utils import (
+    RolloutSample,
+    assemble_batch_from_rollout_samples,
+    calculate_one_step_size,
+)
 from recipe.fully_async_policy.message_queue import MessageQueueClient
-from recipe.fully_async_policy.utils import RolloutSample, calculate_one_step_size
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator
@@ -167,39 +171,12 @@ class FullyAsyncTrainer(RayPPOTrainer):
         queue_samples = [ray.cloudpickle.loads(x) for x in queue_samples]
         print(queue_samples)
         # Assemble batch - now working directly with RolloutSample objects
-        batch = self._assemble_gen_batch_output_from_queue_samples(queue_samples)
-        print(f" _assemble_gen_batch_output_from_queue_samples {batch}")
-        return 0, queue_samples
-        #
-        # return 0, batch
-
-    def _assemble_gen_batch_output_from_queue_samples(self, rollout_samples: list[RolloutSample]):
-        """
-        Assemble gen_batch_output from RolloutSample objects
-        从 RolloutSample 对象中组装批次，类似 ray_trainer 的 _post_generate_batch 逻辑
-
-        Args:
-            rollout_samples: List of RolloutSample objects
-
-        Returns:
-            DataProto: Assembled gen_batch_output
-        """
-        from recipe.fully_async_policy.batch_utils import assemble_batch_from_rollout_samples
-
-        # 使用静态函数进行批次组装
-        final_batch = assemble_batch_from_rollout_samples(
-            rollout_samples=rollout_samples,
-            tokenizer=self.tokenizer,
-            config=self.config,
-            balance_batch=False,  # 不使用静态函数的简化版本
-        )
-
-        # 如果需要完整的批次平衡，在这里调用
         if self.config.trainer.balance_batch:
-            self._balance_batch(final_batch, metrics={})
-
-        print(f"[FullyAsyncTrainer] {final_batch}")
-        return final_batch
+            batch = assemble_batch_from_rollout_samples(queue_samples, self._balance_batch)
+        else:
+            batch = assemble_batch_from_rollout_samples(queue_samples)
+        print(f" _assemble_gen_batch_output_from_queue_samples {batch}")
+        return 0, batch
 
     def _create_actor_rollout_classes(self):
         # create actor

@@ -18,8 +18,12 @@ from pprint import pprint
 import ray
 from omegaconf import OmegaConf
 
+from recipe.fully_async_policy.detach_utils import (
+    RolloutSample,
+    calculate_one_step_size,
+    prepare_single_generation_data,
+)
 from recipe.fully_async_policy.message_queue import MessageQueueClient
-from recipe.fully_async_policy.utils import RolloutSample, calculate_one_step_size
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
 from verl.utils.tracking import ValidationGenerationsLogger
@@ -213,55 +217,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
             worker_group=self.rollout_wg,
         )
 
-    def _prepare_single_generation_data(self, batch_dict):
-        """
-        类似 ray_trainer._prepare_generate_batch 的逻辑，但针对单个样本
-        分离出用于生成的数据和需要保留的原始数据
-
-        Returns:
-            tuple: (original_batch_dict, gen_data_for_single_sample)
-        """
-        from verl import DataProto
-
-        # 创建完整的 DataProto
-        full_batch = DataProto.from_single_dict(batch_dict)
-
-        # 定义需要传递给生成服务器的字段
-        batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
-        non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
-
-        # 处理可选字段
-        optional_fields = [
-            "multi_modal_data",
-            "raw_prompt",
-            "tools_kwargs",
-            "interaction_kwargs",
-            "index",
-            "agent_name",
-        ]
-
-        for field in optional_fields:
-            if field in full_batch.non_tensor_batch:
-                non_tensor_batch_keys_to_pop.append(field)
-
-        # 分离数据：gen_batch 用于生成，original_batch 保留原始信息
-        gen_batch = full_batch.pop(
-            batch_keys=batch_keys_to_pop,
-            non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
-        )
-
-        # 添加全局步数到生成数据
-        gen_batch.meta_info["global_steps"] = self.global_steps
-
-        # 保留原始 batch 信息（转换为字典格式以便序列化）
-        original_batch_dict = {
-            "batch": {k: v.clone() if hasattr(v, "clone") else v for k, v in full_batch.batch.items()},
-            "non_tensor_batch": dict(full_batch.non_tensor_batch),
-            "meta_info": dict(full_batch.meta_info),
-        }
-
-        return original_batch_dict, gen_batch
-
     # 添加样本到待处理队列的协程
     async def _feed_samples(self):
         continuous_iterator = self._create_continuous_iterator()
@@ -273,7 +228,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 break
 
             # 类似 _prepare_generate_batch 的逻辑：分离数据
-            original_batch, gen_data = self._prepare_single_generation_data(batch_dict)
+            full_batch = prepare_single_generation_data(batch_dict, self.global_steps)
 
             # 根据 rollout.n 进行重复
             for rollout_n_index in range(self.config.actor_rollout_ref.rollout.n):
@@ -281,7 +236,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
                 # 创建部分 RolloutSample，不包含 _gen_data（因为它不在数据类定义中）
                 partial_rollout_sample = RolloutSample(
-                    original_batch_dict=original_batch,
+                    full_batch=full_batch,
                     agent_loop_output=None,  # 待处理后填充
                     sample_id=sample_id,
                     epoch=epoch,
@@ -290,7 +245,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     processing_time=0.0,  # 待处理后填充
                     generation_timestamp=0.0,  # 待处理后填充
                     param_version=0,  # 待处理后填充
-                    _gen_data=gen_data,
                 )
 
                 await self.pending_queue.put(partial_rollout_sample)
@@ -362,7 +316,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         # 调用异步生成方法
         agent_loop_output, processing_time = await self.async_rollout_manager.generate_single_sample_async(
-            partial_rollout_sample._gen_data, partial_rollout_sample.sample_id
+            partial_rollout_sample.full_batch, partial_rollout_sample.sample_id
         )
         # 直接更新 RolloutSample 对象，填充剩余字段
         partial_rollout_sample.agent_loop_output = agent_loop_output
