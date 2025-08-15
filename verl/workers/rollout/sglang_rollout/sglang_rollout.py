@@ -17,8 +17,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import multiprocessing
 import multiprocessing as mp
 import os
+import random
+import socket
 import time
 from copy import deepcopy
 from json import JSONDecodeError
@@ -26,10 +29,12 @@ from typing import Any, List, Optional, Tuple
 from uuid import uuid4
 
 import numpy as np
+import ray
 import sglang.srt.entrypoints.engine
 import torch
 import torch.distributed as dist
 from omegaconf import DictConfig
+from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from sglang.srt.managers.tokenizer_manager import (
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
@@ -43,7 +48,7 @@ from sglang.srt.utils import (
     get_ip,
     get_open_port,
     is_cuda,
-    maybe_set_triton_cache_manager,
+    # maybe_set_triton_cache_manager,
     set_prometheus_multiproc_dir,
     set_ulimit,
 )
@@ -69,6 +74,7 @@ from verl.workers.rollout.schemas import (
     FinishReasonTypeEnum,
     Message,
 )
+from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerEngineAdapter
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
 
 try:
@@ -104,9 +110,9 @@ def _set_envs_and_config(server_args: ServerArgs):
     set_ulimit()
 
     # Fix triton bugs
-    if server_args.tp_size * server_args.dp_size > 1:
-        # FIXME: remove this after https://github.com/triton-lang/triton/pull/4295 is used as a dependency.
-        maybe_set_triton_cache_manager()
+    # if server_args.tp_size * server_args.dp_size > 1:
+    #     # FIXME: remove this after https://github.com/triton-lang/triton/pull/4295 is used as a dependency.
+    #     maybe_set_tritwon_cache_manager()
 
     # Check flashinfer version
     if server_args.attention_backend == "flashinfer":
@@ -126,7 +132,7 @@ def _set_envs_and_config(server_args: ServerArgs):
     mp.set_start_method("spawn", force=True)
 
 
-sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
+# sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
 
 
 # because chatCompletion is an async method, it makes the whole ray actor be an async actor
@@ -258,6 +264,8 @@ class SGLangRollout(BaseRollout):
         port=None,
         trust_remote_code: bool = False,
         device_mesh: DeviceMesh | None = None,
+        sglang_router_ip=None,
+        sglang_router_port=None,
         **kwargs,
     ):
         """Synchronized SGLang rollout engine.
@@ -285,6 +293,8 @@ class SGLangRollout(BaseRollout):
         super().__init__()
         self.config = config
         self._device_mesh_cpu = device_mesh
+        self.sglang_router_ip = sglang_router_ip
+        self.sglang_router_port = sglang_router_port
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
 
         (
@@ -307,7 +317,11 @@ class SGLangRollout(BaseRollout):
 
         self._verify_config(model_hf_config=model_hf_config)
         # initialize the inference engine
-        self._init_inference_engine(trust_remote_code, actor_module, port)
+        self._init_inference_engine(
+            trust_remote_code,
+            actor_module,
+            port,
+        )
 
         self._init_sampling_params(**kwargs)
 
@@ -437,7 +451,7 @@ class SGLangRollout(BaseRollout):
         if first_rank_in_node:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-            self._engine = AsyncEngine(
+            self._engine = AsyncHttpServerEngineAdapter(
                 model_path=actor_module,
                 dtype=self.config.dtype,
                 mem_fraction_static=self.config.gpu_memory_utilization,
@@ -450,20 +464,26 @@ class SGLangRollout(BaseRollout):
                 dist_init_addr=dist_init_addr,
                 nnodes=nnodes,
                 trust_remote_code=trust_remote_code,
+                disable_cuda_graph=True,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
-                port=30000 + rank,
+                host=get_host_info()[1],
+                # port=port,
+                port=30000 + rank + 2,
                 # NOTE(Chenyang): if you want to debug the SGLang engine output
                 # please set the following parameters
                 # Otherwise, it will make the engine run too slow
-                # log_level="INFO",
+                log_level="info",
                 # log_requests=True,
                 # log_requests_level=2,
                 # max_running_requests=1,
                 mm_attention_backend="fa3",
-                attention_backend="fa3",
+                # attention_backend=attention_backend if attention_backend is not None else "fa3",
                 # In async mode, we want token in token out.
                 skip_tokenizer_init=self.config.mode == "async",
+                router_ip=self.sglang_router_ip,
+                router_port=self.sglang_router_port,
+                skip_server_warmup=True,
             )
         else:
             self._engine = None
@@ -1389,3 +1409,172 @@ class SGLangRollout(BaseRollout):
             return
         await self.sharding_manager.sleep()
         self.is_sleep = True
+
+
+def create_rollout_engines(args, pg):
+    if args.debug_train_only:
+        return []
+
+    num_gpu_per_engine = min(args.rollout_num_gpus_per_engine, args.rollout_num_gpus_per_node)
+    num_engines = args.rollout_num_gpus // num_gpu_per_engine
+
+    pg, reordered_bundle_indices = pg
+
+    RolloutRayActor = ray.remote(SGLangEngine)
+
+    rollout_engines = []
+    for i in range(num_engines):
+        num_gpus = 0.2
+        num_cpus = num_gpus
+
+        scheduling_strategy = PlacementGroupSchedulingStrategy(
+            placement_group=pg,
+            placement_group_capture_child_tasks=True,
+            placement_group_bundle_index=reordered_bundle_indices[i * num_gpu_per_engine],
+        )
+
+        rollout_engines.append(
+            RolloutRayActor.options(
+                num_cpus=num_cpus,
+                num_gpus=num_gpus,
+                scheduling_strategy=scheduling_strategy,
+            ).remote(args, rank=i)
+        )
+
+    # get ports
+    # there are 4 ports we need to allocate
+    # 1. server port
+    # 2. nccl port
+    # 3. dist_init_addr port
+    # 4. other ports for dp_attention, which is of size 4 + dp_size
+    num_engines_per_node = max(
+        1, min(args.rollout_num_gpus_per_node, args.rollout_num_gpus) // args.rollout_num_gpus_per_engine
+    )
+    addr_and_ports = [{} for _ in range(num_engines)]
+    for rank, engine in enumerate(rollout_engines):
+        if rank % num_engines_per_node != 0:
+            continue
+
+        def get_addr_and_ports():
+            # use small ports to prevent ephemeral port between 32768 and 65536.
+            start_port = 10000
+
+            def port(consecutive=1):
+                nonlocal start_port
+                _, port = ray.get(
+                    engine._get_current_node_ip_and_free_port.remote(
+                        start_port=start_port,
+                        consecutive=consecutive,
+                    )
+                )
+                start_port = port + consecutive
+                return port
+
+            def addr():
+                addr, _ = ray.get(engine._get_current_node_ip_and_free_port.remote())
+                return addr
+
+            return addr, port
+
+        get_addr, get_port = get_addr_and_ports()
+
+        for i in range(num_engines_per_node):
+            addr_and_ports[rank + i]["port"] = get_port()
+            addr_and_ports[rank + i]["nccl_port"] = get_port()
+
+        if args.rollout_num_gpus_per_engine > args.rollout_num_gpus_per_node:
+            num_node_per_engine = args.rollout_num_gpus_per_engine // args.rollout_num_gpus_per_node
+            if rank % num_node_per_engine == 0:
+                # this is the first node in the engine, we need to allocate the dist_init_addr port
+                dist_init_addr = f"{get_addr()}:{get_port(6 + args.sglang_dp_size)}"
+                for i in range(num_node_per_engine):
+                    addr_and_ports[rank + i]["dist_init_addr"] = dist_init_addr
+        else:
+            for i in range(num_engines_per_node):
+                addr_and_ports[rank + i]["dist_init_addr"] = f"{get_addr()}:{get_port(6 + args.sglang_dp_size)}"
+
+    for i in range(num_engines):
+        for key in ["port", "nccl_port", "dist_init_addr"]:
+            assert key in addr_and_ports[i], f"Engine {i} {key} is not set."
+        print(f"Ports for engine {i}: {addr_and_ports[i]}")
+
+    # TODO: don't ray.get here to overlap train actor init with rollout engine init.
+    # somehow if we don't sync here, the --debug-rollout-only mode will crash.
+    init_handles = [engine.init.remote(**ports) for engine, ports in zip(rollout_engines, addr_and_ports)]
+    ray.get(init_handles)
+
+    return rollout_engines
+
+
+def find_available_port(base_port: int):
+    port = base_port + random.randint(100, 1000)
+    while True:
+        if is_port_available(port):
+            return port
+        if port < 60000:
+            port += 42
+        else:
+            port -= 43
+
+
+def is_port_available(port):
+    """Return whether a port is available."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("", port))
+            s.listen(1)
+            return True
+        except socket.error:
+            return False
+        except OverflowError:
+            return False
+
+
+def get_host_info():
+    hostname = socket.gethostname()
+
+    local_ip = socket.gethostbyname(hostname)
+
+    return hostname, local_ip
+
+
+def run_router(args):
+    try:
+        from sglang_router.launch_router import launch_router
+
+        router = launch_router(args)
+        if router is None:
+            return 1
+        return 0
+    except Exception as e:
+        print(e)
+        return 1
+
+
+def _start_router():
+    from sglang_router.launch_router import RouterArgs
+
+    sglang_router_host = get_host_info()[1]
+    sglang_router_port = find_available_port(random.randint(3000, 4000))
+
+    router_args = RouterArgs(
+        host=sglang_router_host,
+        port=sglang_router_port,
+        balance_abs_threshold=0,
+    )
+
+    if hasattr(router_args, "log_level"):
+        router_args.log_level = "warn"
+
+    process = multiprocessing.Process(
+        target=run_router,
+        args=(router_args,),
+    )
+    process.daemon = True  # 设置为守护进程
+    process.start()
+    # 等待3秒
+    time.sleep(3)
+    assert process.is_alive()
+    print(f"SGLang router launched at {sglang_router_host}:{sglang_router_port}")
+    return sglang_router_host, sglang_router_port

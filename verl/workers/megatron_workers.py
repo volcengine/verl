@@ -87,7 +87,12 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
     def __init__(self, config: DictConfig, role: str, **kwargs):
         MegatronWorker.__init__(self)
+        from loguru import logger as log
+
         self.config = config
+        self.sglang_router_ip = kwargs["sglang_router_ip"]
+        self.sglang_router_port = kwargs["sglang_router_port"]
+        log.info(f"sglang_router_host: {self.sglang_router_ip}, sglang_router_port: {self.sglang_router_port}")
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
@@ -110,7 +115,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 tensor_model_parallel_size=self.config.actor.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.actor.megatron.pipeline_model_parallel_size,
                 virtual_pipeline_model_parallel_size=self.config.actor.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
+                # pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.actor.megatron.context_parallel_size,
                 expert_model_parallel_size=self.config.actor.megatron.expert_model_parallel_size,
@@ -358,6 +363,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 model_hf_config=self.actor_model_config,
                 trust_remote_code=trust_remote_code,
                 device_mesh=rollout_device_mesh,
+                sglang_router_ip=self.sglang_router_ip,
+                sglang_router_port=self.sglang_router_port,
             )
             log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=None)
 
@@ -575,6 +582,19 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         # clear kv cache
         get_torch_device().empty_cache()
         return output
+
+    @register(dispatch_mode=Dispatch.DP_DISPATCH)
+    @GPUMemoryLogger(role="prepare_for_generate", logger=logger)
+    @DistProfiler.annotate(color="olive")
+    def prepare_for_generate(self):
+        self.sharding_manager.prepare_for_generate()
+
+    @register(dispatch_mode=Dispatch.DP_DISPATCH)
+    @GPUMemoryLogger(role="after_generate", logger=logger)
+    @DistProfiler.annotate(color="olive")
+    def after_generate(self):
+        self.sharding_manager.after_generate()
+        get_torch_device().empty_cache()
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     @GPUMemoryLogger(role="compute_ref_log_prob", logger=logger)

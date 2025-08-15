@@ -25,6 +25,7 @@ import torch.distributed as dist
 from omegaconf import DictConfig
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.model_executor.model_runner import LocalSerializedTensor
+from sglang.srt.patch_torch import monkey_patch_torch_reductions
 from sglang.srt.utils import MultiprocessingSerializer
 from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
@@ -118,6 +119,18 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         else:
             self.gen_random_states = None
 
+    @GPUMemoryLogger(role="MegatronSGLangShardingManager prepare_for_generate", logger=logger)
+    def prepare_for_generate(self):
+        self.timing = {}
+        with simple_timer("reshard", self.timing):
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.wake_up())
+
+    @GPUMemoryLogger(role="MegatronSGLangShardingManager after_generate ", logger=logger)
+    def after_generate(self):
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(self.sleep())
+
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     def __enter__(self):
         self.timing = {}
@@ -147,6 +160,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             await self.inference_engine.resume_memory_occupation()
         named_tensors = params
         load_format = None
+        monkey_patch_torch_reductions()
 
         update_weights_bucket_bytes = int(self.rollout_config.update_weights_bucket_megabytes) << 20
         for batch in get_named_tensor_buckets(named_tensors, update_weights_bucket_bytes):
@@ -200,10 +214,11 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                 )
 
         if self.device_mesh["tp"].get_local_rank() == 0:
-            await self.inference_engine.flush_cache()
+            pass
+            # await self.inference_engine.flush_cache()
 
     async def release_memory(self):
-        if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
+        if self.device_mesh["tp"].get_local_rank() == 0:
             await self.inference_engine.release_memory_occupation()
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
@@ -231,10 +246,11 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager exit", logger=logger)
     async def sleep(self):
-        if self.rollout_config.free_cache_engine:
-            log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
-            await self.release_memory()
-            log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
+        log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
+        print("offload sglang memory")
+        await self.release_memory()
+        log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
+        dist.barrier()
 
         for model in self.actor_module:
             model.train()

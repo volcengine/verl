@@ -48,6 +48,7 @@ def init_predefined_dispatch_mode():
     Dispatch.register("DP_COMPUTE_PROTO")
     Dispatch.register("DP_COMPUTE_PROTO_WITH_FUNC")
     Dispatch.register("DP_COMPUTE_METRIC")
+    Dispatch.register("DP_DISPATCH")
     # This is a special dispatch mode for vllm ExternalRayDistributedExecutor
     Dispatch.register("DIRECT_ROLLOUT_METHOD")
 
@@ -133,6 +134,12 @@ def dispatch_all_to_all(worker_group, *args, **kwargs):
 
 
 def collect_all_to_all(worker_group, output):
+    return output
+
+def dispatch_dp(worker_group, *args, **kwargs):
+    return args, kwargs
+
+def collect_dp(worker_group, output):
     return output
 
 
@@ -415,6 +422,7 @@ DISPATCH_MODE_FN_REGISTRY = {
         "dispatch_fn": dummy_direct_rollout_call,
         "collect_fn": dummy_direct_rollout_call,
     },
+    Dispatch.DP_DISPATCH: {"dispatch_fn": dispatch_dp, "collect_fn": collect_dp},
 }
 
 
