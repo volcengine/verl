@@ -15,7 +15,7 @@
 from omegaconf import MISSING
 from verl.base_config import BaseConfig
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Any
 
 from transformers import AutoConfig, AutoTokenizer, PretrainedConfig, PreTrainedTokenizer, GenerationConfig
 
@@ -27,13 +27,15 @@ __all__ = ["HFModelConfig"]
 @dataclass
 class HFModelConfig(BaseConfig):
     # note that we separate model_path, model_config_path and tokenizer_path in case they are different
-    model_path: str = MISSING
+    _mutable_fields = {'hf_config_path', 'tokenizer_path', 'hf_config', 'generation_config', 'tokenizer'}
+
+    path: str = MISSING
     hf_config_path: Optional[str] = None
     tokenizer_path: Optional[str] = None
 
-    hf_config: PretrainedConfig = None
-    generation_config: GenerationConfig = None
-    tokenizer: PreTrainedTokenizer = None
+    hf_config: Any = None
+    generation_config: Any = None
+    tokenizer: Any = None
 
     # whether to use shared memory
     use_shm: bool = False
@@ -44,7 +46,7 @@ class HFModelConfig(BaseConfig):
 
     external_lib: Optional[str] = None
 
-    override_model_config: dict = field(default_factory=dict)
+    override_config: dict = field(default_factory=dict)
 
     enable_gradient_checkpointing: bool = True
     enable_activation_offload: bool = False
@@ -64,9 +66,9 @@ class HFModelConfig(BaseConfig):
 
     def __post_init__(self):
         if self.hf_config_path is None:
-            self.hf_config_path = self.model_path
+            self.hf_config_path = self.path
         if self.tokenizer_path is None:
-            self.tokenizer_path = self.model_path
+            self.tokenizer_path = self.path
 
         # constuct tokenizer
         self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path, trust_remote_code=self.trust_remote_code, 
@@ -81,7 +83,7 @@ class HFModelConfig(BaseConfig):
             "eos_token_id": self.tokenizer.eos_token_id,
             "pad_token_id": self.tokenizer.pad_token_id,
         }
-        override_config_kwargs.update(self.override_model_config)
+        override_config_kwargs.update(self.override_config)
         update_model_config(self.hf_config, override_config_kwargs=override_config_kwargs)
 
         # per model patch
