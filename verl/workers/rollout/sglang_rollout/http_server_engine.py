@@ -37,14 +37,15 @@ This module provides HTTP-based adapters for SGLang engines, allowing communicat
 with SGLang servers through HTTP requests instead of direct engine calls.
 
 Classes:
-    HttpServerEngineAdapter: Synchronous HTTP adapter for SGLang engines
-    AsyncHttpServerEngineAdapter: Asynchronous HTTP adapter for SGLang engines
+    HttpServerAdapter: Synchronous HTTP adapter for SGLang engines
+    AsyncHttpServerAdapter: Asynchronous HTTP adapter for SGLang engines
 
 Functions:
     launch_server_process: Launch and initialize an SGLang HTTP server process
 """
 
 import asyncio
+import json
 import logging
 import multiprocessing
 import os
@@ -69,60 +70,34 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 # Default configuration constants
 DEFAULT_TIMEOUT = 60.0
-DEFAULT_MAX_ATTEMPTS = 1
+DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_RETRY_DELAY = 2.0
 DEFAULT_MAX_CONNECTIONS = 2000
 DEFAULT_MAX_WAIT_TIME = 300.0
 
 
 def _read_response(response: requests.Response):
-    """Read response content, trying to parse as JSON but falling back to text if needed.
-    
-    Args:
-        response (requests.Response): The HTTP response to read
-        
-    Returns:
-        Dict or other parsed content: JSON-parsed content if possible, otherwise dict with text
-    """
-    # Empty body or 204, return empty dict
     if response.status_code == 204 or not response.content:
         return {}
     try:
         return response.json()
     except ValueError:
-        # Not JSON, return as text
         return {
             "content_type": response.headers.get("Content-Type", ""),
             "text": response.text,
         }
 
-
 async def _read_async_response(resp: aiohttp.ClientResponse):
-    """Read async response content, trying to parse as JSON but falling back to text if needed.
-    
-    Args:
-        resp (aiohttp.ClientResponse): The async HTTP response to read
-        
-    Returns:
-        Dict or other parsed content: JSON-parsed content if possible, otherwise dict with text
-    """
     if resp.status == 204:
         return {}
-    raw = await resp.read()  # Read raw bytes once
-    if not raw:
-        return {}
-    # Try JSON first
+    ct = resp.headers.get("Content-Type", "")
     try:
-        # Use server-declared encoding, default to utf-8
-        txt = raw.decode(resp.charset or "utf-8", errors="replace")
-        return json.loads(txt)
-    except Exception:
-        # Fall back to text
-        return {
-            "content_type": resp.headers.get("Content-Type", ""),
-            "text": txt if 'txt' in locals() else raw.decode("utf-8", errors="replace"),
-        }
-
+        if "application/json" in ct:
+            return await resp.json()
+        else:
+            return {"content_type": ct, "text": await resp.text()}
+    except aiohttp.ContentTypeError:
+        return {"content_type": ct, "text": await resp.text()}
 
 def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIMEOUT, max_wait_time = DEFAULT_MAX_WAIT_TIME, first_rank_in_node = True) -> multiprocessing.Process:
     """Launch an SGLang HTTP server process and wait for it to be ready.
@@ -211,7 +186,7 @@ class HttpServerAdapter(EngineBase):
     instead of direct engine calls. It launches an HTTP server process and
     provides methods to communicate with it via REST API calls.
 
-    You can use this class to launch a server from a HttpServerEngineAdapter instance.
+    You can use this class to launch a server from a HttpServerAdapter instance.
     We recommend using this class only when you need to use http server.
     Otherwise, you can use Engine directly.
 
@@ -222,7 +197,7 @@ class HttpServerAdapter(EngineBase):
         node_rank (int): Rank of this node in distributed setup
         process (multiprocessing.Process): The launched server process
         timeout (float): HTTP request timeout in seconds
-        max_retries (int): Maximum number of attempts for failed requests
+        max_attempts (int): Maximum number of attempts for requests
         retry_delay (float): Base delay between retries in seconds
     """
 
@@ -266,7 +241,7 @@ class HttpServerAdapter(EngineBase):
         self.node_rank: int = self.server_args.node_rank
         self.max_start_wait_time: float = max_start_wait_time
 
-        logger.info(f"Launch HttpServerEngineAdapter at: {self.server_args.host}:{self.server_args.port}")
+        logger.info(f"Launch HttpServerAdapter at: {self.server_args.host}:{self.server_args.port}")
         self.process: multiprocessing.Process = launch_server_process(self.server_args, self.timeout, self.max_start_wait_time, first_rank_in_node)
 
 
@@ -345,7 +320,7 @@ class HttpServerAdapter(EngineBase):
                 raise
             except Exception as e:
                 logger.error(f"Unexpected error for {endpoint}: {e}")
-                if attempt == self.max_attempts:
+                if attempt == self.max_attempts - 1:
                     raise
 
             if attempt < self.max_attempts - 1:
@@ -554,7 +529,7 @@ class HttpServerAdapter(EngineBase):
 class AsyncHttpServerAdapter(HttpServerAdapter):
     """Asynchronous HTTP-based adapter for SGLang engines.
 
-    This class inherits from HttpServerEngineAdapter and adds async capabilities
+    This class inherits from HttpServerAdapter and adds async capabilities
     for non-blocking HTTP requests to the SGLang server. It provides the same
     functionality as the synchronous version but with async/await support.
 
@@ -564,7 +539,6 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
 
     Attributes:
         _need_reload (bool): Flag indicating if weights need to be reloaded on first use
-        _session (Optional[aiohttp.ClientSession]): aiohttp ClientSession for making async HTTP requests
         max_connections (int): Maximum number of connections in the connection pool
     """
 
@@ -573,7 +547,7 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         router_ip: Optional[str] = None,
         router_port: Optional[int] = None,
         timeout: float = DEFAULT_TIMEOUT,
-        max_retries: int = DEFAULT_MAX_RETRIES,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         retry_delay: float = DEFAULT_RETRY_DELAY,
         max_connections: int = DEFAULT_MAX_CONNECTIONS,
         first_rank_in_node: bool = False,
@@ -588,29 +562,18 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
                 Defaults to None.
             timeout (float, optional): HTTP request timeout in seconds.
                 Defaults to DEFAULT_TIMEOUT.
-            max_retries (int, optional): Maximum number of retry attempts for failed requests.
-                Defaults to DEFAULT_MAX_RETRIES.
+            max_attempts (int, optional): Maximum number of retry attempts for failed requests.
+                Defaults to DEFAULT_MAX_ATTEMPTS.
             retry_delay (float, optional): Base delay between retries in seconds.
                 Defaults to DEFAULT_RETRY_DELAY.
             max_connections (int, optional): Maximum number of connections in the connection pool.
                 Defaults to DEFAULT_MAX_CONNECTIONS.
             **kwargs (Any): Additional arguments passed to ServerArgs
         """
-        super().__init__(router_ip, router_port, timeout, max_retries, retry_delay, first_rank_in_node, **kwargs)
+        super().__init__(router_ip, router_port, timeout, max_attempts, retry_delay, first_rank_in_node, **kwargs)
         # Similar to AsyncEngine, track if we need to reload weights
         self._need_reload: bool = True
-        self._session_lock: asyncio.Lock = asyncio.Lock()
         self.max_connections: int = max_connections
-
-        # Create a reusable connector and session for connection pooling
-        self._connector = aiohttp.TCPConnector(
-            limit=self.max_connections,
-            limit_per_host=self.max_connections // 4,
-            ttl_dns_cache=300,
-            use_dns_cache=True,
-        )
-        timeout_config = aiohttp.ClientTimeout(total=self.timeout)
-        self._session = aiohttp.ClientSession(connector=self._connector, timeout=timeout_config)
 
     @asynccontextmanager
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -620,11 +583,25 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
             aiohttp.ClientSession: Session instance for making HTTP requests
 
         Note:
-            This method returns a reusable session to take advantage of connection pooling.
+            This method creates a new session for each request to avoid resource competition
+            while still maintaining proper connection pooling through the shared connector.
         """
-        # Use a lock to ensure thread safety when accessing the session
-        async with self._session_lock:
-            yield self._session
+        # Create a new session for each request to avoid resource competition
+        connector = aiohttp.TCPConnector(
+            limit=self.max_connections,
+            limit_per_host=self.max_connections // 4,
+            ttl_dns_cache=300,
+            use_dns_cache=True,
+        )
+        timeout = aiohttp.ClientTimeout(total=self.timeout)
+        session = aiohttp.ClientSession(connector=connector, timeout=timeout)
+        
+        try:
+            yield session
+        finally:
+            # Always close the session to free up resources
+            if not session.closed:
+                await session.close()
 
     async def _make_async_request(
         self,
@@ -662,7 +639,7 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
 
         # print(f"Making async request to {url} with method {method} and payload {payload}", flush=True)
 
-        for attempt in range(self.max_retries + 1):
+        for attempt in range(self.max_attempts):
             try:
                 async with self._get_session() as session:
                     if method.upper() == "GET":
@@ -683,13 +660,13 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
                 raise
             except Exception as e:
                 logger.error(f"Unexpected error for {endpoint}: {e}")
-                if attempt == self.max_attempts:
+                if attempt == self.max_attempts - 1:
                     raise
 
             if attempt < self.max_attempts - 1:
                 await asyncio.sleep(self.retry_delay * (2**attempt))
 
-        raise RuntimeError(f"Failed to complete async request to {endpoint} after {self.max_retries + 1} attempts")
+        raise RuntimeError(f"Failed to complete async request to {endpoint} after {self.max_attempts} attempts")
 
     async def release_memory_occupation(self, tags: Optional[List[str]] = None) -> Dict[str, Any]:
         """Release GPU memory occupation temporarily (async version).
@@ -895,62 +872,3 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
             lora_path=lora_path,
             custom_logit_processor=custom_logit_processor,
         )
-
-    async def close(self) -> None:
-        """Close the aiohttp session and clean up resources.
-
-        This method should be called when the adapter is no longer needed
-        to ensure proper cleanup of HTTP connections and resources.
-
-        Note:
-            This method is safe to call multiple times. If the session is
-            already closed or None, this method will do nothing.
-        """
-        if self._session and not self._session.closed:
-            await self._session.close()
-            logger.info("HTTP session closed")
-
-        if hasattr(self, '_connector') and self._connector and not self._connector.closed:
-            await self._connector.close()
-            logger.info("TCP connector closed")
-
-    async def __aenter__(self) -> "AsyncHttpServerAdapter":
-        """Async context manager support.
-
-        Returns:
-            AsyncHttpServerEngineAdapter: Self for use in async context
-        """
-        return self
-
-    async def __aexit__(self, exc_type: Optional[type], exc_val: Optional[Exception], exc_tb: Optional[Any]) -> None:
-        """Cleanup on context exit.
-
-        Args:
-            exc_type (Optional[type]): Exception type if an exception occurred
-            exc_val (Optional[Exception]): Exception value if an exception occurred
-            exc_tb (Optional[Any]): Exception traceback if an exception occurred
-        """
-        await self.close()
-
-    def __del__(self) -> None:
-        """Cleanup when object is destroyed.
-
-        This provides a fallback cleanup mechanism for the aiohttp session
-        in case the close() method wasn't called explicitly. Note that this
-        is not ideal for async cleanup but provides a safety net.
-
-        Warning:
-            This method attempts async cleanup in a sync context, which may
-            not always work reliably. It's recommended to explicitly call
-            close() or use the async context manager instead.
-        """
-        if hasattr(self, "_session") and self._session and not self._session.closed:
-            # Note: This is not ideal for async cleanup, but provides a fallback
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(self._session.close())
-                else:
-                    loop.run_until_complete(self._session.close())
-            except Exception:
-                pass  # Ignore cleanup errors during destruction
