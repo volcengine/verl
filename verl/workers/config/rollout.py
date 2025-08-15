@@ -87,6 +87,10 @@ class RolloutConfig(BaseConfig):
     do_sample: bool = True
     n: int = 1
 
+    # Early termination threshold for multi-turn rollout in sglang.
+    # Abort remaining requests when (1 - over_sample_rate) * total_requests are completed.
+    over_sample_rate: float = 0.0
+
     prompt_length: int = 512
     response_length: int = 512
 
