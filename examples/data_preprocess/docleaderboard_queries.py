@@ -37,7 +37,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--input_file",
-        default="~/verl/data/docleaderboard-queries.tsv",
+        default="./data/docleaderboard-queries.tsv",
         help="Path to the input TSV file",
     )
     parser.add_argument("--local_dir", default="~/data/docleaderboard-queries")
