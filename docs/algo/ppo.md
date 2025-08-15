@@ -80,6 +80,29 @@ The Dual-Clip PPO introduces a approach by applying a lower bound to the policy 
 
 - `actor_rollout_ref.actor.clip_ratio_c`: lower bound of the value for Dual-clip PPO, defaults to 3.0
 
+### CISPO
+CISPO is the algorithm introduced in the [Minimax-M1](https://www.arxiv.org/pdf/2506.13585). It achieves stable policy updates by clipping the importance sampling weights instead of dropping tokens, which is beneficial for training on sparse but critical tokens and long-context reasoning in RL.
+$$
+\mathcal{J}_{\text{CISPO}}(\theta) = 
+\mathbb{E}_{(q,a) \sim \mathcal{D}, \{o_i\}_{i=1}^G \sim \pi_{\theta_{\text{old}}}(\cdot|q)}
+\left[
+    \frac{1}{\sum_{i=1}^G |o_i|} \sum_{i=1}^G \sum_{t=1}^{|o_i|}
+    \texttt{sg}(\hat{r}_{i,t}(\theta)) \hat{A}_{i,t} \log \pi_\theta(o_{i,t} \mid q, o_{i,<t})
+\right]
+$$
+
+where $\hat{r}_{i,t}(\theta)$ is the clipped IS weight：
+
+$$
+\hat{r}_{i,t}(\theta) = \text{clip}\left(r_{i,t}(\theta), 1 - \epsilon^{IS}_{low}, 1 + \epsilon^{IS}_{high}\right)
+$$
+
+- `actor_rollout_ref.actor.policy_loss.loss_mode`: Set to "cispo" to enable CISPO loss (other options: "vanilla", "clip-cov", "kl-cov", "gpg")
+
+- `actor_rollout_ref.actor.policy_loss.cispo_clip_ratio_high`: High bound ratio of the clipped IS in CISPO, defaults to 0.2
+
+- `actor_rollout_ref.actor.policy_loss.cispo_clip_ratio_low`: Lower bound ratio of the clipped IS in CISPO, defaults to 0.2
+
 ## Reference Example
 
 Qwen2.5 training log and commands: [link](https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/Qwen2.5-0.5B-bsz256_2-prompt1024-resp512-0.567.log)
