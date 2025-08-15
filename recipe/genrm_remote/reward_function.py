@@ -37,7 +37,12 @@ The following is a raw search query and a reformulated search query:
 
 {solution}
 
-Your task is to review and output whether the reformulated search query is more likely to lead to a relevant result to the raw search query.
+Your task is to review and output whether the reformulated search query is good by the following criteria:
+- It is the answer to the raw search query.
+- It is concise and explicit.
+- It is shorter than the raw search query.
+
+For example, if the raw search query is "What is the capital of France?", the reformulated search query should be "Paris".
 
 Please put your final answer (i.e., 'True' or 'False') in \\boxed{{}}.
 """.strip()
