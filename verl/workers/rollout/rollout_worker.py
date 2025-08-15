@@ -112,7 +112,7 @@ class RolloutWorker(Worker):
             self.rollout = SGLangRollout(
                 actor_module=self.model_config.local_path,
                 config=self.config,
-                processing_class=self.model_config.processor,
+                processing_class=self.model_config.get_processor(),
                 model_hf_config=self.model_config.hf_config,
                 trust_remote_code=self.model_config.trust_remote_code,
             )
