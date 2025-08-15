@@ -1,4 +1,4 @@
-Data collection based on FSDP (Fully Sharded Data Parallel) backend on Ascend devices(NPU)
+Data collection based on FSDP backend on Ascend devices(en)
 ==========================================================================================
 
 Last updated: 07/24/2025.
