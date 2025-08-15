@@ -45,15 +45,11 @@ try:
 
     _flash_supports_window_size = "window_size" in list(inspect.signature(flash_attn_func).parameters)
 except ImportError:
-    # Fallback: try to import from flash_attn package directly (FlashAttention v2)
-    try:
-        from flash_attn import flash_attn_varlen_func  # type: ignore
+    # Fallback: try to import from flash_attn package directly
+    from flash_attn import flash_attn_varlen_func
 
-        flash_attn_func = None  # type: ignore
-        _flash_supports_window_size = None
-    except Exception:
-        flash_attn_varlen_func = None  # type: ignore
-        _flash_supports_window_size = None
+    flash_attn_func = None
+    _flash_supports_window_size = None
 
 
 def get_rope_index(
@@ -237,7 +233,7 @@ def flash_attention_forward(
             and not (torch.diff(position_ids[0], dim=-1) >= 0).all()
         ):
             logger.warning_once(
-                "flash_attn_varlen_func is not available; falling back to _flash_attention_forward. "
+                "flash_attn_varlen_func is not available; falling back to _flash_attention_forward."
                 "This may be suboptimal for non-monotonic position_ids in VLM mRoPE."
             )
         attn_output = _flash_attention_forward(
@@ -251,7 +247,7 @@ def flash_attention_forward(
             use_top_left_mask=flash_attn_supports_top_left_mask(),
             deterministic=deterministic,
             **kwargs,
-        )  # do not pass position_ids to old flash_attention_forward
+        )
 
     return attn_output
 
