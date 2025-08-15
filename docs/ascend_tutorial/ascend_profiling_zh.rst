@@ -1,5 +1,7 @@
-在昇腾设备上基于FSDP后端进行数据采集
+Data collection based on FSDP backend on Ascend devices(zh)
 ====================================
+
+在昇腾设备上基于FSDP后端进行数据采集
 
 Last updated: 07/24/2025.
 
