@@ -15,37 +15,12 @@
 import asyncio
 import logging
 from collections import deque
-from dataclasses import dataclass
 from typing import Any
 
 import ray
 from omegaconf import DictConfig
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class RolloutSample:
-    """Enhanced rollout sample containing both original batch info and AgentLoopOutput"""
-
-    # Original batch information (preserved from _prepare_generate_batch)
-    original_batch_dict: dict[str, Any]
-
-    # AgentLoopOutput from generation
-    agent_loop_output: Any  # AgentLoopOutput
-
-    # Metadata
-    sample_id: str
-    epoch: int
-    rollout_n_index: int  # Index within the rollout.n repetitions (0, 1, ..., n-1)
-    original_sample_index: int  # Index of the original sample before repetition
-
-    # Processing metadata
-    processing_time: float
-    generation_timestamp: float
-    param_version: int
-
-    _gen_data: Any
 
 
 @ray.remote(num_cpus=2, max_concurrency=20)
@@ -107,9 +82,9 @@ class MessageQueue:
 
             # If queue is full, remove the oldest sample (rarely happens)
             if len(self.queue) >= self.max_queue_size:
-                removed = self.queue.popleft()
+                self.queue.popleft()
                 self.dropped_samples += 1
-                logger.warning(f"Queue full, dropped sample")
+                logger.warning("Queue full, dropped sample")
             self.queue.append(sample)
             self.total_produced += 1
 

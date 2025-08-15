@@ -18,9 +18,8 @@ from pprint import pprint
 import ray
 from omegaconf import OmegaConf
 
-from recipe.fully_async_policy.message_queue import MessageQueueClient, RolloutSample
-from recipe.fully_async_policy.utils import calculate_one_step_size
-from verl import DataProto
+from recipe.fully_async_policy.message_queue import MessageQueueClient
+from recipe.fully_async_policy.utils import RolloutSample, calculate_one_step_size
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType
 from verl.utils.tracking import ValidationGenerationsLogger
@@ -35,16 +34,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
     """
 
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            device_name=None,
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -564,7 +563,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         if self.staleness_samples > self.max_required_samples:
             print(
                 f"[FullyAsyncRollouter] Should pause due to "
-                f"step_generated_samples {self.staleness_samples} > max_required_samples {self.max_required_samples} "
+                f"staleness_samples {self.staleness_samples} > max_required_samples {self.max_required_samples} "
             )
             return True
 

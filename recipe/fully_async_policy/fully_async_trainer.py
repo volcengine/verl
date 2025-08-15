@@ -21,9 +21,8 @@ import numpy as np
 import ray
 from omegaconf import OmegaConf
 
-from recipe.fully_async_policy.message_queue import MessageQueueClient, RolloutSample
-from recipe.fully_async_policy.utils import calculate_one_step_size
-from verl.experimental.agent_loop.agent_loop import postprocess_agent_loop_outputs
+from recipe.fully_async_policy.message_queue import MessageQueueClient
+from recipe.fully_async_policy.utils import RolloutSample, calculate_one_step_size
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator
@@ -166,9 +165,10 @@ class FullyAsyncTrainer(RayPPOTrainer):
         )
 
         queue_samples = [ray.cloudpickle.loads(x) for x in queue_samples]
+        print(queue_samples)
         # Assemble batch - now working directly with RolloutSample objects
-        # batch = self._assemble_gen_batch_output_from_queue_samples(queue_samples)
-        # print(f" _assemble_gen_batch_output_from_queue_samples {batch}")
+        batch = self._assemble_gen_batch_output_from_queue_samples(queue_samples)
+        print(f" _assemble_gen_batch_output_from_queue_samples {batch}")
         return 0, queue_samples
         #
         # return 0, batch
@@ -184,91 +184,21 @@ class FullyAsyncTrainer(RayPPOTrainer):
         Returns:
             DataProto: Assembled gen_batch_output
         """
-        start_time = time.time()
+        from recipe.fully_async_policy.batch_utils import assemble_batch_from_rollout_samples
 
-        import numpy as np
-        import torch
+        # 使用静态函数进行批次组装
+        final_batch = assemble_batch_from_rollout_samples(
+            rollout_samples=rollout_samples,
+            tokenizer=self.tokenizer,
+            config=self.config,
+            balance_batch=False,  # 不使用静态函数的简化版本
+        )
 
-        from verl import DataProto
-        from verl.trainer.ppo.ray_trainer import compute_response_mask
-
-        if not rollout_samples:
-            raise ValueError("Empty rollout_samples provided for batch assembly")
-
-        print(f"[FullyAsyncTrainer] Assembling batch from {len(rollout_samples)} RolloutSample objects")
-
-        # 直接处理 RolloutSample 对象
-        processing_times = [rs.processing_time for rs in rollout_samples]
-
-        # 第一步：从 AgentLoopOutput 创建生成结果的 DataProto
-        agent_loop_outputs = [rs.agent_loop_output for rs in rollout_samples]
-        gen_batch_output = postprocess_agent_loop_outputs(agent_loop_outputs, self.tokenizer, self.config)
-
-        # 第二步：重建原始 batch 信息
-        # 每个 RolloutSample 都是独立的，直接按顺序重建原始数据
-        original_batch_list = []
-        for rs in rollout_samples:
-            original_batch_dict = rs.original_batch_dict
-
-            # 重建 DataProto
-            original_batch_item = DataProto.from_single_dict(
-                {
-                    **{k: v for k, v in original_batch_dict["batch"].items()},
-                    **{f"__{k}": v for k, v in original_batch_dict["non_tensor_batch"].items()},
-                }
-            )
-            original_batch_item.meta_info.update(original_batch_dict["meta_info"])
-            original_batch_list.append(original_batch_item)
-
-        # 合并所有原始样本为一个批次
-        if original_batch_list:
-            original_batch = DataProto.from_items(original_batch_list)
-        else:
-            # 如果没有原始数据，创建空的 DataProto
-            original_batch = DataProto.from_single_dict({})
-
-        # 添加 UID
-        uids = []
-        for rs in rollout_samples:
-            uids.append(f"uid_{rs.sample_id}")
-        original_batch.non_tensor_batch["uid"] = np.array(uids, dtype=object)
-
-        # 直接合并原始数据和生成结果，不需要 repeat
-        # 因为队列中的每个 RolloutSample 都已经是独立的样本
-        final_batch = original_batch.union(gen_batch_output)
-
-        # 计算 response_mask（如果不存在）
-        if "response_mask" not in final_batch.batch.keys():
-            final_batch.batch["response_mask"] = compute_response_mask(final_batch)
-
-        # 平衡批次（如果配置了）
+        # 如果需要完整的批次平衡，在这里调用
         if self.config.trainer.balance_batch:
             self._balance_batch(final_batch, metrics={})
 
-        # 计算全局有效 token 数
-        if "attention_mask" in final_batch.batch:
-            final_batch.meta_info["global_token_num"] = torch.sum(final_batch.batch["attention_mask"], dim=-1).tolist()
-
-        # 收集统计信息和元数据（直接从 RolloutSample 中获取）
-        param_versions = [rs.param_version for rs in rollout_samples]
-        sample_timestamps = [rs.generation_timestamp for rs in rollout_samples]
-
-        # 创建 meta_info
-        final_batch.meta_info.update(
-            {
-                "rollout_param_versions": param_versions,
-                "sample_timestamps": sample_timestamps,
-                "avg_processing_time": np.mean(processing_times) if processing_times else 0,
-                "max_processing_time": np.max(processing_times) if processing_times else 0,
-                "param_version_diversity": len(set(param_versions)) if param_versions else 0,
-                "avg_sample_age": np.mean([time.time() - ts for ts in sample_timestamps]) if sample_timestamps else 0,
-                "assembly_time": time.time() - start_time,
-            }
-        )
-
-        print(f"[FullyAsyncTrainer] Batch assembly completed in {time.time() - start_time:.2f}s")
         print(f"[FullyAsyncTrainer] {final_batch}")
-
         return final_batch
 
     def _create_actor_rollout_classes(self):
@@ -336,10 +266,10 @@ class FullyAsyncTrainer(RayPPOTrainer):
         # Use queue mode, no need for traditional dataloader iterator
         # Initialize to get the first batch of data
         while True:
-            metrics = {}
+            # metrics = {}
             timing_raw = {}
 
-            is_last_step = False
+            # is_last_step = False
 
             with marked_timer("step", timing_raw):
                 with marked_timer("gen", timing_raw, color="red"):
