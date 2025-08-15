@@ -167,9 +167,11 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         queue_samples = [ray.cloudpickle.loads(x) for x in queue_samples]
         # Assemble batch - now working directly with RolloutSample objects
-        batch = self._assemble_gen_batch_output_from_queue_samples(queue_samples)
-
-        return 0, batch
+        # batch = self._assemble_gen_batch_output_from_queue_samples(queue_samples)
+        # print(f" _assemble_gen_batch_output_from_queue_samples {batch}")
+        return 0, queue_samples
+        #
+        # return 0, batch
 
     def _assemble_gen_batch_output_from_queue_samples(self, rollout_samples: list[RolloutSample]):
         """
@@ -344,39 +346,39 @@ class FullyAsyncTrainer(RayPPOTrainer):
                     epoch, batch = self._get_samples_from_queue()
                     if batch is None:
                         break
-
-                    # 更新统计信息
-                    self.processed_samples += len(batch) if isinstance(batch, list) else 1
-
-                    # 从meta_info中获取参数版本信息
-                    if hasattr(batch, "meta_info") and batch.meta_info:
-                        rollout_param_versions = batch.meta_info.get("rollout_param_versions", [])
-                        if rollout_param_versions:
-                            # 统计陈旧样本
-                            stale_count = sum(1 for v in rollout_param_versions if self.current_param_version - v > 1)
-                            self.stale_samples_processed += stale_count
-
-                        # 添加新鲜度指标到metrics
-                        if rollout_param_versions:
-                            param_version_diversity = batch.meta_info.get("param_version_diversity", 0)
-                            avg_sample_age = batch.meta_info.get("avg_sample_age", 0)
-
-                            metrics.update(
-                                {
-                                    "freshness/param_version_diversity": param_version_diversity,
-                                    "freshness/avg_sample_age": avg_sample_age,
-                                    "freshness/stale_samples_ratio": stale_count / len(rollout_param_versions)
-                                    if rollout_param_versions
-                                    else 0,
-                                    "statistics/processed_samples": self.processed_samples,
-                                    "statistics/stale_samples_processed": self.stale_samples_processed,
-                                    "statistics/current_param_version": self.current_param_version,
-                                }
-                            )
-                # batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
-                # self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
-                # self._check_save_checkpoint(is_last_step, timing_raw)
-
+            #
+            #         # 更新统计信息
+            #         self.processed_samples += len(batch) if isinstance(batch, list) else 1
+            #
+            #         # 从meta_info中获取参数版本信息
+            #         if hasattr(batch, "meta_info") and batch.meta_info:
+            #             rollout_param_versions = batch.meta_info.get("rollout_param_versions", [])
+            #             if rollout_param_versions:
+            #                 # 统计陈旧样本
+            #                 stale_count = sum(1 for v in rollout_param_versions if self.current_param_version - v > 1)
+            #                 self.stale_samples_processed += stale_count
+            #
+            #             # 添加新鲜度指标到metrics
+            #             if rollout_param_versions:
+            #                 param_version_diversity = batch.meta_info.get("param_version_diversity", 0)
+            #                 avg_sample_age = batch.meta_info.get("avg_sample_age", 0)
+            #
+            #                 metrics.update(
+            #                     {
+            #                         "freshness/param_version_diversity": param_version_diversity,
+            #                         "freshness/avg_sample_age": avg_sample_age,
+            #                         "freshness/stale_samples_ratio": stale_count / len(rollout_param_versions)
+            #                         if rollout_param_versions
+            #                         else 0,
+            #                         "statistics/processed_samples": self.processed_samples,
+            #                         "statistics/stale_samples_processed": self.stale_samples_processed,
+            #                         "statistics/current_param_version": self.current_param_version,
+            #                     }
+            #                 )
+            #     batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
+            #     self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
+            #     self._check_save_checkpoint(is_last_step, timing_raw)
+            #
             # self._collect_metrics(batch, epoch, metrics, timing_raw)
 
             # Trigger parameter synchronization after training step

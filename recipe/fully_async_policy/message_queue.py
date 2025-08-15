@@ -45,6 +45,8 @@ class RolloutSample:
     generation_timestamp: float
     param_version: int
 
+    _gen_data: Any
+
 
 @ray.remote(num_cpus=2, max_concurrency=20)
 class MessageQueue:
@@ -71,24 +73,18 @@ class MessageQueue:
         self.running = True
 
         # async safe - 在第一次使用时初始化
-        self._lock = None
-        self._consumer_condition = None
+        self._lock = asyncio.Lock()
+        self._consumer_condition = asyncio.Condition(self._lock)
 
         # statistic message
         self.total_produced = 0
         self.total_consumed = 0
         self.dropped_samples = 0
 
-        logger.info(
-            f"MessageQueue initialized with max_queue_size={max_queue_size},"
+        print(
+            f"[MessageQueue] initialized with max_queue_size={max_queue_size},"
             f"staleness_threshold={self.staleness_threshold}"
         )
-
-    async def _ensure_async_primitives(self):
-        """确保异步原语已初始化"""
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-            self._consumer_condition = asyncio.Condition(self._lock)
 
     async def put_sample(self, sample: Any, param_version: int) -> bool:
         """
@@ -101,8 +97,6 @@ class MessageQueue:
         Returns:
             bool: Whether the sample was successfully put into the queue
         """
-        await self._ensure_async_primitives()
-
         async with self._lock:
             # Check freshness
             staleness = self.current_param_version - param_version
@@ -115,12 +109,12 @@ class MessageQueue:
             if len(self.queue) >= self.max_queue_size:
                 removed = self.queue.popleft()
                 self.dropped_samples += 1
-                logger.warning(f"Queue full, dropped sample {removed}")
+                logger.warning(f"Queue full, dropped sample")
             self.queue.append(sample)
             self.total_produced += 1
 
             # Notify waiting consumers
-            self._consumer_condition.notify()
+            self._consumer_condition.notify_all()
 
             if self.total_produced % 100 == 0:
                 logger.debug(f"MessageQueue stats: produced={self.total_produced}, queue_size={len(self.queue)}")
@@ -137,8 +131,6 @@ class MessageQueue:
         Returns:
             List[Any]: List of retrieved samples
         """
-        await self._ensure_async_primitives()
-
         async with self._lock:
             while len(self.queue) < min_batch_count and self.running:
                 print(f"[MessageQueue] consumer_condition {len(self.queue)}")
@@ -171,10 +163,9 @@ class MessageQueue:
         Returns:
             Any: Single sample data or None if queue is closed
         """
-        await self._ensure_async_primitives()
-
         async with self._lock:
             while len(self.queue) == 0 and self.running:
+                print(f"[MessageQueue] consumer_condition {len(self.queue)}")
                 await self._consumer_condition.wait()
 
             # If queue is closed and empty, return None
@@ -188,8 +179,6 @@ class MessageQueue:
 
     async def update_param_version(self, version: int):
         """Update current parameter version"""
-        await self._ensure_async_primitives()
-
         async with self._lock:
             old_version = self.current_param_version
             self.current_param_version = version
@@ -197,15 +186,11 @@ class MessageQueue:
 
     async def get_queue_size(self) -> int:
         """Get current queue length"""
-        await self._ensure_async_primitives()
-
         async with self._lock:
             return len(self.queue)
 
     async def get_statistics(self) -> dict[str, Any]:
         """Get queue statistics"""
-        await self._ensure_async_primitives()
-
         async with self._lock:
             return {
                 "queue_size": len(self.queue),
@@ -219,8 +204,6 @@ class MessageQueue:
 
     async def clear_queue(self):
         """Clear the queue"""
-        await self._ensure_async_primitives()
-
         async with self._lock:
             cleared_count = len(self.queue)
             self.queue.clear()
@@ -228,8 +211,6 @@ class MessageQueue:
 
     async def shutdown(self):
         """Shutdown the message queue"""
-        await self._ensure_async_primitives()
-
         async with self._lock:
             self.running = False
             # Notify all waiting coroutines so they can exit
@@ -238,8 +219,6 @@ class MessageQueue:
 
     async def get_memory_usage(self) -> dict:
         """Get memory usage statistics"""
-        await self._ensure_async_primitives()
-
         async with self._lock:
             # Estimate memory usage of samples in queue
             import sys

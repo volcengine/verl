@@ -57,12 +57,6 @@ def _get_model_runner_workers(vllm_config, init_ray: bool = True):
         actor_name for actor_name in ray.util.list_named_actors() if actor_name.startswith(f"{wg_prefix}WorkerDict")
     ]
 
-    print(f"namespace: {namespace}")
-    print(f"wg_prefix: {wg_prefix}")
-    print(f"vllm_dp_size: {vllm_dp_size}")
-    print(f"vllm_dp_rank: {vllm_dp_rank}")
-    print(f"actor_names: {actor_names}")
-
     vllm_tp_size = vllm_config.parallel_config.tensor_parallel_size
     assert len(actor_names) == vllm_dp_size * vllm_tp_size, (
         f"instance_id: {vllm_config.instance_id} has {len(actor_names)} actors, but vllm_dp_size: "
@@ -79,7 +73,6 @@ def _get_model_runner_workers(vllm_config, init_ray: bool = True):
     actor_names = sorted(actor_names, key=get_pg_index_and_local_rank)
     actor_names = actor_names[vllm_dp_rank * vllm_tp_size : (vllm_dp_rank + 1) * vllm_tp_size]
     workers: list[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
-    print(f"instance_id: {vllm_config.instance_id} initializes with external actors: {actor_names}")
 
     return workers
 
@@ -90,7 +83,6 @@ class ExternalRayDistributedExecutor(Executor):
     uses_ray: bool = False
 
     def _init_executor(self) -> None:
-        print("[ExternalRayDistributedExecutor] Initializing ray actors...")
         self.workers = _get_model_runner_workers(vllm_config=self.vllm_config, init_ray=True)
 
         kwargs = dict(
@@ -100,11 +92,10 @@ class ExternalRayDistributedExecutor(Executor):
             distributed_init_method="env://",
             is_driver_worker=True,
         )
-        print(f"ray start instance_id: {self.vllm_config.instance_id} initializes")
         self.collective_rpc("init_worker", args=([kwargs],))
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
-        print(f"ray instance_id: {self.vllm_config.instance_id} initializes finished.")
+        print(f"instance_id: {self.vllm_config.instance_id} initializes finished.")
 
     def collective_rpc(
         self,
@@ -136,7 +127,6 @@ class ExternalZeroMQDistributedExecutor(Executor):
     uses_ray: bool = False
 
     def _init_executor(self) -> None:
-        print(f"[ExternalZeroMQDistributedExecutor] Initializing ray actors...")
         addresses = os.environ["VERL_VLLM_ZMQ_ADDRESSES"].split(",")
         self.context = zmq.Context()
         self.sockets = []
@@ -152,11 +142,9 @@ class ExternalZeroMQDistributedExecutor(Executor):
             distributed_init_method="env://",
             is_driver_worker=True,
         )
-        print(f"ZeroMQ start instance_id: {self.vllm_config.instance_id} initializes")
         self.collective_rpc("init_worker", args=([kwargs],))
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
-        print(f"ZeroMQ instance_id: {self.vllm_config.instance_id} initializes finished.")
 
     def collective_rpc(
         self,
@@ -275,11 +263,7 @@ class AsyncvLLMServer(AsyncServerBase):
 
         # init async llm engine
         vllm_config = self._create_engine_config(engine_args)
-
-        print(f"AsyncvLLMServer AsyncLLM.from_vllm_config {vllm_config}")
         self.engine = AsyncLLM.from_vllm_config(vllm_config)
-
-        print("AsyncvLLMServer build serving chat")
 
         # build serving chat
         model_config = self.engine.model_config
@@ -296,8 +280,6 @@ class AsyncvLLMServer(AsyncServerBase):
             enable_auto_tools=config.multi_turn.tool_config_path is not None,
             tool_parser=config.multi_turn.format,  # hermes, llama3_json, ...
         )
-
-        print("AsyncvLLMServer init_engine success")
 
     def _create_engine_config(self, engine_args: AsyncEngineArgs):
         vllm_config = engine_args.create_engine_config()

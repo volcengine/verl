@@ -460,7 +460,6 @@ class vLLMAsyncRollout:
     def init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
 
-        print("[vLLMAsyncRollout] init_worker")
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
         all_kwargs[0]["local_rank"] = 0
 
@@ -470,8 +469,6 @@ class vLLMAsyncRollout:
 
     def load_model(self, *args, **kwargs):
         self.inference_engine.load_model(*args, **kwargs)
-
-        print(f"[vLLMAsyncRollout] load_model {args} {kwargs}")
 
         # inference engine is initialized now, update sharding manager
         self.sharding_manager.inference_engine = self.inference_engine
