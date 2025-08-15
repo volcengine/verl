@@ -43,10 +43,13 @@ def run_ppo(config) -> None:
         # Set environment variables in the runtime environment to control tokenizer parallelism,
         # NCCL debug level, VLLM logging level, and allow runtime LoRA updating
         # `num_cpus` specifies the number of CPU cores Ray can use, obtained from the configuration
-        ray.init(
-            runtime_env=get_ppo_ray_runtime_env(),
-            num_cpus=config.ray_init.num_cpus,
-        )
+        default_runtime_env = get_ppo_ray_runtime_env()
+        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
+        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
+        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
+        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
+        print(f"ray init kwargs: {ray_init_kwargs}")
+        ray.init(**OmegaConf.to_container(ray_init_kwargs))
 
     # Create a remote instance of the TaskRunner class, and
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
@@ -63,7 +66,7 @@ def run_ppo(config) -> None:
 
     # [Optional] get the path of the timeline trace file from the configuration, default to None
     # This file is used for performance analysis
-    timeline_json_file = config.ray_init.get("timeline_json_file", None)
+    timeline_json_file = config.ray_kwargs.get("timeline_json_file", None)
     if timeline_json_file:
         ray.timeline(filename=timeline_json_file)
 
