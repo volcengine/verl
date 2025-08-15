@@ -46,6 +46,39 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     hidden_states = hidden_states[:, :, :, None, :].expand(batch, slen, num_key_value_heads, n_rep, head_dim)
     return hidden_states.reshape(batch, slen, num_key_value_heads * n_rep, head_dim)
 
+from torch import nn
+from torch.nn import functional as F
+
+def eager_attention_forward(
+    module: nn.Module,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    attention_mask: Optional[torch.Tensor],
+    scaling: float,
+    dropout: float = 0.0,
+    **kwargs,
+):
+    key_states = repeat_kv(key, module.num_key_value_groups)
+    value_states = repeat_kv(value, module.num_key_value_groups)
+    attn_weights = torch.matmul(query, key_states.transpose(2, 3)) * scaling
+    if attention_mask is not None:
+        causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+        attn_weights = attn_weights + causal_mask
+
+    sinks = module.sinks.reshape(1, -1, 1, 1).expand(query.shape[0], -1, query.shape[-2], -1)
+    combined_logits = torch.cat([attn_weights, sinks], dim=-1)
+
+    # This was not in the original implementation and slightly affect results; it prevents overflow in BF16/FP16
+    # when training with bsz>1 we clamp max values.
+
+    combined_logits = combined_logits - combined_logits.max(dim=-1, keepdim=True).values
+    probs = F.softmax(combined_logits, dim=-1, dtype=combined_logits.dtype)
+    scores = probs[..., :-1]  # we drop the sink here
+    attn_weights = nn.functional.dropout(scores, p=dropout, training=module.training)
+    attn_output = torch.matmul(attn_weights, value_states)
+    attn_output = attn_output.transpose(1, 2).contiguous()
+    return attn_output, attn_weights
 
 def _ulysses_flash_attention_forward(
     query_states: torch.Tensor,
@@ -109,6 +142,68 @@ def _ulysses_flash_attention_forward(
 
     return attn_output
 
+def _ulysses_eager_attention_forward(
+    module: nn.Module,
+    query_states: torch.Tensor,
+    key_states: torch.Tensor,
+    value_states: torch.Tensor,
+    *args,
+    position_ids: Optional[torch.Tensor] = None,
+    **kwargs,
+):
+    """Insert all-to-all before and after flash attention.
+    DeepSpeed-Ulysses: https://arxiv.org/pdf/2309.14509
+
+    Args:
+        query_states (torch.Tensor): (batch_size, seqlen/sp_size, nheads, head_dim)
+        key_states (torch.Tensor): (batch_size, seqlen/sp_size, nheads_k, head_dim)
+        value_states (torch.Tensor): (batch_size, seqlen/sp_size, nheads_k, head_dim)
+        position_ids (torch.Tensor, optional): (batch_size, seqlen/sp_size)
+
+    Returns:
+        torch.Tensor: (batch_size, seqlen/sp_size, nheads, head_dim)
+    """
+    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
+
+    ########## AlltoAll for Ulysses ##########
+    if ulysses_sp_size > 1:
+        assert position_ids is not None, "position_ids is required for Ulysses sequence parallelism"
+
+        # NOTE: repeat kv heads to be divided by sequence parallel. Instead of repeating nheads_q//nheads_k,
+        # we choose to repeat sp_size//nheads_k, since flash_attention supports MQA/GQA.
+        # For example:
+        # - nheads_k=4, sp=8, repeats=2
+        # - nheads_k=8, sp=8, repeats=1
+        # - nheads_k=16, sp=8, repeats=1
+        repeats = max(ulysses_sp_size // key_states.size(2), 1)
+        key_states = repeat_kv(key_states, repeats)
+        value_states = repeat_kv(value_states, repeats)
+
+        # (bsz, seq_len/n, n_head, head_dim) -> (bsz, seq_len, n_head/n, head_dim)
+        query_states = gather_seq_scatter_heads(query_states, seq_dim=1, head_dim=2)
+        key_states = gather_seq_scatter_heads(key_states, seq_dim=1, head_dim=2)
+        value_states = gather_seq_scatter_heads(value_states, seq_dim=1, head_dim=2)
+
+        # TODO: all_gather position_ids because `prepare_fa2_from_position_ids` needs it, we can eliminate
+        # this all_gather by passing cu_seq_lens_q, cu_seq_lens_k, max_length_k, max_length_q explicitly.
+        # https://github.com/huggingface/transformers/pull/33932
+
+        # (bsz, seq_len/n) -> (bsz, seq_len)
+        position_ids_list = [torch.empty_like(position_ids) for _ in range(ulysses_sp_size)]
+        torch.distributed.all_gather(position_ids_list, position_ids, group=get_ulysses_sequence_parallel_group())
+        position_ids = torch.concat(position_ids_list, dim=-1)
+
+    # (bsz, seq_len, n_head/n, head_dim)
+    attn_output = eager_attention_forward(
+        query_states, key_states, value_states, *args, position_ids=position_ids, **kwargs
+    )
+
+    ########## AlltoAll for Ulysses ##########
+    if ulysses_sp_size > 1:
+        # (bsz, seq_len, n_head/n, head_dim) -> (bsz, seq_len/n, n_head, head_dim)
+        attn_output = gather_heads_scatter_seq(attn_output, seq_dim=1, head_dim=2)
+
+    return attn_output
 
 def patch_vlm_for_ulysses_input_slicing(model_class: type):
     """
@@ -300,6 +395,10 @@ def apply_monkey_patch(
 
     # transformers<=4.47.1
     if use_remove_padding or ulysses_sp_size > 1:
+
+        # if model.config.model_type == "gpt_oss":
+        #     module.eager_attention_forward = _ulysses_flash_attention_forward
+        #     print(f"Monkey patch _flash_attention_forward in {model.__module__}")
         if hasattr(module, "_flash_attention_forward"):
             module._flash_attention_forward = _ulysses_flash_attention_forward
             print(f"Monkey patch _flash_attention_forward in {model.__module__}")
