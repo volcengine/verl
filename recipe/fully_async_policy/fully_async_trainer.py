@@ -38,7 +38,7 @@ from verl.utils.debug import marked_timer
 logger = logging.getLogger(__name__)
 
 
-@ray.remote
+@ray.remote(num_cpus=10)
 class FullyAsyncTrainer(RayPPOTrainer):
     """
     A fully asynchronous PPO trainer that obtains samples from a MessageQueue for training.
@@ -373,14 +373,14 @@ class FullyAsyncTrainer(RayPPOTrainer):
                                     "statistics/current_param_version": self.current_param_version,
                                 }
                             )
-                batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
-                self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
-                self._check_save_checkpoint(is_last_step, timing_raw)
+                # batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
+                # self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
+                # self._check_save_checkpoint(is_last_step, timing_raw)
 
             # self._collect_metrics(batch, epoch, metrics, timing_raw)
 
             # Trigger parameter synchronization after training step
-            self._trigger_parameter_sync_after_step()
+            # self._trigger_parameter_sync_after_step()
             print(f"[FullyAsyncTrainer] global_steps: {self.global_steps}")
             self.global_steps += 1
 
