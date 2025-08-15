@@ -57,7 +57,7 @@ import requests
 from sglang.srt.entrypoints.EngineBase import EngineBase
 from sglang.srt.entrypoints.http_server import launch_server
 from sglang.srt.server_args import ServerArgs
-from sglang.srt.utils import kill_process_tree, MultiprocessingSerializer
+from sglang.srt.utils import kill_process_tree
 
 from sglang.srt.managers.tokenizer_manager import (
     UpdateWeightsFromTensorReqInput,
@@ -69,10 +69,59 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 # Default configuration constants
 DEFAULT_TIMEOUT = 60.0
-DEFAULT_MAX_RETRIES = 1
+DEFAULT_MAX_ATTEMPTS = 1
 DEFAULT_RETRY_DELAY = 2.0
 DEFAULT_MAX_CONNECTIONS = 2000
 DEFAULT_MAX_WAIT_TIME = 300.0
+
+
+def _read_response(response: requests.Response):
+    """Read response content, trying to parse as JSON but falling back to text if needed.
+    
+    Args:
+        response (requests.Response): The HTTP response to read
+        
+    Returns:
+        Dict or other parsed content: JSON-parsed content if possible, otherwise dict with text
+    """
+    # Empty body or 204, return empty dict
+    if response.status_code == 204 or not response.content:
+        return {}
+    try:
+        return response.json()
+    except ValueError:
+        # Not JSON, return as text
+        return {
+            "content_type": response.headers.get("Content-Type", ""),
+            "text": response.text,
+        }
+
+
+async def _read_async_response(resp: aiohttp.ClientResponse):
+    """Read async response content, trying to parse as JSON but falling back to text if needed.
+    
+    Args:
+        resp (aiohttp.ClientResponse): The async HTTP response to read
+        
+    Returns:
+        Dict or other parsed content: JSON-parsed content if possible, otherwise dict with text
+    """
+    if resp.status == 204:
+        return {}
+    raw = await resp.read()  # Read raw bytes once
+    if not raw:
+        return {}
+    # Try JSON first
+    try:
+        # Use server-declared encoding, default to utf-8
+        txt = raw.decode(resp.charset or "utf-8", errors="replace")
+        return json.loads(txt)
+    except Exception:
+        # Fall back to text
+        return {
+            "content_type": resp.headers.get("Content-Type", ""),
+            "text": txt if 'txt' in locals() else raw.decode("utf-8", errors="replace"),
+        }
 
 
 def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIMEOUT, max_wait_time = DEFAULT_MAX_WAIT_TIME, first_rank_in_node = True) -> multiprocessing.Process:
@@ -173,7 +222,7 @@ class HttpServerAdapter(EngineBase):
         node_rank (int): Rank of this node in distributed setup
         process (multiprocessing.Process): The launched server process
         timeout (float): HTTP request timeout in seconds
-        max_retries (int): Maximum number of retry attempts for failed requests
+        max_retries (int): Maximum number of attempts for failed requests
         retry_delay (float): Base delay between retries in seconds
     """
 
@@ -182,7 +231,7 @@ class HttpServerAdapter(EngineBase):
         router_ip: Optional[str] = None,
         router_port: Optional[int] = None,
         timeout: float = DEFAULT_TIMEOUT,
-        max_retries: int = DEFAULT_MAX_RETRIES,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         retry_delay: float = DEFAULT_RETRY_DELAY,
         first_rank_in_node: bool = False,
         max_start_wait_time: float = DEFAULT_MAX_WAIT_TIME,
@@ -197,8 +246,8 @@ class HttpServerAdapter(EngineBase):
                 Defaults to None.
             timeout (float, optional): HTTP request timeout in seconds.
                 Defaults to DEFAULT_TIMEOUT.
-            max_retries (int, optional): Maximum number of retry attempts for failed requests.
-                Defaults to DEFAULT_MAX_RETRIES.
+            max_attempts (int, optional): Maximum number of retry attempts for failed requests.
+                Defaults to DEFAULT_MAX_ATTEMPTS.
             retry_delay (float, optional): Base delay between retries in seconds.
                 Defaults to DEFAULT_RETRY_DELAY.
             **kwargs (Any): Additional arguments passed to ServerArgs
@@ -211,7 +260,7 @@ class HttpServerAdapter(EngineBase):
         self.router_ip: Optional[str] = router_ip
         self.router_port: Optional[int] = router_port
         self.timeout: float = timeout
-        self.max_retries: int = max_retries
+        self.max_attempts: int = max_attempts
         self.retry_delay: float = retry_delay
         self.server_args: ServerArgs = ServerArgs(**kwargs)
         self.node_rank: int = self.server_args.node_rank
@@ -277,7 +326,7 @@ class HttpServerAdapter(EngineBase):
 
         url = f"http://{self.server_args.host}:{self.server_args.port}/{endpoint}"
 
-        for attempt in range(self.max_retries):
+        for attempt in range(self.max_attempts):
             try:
                 if method.upper() == "GET":
                     response = requests.get(url, timeout=self.timeout)
@@ -285,7 +334,7 @@ class HttpServerAdapter(EngineBase):
                     response = requests.post(url, json=payload or {}, timeout=self.timeout)
 
                 response.raise_for_status()
-                return response.json()
+                return _read_response(response)
 
             except requests.exceptions.Timeout:
                 logger.warning(f"Request to {endpoint} timed out (attempt {attempt + 1})")
@@ -296,14 +345,13 @@ class HttpServerAdapter(EngineBase):
                 raise
             except Exception as e:
                 logger.error(f"Unexpected error for {endpoint}: {e}")
-                if attempt == self.max_retries:
+                if attempt == self.max_attempts:
                     raise
 
-            if attempt < self.max_retries:
-                print(f"Retrying {endpoint} in {self.retry_delay * (2**attempt):.2f} seconds...", flush=True)
-                time.sleep(self.retry_delay * (2**attempt))  # Exponential backoff
+            if attempt < self.max_attempts - 1:
+                time.sleep(self.retry_delay * (2 ** attempt))
 
-        raise RuntimeError(f"Failed to complete request to {endpoint} after {self.max_retries + 1} attempts")
+        raise RuntimeError(f"Failed to complete request to {endpoint} after {self.max_attempts} attempts")
 
     def update_weights_from_tensor(
         self,
@@ -333,7 +381,14 @@ class HttpServerAdapter(EngineBase):
         load_format = req.load_format
         flush_cache = req.flush_cache
 
-        serialized_named_tensors = base64.b64encode(MultiprocessingSerializer.serialize(named_tensors)).decode("utf-8")
+        if named_tensors:
+            serialized_named_tensors = [
+                base64.b64encode(named_tensor).decode("utf-8")
+                for named_tensor in named_tensors
+            ]
+        else:
+            serialized_named_tensors = []
+
         return self._make_request(
             "update_weights_from_tensor",
             {
@@ -445,20 +500,20 @@ class HttpServerAdapter(EngineBase):
                 For non-master nodes, returns empty dict.
 
         Note:
-            Uses retry logic with limited attempts (max_retries * 2) to avoid infinite loops.
+            Uses retry logic with limited attempts (max_attempts * 2) to avoid infinite loops.
             Each retry includes a delay to allow pending requests to complete.
         """
         if self.node_rank != 0:
             return {}
 
         # Use retry logic with limited attempts to avoid infinite loops
-        for attempt in range(self.max_retries * 2):  # Allow more retries for cache flush
+        for attempt in range(self.max_attempts * 2):  # Allow more retries for cache flush
             try:
                 response = requests.get(
                     f"http://{self.server_args.host}:{self.server_args.port}/flush_cache", timeout=self.timeout
                 )
                 if response.status_code == 200:
-                    return response.json()
+                    return _read_response(response)
             except Exception as e:
                 logger.warning(f"Error flushing cache (attempt {attempt + 1}): {e}")
 
@@ -544,9 +599,18 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         super().__init__(router_ip, router_port, timeout, max_retries, retry_delay, first_rank_in_node, **kwargs)
         # Similar to AsyncEngine, track if we need to reload weights
         self._need_reload: bool = True
-        self._session: Optional[aiohttp.ClientSession] = None
         self._session_lock: asyncio.Lock = asyncio.Lock()
         self.max_connections: int = max_connections
+
+        # Create a reusable connector and session for connection pooling
+        self._connector = aiohttp.TCPConnector(
+            limit=self.max_connections,
+            limit_per_host=self.max_connections // 4,
+            ttl_dns_cache=300,
+            use_dns_cache=True,
+        )
+        timeout_config = aiohttp.ClientTimeout(total=self.timeout)
+        self._session = aiohttp.ClientSession(connector=self._connector, timeout=timeout_config)
 
     @asynccontextmanager
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -556,25 +620,11 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
             aiohttp.ClientSession: Session instance for making HTTP requests
 
         Note:
-            This method creates a new session for each request to avoid resource competition
-            while still maintaining proper connection pooling through the shared connector.
+            This method returns a reusable session to take advantage of connection pooling.
         """
-        # Create a new session for each request to avoid resource competition
-        connector = aiohttp.TCPConnector(
-            limit=self.max_connections,
-            limit_per_host=self.max_connections // 4,
-            ttl_dns_cache=300,
-            use_dns_cache=True,
-        )
-        timeout = aiohttp.ClientTimeout(total=self.timeout)
-        session = aiohttp.ClientSession(connector=connector, timeout=timeout)
-        
-        try:
-            yield session
-        finally:
-            # Always close the session to free up resources
-            if not session.closed:
-                await session.close()
+        # Use a lock to ensure thread safety when accessing the session
+        async with self._session_lock:
+            yield self._session
 
     async def _make_async_request(
         self,
@@ -618,11 +668,11 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
                     if method.upper() == "GET":
                         async with session.get(url, timeout=timeout) as response:
                             response.raise_for_status()
-                            return await response.json()
+                            return await _read_async_response(response)
                     else:
                         async with session.post(url, json=payload or {}, timeout=timeout) as response:
                             response.raise_for_status()
-                            return await response.json()
+                            return await _read_async_response(response)
 
             except asyncio.TimeoutError:
                 logger.warning(f"Async request to {endpoint} timed out (attempt {attempt + 1})")
@@ -633,10 +683,10 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
                 raise
             except Exception as e:
                 logger.error(f"Unexpected error for {endpoint}: {e}")
-                if attempt == self.max_retries:
+                if attempt == self.max_attempts:
                     raise
 
-            if attempt < self.max_retries:
+            if attempt < self.max_attempts - 1:
                 await asyncio.sleep(self.retry_delay * (2**attempt))
 
         raise RuntimeError(f"Failed to complete async request to {endpoint} after {self.max_retries + 1} attempts")
@@ -718,20 +768,20 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
                 For non-master nodes, returns empty dict.
 
         Note:
-            Uses retry logic with limited attempts (max_retries * 2) to avoid infinite loops.
+            Uses retry logic with limited attempts (max_attempts * 4) to avoid infinite loops.
             Each retry includes an async delay to allow pending requests to complete.
         """
         if self.node_rank != 0:
             return {}
 
         # Use retry logic with limited attempts to avoid infinite loops
-        for attempt in range(self.max_retries * 5):  # Allow more retries for cache flush
+        for attempt in range(self.max_attempts * 4):  # Allow more retries for cache flush
             try:
                 async with self._get_session() as session:
                     url = f"http://{self.server_args.host}:{self.server_args.port}/flush_cache"
                     async with session.get(url) as response:
                         if response.status == 200:
-                            return await response.json()
+                            return await _read_async_response(response)
             except Exception as e:
                 logger.warning(f"Error flushing cache (attempt {attempt + 1}): {e}")
 
@@ -858,8 +908,11 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         """
         if self._session and not self._session.closed:
             await self._session.close()
-            self._session = None
             logger.info("HTTP session closed")
+
+        if hasattr(self, '_connector') and self._connector and not self._connector.closed:
+            await self._connector.close()
+            logger.info("TCP connector closed")
 
     async def __aenter__(self) -> "AsyncHttpServerAdapter":
         """Async context manager support.

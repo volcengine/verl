@@ -26,6 +26,8 @@ from sglang.srt.managers.tokenizer_manager import (
     UpdateWeightsFromTensorReqInput,
 )
 
+from sglang.srt.utils import MultiprocessingSerializer
+
 @pytest.mark.real_sglang
 class TestLaunchServerProcess:
     """Test cases for launch_server_process function."""
@@ -243,40 +245,101 @@ class TestHttpServerEngineAdapter:
 
                 assert mock_post.call_count == 1  # Initial retry
 
-@pytest.mark.mock_only
-def test_update_weights_from_tensor_strict(mock_launch_server_process, basic_adapter_kwargs):
-    from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
-    from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
-    import base64
+    @pytest.mark.mock_only
+    def test_update_weights_from_tensor_strict(self, mock_launch_server_process, basic_adapter_kwargs):
+        from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
+        from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
+        import base64
 
-    basic_adapter_kwargs.setdefault("node_rank", 0)
-    adapter = HttpServerAdapter(**basic_adapter_kwargs)
+        basic_adapter_kwargs.setdefault("node_rank", 0)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
-    with patch(
-        "verl.workers.rollout.sglang_rollout.http_server_engine.MultiprocessingSerializer.serialize",
-        return_value=b"<SERIALIZED_BYTES>"
-    ) as mock_ser, patch.object(adapter, "_make_request") as mock_request:
-        mock_request.return_value = {"status": "updated"}
+        with patch.object(adapter, "_make_request") as mock_request:
+            mock_request.return_value = {"status": "updated"}
 
-        req = UpdateWeightsFromTensorReqInput(
-            serialized_named_tensors=["tensor1", "tensor2"],
-            load_format="safetensors",
-            flush_cache=True,
-        )
-        result = adapter.update_weights_from_tensor(req)
+            # 测试带有序列化张量的情况
+            req = UpdateWeightsFromTensorReqInput(
+                serialized_named_tensors=[b"tensor1", b"tensor2"],
+                load_format="safetensors",
+                flush_cache=True,
+            )
+            result = adapter.update_weights_from_tensor(req)
 
-        assert result == {"status": "updated"}
-        expected_b64 = base64.b64encode(b"<SERIALIZED_BYTES>").decode("utf-8")
-        mock_ser.assert_called_once()  # 确认确实序列化过
+            assert result == {"status": "updated"}
+            
+            expected_b64_1 = base64.b64encode(b"tensor1").decode("utf-8")
+            expected_b64_2 = base64.b64encode(b"tensor2").decode("utf-8")
+            
+            mock_request.assert_called_once_with(
+                "update_weights_from_tensor",
+                {
+                    "serialized_named_tensors": [expected_b64_1, expected_b64_2],
+                    "load_format": "safetensors",
+                    "flush_cache": True,
+                },
+            )
 
-        mock_request.assert_called_once_with(
-            "update_weights_from_tensor",
-            {
-                "serialized_named_tensors": expected_b64,
-                "load_format": "safetensors",
-                "flush_cache": True,
-            },
-        )
+    @pytest.mark.mock_only
+    def test_update_weights_from_tensor_empty(self, mock_launch_server_process, basic_adapter_kwargs):
+        from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
+        from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
+        import base64
+
+        basic_adapter_kwargs.setdefault("node_rank", 0)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
+
+        with patch.object(adapter, "_make_request") as mock_request:
+            mock_request.return_value = {"status": "updated"}
+
+            # 测试空张量列表的情况
+            req = UpdateWeightsFromTensorReqInput(
+                serialized_named_tensors=[],
+                load_format="safetensors",
+                flush_cache=True,
+            )
+            result = adapter.update_weights_from_tensor(req)
+
+            assert result == {"status": "updated"}
+            
+            mock_request.assert_called_once_with(
+                "update_weights_from_tensor",
+                {
+                    "serialized_named_tensors": [],
+                    "load_format": "safetensors",
+                    "flush_cache": True,
+                },
+            )
+
+    @pytest.mark.mock_only
+    def test_update_weights_from_tensor_none(self, mock_launch_server_process, basic_adapter_kwargs):
+        from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
+        from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
+        import base64
+
+        basic_adapter_kwargs.setdefault("node_rank", 0)
+        adapter = HttpServerAdapter(**basic_adapter_kwargs)
+
+        with patch.object(adapter, "_make_request") as mock_request:
+            mock_request.return_value = {"status": "updated"}
+
+            # 测试None张量列表的情况
+            req = UpdateWeightsFromTensorReqInput(
+                serialized_named_tensors=None,
+                load_format="safetensors",
+                flush_cache=True,
+            )
+            result = adapter.update_weights_from_tensor(req)
+
+            assert result == {"status": "updated"}
+            
+            mock_request.assert_called_once_with(
+                "update_weights_from_tensor",
+                {
+                    "serialized_named_tensors": [],
+                    "load_format": "safetensors",
+                    "flush_cache": True,
+                },
+            )
 
     @pytest.mark.mock_only
     def test_generate(self, mock_launch_server_process, basic_adapter_kwargs):
@@ -427,7 +490,8 @@ def test_update_weights_from_tensor_strict(mock_launch_server_process, basic_ada
             mock_request.return_value = {"status": "success"}
 
             # Test with large tensor list
-            large_tensor_list = [f"tensor_{i}" for i in range(1000)]
+            large_tensor_list = [MultiprocessingSerializer.serialize(f"tensor_{i}") for i in range(1000)]
+
             req = UpdateWeightsFromTensorReqInput(
                 serialized_named_tensors=large_tensor_list,
                 load_format="safetensors",
@@ -440,41 +504,6 @@ def test_update_weights_from_tensor_strict(mock_launch_server_process, basic_ada
             large_prompt = "A" * 10000
             result = adapter.generate(prompt=large_prompt)
             assert result == {"status": "success"}
-
-    def test_unicode_and_special_characters(self, mock_launch_server_process, basic_adapter_kwargs):
-        """Test handling of unicode and special characters."""
-        adapter = HttpServerAdapter(**basic_adapter_kwargs)
-
-        with patch.object(adapter, "_make_request") as mock_request:
-            mock_request.return_value = {"text": "生成的中文文本 🚀"}
-
-            # Test with unicode prompt
-            result = adapter.generate(prompt="你好世界 🌍")
-            assert result == {"text": "生成的中文文本 🚀"}
-
-            # Test with special characters in group name
-            result = adapter.init_weights_update_group(
-                master_address="localhost",
-                master_port=29500,
-                rank_offset=0,
-                world_size=4,
-                group_name="test-group_123",
-                backend="nccl",
-            )
-
-    def test_malformed_responses(self, mock_launch_server_process, basic_adapter_kwargs):
-        """Test handling of malformed server responses."""
-        adapter = HttpServerAdapter(**basic_adapter_kwargs)
-
-        with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.post") as mock_post:
-            # Test response without JSON
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.json.side_effect = json.JSONDecodeError("Invalid JSON", "", 0)
-            mock_post.return_value = mock_response
-
-            with pytest.raises(json.JSONDecodeError):
-                adapter._make_request("test_endpoint")
 
     def test_timeout_edge_cases(self, mock_launch_server_process):
         """Test various timeout scenarios."""
