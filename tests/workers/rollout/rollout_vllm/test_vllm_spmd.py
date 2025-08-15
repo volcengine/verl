@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 
 import pytest
@@ -19,6 +20,11 @@ import torch
 from torch.distributed.fsdp import CPUOffload, MixedPrecision
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import ShardedStateDictConfig, ShardingStrategy, StateDictType
+from torchao.core.config import config_to_dict
+from torchao.quantization import (
+    Float8DynamicActivationFloat8WeightConfig,
+    PerRow,
+)
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from vllm import LLM, SamplingParams
 
@@ -137,6 +143,10 @@ def test_vllm_spmd():
 
     state_dict = fsdp_model.state_dict()
 
+    # quantized rollout
+    config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+    json_str = json.dumps(config_to_dict(config))
+
     sampling_params = SamplingParams(**kwargs)
     llm = LLM(
         model=local_model_path,
@@ -151,6 +161,7 @@ def test_vllm_spmd():
         enable_prefix_caching=True,
         trust_remote_code=True,
         seed=1,
+        hf_overrides={"quantization_config_dict_json": json_str},
     )
 
     outputs = llm.generate(preencode_prompts, sampling_params=sampling_params, use_tqdm=False)
