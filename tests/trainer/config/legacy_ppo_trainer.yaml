@@ -1094,11 +1094,13 @@ trainer:
   # Device to run training on (e.g., "cuda", "cpu")
   device: cuda
 
-# configs related to ray initialization
-ray_init:
+# configs related to ray
+ray_kwargs:
+  # configs related to ray initialization
+  ray_init:
 
-  # Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.
-  num_cpus: null
+    # Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.
+    num_cpus: null
 
   # Path to save Ray timeline JSON for performance profiling
   timeline_json_file: null
