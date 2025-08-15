@@ -540,8 +540,12 @@ class AgentLoopManager:
         self.rollout_tp_size = self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
         self.rollout_dp_size = self.worker_group.world_size // self.rollout_tp_size
 
-        register_center = ray.get_actor(f"{self.worker_group.name_prefix}_register_center")
-        workers_info = ray.get(register_center.get_worker_info.remote())
+        workers_info = ray.get(
+            [
+                worker.__ray_call__.remote(lambda self: ray.get_runtime_context().get_node_id())
+                for worker in self.worker_group.workers
+            ]
+        )
         self.rollout_dp_size = self.worker_group.world_size // self.rollout_tp_size
         # Store the node IDs for the servers
         self.server_node_ids = [workers_info[i * self.rollout_tp_size] for i in range(self.rollout_dp_size)]
