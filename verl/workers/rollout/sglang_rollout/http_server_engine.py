@@ -87,17 +87,21 @@ def _read_response(response: requests.Response):
             "text": response.text,
         }
 
-async def _read_async_response(resp: aiohttp.ClientResponse):
-    if resp.status == 204:
+async def _read_async_response(resp: aiohttp.ClientResponse) -> Dict[str, Any]:
+    if resp.status == 204 or (resp.content_length == 0):
         return {}
-    ct = resp.headers.get("Content-Type", "")
+
     try:
-        if "application/json" in ct:
-            return await resp.json()
-        else:
-            return {"content_type": ct, "text": await resp.text()}
-    except aiohttp.ContentTypeError:
-        return {"content_type": ct, "text": await resp.text()}
+        return await resp.json(content_type=None)
+    except Exception:
+        try:
+            text = await resp.text()
+        except Exception:
+            return {}
+        return {
+            "content_type": (resp.headers.get("Content-Type") or ""),
+            "text": text,
+        }
 
 def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIMEOUT, max_wait_time = DEFAULT_MAX_WAIT_TIME, first_rank_in_node = True) -> multiprocessing.Process:
     """Launch an SGLang HTTP server process and wait for it to be ready.

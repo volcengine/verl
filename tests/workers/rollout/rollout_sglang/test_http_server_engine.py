@@ -201,7 +201,7 @@ class TestHttpServerEngineAdapter:
     @pytest.mark.mock_only
     def test_make_request_retry_logic(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test retry logic for failed requests."""
-        adapter = HttpServerAdapter(max_retries=3, **basic_adapter_kwargs)
+        adapter = HttpServerAdapter(max_attempts=3, **basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.post") as mock_post:
             with patch("time.sleep") as mock_sleep:
@@ -232,9 +232,9 @@ class TestHttpServerEngineAdapter:
                 adapter._make_request("test_endpoint")
 
     @pytest.mark.mock_only
-    def test_make_request_max_retries_exceeded(self, mock_launch_server_process, basic_adapter_kwargs):
+    def test_make_request_max_attempts_exceeded(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test max retries exceeded."""
-        adapter = HttpServerAdapter(max_retries=1, **basic_adapter_kwargs)
+        adapter = HttpServerAdapter(max_attempts=1, **basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.post") as mock_post:
             with patch("time.sleep"):
@@ -526,13 +526,13 @@ class TestHttpServerEngineAdapter:
             "node_rank": 0,
             "model_path": "/tmp/test_model",
             "timeout": 0.001,  # Very small
-            "max_retries": 100,  # Very large
+            "max_attempts": 100,  # Very large
             "retry_delay": 0.001,  # Very small
         }
         adapter = HttpServerAdapter(**kwargs)
 
         assert adapter.timeout == 0.001
-        assert adapter.max_retries == 100
+        assert adapter.max_attempts == 100
         assert adapter.retry_delay == 0.001
 
 
@@ -545,24 +545,6 @@ class TestAsyncHttpServerEngineAdapter:
 
         assert adapter.max_connections == 50
         assert adapter._need_reload is True
-        assert adapter._session is None
-
-    @pytest.mark.asyncio
-    async def test_get_session_error_handling(self, mock_launch_server_process, basic_adapter_kwargs):
-        """Test session error handling and recreation."""
-        adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
-
-        # Simulate error during session usage
-        try:
-            async with adapter._get_session():
-                raise Exception("Test error")
-        except Exception:
-            pass
-
-        # Session should be None after error
-        assert adapter._session is None
-
-        await adapter.close()
 
     @pytest.mark.asyncio
     async def test_make_async_request_success(self, mock_launch_server_process, basic_adapter_kwargs):
@@ -599,8 +581,6 @@ class TestAsyncHttpServerEngineAdapter:
                 timeout=adapter.timeout
             )
 
-        await adapter.close()
-
     @pytest.mark.asyncio
     async def test_make_async_request_get_method(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test async GET request using aiohttp and proper context mocking."""
@@ -633,8 +613,6 @@ class TestAsyncHttpServerEngineAdapter:
                 timeout=adapter.timeout
             )
 
-        await adapter.close()
-
     @pytest.mark.asyncio
     async def test_make_async_request_non_master(self, mock_launch_server_process):
         """Test async request from non-master node."""
@@ -661,8 +639,6 @@ class TestAsyncHttpServerEngineAdapter:
             assert result == {"text": "Generated text"}
             mock_request.assert_called_once()
 
-        await adapter.close()
-
     @pytest.mark.asyncio
     async def test_async_memory_management(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test async memory management methods."""
@@ -682,42 +658,13 @@ class TestAsyncHttpServerEngineAdapter:
             mock_request.assert_called_with("resume_memory_occupation", {"tags": ["weights"]})
             assert mock_request.call_count == 3 # resume memory occupation will also call release memory occupation once
 
-        await adapter.close()
-
-    @pytest.mark.asyncio
-    async def test_context_manager(self, mock_launch_server_process, basic_adapter_kwargs):
-        """Test async context manager support."""
-        async with AsyncHttpServerAdapter(**basic_adapter_kwargs) as adapter:
-            assert isinstance(adapter, AsyncHttpServerAdapter)
-            assert adapter._session is None  # Not created yet
-
-        # Session should be closed after context exit
-        if adapter._session:
-            assert adapter._session.closed
-
-    @pytest.mark.asyncio
-    async def test_close_method(self, mock_launch_server_process, basic_adapter_kwargs):
-        """Test close method."""
-        adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
-
-        # Create a session
-        async with adapter._get_session() as session:
-            assert not session.closed
-
-        # Close should close the session
-        await adapter.close()
-        assert adapter._session is None
-
-        # Multiple close calls should be safe
-        await adapter.close()
-
 
 class TestErrorRecovery:
     """Test error recovery mechanisms."""
 
     def test_flush_cache_recovery(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test flush cache recovery from failures."""
-        adapter = HttpServerAdapter(max_retries=2, **basic_adapter_kwargs)
+        adapter = HttpServerAdapter(max_attempts=2, **basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.get") as mock_get:
             # Simulate multiple failures then success
@@ -732,9 +679,9 @@ class TestErrorRecovery:
                 result = adapter.flush_cache()
                 assert result == {"cache_flushed": True}
 
-    def test_flush_cache_max_retries(self, mock_launch_server_process, basic_adapter_kwargs):
+    def test_flush_cache_max_attempts(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test flush cache max retries exceeded."""
-        adapter = HttpServerAdapter(max_retries=1, **basic_adapter_kwargs)
+        adapter = HttpServerAdapter(max_attempts=1, **basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.get") as mock_get:
             # All attempts fail
@@ -746,7 +693,7 @@ class TestErrorRecovery:
 
     def test_network_partition_recovery(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test recovery from network partition scenarios."""
-        adapter = HttpServerAdapter(max_retries=3, **basic_adapter_kwargs)
+        adapter = HttpServerAdapter(max_attempts=3, **basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.post") as mock_post:
             # Simulate network partition then recovery
@@ -781,26 +728,6 @@ class TestResourceManagement:
         adapter.shutdown()
         mock_kill_process_tree.assert_called_once_with(mock_launch_server_process.return_value.pid)
 
-    @pytest.mark.asyncio
-    async def test_async_resource_cleanup_on_exception(self, mock_launch_server_process, basic_adapter_kwargs):
-        """Test async resource cleanup when exceptions occur."""
-        adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
-
-        # Create a session
-        async with adapter._get_session():
-            pass
-
-        # Simulate exception
-        try:
-            async with adapter._get_session():
-                raise Exception("Test error")
-        except Exception:
-            pass
-
-        # Cleanup should still work
-        await adapter.close()
-        assert adapter._session is None
-
     def test_multiple_shutdown_calls(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test multiple shutdown calls are safe."""
         adapter = HttpServerAdapter(**basic_adapter_kwargs)
@@ -809,16 +736,6 @@ class TestResourceManagement:
         adapter.shutdown()
         adapter.shutdown()
         adapter.shutdown()
-
-    @pytest.mark.asyncio
-    async def test_multiple_async_close_calls(self, mock_launch_server_process, basic_adapter_kwargs):
-        """Test multiple async close calls are safe."""
-        adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
-
-        # Multiple close calls should be safe
-        await adapter.close()
-        await adapter.close()
-        await adapter.close()
 
 
 class TestDataTypeHandling:
@@ -859,28 +776,6 @@ class TestDataTypeHandling:
 
 class TestIntegration:
     """Integration tests for both adapters."""
-
-    def test_sync_async_compatibility(self, mock_launch_server_process, mock_requests_post, basic_adapter_kwargs):
-        """Test that sync and async adapters have compatible interfaces."""
-        sync_adapter = HttpServerAdapter(**basic_adapter_kwargs)
-        async_kwargs = {**basic_adapter_kwargs, "port": 8001}
-        async_adapter = AsyncHttpServerAdapter(**async_kwargs)
-
-        # Both should have the same public methods
-        sync_methods = {
-            name for name in dir(sync_adapter) if not name.startswith("_") and callable(getattr(sync_adapter, name))
-        }
-        async_methods = {
-            name for name in dir(async_adapter) if not name.startswith("_") and callable(getattr(async_adapter, name))
-        }
-        # Async adapter should have all sync methods plus async-specific ones
-        expected_extra_methods = {"async_generate", "close", "__aenter__", "__aexit__"}
-        async_methods.update(
-            name for name in expected_extra_methods
-            if callable(getattr(async_adapter, name, None))
-        )
-        assert sync_methods.issubset(async_methods)
-        assert expected_extra_methods.issubset(async_methods)
 
     def test_error_scenarios(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test various error scenarios."""
