@@ -172,9 +172,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
         print(queue_samples)
         # Assemble batch - now working directly with RolloutSample objects
         if self.config.trainer.balance_batch:
-            batch = assemble_batch_from_rollout_samples(queue_samples, self._balance_batch)
+            batch = assemble_batch_from_rollout_samples(queue_samples, self.tokenizer, self.config, self._balance_batch)
         else:
-            batch = assemble_batch_from_rollout_samples(queue_samples)
+            batch = assemble_batch_from_rollout_samples(queue_samples, self.tokenizer, self.config, None)
         print(f" _assemble_gen_batch_output_from_queue_samples {batch}")
         return 0, batch
 
@@ -243,49 +243,63 @@ class FullyAsyncTrainer(RayPPOTrainer):
         # Use queue mode, no need for traditional dataloader iterator
         # Initialize to get the first batch of data
         while True:
-            # metrics = {}
+            metrics = {}
             timing_raw = {}
-
-            # is_last_step = False
 
             with marked_timer("step", timing_raw):
                 with marked_timer("gen", timing_raw, color="red"):
                     epoch, batch = self._get_samples_from_queue()
                     if batch is None:
                         break
-            #
-            #         # 更新统计信息
-            #         self.processed_samples += len(batch) if isinstance(batch, list) else 1
-            #
-            #         # 从meta_info中获取参数版本信息
-            #         if hasattr(batch, "meta_info") and batch.meta_info:
-            #             rollout_param_versions = batch.meta_info.get("rollout_param_versions", [])
-            #             if rollout_param_versions:
-            #                 # 统计陈旧样本
-            #                 stale_count = sum(1 for v in rollout_param_versions if self.current_param_version - v > 1)
-            #                 self.stale_samples_processed += stale_count
-            #
-            #             # 添加新鲜度指标到metrics
-            #             if rollout_param_versions:
-            #                 param_version_diversity = batch.meta_info.get("param_version_diversity", 0)
-            #                 avg_sample_age = batch.meta_info.get("avg_sample_age", 0)
-            #
-            #                 metrics.update(
-            #                     {
-            #                         "freshness/param_version_diversity": param_version_diversity,
-            #                         "freshness/avg_sample_age": avg_sample_age,
-            #                         "freshness/stale_samples_ratio": stale_count / len(rollout_param_versions)
-            #                         if rollout_param_versions
-            #                         else 0,
-            #                         "statistics/processed_samples": self.processed_samples,
-            #                         "statistics/stale_samples_processed": self.stale_samples_processed,
-            #                         "statistics/current_param_version": self.current_param_version,
-            #                     }
-            #                 )
-            #     batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
-            #     self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
-            #     self._check_save_checkpoint(is_last_step, timing_raw)
-            #
+
+                    # 更新统计信息
+                    self.processed_samples += len(batch) if isinstance(batch, list) else 1
+
+                    # 从meta_info中获取参数版本信息
+                    if hasattr(batch, "meta_info") and batch.meta_info:
+                        # meta_info={'metrics': [{'generate_sequences': 1.8240885734558105, 'tool_calls': 0.0},
+                        # {'generate_sequences': 2.5197629928588867, 'tool_calls': 0.0},
+                        # {'generate_sequences': 3.5084900856018066, 'tool_calls': 0.0},
+                        # {'generate_sequences': 2.4329097270965576, 'tool_calls': 0.0},
+                        # {'generate_sequences': 3.0567924976348877, 'tool_calls': 0.0},
+                        # {'generate_sequences': 4.271160840988159, 'tool_calls': 0.0}],
+                        # 'global_steps': 22,
+                        # 'global_token_num': [588, 517, 422, 406, 355, 288],
+                        # 'rollout_param_versions': [0, 0, 0, 0, 0, 0],
+                        # 'sample_timestamps': [1755278023.7771623, 1755278024.101492, 1755278024.3597627,
+                        #                       1755278024.4885263, 1755278025.1039019, 1755278025.555585],
+                        # 'avg_processing_time': 2.935534119606018,
+                        # 'max_processing_time': 4.271160840988159,
+                        # 'param_version_diversity': 1,
+                        # 'avg_sample_age': 1.0503787994384766,
+                        # 'assembly_time': 0.05373978614807129})
+                        rollout_param_versions = batch.meta_info.get("rollout_param_versions", [])
+                        if rollout_param_versions:
+                            # 统计陈旧样本
+                            stale_count = sum(1 for v in rollout_param_versions if self.current_param_version - v > 1)
+                            self.stale_samples_processed += stale_count
+
+                        # 添加新鲜度指标到metrics
+                        if rollout_param_versions:
+                            param_version_diversity = batch.meta_info.get("param_version_diversity", 0)
+                            avg_sample_age = batch.meta_info.get("avg_sample_age", 0)
+
+                            metrics.update(
+                                {
+                                    "freshness/param_version_diversity": param_version_diversity,
+                                    "freshness/avg_sample_age": avg_sample_age,
+                                    "freshness/stale_samples_ratio": stale_count / len(rollout_param_versions)
+                                    if rollout_param_versions
+                                    else 0,
+                                    "statistics/processed_samples": self.processed_samples,
+                                    "statistics/stale_samples_processed": self.stale_samples_processed,
+                                    "statistics/current_param_version": self.current_param_version,
+                                }
+                            )
+                batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
+                self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
+                self._check_save_checkpoint(False, timing_raw)
+
             # self._collect_metrics(batch, epoch, metrics, timing_raw)
 
             # Trigger parameter synchronization after training step
