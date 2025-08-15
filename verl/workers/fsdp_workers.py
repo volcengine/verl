@@ -628,7 +628,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
 
         if self._is_rollout:
-            self.rollout_worker, self.rollout_sharding_manager = self._build_rollout(
+            self.rollout, self.rollout_sharding_manager = self._build_rollout(
                 trust_remote_code=self.config.model.get("trust_remote_code", False)
             )
 
@@ -737,7 +737,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             log_gpu_memory_usage("After entering rollout sharding manager", logger=logger)
 
             with simple_timer("generate_sequences", timing_generate):
-                output = self.rollout_worker.generate_sequences(prompts=prompts)
+                output = self.rollout.generate_sequences(prompts=prompts)
 
             log_gpu_memory_usage("After rollout generation", logger=logger)
 
@@ -1714,17 +1714,17 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     def execute_method(self, method: str | bytes, *args, **kwargs):
         """Called by ExternalRayDistributedExecutor collective_rpc."""
-        return self.rollout_worker.execute_method(method, *args, **kwargs)
+        return self.rollout.execute_method(method, *args, **kwargs)
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     def get_zeromq_address(self):
-        return self.rollout_worker.get_zeromq_address()
+        return self.rollout.get_zeromq_address()
 
     # ============================ SGLang related ============================
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def chat_completion(self, json_request):
-        ret = await self.rollout_worker.chat_completion(json_request)
+        ret = await self.rollout.chat_completion(json_request)
         return ret
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
@@ -1735,17 +1735,17 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         request_id: str,
         image_data: Optional[list[Any]] = None,
     ) -> list[int]:
-        ret = await self.rollout_worker.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
+        ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def wake_up(self):
-        await self.rollout_worker.wake_up()
+        await self.rollout.wake_up()
         # return something to block the caller
         return True
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def sleep(self):
-        await self.rollout_worker.sleep()
+        await self.rollout.sleep()
         # return something to block the caller
         return True

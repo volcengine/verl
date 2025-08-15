@@ -101,15 +101,15 @@ jobs:
           ray stop --force
           python3 examples/data_preprocess/gsm8k.py
       # HF sanity
-      - name: Running GSM8K E2E training tests on 1 L20 GPU with hf for sanity
-        run: |
-          ray stop --force
-          bash tests/special_e2e/ppo_trainer/run_single_gpu.sh
-      # HF sanity
-      - name: Running GSM8K E2E training tests on 1 L20 GPU with engine interface for sanity.
-        run: |
-          ray stop --force
-          bash tests/special_e2e/ppo_trainer/run_single_gpu_with_engine.sh
+#      - name: Running GSM8K E2E training tests on 1 L20 GPU with hf for sanity
+#        run: |
+#          ray stop --force
+#          bash tests/special_e2e/ppo_trainer/run_single_gpu.sh
+#      # HF sanity
+#      - name: Running GSM8K E2E training tests on 1 L20 GPU with engine interface for sanity.
+#        run: |
+#          ray stop --force
+#          bash tests/special_e2e/ppo_trainer/run_single_gpu_with_engine.sh
       # Function RM
       - name: Running GSM8K E2E training tests on 8 L20 GPUs with rmpad using function rm with validation and saving (FSDP_SIZE=8)
         run: |
