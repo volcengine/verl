@@ -75,9 +75,9 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
 from verl.utils.py_functional import convert_to_regular_types
-from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, RolloutConfig, HFModelConfig
-from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, HFModelConfig, RolloutConfig
 from verl.workers.rollout.rollout_worker import RolloutWorker
+from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -524,6 +524,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         if rollout_name == "vllm":
             from verl.workers.sharding_manager.fsdp_vllm import FSDPVLLMShardingManager
+
             full_params = torch.distributed.get_world_size() == 1
             rollout_sharding_manager = FSDPVLLMShardingManager(
                 module=self.actor_module_fsdp,

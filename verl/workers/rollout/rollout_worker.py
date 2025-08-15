@@ -13,41 +13,21 @@
 # limitations under the License.
 
 
-from dataclasses import dataclass, field
-
-from typing import Optional, Any
-
-import torch
-import logging
-
-import os
 import datetime
+import logging
+import os
+from typing import Any, Optional
 
-from verl.single_controller.base import Worker
 from verl import DataProto
-import ray
-
-from verl.single_controller.base.decorator import register, make_nd_compute_dataproto_dispatch_fn, Dispatch
-from verl.utils.profiler import log_gpu_memory_usage
-from verl.utils.fs import copy_to_local
-
-from verl.base_config import BaseConfig
-from verl.workers.config.rollout import RolloutConfig
-from verl.workers.config.model import HFModelConfig
-
-from verl.utils import hf_processor, hf_tokenizer
-
+from verl.single_controller.base import Worker
+from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils.device import (
-    get_device_id,
     get_device_name,
     get_nccl_backend,
-    get_torch_device,
-    is_cuda_available,
-    is_npu_available,
 )
-
-from transformers import AutoConfig
-
+from verl.utils.profiler import log_gpu_memory_usage
+from verl.workers.config.model import HFModelConfig
+from verl.workers.config.rollout import RolloutConfig
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -127,7 +107,6 @@ class RolloutWorker(Worker):
             # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and
             # we import it here use the abs path.
             # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
-            from verl.workers.sharding_manager.fsdp_sglang import FSDPSGLangShardingManager
 
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
             self.rollout = SGLangRollout(
@@ -141,11 +120,9 @@ class RolloutWorker(Worker):
         else:
             raise ValueError(f"Unknown rollout name: {self.config.name}")
 
-        
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="infer"))
     def generate_sequences(self, prompts: DataProto):
-        """Given a batch of prompts, return a batch of responses. Internally, it can use 
-        """
+        """Given a batch of prompts, return a batch of responses. Internally, it can use"""
         meta_info = {
             "eos_token_id": self.model_config.generation_config.eos_token_id
             if self.model_config.generation_config is not None
@@ -201,4 +178,3 @@ class RolloutWorker(Worker):
             await self.rollout.sleep()
         # return something to block the caller
         return True
-

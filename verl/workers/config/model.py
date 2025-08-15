@@ -12,16 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from omegaconf import MISSING
-from verl.base_config import BaseConfig
 from dataclasses import dataclass, field
-from typing import Optional, Any
+from typing import Any, Optional
 
-from transformers import AutoConfig, AutoTokenizer, PretrainedConfig, PreTrainedTokenizer, GenerationConfig
+from omegaconf import MISSING
+from transformers import AutoConfig
 
-from verl.utils.model import get_generation_config, update_model_config
+from verl.base_config import BaseConfig
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
+from verl.utils.model import get_generation_config, update_model_config
 
 __all__ = ["HFModelConfig"]
 
@@ -29,7 +29,15 @@ __all__ = ["HFModelConfig"]
 @dataclass
 class HFModelConfig(BaseConfig):
     # note that we separate model_path, model_config_path and tokenizer_path in case they are different
-    _mutable_fields = {'hf_config_path', 'tokenizer_path', 'hf_config', 'generation_config', 'tokenizer', 'processor', 'local_path'}
+    _mutable_fields = {
+        "hf_config_path",
+        "tokenizer_path",
+        "hf_config",
+        "generation_config",
+        "tokenizer",
+        "processor",
+        "local_path",
+    }
 
     path: str = MISSING
     local_path: Optional[str] = None
@@ -64,7 +72,7 @@ class HFModelConfig(BaseConfig):
 
     exclude_modules: Optional[str] = None
     use_liger: bool = False
-    
+
     use_fused_kernels: bool = False
     fused_kernel_options: dict = field(default_factory=dict)
 
@@ -82,9 +90,10 @@ class HFModelConfig(BaseConfig):
         self.generation_config = get_generation_config(self.hf_config_path, trust_remote_code=self.trust_remote_code)
 
         # constuct hf_config
-        attn_implementation = self.override_config.get('attn_implementation', 'flash_attention_2')
-        self.hf_config = AutoConfig.from_pretrained(self.hf_config_path, trust_remote_code=self.trust_remote_code, 
-                                                    attn_implementation=attn_implementation)
+        attn_implementation = self.override_config.get("attn_implementation", "flash_attention_2")
+        self.hf_config = AutoConfig.from_pretrained(
+            self.hf_config_path, trust_remote_code=self.trust_remote_code, attn_implementation=attn_implementation
+        )
 
         override_config_kwargs = {
             "bos_token_id": self.tokenizer.bos_token_id,

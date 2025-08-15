@@ -12,13 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time
 
 import ray
 
-from verl.single_controller.base.worker import Worker
-from verl.single_controller.ray.base import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup, merge_resource_pool
 from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.base.worker import Worker
+from verl.single_controller.ray.base import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 
 
 class TestActor(Worker):
@@ -26,11 +25,10 @@ class TestActor(Worker):
     def __init__(self, x) -> None:
         super().__init__()
         self.a = x
-    
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def get(self):
         return self.a + self.rank
-
 
 
 class TestHighLevelActor(Worker):
@@ -68,4 +66,3 @@ def test_nested_worker():
     assert output_1 == [2, 3, 4, 5]
 
     ray.shutdown()
-
