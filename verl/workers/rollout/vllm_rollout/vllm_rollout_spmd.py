@@ -52,8 +52,8 @@ from torch.distributed.device_mesh import DeviceMesh
 from vllm import LLM, SamplingParams
 from vllm.config import CompilationConfig, CompilationLevel, LoRAConfig
 from vllm.lora.request import LoRARequest
-from vllm.model_executor.sampling_metadata import SamplingMetadata
-from vllm.worker.worker_base import WorkerWrapperBase
+from vllm.v1.worker.worker_base import WorkerWrapperBase
+from vllm.model_executor.model_loader import get_model_loader
 
 from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL
@@ -185,6 +185,7 @@ class vLLMRollout(BaseRollout):
             else:
                 logger.warning(f"cudagraph_capture_sizes must be a list, but got {cudagraph_capture_sizes}")
 
+        hf_overrides = {"quantization_config_file": config.quantization_config_file} if (config.quantization is not None and config.quantization_config_file is not None) else None
         self.inference_engine = LLM(
             model=model_path,
             enable_sleep_mode=config.free_cache_engine,
@@ -204,6 +205,8 @@ class vLLMRollout(BaseRollout):
             enable_prefix_caching=config.enable_prefix_caching,
             trust_remote_code=trust_remote_code,
             seed=config.get("seed", 0),
+            quantization=config.quantization if config.quantization is not None else None,
+            hf_overrides=hf_overrides,
             **compilation_config,
             **self.lora_kwargs,
             **engine_kwargs,
@@ -450,7 +453,11 @@ class vLLMRollout(BaseRollout):
 
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             patch_vllm_moe_model_weight_loader(model)
-            model.load_weights(weights)
+            load_config = self.inference_engine.llm_engine.vllm_config.load_config
+            load_config.load_format = "auto"
+            model_config = self.inference_engine.llm_engine.model_config
+            model_loader = get_model_loader(load_config)
+            model_loader.load_weights(model, model_config=model_config)
 
 
 # https://github.com/vllm-project/vllm/issues/13175
@@ -460,7 +467,7 @@ def _monkey_patch_compute_logits(model, vocab_size: int):
     def compute_logits(
         self,
         hidden_states: torch.Tensor,
-        sampling_metadata: SamplingMetadata,
+        sampling_metadata,
     ) -> torch.Tensor:
         logits = original_compute_logits(hidden_states, sampling_metadata)
         logits[..., vocab_size:] = float("-inf")

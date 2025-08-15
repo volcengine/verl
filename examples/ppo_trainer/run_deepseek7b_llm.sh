@@ -22,6 +22,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
+    actor_rollout_ref.rollout.quantization=torchao \
+    actor_rollout_ref.rollout.quantization_config_file=torchao_config.json \
     critic.optim.lr=1e-5 \
     critic.model.use_remove_padding=True \
     critic.model.path=deepseek-ai/deepseek-llm-7b-chat \
