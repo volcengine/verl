@@ -126,7 +126,7 @@ class AgentLoopOutput(BaseModel):
     """Response mask, 1 for LLM generated token, 0 for tool response token."""
     multi_modal_data: Optional[dict[str, Any]] = None
     """Multi-modal data for multi-modal tools."""
-    reward_score: float = None
+    reward_score: Optional[float] = None
     """Reward score for the trajectory."""
     num_turns: int = 0
     """Number of chat turns, including user, assistant, tool."""
