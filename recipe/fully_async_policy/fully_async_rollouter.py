@@ -35,16 +35,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
     """
 
     def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-        device_name=None,
+            self,
+            config,
+            tokenizer,
+            role_worker_mapping: dict[Role, WorkerType],
+            resource_pool_manager: ResourcePoolManager,
+            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+            processor=None,
+            reward_fn=None,
+            val_reward_fn=None,
+            device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -103,7 +103,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         # Statistics
         self.total_generated_samples = 0
-        self.train_step_samples = 0
+        self.staleness_samples = 0
         self.dropped_stale_samples = 0
 
         # Worker groups
@@ -167,8 +167,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
         async with self.lock:
             old_version = self.current_param_version
             self.current_param_version = version
-            # every time param change, reset train_step_samples
-            self.train_step_samples = 0
+            # every time param change, reset staleness_samples
+            self.staleness_samples = 0
             print(f"[FullyAsyncRollouter] Parameter version updated from {old_version} to {version}")
 
     def _validate_config(self):
@@ -318,7 +318,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         while True:
             partial_rollout_sample = await self.pending_queue.get()
-            self.train_step_samples += 1
+            self.staleness_samples += 1
 
             async with self.lock:
                 if await self._should_pause_generation():
@@ -561,10 +561,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
             print(f"[FullyAsyncRollouter] Should pause due to full queue: size={queue_size}, max={self.max_queue_size}")
             return True
 
-        if self.train_step_samples > self.max_required_samples:
+        if self.staleness_samples > self.max_required_samples:
             print(
                 f"[FullyAsyncRollouter] Should pause due to "
-                f"step_generated_samples {self.train_step_samples} > max_required_samples {self.max_required_samples} "
+                f"step_generated_samples {self.staleness_samples} > max_required_samples {self.max_required_samples} "
             )
             return True
 
@@ -593,7 +593,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         stats = {
             "current_param_version": self.current_param_version,
             "total_generated_samples": self.total_generated_samples,
-            "train_step_samples": self.train_step_samples,
+            "staleness_samples": self.staleness_samples,
             "dropped_stale_samples": self.dropped_stale_samples,
             "queue_max_size": self.max_queue_size,
             "queue_size": queue_stats["queue_size"],
