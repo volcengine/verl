@@ -28,6 +28,7 @@ VALID_CONFIG_TYPE = {
     "deepseek_v3",
     "minicpmv",
     "minicpmo",
+    "glm4v",
     "mistral",
     "gemma3_text",
 }
@@ -124,6 +125,7 @@ class FlopsCounter:
             "deepseek_v3": self._estimate_deepseek_v3_flops,
             "minicpmv": self._estimate_qwen2_flops,
             "minicpmo": self._estimate_qwen2_flops,
+            "glm4v": self._estimate_qwen2_flops,
             "mistral": self._estimate_qwen2_flops,
             "gemma3_text": self._estimate_gemma3_flops,
         }
