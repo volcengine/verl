@@ -527,7 +527,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             full_params = torch.distributed.get_world_size() == 1
             rollout_sharding_manager = FSDPVLLMShardingManager(
                 module=self.actor_module_fsdp,
-                inference_engine=self.rollout_worker.rollout.inference_engine,
+                inference_engine=rollout_worker.rollout.inference_engine,
                 model_config=self.actor_model_config,
                 rollout_config=self.config.rollout,
                 full_params=full_params,
@@ -552,7 +552,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 self.config.rollout.load_format = "dummy_hf"
             rollout_sharding_manager = FSDPSGLangShardingManager(
                 module=self.actor_module_fsdp,
-                inference_engine=self.rollout_worker.rollout._engine,
+                inference_engine=rollout_worker.rollout._engine,
                 model_config=self.actor_model_config,
                 rollout_config=self.config.rollout,
                 full_params="hf" in self.config.rollout.load_format,

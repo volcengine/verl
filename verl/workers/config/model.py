@@ -20,6 +20,8 @@ from typing import Optional, Any
 from transformers import AutoConfig, AutoTokenizer, PretrainedConfig, PreTrainedTokenizer, GenerationConfig
 
 from verl.utils.model import get_generation_config, update_model_config
+from verl.utils import hf_processor, hf_tokenizer
+from verl.utils.fs import copy_to_local
 
 __all__ = ["HFModelConfig"]
 
@@ -27,15 +29,17 @@ __all__ = ["HFModelConfig"]
 @dataclass
 class HFModelConfig(BaseConfig):
     # note that we separate model_path, model_config_path and tokenizer_path in case they are different
-    _mutable_fields = {'hf_config_path', 'tokenizer_path', 'hf_config', 'generation_config', 'tokenizer'}
+    _mutable_fields = {'hf_config_path', 'tokenizer_path', 'hf_config', 'generation_config', 'tokenizer', 'processor', 'local_path'}
 
     path: str = MISSING
+    local_path: Optional[str] = None
     hf_config_path: Optional[str] = None
     tokenizer_path: Optional[str] = None
 
     hf_config: Any = None
     generation_config: Any = None
     tokenizer: Any = None
+    processor: Any = None
 
     # whether to use shared memory
     use_shm: bool = False
@@ -71,12 +75,16 @@ class HFModelConfig(BaseConfig):
             self.tokenizer_path = self.path
 
         # constuct tokenizer
-        self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path, trust_remote_code=self.trust_remote_code, 
-                                                                            attn_implementation="flash_attention_2")
+        self.local_path = copy_to_local(self.path, use_shm=self.use_shm)
+        self.tokenizer = hf_tokenizer(self.local_path, trust_remote_code=self.trust_remote_code)
+        self.processor = hf_processor(self.local_path, trust_remote_code=self.trust_remote_code)
+
         self.generation_config = get_generation_config(self.hf_config_path, trust_remote_code=self.trust_remote_code)
 
         # constuct hf_config
-        self.hf_config = AutoConfig.from_pretrained(self.hf_config_path)
+        attn_implementation = self.override_config.get('attn_implementation', 'flash_attention_2')
+        self.hf_config = AutoConfig.from_pretrained(self.hf_config_path, trust_remote_code=self.trust_remote_code, 
+                                                    attn_implementation=attn_implementation)
 
         override_config_kwargs = {
             "bos_token_id": self.tokenizer.bos_token_id,
@@ -90,3 +98,5 @@ class HFModelConfig(BaseConfig):
         if getattr(self.hf_config, "model_type", None) == "kimi_vl":
             self.hf_config.text_config.topk_method = "greedy"
 
+    def get_processor(self):
+        return self.processor if self.processor is not None else self.tokenizer

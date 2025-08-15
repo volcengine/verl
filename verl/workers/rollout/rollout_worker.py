@@ -95,16 +95,11 @@ class RolloutWorker(Worker):
                 "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
             )
 
-        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=self.model_config.trust_remote_code)
-        self.processor = hf_processor(local_path, trust_remote_code=self.model_config.trust_remote_code)
-        self.hf_config = AutoConfig.from_pretrained(local_path)
-
         # build rollout engine here
         if self.config.name == "vllm":
             from verl.workers.rollout.vllm_rollout import vLLMRollout
 
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
-            local_path = copy_to_local(self.model_config.model_path, use_shm=self.model_config.use_shm)
             lora_kwargs = (
                 {"lora_kwargs": {"enable_lora": True, "max_loras": 1, "max_lora_rank": self.model_config.lora_rank}}
                 if self.model_config.lora_rank > 0
@@ -114,9 +109,9 @@ class RolloutWorker(Worker):
 
             vllm_rollout_cls = vLLMRollout if self.config.mode == "sync" else vLLMAsyncRollout
             self.rollout = vllm_rollout_cls(
-                model_path=local_path,
+                model_path=self.model_config.local_path,
                 config=self.config,
-                tokenizer=self.tokenizer,
+                tokenizer=self.model_config.tokenizer,
                 model_hf_config=self.model_config.hf_config,
                 device_mesh=rollout_device_mesh,
                 trust_remote_code=self.model_config.trust_remote_code,
@@ -134,12 +129,11 @@ class RolloutWorker(Worker):
             # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
             from verl.workers.sharding_manager.fsdp_sglang import FSDPSGLangShardingManager
 
-            local_path = copy_to_local(self.modelh)
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
             self.rollout = SGLangRollout(
-                actor_module=self.model_config.model_path,
+                actor_module=self.model_config.local_path,
                 config=self.config,
-                processing_class=self.processor if self.processor is not None else self.tokenizer,
+                processing_class=self.model_config.processor,
                 model_hf_config=self.model_config.hf_config,
                 trust_remote_code=self.model_config.trust_remote_code,
             )
@@ -155,10 +149,10 @@ class RolloutWorker(Worker):
         meta_info = {
             "eos_token_id": self.model_config.generation_config.eos_token_id
             if self.model_config.generation_config is not None
-            else self.tokenizer.eos_token_id,
+            else self.model_config.processor.eos_token_id,
             "pad_token_id": self.model_config.generation_config.pad_token_id
             if self.model_config.generation_config is not None
-            else self.tokenizer.pad_token_id,
+            else self.model_config.processor.pad_token_id,
         }
         prompts.meta_info.update(meta_info)
 
