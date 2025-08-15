@@ -183,6 +183,16 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "real_sglang: mark test as requiring real SGLang installation")
     config.addinivalue_line("markers", "mock_only: mark test as using mocked dependencies only")
 
+@pytest.fixture(autouse=True)
+def mock_server_args_post_init():
+    """Mock ServerArgs.__post_init__ to skip model path validation."""
+    from unittest.mock import patch
+
+    with patch(
+        "verl.workers.rollout.sglang_rollout.http_server_engine.ServerArgs.__post_init__",
+        return_value=None
+    ) as mock_post_init:
+        yield mock_post_init
 
 # Async test configuration
 pytest_plugins = ("pytest_asyncio",)

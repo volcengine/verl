@@ -75,7 +75,7 @@ DEFAULT_MAX_CONNECTIONS = 2000
 DEFAULT_MAX_WAIT_TIME = 300.0
 
 
-def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIMEOUT, max_wait_time = DEFAULT_MAX_WAIT_TIME) -> multiprocessing.Process:
+def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIMEOUT, max_wait_time = DEFAULT_MAX_WAIT_TIME, first_rank_in_node = True) -> multiprocessing.Process:
     """Launch an SGLang HTTP server process and wait for it to be ready.
 
     This function starts a new process running an SGLang HTTP server, then waits
@@ -104,7 +104,7 @@ def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIME
     p = multiprocessing.Process(target=launch_server, args=(server_args,))
     p.start()
 
-    if server_args.node_rank != 0:
+    if server_args.node_rank != 0 or not first_rank_in_node:
         print(f"Server process started with PID {p.pid} for node rank {server_args.node_rank}", flush=True)
         return p
 
@@ -218,11 +218,8 @@ class HttpServerAdapter(EngineBase):
         self.max_start_wait_time: float = max_start_wait_time
 
         logger.info(f"Launch HttpServerEngineAdapter at: {self.server_args.host}:{self.server_args.port}")
-        if first_rank_in_node:
-            print(f"Server process launched with for node rank {self.node_rank}", flush=True)
-            self.process: multiprocessing.Process = launch_server_process(self.server_args, self.timeout, self.max_start_wait_time)
-        else:
-            print(f"Waiting for server process to start for node rank {self.node_rank}", flush=True)
+        self.process: multiprocessing.Process = launch_server_process(self.server_args, self.timeout, self.max_start_wait_time, first_rank_in_node)
+
 
         if self.node_rank == 0 and self.router_ip and self.router_port:
             self._register_with_router()
@@ -513,7 +510,6 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
     Attributes:
         _need_reload (bool): Flag indicating if weights need to be reloaded on first use
         _session (Optional[aiohttp.ClientSession]): aiohttp ClientSession for making async HTTP requests
-        _session_lock (asyncio.Lock): Lock for thread-safe session access
         max_connections (int): Maximum number of connections in the connection pool
     """
 

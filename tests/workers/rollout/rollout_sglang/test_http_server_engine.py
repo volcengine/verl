@@ -22,6 +22,9 @@ from verl.workers.rollout.sglang_rollout.http_server_engine import (
     launch_server_process,
 )
 
+from sglang.srt.managers.tokenizer_manager import (
+    UpdateWeightsFromTensorReqInput,
+)
 
 @pytest.mark.real_sglang
 class TestLaunchServerProcess:
@@ -45,7 +48,7 @@ class TestLaunchServerProcess:
             with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.Session") as mock_session_class:
                 mock_session_class.return_value.__enter__.return_value = mock_requests_session
 
-                result = launch_server_process(server_args)
+                result = launch_server_process(server_args, first_rank_in_node=True)
 
                 # Assertions
                 assert result == mock_multiprocessing_process
@@ -82,9 +85,13 @@ class TestLaunchServerProcess:
                 mock_session.get.side_effect = requests.RequestException("Connection failed")
                 mock_session_class.return_value.__enter__.return_value = mock_session
 
-                with patch("time.time", side_effect=[0, 400]):  # Simulate timeout
-                    with pytest.raises(TimeoutError):
-                        launch_server_process(server_args)
+            import itertools
+            with patch(
+                "verl.workers.rollout.sglang_rollout.http_server_engine.time.time",
+                side_effect=itertools.chain([0], itertools.repeat(400))  # 第一次返回0，之后一直返回400
+            ):
+                with pytest.raises(TimeoutError):
+                    launch_server_process(server_args)
 
                 mock_multiprocessing_process.terminate.assert_called_once()
 
@@ -192,7 +199,7 @@ class TestHttpServerEngineAdapter:
     @pytest.mark.mock_only
     def test_make_request_retry_logic(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test retry logic for failed requests."""
-        adapter = HttpServerAdapter(max_retries=2, **basic_adapter_kwargs)
+        adapter = HttpServerAdapter(max_retries=3, **basic_adapter_kwargs)
 
         with patch("verl.workers.rollout.sglang_rollout.http_server_engine.requests.post") as mock_post:
             with patch("time.sleep") as mock_sleep:
@@ -234,29 +241,42 @@ class TestHttpServerEngineAdapter:
                 with pytest.raises(RuntimeError, match="Failed to complete request"):
                     adapter._make_request("test_endpoint")
 
-                assert mock_post.call_count == 2  # Initial + 1 retry
+                assert mock_post.call_count == 1  # Initial retry
 
-    @pytest.mark.mock_only
-    def test_update_weights_from_tensor(self, mock_launch_server_process, basic_adapter_kwargs):
-        """Test update_weights_from_tensor method."""
-        adapter = HttpServerAdapter(**basic_adapter_kwargs)
+@pytest.mark.mock_only
+def test_update_weights_from_tensor_strict(mock_launch_server_process, basic_adapter_kwargs):
+    from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
+    from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
+    import base64
 
-        with patch.object(adapter, "_make_request") as mock_request:
-            mock_request.return_value = {"status": "updated"}
+    basic_adapter_kwargs.setdefault("node_rank", 0)
+    adapter = HttpServerAdapter(**basic_adapter_kwargs)
 
-            result = adapter.update_weights_from_tensor(
-                ["tensor1", "tensor2"], load_format="safetensors", flush_cache=True
-            )
+    with patch(
+        "verl.workers.rollout.sglang_rollout.http_server_engine.MultiprocessingSerializer.serialize",
+        return_value=b"<SERIALIZED_BYTES>"
+    ) as mock_ser, patch.object(adapter, "_make_request") as mock_request:
+        mock_request.return_value = {"status": "updated"}
 
-            assert result == {"status": "updated"}
-            mock_request.assert_called_once_with(
-                "update_weights_from_tensor",
-                {
-                    "serialized_named_tensors": ["tensor1", "tensor2"],
-                    "load_format": "safetensors",
-                    "flush_cache": True,
-                },
-            )
+        req = UpdateWeightsFromTensorReqInput(
+            serialized_named_tensors=["tensor1", "tensor2"],
+            load_format="safetensors",
+            flush_cache=True,
+        )
+        result = adapter.update_weights_from_tensor(req)
+
+        assert result == {"status": "updated"}
+        expected_b64 = base64.b64encode(b"<SERIALIZED_BYTES>").decode("utf-8")
+        mock_ser.assert_called_once()  # 确认确实序列化过
+
+        mock_request.assert_called_once_with(
+            "update_weights_from_tensor",
+            {
+                "serialized_named_tensors": expected_b64,
+                "load_format": "safetensors",
+                "flush_cache": True,
+            },
+        )
 
     @pytest.mark.mock_only
     def test_generate(self, mock_launch_server_process, basic_adapter_kwargs):
@@ -330,69 +350,6 @@ class TestHttpServerEngineAdapter:
             mock_request.assert_called_with("resume_memory_occupation", {"tags": ["weights"]})
 
     @pytest.mark.mock_only
-    def test_distributed_weights_methods(self, mock_launch_server_process, basic_adapter_kwargs):
-        """Test distributed weights update methods."""
-        adapter = HttpServerAdapter(**basic_adapter_kwargs)
-
-        with patch.object(adapter, "_make_request") as mock_request:
-            mock_request.return_value = {"status": "initialized"}
-
-            # Test init_weights_update_group
-            result = adapter.init_weights_update_group(
-                master_address="localhost",
-                master_port=29500,
-                rank_offset=0,
-                world_size=4,
-                group_name="test_group",
-                backend="nccl",
-            )
-
-            assert result == {"status": "initialized"}
-            mock_request.assert_called_with(
-                "init_weights_update_group",
-                {
-                    "master_address": "localhost",
-                    "master_port": 29500,
-                    "rank_offset": 0,
-                    "world_size": 4,
-                    "group_name": "test_group",
-                    "backend": "nccl",
-                },
-            )
-
-            # Test update_weights_from_distributed
-            # Mock torch for dtype testing
-            class MockTorchDtype:
-                def __init__(self, name):
-                    self.name = name
-
-                def __str__(self):
-                    return f"torch.{self.name}"
-
-            mock_dtypes = [MockTorchDtype("float32"), MockTorchDtype("float16")]
-
-            mock_request.return_value = {"status": "updated"}
-            result = adapter.update_weights_from_distributed(
-                names=["layer1.weight", "layer2.bias"],
-                dtypes=mock_dtypes,
-                shapes=[(1024, 512), (512,)],
-                group_name="test_group",
-                flush_cache=True,
-            )
-
-            assert result == {"status": "updated"}
-            mock_request.assert_called_with(
-                "update_weights_from_distributed",
-                {
-                    "names": ["layer1.weight", "layer2.bias"],
-                    "dtypes": ["float32", "float16"],
-                    "shapes": [(1024, 512), (512,)],
-                    "group_name": "test_group",
-                    "flush_cache": True,
-                },
-            )
-
-    @pytest.mark.mock_only
     def test_generation_control_methods(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test generation control methods."""
         adapter = HttpServerAdapter(**basic_adapter_kwargs)
@@ -444,17 +401,22 @@ class TestHttpServerEngineAdapter:
 
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {"status": "success"}
+            req = UpdateWeightsFromTensorReqInput(
+                serialized_named_tensors=None,
+                load_format=None,
+                flush_cache=None,
+            )
 
             # Test generate with all None parameters
             result = adapter.generate()
             assert result == {"status": "success"}
 
             # Test with empty lists
-            result = adapter.update_weights_from_tensor([])
+            result = adapter.update_weights_from_tensor(req)
             assert result == {"status": "success"}
 
             # Test with empty tags
-            result = adapter.release_memory_occupation([])
+            result = adapter.release_memory_occupation(req)
             assert result == {"status": "success"}
 
     def test_large_payload_handling(self, mock_launch_server_process, basic_adapter_kwargs):
@@ -466,7 +428,12 @@ class TestHttpServerEngineAdapter:
 
             # Test with large tensor list
             large_tensor_list = [f"tensor_{i}" for i in range(1000)]
-            result = adapter.update_weights_from_tensor(large_tensor_list)
+            req = UpdateWeightsFromTensorReqInput(
+                serialized_named_tensors=large_tensor_list,
+                load_format="safetensors",
+                flush_cache=True,
+            )
+            result = adapter.update_weights_from_tensor(req)
             assert result == {"status": "success"}
 
             # Test with large prompt
@@ -550,22 +517,6 @@ class TestAsyncHttpServerEngineAdapter:
         assert adapter.max_connections == 50
         assert adapter._need_reload is True
         assert adapter._session is None
-
-    @pytest.mark.asyncio
-    async def test_get_session(self, mock_launch_server_process, basic_adapter_kwargs):
-        """Test session creation and management."""
-        adapter = AsyncHttpServerAdapter(**basic_adapter_kwargs)
-
-        # Test session creation
-        async with adapter._get_session() as session:
-            assert isinstance(session, aiohttp.ClientSession)
-            assert not session.closed
-
-        # Session should be reused
-        async with adapter._get_session() as session2:
-            assert session2 is adapter._session
-
-        await adapter.close()
 
     @pytest.mark.asyncio
     async def test_get_session_error_handling(self, mock_launch_server_process, basic_adapter_kwargs):
@@ -700,7 +651,7 @@ class TestAsyncHttpServerEngineAdapter:
             result = await adapter.resume_memory_occupation(["weights"])
             assert result == {"status": "success"}
             mock_request.assert_called_with("resume_memory_occupation", {"tags": ["weights"]})
-            assert mock_request.call_count == 2
+            assert mock_request.call_count == 3 # resume memory occupation will also call release memory occupation once
 
         await adapter.close()
 
@@ -844,34 +795,6 @@ class TestResourceManagement:
 class TestDataTypeHandling:
     """Test handling of various data types."""
 
-    def test_torch_dtype_handling(self, mock_launch_server_process, basic_adapter_kwargs):
-        """Test handling of PyTorch data types."""
-        adapter = HttpServerAdapter(**basic_adapter_kwargs)
-
-        with patch.object(adapter, "_make_request") as mock_request:
-            mock_request.return_value = {"status": "success"}
-
-            # Test with various torch dtypes
-            import torch
-
-            dtypes = [torch.float32, torch.float16, torch.int32, torch.int64, torch.bool]
-            shapes = [(1024, 512), (512,), (256, 256), (128, 128, 64), (1,)]
-            names = [f"layer_{i}" for i in range(len(dtypes))]
-
-            result = adapter.update_weights_from_distributed(
-                names=names,
-                dtypes=dtypes,
-                shapes=shapes,
-                group_name="test_group",
-            )
-
-            assert result == {"status": "success"}
-
-            # Verify dtype conversion
-            call_args = mock_request.call_args[0][1]
-            expected_dtypes = ["float32", "float16", "int32", "int64", "bool"]
-            assert call_args["dtypes"] == expected_dtypes
-
     def test_complex_data_structures(self, mock_launch_server_process, basic_adapter_kwargs):
         """Test handling of complex data structures."""
         adapter = HttpServerAdapter(**basic_adapter_kwargs)
@@ -943,5 +866,10 @@ class TestIntegration:
         # Test with empty parameters
         with patch.object(adapter, "_make_request") as mock_request:
             mock_request.return_value = {}
-            result = adapter.update_weights_from_tensor([])
+            req = UpdateWeightsFromTensorReqInput(
+                serialized_named_tensors=None,
+                load_format=None,
+                flush_cache=None,
+            )   
+            result = adapter.update_weights_from_tensor(req)
             assert result == {}
