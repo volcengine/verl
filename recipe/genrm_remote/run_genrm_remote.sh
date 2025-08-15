@@ -1,12 +1,12 @@
 # vllm server
-# CUDA_VISIBLE_DEVICES=0 vllm serve verl-team/GenRM-CI-Test-1.5B --served_model_name genrm-demo
+# CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen2.5-7B-Instruct --served_model_name genrm-demo
 
 set -x
 
 CUDA_VISIBLE_DEVICES=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=${HOME}/data/gsm8k/train.parquet \
-    data.val_files=${HOME}/data/gsm8k/test.parquet \
+    data.train_files=${HOME}/data/docleaderboard-queries/train.parquet \
+    data.val_files=${HOME}/data/docleaderboard-queries/test.parquet \
     data.train_batch_size=1024 \
     data.max_prompt_length=1024 \
     data.max_response_length=2048 \

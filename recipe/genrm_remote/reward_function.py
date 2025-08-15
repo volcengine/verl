@@ -26,23 +26,23 @@ BASE_DELAY = 2
 MAX_WORKERS = 32
 MODEL_NAME = "genrm-demo"
 GENRM_PROMPT_TEMPLATE = """
-The following is a math problem and an AI solution:
+The following is a raw search query and a reformulated search query:
 
-[Math Problem]
+[Raw Search Query]
 
 {problem}
 
-[AI Solution]
+[Reformulated Search Query]
 
 {solution}
 
-Your task is to review and critique the solution step by step, and output whether the AI solution is correct.
+Your task is to review and output whether the reformulated search query is more likely to lead to a relevant result to the raw search query.
 
 Please put your final answer (i.e., 'True' or 'False') in \\boxed{{}}.
 """.strip()
 
 
-def get_response(problem, solution_str, ground_truth):
+def get_response(problem, solution_str):
     prompt = GENRM_PROMPT_TEMPLATE.format(problem=problem, solution=solution_str)
     messages = [{"role": "user", "content": prompt}]
     for attempt in range(MAX_RETRIES):
@@ -77,17 +77,21 @@ def compute_reward(response):
     return reward_score
 
 
-def compute_score(data_source, solution_str, ground_truth, extra_info):
+def compute_score(data_source, solution_str, extra_info):
     split = extra_info["split"]
-    from verl.utils.reward_score import default_compute_score
-
-    func_rm_score = default_compute_score(data_source, solution_str, ground_truth, extra_info)
 
     if split == "test":
-        return func_rm_score
+        problem = extra_info["question"]
+        response = get_response(problem, solution_str)
+        if response is not None:
+            reward_score = compute_reward(response)
+        else:
+            reward_score = 0.0
+
+        return reward_score
     else:
         problem = extra_info["question"]
-        response = get_response(problem, solution_str, ground_truth)
+        response = get_response(problem, solution_str)
         if response is not None:
             reward_score = compute_reward(response)
         else:
@@ -99,10 +103,10 @@ def compute_score(data_source, solution_str, ground_truth, extra_info):
 def compute_score_batch(data_sources, solution_strs, ground_truths, extra_infos):
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = []
-        for data_source, solution_str, ground_truth, extra_info in zip(
-            data_sources, solution_strs, ground_truths, extra_infos, strict=True
+        for data_source, solution_str, extra_info in zip(
+            data_sources, solution_strs, extra_infos, strict=True
         ):
-            future = executor.submit(compute_score, data_source, solution_str, ground_truth, extra_info)
+            future = executor.submit(compute_score, data_source, solution_str, extra_info)
             futures.append(future)
 
         results = [future.result() for future in futures]
