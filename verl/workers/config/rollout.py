@@ -198,6 +198,9 @@ class RolloutConfig(BaseConfig):
 
     skip_tokenizer_init: bool = False
 
+    quantization: Optional[str] = None
+    quantization_config_file: Optional[str] = None
+
     def __post_init__(self):
         """Validate the rollout config"""
         if self.expert_parallel_size > 1:
