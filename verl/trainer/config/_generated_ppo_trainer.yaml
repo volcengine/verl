@@ -423,6 +423,7 @@ global_profiler:
         capture-range: cudaProfilerApi
         capture-range-end: null
         kill: none
-ray_init:
-  num_cpus: null
+ray_kwargs:
+  ray_init:
+    num_cpus: null
   timeline_json_file: null

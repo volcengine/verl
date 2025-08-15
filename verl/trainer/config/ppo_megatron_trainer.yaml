@@ -165,6 +165,7 @@ global_profiler:
         # Send signal to the target application's process group. We let the program to exit by itself.
         kill: none
 
-ray_init:
-  num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
+ray_kwargs:
+  ray_init:
+    num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
   timeline_json_file: null
