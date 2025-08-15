@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
 from concurrent.futures import ThreadPoolExecutor
 from time import sleep
 
@@ -79,6 +80,9 @@ def compute_reward(response):
 
 def compute_score(data_source, solution_str, extra_info):
     split = extra_info["split"]
+
+    # todo -- add real search here to get the results, then we can calculate relevance.
+    solution_str = (re.search(r"####\s*(.*)", solution_str) or [None, None])[1]
 
     if split == "test":
         problem = extra_info["question"]

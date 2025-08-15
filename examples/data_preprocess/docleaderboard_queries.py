@@ -67,7 +67,14 @@ if __name__ == "__main__":
         query_text = query_item["query_text"]
 
         # Create prompt with instruction
-        prompt = f"Given the following query {query_text}, please reason about the query and reformulate it to be a shorter and more explicit query that is more likely to lead to a relevant result."
+        prompt = f'''
+        Given the following query "{query_text}", please return a concise and explicit phrase that is more likely to lead to a relevant result.
+        Put your answer in a single line after ####.
+
+        For example, if the input query is "What is the capital of France?", the output query should be:
+
+         #### Paris 
+         '''.strip()
 
         data = {
             "data_source": data_source,
