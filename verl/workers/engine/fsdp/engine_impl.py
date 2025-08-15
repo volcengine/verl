@@ -209,19 +209,20 @@ class FSDPEngine(BaseEngine):
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         from transformers import AutoConfig
-        if self.config.model.get("flash_attn_impl", "flash_attn_2") == 'flash_attn3':
-            model_config = AutoConfig.from_pretrained(
-                local_path,
-                attn_implementation="flash_attention_3",
-                trust_remote_code=config.model.get("trust_remote_code", False),
-            )
-        else:
-            model_config = AutoConfig.from_pretrained(
-                local_path,
-                attn_implementation="flash_attention_2",
-                trust_remote_code=config.model.get("trust_remote_code", False),
-            )
-                        
+
+        # Derive attention implementation string once, prefer override_config.attention
+        attn_impl = override_config_kwargs.get("attention")
+        if attn_impl is None:
+            flash_impl = self.config.model.get("flash_attn_impl", None)
+            if flash_impl is not None:
+                attn_impl = "flash_attention_3" if flash_impl == "flash_attn3" else "flash_attention_2"
+
+        model_config = AutoConfig.from_pretrained(
+            local_path,
+            attn_implementation=attn_impl,
+            trust_remote_code=config.model.get("trust_remote_code", False), 
+        )
+        
         model_config.num_labels = 1
         # patch for kimi-vl
         if getattr(model_config, "model_type", None) == "kimi_vl":

@@ -283,16 +283,17 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         else:
             torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
-        if self.config.model.get("flash_attn_impl", "flash_attn_2") == 'flash_attn3':
-            # override model kwargs
-            actor_model_config = AutoConfig.from_pretrained(
-                local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_3"
-            )
-        else:
-            # override model kwargs
-            actor_model_config = AutoConfig.from_pretrained(
-                local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
-            )            
+        # Determine attention implementation from override_config.attention or legacy flash_attn_impl
+        attn_impl = override_model_config.get("attention") if isinstance(override_model_config, dict) else None
+        if attn_impl is None:
+            flash_impl = self.config.model.get("flash_attn_impl", None)
+            if flash_impl is not None:
+                attn_impl = "flash_attention_3" if flash_impl == "flash_attn3" else "flash_attention_2"
+        
+        # Load base config
+        actor_model_config = AutoConfig.from_pretrained(
+            local_path, trust_remote_code=trust_remote_code, attn_implementation=attn_impl
+        )
 
         # patch for kimi-vl
         if getattr(actor_model_config, "model_type", None) == "kimi_vl":
@@ -1089,19 +1090,19 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         from transformers import AutoConfig
         
-        if self.config.model.get("flash_attn_impl", "flash_attn_2") == 'flash_attn3':
-            critic_model_config = AutoConfig.from_pretrained(
-                local_path,
-                attn_implementation="flash_attention_3",
-                trust_remote_code=config.model.get("trust_remote_code", False),
-            )
-        else:
-            critic_model_config = AutoConfig.from_pretrained(
-                local_path,
-                attn_implementation="flash_attention_2",
-                trust_remote_code=config.model.get("trust_remote_code", False),
-            )            
-            
+        # Determine attention implementation for critic (prefer override_config.attention)
+        critic_attn_impl = override_config_kwargs.get("attention")
+        if critic_attn_impl is None:
+            flash_impl = self.config.model.get("flash_attn_impl", None)
+            if flash_impl is not None:
+                critic_attn_impl = "flash_attention_3" if flash_impl == "flash_attn3" else "flash_attention_2"
+        
+        critic_model_config = AutoConfig.from_pretrained(
+            local_path,
+			attn_implementation=critic_attn_impl,
+            trust_remote_code=config.model.get("trust_remote_code", False),
+        )
+        
         critic_model_config.num_labels = 1
         # patch for kimi-vl
         if getattr(critic_model_config, "model_type", None) == "kimi_vl":
@@ -1480,11 +1481,20 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             model_config.classifier_dropout = 0.0
+            # Determine reward model attention implementation (prefer override_config.attention)
+            rm_override_config = OmegaConf.to_container(
+                OmegaConf.create(self.config.model.get("override_config", {}))
+            )
+            rm_attn_impl = rm_override_config.get("attention") if isinstance(rm_override_config, dict) else None
+            if rm_attn_impl is None:
+                flash_impl = self.config.model.get("flash_attn_impl", None)
+                if flash_impl is not None:
+                    rm_attn_impl = "flash_attention_3" if flash_impl == "flash_attn3" else "flash_attention_2"
             reward_module = AutoModelForTokenClassification.from_pretrained(
                 pretrained_model_name_or_path=local_path,
                 config=model_config,
                 torch_dtype=torch.bfloat16,
-                attn_implementation="flash_attention_2",
+                attn_implementation=rm_attn_impl,
                 trust_remote_code=trust_remote_code,
             )
 
