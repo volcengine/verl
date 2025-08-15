@@ -24,6 +24,7 @@ from pprint import pprint
 import numpy as np
 import torch
 from tqdm import tqdm
+import os
 
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss
@@ -107,7 +108,6 @@ class RayDAPOTrainer(RayPPOTrainer):
         batch = None
         num_prompt_in_batch = 0
         num_gen_batches = 0
-        skipped_save_checkpoint = False # In the last generation step, the batch might not be fully filled due to the filter group, resulting in the save checkpoint logic for the final step being skipped.
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 metrics = {}
@@ -254,8 +254,6 @@ class RayDAPOTrainer(RayPPOTrainer):
                                 progress_bar.update(1)
                                 self.gen_steps += 1
                                 is_last_step = self.gen_steps >= self.total_training_steps
-                                if is_last_step:
-                                    skipped_save_checkpoint = True
                                 continue
                             else:
                                 raise ValueError(
@@ -390,7 +388,9 @@ class RayDAPOTrainer(RayPPOTrainer):
                 progress_bar.update(1)
                 self.global_steps += 1
                 self.gen_steps += 1
-        if skipped_save_checkpoint:
+        # check if last step checkpint exists
+        checkpoint_dir = os.path.join(self.config.trainer.default_local_dir, f"global_step_{self.global_steps}")
+        if not os.path.exists(checkpoint_dir):
             # save last step checkpoint
             timing_raw = defaultdict(float)
             with marked_timer("save_checkpoint", timing_raw, "green"):
