@@ -25,7 +25,16 @@ from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 
 
 def test_agent_loop_compute_score():
-    ray.init()
+    ray.init(
+        runtime_env={
+            "env_vars": {
+                "TOKENIZERS_PARALLELISM": "true",
+                "NCCL_DEBUG": "WARN",
+                "VLLM_LOGGING_LEVEL": "INFO",
+                "VLLM_USE_V1": "1",
+            }
+        }
+    )
 
     with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
         config = compose("ppo_trainer")
