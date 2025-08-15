@@ -1746,6 +1746,6 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def sleep(self):
-        await self.rollout_worker.sleep
+        await self.rollout_worker.sleep()
         # return something to block the caller
         return True
