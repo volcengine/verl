@@ -2,11 +2,11 @@ import torch
 from query_utils import create_advanced_query_understanding_prompt
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-query_text = "what is a famous travel destination in France?"
+query_text = "How to spend a good weekend at UC Berkeley?"
 
 model_path = (
     "checkpoints/verl_func_rm_example_gsm8k/qwen2_5_0_5b_gen_rm_docleaderboard/"
-    "global_step_20/actor/huggingface"
+    "global_step_40/actor/huggingface"
 )
 
 # Load tokenizer and model
