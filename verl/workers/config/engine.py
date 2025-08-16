@@ -92,6 +92,7 @@ class FSDPEngineConfig(BaseConfig):
         forward_prefetch (bool): Whether to prefetch parameters for next forward pass, default False
         model_dtype (str): Model data type used to initialize the transformers model. default "fp32"
         use_orig_params (bool): Whether to use original parameters when initialize FSDP1, default False
+        mixed_precision (Optional[dict[str, Any]]): Mixed precision configuration for FSDP, default None
     """
 
     wrap_policy: dict[str, Any] = field(default_factory=dict)
@@ -103,3 +104,4 @@ class FSDPEngineConfig(BaseConfig):
     forward_prefetch: bool = False
     model_dtype: str = "fp32"
     use_orig_params: bool = False
+    mixed_precision: Optional[dict[str, Any]] = None
