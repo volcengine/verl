@@ -218,6 +218,14 @@ class FSDPSFTTrainer:
         # load config first
         config = AutoConfig.from_pretrained(local_model_path, trust_remote_code=trust_remote_code)
         self.model_config = config
+        # Determine attention implementation from override_config.attention or legacy flash_attn_impl
+        override_cfg = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
+        attn_impl = None
+        if isinstance(override_cfg, dict):
+            attn_impl = override_cfg.get("attention")
+        if attn_impl is None:
+            flash_impl = self.config.model.get("flash_attn_impl", None)
+            attn_impl = "flash_attention_3" if flash_impl == "flash_attn3" else "flash_attention_2"
         if hasattr(self.model_config, "max_position_embeddings"):
             self.model_config.max_position_embeddings = max(
                 self.model_config.max_position_embeddings, self.config.data.max_length
@@ -235,7 +243,7 @@ class FSDPSFTTrainer:
                 local_model_path,
                 config=config,
                 torch_dtype=torch_dtype,
-                attn_implementation="flash_attention_2",
+                attn_implementation=attn_impl,
                 trust_remote_code=trust_remote_code,
             )
 
