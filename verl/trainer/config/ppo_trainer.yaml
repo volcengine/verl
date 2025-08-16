@@ -212,6 +212,12 @@ trainer:
   # Save frequency (by iteration) for model checkpoints
   save_freq: -1
 
+  # Save frequency (by epoch) for model checkpoints
+  save_after_epochs: -1
+
+  # Save model checkpoints only when validation metric improves
+  save_best_val_metric: None
+
   # ESI refers to the elastic server instance used during training, similar to the training plan. For example,
   # if you purchase 10 hours of computing power, the ESI will automatically shut down after 10 hours of training.
   # To ensure a checkpoint is saved before ESI shuts down, the system will start saving a checkpoint in advance.
