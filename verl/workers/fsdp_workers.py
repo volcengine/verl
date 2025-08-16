@@ -285,7 +285,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # override model kwargs
         actor_model_config = AutoConfig.from_pretrained(
-            local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+            local_path, trust_remote_code=trust_remote_code, #attn_implementation="kernels-community/vllm-flash-attn3"
         )
 
         # patch for kimi-vl
@@ -771,10 +771,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         meta_info = {
             "eos_token_id": self.generation_config.eos_token_id
-            if self.generation_config is not None
+            if self.generation_config is not None and self.generation_config.eos_token_id
             else self.tokenizer.eos_token_id,
             "pad_token_id": self.generation_config.pad_token_id
-            if self.generation_config is not None
+            if self.generation_config is not None and self.generation_config.pad_token_id
             else self.tokenizer.pad_token_id,
         }
         prompts.meta_info.update(meta_info)
