@@ -103,7 +103,7 @@ async def _read_async_response(resp: aiohttp.ClientResponse) -> Dict[str, Any]:
             "text": text,
         }
 
-def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIMEOUT, max_wait_time = DEFAULT_MAX_WAIT_TIME, first_rank_in_node = True) -> multiprocessing.Process:
+def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIMEOUT, max_wait_time = DEFAULT_MAX_WAIT_TIME, first_rank_in_node = False) -> multiprocessing.Process:
     """Launch an SGLang HTTP server process and wait for it to be ready.
 
     This function starts a new process running an SGLang HTTP server, then waits
@@ -130,11 +130,11 @@ def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIME
         other processes have no actual effect.
     """
     p = multiprocessing.Process(target=launch_server, args=(server_args,))
-    p.start()
-
     if server_args.node_rank != 0 or not first_rank_in_node:
         print(f"Server process started with PID {p.pid} for node rank {server_args.node_rank}", flush=True)
         return p
+
+    p.start()
 
     base_url = server_args.url()
     headers = {
@@ -245,7 +245,7 @@ class HttpServerAdapter(EngineBase):
         self.node_rank: int = self.server_args.node_rank
         self.max_start_wait_time: float = max_start_wait_time
 
-        logger.info(f"Launch HttpServerAdapter at: {self.server_args.host}:{self.server_args.port}")
+        logger.info(f"Launch HttpServerAdapter at: {self.server_args.host}:{self.server_args.port} with {first_rank_in_node}")
         self.process: multiprocessing.Process = launch_server_process(self.server_args, self.timeout, self.max_start_wait_time, first_rank_in_node)
 
 

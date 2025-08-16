@@ -478,7 +478,7 @@ class SGLangRollout(BaseRollout):
                 # add server specific args
                 args['first_rank_in_node'] = first_rank_in_node
                 args['timeout'] = self.config.server.timeout
-                args['max_retries'] = self.config.server.max_retries
+                args['max_attempts'] = self.config.server.max_retries
                 args['retry_delay'] = self.config.server.retry_delay
                 args['max_connections'] = self.config.server.max_connections
                 args['max_start_wait_time'] = self.config.server.max_start_wait_time

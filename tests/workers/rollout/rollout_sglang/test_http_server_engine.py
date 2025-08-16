@@ -67,10 +67,11 @@ class TestLaunchServerProcess:
             "verl.workers.rollout.sglang_rollout.http_server_engine.multiprocessing.Process"
         ) as mock_process_class:
             mock_process_class.return_value = mock_multiprocessing_process
-            result = launch_server_process(server_args)
+            result = launch_server_process(server_args, first_rank_in_node=True)
 
             assert result == mock_multiprocessing_process
-            mock_multiprocessing_process.start.assert_called_once()
+            mock_multiprocessing_process.start.assert_not_called()
+
 
     def test_launch_server_process_timeout(self, mock_multiprocessing_process, real_adapter_kwargs):
         """Test timeout during server health check."""
@@ -93,7 +94,7 @@ class TestLaunchServerProcess:
                 side_effect=itertools.chain([0], itertools.repeat(400))  # 第一次返回0，之后一直返回400
             ):
                 with pytest.raises(TimeoutError):
-                    launch_server_process(server_args)
+                    launch_server_process(server_args, first_rank_in_node=True)
 
                 mock_multiprocessing_process.terminate.assert_called_once()
 
@@ -111,7 +112,7 @@ class TestLaunchServerProcess:
             mock_process_class.return_value = mock_process
 
             with pytest.raises(RuntimeError, match="Server process terminated unexpectedly"):
-                launch_server_process(server_args)
+                launch_server_process(server_args, first_rank_in_node=True)
 
 
 @pytest.fixture
