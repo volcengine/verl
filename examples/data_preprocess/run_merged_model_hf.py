@@ -1,19 +1,13 @@
 import torch
+from query_utils import create_advanced_query_understanding_prompt
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# Example prompt
-query_text = "what is the capital of France?"
+query_text = "what is a famous travel destination in France?"
 
-prompt = f'''
-Given the following query "{query_text}", please return a concise and explicit phrase that is more likely to lead to a relevant result.
-Put your answer in a single line after ####.
-
-For example, if the input query is "What is the capital of France?", the output query should be:
-
-#### Paris 
-'''.strip()
-
-model_path = "checkpoints/verl_func_rm_example_gsm8k/qwen2_5_0_5b_gen_rm_docleaderboard/global_step_20/actor/huggingface"
+model_path = (
+    "checkpoints/verl_func_rm_example_gsm8k/qwen2_5_0_5b_gen_rm_docleaderboard/"
+    "global_step_20/actor/huggingface"
+)
 
 # Load tokenizer and model
 tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -27,7 +21,7 @@ messages = [
         "role": "system",
         "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.",
     },
-    {"role": "user", "content": prompt},
+    {"role": "user", "content": create_advanced_query_understanding_prompt(query_text)},
 ]
 
 # Apply chat template (this is what you were missing!)

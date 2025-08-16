@@ -20,17 +20,18 @@ import csv
 import os
 
 import datasets
+from query_utils import create_advanced_query_understanding_prompt
 
 
 def load_queries_from_tsv(file_path):
     """Load queries from TSV file and return as list of dictionaries."""
-    queries = []
+    query_list = []
     with open(file_path, encoding="utf-8") as f:
         reader = csv.reader(f, delimiter="\t")
         for row in reader:
             if len(row) >= 2:
-                queries.append({"query_text": row[1]})
-    return queries
+                query_list.append({"query_text": row[1]})
+    return query_list
 
 
 if __name__ == "__main__":
@@ -67,14 +68,7 @@ if __name__ == "__main__":
         query_text = query_item["query_text"]
 
         # Create prompt with instruction
-        prompt = f'''
-        Given the following query "{query_text}", please return a short answer to the query.
-        Put your answer in a single line after ####.
-
-        For example, if the input query is "What is the capital of France?", the output should be:
-
-         #### Paris 
-         '''.strip()
+        prompt = create_advanced_query_understanding_prompt(query_text)
 
         data = {
             "data_source": data_source,
