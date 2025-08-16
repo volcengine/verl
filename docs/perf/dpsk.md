@@ -59,7 +59,7 @@ Here are some benchmark results for DeepSeek / Qwen3-235B. All configurations ma
 
 | model | num gpus | mean response length | rollout time(s) | GPU memory(GB) | CPU memory(GB) | mfu | step time(s) |
 | -- | -- | -- | -- | -- | -- | -- | -- |
-| DeepSeek 671b | 96 | 1960 | 1050 | 0.9 | 1500 | 0.19 | 1700 |
+| DeepSeek 671b | 96 | 1960 | 1050 | 66 | 1500 | 0.19 | 1700 |
 
 ## Upcoming Optimizations
 
