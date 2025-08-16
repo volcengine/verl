@@ -50,5 +50,8 @@ Query: "what is used to make bread rise" → "Yeast"
 
 Now process this query: "{query_text}"
 
-#### [Your answer]:'''
+Provide your response in the following JSON format:
+{{"answer": "your specific answer here"}}
+
+JSON Response:'''
     return prompt.strip()

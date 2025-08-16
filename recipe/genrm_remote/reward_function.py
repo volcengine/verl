@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 from time import sleep
@@ -19,6 +20,28 @@ from time import sleep
 import requests
 
 from verl.utils.reward_score.math import last_boxed_only_string, remove_boxed
+
+
+def extract_answer_from_json(solution_str):
+    """Extract answer from JSON format response.
+
+    Args:
+        solution_str (str): The model's response containing JSON
+
+    Returns:
+        str: The extracted answer, or empty string if parsing fails
+    """
+    try:
+        # Try to find and parse JSON in the response
+        json_match = re.search(r'\{.*?"answer".*?\}', solution_str, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(0)
+            parsed = json.loads(json_str)
+            return parsed.get("answer", "").strip()
+        return ""
+    except (json.JSONDecodeError, AttributeError):
+        return ""
+
 
 BASE_URL = "http://0.0.0.0:8000"
 API_KEY = "EMPTY"
@@ -104,7 +127,7 @@ def compute_score(data_source, solution_str, extra_info):
     split = extra_info["split"]
 
     # todo -- add real search here to get the results, then we can calculate relevance.
-    solution_str = (re.search(r"####\s*(.*)", solution_str) or [None, None])[1]
+    solution_str = extract_answer_from_json(solution_str)
 
     if split == "test":
         problem = extra_info["question"]
