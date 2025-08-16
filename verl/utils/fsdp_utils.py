@@ -17,6 +17,7 @@ import itertools
 import json
 import math
 import os
+from abc import ABC
 from collections import OrderedDict
 from contextlib import contextmanager, nullcontext
 
@@ -35,10 +36,14 @@ from verl.utils.device import get_device_id, get_device_name, get_torch_device
 if version.parse(torch.__version__) >= version.parse("2.6"):
     from torch.distributed.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard
     from torch.distributed.tensor import Shard
+
+    fully_shard_module = torch.distributed.fsdp._fully_shard._fully_shard
 elif version.parse(torch.__version__) >= version.parse("2.4"):
     from torch.distributed._composable.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard
+
+    fully_shard_module = torch.distributed._composable.fsdp.fully_shard
 else:
-    fully_shard, MixedPrecisionPolicy, FSDPModule, CPUOffloadPolicy = None, None, None, None
+    fully_shard, MixedPrecisionPolicy, FSDPModule, CPUOffloadPolicy, fully_shard_module = None, None, None, None, None
 
 
 def init_fn(x: torch.nn.Module):
@@ -479,6 +484,25 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
             buf.data = buf.data.to(get_device_id())
 
 
+@contextmanager
+def maybe_patch_fsdp_module(model):
+    if fully_shard_module is None:
+        yield
+        return
+
+    orig_fsdp_module = fully_shard_module.FSDPModule
+
+    class FSDPModuleABC(ABC, orig_fsdp_module):
+        pass
+
+    try:
+        if isinstance(model, ABC):
+            fully_shard_module.FSDPModule = FSDPModuleABC
+        yield
+    finally:
+        fully_shard_module.FSDPModule = orig_fsdp_module
+
+
 def apply_fsdp2(model, fsdp_kwargs, config):
     """model: AutoModelForCausalLM"""
     assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
@@ -503,11 +527,13 @@ def apply_fsdp2(model, fsdp_kwargs, config):
     for idx, module in enumerate(modules):
         # if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
         #     print(f"wrap module {module.__class__.__name__}")
-        fully_shard(module, **fsdp_kwargs)
+        with maybe_patch_fsdp_module(module):
+            fully_shard(module, **fsdp_kwargs)
 
     # if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
     #     print(f"wrap module {model.__class__.__name__}")
-    fully_shard(model, **fsdp_kwargs)  # fsdp2 will not reshard_after_forward for root module
+    with maybe_patch_fsdp_module(model):
+        fully_shard(model, **fsdp_kwargs)  # fsdp2 will not reshard_after_forward for root module
 
 
 def get_shard_placement_fn(fsdp_size):
