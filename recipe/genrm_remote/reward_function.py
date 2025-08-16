@@ -50,6 +50,16 @@ BASE_DELAY = 2
 MAX_WORKERS = 32
 MODEL_NAME = "genrm-demo"
 GENRM_PROMPT_TEMPLATE = """
+The following is a query and an answer:
+
+[Query]
+
+{problem}
+
+[Answer]
+
+{solution}
+
 Your task is to evaluate whether the answer is good based on the following criteria:
 
 Quality Criteria:
