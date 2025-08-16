@@ -67,6 +67,7 @@ actor_rollout_ref:
           contents: []
           level: level1
           analysis: true
+          discrete: false
         torch:
           _target_: verl.utils.profiler.config.TorchProfilerToolConfig
           step_start: 0

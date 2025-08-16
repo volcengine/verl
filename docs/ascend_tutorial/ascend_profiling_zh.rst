@@ -3,7 +3,7 @@ Data collection based on FSDP backend on Ascend devices(zh)
 
 在昇腾设备上基于FSDP后端进行数据采集
 
-Last updated: 07/24/2025.
+Last updated: 08/14/2025.
 
 这是一份在昇腾设备上基于FSDP后端使用GRPO或DAPO算法进行数据采集的教程。
 
@@ -26,7 +26,17 @@ Last updated: 07/24/2025.
    -  steps: 此参数可以设置为包含采集步数的列表，例如 [2, 4]，表示将采集第2步和第4步。如果设置为 null，则不进行采集。
    -  save_path: 保存采集数据的路径。默认值为 "outputs/profile"。
 
-通过 ``global_profiler.global_tool_config.npu`` 中的参数控制具体采集行为：
+角色profiler控制
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+在每个角色的 ``profiler`` 字段中，您可以控制该角色的采集模式。
+
+-  enable: 是否为此角色启用性能分析。
+-  all_ranks: 是否从所有rank收集数据。
+-  ranks: 要收集数据的rank列表。如果为空，则不收集数据。
+-  tool_config: 此角色使用的性能分析工具的配置。
+
+通过每个角色的 ``profiler.tool_config.npu`` 中的参数控制具体采集行为：
 
 -  level: 采集级别—选项有 level_none、level0、level1 和 level2
 
@@ -46,16 +56,7 @@ Last updated: 07/24/2025.
    -  stack: 是否记录算子调用栈信息。
 
 -  analysis: 启用自动数据解析。
-
-角色profile控制
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-在每个角色的 ``profile`` 字段中，您可以控制该角色的采集模式。
-
--  enable: 是否为此角色启用性能分析。
--  all_ranks: 是否从所有rank收集数据。
--  ranks: 要收集数据的rank列表。如果为空，则不收集数据。
--  tool_config: 此角色使用的性能分析工具的配置。
+-  discrete: 使用离散模式。
 
 示例
 ----
@@ -75,12 +76,14 @@ Last updated: 07/24/2025.
 
       global_profiler:
          steps: [1, 2, 5]
-         discrete: False
       actor_rollout_ref:
          actor:
-            profile:
+            profiler:
                enable: True
                all_ranks: True
+               tool_config:
+                  npu:
+                     discrete: False
         # rollout & ref follow actor settings
 
 
@@ -90,7 +93,16 @@ Last updated: 07/24/2025.
 .. code:: yaml
 
       global_profiler:
-         discrete: True
+         steps: [1, 2, 5]
+      actor_rollout_ref:
+         actor:
+            profiler:
+               enable: True
+               all_ranks: True
+               tool_config:
+                  npu:
+                     discrete: True
+        # rollout & ref follow actor settings
 
 
 可视化
