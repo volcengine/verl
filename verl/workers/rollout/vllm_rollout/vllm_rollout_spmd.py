@@ -53,6 +53,7 @@ from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
+from verl.third_party.vllm import VLLM_SLEEP_LEVEL
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
@@ -201,7 +202,7 @@ class vLLMRollout(BaseRollout):
 
         # Offload vllm model to reduce peak memory usage
         if config.free_cache_engine:
-            self.inference_engine.sleep(level=2)
+            self.inference_engine.sleep(level=VLLM_SLEEP_LEVEL)
 
         kwargs = dict(
             n=1,
