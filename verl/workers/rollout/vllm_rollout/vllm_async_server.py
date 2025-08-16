@@ -35,6 +35,7 @@ from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.executor.abstract import Executor
 from vllm.worker.worker_base import WorkerWrapperBase
 
+from verl.third_party.vllm import VLLM_SLEEP_LEVEL
 from verl.utils import hf_processor
 from verl.utils.fs import copy_to_local
 from verl.workers.rollout.async_server import AsyncServerBase
@@ -371,7 +372,7 @@ class AsyncvLLMServer(AsyncServerBase):
         # TODO: https://github.com/vllm-project/vllm/issues/17103
         await self.engine.reset_prefix_cache()
         if self.config.rollout.free_cache_engine:
-            await self.engine.sleep(level=2)
+            await self.engine.sleep(level=VLLM_SLEEP_LEVEL)
 
 
 def _qwen2_5_vl_dedup_image_tokens(prompt_ids: list[int], processor):
