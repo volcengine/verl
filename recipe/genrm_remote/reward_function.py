@@ -27,24 +27,41 @@ BASE_DELAY = 2
 MAX_WORKERS = 32
 MODEL_NAME = "genrm-demo"
 GENRM_PROMPT_TEMPLATE = """
-The following is a search query and an answer:
+Your task is to evaluate whether the answer is good based on the following criteria:
 
-[Search Query]
+Quality Criteria:
+1. RELEVANCE: The answer directly addresses what the query is asking for
+2. SPECIFICITY: The answer is specific and concrete, not generic or vague
+3. CONCISENESS: The answer is brief and to the point (typically 1-5 words)
+4. ACCURACY: For factual queries, the answer should be correct
+5. APPROPRIATENESS: The answer matches the query type and expected response format
 
-{problem}
+Query Type Guidelines:
+- FACTUAL QUERIES: Should provide the direct fact/answer 
+  (e.g., "Paris" for "capital of France")
+- RECOMMENDATION QUERIES: Should give popular/well-known options 
+  (e.g., "Python" for "best first programming language")
+- LOCATION QUERIES: Should provide specific place names 
+  (e.g., "Tokyo" for "good place to visit in Japan")
+- DEFINITION QUERIES: Should provide the specific term or concept 
+  (e.g., "Avocado" for "main ingredient in guacamole")
 
-[Answer]
+Good Answer Examples:
+- Query: "What is the capital of France?" → Answer: "Paris" ✓
+- Query: "What is a famous travel destination in France?" → Answer: "Paris" ✓
+- Query: "What programming language is good for beginners?" → Answer: "Python" ✓
+- Query: "What is the largest ocean?" → Answer: "Pacific Ocean" ✓
 
-{solution}
+Bad Answer Examples:
+- Query: "What is the capital of France?" → Answer: "The capital city of France is a 
+  beautiful place called Paris" ✗ (too verbose)
+- Query: "What is a famous travel destination in France?" → Answer: "There are many 
+  places" ✗ (too vague)
+- Query: "What programming language is good for beginners?" → Answer: "Programming 
+  languages" ✗ (not specific)
 
-Your task is to review and output whether the answer is good by the following criteria:
-- It is the answer to the search query.
-- It is concise and explicit.
-- It is shorter than the search query.
-
-For example, if the search query is "What is the capital of France?", the answer be "Paris".
-
-Please put your final answer (i.e., 'True' or 'False') in \\boxed{{}}.
+Please put your final evaluation (i.e., 'True' for good answer or 'False' for bad answer) 
+in \\boxed{{}}.
 """.strip()
 
 
