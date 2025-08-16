@@ -1096,7 +1096,7 @@ class SGLangRollout(BaseRollout):
             else:
                 # add progress monitoring and abort function
                 total_requests = len(req_list)
-                target_completion = int(total_requests * (1 - self.config.over_sample_rate))
+                target_completion = int(total_requests * (1 - self.config.get("over_sample_rate", 0.0)))
                 # abort when target_completion of requests are completed
 
                 completed_count = 0
