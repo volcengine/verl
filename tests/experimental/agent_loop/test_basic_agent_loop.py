@@ -83,6 +83,8 @@ def test_single_turn(init_config):
         non_tensor_batch={
             "raw_prompt": np.array(raw_prompts),
             "agent_name": np.array(["single_turn_agent"] * len(raw_prompts)),
+            "data_source": np.array(["openai/gsm8k"] * len(raw_prompts)),
+            "reward_model": np.array([{"style": "rule", "ground_truth": "1.0"}] * len(raw_prompts)),
         },
     )
     n = init_config.actor_rollout_ref.rollout.n
@@ -95,6 +97,7 @@ def test_single_turn(init_config):
     assert result.batch["input_ids"].size(1) == seq_len
     assert result.batch["attention_mask"].size(1) == seq_len
     assert result.batch["position_ids"].size(1) == seq_len
+    assert result.batch["rm_scores"].size(1) == result.batch["responses"].size(1)
 
     # check turns
     num_turns = result.non_tensor_batch["__num_turns__"]
@@ -226,6 +229,8 @@ def test_tool_agent(init_config):
         non_tensor_batch={
             "raw_prompt": np.array([np.array(prompt) for prompt in raw_prompts], dtype=object),
             "agent_name": np.array(["tool_agent"] * len(raw_prompts)),
+            "data_source": np.array(["openai/gsm8k"] * len(raw_prompts)),
+            "reward_model": np.array([{"style": "rule", "ground_truth": "1.0"}] * len(raw_prompts)),
         },
     )
     batch = batch.repeat(n)
@@ -248,6 +253,7 @@ def test_tool_agent(init_config):
     responses = result.batch["responses"]
     response_mask = result.batch["response_mask"]
     attention_mask = result.batch["attention_mask"]
+    assert result.batch["rm_scores"].size(1) == responses.size(1)
     assert responses.size() == response_mask.size(), f"{responses.size()} != {response_mask.size()}"
     response_length = response_mask.size(1)
 

@@ -171,6 +171,7 @@ def get_rollout_config(
             },
             "calculate_log_probs": False,
             "max_model_len": None,
+            "over_sample_rate": 0,
             **sampling_params,
         }
     )
