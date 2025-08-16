@@ -24,6 +24,7 @@ from pprint import pprint
 import numpy as np
 import torch
 from tqdm import tqdm
+import os
 
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss
@@ -252,6 +253,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                                 print(f"{num_gen_batches=}. Keep generating...")
                                 progress_bar.update(1)
                                 self.gen_steps += 1
+                                is_last_step = self.gen_steps >= self.total_training_steps
                                 continue
                             else:
                                 raise ValueError(
@@ -386,3 +388,12 @@ class RayDAPOTrainer(RayPPOTrainer):
                 progress_bar.update(1)
                 self.global_steps += 1
                 self.gen_steps += 1
+        # check if last step checkpint exists
+        checkpoint_dir = os.path.join(self.config.trainer.default_local_dir, f"global_step_{self.global_steps}")
+        if not os.path.exists(checkpoint_dir):
+            # save last step checkpoint
+            timing_raw = defaultdict(float)
+            with marked_timer("save_checkpoint", timing_raw, "green"):
+                self._save_checkpoint()
+            metrics = {f"timing/{k}": v for k, v in timing_raw.items()}
+            logger.log(data=metrics, step=self.global_steps)
