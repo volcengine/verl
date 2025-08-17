@@ -78,7 +78,7 @@ class ServerConfig(BaseConfig):
     Configuration for SGLang server when running in server mode
     """
     timeout: float = 60.0
-    max_retries: int = 3
+    max_attempts: int = 3
     retry_delay: float = 2.0
     max_connections: int = 1000
     max_start_wait_time: float = 300.0
