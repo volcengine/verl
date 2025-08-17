@@ -822,7 +822,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         is_lora = data.meta_info.pop("is_lora", False)
         adapter_ctx = self.actor.actor_module.disable_adapter() if is_lora else nullcontext()
-        data = data.to(get_device_id())
         # we should always recompute old_log_probs when it is HybridEngine
         data.meta_info["micro_batch_size"] = self.config.rollout.log_prob_micro_batch_size_per_gpu
         data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
@@ -830,6 +829,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         data.meta_info["temperature"] = self.config.rollout.temperature
         # perform recompute log_prob
         with self.ulysses_sharding_manager:
+            data = data.to("cpu")  # data will to device with each micro batch on actor.compute_log_prob
             with adapter_ctx:
                 output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
             output = DataProto.from_dict(
@@ -863,8 +863,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         assert self._is_ref
         # else:
         # otherwise, the class have a standalone ref model
-        # Support all hardwares
-        data = data.to(get_device_id())
 
         micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
@@ -872,6 +870,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         data.meta_info["max_token_len"] = self.config.ref.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
         with self.ulysses_sharding_manager:
+            data = data.to("cpu")  # data will to device with each micro batch on ref.compute_log_prob
             output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
             output = DataProto.from_dict(tensors={"ref_log_prob": output})
 
@@ -1283,8 +1282,6 @@ class CriticWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="cyan")
     def compute_values(self, data: DataProto):
-        # Support all hardwares
-        data = data.to(get_device_id())
 
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.critic_module)
@@ -1294,6 +1291,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
         # perform forward computation
         with self.ulysses_sharding_manager:
+            data = data.to("cpu")  # data will to device with each micro batch on critic.compute_values
             values = self.critic.compute_values(data=data)
             output = DataProto.from_dict(tensors={"values": values})
 
@@ -1305,8 +1303,7 @@ class CriticWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="pink")
     def update_critic(self, data: DataProto):
-        # Support all hardwares
-        data = data.to(get_device_id())
+        
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.critic_module)
         if self._is_offload_optimizer:
@@ -1314,6 +1311,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         # perform forward computation
         with self.ulysses_sharding_manager:
+            data = data.to("cpu")  # data will to device with each micro batch on critic.update_critic
             with Timer(name="update_critic", logger=None) as timer:
                 metrics = self.critic.update_critic(data=data)
             delta_time = timer.last
