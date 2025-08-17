@@ -72,6 +72,17 @@ class TraceConfig(BaseConfig):
     backend: Optional[str] = None
     token2text: bool = False
 
+@dataclass
+class ServerConfig(BaseConfig):
+    """
+    Configuration for SGLang server when running in server mode
+    """
+    timeout: float = 60.0
+    max_retries: int = 3
+    retry_delay: float = 2.0
+    max_connections: int = 1000
+    max_start_wait_time: float = 300.0
+
 
 @dataclass
 class RolloutConfig(BaseConfig):
@@ -129,6 +140,9 @@ class RolloutConfig(BaseConfig):
 
     multi_turn: MultiTurnConfig = field(default_factory=MultiTurnConfig)
 
+    # Server configuration for sglang server mode
+    server: ServerConfig = field(default_factory=ServerConfig)
+
     update_weights_bucket_megabytes: int = 512
 
     skip_rollout: bool = False
@@ -143,3 +157,5 @@ class RolloutConfig(BaseConfig):
     layered_summon: bool = False
 
     layer_name_map: dict = field(default_factory=dict)
+
+    sglang_engine_mode: str = "local"
