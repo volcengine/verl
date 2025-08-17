@@ -163,7 +163,7 @@ algorithm:
 
     # Maximum number of backfill attempts when collecting diverse responses
     # If set to 0 or negative, allows unlimited backfill attempts (use with caution)
-    max_backfill_attempts: 10
+    max_num_gen_batches: 10
 
   # Whether to normalize advantages by std (specific to GRPO)
   norm_adv_by_std_in_grpo: True
