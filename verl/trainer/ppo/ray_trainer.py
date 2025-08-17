@@ -296,7 +296,7 @@ class RayPPOTrainer:
 
     This trainer orchestrates distributed PPO training across multiple nodes and GPUs,
     managing actor rollouts, critic training, and reward computation with Ray backend.
-    Supports various model architectures including FSDP, Megatron, and vLLM, Sglang integration.
+    Supports various model architectures including FSDP, Megatron, vLLM, and Sglang integration.
     """
 
     # TODO: support each role have individual ray_worker_group_cls,
