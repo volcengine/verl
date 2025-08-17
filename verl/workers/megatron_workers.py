@@ -19,7 +19,7 @@ import datetime
 import logging
 import os
 import time
-from typing import Any
+from typing import Any, Optional
 
 import psutil
 import torch
@@ -55,12 +55,13 @@ from verl.utils.profiler import (
     DistProfiler,
     DistProfilerExtension,
     GPUMemoryLogger,
+    ProfilerConfig,
     log_gpu_memory_usage,
     simple_timer,
 )
-from verl.utils.profiler.performance import reduce_timing
+from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
 from verl.workers.actor.megatron_actor import MegatronPPOActor
-from verl.workers.config import McoreCriticConfig
+from verl.workers.config import McoreCriticConfig, RolloutConfig
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
 
@@ -213,8 +214,31 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
-        profiler_config = omega_conf_to_dataclass(config.get("profiler"))
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=profiler_config))
+        if self._is_actor:
+            omega_profiler_config = config.actor.get("profiler", {})
+        elif self._is_rollout:
+            # NOTE: In colocation mode, rollout config may not take effect (follow the actor config)
+            # This is for extendability in AsyncRL cases
+            omega_profiler_config = config.rollout.get("profiler", {})
+        elif self._is_ref:
+            omega_profiler_config = config.ref.get("profiler", {})
+        else:
+            raise ValueError(
+                f"Invalid role {self.role}, should be one of "
+                "['actor', 'rollout', 'ref', 'actor_rollout', 'actor_rollout_ref']"
+            )
+        # omega_profiler_config is DictConfig
+        # profiler_config is a ProfilerConfig dataclass
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
+        )
 
         # TODO(sgm): Currently, we only support reference model param offload
         # will support other offload later
@@ -356,6 +380,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             "qkv_layer_name": "self_attention.linear_qkv.",
             "gate_proj_layer_name": "linear_fc1.",
         }
+
+        rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
+
         if self.config.rollout.name == "vllm":
             from torch.distributed.device_mesh import init_device_mesh
 
@@ -381,7 +408,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
             rollout = vllm_rollout_cls(
                 model_path=local_path,
-                config=self.config.rollout,
+                config=rollout_config,
                 tokenizer=self.tokenizer,
                 model_hf_config=self.actor_model_config,
                 device_mesh=rollout_device_mesh,
@@ -442,7 +469,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=None)
             rollout = SGLangRollout(
                 actor_module=local_path,
-                config=self.config.rollout,
+                config=rollout_config,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
                 model_hf_config=self.actor_model_config,
                 trust_remote_code=trust_remote_code,
@@ -596,7 +623,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         if self._is_offload_optimizer:
             load_megatron_optimizer(self.actor_optimizer)
             log_gpu_memory_usage("After load actor optimizer during update_actor", logger=logger)
-        data.batch = data.batch.to(get_device_name())
 
         micro_batch_size = self.config.actor.ppo_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
@@ -657,7 +683,17 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         timing_generate.update(self.sharding_manager.timing)
         # We calculate the average timing across all ranks
         # to make sure meta_info["timing"] is the same
+        timing_generate_topk_ratio, timing_generate_min, timing_generate_max = topk_reduce_ratio_min_max(
+            timing_generate["generate_sequences"]
+        )
         timing_generate = reduce_timing(timing_generate)
+        timing_generate.update(
+            {
+                "generation_timing/max": timing_generate_max,
+                "generation_timing/min": timing_generate_min,
+                "generation_timing/topk_ratio": timing_generate_topk_ratio,
+            }
+        )
         output.meta_info["timing"] = timing_generate
         output = output.to("cpu")
         # clear kv cache
@@ -677,7 +713,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         data.meta_info["max_token_len"] = self.config.ref.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
-        data = data.to(get_device_id())
         output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
         output = DataProto.from_dict(tensors={"ref_log_prob": output})
         output = output.to("cpu")
@@ -700,7 +735,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
-        data = data.to(get_device_id())
         output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
         output = DataProto.from_dict(
             tensors={"old_log_probs": output, "entropys": entropys},
@@ -782,8 +816,14 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         return ret
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
-    async def generate(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str) -> list[int]:
-        ret = await self.rollout.generate(prompt_ids, sampling_params, request_id)
+    async def generate(
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
+    ) -> list[int]:
+        ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
@@ -804,7 +844,18 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 class CriticWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config: McoreCriticConfig):
         Worker.__init__(self)
-        DistProfilerExtension.__init__(self, DistProfiler(rank=self.rank, config=config.get("profiler")))
+
+        omega_profiler_config = config.get("profiler", {})
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
+        )
         self.config: McoreCriticConfig = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -1072,8 +1123,19 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
 
     def __init__(self, config):
         Worker.__init__(self)
+
+        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), dataclass_type=ProfilerConfig)
+        omega_profiler_config = config.get("profiler", {})
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
         DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=omega_conf_to_dataclass(config.get("profiler")))
+            self,
+            DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config),
         )
         self.config = config
 

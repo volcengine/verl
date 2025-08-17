@@ -70,6 +70,10 @@ def get_device_flops(unit="T"):
     if "CPU" in device_name:
         # use a general CPU flops placeholder to make the function CPU compatible
         flops = 448e9
+    elif "GB200" in device_name:
+        flops = 2.5e15
+    elif "B200" in device_name:
+        flops = 2.25e15
     elif "MI300X" in device_name:
         flops = 1336e12
     elif "H100" in device_name or "H800" in device_name or "H200" in device_name:
@@ -83,6 +87,8 @@ def get_device_flops(unit="T"):
     elif "H20" in device_name:
         flops = 148e12
     elif "910B" in device_name:
+        flops = 354e12
+    elif "Ascend910" in device_name:
         flops = 354e12
     elif "RTX 3070 Ti" in device_name:
         flops = 21.75e12

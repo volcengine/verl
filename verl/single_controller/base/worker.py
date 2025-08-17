@@ -17,6 +17,7 @@ the class for Worker
 
 import os
 import socket
+import warnings
 from dataclasses import dataclass
 
 import ray
@@ -57,6 +58,13 @@ class WorkerHelper:
             return sock.getsockname()[1]
 
     def get_availale_master_addr_port(self):
+        warnings.warn(
+            "This function is deprecated due to typo in name; Please use `get_available_master_addr_port` instead",
+            stacklevel=2,
+        )
+        return self.get_available_master_addr_port()
+
+    def get_available_master_addr_port(self):
         return self._get_node_ip().strip("[]"), str(self._get_free_port())
 
 
@@ -70,24 +78,6 @@ class Worker(WorkerHelper):
     """
 
     fused_worker_attr_name = "fused_worker_dict"
-
-    def __new__(cls, *args, **kwargs):
-        """Create a new Worker instance with proper initialization based on environment settings."""
-        instance = super().__new__(cls)
-
-        # note that here we use int to distinguish
-        disable_worker_init = int(os.environ.get("DISABLE_WORKER_INIT", 0))
-        if disable_worker_init:
-            return instance
-
-        rank = os.environ.get("RANK", None)
-        worker_group_prefix = os.environ.get("WG_PREFIX", None)
-
-        # when decorator @ray.remote applies, __new__ will be called while we don't want to apply _configure_before_init
-        if None not in [rank, worker_group_prefix] and "ActorClass(" not in cls.__name__:
-            instance._configure_before_init(f"{worker_group_prefix}_register_center", int(rank))
-
-        return instance
 
     def _register_dispatch_collect_info(self, mesh_name: str, dp_rank: int, is_collect: bool):
         """Register the dp_rank for a given mesh name. This function is meant to be called by the worker
@@ -135,38 +125,6 @@ class Worker(WorkerHelper):
         """
         assert mesh_name in self.__collect_dp_rank, f"{mesh_name} is not registered in {self.__class__.__name__}"
         return self.__collect_dp_rank[mesh_name]
-
-    def _configure_before_init(self, register_center_name: str, rank: int):
-        """Configure worker settings before initialization.
-
-        Args:
-            register_center_name (str):
-                Name of the register center Ray actor for worker coordination
-            rank (int):
-                Rank of the worker in the distributed setup
-        """
-        assert isinstance(rank, int), f"rank must be int, instead of {type(rank)}"
-
-        if rank == 0:
-            master_addr, master_port = self.get_availale_master_addr_port()
-            rank_zero_info = {
-                "MASTER_ADDR": master_addr,
-                "MASTER_PORT": master_port,
-            }
-
-            if os.getenv("WG_BACKEND", None) == "ray":
-                from verl.single_controller.base.register_center.ray import create_worker_group_register_center
-
-                self.register_center = create_worker_group_register_center(
-                    name=register_center_name, info=rank_zero_info
-                )
-
-            os.environ.update(rank_zero_info)
-        else:
-            self.register_center = ray.get_actor(register_center_name)
-
-        # set worker info for node affinity scheduling
-        ray.get(self.register_center.set_worker_info.remote(rank, ray.get_runtime_context().get_node_id()))
 
     @classmethod
     def env_keys(cls):

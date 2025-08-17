@@ -4,8 +4,6 @@ defaults:
   # <folder_name>@<field_name>.<field_name>: <yaml_file_name>
   # actor_rollout_ref.actor: trainer/config/actor/megatron_actor.yaml
   - actor@actor_rollout_ref.actor: megatron_actor
-  # trainer.npu_profile: trainer/config/npu_profile/npu_profile.yaml
-  - npu_profile@trainer.npu_profile: npu_profile
   # data: trainer/config/data/legacy_data.yaml
   - data@data: legacy_data
   # load the reference default config, then apply the fields in the current yaml
@@ -57,12 +55,6 @@ actor_rollout_ref:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up
 
-  profiler:
-    _target_: verl.utils.profiler.ProfilerConfig
-    discrete: False
-    all_ranks: False
-    ranks: []
-
 custom_reward_function:
   path: null
   name: compute_score
@@ -92,8 +84,6 @@ trainer:
   balance_batch: True
   total_epochs: 30
   total_training_steps: null
-  profile_steps: null # [1,2,5] or [] or null
-  profile_continuous_steps: False
   project_name: verl_examples
   experiment_name: gsm8k
   logger: ['console', 'wandb']
@@ -117,18 +107,65 @@ trainer:
   # The timeout for ray worker group to wait for the register center to be ready
   ray_wait_register_center_timeout: 300
   device: cuda
-  # see ppo_trainer.yaml for more details
-  controller_nsight_options:
-    trace: "cuda,nvtx,cublas,ucx"
-    cuda-memory-usage: "true"
-    cuda-graph-trace: "graph"
-  worker_nsight_options:
-    trace: "cuda,nvtx,cublas,ucx"
-    cuda-memory-usage: "true"
-    cuda-graph-trace: "graph"
-    capture-range: "cudaProfilerApi"
-    capture-range-end: null
-    kill: none
-ray_init:
-  num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
+  # Directory for logging rollout data; no dump if null
+  rollout_data_dir: null
+
+global_profiler:
+  _target_: verl.utils.profiler.ProfilerConfig
+  tool: null  # choose between nsys, npu, torch
+  steps: null   # profile steps
+  profile_continuous_steps: False
+  save_path: "outputs/profile"   # profiler saving path
+  # Specific tool configs, can use +profiler.tool_config.[tool].xxx to config
+  global_tool_config:
+  
+    # nsys config
+    nsys:
+
+      # True for each task has its own database, False for all tasks in one training step share one database.
+      discrete: False
+
+      # controller Nvidia Nsight Systems Options. Must set when profile_steps is not None.
+      ## reference https://docs.nvidia.com/nsight-systems/UserGuide/index.html
+      ## reference https://docs.ray.io/en/latest/ray-observability/user-guides/profiling.html
+      controller_nsight_options:
+
+        # Select the API(s) to be traced.
+        trace: "cuda,nvtx,cublas,ucx"
+
+        # Track the GPU memory usage by CUDA kernels. Must be string type "true" or "false".
+        cuda-memory-usage: "true"
+
+        # CUDA graphs will be traced as a whole
+        cuda-graph-trace: "graph"
+
+      # worker Nvidia Nsight Systems Options. Must set when profile_steps is not None.
+      worker_nsight_options:
+
+        # Select the API(s) to be traced.
+        trace: "cuda,nvtx,cublas,ucx"
+
+        # Track the GPU memory usage by CUDA kernels. Must be string type "true" or "false".
+        cuda-memory-usage: "true"
+
+        # CUDA graphs will be traced as a whole
+        cuda-graph-trace: "graph"
+
+        # Profiling only in a range of torch.cuda.profiler.start and stop. Do not change this config.
+        capture-range: "cudaProfilerApi"
+
+        # Specify the desired behavior when a capture range ends.
+        # In verl we need the torch.cuda.profiler.start/stop pair to repeats n times.
+        # valid values are "repeat-shutdown:n" or null.
+        # For normal whole step profiling, n = len(profile_steps);
+        # but for discrete profiling, n = len(profile_steps) * Number(subtasks).
+        # Or you can just leave it null and the program will use n = len(profile_steps) * 6;
+        capture-range-end: null
+
+        # Send signal to the target application's process group. We let the program to exit by itself.
+        kill: none
+
+ray_kwargs:
+  ray_init:
+    num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
   timeline_json_file: null

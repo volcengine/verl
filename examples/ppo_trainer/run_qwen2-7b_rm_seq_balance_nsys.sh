@@ -10,8 +10,8 @@ test_files=${test_files:-"$gsm8k_test_path"}
 
 PROFILE_STEPS="[1,2,5]" # or [] or null
 PROFILE_RANKS_ALL=False # or True
-PROFILE_RANKS=[0,4,8,12]
-DISCRETE=False  # or True
+PROFILE_RANKS=[0,4]
+DISCRETE=True  # or True
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gae \
@@ -30,17 +30,17 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_mini_batch_size=512 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
-    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24000 \
+    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=12000 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.actor.use_kl_loss=False \
+    actor_rollout_ref.actor.profiler.enable=True \
+    actor_rollout_ref.actor.profiler.ranks=$PROFILE_RANKS \
+    actor_rollout_ref.actor.profiler.all_ranks=$PROFILE_RANKS_ALL \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=24000 \
-    actor_rollout_ref.profiler.ranks=$PROFILE_RANKS \
-    actor_rollout_ref.profiler.all_ranks=$PROFILE_RANKS_ALL \
-    actor_rollout_ref.profiler.discrete=$DISCRETE \
     critic.optim.lr=1e-5 \
     critic.model.use_remove_padding=True \
     critic.model.path=Qwen/Qwen2-7B-Instruct \
@@ -50,9 +50,9 @@ python3 -m verl.trainer.main_ppo \
     critic.ppo_max_token_len_per_gpu=98304 \
     critic.model.fsdp_config.param_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
+    critic.profiler.enable=True \
     critic.profiler.ranks=$PROFILE_RANKS \
     critic.profiler.all_ranks=$PROFILE_RANKS_ALL \
-    critic.profiler.discrete=$DISCRETE \
     reward_model.enable=True \
     reward_model.model.path=sfairXC/FsfairX-LLaMA3-RM-v0.1\
     reward_model.model.use_remove_padding=True \
@@ -60,9 +60,9 @@ python3 -m verl.trainer.main_ppo \
     reward_model.micro_batch_size_per_gpu=32 \
     reward_model.use_dynamic_bsz=True \
     reward_model.forward_max_token_len_per_gpu=98304 \
+    reward_model.profiler.enable=True \
     reward_model.profiler.ranks=$PROFILE_RANKS \
     reward_model.profiler.all_ranks=$PROFILE_RANKS_ALL \
-    reward_model.profiler.discrete=$DISCRETE \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
@@ -70,10 +70,12 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name='qwen2-7b_hybrid_rm_bsz8k_p4k_r4k_seq_packing' \
     trainer.n_gpus_per_node=8 \
     trainer.val_before_train=False \
-    trainer.nnodes=2 \
+    trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=-1 \
     trainer.total_epochs=15 \
     trainer.total_training_steps=6 \
-    trainer.profile_continuous_steps=True \
-    trainer.profile_steps=$PROFILE_STEPS $@
+    global_profiler.profile_continuous_steps=True \
+    global_profiler.tool=nsys \
+    global_profiler.steps=$PROFILE_STEPS \
+    global_profiler.global_tool_config.nsys.discrete=$DISCRETE $@

@@ -65,17 +65,27 @@ sandbox_fusion:
   # Max memory limit for each sandbox process in MB
   memory_limit_mb: 1024
 
-# profiler configs
+# profile the reward model in `compute_reward` 
 profiler:
 
-  # hint for the target config dataclass
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.utils.profiler.ProfilerConfig
 
-  # True for each task has its own database, False for all tasks in one training step share one database.
-  discrete: False
+  # profiler tool, default same as profiler.tool in global config
+  # choices: nsys, npu, torch
+  tool: ${oc.select:global_profiler.tool,null}
 
+  # whether enable profile on ref
+  enable: False
+  
   # Whether to profile all ranks.
   all_ranks: False
 
   # The ranks that will be profiled. [] or [0,1,...]
   ranks: []
+
+  # profile results saving path
+  save_path: ${oc.select:global_profiler.save_path,null}
+
+  # specific tool config
+  tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}

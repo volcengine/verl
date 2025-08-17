@@ -46,7 +46,7 @@ def init_config() -> DictConfig:
 
     model_path = "Qwen/Qwen2.5-1.5B-Instruct"
     config.actor_rollout_ref.model.path = model_path
-    config.actor_rollout_ref.rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
+    config.actor_rollout_ref.rollout.name = os.environ["ROLLOUT_NAME"]
     config.actor_rollout_ref.rollout.mode = "async"
     config.actor_rollout_ref.rollout.prompt_length = 4096
     config.actor_rollout_ref.rollout.response_length = 4096
@@ -175,7 +175,8 @@ def test_tool_agent(init_config):
                 "VLLM_LOGGING_LEVEL": "INFO",
                 "VLLM_USE_V1": "1",
             }
-        }
+        },
+        ignore_reinit_error=True,
     )
 
     # =========================== 1. Init rollout manager ===========================

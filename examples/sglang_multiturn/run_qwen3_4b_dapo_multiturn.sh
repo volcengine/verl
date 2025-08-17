@@ -5,6 +5,7 @@ ulimit -n 65535
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 
+pip install --upgrade "huggingface-hub>=0.34.0"
 hf download \
     BytedTsinghua-SIA/DAPO-Math-17k \
     --repo-type dataset \
@@ -16,6 +17,10 @@ hf download \
     --repo-type dataset \
     --local-dir $HOME/data/Maxwell-Jia/AIME_2024
 
+# Note that this script is using AgentLoop instead of SGLang Multi-Turn
+# We are concerned that the reward is not actually converge, since the
+# reward of retool is encouraging the model to generate more turns to
+# call more tools. The answers are not actually correct.
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -63,9 +68,9 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.val_kwargs.temperature=1.0 \
     actor_rollout_ref.rollout.val_kwargs.n=30 \
     trainer.logger=['console','wandb'] \
-    trainer.project_name=gsm8k_async_rl \
+    trainer.project_name=sglang-dapo-multiturn \
     trainer.experiment_name=qwen3-4b_dapo_multiturn \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node=8 \
     trainer.log_val_generations=20 \
     trainer.val_before_train=True \
     trainer.nnodes=1 \
