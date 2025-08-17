@@ -72,11 +72,13 @@ class TraceConfig(BaseConfig):
     backend: Optional[str] = None
     token2text: bool = False
 
+
 @dataclass
 class ServerConfig(BaseConfig):
     """
     Configuration for SGLang server when running in server mode
     """
+
     timeout: float = 60.0
     max_attempts: int = 3
     retry_delay: float = 2.0

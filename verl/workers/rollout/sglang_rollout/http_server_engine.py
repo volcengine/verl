@@ -45,24 +45,22 @@ Functions:
 """
 
 import asyncio
-import json
 import logging
 import multiprocessing
 import os
 import time
 from contextlib import asynccontextmanager
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Optional
 
 import aiohttp
 import requests
 from sglang.srt.entrypoints.EngineBase import EngineBase
 from sglang.srt.entrypoints.http_server import launch_server
-from sglang.srt.server_args import ServerArgs
-from sglang.srt.utils import kill_process_tree
-
 from sglang.srt.managers.tokenizer_manager import (
     UpdateWeightsFromTensorReqInput,
 )
+from sglang.srt.server_args import ServerArgs
+from sglang.srt.utils import kill_process_tree
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -87,7 +85,8 @@ def _read_response(response: requests.Response):
             "text": response.text,
         }
 
-async def _read_async_response(resp: aiohttp.ClientResponse) -> Dict[str, Any]:
+
+async def _read_async_response(resp: aiohttp.ClientResponse) -> dict[str, Any]:
     if resp.status == 204 or (resp.content_length == 0):
         return {}
 
@@ -103,7 +102,13 @@ async def _read_async_response(resp: aiohttp.ClientResponse) -> Dict[str, Any]:
             "text": text,
         }
 
-def launch_server_process(server_args: ServerArgs, timeout: float = DEFAULT_TIMEOUT, max_wait_time = DEFAULT_MAX_WAIT_TIME, first_rank_in_node = False) -> multiprocessing.Process:
+
+def launch_server_process(
+    server_args: ServerArgs,
+    timeout: float = DEFAULT_TIMEOUT,
+    max_wait_time=DEFAULT_MAX_WAIT_TIME,
+    first_rank_in_node=False,
+) -> multiprocessing.Process:
     """Launch an SGLang HTTP server process and wait for it to be ready.
 
     This function starts a new process running an SGLang HTTP server, then waits
@@ -245,9 +250,12 @@ class HttpServerAdapter(EngineBase):
         self.node_rank: int = self.server_args.node_rank
         self.max_start_wait_time: float = max_start_wait_time
 
-        logger.info(f"Launch HttpServerAdapter at: {self.server_args.host}:{self.server_args.port} with {first_rank_in_node}")
-        self.process: multiprocessing.Process = launch_server_process(self.server_args, self.timeout, self.max_start_wait_time, first_rank_in_node)
-
+        logger.info(
+            f"Launch HttpServerAdapter at: {self.server_args.host}:{self.server_args.port} with {first_rank_in_node}"
+        )
+        self.process: multiprocessing.Process = launch_server_process(
+            self.server_args, self.timeout, self.max_start_wait_time, first_rank_in_node
+        )
 
         if self.node_rank == 0 and self.router_ip and self.router_port:
             self._register_with_router()
@@ -275,11 +283,11 @@ class HttpServerAdapter(EngineBase):
     def _make_request(
         self,
         endpoint: str,
-        payload: Optional[Dict[str, Any]] = None,
+        payload: Optional[dict[str, Any]] = None,
         method: str = "POST",
         timeout: float = DEFAULT_TIMEOUT,
         only_master: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Make a HTTP request with retry logic and consistent error handling.
 
         Args:
@@ -328,14 +336,11 @@ class HttpServerAdapter(EngineBase):
                     raise
 
             if attempt < self.max_attempts - 1:
-                time.sleep(self.retry_delay * (2 ** attempt))
+                time.sleep(self.retry_delay * (2**attempt))
 
         raise RuntimeError(f"Failed to complete request to {endpoint} after {self.max_attempts} attempts")
 
-    def update_weights_from_tensor(
-        self,
-        req: UpdateWeightsFromTensorReqInput
-    ) -> Dict[str, Any]:
+    def update_weights_from_tensor(self, req: UpdateWeightsFromTensorReqInput) -> dict[str, Any]:
         """Update model weights from tensor data.
 
         The HTTP server will only post meta data, and the real weights will be
@@ -356,14 +361,14 @@ class HttpServerAdapter(EngineBase):
             If you encounter issues, ensure your model is loaded on GPU devices rather than CPU.
         """
         import base64
+
         named_tensors = req.serialized_named_tensors
         load_format = req.load_format
         flush_cache = req.flush_cache
 
         if named_tensors:
             serialized_named_tensors = [
-                base64.b64encode(named_tensor).decode("utf-8")
-                for named_tensor in named_tensors
+                base64.b64encode(named_tensor).decode("utf-8") for named_tensor in named_tensors
             ]
         else:
             serialized_named_tensors = []
@@ -412,16 +417,16 @@ class HttpServerAdapter(EngineBase):
     def generate(
         self,
         prompt: Optional[str] = None,
-        sampling_params: Optional[Dict[str, Any]] = None,
-        input_ids: Optional[List[int]] = None,
+        sampling_params: Optional[dict[str, Any]] = None,
+        input_ids: Optional[list[int]] = None,
         image_data: Optional[Any] = None,
         return_logprob: bool = False,
         logprob_start_len: Optional[int] = None,
         top_logprobs_num: Optional[int] = None,
-        token_ids_logprob: Optional[List[int]] = None,
+        token_ids_logprob: Optional[list[int]] = None,
         lora_path: Optional[str] = None,
         custom_logit_processor: Optional[Callable] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Generate text using the SGLang server.
 
         Args:
@@ -468,7 +473,7 @@ class HttpServerAdapter(EngineBase):
 
         return self._make_request("generate", payload, only_master=False)
 
-    def flush_cache(self) -> Dict[str, Any]:
+    def flush_cache(self) -> dict[str, Any]:
         """Flush the cache of the server.
 
         This method repeatedly attempts to flush the server cache until successful.
@@ -501,7 +506,7 @@ class HttpServerAdapter(EngineBase):
         logger.error("Failed to flush cache after maximum attempts")
         return {}
 
-    def release_memory_occupation(self, tags: Optional[List[str]] = None) -> Dict[str, Any]:
+    def release_memory_occupation(self, tags: Optional[list[str]] = None) -> dict[str, Any]:
         """Release GPU memory occupation temporarily.
 
         Args:
@@ -513,7 +518,7 @@ class HttpServerAdapter(EngineBase):
         """
         return self._make_request("release_memory_occupation", {"tags": tags})
 
-    def resume_memory_occupation(self, tags: Optional[List[str]] = None) -> Dict[str, Any]:
+    def resume_memory_occupation(self, tags: Optional[list[str]] = None) -> dict[str, Any]:
         """Resume GPU memory occupation.
 
         Args:
@@ -525,7 +530,7 @@ class HttpServerAdapter(EngineBase):
         """
         return self._make_request("resume_memory_occupation", {"tags": tags})
 
-    def abort_request(self, rid: str = "", abort_all: bool = False) -> Dict[str, Any]:
+    def abort_request(self, rid: str = "", abort_all: bool = False) -> dict[str, Any]:
         """Abort a request.
 
         Args:
@@ -535,12 +540,7 @@ class HttpServerAdapter(EngineBase):
         Returns:
             Dict[str, Any]: Server response indicating abort status
         """
-        return self._make_request(
-            "abort_request", 
-            {"rid": rid, "abort_all": abort_all}
-        )
-
-
+        return self._make_request("abort_request", {"rid": rid, "abort_all": abort_all})
 
 
 class AsyncHttpServerAdapter(HttpServerAdapter):
@@ -612,7 +612,7 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         )
         timeout = aiohttp.ClientTimeout(total=self.timeout)
         session = aiohttp.ClientSession(connector=connector, timeout=timeout)
-        
+
         try:
             yield session
         finally:
@@ -623,11 +623,11 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
     async def _make_async_request(
         self,
         endpoint: str,
-        payload: Optional[Dict[str, Any]] = None,
+        payload: Optional[dict[str, Any]] = None,
         method: str = "POST",
         timeout: float = DEFAULT_TIMEOUT,
         only_master: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Make an async HTTP request with retry logic and consistent error handling.
 
         Args:
@@ -650,7 +650,6 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         """
         if only_master and self.node_rank != 0:
             return {}
-
 
         url = f"http://{self.server_args.host}:{self.server_args.port}/{endpoint}"
 
@@ -685,7 +684,7 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
 
         raise RuntimeError(f"Failed to complete async request to {endpoint} after {self.max_attempts} attempts")
 
-    async def release_memory_occupation(self, tags: Optional[List[str]] = None) -> Dict[str, Any]:
+    async def release_memory_occupation(self, tags: Optional[list[str]] = None) -> dict[str, Any]:
         """Release GPU memory occupation temporarily (async version).
 
         Args:
@@ -697,7 +696,7 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         """
         return await self._make_async_request("release_memory_occupation", {"tags": tags})
 
-    async def resume_memory_occupation(self, tags: Optional[List[str]] = None) -> Dict[str, Any]:
+    async def resume_memory_occupation(self, tags: Optional[list[str]] = None) -> dict[str, Any]:
         """Resume GPU memory occupation (async version).
 
         Similar to AsyncEngine, this method handles first-time weight reloading
@@ -720,7 +719,7 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
     async def update_weights_from_tensor(
         self,
         req: UpdateWeightsFromTensorReqInput,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Update model weights from tensor data asynchronously.
 
         Args:
@@ -734,14 +733,12 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
             Dict[str, Any]: Server response containing update status
         """
         import base64
+
         named_tensors = req.serialized_named_tensors
         load_format = req.load_format
         flush_cache = req.flush_cache
 
-        serialized_named_tensors = [
-            base64.b64encode(named_tensor).decode("utf-8")
-            for named_tensor in named_tensors
-        ]
+        serialized_named_tensors = [base64.b64encode(named_tensor).decode("utf-8") for named_tensor in named_tensors]
         return await self._make_async_request(
             "update_weights_from_tensor",
             {
@@ -751,7 +748,7 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
             },
         )
 
-    async def flush_cache(self) -> Dict[str, Any]:
+    async def flush_cache(self) -> dict[str, Any]:
         """Flush the cache of the server asynchronously.
 
         Similar to the sync version, this method retries until the cache
@@ -787,18 +784,17 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
     async def generate(
         self,
         prompt: Optional[str] = None,
-        sampling_params: Optional[Dict[str, Any]] = None,
-        input_ids: Optional[List[int]] = None,
+        sampling_params: Optional[dict[str, Any]] = None,
+        input_ids: Optional[list[int]] = None,
         image_data: Optional[Any] = None,
         return_logprob: bool = False,
         logprob_start_len: Optional[int] = None,
         top_logprobs_num: Optional[int] = None,
-        token_ids_logprob: Optional[List[int]] = None,
+        token_ids_logprob: Optional[list[int]] = None,
         lora_path: Optional[str] = None,
         custom_logit_processor: Optional[Callable] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Generate text using the SGLang server asynchronously."""
-        t_start = time.perf_counter()
         logger.info("generate() started")
 
         payload = {
@@ -816,34 +812,25 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
 
         # Filter out None values
         payload = {k: v for k, v in payload.items() if v is not None}
-        from datetime import datetime
-        now_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # 精确到毫秒
+
         # Send request
-        response = await self._make_async_request(
-            "generate", payload, timeout=self.timeout, only_master=False
-        )
-        t_after_request = time.perf_counter()
-
-
-        total_time = t_after_request - t_start
-        now_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # 精确到毫秒
-        # print(f"[{now_start} to {now_end}] generate() completed in {total_time*1000:.2f} ms with response length: {len(response['text'])}")
+        response = await self._make_async_request("generate", payload, timeout=self.timeout, only_master=False)
 
         return response
 
     async def async_generate(
         self,
         prompt: Optional[str] = None,
-        sampling_params: Optional[Dict[str, Any]] = None,
-        input_ids: Optional[List[int]] = None,
+        sampling_params: Optional[dict[str, Any]] = None,
+        input_ids: Optional[list[int]] = None,
         image_data: Optional[Any] = None,
         return_logprob: bool = False,
         logprob_start_len: Optional[int] = None,
         top_logprobs_num: Optional[int] = None,
-        token_ids_logprob: Optional[List[int]] = None,
+        token_ids_logprob: Optional[list[int]] = None,
         lora_path: Optional[str] = None,
         custom_logit_processor: Optional[Callable] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Async generate method that mirrors AsyncEngine.async_generate interface.
 
         This method provides compatibility with AsyncEngine's async_generate method
@@ -890,7 +877,7 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
             custom_logit_processor=custom_logit_processor,
         )
 
-    async def abort_request(self, rid: str = "", abort_all: bool = False) -> Dict[str, Any]:
+    async def abort_request(self, rid: str = "", abort_all: bool = False) -> dict[str, Any]:
         """Abort a request asynchronously.
 
         Args:
@@ -900,7 +887,4 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         Returns:
             Dict[str, Any]: Server response indicating abort status
         """
-        return await self._make_async_request(
-            "abort_request",
-            {"rid": rid, "abort_all": abort_all}
-        )
+        return await self._make_async_request("abort_request", {"rid": rid, "abort_all": abort_all})

@@ -1,3 +1,36 @@
+# Copyright 2025 z.ai
+# Copyright 2023-2024 SGLang Team
+# Copyright 2025 ModelBest Inc. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# This file is adapted from multiple sources:
+# 1. THUDM/slime project
+#    Original source: https://github.com/THUDM/slime/blob/main/slime/backends/sglang_utils/http_server_engine.py
+#    Copyright 2025 z.ai
+#    Licensed under the Apache License, Version 2.0
+# 2. SGLang project
+#    Original source: https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/http_server_engine.py
+#    Copyright 2023-2024 SGLang Team
+#    Licensed under the Apache License, Version 2.0
+#
+# Modifications made by z.ai and ModelBest Inc. include but are not limited to:
+# - Enhanced error handling and retry logic
+# - Added async support with connection pooling
+# - Extended functionality for distributed weight updates
+# - Improved logging and monitoring capabilities
+# - Additional configuration options and optimizations
+
 """Complete unit tests for HTTP Server Engine Adapters.
 
 This module contains comprehensive unit tests for both HttpServerEngineAdapter
@@ -8,12 +41,15 @@ Tests use real SGLang modules for integration testing while mocking external dep
 """
 
 import asyncio
-import json
 from unittest.mock import AsyncMock, Mock, patch
 
 import aiohttp
 import pytest
 import requests
+from sglang.srt.managers.tokenizer_manager import (
+    UpdateWeightsFromTensorReqInput,
+)
+from sglang.srt.utils import MultiprocessingSerializer
 
 # Import the module under test
 from verl.workers.rollout.sglang_rollout.http_server_engine import (
@@ -22,11 +58,6 @@ from verl.workers.rollout.sglang_rollout.http_server_engine import (
     launch_server_process,
 )
 
-from sglang.srt.managers.tokenizer_manager import (
-    UpdateWeightsFromTensorReqInput,
-)
-
-from sglang.srt.utils import MultiprocessingSerializer
 
 @pytest.mark.real_sglang
 class TestLaunchServerProcess:
@@ -72,7 +103,6 @@ class TestLaunchServerProcess:
             assert result == mock_multiprocessing_process
             mock_multiprocessing_process.start.assert_not_called()
 
-
     def test_launch_server_process_timeout(self, mock_multiprocessing_process, real_adapter_kwargs):
         """Test timeout during server health check."""
         from sglang.srt.server_args import ServerArgs
@@ -89,9 +119,10 @@ class TestLaunchServerProcess:
                 mock_session_class.return_value.__enter__.return_value = mock_session
 
             import itertools
+
             with patch(
                 "verl.workers.rollout.sglang_rollout.http_server_engine.time.time",
-                side_effect=itertools.chain([0], itertools.repeat(400))  # 第一次返回0，之后一直返回400
+                side_effect=itertools.chain([0], itertools.repeat(400)),  # 第一次返回0，之后一直返回400
             ):
                 with pytest.raises(TimeoutError):
                     launch_server_process(server_args, first_rank_in_node=True)
@@ -248,9 +279,11 @@ class TestHttpServerEngineAdapter:
 
     @pytest.mark.mock_only
     def test_update_weights_from_tensor_strict(self, mock_launch_server_process, basic_adapter_kwargs):
-        from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
-        from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
         import base64
+
+        from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
+
+        from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
 
         basic_adapter_kwargs.setdefault("node_rank", 0)
         adapter = HttpServerAdapter(**basic_adapter_kwargs)
@@ -267,10 +300,10 @@ class TestHttpServerEngineAdapter:
             result = adapter.update_weights_from_tensor(req)
 
             assert result == {"status": "updated"}
-            
+
             expected_b64_1 = base64.b64encode(b"tensor1").decode("utf-8")
             expected_b64_2 = base64.b64encode(b"tensor2").decode("utf-8")
-            
+
             mock_request.assert_called_once_with(
                 "update_weights_from_tensor",
                 {
@@ -282,9 +315,9 @@ class TestHttpServerEngineAdapter:
 
     @pytest.mark.mock_only
     def test_update_weights_from_tensor_empty(self, mock_launch_server_process, basic_adapter_kwargs):
-        from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
         from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
-        import base64
+
+        from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
 
         basic_adapter_kwargs.setdefault("node_rank", 0)
         adapter = HttpServerAdapter(**basic_adapter_kwargs)
@@ -301,7 +334,7 @@ class TestHttpServerEngineAdapter:
             result = adapter.update_weights_from_tensor(req)
 
             assert result == {"status": "updated"}
-            
+
             mock_request.assert_called_once_with(
                 "update_weights_from_tensor",
                 {
@@ -313,9 +346,9 @@ class TestHttpServerEngineAdapter:
 
     @pytest.mark.mock_only
     def test_update_weights_from_tensor_none(self, mock_launch_server_process, basic_adapter_kwargs):
-        from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
         from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
-        import base64
+
+        from verl.workers.rollout.sglang_rollout.http_server_engine import HttpServerAdapter
 
         basic_adapter_kwargs.setdefault("node_rank", 0)
         adapter = HttpServerAdapter(**basic_adapter_kwargs)
@@ -332,7 +365,7 @@ class TestHttpServerEngineAdapter:
             result = adapter.update_weights_from_tensor(req)
 
             assert result == {"status": "updated"}
-            
+
             mock_request.assert_called_once_with(
                 "update_weights_from_tensor",
                 {
@@ -577,9 +610,7 @@ class TestAsyncHttpServerEngineAdapter:
 
             # Verify post was called
             mock_session.post.assert_called_once_with(
-                "http://localhost:8000/test_endpoint",
-                json={"param": "value"},
-                timeout=adapter.timeout
+                "http://localhost:8000/test_endpoint", json={"param": "value"}, timeout=adapter.timeout
             )
 
     @pytest.mark.asyncio
@@ -609,10 +640,7 @@ class TestAsyncHttpServerEngineAdapter:
 
             # Validate
             assert result == {"data": "test"}
-            mock_session.get.assert_called_once_with(
-                "http://localhost:8000/test_endpoint",
-                timeout=adapter.timeout
-            )
+            mock_session.get.assert_called_once_with("http://localhost:8000/test_endpoint", timeout=adapter.timeout)
 
     @pytest.mark.asyncio
     async def test_make_async_request_non_master(self, mock_launch_server_process):
@@ -657,7 +685,9 @@ class TestAsyncHttpServerEngineAdapter:
             result = await adapter.resume_memory_occupation(["weights"])
             assert result == {"status": "success"}
             mock_request.assert_called_with("resume_memory_occupation", {"tags": ["weights"]})
-            assert mock_request.call_count == 3 # resume memory occupation will also call release memory occupation once
+            assert (
+                mock_request.call_count == 3
+            )  # resume memory occupation will also call release memory occupation once
 
 
 class TestErrorRecovery:
@@ -775,6 +805,7 @@ class TestDataTypeHandling:
             call_args = mock_request.call_args[0][1]
             assert call_args["sampling_params"] == complex_sampling_params
 
+
 class TestIntegration:
     """Integration tests for both adapters."""
 
@@ -795,6 +826,6 @@ class TestIntegration:
                 serialized_named_tensors=None,
                 load_format=None,
                 flush_cache=None,
-            )   
+            )
             result = adapter.update_weights_from_tensor(req)
             assert result == {}

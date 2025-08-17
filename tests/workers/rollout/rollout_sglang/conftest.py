@@ -1,3 +1,17 @@
+# Copyright 2023-2024 SGLang Team
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Pytest configuration for SGLang rollout tests.
 
 This module provides shared fixtures and configuration specifically for SGLang-based
@@ -183,16 +197,17 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "real_sglang: mark test as requiring real SGLang installation")
     config.addinivalue_line("markers", "mock_only: mark test as using mocked dependencies only")
 
+
 @pytest.fixture(autouse=True)
 def mock_server_args_post_init():
     """Mock ServerArgs.__post_init__ to skip model path validation."""
     from unittest.mock import patch
 
     with patch(
-        "verl.workers.rollout.sglang_rollout.http_server_engine.ServerArgs.__post_init__",
-        return_value=None
+        "verl.workers.rollout.sglang_rollout.http_server_engine.ServerArgs.__post_init__", return_value=None
     ) as mock_post_init:
         yield mock_post_init
+
 
 # Async test configuration
 pytest_plugins = ("pytest_asyncio",)

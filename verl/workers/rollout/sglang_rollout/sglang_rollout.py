@@ -444,7 +444,7 @@ class SGLangRollout(BaseRollout):
         # attention backend will be changed to fa3 if not specified
         attention_backend = engine_kwargs.pop("attention_backend", None)
 
-        is_server_mode = (self.config.sglang_engine_mode == "server")
+        is_server_mode = self.config.sglang_engine_mode == "server"
         effective_first = first_rank_in_node or is_server_mode
 
         print(self.config)
@@ -452,7 +452,9 @@ class SGLangRollout(BaseRollout):
         if effective_first:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-            print(f"Initializing SGLang server on rank {rank} with node rank {node_rank} with tp_rank {self._tp_rank}, ")
+            print(
+                f"Initializing SGLang server on rank {rank} with node rank {node_rank} with tp_rank {self._tp_rank}, "
+            )
 
             args = {
                 "model_path": actor_module,
@@ -487,12 +489,12 @@ class SGLangRollout(BaseRollout):
 
             if is_server_mode:
                 # add server specific args
-                args['first_rank_in_node'] = first_rank_in_node
-                args['timeout'] = self.config.server['timeout']
-                args['max_attempts'] = self.config.server['max_attempts']
-                args['retry_delay'] = self.config.server['retry_delay']
-                args['max_connections'] = self.config.server['max_connections']
-                args['max_start_wait_time'] = self.config.server['max_start_wait_time']
+                args["first_rank_in_node"] = first_rank_in_node
+                args["timeout"] = self.config.server["timeout"]
+                args["max_attempts"] = self.config.server["max_attempts"]
+                args["retry_delay"] = self.config.server["retry_delay"]
+                args["max_connections"] = self.config.server["max_connections"]
+                args["max_start_wait_time"] = self.config.server["max_start_wait_time"]
                 self._engine = AsyncHttpServerAdapter(**args)
             else:
                 self._engine = AsyncEngine(**args)
