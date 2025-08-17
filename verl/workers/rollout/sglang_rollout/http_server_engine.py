@@ -525,7 +525,20 @@ class HttpServerAdapter(EngineBase):
         """
         return self._make_request("resume_memory_occupation", {"tags": tags})
 
+    def abort_request(self, rid: str = "", abort_all: bool = False) -> Dict[str, Any]:
+        """Abort a request.
 
+        Args:
+            rid (str): The ID of the request to abort
+            abort_all (bool, optional): Whether to abort all requests. Defaults to False.
+
+        Returns:
+            Dict[str, Any]: Server response indicating abort status
+        """
+        return self._make_request(
+            "abort_request", 
+            {"rid": rid, "abort_all": abort_all}
+        )
 
 
 
@@ -875,4 +888,19 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
             token_ids_logprob=token_ids_logprob,
             lora_path=lora_path,
             custom_logit_processor=custom_logit_processor,
+        )
+
+    async def abort_request(self, rid: str = "", abort_all: bool = False) -> Dict[str, Any]:
+        """Abort a request asynchronously.
+
+        Args:
+            rid (str): The ID of the request to abort
+            abort_all (bool, optional): Whether to abort all requests. Defaults to False.
+
+        Returns:
+            Dict[str, Any]: Server response indicating abort status
+        """
+        return await self._make_async_request(
+            "abort_request",
+            {"rid": rid, "abort_all": abort_all}
         )
