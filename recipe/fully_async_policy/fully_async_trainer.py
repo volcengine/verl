@@ -169,13 +169,13 @@ class FullyAsyncTrainer(RayPPOTrainer):
         )
 
         queue_samples = [ray.cloudpickle.loads(x) for x in queue_samples]
-        print(queue_samples)
+        # print(queue_samples)
         # Assemble batch - now working directly with RolloutSample objects
         if self.config.trainer.balance_batch:
             batch = assemble_batch_from_rollout_samples(queue_samples, self.tokenizer, self.config, self._balance_batch)
         else:
             batch = assemble_batch_from_rollout_samples(queue_samples, self.tokenizer, self.config, None)
-        print(f" _assemble_gen_batch_output_from_queue_samples {batch}")
+        # print(f" _assemble_gen_batch_output_from_queue_samples {batch}")
         return 0, batch
 
     def _create_actor_rollout_classes(self):

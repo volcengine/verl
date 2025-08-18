@@ -134,6 +134,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
             self.minimal_bsz, config.actor_rollout_ref.actor.ppo_mini_batch_size
         )
         self.max_required_samples = self.required_samples * (self.staleness_threshold + 1)
+        print(
+            f"[FullyAsyncRollouter] required_samples : {self.required_samples} "
+            f"max_required_samples: {self.max_required_samples}"
+        )
 
         # 单次最多扔一次迭代需要的样本
         self.max_concurrent_samples = self.required_samples

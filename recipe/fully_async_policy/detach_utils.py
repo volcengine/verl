@@ -122,8 +122,8 @@ def assemble_batch_from_rollout_samples(
         item = rs.full_batch.to_items()[0]
         original_batch_list.append(item)
 
-    print("=" * 300)
-    print(original_batch_list)
+    # print("=" * 300)
+    # print(original_batch_list)
 
     # 合并所有原始样本为一个批次
     if original_batch_list:
@@ -132,8 +132,8 @@ def assemble_batch_from_rollout_samples(
         # 如果没有原始数据，创建空的 DataProto
         original_batch = DataProto.from_single_dict({})
 
-    print("=" * 300)
-    print(original_batch)
+    # print("=" * 300)
+    # print(original_batch)
 
     # 添加 UID
     uids = []
@@ -154,9 +154,7 @@ def assemble_batch_from_rollout_samples(
     if "response_mask" not in final_batch.batch.keys():
         final_batch.batch["response_mask"] = compute_response_mask(final_batch)
 
-    # 简化的批次平衡逻辑（如果需要的话）
     if balance_batch:
-        # 注意：这里简化了批次平衡逻辑，如果需要完整功能需要额外参数
         balance_batch(final_batch, metrics={})
 
     # 计算全局有效 token 数
