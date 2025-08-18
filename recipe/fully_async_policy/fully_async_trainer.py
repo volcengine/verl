@@ -15,6 +15,7 @@
 import logging
 import time
 import warnings
+from pprint import pprint
 from typing import Any
 
 import numpy as np
@@ -49,16 +50,16 @@ class FullyAsyncTrainer(RayPPOTrainer):
     """
 
     def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-        device_name=None,
+            self,
+            config,
+            tokenizer,
+            role_worker_mapping: dict[Role, WorkerType],
+            resource_pool_manager: ResourcePoolManager,
+            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+            processor=None,
+            reward_fn=None,
+            val_reward_fn=None,
+            device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -106,6 +107,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.processed_samples = 0
         self.stale_samples_processed = 0
         self.current_param_version = 0
+
+        self.local_trigger_step = 1
+        self.trigger_parameter_sync_step = config.async_training.trigger_parameter_sync_step
 
         self.required_samples = calculate_one_step_size(
             self.minimal_bsz, config.actor_rollout_ref.actor.ppo_mini_batch_size
@@ -302,10 +306,35 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
             # self._collect_metrics(batch, epoch, metrics, timing_raw)
 
+            pprint(metrics)
+
             # Trigger parameter synchronization after training step
-            # self._trigger_parameter_sync_after_step()
-            print(f"[FullyAsyncTrainer] global_steps: {self.global_steps}")
+            print(f"[FullyAsyncTrainer] global_steps: {self.global_steps}"
+                  f"[FullyAsyncTrainer] _trigger_parameter_sync_after_step {self.local_trigger_step} {self.trigger_parameter_sync_step}")
+            self._trigger_parameter_sync_after_step()
             self.global_steps += 1
+
+    def _trigger_parameter_sync_after_step(self):
+        """
+        Trigger parameter synchronization after training step
+        This ensures rollouter always uses the latest trained parameters
+        """
+        print("[FullyAsyncTrainer] Trigger parameter synchronization after training step")
+        if self.local_trigger_step >= self.trigger_parameter_sync_step:
+            print(f"[FullyAsyncTrainer] Trigger start run")
+            self.local_trigger_step = 1
+            print(f"[FullyAsyncTrainer] {self.current_param_version}")
+            self.current_param_version = self.current_param_version + 1
+            print(
+                f"[FullyAsyncTrainer] Triggering parameter sync after "
+                f"training step {self.global_steps}, version: {self.current_param_version}"
+            )
+            ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version))
+            return
+        else:
+            print(f"[FullyAsyncTrainer] Trigger {self.local_trigger_step}")
+            self.local_trigger_step += 1
+            return
 
     def get_statistics(self) -> dict:
         """Get training statistics"""
@@ -320,18 +349,6 @@ class FullyAsyncTrainer(RayPPOTrainer):
             "queue_total_consumed": queue_stats.get("total_consumed", 0),
             "queue_dropped_samples": queue_stats.get("dropped_samples", 0),
         }
-
-    def _trigger_parameter_sync_after_step(self):
-        """
-        Trigger parameter synchronization after training step
-        This ensures rollouter always uses the latest trained parameters
-        """
-        self.current_param_version = self.current_param_version + 1
-        print(
-            f"[FullyAsyncTrainer] Triggering parameter sync after "
-            f"training step {self.global_steps}, version: {self.current_param_version}"
-        )
-        ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version))
 
     def _compute_sample_freshness_metrics(self, rollout_samples: list[RolloutSample]) -> dict:
         """

@@ -77,7 +77,7 @@ class MessageQueue:
             staleness = self.current_param_version - param_version
             if staleness > self.staleness_threshold:
                 self.dropped_samples += 1
-                logger.debug(f"Dropped stale sample: staleness={staleness}, threshold={self.staleness_threshold}")
+                print(f"Dropped stale sample: staleness={staleness}, threshold={self.staleness_threshold}")
                 return False
 
             # If queue is full, remove the oldest sample (rarely happens)
@@ -92,10 +92,9 @@ class MessageQueue:
             self._consumer_condition.notify_all()
 
             if self.total_produced % 100 == 0:
-                logger.debug(f"MessageQueue stats: produced={self.total_produced}, queue_size={len(self.queue)}")
+                print(f"MessageQueue stats: produced={self.total_produced}, queue_size={len(self.queue)}")
 
             return True
-
 
     async def get_sample(self) -> Any | None:
         """
@@ -122,7 +121,7 @@ class MessageQueue:
         async with self._lock:
             old_version = self.current_param_version
             self.current_param_version = version
-            logger.debug(f"Parameter version updated from {old_version} to {version}")
+            print(f"Parameter version updated from {old_version} to {version}")
 
     async def get_queue_size(self) -> int:
         """Get current queue length"""
@@ -206,11 +205,6 @@ class MessageQueueClient:
         future = self.queue_actor.get_sample.remote()
         return await asyncio.wrap_future(future.future())
 
-    async def update_param_version(self, version: int):
-        """Update parameter version (async)"""
-        future = self.queue_actor.update_param_version.remote(version)
-        await asyncio.wrap_future(future.future())
-
     async def get_queue_size(self) -> int:
         """Get queue size (async)"""
         future = self.queue_actor.get_queue_size.remote()
@@ -248,3 +242,7 @@ class MessageQueueClient:
     def get_statistics_sync(self) -> dict[str, Any]:
         """Get statistics (sync - deprecated, use get_statistics instead)"""
         return ray.get(self.queue_actor.get_statistics.remote())
+
+    def update_param_version_sync(self, version: int):
+        """Update parameter version (async)"""
+        return ray.get(self.queue_actor.update_param_version.remote(version))

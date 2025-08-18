@@ -44,7 +44,7 @@ loss_agg_mode="token-mean"
 train_prompt_bsz=0
 gen_prompt_bsz=1
 n_resp_per_prompt=3
-train_prompt_mini_bsz=256
+train_prompt_mini_bsz=32
 
 total_rollout_steps=5000
 
@@ -56,11 +56,11 @@ val_top_p=0.7
 
 # Fully async specific parameters
 # Allocate 2 GPUs for rollout, remaining for training
-n_gpus_rollout=2
+n_gpus_rollout=4
 n_gpus_training=$((NUM_GPUS - n_gpus_rollout))
 
 # Async training specific configurations
-staleness_threshold=30000
+staleness_threshold=0
 
 exp_name="$(basename "${MODEL_ID,,}")-fully-async-policy-${ACTOR_STRATEGY}-minimal"
 
