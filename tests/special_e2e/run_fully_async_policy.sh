@@ -46,7 +46,7 @@ gen_prompt_bsz=1
 n_resp_per_prompt=3
 train_prompt_mini_bsz=32
 
-total_rollout_steps=5000
+total_rollout_steps=50000
 
 # Temperature parameters
 temperature=1.0
@@ -60,7 +60,7 @@ n_gpus_rollout=4
 n_gpus_training=$((NUM_GPUS - n_gpus_rollout))
 
 # Async training specific configurations
-staleness_threshold=0
+staleness_threshold=10
 
 exp_name="$(basename "${MODEL_ID,,}")-fully-async-policy-${ACTOR_STRATEGY}-minimal"
 
