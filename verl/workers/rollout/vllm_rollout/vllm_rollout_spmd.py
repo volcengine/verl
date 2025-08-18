@@ -109,11 +109,11 @@ class vLLMRollout(BaseRollout):
             if hasattr(model_hf_config, "max_position_embeddings"):
                 max_position_embeddings = model_hf_config.max_position_embeddings
             elif hasattr(model_hf_config, "llm_config") and hasattr(
-                    model_hf_config.llm_config, "max_position_embeddings"
+                model_hf_config.llm_config, "max_position_embeddings"
             ):
                 max_position_embeddings = model_hf_config.llm_config.max_position_embeddings
             elif hasattr(model_hf_config, "text_config") and hasattr(
-                    model_hf_config.text_config, "max_position_embeddings"
+                model_hf_config.text_config, "max_position_embeddings"
             ):
                 max_position_embeddings = model_hf_config.text_config.max_position_embeddings
             if max_position_embeddings is None:
@@ -128,12 +128,12 @@ class vLLMRollout(BaseRollout):
             rope_scaling_factor = rope_scaling_config.get("factor", 1.0)
 
             assert (
-                    model_hf_config.max_position_embeddings * rope_scaling_factor
-                    >= config.prompt_length + config.response_length
+                model_hf_config.max_position_embeddings * rope_scaling_factor
+                >= config.prompt_length + config.response_length
             ), (
-                    "model context length should be greater than total sequence length, "
-                    + f"got rope_scaling_factor={rope_scaling_factor} and "
-                    + f"max_position_embeddings={model_hf_config.max_position_embeddings}"
+                "model context length should be greater than total sequence length, "
+                + f"got rope_scaling_factor={rope_scaling_factor} and "
+                + f"max_position_embeddings={model_hf_config.max_position_embeddings}"
             )
 
         max_model_len = int(config.max_model_len or config.prompt_length + config.response_length)
@@ -268,7 +268,7 @@ class vLLMRollout(BaseRollout):
         if "multi_modal_data" in non_tensor_batch:
             vllm_inputs = []
             for raw_prompt_ids, multi_modal_data in zip(
-                    non_tensor_batch.pop("raw_prompt_ids"), non_tensor_batch.pop("multi_modal_data"), strict=True
+                non_tensor_batch.pop("raw_prompt_ids"), non_tensor_batch.pop("multi_modal_data"), strict=True
             ):
                 vllm_inputs.append({"prompt_token_ids": raw_prompt_ids, "multi_modal_data": multi_modal_data})
         else:
@@ -390,9 +390,9 @@ def _monkey_patch_compute_logits(model, vocab_size: int):
     original_compute_logits = model.compute_logits
 
     def compute_logits(
-            self,
-            hidden_states: torch.Tensor,
-            sampling_metadata: SamplingMetadata,
+        self,
+        hidden_states: torch.Tensor,
+        sampling_metadata: SamplingMetadata,
     ) -> torch.Tensor:
         logits = original_compute_logits(hidden_states, sampling_metadata)
         logits[..., vocab_size:] = float("-inf")
