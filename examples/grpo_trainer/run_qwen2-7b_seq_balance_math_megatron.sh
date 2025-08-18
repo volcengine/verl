@@ -1,13 +1,14 @@
 set -x
 
-export NCCL_DEBUG=WARN
 export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation overlapping
 
-gsm8k_train_path=/mnt/hdfs/zhangchi.usc1992_lf_lq/data/rlhf/gsm8k/train.parquet
-gsm8k_test_path=/mnt/hdfs/zhangchi.usc1992_lf_lq/data/rlhf/gsm8k/test.parquet
+gsm8k_train_path=$HOME/data/gsm8k/train.parquet
+gsm8k_test_path=$HOME/data/gsm8k/test.parquet
+math_train_path=$HOME/data/math/train.parquet
+math_test_path=$HOME/data/math/test.parquet
 
-train_files="['$gsm8k_train_path']"
-test_files="['$gsm8k_test_path']"
+train_files="['$gsm8k_train_path', '$math_train_path']"
+test_files="['$gsm8k_test_path', '$math_test_path']"
 
 offload=True
 
@@ -21,7 +22,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    actor_rollout_ref.model.path=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen2.5-3B-Instruct \
+    actor_rollout_ref.model.path=Qwen/Qwen2-7B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
@@ -35,8 +36,12 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.actor.megatron.param_offload=${offload} \
     actor_rollout_ref.actor.megatron.optimizer_offload=${offload} \
     actor_rollout_ref.actor.megatron.grad_offload=${offload} \
+    actor_rollout_ref.actor.megatron.param_offload=${offload} \
+    actor_rollout_ref.actor.megatron.optimizer_offload=${offload} \
+    actor_rollout_ref.actor.megatron.grad_offload=${offload} \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
+    actor_rollout_ref.ref.megatron.param_offload=${offload} \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=5 \
