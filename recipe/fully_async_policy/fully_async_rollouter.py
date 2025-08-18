@@ -560,11 +560,11 @@ class FullyAsyncRollouter(RayPPOTrainer):
         async with self.lock:
             self.paused = True
             if self.active_tasks:
-                print(f"[FullyAsyncRollouter][Pause] "
+                print(f"[FullyAsyncRollouter][Public][Pause] "
                       f"{[t.get_name() for t in self.active_tasks]}")
                 await asyncio.gather(*self.active_tasks, return_exceptions=True)
                 self.active_tasks.clear()
-            print("[FullyAsyncRollouter][Pause] All active tasks completed")
+            print("[FullyAsyncRollouter][Public][Pause] All active tasks completed")
 
         # print("[FullyAsyncRollouter][Public] pause sleep 10")
         # await asyncio.sleep(10)
