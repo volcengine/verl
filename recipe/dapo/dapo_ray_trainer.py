@@ -16,6 +16,7 @@ FSDP PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
+import os
 import uuid
 from collections import defaultdict
 from copy import deepcopy
@@ -24,7 +25,6 @@ from pprint import pprint
 import numpy as np
 import torch
 from tqdm import tqdm
-import os
 
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss
