@@ -17,6 +17,7 @@ from pprint import pprint
 
 import ray
 from omegaconf import OmegaConf
+from tqdm import tqdm
 
 from recipe.fully_async_policy.detach_utils import (
     RolloutSample,
@@ -298,7 +299,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             async with self.lock:
                 if await self._should_pause_generation():
-                    print(f"[FullyAsyncRollouter][Processor] 等待已提交的任务结束")
+                    print("[FullyAsyncRollouter][Processor] 等待已提交的任务结束")
                     if self.active_tasks:
                         await asyncio.gather(*self.active_tasks, return_exceptions=True)
                         self.active_tasks.clear()
@@ -309,7 +310,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             # 获取待处理的部分 RolloutSample
             async with self.lock:
                 if partial_rollout_sample == "DONE":
-                    print(f"[FullyAsyncRollouter][Processor] 收到结束信号，等待剩余任务完成...")
+                    print("[FullyAsyncRollouter][Processor] 收到结束信号，等待剩余任务完成...")
                     # 等待所有活动任务完成
                     if self.active_tasks:
                         await asyncio.gather(*self.active_tasks, return_exceptions=True)
@@ -524,7 +525,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             # pause 和 resume 直接，不进行恢复操作
             if self.monitor_loop_trigger and not await self._should_pause_generation():
                 async with self.lock:
-                    print(f"[FullyAsyncRollouter][MonitorLoop] trigger resume")
+                    print("[FullyAsyncRollouter][MonitorLoop] trigger resume")
                     self.paused = False
                     self.condition.notify_all()
 
@@ -571,7 +572,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         async with self.lock:
             self.paused = True
             if self.active_tasks:
-                print(f"[FullyAsyncRollouter][Public][Pause]")
+                print("[FullyAsyncRollouter][Public][Pause]")
                 await asyncio.gather(*self.active_tasks, return_exceptions=True)
                 self.active_tasks.clear()
             print("[FullyAsyncRollouter][Public][Pause] All active tasks completed")
@@ -595,7 +596,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             "total_generated_samples": self.total_generated_samples,
             "staleness_samples": self.staleness_samples,
             "dropped_stale_samples": self.dropped_stale_samples,
-            "queue_max_size": self.max_queue_size,
+            "max_queue_size": self.max_queue_size,
             "queue_size": queue_stats["queue_size"],
             "max_concurrent_samples": self.max_concurrent_samples,
             "pending_queue_size": self.pending_queue.qsize(),

@@ -349,10 +349,10 @@ async def main():
         # 压力测试
         await run_resource_stress_test()
 
-        print("\n✅ 所有测试完成!")
+        print("\n所有测试完成!")
 
     except Exception as e:
-        print(f"❌ 测试执行失败: {e}")
+        print(f"测试执行失败: {e}")
         import traceback
 
         traceback.print_exc()

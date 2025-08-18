@@ -18,12 +18,10 @@ import warnings
 from pprint import pprint
 from typing import Any
 
-import numpy as np
 import ray
 from omegaconf import OmegaConf
 
 from recipe.fully_async_policy.detach_utils import (
-    RolloutSample,
     assemble_batch_from_rollout_samples,
     calculate_one_step_size,
 )
@@ -160,7 +158,8 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
             if len(queue_samples) % 10 == 0:
                 print(
-                    f"[FullyAsyncTrainer] Collected {len(queue_samples)}/{self.required_samples} samples. mq_len: {queue_len}"
+                    f"[FullyAsyncTrainer] Collected {len(queue_samples)}/{self.required_samples} samples. "
+                    f"mq_len: {queue_len}"
                 )
 
         consumer_end = time.time()
