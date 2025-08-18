@@ -114,7 +114,7 @@ class MessageQueue:
             # Get one sample
             data = self.queue.popleft()
             self.total_consumed += 1
-            return data
+            return data, len(self.queue)
 
     async def update_param_version(self, version: int):
         """Update current parameter version"""

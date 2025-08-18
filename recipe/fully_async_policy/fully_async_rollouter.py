@@ -241,6 +241,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
         sample_count = 0
         should_stop = False
 
+        progress_bar = tqdm(total=self.total_rollout_steps, initial=self.global_steps, desc="Training Progress")
+
         for epoch, batch_dict in continuous_iterator:
             if should_stop:  # 检查停止标志
                 break
@@ -277,11 +279,13 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     should_stop = True  # 设置停止标志
                     break
 
+                progress_bar.update(1)
                 self.global_steps += 1
 
             sample_count += 1
 
         # 发送结束信号
+        progress_bar.close()
         await self.pending_queue.put("DONE")
         print(f"[FullyAsyncRollouter][Feed] 样本添加完成，总共添加了 {self.global_steps} 个步骤的样本")
 
@@ -597,6 +601,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
             "pending_queue_size": self.pending_queue.qsize(),
             "active_tasks_size": len(self.active_tasks),
             "result_queue_size": self.result_queue.qsize(),
+            "max_required_samples": self.max_required_samples,
+            "required_samples": self.required_samples,
+            "staleness_threshold": self.staleness_threshold,
         }
 
         return stats

@@ -163,18 +163,22 @@ def assemble_batch_from_rollout_samples(
 
     # 收集统计信息和元数据（直接从 RolloutSample 中获取）
     param_versions = [rs.param_version for rs in rollout_samples]
-    sample_timestamps = [rs.generation_timestamp for rs in rollout_samples]
+
+    processing_time_stats = {
+        "avg_processing_time": np.mean(processing_times),
+        "max_processing_time": np.max(processing_times),
+        "min_processing_time": np.min(processing_times),
+        "tp50_processing_time": np.percentile(processing_times, 50),  # 中位数
+        "tp99_processing_time": np.percentile(processing_times, 99),  # 99百分位
+        "tp95_processing_time": np.percentile(processing_times, 95),  # 95百分位也很有用
+    }
 
     # 创建 meta_info
     final_batch.meta_info.update(
         {
             "rollout_param_versions": param_versions,
-            "sample_timestamps": sample_timestamps,
-            "avg_processing_time": np.mean(processing_times) if processing_times else 0,
-            "max_processing_time": np.max(processing_times) if processing_times else 0,
             "param_version_diversity": len(set(param_versions)) if param_versions else 0,
-            "avg_sample_age": np.mean([time.time() - ts for ts in sample_timestamps]) if sample_timestamps else 0,
-            "assembly_time": time.time() - start_time,
+            **processing_time_stats,
         }
     )
 

@@ -146,7 +146,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
         while len(queue_samples) < self.required_samples:
             # 获取单个样本，会一直等待直到有样本或收到None
-            sample = self.message_queue_client.get_sample_sync()
+            sample, queue_len = self.message_queue_client.get_sample_sync()
 
             if sample is None:
                 # 检测到结束信号（None），立即退出
@@ -159,7 +159,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
             queue_samples.append(sample)
 
             if len(queue_samples) % 10 == 0:
-                print(f"[FullyAsyncTrainer] Collected {len(queue_samples)}/{self.required_samples} samples")
+                print(
+                    f"[FullyAsyncTrainer] Collected {len(queue_samples)}/{self.required_samples} samples. mq_len: {queue_len}"
+                )
 
         consumer_end = time.time()
 
@@ -256,58 +258,36 @@ class FullyAsyncTrainer(RayPPOTrainer):
                     if batch is None:
                         break
 
-                    # 更新统计信息
-                    self.processed_samples += len(batch) if isinstance(batch, list) else 1
-
                     # 从meta_info中获取参数版本信息
                     if hasattr(batch, "meta_info") and batch.meta_info:
-                        # meta_info={'metrics': [{'generate_sequences': 1.8240885734558105, 'tool_calls': 0.0},
-                        # {'generate_sequences': 2.5197629928588867, 'tool_calls': 0.0},
-                        # {'generate_sequences': 3.5084900856018066, 'tool_calls': 0.0},
-                        # {'generate_sequences': 2.4329097270965576, 'tool_calls': 0.0},
-                        # {'generate_sequences': 3.0567924976348877, 'tool_calls': 0.0},
-                        # {'generate_sequences': 4.271160840988159, 'tool_calls': 0.0}],
-                        # 'global_steps': 22,
-                        # 'global_token_num': [588, 517, 422, 406, 355, 288],
-                        # 'rollout_param_versions': [0, 0, 0, 0, 0, 0],
-                        # 'sample_timestamps': [1755278023.7771623, 1755278024.101492, 1755278024.3597627,
-                        #                       1755278024.4885263, 1755278025.1039019, 1755278025.555585],
-                        # 'avg_processing_time': 2.935534119606018,
-                        # 'max_processing_time': 4.271160840988159,
-                        # 'param_version_diversity': 1,
-                        # 'avg_sample_age': 1.0503787994384766,
-                        # 'assembly_time': 0.05373978614807129})
-                        rollout_param_versions = batch.meta_info.get("rollout_param_versions", [])
-                        if rollout_param_versions:
-                            # 统计陈旧样本
-                            stale_count = sum(1 for v in rollout_param_versions if self.current_param_version - v > 1)
-                            self.stale_samples_processed += stale_count
+                        # 统计陈旧样本
+                        rollout_param_versions = batch.meta_info["rollout_param_versions"]
+                        stale_count = sum(1 for v in rollout_param_versions if self.current_param_version - v > 1)
+                        self.stale_samples_processed += stale_count
+                        metrics.update(
+                            {
+                                "fully_async/stale_samples_ratio": stale_count / len(rollout_param_versions),
+                                "fully_async/stale_samples_processed": self.stale_samples_processed,
+                                "fully_async/current_param_version": self.current_param_version,
+                            }
+                        )
+                        for metric in [
+                            "avg_processing_time",
+                            "max_processing_time",
+                            "min_processing_time",
+                            "tp50_processing_time",
+                            "tp99_processing_time",
+                            "tp95_processing_time",
+                            "param_version_diversity",
+                        ]:
+                            metrics[f"fully_async/{metric}"] = batch.meta_info.get(metric, 0)
 
-                        # 添加新鲜度指标到metrics
-                        if rollout_param_versions:
-                            param_version_diversity = batch.meta_info.get("param_version_diversity", 0)
-                            avg_sample_age = batch.meta_info.get("avg_sample_age", 0)
-
-                            metrics.update(
-                                {
-                                    "freshness/param_version_diversity": param_version_diversity,
-                                    "freshness/avg_sample_age": avg_sample_age,
-                                    "freshness/stale_samples_ratio": stale_count / len(rollout_param_versions)
-                                    if rollout_param_versions
-                                    else 0,
-                                    "statistics/processed_samples": self.processed_samples,
-                                    "statistics/stale_samples_processed": self.stale_samples_processed,
-                                    "statistics/current_param_version": self.current_param_version,
-                                }
-                            )
                 batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
                 self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
                 self._check_save_checkpoint(False, timing_raw)
 
             # self._collect_metrics(batch, epoch, metrics, timing_raw)
-
             pprint(metrics)
-
             # Trigger parameter synchronization after training step
             print(
                 f"[FullyAsyncTrainer] global_steps: {self.global_steps} "
@@ -330,65 +310,3 @@ class FullyAsyncTrainer(RayPPOTrainer):
         else:
             self.local_trigger_step += 1
             return
-
-    def get_statistics(self) -> dict:
-        """Get training statistics"""
-        queue_stats = self.message_queue_client.get_statistics_sync() if self.message_queue_client else {}
-        return {
-            "global_steps": self.global_steps,
-            "processed_samples": self.processed_samples,
-            "stale_samples_processed": self.stale_samples_processed,
-            "current_param_version": self.current_param_version,
-            "queue_size": queue_stats.get("queue_size", 0),
-            "queue_total_produced": queue_stats.get("total_produced", 0),
-            "queue_total_consumed": queue_stats.get("total_consumed", 0),
-            "queue_dropped_samples": queue_stats.get("dropped_samples", 0),
-        }
-
-    def _compute_sample_freshness_metrics(self, rollout_samples: list[RolloutSample]) -> dict:
-        """
-        Compute sample freshness metrics
-
-        Args:
-            rollout_samples: List of RolloutSample objects
-
-        Returns:
-            dict: Dictionary of freshness metrics
-        """
-        if not rollout_samples:
-            return {}
-
-        try:
-            # Extract parameter versions and timestamps directly from RolloutSample
-            sample_ages = []
-            sample_latencies = []
-            current_time = time.time()
-
-            for sample in rollout_samples:
-                # Get information directly from RolloutSample
-                rollout_version = sample.param_version
-                generation_time = sample.generation_timestamp
-
-                age = max(0, self.current_param_version - rollout_version)
-                latency = max(0, current_time - generation_time)
-
-                sample_ages.append(age)
-                sample_latencies.append(latency)
-
-            if not sample_ages:
-                return {}
-
-            return {
-                "freshness/avg_sample_age": np.mean(sample_ages),
-                "freshness/max_sample_age": max(sample_ages),
-                "freshness/min_sample_age": min(sample_ages),
-                "freshness/avg_sample_latency": np.mean(sample_latencies),
-                "freshness/max_sample_latency": max(sample_latencies),
-                "freshness/min_sample_latency": min(sample_latencies),
-                "freshness/stale_samples_ratio": sum(1 for age in sample_ages if age > 1) / len(sample_ages),
-                "freshness/sample_count": len(sample_ages),
-            }
-
-        except Exception as e:
-            logger.error(f"Error computing freshness metrics: {e}")
-            return {"freshness/error": str(e)}
