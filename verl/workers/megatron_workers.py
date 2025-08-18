@@ -415,12 +415,15 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
         )
 
+        from verl.models.mcore import get_mcore_weight_converter
+
+        weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
+
         if self.config.rollout.name == "vllm":
             # perform weight resharding between actor and rollout
-            from verl.models.mcore import get_mcore_weight_converter
+
             from verl.workers.sharding_manager.megatron_vllm import MegatronVLLMShardingManager
 
-            weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
             sharding_manager = MegatronVLLMShardingManager(
                 inference_engine=rollout_worker.rollout.inference_engine,
                 model_config=self.actor_model_config,
