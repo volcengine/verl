@@ -38,16 +38,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
     """
 
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            device_name=None,
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -134,10 +134,13 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.required_samples = calculate_one_step_size(
             self.minimal_bsz, config.actor_rollout_ref.actor.ppo_mini_batch_size
         )
-        self.max_required_samples = self.required_samples * (
-                self.staleness_threshold + 1) * config.async_training.trigger_parameter_sync_step
-        print(f"[FullyAsyncRollouter] required_samples : {self.required_samples} "
-              f"max_required_samples: {self.max_required_samples}")
+        self.max_required_samples = (
+            self.required_samples * (self.staleness_threshold + 1) * config.async_training.trigger_parameter_sync_step
+        )
+        print(
+            f"[FullyAsyncRollouter] required_samples : {self.required_samples} "
+            f"max_required_samples: {self.max_required_samples}"
+        )
 
         # 单次最多扔一次迭代需要的样本
         self.max_concurrent_samples = self.required_samples
@@ -184,8 +187,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
             self.current_param_version = version
             # every time param change, reset staleness_samples
             self.staleness_samples = 0
-            print(f"[FullyAsyncRollouter][Public][update_param_version] "
-                  f"Parameter version updated from {old_version} to {version}")
+            print(
+                f"[FullyAsyncRollouter][Public][update_param_version] "
+                f"Parameter version updated from {old_version} to {version}"
+            )
 
     def _validate_config(self):
         # Validate asynchronous training configuration
@@ -278,8 +283,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         # 发送结束信号
         await self.pending_queue.put("DONE")
-        print(f"[FullyAsyncRollouter][Feed] "
-              f"样本添加完成，总共添加了 {self.global_steps} 个步骤的样本")
+        print(f"[FullyAsyncRollouter][Feed] 样本添加完成，总共添加了 {self.global_steps} 个步骤的样本")
 
     async def _processor_worker(self):
         """流式处理工作协程 - 逐个样本立即提交处理，不等待批次"""
@@ -541,8 +545,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         if queue_size >= self.max_queue_size:
             print(
-                "[FullyAsyncRollouter][ShouldPause] "
-                f" due to full queue: size={queue_size}, max={self.max_queue_size}")
+                f"[FullyAsyncRollouter][ShouldPause]  due to full queue: size={queue_size}, max={self.max_queue_size}"
+            )
             return True
 
         if self.staleness_samples > self.max_required_samples:

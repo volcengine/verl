@@ -50,16 +50,16 @@ class FullyAsyncTrainer(RayPPOTrainer):
     """
 
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            device_name=None,
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -309,9 +309,11 @@ class FullyAsyncTrainer(RayPPOTrainer):
             pprint(metrics)
 
             # Trigger parameter synchronization after training step
-            print(f"[FullyAsyncTrainer] global_steps: {self.global_steps} "
-                  f"local_trigger_step: {self.local_trigger_step} "
-                  f"trigger_parameter_sync_step: {self.trigger_parameter_sync_step}")
+            print(
+                f"[FullyAsyncTrainer] global_steps: {self.global_steps} "
+                f"local_trigger_step: {self.local_trigger_step} "
+                f"trigger_parameter_sync_step: {self.trigger_parameter_sync_step}"
+            )
             self._trigger_parameter_sync_after_step()
             self.global_steps += 1
 
