@@ -62,11 +62,10 @@ from verl.utils.profiler import (
 )
 from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
 from verl.workers.actor.megatron_actor import MegatronPPOActor
-from verl.workers.config import McoreCriticConfig, RolloutConfig, HFModelConfig
+from verl.workers.config import HFModelConfig, McoreCriticConfig, RolloutConfig
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
 from verl.workers.rollout.rollout_worker import RolloutWorker
-
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -388,11 +387,11 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
 
-        # (vermouth1992). self.config.model in megatron differs from that of fsdp in the override_config. To workaround this
-        # we deepcopy self.config.model and make them compatible
+        # (vermouth1992). self.config.model in megatron differs from that of fsdp in the override_config.
+        # To workaround this we deepcopy self.config.model and make them compatible
         omega_model_config = copy.deepcopy(self.config.model)
         with open_dict(omega_model_config):
-            override_config = omega_model_config.override_config.pop('model_config')
+            override_config = omega_model_config.override_config.pop("model_config")
             omega_model_config.override_config = override_config
 
         model_config: HFModelConfig = omega_conf_to_dataclass(omega_model_config, dataclass_type=HFModelConfig)
@@ -417,10 +416,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         )
 
         if self.config.rollout.name == "vllm":
-            from verl.workers.sharding_manager.megatron_vllm import MegatronVLLMShardingManager
-
             # perform weight resharding between actor and rollout
             from verl.models.mcore import get_mcore_weight_converter
+            from verl.workers.sharding_manager.megatron_vllm import MegatronVLLMShardingManager
 
             weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
             sharding_manager = MegatronVLLMShardingManager(
@@ -438,8 +436,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
         elif self.config.rollout.name == "sglang":
-            from verl.workers.rollout.sglang_rollout.sglang_rollout import SGLangRollout
-
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's
             # model_runner would check CUDA device capability.
             # However, due to verl's setting, the main process of ray can not find any CUDA device, which would
