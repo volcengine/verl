@@ -46,10 +46,16 @@ try:
     _flash_supports_window_size = "window_size" in list(inspect.signature(flash_attn_func).parameters)
 except ImportError:
     # Fallback: try to import from flash_attn package directly
-    from flash_attn import flash_attn_varlen_func
-
     flash_attn_func = None
     _flash_supports_window_size = None
+    try:
+        from flash_attn import flash_attn_varlen_func
+    except ImportError:
+        # If flash_attn is not available, set it to None
+        flash_attn_varlen_func = None
+        logger.warning(
+            "flash_attn_varlen_func not available. Variable length attention will fall back to standard attention."
+        )
 
 
 def get_rope_index(
