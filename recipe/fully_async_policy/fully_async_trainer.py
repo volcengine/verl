@@ -158,7 +158,7 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
             queue_samples.append(sample)
 
-            if len(queue_samples) % 10 == 0 or len(queue_samples) >= self.required_samples:
+            if len(queue_samples) % 10 == 0:
                 print(f"[FullyAsyncTrainer] Collected {len(queue_samples)}/{self.required_samples} samples")
 
         consumer_end = time.time()
@@ -323,14 +323,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
         if self.local_trigger_step >= self.trigger_parameter_sync_step:
             self.local_trigger_step = 1
             self.current_param_version = self.current_param_version + 1
-            print(
-                f"[FullyAsyncTrainer] Triggering parameter sync after "
-                f"training step {self.global_steps}, version: {self.current_param_version}"
-            )
             ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version))
             return
         else:
-            print(f"[FullyAsyncTrainer] Trigger {self.local_trigger_step}")
             self.local_trigger_step += 1
             return
 

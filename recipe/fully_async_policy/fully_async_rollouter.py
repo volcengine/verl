@@ -157,6 +157,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.active_tasks = set()
         self.result_queue = asyncio.Queue()
 
+        # 通过 pause 和 resume 控制 monitor_loop 中，是否进行 尝试恢复 操作
+        self.monitor_loop_trigger = True
+
     async def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """Set message queue client"""
         async with self.lock:
@@ -287,8 +290,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             async with self.lock:
                 if await self._should_pause_generation():
-                    print(f"[FullyAsyncRollouter][Processor] 等待已提交的任务结束 "
-                          f"{[t.get_name() for t in self.active_tasks]}")
+                    print(f"[FullyAsyncRollouter][Processor] 等待已提交的任务结束")
                     if self.active_tasks:
                         await asyncio.gather(*self.active_tasks, return_exceptions=True)
                         self.active_tasks.clear()
@@ -511,7 +513,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 print(f"[FullyAsyncRollouter][MonitorLoop] {stats}")
                 last_stats_time = current_time
 
-            if not await self._should_pause_generation():
+            # pause 和 resume 直接，不进行恢复操作
+            if self.monitor_loop_trigger and not await self._should_pause_generation():
                 async with self.lock:
                     print(f"[FullyAsyncRollouter][MonitorLoop] trigger resume")
                     self.paused = False
@@ -560,14 +563,11 @@ class FullyAsyncRollouter(RayPPOTrainer):
         async with self.lock:
             self.paused = True
             if self.active_tasks:
-                print(f"[FullyAsyncRollouter][Public][Pause] "
-                      f"{[t.get_name() for t in self.active_tasks]}")
+                print(f"[FullyAsyncRollouter][Public][Pause]")
                 await asyncio.gather(*self.active_tasks, return_exceptions=True)
                 self.active_tasks.clear()
             print("[FullyAsyncRollouter][Public][Pause] All active tasks completed")
-
-        # print("[FullyAsyncRollouter][Public] pause sleep 10")
-        # await asyncio.sleep(10)
+        self.monitor_loop_trigger = False
 
     async def resume(self):
         """resume rollout
@@ -577,6 +577,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         async with self.lock:
             self.paused = False
             self.condition.notify_all()
+        self.monitor_loop_trigger = True
 
     async def get_statistics(self) -> dict:
         queue_stats = self.message_queue_client.get_statistics_sync()
