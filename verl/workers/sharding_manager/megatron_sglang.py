@@ -20,6 +20,8 @@ This file contains a Megatron style Hybrid Engine that shares the weights of the
 import asyncio
 import logging
 import os
+from contextlib import asynccontextmanager
+from typing import Optional
 
 import torch.distributed as dist
 from omegaconf import DictConfig
@@ -102,6 +104,8 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         self.device_mesh = device_mesh
         self.bridge = bridge
         self.offload_param = offload_param
+        self.multi_stage_wake_up = True
+        self._need_reload = True
 
         if self.device_mesh is not None:
             self.infer_tp_size = self.device_mesh["tp"].mesh.size()[0]
@@ -126,8 +130,8 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self.wake_up())
 
-    @GPUMemoryLogger(role="MegatronSGLangShardingManager after_generate ", logger=logger)
-    def after_generate(self):
+    @GPUMemoryLogger(role="MegatronSGLangShardingManager finish_generate ", logger=logger)
+    def finish_generate(self):
         loop = asyncio.get_event_loop()
         loop.run_until_complete(self.sleep())
 
@@ -143,6 +147,17 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         loop = asyncio.get_event_loop()
         loop.run_until_complete(self.sleep())
 
+    async def release_memory(self):
+        if self.device_mesh["tp"].get_local_rank() == 0:
+            await self.inference_engine.release_memory_occupation()
+
+    async def resume_memory(self, tags: Optional[list[str]] = None):
+        if self._need_reload:
+            await self.inference_engine.release_memory_occupation()
+            self._need_reload = False
+        if self.device_mesh["tp"].get_local_rank() == 0:
+            await self.inference_engine.resume_memory_occupation(tags=tags)
+
     async def update_weights(self, params):
         """
         Update model weights using tensor buckets, similar to THUDM/slime's implementation.
@@ -156,8 +171,8 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             - Main logic: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L452
             - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
         """
-        if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
-            await self.inference_engine.resume_memory_occupation()
+        # if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
+        #     await self.inference_engine.resume_memory_occupation()
         named_tensors = params
         load_format = None
         monkey_patch_torch_reductions()
@@ -217,28 +232,48 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             pass
             # await self.inference_engine.flush_cache()
 
-    async def release_memory(self):
-        if self.device_mesh["tp"].get_local_rank() == 0:
-            await self.inference_engine.release_memory_occupation()
+    @asynccontextmanager
+    async def offload_manager(self):
+        try:
+            if self.multi_stage_wake_up:
+                log_gpu_memory_usage("Before resume SGLang weights in sharding manager", logger=logger)
+                await self.resume_memory(tags=["weights"])
+                log_gpu_memory_usage("After resume SGLang weights in sharding manager", logger=logger)
+            else:
+                log_gpu_memory_usage("Before resume SGLang weights + kv_cache in sharding manager", logger=logger)
+                await self.resume_memory()
+                log_gpu_memory_usage("After resume SGLang weights + kv_cache in sharding manager", logger=logger)
+            dist.barrier()
+
+            if self.offload_param:
+                load_megatron_model_to_gpu(self.actor_module)
+            yield
+        finally:
+            if self.offload_param:
+                offload_megatron_model_to_cpu(self.actor_module)
+            get_torch_device().empty_cache()
+            dist.barrier()
+
+            await self.resume_memory(tags=["kv_cache"])
+            log_gpu_memory_usage("After resume SGLang kv_cache in sharding manager", logger=logger)
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     async def wake_up(self):
-        if self.offload_param:
-            load_megatron_model_to_gpu(self.actor_module)
-        if self.bridge is not None:
-            per_tensor_param = self.bridge.export_weights(self.actor_module)
-        else:
-            per_tensor_param = per_tensor_generator(
-                self.actor_module,
-                self.model_config,
-                self.weight_converter,
-                self.transformer_config,
-                self.layer_name_mapping,
-            )
-        await self.update_weights(per_tensor_param)
-        if self.offload_param:
-            offload_megatron_model_to_cpu(self.actor_module)
-        get_torch_device().empty_cache()
+        async with self.offload_manager():
+            if self.bridge is not None:
+                per_tensor_param = self.bridge.export_weights(self.actor_module)
+            else:
+                per_tensor_param = per_tensor_generator(
+                    self.actor_module,
+                    self.model_config,
+                    self.weight_converter,
+                    self.transformer_config,
+                    self.layer_name_mapping,
+                )
+            await self.update_weights(per_tensor_param)
+        # if self.offload_param:
+        #     offload_megatron_model_to_cpu(self.actor_module)
+        # get_torch_device().empty_cache()
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:
             self.torch_random_states = get_torch_device().get_rng_state()
@@ -247,10 +282,9 @@ class MegatronSGLangShardingManager(BaseShardingManager):
     @GPUMemoryLogger(role="MegatronSGLangShardingManager exit", logger=logger)
     async def sleep(self):
         log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
-        print("offload sglang memory")
         await self.release_memory()
         log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
-        dist.barrier()
+        # dist.barrier()
 
         for model in self.actor_module:
             model.train()

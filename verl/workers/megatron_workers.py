@@ -590,10 +590,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         self.sharding_manager.prepare_for_generate()
 
     @register(dispatch_mode=Dispatch.DP_DISPATCH)
-    @GPUMemoryLogger(role="after_generate", logger=logger)
+    @GPUMemoryLogger(role="finish_generate", logger=logger)
     @DistProfiler.annotate(color="olive")
-    def after_generate(self):
-        self.sharding_manager.after_generate()
+    def finish_generate(self):
+        self.sharding_manager.finish_generate()
         get_torch_device().empty_cache()
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)

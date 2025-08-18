@@ -1,3 +1,11 @@
+# This file is adapted from multiple sources:
+# THUDM/slime project
+#    Original source: https://github.com/THUDM/slime/blob/main/slime/rollout/sglang_rollout.py
+#    Original source: https://github.com/THUDM/slime/blob/main/slime/ray/rollout_data_source.py
+#    Original source: https://github.com/THUDM/slime/blob/main/slime/ray/rollout.py
+#    Copyright 2025 Zhipu AI
+#    Licensed under the Apache License, Version 2.0
+
 import asyncio
 import threading
 from collections import defaultdict
@@ -9,6 +17,7 @@ import torch
 from sglang.srt.sampling.sampling_params import SamplingParams
 from tensordict import TensorDict
 from torch.nn.utils.rnn import pad_sequence
+from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
 from verl import DataProto
@@ -16,7 +25,7 @@ from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.rollout.buffer import Buffer, Status
 from verl.workers.rollout.http_utils import get, post
-from verl.workers.rollout.sglang_rollout.sglang_rollout import _start_router
+from verl.workers.rollout.sglang_rollout.sglang_rollout import _post_process_outputs, _pre_process_inputs, _start_router
 
 
 # from slime.utils.types import Dict
@@ -51,42 +60,12 @@ def run(coro):
     return get_async_loop().run(coro)
 
 
-def _post_process_outputs(processing_class, output):
-    try:
-        # This is when processing_class is a processor
-        tokenizer = processing_class.tokenizer
-    except AttributeError:
-        try:
-            # This is when processing_class is a tokenizer
-            tokenizer = processing_class
-        except AttributeError as e:
-            raise ValueError(f"Cannot get tokenizer from processing_class {processing_class}") from e
-
-    def _map_each_response(resp):
-        output_token_logprobs = resp["meta_info"]["output_token_logprobs"]
-        log_probs, output_token_ids = zip(
-            *[(log_prob, token_ids) for log_prob, token_ids, _ in output_token_logprobs], strict=True
-        )
-        return torch.tensor(output_token_ids), torch.tensor(log_probs)
-
-    out_map = map(lambda x: _map_each_response(x), output)
-    batched_output_token_ids = []
-    batched_logprobs = []
-    for output_token_ids, log_probs in out_map:
-        batched_output_token_ids.append(output_token_ids)
-        batched_logprobs.append(log_probs)
-    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
-    batched_output_token_ids = pad_sequence(batched_output_token_ids, batch_first=True, padding_value=pad_token_id)
-    if len(batched_logprobs) > 0:
-        batched_logprobs = pad_sequence(batched_logprobs, batch_first=True, padding_value=pad_token_id)
-    return batched_output_token_ids, batched_logprobs
-
-
 @ray.remote
 class RolloutManager:
     def __init__(self, config):
         self.config = config.actor_rollout_ref.rollout
-        self.debug = False
+        self.debug = True
+        self.debug =False
         if self.debug:
             # self.sglang_router_ip, self.sglang_router_port = _start_router()
             self.sglang_router_ip = "127.0.0.1"
@@ -95,14 +74,14 @@ class RolloutManager:
             self.sglang_router_ip, self.sglang_router_port = _start_router()
 
         self.data_buffer = Buffer(config)
-        self.partial_rollout = True
+        self.partial_rollout = config.actor_rollout_ref.rollout.partial_rollout
         self.use_http2 = False
         self.n_samples_per_prompt = config.actor_rollout_ref.rollout.n
         self.over_sampling_batch_size = config.actor_rollout_ref.rollout.over_sampling_batch_size
         self.rollout_batch_size = config.actor_rollout_ref.rollout.rollout_batch_size
         local_path = config.actor_rollout_ref.model.path
+
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
-        # Used for multimodal LLM, could be None
         self.processor = hf_processor(local_path, trust_remote_code=True, use_fast=True)
         self.init_sampling_params()
 
@@ -150,14 +129,6 @@ class RolloutManager:
         return self._convert_samples_to_data_proto(rollout_result)
 
     async def rollout_async(self) -> list[list[Dict]]:
-        """
-        一个示例函数，实现基于规则的rm rollout生成。
-
-        Returns:
-            list[list[Dict]]: 生成的样本组列表，长度等于rollout_batch_size
-        """
-        # 这里假设全局数据集始终为True
-
         data = []
         pbar = tqdm(total=self.rollout_batch_size * self.n_samples_per_prompt, desc="Rollout generation")
 
@@ -347,19 +318,7 @@ class RolloutManager:
             payload["text"] = input_text
 
         output = await post(url, payload, use_http2=self.use_http2)
-        # import pdb;
-        # pdb.set_trace()
 
-        # Extract new response tokens
-
-        # log.info(f"Generate output: {output['meta_info'].keys()}")
-        # if "output_token_logprobs" not in output["meta_info"]:
-        #     log.error(f"Generate output: {output['meta_info']}")
-        #     raise ValueError("output_token_logprobs is not in the output")
-
-        # assert "meta_info" in output and "output_token_logprobs" in output["meta_info"], (
-        #     "output_token_logprobs is not in the output"
-        # )
         if "output_token_logprobs" in output["meta_info"]:
             new_response_tokens = [item[1] for item in output["meta_info"]["output_token_logprobs"]]
             # Update sample with tokens directly
@@ -404,3 +363,161 @@ class RolloutManager:
         group = await asyncio.gather(*[self.generate_and_rm(sample, evaluation=evaluation) for sample in group])
 
         return group
+
+    def generate_sequences(self, prompts: DataProto):
+        return run(self.async_generate_sequences(prompts))
+
+    async def async_generate_sequences(self, prompts: DataProto):
+        """For compatibility with the original generate_sequences in verl"""
+        idx = prompts.batch["input_ids"]
+        attention_mask = prompts.batch["attention_mask"]
+        position_ids = prompts.batch["position_ids"]
+        eos_token_id = prompts.meta_info["eos_token_id"]
+        batch_size = idx.size(0)
+
+        # Extract non-tensor data
+        non_tensor_batch = prompts.non_tensor_batch
+        if "raw_prompt_ids" not in non_tensor_batch:
+            non_tensor_batch["raw_prompt_ids"] = np.array(
+                [_pre_process_inputs(self.pad_token_id, idx[i]).tolist() for i in range(batch_size)],
+                dtype=object,
+            )
+
+        if "multi_modal_data" in non_tensor_batch:
+            sglang_inputs = []
+            for raw_prompt_ids, multi_modal_data in zip(
+                non_tensor_batch.pop("raw_prompt_ids"),
+                non_tensor_batch.pop("multi_modal_data"),
+                strict=True,
+            ):
+                sglang_inputs.append(
+                    {
+                        "prompt_token_ids": raw_prompt_ids,
+                        "multi_modal_data": multi_modal_data,
+                        "image_data": (
+                            multi_modal_data.get("image", None) if isinstance(multi_modal_data, dict) else None
+                        ),
+                    }
+                )
+        else:
+            sglang_inputs = [
+                {"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch.pop("raw_prompt_ids")
+            ]
+
+        # Ensure token IDs are lists or numpy arrays
+        for input_data in sglang_inputs:
+            if isinstance(input_data["prompt_token_ids"], np.ndarray):
+                input_data["prompt_token_ids"] = input_data["prompt_token_ids"].tolist()
+            elif not isinstance(input_data["prompt_token_ids"], list):
+                raise TypeError(
+                    f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}"
+                )
+        idx_list = [input_data["prompt_token_ids"] for input_data in sglang_inputs]
+        image_list = [input_data.get("image_data", None) for input_data in sglang_inputs]
+
+        do_sample = prompts.meta_info.get("do_sample", True)
+        is_validate = prompts.meta_info.get("validate", False)
+
+        # Create request-level sampling parameters
+        request_sampling_params = self.sampling_params.copy()
+        if not do_sample:
+            request_sampling_params.update(
+                {
+                    "n": 1,
+                    "presence_penalty": 0.0,
+                    "frequency_penalty": 0.0,
+                    "repetition_penalty": 1.0,
+                    "temperature": 0,
+                    "top_p": 1,
+                    "top_k": -1,
+                    "ignore_eos": False,
+                    "min_new_tokens": 0,
+                    "max_new_tokens": self.config.response_length,
+                    "skip_special_tokens": True,
+                    "spaces_between_special_tokens": True,
+                }
+            )
+        elif is_validate:
+            request_sampling_params.update(
+                {
+                    "top_k": self.config.val_kwargs.top_k,
+                    "top_p": self.config.val_kwargs.top_p,
+                    "temperature": self.config.val_kwargs.temperature,
+                    "n": 1,  # if validate, already repeat in ray_trainer
+                }
+            )
+        url = f"http://{self.sglang_router_ip}:{self.sglang_router_port}/generate"
+
+        # 并发执行所有请求
+        tasks = [
+            post(
+                url,
+                {
+                    "sampling_params": request_sampling_params,
+                    "return_logprob": True,
+                    "input_ids": idx,
+                    "image_data": image_data,
+                },
+                use_http2=self.use_http2,
+            )
+            for idx, image_data in zip(idx_list, image_list)
+        ]
+
+        outputs = []
+        pbar = tqdm(total=len(tasks), desc="Run eval Rollout generation")
+        from loguru import logger as log
+        for coro in asyncio.as_completed(tasks):
+            output = await coro
+            outputs.append(output)
+            # log.info(f"output: {output}")
+            pbar.update(1)
+        pbar.close()
+
+        out = _post_process_outputs(self.tokenizer, outputs)
+        response = out[0].to(idx.device)
+        rollout_log_probs = None
+        if self.config.calculate_log_probs:
+            rollout_log_probs = out[1].to(idx.device)
+
+        if response.shape[1] < self.config.response_length:
+            response = pad_sequence_to_length(response, self.config.response_length, self.tokenizer.pad_token_id)
+            if self.config.calculate_log_probs:
+                rollout_log_probs = pad_sequence_to_length(
+                    rollout_log_probs, self.config.response_length, self.tokenizer.pad_token_id
+                )
+
+        seq = torch.cat([idx, response], dim=-1)
+
+        response_length = response.size(1)
+        delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
+        delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
+        if position_ids.dim() == 3:  # qwen2vl mrope
+            delta_position_id = delta_position_id.view(batch_size, 1, -1).expand(batch_size, 3, -1)
+
+        # TODO(sgm): fix position_ids on right_pad
+        # prompt: left pad + response: right pad
+        # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
+        # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
+        response_position_ids = position_ids[..., -1:] + delta_position_id
+        position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
+        response_attention_mask = get_response_mask(
+            response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype
+        )
+        attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
+
+        # all the tp ranks should contain the same data here. data in all ranks are valid
+        batch = TensorDict(
+            {
+                "prompts": idx,
+                "responses": response,
+                "input_ids": seq,  # here input_ids become the whole sentences
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
+            },
+            batch_size=batch_size,
+        )
+        if self.config.calculate_log_probs:
+            # we will recompute old log prob with actor
+            batch["rollout_log_probs"] = rollout_log_probs
+
+        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
