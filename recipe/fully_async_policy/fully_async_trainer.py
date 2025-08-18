@@ -309,8 +309,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
             pprint(metrics)
 
             # Trigger parameter synchronization after training step
-            print(f"[FullyAsyncTrainer] global_steps: {self.global_steps}"
-                  f"[FullyAsyncTrainer] _trigger_parameter_sync_after_step {self.local_trigger_step} {self.trigger_parameter_sync_step}")
+            print(f"[FullyAsyncTrainer] global_steps: {self.global_steps} "
+                  f"local_trigger_step: {self.local_trigger_step} "
+                  f"trigger_parameter_sync_step: {self.trigger_parameter_sync_step}")
             self._trigger_parameter_sync_after_step()
             self.global_steps += 1
 
@@ -319,11 +320,8 @@ class FullyAsyncTrainer(RayPPOTrainer):
         Trigger parameter synchronization after training step
         This ensures rollouter always uses the latest trained parameters
         """
-        print("[FullyAsyncTrainer] Trigger parameter synchronization after training step")
         if self.local_trigger_step >= self.trigger_parameter_sync_step:
-            print(f"[FullyAsyncTrainer] Trigger start run")
             self.local_trigger_step = 1
-            print(f"[FullyAsyncTrainer] {self.current_param_version}")
             self.current_param_version = self.current_param_version + 1
             print(
                 f"[FullyAsyncTrainer] Triggering parameter sync after "
