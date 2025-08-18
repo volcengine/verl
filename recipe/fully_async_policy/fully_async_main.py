@@ -82,39 +82,31 @@ def create_role_worker_mapping(config):
     if config.actor_rollout_ref.actor.strategy == "fsdp2":
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
         from recipe.one_step_off_policy.fsdp_workers import (
-            ActorRolloutRefWorker,
-            AsyncActorRolloutRefWorker,
             CriticWorker,
-            RolloutWorker,
+            DetachActorWorker,
+            DetachAsyncRolloutWorker,
         )
         from verl.single_controller.ray import RayWorkerGroup
 
-        actor_rollout_cls = (
-            AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
-        )
         ray_worker_group_cls = RayWorkerGroup
 
     elif config.actor_rollout_ref.actor.strategy == "megatron":
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
         from recipe.one_step_off_policy.megatron_workers import (
-            ActorRolloutRefWorker,
-            AsyncActorRolloutRefWorker,
             CriticWorker,
-            RolloutWorker,
+            DetachActorWorker,
+            DetachAsyncRolloutWorker,
         )
         from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
 
-        actor_rollout_cls = (
-            AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
-        )
         ray_worker_group_cls = NVMegatronRayWorkerGroup
 
     else:
         raise NotImplementedError(f"Unsupported strategy: {config.actor_rollout_ref.actor.strategy}")
 
     role_worker_mapping = {
-        Role.Actor: ray.remote(actor_rollout_cls),
-        Role.Rollout: ray.remote(RolloutWorker),
+        Role.Actor: ray.remote(DetachActorWorker),
+        Role.Rollout: ray.remote(DetachAsyncRolloutWorker),
         Role.Critic: ray.remote(CriticWorker),
     }
 
@@ -130,7 +122,7 @@ def create_role_worker_mapping(config):
 
     # 添加reference policy（如果需要KL loss或reward）
     if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
-        role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+        role_worker_mapping[Role.RefPolicy] = ray.remote(DetachActorWorker)
 
     return role_worker_mapping, ray_worker_group_cls
 
@@ -187,22 +179,21 @@ class FullyAsyncTaskRunner:
         self.components["reward_fn"] = reward_fn
         self.components["val_reward_fn"] = val_reward_fn
 
-        self.max_queue_size = ((config.async_training.staleness_threshold + 1)
-                               * config.data.train_batch_size
-                               * config.actor_rollout_ref.rollout.n
-                               ) * 10  # x 10 avoid deadlock
-        print("[ASYNC MAIN] Creating MessageQueue...")
-        message_queue = MessageQueue.remote(config, self.max_queue_size)
-        message_queue_client = MessageQueueClient(message_queue)
-
-        self.components["message_queue"] = message_queue
-        self.components["message_queue_client"] = message_queue_client
-
         print("[ASYNC MAIN] Creating FullyAsyncRollouter...")
         self._create_rollouter(config)
 
         print("[ASYNC MAIN] Creating FullyAsyncTrainer...")
         self._create_trainer(config)
+
+        print("[ASYNC MAIN] Creating MessageQueue...")
+        max_queue_size = ray.get(self.components["rollouter"].get_max_queue_size.remote())
+        message_queue = MessageQueue.remote(config, max_queue_size)
+        message_queue_client = MessageQueueClient(message_queue)
+        self.components["message_queue"] = message_queue
+        self.components["message_queue_client"] = message_queue_client
+
+        ray.get(self.components["rollouter"].set_message_queue_client.remote(self.components["message_queue_client"]))
+        ray.get(self.components["trainer"].set_message_queue_client.remote(self.components["message_queue_client"]))
 
         print("[ASYNC MAIN] Setting up parameter synchronization...")
         from recipe.fully_async_policy.param_sync import ParameterSynchronizer
@@ -231,11 +222,9 @@ class FullyAsyncTaskRunner:
             ray_worker_group_cls=self.components["ray_worker_group_cls"],
             processor=self.components["processor"],
             device_name=config.trainer.device,
-            max_queue_size=self.max_queue_size,
         )
 
         ray.get(rollouter.init_workers.remote())
-        ray.get(rollouter.set_message_queue_client.remote(self.components["message_queue_client"]))
         self.components["rollouter"] = rollouter
         print("[ASYNC MAIN] Rollouter created and initialized successfully")
 
@@ -259,7 +248,6 @@ class FullyAsyncTaskRunner:
         )
 
         ray.get(trainer.init_workers.remote())
-        ray.get(trainer.set_message_queue_client.remote(self.components["message_queue_client"]))
         self.components["trainer"] = trainer
         print("[ASYNC MAIN] FullyAsyncTrainer created and initialized successfully")
 

@@ -27,42 +27,21 @@ from verl.utils.debug import (
 from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.fs import copy_to_local
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
-from verl.workers.megatron_workers import ActorRolloutRefWorker as ARRWorker
-from verl.workers.megatron_workers import CriticWorker, RewardModelWorker
+from verl.workers.megatron_workers import (
+    ActorRolloutRefWorker,
+    AsyncActorRolloutRefWorker,
+    CriticWorker,
+)
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-__all__ = ["ActorRolloutRefWorker", "AsyncActorRolloutRefWorker", "CriticWorker", "RewardModelWorker", "RolloutWorker"]
+__all__ = ["DetachActorWorker", "DetachRolloutWorker", "DetachAsyncRolloutWorker", "CriticWorker"]
 
 
-class ActorRolloutRefWorker(ARRWorker):
-    def __init__(self, config: DictConfig, role: str):
-        assert role in ["actor", "ref"]
-        tmp_role = "ref" if role == "ref" else "actor_rollout"
-        super().__init__(config, tmp_role)
-        if role == "actor":
-            self._is_rollout = False
-        self.role = role
-
+class DetachNcclSync(ActorRolloutRefWorker):
     def _get_actor_params_generator(self):
-        assert self._is_actor
-        from verl.models.mcore import get_mcore_weight_converter
-        from verl.utils.megatron_utils import per_tensor_generator
-
-        layer_name_mapping = {
-            "qkv_layer_name": "self_attention.linear_qkv.",
-            "gate_proj_layer_name": "linear_fc1.",
-        }
-        weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
-        generator = per_tensor_generator(
-            self.actor.actor_module,
-            self.actor_model_config,
-            weight_converter,
-            self.tf_config,
-            layer_name_mapping,
-        )
-        return generator
+        pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def sync_rollout_weights(self):
@@ -106,11 +85,28 @@ class ActorRolloutRefWorker(ARRWorker):
         return ret
 
 
-class RolloutWorker(ActorRolloutRefWorker):
-    def __init__(self, config: DictConfig, role: str):
-        assert role == "rollout"
-        ARRWorker.__init__(self, config, role)
+class DetachActorWorker(DetachNcclSync):
+    def _get_actor_params_generator(self):
+        assert self._is_actor
+        from verl.models.mcore import get_mcore_weight_converter
+        from verl.utils.megatron_utils import per_tensor_generator
 
+        layer_name_mapping = {
+            "qkv_layer_name": "self_attention.linear_qkv.",
+            "gate_proj_layer_name": "linear_fc1.",
+        }
+        weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
+        generator = per_tensor_generator(
+            self.actor.actor_module,
+            self.actor_model_config,
+            weight_converter,
+            self.tf_config,
+            layer_name_mapping,
+        )
+        return generator
+
+
+class DetachRolloutWorker(DetachNcclSync):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         if self.config.model.get("external_lib", None) is not None:
@@ -142,11 +138,8 @@ class RolloutWorker(ActorRolloutRefWorker):
         from torch.distributed.device_mesh import init_device_mesh
 
         assert self.config.rollout.name == "vllm"
-        assert self.config.rollout.mode == "sync"
 
         from verl.workers.rollout.vllm_rollout import vLLMRollout
-
-        from .vllm_sharding_manager import VLLMShardingManager
 
         # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
         # we will reorganize their weight format when resharding from actor to rollout.
@@ -175,14 +168,17 @@ class RolloutWorker(ActorRolloutRefWorker):
         )
         log_gpu_memory_usage("After building vllm rollout", logger=logger)
 
-        sharding_manager = VLLMShardingManager(
-            inference_engine=rollout.inference_engine,
-            device_mesh=rollout_device_mesh,
+        from sharding_manager import DetachShardingManager
+
+        rollout_sharding_manager = DetachShardingManager(
+            inference_engine=rollout.inference_engine, device_mesh=rollout_device_mesh
         )
+
         log_gpu_memory_usage("After building sharding manager", logger=logger)
 
-        self.rollout, self.sharding_manager = rollout, sharding_manager
-        self.rollout.sharding_manager = sharding_manager
+        self.rollout = rollout
+        self.sharding_manager = rollout_sharding_manager
+        self.rollout.sharding_manager = rollout_sharding_manager
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO, blocking=False)
     def async_generate_sequences(self, *args, **kwargs):
@@ -194,6 +190,11 @@ class RolloutWorker(ActorRolloutRefWorker):
         self._weights_info = weights_info
 
 
-class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
-    def __init__(self, *args, **kwargs):
-        raise NotImplementedError
+class DetachAsyncRolloutWorker(AsyncActorRolloutRefWorker, DetachRolloutWorker):
+    def __init__(self, config: DictConfig, role: str):
+        print(DetachAsyncRolloutWorker.__mro__)
+        DetachRolloutWorker.__init__(self, config, role)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def init_model(self):
+        DetachRolloutWorker.init_model(self)

@@ -60,38 +60,26 @@ class OneStepOffTaskRunner:
         # Define worker classes based on the actor strategy.
         if config.actor_rollout_ref.actor.strategy == "fsdp2":
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+            from recipe.one_step_off_policy.fsdp_workers import (
+                CriticWorker,
+                DetachActorWorker,
+                DetachAsyncRolloutWorker,
+                DetachRolloutWorker,
+            )
             from verl.single_controller.ray import RayWorkerGroup
 
-            from .fsdp_workers import (
-                ActorRolloutRefWorker,
-                AsyncActorRolloutRefWorker,
-                CriticWorker,
-                RolloutWorker,
-            )
-
-            actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
-            )
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+            from recipe.one_step_off_policy.megatron_workers import (
+                CriticWorker,
+                DetachActorWorker,
+                DetachAsyncRolloutWorker,
+                DetachRolloutWorker,
+            )
             from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
 
-            from .megatron_workers import (
-                ActorRolloutRefWorker,
-                AsyncActorRolloutRefWorker,
-                CriticWorker,
-                RolloutWorker,
-            )
-
-            actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
-            )
             ray_worker_group_cls = NVMegatronRayWorkerGroup
 
         else:
@@ -100,8 +88,10 @@ class OneStepOffTaskRunner:
         from .ray_trainer import ResourcePoolManager, Role
 
         role_worker_mapping = {
-            Role.Actor: ray.remote(actor_rollout_cls),
-            Role.Rollout: ray.remote(RolloutWorker),
+            Role.Actor: ray.remote(DetachActorWorker),
+            Role.Rollout: ray.remote(
+                DetachAsyncRolloutWorker if config.actor_rollout_ref.rollout.mode == "async" else DetachRolloutWorker
+            ),
             Role.Critic: ray.remote(CriticWorker),
         }
 
@@ -143,7 +133,7 @@ class OneStepOffTaskRunner:
 
         # Add a reference policy worker if KL loss or KL reward is used.
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
-            role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+            role_worker_mapping[Role.RefPolicy] = ray.remote(DetachActorWorker)
             mapping[Role.RefPolicy] = global_pool_id
 
         # Load the reward manager for training and validation.

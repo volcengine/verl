@@ -438,15 +438,15 @@ class RayPPOTrainer:
             megatron_dp = n_gpus // (
                 model_parallel_size * config.actor_rollout_ref.actor.megatron.context_parallel_size
             )
-            minimal_bsz = megatron_dp * config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu
+            self.minimal_bsz = megatron_dp * config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu
         else:
-            minimal_bsz = n_gpus
+            self.minimal_bsz = n_gpus
 
         # 1. Check total batch size for data correctness
         real_train_batch_size = config.data.train_batch_size * config.actor_rollout_ref.rollout.n
-        assert real_train_batch_size % minimal_bsz == 0, (
+        assert real_train_batch_size % self.minimal_bsz == 0, (
             f"real_train_batch_size ({real_train_batch_size}) must be divisible by minimal possible batch size "
-            f"({minimal_bsz})"
+            f"({self.minimal_bsz})"
         )
 
         # A helper function to check "micro_batch_size" vs "micro_batch_size_per_gpu"
@@ -913,7 +913,7 @@ class RayPPOTrainer:
             self.rm_wg.init_model()
 
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
-        self.actor_rollout_wg = self.all_wg[Role.ActorRollout]
+        self.actor_rollout_wg = self.all_wg[str(Role.ActorRollout)]
         self.actor_rollout_wg.init_model()
 
     def _init_async_rollout_manager(self):
@@ -1247,7 +1247,6 @@ class RayPPOTrainer:
                 reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
         # recompute old_log_probs
         with marked_timer("old_log_prob", timing_raw, color="blue"):
-
             old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
             entropys = old_log_prob.batch["entropys"]
             response_masks = batch.batch["response_mask"]

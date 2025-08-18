@@ -21,7 +21,14 @@ CKPTS_DIR=./ckpts/${project_name}/${exp_name}
 TRAIN_FILE=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/data/dapo/dapo-math-17k.parquet
 TEST_FILE=/mnt/dolphinfs/hdd_pool/docker/user/hadoop-djst-algoplat/houzhenggang/data/dapo/aime-2024.parquet
 
+rollout_mode="async"
+rollout_name="vllm" # sglang or vllm
+if [ "$rollout_mode" = "async" ]; then
+    export VLLM_USE_V1=1
+    return_raw_chat="True"
+fi
 
+# Algorithm parameters
 adv_estimator=grpo
 
 use_kl_in_reward=False
@@ -32,19 +39,15 @@ kl_loss_coef=0.0
 clip_ratio_low=0.2
 clip_ratio_high=0.28
 
+# Response length parameters
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 8))
 enable_overlong_buffer=True
 overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=1.0
 
+# Training parameters
 loss_agg_mode="token-mean"
-
-train_prompt_bsz=2
-gen_prompt_bsz=4
-n_resp_per_prompt=16
-train_prompt_mini_bsz=32
-train_sync_weight_steps=64
 
 # Algorithm
 temperature=1.0
@@ -62,13 +65,20 @@ gen_tp=1
 sp_size=1
 fsdp_size=2
 
-staleness_threshold=3
-
 NNODES=${NNODES:-1}
 NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 
+# Fully async specific parameters
 n_gpus_rollout=4
 n_gpus_training=$((NGPUS_PER_NODE - n_gpus_rollout))
+
+train_prompt_bsz=0
+gen_prompt_bsz=1
+n_resp_per_prompt=16
+train_prompt_mini_bsz=32
+staleness_threshold=10
+total_rollout_steps=$(((512*16*100)))
+trigger_parameter_sync_step=32
 
 /home/hadoop-djst-algoplat/miniconda3/bin/python -m recipe.fully_async_policy.fully_async_main \
     data.train_files="${TRAIN_FILE}" \
@@ -79,6 +89,7 @@ n_gpus_training=$((NGPUS_PER_NODE - n_gpus_rollout))
     data.max_response_length=${max_response_length} \
     data.train_batch_size=${train_prompt_bsz} \
     data.gen_batch_size=${gen_prompt_bsz} \
+    data.return_raw_chat=${return_raw_chat} \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     algorithm.adv_estimator=${adv_estimator} \
     algorithm.use_kl_in_reward=${use_kl_in_reward} \
@@ -125,6 +136,8 @@ n_gpus_training=$((NGPUS_PER_NODE - n_gpus_rollout))
     actor_rollout_ref.ref.fsdp_config.param_offload=${ref_offload} \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=${sp_size} \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=${fsdp_size} \
+    actor_rollout_ref.rollout.name=${rollout_name} \
+    actor_rollout_ref.rollout.mode=${rollout_mode} \
     reward_model.reward_manager=dapo \
     +reward_model.reward_kwargs.overlong_buffer_cfg.enable=${enable_overlong_buffer} \
     +reward_model.reward_kwargs.overlong_buffer_cfg.len=${overlong_buffer_len} \
@@ -135,7 +148,7 @@ n_gpus_training=$((NGPUS_PER_NODE - n_gpus_rollout))
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.val_before_train=True \
-    trainer.test_freq=10 \
+    trainer.test_freq=-1 \
     trainer.save_freq=-1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto \
@@ -143,6 +156,7 @@ n_gpus_training=$((NGPUS_PER_NODE - n_gpus_rollout))
     trainer.n_gpus_per_node="${n_gpus_training}" \
     rollout.nnodes="${NNODES}" \
     rollout.n_gpus_per_node="${n_gpus_rollout}" \
-    rollout.total_rollout_steps=100 \
-    rollout.total_epochs=2 \
-    async_training.staleness_threshold=${staleness_threshold}
+    rollout.total_rollout_steps="${total_rollout_steps}" \
+    rollout.total_epochs=10 \
+    async_training.staleness_threshold="${staleness_threshold}" \
+    async_training.trigger_parameter_sync_step="${trigger_parameter_sync_step}"

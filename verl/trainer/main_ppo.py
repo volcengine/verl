@@ -41,7 +41,7 @@ def main(config):
 
 
 # Define a function to run the PPO-like training process
-def run_ppo(config, task_runner_class = None) -> None:
+def run_ppo(config, task_runner_class=None) -> None:
     """Initialize Ray cluster and run distributed PPO training process.
 
     Args:

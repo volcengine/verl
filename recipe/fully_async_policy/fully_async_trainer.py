@@ -15,13 +15,17 @@
 import logging
 import time
 import warnings
+from pprint import pprint
 from typing import Any
 
-import numpy as np
 import ray
 from omegaconf import OmegaConf
 
-from recipe.fully_async_policy.message_queue import MessageQueueClient, QueueSample
+from recipe.fully_async_policy.detach_utils import (
+    assemble_batch_from_rollout_samples,
+    calculate_one_step_size,
+)
+from recipe.fully_async_policy.message_queue import MessageQueueClient
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator
@@ -36,7 +40,7 @@ from verl.utils.debug import marked_timer
 logger = logging.getLogger(__name__)
 
 
-@ray.remote
+@ray.remote(num_cpus=10)
 class FullyAsyncTrainer(RayPPOTrainer):
     """
     A fully asynchronous PPO trainer that obtains samples from a MessageQueue for training.
@@ -44,16 +48,16 @@ class FullyAsyncTrainer(RayPPOTrainer):
     """
 
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            device_name=None,
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -102,6 +106,13 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.stale_samples_processed = 0
         self.current_param_version = 0
 
+        self.local_trigger_step = 1
+        self.trigger_parameter_sync_step = config.async_training.trigger_parameter_sync_step
+
+        self.required_samples = calculate_one_step_size(
+            self.minimal_bsz, config.actor_rollout_ref.actor.ppo_mini_batch_size
+        )
+
     def set_message_queue_client(self, message_queue_client: MessageQueueClient):
         """Set message queue client"""
         self.message_queue_client = message_queue_client
@@ -117,108 +128,60 @@ class FullyAsyncTrainer(RayPPOTrainer):
     def _get_samples_from_queue(self) -> tuple[None, None] | tuple[int, Any]:
         """
         Get samples from message queue and compose gen_batch_output
+        Uses a loop to continuously collect samples until enough are gathered
 
         Returns:
             tuple: (epoch, batch_dict, gen_batch_output)
         """
-        # Calculate the number of samples needed
-        n_responses_per_prompt = self.config.actor_rollout_ref.rollout.n
-        batch_size = self.config.data.train_batch_size
-        required_samples = n_responses_per_prompt * batch_size
-
         print(
-            "[FullyAsyncTrainer] "
-            f"Requesting {required_samples} samples from queue (n={n_responses_per_prompt}, batch_size={batch_size})",
+            f"[FullyAsyncTrainer] Requesting {self.required_samples} samples from queue",
             flush=True,
         )
 
-        # Get samples from queue
+        # Collect samples using a simple loop calling get_sample
         consumer_start = time.time()
-        queue_samples, queue_len = self.message_queue_client.get_samples(min_batch_count=required_samples)
+        queue_samples = []
+
+        while len(queue_samples) < self.required_samples:
+            # 获取单个样本，会一直等待直到有样本或收到None
+            sample, queue_len = self.message_queue_client.get_sample_sync()
+
+            if sample is None:
+                # 检测到结束信号（None），立即退出
+                print(
+                    f"[FullyAsyncTrainer] Detected termination signal (None), stopping sample collection. "
+                    f"Collected {len(queue_samples)}/{self.required_samples} samples"
+                )
+                break
+
+            queue_samples.append(sample)
+
+            if len(queue_samples) % 10 == 0:
+                print(
+                    f"[FullyAsyncTrainer] Collected {len(queue_samples)}/{self.required_samples} samples. "
+                    f"mq_len: {queue_len}"
+                )
+
         consumer_end = time.time()
 
-        if not queue_samples or len(queue_samples) == 0:
-            logger.warning("required_samples is empty")
+        if not queue_samples or len(queue_samples) < self.required_samples:
+            logger.warning("not enough samples collected after loop")
             return None, None
 
-        print(f"[FullyAsyncTrainer] Retrieved {len(queue_samples)} samples from queue. "
-              f"wait time {consumer_end - consumer_start:.2f} seconds. "
-              f"queue len {queue_len}. "
-              )
+        print(
+            f"[FullyAsyncTrainer] Loop collection completed: {len(queue_samples)}/{self.required_samples} samples, "
+            f"total wait time: {consumer_end - consumer_start:.2f} seconds"
+        )
 
         queue_samples = [ray.cloudpickle.loads(x) for x in queue_samples]
-        # Assemble batch
-        batch = self._assemble_gen_batch_output_from_queue_samples(queue_samples)
-
+        # print(queue_samples)
+        # Assemble batch - now working directly with RolloutSample objects
+        if self.config.trainer.balance_batch:
+            batch = assemble_batch_from_rollout_samples(queue_samples, self.tokenizer, self.config, self._balance_batch)
+        else:
+            batch = assemble_batch_from_rollout_samples(queue_samples, self.tokenizer, self.config, None)
+        # print(f" _assemble_gen_batch_output_from_queue_samples {batch}")
         return 0, batch
-
-    def _assemble_gen_batch_output_from_queue_samples(self, queue_samples: list[QueueSample]):
-        """
-        Assemble gen_batch_output from queue samples
-
-        Args:
-            queue_samples: List of samples from queue
-            n_responses_per_prompt: Number of responses per prompt
-            batch_size: Batch size
-
-        Returns:
-            DataProto: Assembled gen_batch_output
-        """
-        start_time = time.time()
-
-        import numpy as np
-
-        from verl.protocol import DataProto
-
-        if not queue_samples:
-            raise ValueError("Empty queue_samples provided for batch assembly")
-
-        print(f"[FullyAsyncTrainer] Assembling batch from {len(queue_samples)} queue samples")
-
-        # Extract data and metadata from all samples
-        sample_data_list = []
-        rollout_metadata_list = []
-        timing_info = {}
-
-        for i, sample in enumerate(queue_samples):
-            sample_data_list.append(sample.data)
-            rollout_metadata_list.append(sample.rollout_metadata)
-
-        batch = DataProto.from_items(sample_data_list)
-
-        # Collect timing information and metadata
-        param_versions = []
-        sample_timestamps = []
-        for metadata in rollout_metadata_list:
-            # Extract parameter version and timestamp
-            param_versions.append(metadata.get("rollout_param_version", 0))
-            sample_timestamps.append(metadata.get("generation_timestamp", time.time()))
-            if "timing" in metadata:
-                for timing_key, timing_value in metadata["timing"].items():
-                    if timing_key not in timing_info:
-                        timing_info[timing_key] = []
-                    # if isinstance(timing_value, (int, float)):
-                    #     timing_info[timing_key].append(timing_value)
-        # Calculate average timing
-        avg_timing = {}
-        for key, values in timing_info.items():
-            if values and len(values) > 0:
-                avg_timing[key] = sum(values) / len(values)
-
-        # Create meta_info
-        meta_info = {
-            "timing": avg_timing,
-            "queue_sample_count": len(queue_samples),
-            "rollout_param_versions": param_versions,
-            "sample_timestamps": sample_timestamps,
-            "param_version_diversity": len(set(param_versions)),
-            "avg_sample_age": np.mean([time.time() - ts for ts in sample_timestamps]),
-        }
-
-        end_time = time.time()
-        print(f"[FullyAsyncTrainer] {meta_info} time elapsed: {end_time - start_time:.2f} seconds")
-
-        return batch
 
     def _create_actor_rollout_classes(self):
         # create actor
@@ -247,6 +210,9 @@ class FullyAsyncTrainer(RayPPOTrainer):
         self.actor_wg = self.all_wg[str(Role.Actor)]
         self.actor_wg.init_model()
         self.actor_rollout_wg = self.actor_wg  # to be compatible with the functions that not be modified
+
+    def _init_async_rollout_manager(self):
+        pass
 
     def fit(self):
         """
@@ -285,127 +251,61 @@ class FullyAsyncTrainer(RayPPOTrainer):
             metrics = {}
             timing_raw = {}
 
-            is_last_step = False
-
             with marked_timer("step", timing_raw):
                 with marked_timer("gen", timing_raw, color="red"):
                     epoch, batch = self._get_samples_from_queue()
                     if batch is None:
                         break
 
-                # 更新统计信息
-                    self.processed_samples += len(batch) if isinstance(batch, list) else 1
-
                     # 从meta_info中获取参数版本信息
                     if hasattr(batch, "meta_info") and batch.meta_info:
-                        rollout_param_versions = batch.meta_info.get("rollout_param_versions", [])
-                        if rollout_param_versions:
-                            # 统计陈旧样本
-                            stale_count = sum(1 for v in rollout_param_versions if self.current_param_version - v > 1)
-                            self.stale_samples_processed += stale_count
+                        # 统计陈旧样本
+                        rollout_param_versions = batch.meta_info["rollout_param_versions"]
+                        stale_count = sum(1 for v in rollout_param_versions if self.current_param_version - v > 1)
+                        self.stale_samples_processed += stale_count
+                        metrics.update(
+                            {
+                                "fully_async/stale_samples_ratio": stale_count / len(rollout_param_versions),
+                                "fully_async/stale_samples_processed": self.stale_samples_processed,
+                                "fully_async/current_param_version": self.current_param_version,
+                            }
+                        )
+                        for metric in [
+                            "avg_processing_time",
+                            "max_processing_time",
+                            "min_processing_time",
+                            "tp50_processing_time",
+                            "tp99_processing_time",
+                            "tp95_processing_time",
+                            "param_version_diversity",
+                        ]:
+                            metrics[f"fully_async/{metric}"] = batch.meta_info.get(metric, 0)
 
-                        # 添加新鲜度指标到metrics
-                        if rollout_param_versions:
-                            param_version_diversity = batch.meta_info.get("param_version_diversity", 0)
-                            avg_sample_age = batch.meta_info.get("avg_sample_age", 0)
-
-                            metrics.update(
-                                {
-                                    "freshness/param_version_diversity": param_version_diversity,
-                                    "freshness/avg_sample_age": avg_sample_age,
-                                    "freshness/stale_samples_ratio": stale_count / len(rollout_param_versions)
-                                    if rollout_param_versions
-                                    else 0,
-                                    "statistics/processed_samples": self.processed_samples,
-                                    "statistics/stale_samples_processed": self.stale_samples_processed,
-                                    "statistics/current_param_version": self.current_param_version,
-                                }
-                            )
                 batch, reward_extra_infos_dict = self._process_batch_common(batch, metrics, timing_raw)
                 self._log_rollout(batch, reward_extra_infos_dict, timing_raw)
-                self._check_save_checkpoint(is_last_step, timing_raw)
+                self._check_save_checkpoint(False, timing_raw)
 
             # self._collect_metrics(batch, epoch, metrics, timing_raw)
-
+            pprint(metrics)
             # Trigger parameter synchronization after training step
+            print(
+                f"[FullyAsyncTrainer] global_steps: {self.global_steps} "
+                f"local_trigger_step: {self.local_trigger_step} "
+                f"trigger_parameter_sync_step: {self.trigger_parameter_sync_step}"
+            )
             self._trigger_parameter_sync_after_step()
-            print(f"[FullyAsyncTrainer] global_steps: {self.global_steps}")
             self.global_steps += 1
-
-    def get_statistics(self) -> dict:
-        """Get training statistics"""
-        queue_stats = self.message_queue_client.get_statistics() if self.message_queue_client else {}
-        return {
-            "global_steps": self.global_steps,
-            "processed_samples": self.processed_samples,
-            "stale_samples_processed": self.stale_samples_processed,
-            "current_param_version": self.current_param_version,
-            "queue_size": queue_stats.get("queue_size", 0),
-            "queue_total_produced": queue_stats.get("total_produced", 0),
-            "queue_total_consumed": queue_stats.get("total_consumed", 0),
-            "queue_dropped_samples": queue_stats.get("dropped_samples", 0),
-        }
 
     def _trigger_parameter_sync_after_step(self):
         """
         Trigger parameter synchronization after training step
         This ensures rollouter always uses the latest trained parameters
         """
-        self.current_param_version = self.current_param_version + 1
-        print(
-            f"[FullyAsyncTrainer] Triggering parameter sync after "
-            f"training step {self.global_steps}, version: {self.current_param_version}"
-        )
-        ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version))
-
-    def _compute_sample_freshness_metrics(self, batch_samples: list[QueueSample]) -> dict:
-        """
-        Compute sample freshness metrics
-
-        Args:
-            batch_samples: List of queue samples
-
-        Returns:
-            dict: Dictionary of freshness metrics
-        """
-        if not batch_samples:
-            return {}
-
-        try:
-            # Extract parameter versions and timestamps
-            sample_ages = []
-            sample_latencies = []
-            current_time = time.time()
-
-            for sample in batch_samples:
-                # Get information from rollout_metadata
-                if hasattr(sample, "rollout_metadata") and sample.rollout_metadata:
-                    rollout_version = sample.rollout_metadata.get("rollout_param_version", 0)
-                    generation_time = sample.rollout_metadata.get("generation_timestamp", current_time)
-                else:
-                    rollout_version = 0
-                    generation_time = current_time
-
-                age = max(0, self.current_param_version - rollout_version)
-                latency = max(0, current_time - generation_time)
-
-                sample_ages.append(age)
-                sample_latencies.append(latency)
-
-            if not sample_ages:
-                return {}
-
-            return {
-                "freshness/avg_sample_age": np.mean(sample_ages),
-                "freshness/max_sample_age": max(sample_ages),
-                "freshness/min_sample_age": min(sample_ages),
-                "freshness/avg_sample_latency": np.mean(sample_latencies),
-                "freshness/max_sample_latency": max(sample_latencies),
-                "freshness/min_sample_latency": min(sample_latencies),
-                "freshness/stale_samples_ratio": sum(1 for age in sample_ages if age > 1) / len(sample_ages),
-                "freshness/sample_count": len(sample_ages),
-            }
-
-        except Exception as e:
-            logger.error(f"Error computing freshness metrics: {e}")
-            return {"freshness/error": str(e)}
+        if self.local_trigger_step >= self.trigger_parameter_sync_step:
+            self.local_trigger_step = 1
+            self.current_param_version = self.current_param_version + 1
+            ray.get(self.param_synchronizer.sync_weights.remote(self.current_param_version))
+            return
+        else:
+            self.local_trigger_step += 1
+            return
