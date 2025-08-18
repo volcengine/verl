@@ -434,8 +434,8 @@ class SGLangRollout(BaseRollout):
         attention_backend = engine_kwargs.get("attention_backend", None)
 
         enable_memory_saver = True
-        if get_device_name() == "npu":
-            enable_memory_saver = False
+        # if get_device_name() == "npu":
+        #     enable_memory_saver = False
         backend = "fa3" if self.attention_backend != "ascend" else "ascend"
         if first_rank_in_node:
             rank = dist.get_rank()

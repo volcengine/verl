@@ -1,6 +1,26 @@
 set -x
-logs=/home/l00878165/sglang/repos/logs/tmp28.log
+logs=/home/l00878165/sglang/repos/logs/tmp61.log
 export ASCEND_LAUNCH_BLOCKING=1
+
+# profiling configuration
+PROFILE_STEPS="[1]"
+PROFILE_RANKS_ALL=False
+DISCRETE=True
+PROFILE_RANKS="[0,1,2]"
+
+# profiling NPU options
+SAVE_PATH="/home/l00878165/sglang/repos/logs/profiling/close"
+LEVEL="level1"
+WITH_MEMORY=True
+RECORD_SHAPES=False
+WITH_NPU=True
+WITH_CPU=True
+WITH_MODULE=False
+WITH_STACK=True
+ANALYSIS=True
+ROLES=["all"]
+
+
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/home/l00878165/datasets/processed_gsm8k/train.parquet \
@@ -14,7 +34,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.optim.lr=5e-8 \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
@@ -42,6 +62,6 @@ python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.test_freq=5 \
+    trainer.test_freq=10000 \
     trainer.total_epochs=5 \
     trainer.device=npu  2>&1 | tee -i $logs
