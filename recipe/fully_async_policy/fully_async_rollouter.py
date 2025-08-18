@@ -38,16 +38,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
     """
 
     def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-        device_name=None,
+            self,
+            config,
+            tokenizer,
+            role_worker_mapping: dict[Role, WorkerType],
+            resource_pool_manager: ResourcePoolManager,
+            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+            processor=None,
+            reward_fn=None,
+            val_reward_fn=None,
+            device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -115,6 +115,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
         # Concurrency control
         self.paused = False
+        self.running = True
 
         # Initialize async locks directly
         self.lock = asyncio.Lock()
@@ -279,9 +280,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             async with self.lock:
                 if await self._should_pause_generation():
-                    # 等待已提交的任务结束
+                    print("等待已提交的任务结束")
                     await asyncio.gather(*self.active_tasks, return_exceptions=True)
-                    self.active_tasks = set()
+                    self.active_tasks.clear()
                     self.paused = True
 
                 while self.paused:
@@ -293,6 +294,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 # 等待所有活动任务完成
                 if self.active_tasks:
                     await asyncio.gather(*self.active_tasks, return_exceptions=True)
+                    self.active_tasks.clear()
                 break
 
             # 检查并发数是否超限
@@ -393,7 +395,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
             self._init_async_rollout_manager()
 
         # 启动流式处理循环
-        """流式样本生成主循环 - 优化版本，确保先完成的样本优先进入队列"""
         print(f"[FullyAsyncRollouter] 启动流式处理模式，最大并发样本数: {self.max_concurrent_samples}")
 
         # 初始化异步队列
@@ -439,6 +440,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
             param_version=self.current_param_version,
         )
 
+        async with self.lock:
+            self.running = False
+
     async def fit(self):
         """
         Start the async rollouter - entry point that sets up and runs async tasks
@@ -452,7 +456,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
             raise ValueError("param_synchronizer client not set. Call set_parameter_synchronizer() first.")
 
         # 设置运行状态
-        self.paused = False
+        async with self.lock:
+            self.paused = False
+            self.running = True
 
         # 创建主要的异步任务
         generation_task = asyncio.create_task(self._streaming_generation_main())
@@ -486,6 +492,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
         check_interval = 5.0
 
         while True:
+            async with self.lock:
+                if not self.running:
+                    break
             await asyncio.sleep(check_interval)
             # 定期打印统计信息
             current_time = time.time()

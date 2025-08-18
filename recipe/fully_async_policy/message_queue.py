@@ -96,40 +96,6 @@ class MessageQueue:
 
             return True
 
-    async def get_samples(self, min_batch_count: int = 1) -> tuple[list[Any], int]:
-        """
-        Get batch samples from the queue, wait until enough samples are available
-
-        Args:
-            min_batch_count: Get samples at once when sample count meets min_batch
-
-        Returns:
-            List[Any]: List of retrieved samples
-        """
-        async with self._lock:
-            while len(self.queue) < min_batch_count and self.running:
-                print(f"[MessageQueue] consumer_condition {len(self.queue)}")
-                if len(self.queue) > 0 and self.queue[-1] is None:
-                    return [], len(self.queue)
-                await self._consumer_condition.wait()
-
-            # If queue is closed and doesn't have enough samples, return empty list
-            if not self.running and len(self.queue) < min_batch_count:
-                return [], len(self.queue)
-
-            # Get specified number of samples
-            batch_count = min(min_batch_count, len(self.queue))
-            samples = []
-            for _ in range(batch_count):
-                if self.queue:
-                    data = self.queue.popleft()
-                    if data is None:
-                        return [], len(self.queue)
-                    else:
-                        samples.append(data)
-
-            self.total_consumed += len(samples)
-            return samples, len(self.queue)
 
     async def get_sample(self) -> Any | None:
         """
@@ -140,7 +106,6 @@ class MessageQueue:
         """
         async with self._lock:
             while len(self.queue) == 0 and self.running:
-                print(f"[MessageQueue] consumer_condition {len(self.queue)}")
                 await self._consumer_condition.wait()
 
             # If queue is closed and empty, return None
@@ -236,11 +201,6 @@ class MessageQueueClient:
         future = self.queue_actor.put_sample.remote(sample, param_version)
         return await asyncio.wrap_future(future.future())
 
-    async def get_samples(self, min_batch_count: int = 1) -> tuple[list[Any], int]:
-        """Get batch from queue, wait until enough samples are available (async)"""
-        future = self.queue_actor.get_samples.remote(min_batch_count)
-        return await asyncio.wrap_future(future.future())
-
     async def get_sample(self) -> Any | None:
         """Get single sample from queue, wait until one is available (async)"""
         future = self.queue_actor.get_sample.remote()
@@ -280,10 +240,6 @@ class MessageQueueClient:
     def put_sample_sync(self, sample: Any, param_version: int) -> bool:
         """Put batch into queue (sync - deprecated, use put_sample instead)"""
         return ray.get(self.queue_actor.put_sample.remote(sample, param_version))
-
-    def get_samples_sync(self, min_batch_count: int = 1) -> tuple[list[Any], int]:
-        """Get batch from queue (sync - deprecated, use get_samples instead)"""
-        return ray.get(self.queue_actor.get_samples.remote(min_batch_count))
 
     def get_sample_sync(self) -> Any | None:
         """Get single sample from queue (sync - deprecated, use get_sample instead)"""

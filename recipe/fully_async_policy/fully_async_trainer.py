@@ -146,8 +146,8 @@ class FullyAsyncTrainer(RayPPOTrainer):
 
             if sample is None:
                 # 检测到结束信号（None），立即退出
-                logger.info(
-                    f"Detected termination signal (None), stopping sample collection. "
+                print(
+                    f"[FullyAsyncTrainer] Detected termination signal (None), stopping sample collection. "
                     f"Collected {len(queue_samples)}/{self.required_samples} samples"
                 )
                 break

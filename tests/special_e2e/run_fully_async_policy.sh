@@ -44,7 +44,7 @@ loss_agg_mode="token-mean"
 train_prompt_bsz=0
 gen_prompt_bsz=1
 n_resp_per_prompt=3
-train_prompt_mini_bsz=32
+train_prompt_mini_bsz=256
 
 total_rollout_steps=5000
 
