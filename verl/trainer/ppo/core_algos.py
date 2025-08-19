@@ -299,6 +299,9 @@ def compute_grpo_outcome_advantage(
     id2mean = {}
     id2std = {}
 
+    # LitePPO toggle from env
+    use_liteppo = os.environ.get("LITEPPO", "false").lower() == "true"
+
     with torch.no_grad():
         bsz = scores.shape[0]
         for i in range(bsz):
@@ -312,8 +315,18 @@ def compute_grpo_outcome_advantage(
                 id2std[idx] = torch.std(torch.tensor([id2score[idx]]))
             else:
                 raise ValueError(f"no score in prompt index: {idx}")
+
+        # compute all batch std (for LitePPO)
+        if liteppo:
+            # population std (divide by N, not N-1)
+            # Ensures the std never drops to zero
+            batch_std = scores.std(unbiased=False).clamp_min(epsilon)
+
         for i in range(bsz):
-            if norm_adv_by_std_in_grpo:
+            if use_liteppo:
+                # LitePPO: group mean + batch std
+                scores[i] = (scores[i] - id2mean[index[i]]) / batch_std
+            elif norm_adv_by_std_in_grpo:
                 scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
             else:
                 scores[i] = scores[i] - id2mean[index[i]]
