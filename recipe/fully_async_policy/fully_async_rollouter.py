@@ -39,16 +39,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
     """
 
     def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-        device_name=None,
+            self,
+            config,
+            tokenizer,
+            role_worker_mapping: dict[Role, WorkerType],
+            resource_pool_manager: ResourcePoolManager,
+            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+            processor=None,
+            reward_fn=None,
+            val_reward_fn=None,
+            device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -136,7 +136,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
             self.minimal_bsz, config.actor_rollout_ref.actor.ppo_mini_batch_size
         )
         self.max_required_samples = (
-            self.required_samples * (self.staleness_threshold + 1) * config.async_training.trigger_parameter_sync_step
+                self.required_samples * (
+                self.staleness_threshold + 1) * config.async_training.trigger_parameter_sync_step
         )
         print(
             f"[FullyAsyncRollouter] required_samples : {self.required_samples} "
@@ -242,7 +243,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
         sample_count = 0
         should_stop = False
 
-        progress_bar = tqdm(total=self.total_rollout_steps, initial=self.global_steps, desc="Training Progress")
+        progress_bar = tqdm(total=self.total_rollout_steps / self.required_samples, initial=self.global_steps,
+                            desc="Training Progress")
 
         for epoch, batch_dict in continuous_iterator:
             if should_stop:  # 检查停止标志
@@ -280,7 +282,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     should_stop = True  # 设置停止标志
                     break
 
-                progress_bar.update(1)
+                if self.global_steps % self.required_samples == 0:
+                    progress_bar.update(1)
                 self.global_steps += 1
 
             sample_count += 1
@@ -363,7 +366,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         if processing_time > self.max_processing_time:
             self.max_processing_time = processing_time
 
-        print(f"[FullyAsyncRollouter] rollout {partial_rollout_sample.sample_id} cost {processing_time:.2f}s")
+        # print(f"[FullyAsyncRollouter] rollout {partial_rollout_sample.sample_id} cost {processing_time:.2f}s")
 
     async def _consumer_worker(self):
         """消费者协程，负责从结果队列获取处理结果并放入消息队列"""
@@ -523,11 +526,12 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 last_stats_time = current_time
 
             # pause 和 resume 直接，不进行恢复操作
-            if self.monitor_loop_trigger and not await self._should_pause_generation():
-                async with self.lock:
-                    print("[FullyAsyncRollouter][MonitorLoop] trigger resume")
-                    self.paused = False
-                    self.condition.notify_all()
+            if self.monitor_loop_trigger and self.paused:
+                if await self._should_pause_generation():
+                    async with self.lock:
+                        print("[FullyAsyncRollouter][MonitorLoop] trigger resume")
+                        self.paused = False
+                        self.condition.notify_all()
 
     async def _should_pause_generation(self) -> bool:
         if self.paused:
