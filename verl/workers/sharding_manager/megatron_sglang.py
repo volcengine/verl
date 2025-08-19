@@ -101,7 +101,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         self.offload_param = offload_param
 
         if self.device_mesh is not None:
-            self.infer_tp_size = self.device_mesh["tp"].mesh.size()[0]
+            self.infer_tp_size = self.device_mesh["infer_tp"].mesh.size()[0]
         else:
             self.infer_tp_size = self.inference_engine._tp_size
 
@@ -141,7 +141,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             - Main logic: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L452
             - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
         """
-        if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.resume_memory_occupation()
         named_tensors = params
 
@@ -150,15 +150,15 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             await sgl_update_weights(
                 engine=self.inference_engine,
                 params_batch=params_batch,
-                device_mesh_key="tp",
+                device_mesh_key="infer_tp",
                 device_mesh=self.device_mesh,
             )
 
-        if self.device_mesh["tp"].get_local_rank() == 0:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0:
             await self.inference_engine.flush_cache()
 
     async def release_memory(self):
-        if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.release_memory_occupation()
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
@@ -206,7 +206,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
         if self.infer_tp_size == 1:
             return data
-        all_gather_data_proto(data, self.device_mesh["tp"].get_group())
+        all_gather_data_proto(data, self.device_mesh["infer_tp"].get_group())
         return data
 
     @GPUMemoryLogger(role="megatron sglang sharding_manager", logger=logger)
@@ -214,4 +214,4 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
         if self.infer_tp_size == 1:
             return data
-        return data.chunk(chunks=self.infer_tp_size)[self.device_mesh["tp"].get_local_rank()]
+        return data.chunk(chunks=self.infer_tp_size)[self.device_mesh["infer_tp"].get_local_rank()]
