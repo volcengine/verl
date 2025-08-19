@@ -131,4 +131,6 @@ def _default_compute_score(
     )
 
 
-__all__ = ["default_compute_score"]
+from .result import RewardResult, MetricConfig
+
+__all__ = ["default_compute_score", "RewardResult", "MetricConfig"]

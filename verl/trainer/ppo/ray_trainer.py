@@ -27,7 +27,6 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Optional
 
 import numpy as np
 import ray
@@ -218,7 +217,7 @@ def compute_advantage(
     lam: float = 1.0,
     num_repeat: int = 1,
     norm_adv_by_std_in_grpo: bool = True,
-    config: Optional[AlgoConfig] = None,
+    config: AlgoConfig | None = None,
 ) -> DataProto:
     """Compute advantage estimates for policy optimization.
 
@@ -311,10 +310,10 @@ class RayPPOTrainer:
         processor=None,
         reward_fn=None,
         val_reward_fn=None,
-        train_dataset: Optional[Dataset] = None,
-        val_dataset: Optional[Dataset] = None,
+        train_dataset: Dataset | None = None,
+        val_dataset: Dataset | None = None,
         collate_fn=None,
-        train_sampler: Optional[Sampler] = None,
+        train_sampler: Sampler | None = None,
         device_name=None,
     ):
         """
@@ -499,7 +498,7 @@ class RayPPOTrainer:
 
         print("[validate_config] All configuration checks passed successfully!")
 
-    def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
+    def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Sampler | None):
         """
         Creates the train and validation dataloaders.
         """
@@ -624,6 +623,36 @@ class RayPPOTrainer:
 
         # Log to each configured logger
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
+
+    def _determine_core_metric(self, var2metric2val: dict) -> str:
+        """
+        Intelligently determine the core metric for TensorBoard grouping.
+        
+        Enhanced logic that supports custom metric configurations from Enhanced reward managers.
+        
+        Args:
+            var2metric2val: Dictionary mapping variable names to metric values
+            
+        Returns:
+            The name of the variable to treat as the core metric
+        """
+        # 🎯 Enhanced logic: Check if val_reward_fn is an Enhanced reward manager
+        if hasattr(self.val_reward_fn, 'metric_config'):
+            try:
+                metric_config = self.val_reward_fn.metric_config
+                if hasattr(metric_config, 'core_metrics') and metric_config.core_metrics:
+                    # Find the first core metric that exists in our data
+                    for core_metric in metric_config.core_metrics:
+                        if core_metric in var2metric2val:
+                            return core_metric
+            except Exception as e:
+                warnings.warn(f"Could not determine core metric from metric_config due to an error: {e}", stacklevel=2)
+        
+        # 🔄 Fallback to original logic for backward compatibility
+        if "acc" in var2metric2val:
+            return "acc"
+        else:
+            return "reward"
 
     def _validate(self):
         data_source_lst = []
@@ -754,7 +783,8 @@ class RayPPOTrainer:
         data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
         metric_dict = {}
         for data_source, var2metric2val in data_src2var2metric2val.items():
-            core_var = "acc" if "acc" in var2metric2val else "reward"
+            # 🚀 Enhanced core metric detection logic
+            core_var = self._determine_core_metric(var2metric2val)
             for var_name, metric2val in var2metric2val.items():
                 n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
                 for metric_name, metric_val in metric2val.items():
