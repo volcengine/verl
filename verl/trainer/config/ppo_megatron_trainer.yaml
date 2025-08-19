@@ -91,6 +91,8 @@ trainer:
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1
+  save_after_epochs: -1
+  save_best_val_metric: None
   esi_redundant_time: 0
 
   # auto: find the last ckpt to resume. If can't find, start from scratch
