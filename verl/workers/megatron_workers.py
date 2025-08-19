@@ -747,7 +747,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     def _build_rollout(self, trust_remote_code=False):
-        rollout, rollout_sharding_manager = super()._build_rollout(trust_remote_code)
+        rollout_worker, rollout_sharding_manager = super()._build_rollout(trust_remote_code)
 
         # NOTE: rollout is not actually initialized here, it's deferred
         # to be initialized by AsyncvLLMServer.
@@ -757,20 +757,14 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         self.vllm_tp_rank = int(os.environ["RANK"]) % self.vllm_tp_size
 
         # used for sleep/wake_up
-        rollout.sharding_manager = rollout_sharding_manager
+        rollout_worker.rollout.sharding_manager = rollout_sharding_manager
 
-        return rollout, rollout_sharding_manager
+        return rollout_worker, rollout_sharding_manager
 
     # ============================ vLLM related ============================
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     def execute_method(self, method: str | bytes, *args, **kwargs):
-        """Called by ExternalRayDistributedExecutor collective_rpc."""
-        if self.vllm_tp_rank == 0 and method != "execute_model":
-            print(
-                f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: "
-                f"{method if isinstance(method, str) else 'Callable'}"
-            )
         return self.rollout.execute_method(method, *args, **kwargs)
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
@@ -797,15 +791,12 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def wake_up(self):
-        if self.config.rollout.free_cache_engine:
-            await self.rollout.wake_up()
-        # return something to block the caller
+        await self.rollout.wake_up()
         return True
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def sleep(self):
-        if self.config.rollout.free_cache_engine:
-            await self.rollout.sleep()
+        await self.rollout.sleep()
         # return something to block the caller
         return True
 
