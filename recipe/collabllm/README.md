@@ -24,4 +24,85 @@ Structure:
     This computes the reward based on the interaction data in step 1.
 
 
-TODO:
+Modifications:
+1) In `verl/workers/rollout/sglang_rollout/sglang_rollout.py`:
+```
+
++               if self.config.multi_turn.collabllm_rollouts:
++                   finish_reason_type = None
++               else:
+                    finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
+                    
+```
+
+```
+else:
+                        _req.add_assistant_message(
+                            self.processing_class,
+                            content,
+                        )
+                        if (
+                            _req.interaction_kwargs
+                            and self.interaction_map
+                            and user_turns < self.config.multi_turn.max_user_turns
+                            and current_turns < self.config.multi_turn.max_assistant_turns
+                        ):
+                            _req.state = AsyncRolloutRequestStateEnum.INTERACTING
+                        else:
++                           # Add ending condition
++                           finish_reason_type = FinishReasonTypeEnum.STOP
+                            _req.state = AsyncRolloutRequestStateEnum.COMPLETED
+                            break
+```
+
+```
+
++           if self.config.multi_turn.collabllm_rollouts:
++               max_assistant_turns = self.config.multi_turn.max_assistant_turns
++
++               # for collabllm, firstly generate model reponses
++               self.config.multi_turn.max_assistant_turns = 1
++               output_req_list = loop.run_until_complete(
++                   asyncio.gather(
++                       *[
++                           self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) 
++                           for req in req_list
++                       ],
++                       return_exceptions=False
++                   )
++               )
++
++               # then, collect interaction rollouts
++               self.config.multi_turn.max_assistant_turns = max_assistant_turns
++               for req in output_req_list:
++                   req.state = AsyncRolloutRequestStateEnum.INTERACTING
++
++               interaction_requests = [
++                   deepcopy(req) 
++                   for req in output_req_list 
++                   for _ in range(self.config.multi_turn.num_repeat_rollouts)
++               ]
++               interaction_req_list = loop.run_until_complete(
++                   asyncio.gather(
++                       *[
++                           self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
++                           for req in interaction_requests
++                       ],
++                       return_exceptions=False
++                   )
++               )
++               # merge interaction rollouts back to original responses
++               num_repeats = self.config.multi_turn.num_repeat_rollouts
++               for i, req in enumerate(output_req_list):
++                   start_idx = i * num_repeats
++                   end_idx = start_idx + num_repeats
++                   interaction_batch = interaction_req_list[start_idx:end_idx]
++                   
++                   # Extract messages from interaction rollouts
++                   req.messages = [
++                       interaction.messages for interaction in interaction_batch
++                   ]
++                   req.state = AsyncRolloutRequestStateEnum.COMPLETED
++
++           else:
+```

@@ -10,22 +10,20 @@ def conversation_level_reward_func(data_source, messsages, ground_truth, extra_i
     """
 
     # As a demonstration, apply token penalty here
-    original_prompt = [item["prompt"] for item in extra_info]
+    prompts = [item["prompt"] for item in extra_info]
 
     rewards = []
 
-    for prompt, messsage in zip(original_prompt, messsages):
+    for prompt, messsage in zip(prompts, messsages):
 
         # Calculate the token penalty based on the length of the prompt
-        message_lst = messsage["messages"]
-        future_conv = message_lst[len(original_prompt):]
+        future_conv = messsage[len(prompt):]
         
         total_tokens = sum(len(m.content.split()) for m in future_conv)
         penalty = - min(0.001 * total_tokens, 1)
         rewards.append(penalty)
 
     # TODO: Add more metrics and apply weighted average
-
     return torch.tensor(rewards, dtype=torch.float32)
         
 

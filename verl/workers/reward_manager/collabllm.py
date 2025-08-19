@@ -4,6 +4,7 @@ from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from typing import Any, Callable, Optional, Union
 
+import numpy as np
 import copy
 import psutil
 import torch
@@ -45,11 +46,19 @@ class CollabLLMRewardManager(AbstractRewardManager):
         valid_response_length = data.batch["attention_mask"][:, prompt_length:].sum(dim=-1)
 
         data_source = data.non_tensor_batch["data_source"]
-        messsages = data.non_tensor_batch["messages"]
         ground_truth = data.non_tensor_batch["ground_truth"]
         extra_info = data.non_tensor_batch["extra_info"]
+        message_lst = data.non_tensor_batch["messages"]
 
-        scores = self.compute_score(data_source, messsages, ground_truth, extra_info)
+        # batch the messages into multiple 
+        num_repeat_rollouts = len(message_lst[0]["messages"])
+        grouped_messages = [[message_lst[i]["messages"][j] for i in range(len(message_lst))] for j in range(num_repeat_rollouts)]
+
+        scores = [
+            self.compute_score(data_source, messages, ground_truth, extra_info)
+            for messages in grouped_messages
+        ]
+        scores = torch.stack(scores).sum(dim=0)
         reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
         
         for i in range(len(data)):
