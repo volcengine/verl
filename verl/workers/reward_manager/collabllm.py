@@ -59,10 +59,11 @@ class CollabLLMRewardManager(AbstractRewardManager):
             for messages in grouped_messages
         ]
         scores = torch.stack(scores).sum(dim=0)
+        print('Rewards:', scores)
         reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
         
         for i in range(len(data)):
-            reward_tensor[i, valid_response_length[i].item() - 1] = scores[i]
+            reward_tensor[i, valid_response_length[0].item() - 1] = scores[i]
 
         if return_dict:
             return {"reward_tensor": reward_tensor}

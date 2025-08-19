@@ -923,6 +923,7 @@ class SGLangRollout(BaseRollout):
                 output = await self._handle_engine_call(_req, request_sampling_params, image_data=image_data)
                 content = output["text"]
                 
+                print(f'[SGLangRollout] Assistant: {content[:100]}...')
                 if self.config.multi_turn.collabllm_rollouts:
                     finish_reason_type = None
                 else:

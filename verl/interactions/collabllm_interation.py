@@ -173,7 +173,7 @@ class CollabLLMInteraction(BaseInteraction):
                     continue
 
         self._instance_dict[instance_id]["response"] = response
-        print(f"[CollabLLMInteraction] Response: {response}")
+        print(f"[CollabLLMInteraction] User: {response}")
         should_terminate_sequence = self.termination_signal in response
         reward = 0.0
 
