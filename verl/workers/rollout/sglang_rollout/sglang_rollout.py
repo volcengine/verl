@@ -24,6 +24,10 @@ from copy import deepcopy
 from json import JSONDecodeError
 from typing import Any, Optional
 from uuid import uuid4
+import atexit
+from datetime import datetime
+import json
+import random
 
 import numpy as np
 import sglang.srt.entrypoints.engine
@@ -121,6 +125,43 @@ def _set_envs_and_config(server_args: ServerArgs):
 
 sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
 
+# logging tool for sglang multi-turn rollout
+class SGLangLogManager:
+    def __init__(self):
+        self.file_handles = {}
+        atexit.register(self.close_all)
+    
+    def get_handle(self, log_path):
+        if log_path not in self.file_handles:
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            self.file_handles[log_path] = open(log_path, 'a', buffering=1)
+        return self.file_handles[log_path]
+    
+    def log(self, log_path, event, duration=None, extra=None, workid=None, step=None,**extra_keys):
+        handle = self.get_handle(log_path)
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "event": event,
+        }
+        if duration is not None:
+            log_entry["duration_sec"] = duration
+        if extra is not None:
+            log_entry["extra"] = extra
+        if workid is not None:
+            log_entry["workid"] = workid
+        if step is not None:
+            log_entry["step"] = step
+        if extra_keys is not None:
+            for key in extra_keys:
+                log_entry[key] = extra_keys[key]
+        ordered_keys = ["timestamp", "event", "duration_sec"] + [k for k in log_entry.keys() if k not in ("timestamp", "event", "duration_sec")]
+        ordered_entry = {k: log_entry[k] for k in ordered_keys if k in log_entry}
+        handle.write(json.dumps(ordered_entry) + '\n')
+        handle.flush()
+    
+    def close_all(self):
+        for handle in self.file_handles.values():
+            handle.close()
 
 # because chatCompletion is an async method, it makes the whole ray actor be an async actor
 # which can not call loop.run_until_complete. So we need to make the engine to be an async class
@@ -306,6 +347,9 @@ class SGLangRollout(BaseRollout):
             f"{self._tool_call_parser_type}, sgl_tools: {self._sgl_tools}, function_call_parser: "
             f"{self._function_call_parser}"
         )
+        self.log_manager = SGLangLogManager()
+        self.log_dir = "logs/" + os.getenv("EXPERIMENT_NAME", "multiturn_log_dir")
+        self.step = 0
 
         self._init_distributed_env(device_mesh_cpu=device_mesh, **kwargs)
 
@@ -583,6 +627,9 @@ class SGLangRollout(BaseRollout):
             responses:     |<- LLM generation ->|<- tool_calls ->|<- LLM generation ->|<- padding ->|
             response_mask: | 1, 1, 1, ..., 1, 1 | 0, 0, .., 0, 0 | 1, 1, 1, ..., 1, 1 | 0, 0, ..., 0|
         """
+        self.step += 1
+        self.log_path = os.path.join(self.log_dir, f"step_{self.step}", f"worker_{self._rank}.jsonl")
+                
         if self.config.multi_turn.enable:
             return self._req_level_generate_sequences(prompts, **kwargs)
         return self._batch_level_generate_sequences(prompts, **kwargs)
@@ -1139,8 +1186,24 @@ class SGLangRollout(BaseRollout):
                         await self._engine.abort_request(abort_all=True)
                     return final_results
 
+                torch.cuda.synchronize()
+                async_rollout_with_monitoring_start_time = time.time()
                 loop = asyncio.get_event_loop()
                 output_req_list = loop.run_until_complete(run_with_cancellation())
+                torch.cuda.synchronize()
+                async_rollout_with_monitoring_end_time = time.time()
+                self.log_manager.log(
+                    self.log_path,
+                    event="async_rollout_with_monitoring_duration",
+                    duration=async_rollout_with_monitoring_end_time - async_rollout_with_monitoring_start_time,
+                    workid=self._rank,
+                    step=self.step,
+                    extra={
+                        "total_requests": total_requests,
+                        "target_completion": target_completion,
+                        "completed_count": completed_count,
+                    },
+                )
 
             sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
         else:
@@ -1205,6 +1268,8 @@ class SGLangRollout(BaseRollout):
             reward_scores.append(req.reward_scores)
             multi_modal_inputs.append(req.multi_modal_inputs)
             request_ids.append(req.request_id)
+            # if random.random() < 0.01:
+            #     print(f"rollout_request_length: {req.request_id}, prompt_ids: {req.prompt_ids.tolist()}, response_ids: {req.response_ids.tolist()}, response_loss_mask: {req.response_loss_mask.tolist()}, response_position_ids: {req.response_position_ids.tolist()}, response_attention_mask: {req.response_attention_mask.tolist()}, prompt_attention_mask: {req.prompt_attention_mask.tolist()}, prompt_position_ids: {req.prompt_position_ids.tolist()}")
             if self.config.calculate_log_probs:
                 # extract output log_probs
                 output_logprobs.append(req.rollout_log_probs[-len(req.response_ids) :])
@@ -1352,6 +1417,7 @@ class SGLangRollout(BaseRollout):
             dtype=torch.long,
             device=padding_device,
         )
+        # set the first token of prompt to 1, to disable  the request being droped if micro batch size is 1 (which will crash the program), needs to be optimized in the future
         padding_prompt_attention_mask[0][0] = 1
         # create padding position_ids
         if original_req.position_ids is not None:
@@ -1373,6 +1439,8 @@ class SGLangRollout(BaseRollout):
             dtype=torch.long,
             device=padding_device,
         )
+
+        # logger.error(f"create_padding_request: {original_req.request_id}, padding_prompt_attention_mask: {padding_prompt_attention_mask.tolist()}, length of prompt: {original_req.prompt_ids.shape[-1]}, length of padding prompt: {padding_prompt_attention_mask.shape[-1]}, padding_response_position_ids: {padding_response_position_ids.tolist()}, length of response: {padding_response_length}")
 
         padding_req = AsyncRolloutRequest(
             batch_data_id=original_req.batch_data_id,
