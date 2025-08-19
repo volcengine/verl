@@ -94,6 +94,7 @@ verl is fast with:
    perf/perf_tuning
    README_vllm0.8.md
    perf/device_tuning
+   perf/verl_profiler_system.md
    perf/nsight_profiling.md
 
 .. toctree::
