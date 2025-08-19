@@ -127,5 +127,6 @@ jobs:
           rm -rf "${OUTPUT_PATH}"
       - name: Test the latest vLLM Rollout async with agent loop
         run: |
+          huggingface-cli download verl-team/gsm8k-v0.4.1 --repo-type dataset --local-dir ~/verl-data/gsm8k
           ROLLOUT_NAME=vllm pytest -svvv tests/experimental/agent_loop
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests
