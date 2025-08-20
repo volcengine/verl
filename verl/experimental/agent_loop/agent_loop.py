@@ -36,7 +36,7 @@ from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.rollout_trace import RolloutTraceConfig, rollout_trace_attr, rollout_trace_op
-from verl.workers.rollout.async_server import async_server_class
+from verl.workers.rollout.async_server import TokenOutput, async_server_class
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -87,7 +87,7 @@ class AsyncLLMServerManager:
         prompt_ids: list[int],
         sampling_params: dict[str, Any],
         image_data: Optional[list[Any]] = None,
-    ) -> list[int]:
+    ) -> TokenOutput:
         """Generate tokens from prompt ids.
 
         Args:
@@ -96,7 +96,7 @@ class AsyncLLMServerManager:
             sampling_params (Dict[str, Any]): Sampling parameters for the chat completion.
 
         Returns:
-            List[int]: List of generated token ids.
+            TokenOutput: token output
         """
         server = self._choose_server(request_id)
         output = await server.generate.remote(
@@ -124,6 +124,8 @@ class AgentLoopOutput(BaseModel):
     """Response token ids including LLM generated token, tool response token."""
     response_mask: list[int]
     """Response mask, 1 for LLM generated token, 0 for tool response token."""
+    response_logprobs: Optional[list[float]] = None
+    """Log probabilities for the response tokens."""
     multi_modal_data: Optional[dict[str, Any]] = None
     """Multi-modal data for multi-modal tools."""
     reward_score: Optional[float] = None
@@ -151,6 +153,8 @@ class _InternalAgentLoopOutput(AgentLoopOutput):
     """Padded response mask."""
     attention_mask: torch.Tensor
     """Padded attention mask."""
+    response_logprobs: Optional[torch.Tensor] = None
+    """Padded log probabilities for the response tokens."""
     multi_modal_inputs: Optional[dict[str, torch.Tensor]] = None
     """Multi-modal inputs for processors (e.g., pixel_values, image_grid_thw)."""
 
@@ -183,7 +187,7 @@ class AgentLoopBase(ABC):
             tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
             processor (AutoProcessor): Processor for process messages.
         """
-        self.init_class(trainer_config.config, tokenizer, processor, **kwargs)
+        self.init_class(config=trainer_config.config, tokenizer=tokenizer, processor=processor, **kwargs)
         self.config = trainer_config.config
         self.server_manager = server_manager
         self.tokenizer = tokenizer
@@ -359,6 +363,7 @@ class AgentLoopWorker:
             temperature=config.temperature,
             top_p=config.top_p,
             repetition_penalty=1.0,
+            logprobs=config.calculate_log_probs,
         )
 
         # override sampling params for validation
@@ -472,6 +477,11 @@ class AgentLoopWorker:
             if response_mask_output["input_ids"].dim() == 1:
                 response_mask_output["input_ids"] = response_mask_output["input_ids"].unsqueeze(0)
 
+            response_logprobs = None
+            if output.response_logprobs is not None:
+                pad_size = self.config.actor_rollout_ref.rollout.response_length - len(output.response_logprobs)
+                response_logprobs = torch.tensor(output.response_logprobs + [0.0] * pad_size).unsqueeze(0)
+
             response_mask = response_mask_output["input_ids"] * response_output["attention_mask"]
             attention_mask = torch.cat([prompt_output["attention_mask"], response_output["attention_mask"]], dim=1)
             input_ids = torch.cat([prompt_output["input_ids"], response_output["input_ids"]], dim=1)
@@ -518,6 +528,7 @@ class AgentLoopWorker:
                 position_ids=position_ids,
                 response_mask=response_mask,
                 attention_mask=attention_mask,
+                response_logprobs=response_logprobs,
                 multi_modal_inputs=multi_modal_inputs,
                 multi_modal_data=output.multi_modal_data,
                 reward_score=output.reward_score,
@@ -534,6 +545,9 @@ class AgentLoopWorker:
         attention_mask = torch.cat([input.attention_mask for input in inputs], dim=0)
         input_ids = torch.cat([input.input_ids for input in inputs], dim=0)
         position_ids = torch.cat([input.position_ids for input in inputs], dim=0)
+        optional_outputs = {}
+        if inputs[0].response_logprobs is not None:
+            optional_outputs["rollout_log_probs"] = torch.cat([input.response_logprobs for input in inputs], dim=0)
 
         batch = TensorDict(
             {
@@ -544,6 +558,7 @@ class AgentLoopWorker:
                 "attention_mask": attention_mask,  # [bsz, prompt_length + response_length]
                 # position_ids: [bsz, 3, prompt_length + response_length] or [bsz, prompt_length + response_length]
                 "position_ids": position_ids,
+                **optional_outputs,
             },
             batch_size=len(inputs),
         )
