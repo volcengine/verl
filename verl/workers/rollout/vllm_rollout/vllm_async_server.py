@@ -208,6 +208,8 @@ class AsyncvLLMServer(AsyncServerBase):
         self.wg_prefix = wg_prefix
         self.engine: AsyncLLM = None
         # for cancel
+
+        self.lock = asyncio.Lock()
         self.cancel_event: dict[str, asyncio.Event] = {}
         self.req_output: dict[str, Optional[RequestOutput]] = {}
 
@@ -347,30 +349,32 @@ class AsyncvLLMServer(AsyncServerBase):
     async def generate_for_partial(
         self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str
     ) -> tuple[Sequence[int], bool] | tuple[str, bool]:
-        with ExitStack() as stack:
-            stack.callback(lambda: self.cancel_event.pop(request_id, None))
-            stack.callback(lambda: self.req_output.pop(request_id, None))
-
+        # 设置中断标志
+        async with self.lock:
             self.cancel_event[request_id] = asyncio.Event()
             cancel_handle = asyncio.create_task(self.cancel_event[request_id].wait())
-            generation_handle = asyncio.create_task(self._generate_step(prompt_ids, sampling_params, request_id))
 
-            done, pend = await asyncio.wait([generation_handle, cancel_handle], return_when=asyncio.FIRST_COMPLETED)
+        generation_handle = asyncio.create_task(self._generate_step(prompt_ids, sampling_params, request_id))
+        done, pend = await asyncio.wait([generation_handle, cancel_handle], return_when=asyncio.FIRST_COMPLETED)
 
-            for task in done:
-                await task
+        for task in done:
+            await task
 
-            for task in pend:
-                task.cancel()
+        for task in pend:
+            task.cancel()
 
+        async with self.lock:
             token_ids = self.req_output[request_id].outputs[0].token_ids
             is_cancel = generation_handle not in done
-            return token_ids, is_cancel
+            self.cancel_event.pop(request_id, None)
+            self.req_output.pop(request_id, None)
+        return token_ids, is_cancel
 
     async def cancel(self):
-        for request_id in self.cancel_event:
-            self.cancel_event[request_id].set()
-            print(f"[ExternalRayDistributedExecutor] cancel request_id {request_id}")
+        async with self.lock:
+            for request_id in self.cancel_event:
+                self.cancel_event[request_id].set()
+                print(f"[ExternalRayDistributedExecutor] cancel request_id {request_id}")
 
     async def wake_up(self):
         if self.config.rollout.free_cache_engine:

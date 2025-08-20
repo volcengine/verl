@@ -528,7 +528,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             current_time = time.time()
             if current_time - last_stats_time >= stats_interval:
                 stats = await self.get_statistics()
-                print(f"[FullyAsyncRollouter][MonitorLoop] {stats}")
+                pprint(stats)
                 last_stats_time = current_time
 
             # pause 和 resume 直接，不进行恢复操作
@@ -578,22 +578,18 @@ class FullyAsyncRollouter(RayPPOTrainer):
         """pause rollout
         TODO integrated Partial Rollout
         """
-        print("[FullyAsyncRollouter][Public] pause")
+        print("[FullyAsyncRollouter][Public][Pause]")
         async with self.lock:
             self.paused = True
             # 取消rollout所有任务
-            # await self.async_rollout_manager.cancel()
+            self.async_rollout_manager.cancel()
             if self.active_tasks:
-                print("[FullyAsyncRollouter][Public][Pause]")
                 await asyncio.gather(*self.active_tasks, return_exceptions=True)
                 self.active_tasks.clear()
             print("[FullyAsyncRollouter][Public][Pause] All active tasks completed")
         self.monitor_loop_trigger = False
 
     async def resume(self):
-        """resume rollout
-        TODO integrated Partial Rollout
-        """
         async with self.lock:
             self.paused = False
             self.condition.notify_all()
