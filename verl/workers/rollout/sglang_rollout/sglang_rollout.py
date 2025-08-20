@@ -1417,6 +1417,7 @@ class SGLangRollout(BaseRollout):
             dtype=torch.long,
             device=padding_device,
         )
+        # (TODO: magic number comment)
         # set the first token of prompt to 1, to disable  the request being droped if micro batch size is 1 (which will crash the program), needs to be optimized in the future
         padding_prompt_attention_mask[0][0] = 1
         # create padding position_ids
