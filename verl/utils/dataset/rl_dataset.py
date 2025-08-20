@@ -305,6 +305,19 @@ class RLHFDataset(Dataset):
                 )
             ]  # (1, 3, seq_len)
 
+        elif self.processor is not None and self.processor.__class__.__name__ == "Glm4vProcessor":
+            from verl.models.transformers.glm4v import get_rope_index
+
+            position_ids = [
+                get_rope_index(
+                    self.processor,
+                    input_ids=input_ids[0],
+                    image_grid_thw=model_inputs.get("image_grid_thw"),
+                    video_grid_thw=model_inputs.get("video_grid_thw"),
+                    attention_mask=attention_mask[0],
+                )
+            ]  # (1, 3, seq_len)
+
         else:
             position_ids = compute_position_id_with_mask(attention_mask)
 
