@@ -173,8 +173,10 @@ class TaskRunner:
         }
         # TODO Here you can use the new registration method to support dynamic registration of roles
         if config.reward_model.enable_resource_pool:
-            assert config.reward_model.n_gpus_per_node > 0, "config.reward_model.n_gpus_per_node must be greater than 0"
-            assert config.reward_model.nnodes > 0, "config.reward_model.nnodes must be greater than 0"
+            if config.reward_model.n_gpus_per_node <= 0:
+                raise ValueError("config.reward_model.n_gpus_per_node must be greater than 0")
+            if config.reward_model.nnodes <= 0:
+                raise ValueError("config.reward_model.nnodes must be greater than 0")
 
             reward_pool = [config.reward_model.n_gpus_per_node] * config.reward_model.nnodes
             resource_pool_spec["reward_pool"] = reward_pool
