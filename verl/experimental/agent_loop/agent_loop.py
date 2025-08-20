@@ -376,7 +376,7 @@ class AgentLoopWorker:
             index = np.arange(len(batch))
 
         trajectory_info = await get_trajectory_info(
-            batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
+            batch.meta_info.get("global_steps", -1), index.tolist(), batch.meta_info.get("validate", False)
         )
 
         tasks = []
