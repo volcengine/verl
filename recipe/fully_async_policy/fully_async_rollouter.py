@@ -39,16 +39,16 @@ class FullyAsyncRollouter(RayPPOTrainer):
     """
 
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            device_name=None,
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        device_name=None,
     ):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
@@ -136,8 +136,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             self.minimal_bsz, config.actor_rollout_ref.actor.ppo_mini_batch_size
         )
         self.max_required_samples = (
-                self.required_samples * (
-                self.staleness_threshold + 1) * config.async_training.trigger_parameter_sync_step
+            self.required_samples * (self.staleness_threshold + 1) * config.async_training.trigger_parameter_sync_step
         )
         print(
             f"[FullyAsyncRollouter] required_samples : {self.required_samples} "
@@ -161,6 +160,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.pending_queue = asyncio.Queue(maxsize=100)
         self.active_tasks = set()
         self.result_queue = asyncio.Queue()
+        self.cancel_queue = asyncio.Queue()
 
         # 通过 pause 和 resume 控制 monitor_loop 中，是否进行 尝试恢复 操作
         self.monitor_loop_trigger = True
@@ -243,8 +243,9 @@ class FullyAsyncRollouter(RayPPOTrainer):
         sample_count = 0
         should_stop = False
 
-        progress_bar = tqdm(total=self.total_rollout_steps / self.required_samples, initial=self.global_steps,
-                            desc="Training Progress")
+        progress_bar = tqdm(
+            total=self.total_rollout_steps / self.required_samples, initial=self.global_steps, desc="Training Progress"
+        )
 
         for epoch, batch_dict in continuous_iterator:
             if should_stop:  # 检查停止标志
@@ -257,8 +258,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             for rollout_n_index in range(self.config.actor_rollout_ref.rollout.n):
                 sample_id = f"sample_{epoch}_{sample_count}_{rollout_n_index}"
 
-                # 创建部分 RolloutSample，不包含 _gen_data（因为它不在数据类定义中）
-                partial_rollout_sample = RolloutSample(
+                rollout_sample = RolloutSample(
                     full_batch=full_batch,
                     agent_loop_output=None,  # 待处理后填充
                     sample_id=sample_id,
@@ -266,11 +266,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     rollout_n_index=rollout_n_index,
                     original_sample_index=sample_count,
                     processing_time=0.0,  # 待处理后填充
-                    generation_timestamp=0.0,  # 待处理后填充
                     param_version=0,  # 待处理后填充
                 )
 
-                await self.pending_queue.put(partial_rollout_sample)
+                await self.pending_queue.put(rollout_sample)
 
                 # 检查是否到达最后一步
                 if self.global_steps >= self.total_rollout_steps:
@@ -297,7 +296,11 @@ class FullyAsyncRollouter(RayPPOTrainer):
         """流式处理工作协程 - 逐个样本立即提交处理，不等待批次"""
 
         while True:
-            partial_rollout_sample = await self.pending_queue.get()
+            if not self.cancel_queue.empty():
+                print(f"self.cancel_queue {self.cancel_queue.qsize()}")
+                rollout_sample = await self.cancel_queue.get()
+            else:
+                rollout_sample = await self.pending_queue.get()
             self.staleness_samples += 1
 
             async with self.lock:
@@ -312,7 +315,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
             # 获取待处理的部分 RolloutSample
             async with self.lock:
-                if partial_rollout_sample == "DONE":
+                if rollout_sample == "DONE":
                     print("[FullyAsyncRollouter][Processor] 收到结束信号，等待剩余任务完成...")
                     # 等待所有活动任务完成
                     if self.active_tasks:
@@ -337,36 +340,39 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 while self.paused:
                     await self.condition.wait()
                 task = asyncio.create_task(
-                    self._process_single_sample_streaming(partial_rollout_sample),
-                    name=f"process_{partial_rollout_sample.sample_id}",
+                    self._process_single_sample_streaming(rollout_sample),
+                    name=rollout_sample.sample_id,
                 )
                 self.active_tasks.add(task)
 
             # 标记队列任务完成
             self.pending_queue.task_done()
 
-    async def _process_single_sample_streaming(self, partial_rollout_sample):
+    async def _process_single_sample_streaming(self, rollout_sample: RolloutSample):
         """流式处理单个样本"""
 
         # 调用异步生成方法
         agent_loop_output, processing_time = await self.async_rollout_manager.generate_single_sample_async(
-            partial_rollout_sample.full_batch, partial_rollout_sample.sample_id
+            rollout_sample.full_batch, rollout_sample.agent_loop_output
         )
         # 直接更新 RolloutSample 对象，填充剩余字段
-        partial_rollout_sample.agent_loop_output = agent_loop_output
-        partial_rollout_sample.processing_time = processing_time
-        partial_rollout_sample.generation_timestamp = time.time()
-        partial_rollout_sample.param_version = self.current_param_version
+        rollout_sample.agent_loop_output = agent_loop_output
+        rollout_sample.processing_time += processing_time
+        rollout_sample.param_version = self.current_param_version
 
-        # 直接放入结果队列
-        await self.result_queue.put(partial_rollout_sample)
+        print(f"[FullyAsyncRollouter] rollout {rollout_sample.sample_id} cost {processing_time:.2f}s")
+
+        if agent_loop_output.is_cancel:
+            # 放入 cancel 队列中，等待恢复生成
+            await self.cancel_queue.put(rollout_sample)
+        else:
+            # 否则放入结果队列
+            await self.result_queue.put(rollout_sample)
 
         self.processed_sample_count += 1
         # 更新最大处理时间统计
         if processing_time > self.max_processing_time:
             self.max_processing_time = processing_time
-
-        # print(f"[FullyAsyncRollouter] rollout {partial_rollout_sample.sample_id} cost {processing_time:.2f}s")
 
     async def _consumer_worker(self):
         """消费者协程，负责从结果队列获取处理结果并放入消息队列"""
@@ -575,6 +581,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
         print("[FullyAsyncRollouter][Public] pause")
         async with self.lock:
             self.paused = True
+            # 取消rollout所有任务
+            # await self.async_rollout_manager.cancel()
             if self.active_tasks:
                 print("[FullyAsyncRollouter][Public][Pause]")
                 await asyncio.gather(*self.active_tasks, return_exceptions=True)
@@ -586,7 +594,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
         """resume rollout
         TODO integrated Partial Rollout
         """
-        print("[FullyAsyncRollouter][Public] resume")
         async with self.lock:
             self.paused = False
             self.condition.notify_all()
@@ -609,6 +616,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
             "max_required_samples": self.max_required_samples,
             "required_samples": self.required_samples,
             "staleness_threshold": self.staleness_threshold,
+            "cancel_queue_size": self.cancel_queue.qsize(),
         }
 
         return stats

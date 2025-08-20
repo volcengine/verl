@@ -11,17 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
 import logging
 import os
 import pickle
-from typing import Any, Callable, Optional
+from contextlib import ExitStack
+from typing import Any, Callable, Optional, Coroutine, Sequence
 
 import ray
 import zmq
-from omegaconf import DictConfig
+from omegaconf import DictConfig, ListConfig
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
-from vllm import SamplingParams
+from vllm import SamplingParams, RequestOutput
+from vllm.config import CompilationConfig, CompilationLevel
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ErrorResponse
@@ -204,6 +207,9 @@ class AsyncvLLMServer(AsyncServerBase):
         self.vllm_dp_rank = vllm_dp_rank
         self.wg_prefix = wg_prefix
         self.engine: AsyncLLM = None
+        # for cancel
+        self.cancel_event: dict[str, asyncio.Event] = {}
+        self.req_output: dict[str, Optional[RequestOutput]] = {}
 
     async def init_engine(self):
         """Init vLLM AsyncLLM engine."""
@@ -325,6 +331,46 @@ class AsyncvLLMServer(AsyncServerBase):
         assert final_res is not None
 
         return final_res.outputs[0].token_ids
+
+    async def _generate_step(self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str):
+        max_tokens = self.max_model_len - len(prompt_ids)
+        sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
+        prompt = TokensPrompt(prompt_token_ids=prompt_ids)
+        generator = self.engine.generate(prompt=prompt, sampling_params=sampling_params, request_id=request_id)
+
+        # Get final response
+        self.req_output[request_id]: Optional[RequestOutput] = None
+        async for output in generator:
+            self.req_output[request_id] = output
+        assert self.req_output[request_id] is not None
+
+    async def generate_for_partial(
+        self, prompt_ids: list[int], sampling_params: dict[str, Any], request_id: str
+    ) -> tuple[Sequence[int], bool] | tuple[str, bool]:
+        with ExitStack() as stack:
+            stack.callback(lambda: self.cancel_event.pop(request_id, None))
+            stack.callback(lambda: self.req_output.pop(request_id, None))
+
+            self.cancel_event[request_id] = asyncio.Event()
+            cancel_handle = asyncio.create_task(self.cancel_event[request_id].wait())
+            generation_handle = asyncio.create_task(self._generate_step(prompt_ids, sampling_params, request_id))
+
+            done, pend = await asyncio.wait([generation_handle, cancel_handle], return_when=asyncio.FIRST_COMPLETED)
+
+            for task in done:
+                await task
+
+            for task in pend:
+                task.cancel()
+
+            token_ids = self.req_output[request_id].outputs[0].token_ids
+            is_cancel = generation_handle not in done
+            return token_ids, is_cancel
+
+    async def cancel(self):
+        for request_id in self.cancel_event:
+            self.cancel_event[request_id].set()
+            print(f"[ExternalRayDistributedExecutor] cancel request_id {request_id}")
 
     async def wake_up(self):
         if self.config.rollout.free_cache_engine:

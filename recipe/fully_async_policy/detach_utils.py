@@ -46,7 +46,6 @@ class RolloutSample:
 
     # Processing metadata
     processing_time: float
-    generation_timestamp: float
     param_version: int
 
 
@@ -76,6 +75,10 @@ def prepare_single_generation_data(batch_dict, global_steps) -> DataProto:
         batch_keys=batch_keys_to_pop,
         non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
     )
+
+    # 设置使用支持partial的agent
+    full_batch.non_tensor_batch["agent_name"] = np.array(["partial_single_turn_agent"] * len(full_batch), dtype=object)
+
     # 添加全局步数到生成数据
     full_batch.meta_info["global_steps"] = global_steps
 
