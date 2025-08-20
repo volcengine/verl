@@ -186,7 +186,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # omega_profiler_config is DictConfig
         # profiler_config is a ProfilerConfig dataclass
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
-        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
             tool_config = omega_conf_to_dataclass(
                 omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
             )
@@ -935,13 +935,28 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         """Stop profiling for the current rank in the current training step."""
         self.profiler.stop()
 
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def dump_memory_snapshot(self, tag: str = "manual", sub_dir: str = None) -> None:
+        """Manually trigger a CUDA memory snapshot dump on all ranks."""
+        # Memory snapshot is now handled by the profiler system
+        # This method is kept for backward compatibility but delegates to profiler
+        if hasattr(self, "profiler") and hasattr(self.profiler, "_impl"):
+            try:
+                # Try to use the profiler's memory snapshot functionality
+                if hasattr(self.profiler._impl, "sampler"):
+                    out_dir = OmegaConf.select(self.config, "actor.profiler.save_path") or "."
+                    self.profiler._impl.sampler.dump_memory_snapshot(out_dir=out_dir, tag=tag, sub_dir=sub_dir)
+            except Exception:
+                # silently ignore if profiler doesn't support memory snapshots
+                pass
+
 
 class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config: FSDPCriticConfig):
         Worker.__init__(self)
         omega_profiler_config = config.get("profiler", {})
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
-        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
             tool_config = omega_conf_to_dataclass(
                 omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
             )
@@ -1347,7 +1362,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         omega_profiler_config = config.get("profiler", {})
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
-        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch"]:
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
             tool_config = omega_conf_to_dataclass(
                 omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
             )

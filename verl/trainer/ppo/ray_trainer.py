@@ -838,13 +838,15 @@ class RayPPOTrainer:
             wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
         if OmegaConf.select(self.config.global_profiler, "steps") is not None:
             wg_kwargs["profile_steps"] = OmegaConf.select(self.config.global_profiler, "steps")
-            assert (
-                OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
-                is not None
-            ), "worker_nsight_options must be set when profile_steps is set"
-            wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
-                OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
-            )
+            # Only require nsight worker options when tool is nsys
+            if OmegaConf.select(self.config.global_profiler, "tool") == "nsys":
+                assert (
+                    OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
+                    is not None
+                ), "worker_nsight_options must be set when using nsys with profile_steps"
+                wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
+                    OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
+                )
         wg_kwargs["device_name"] = self.device_name
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
@@ -1004,11 +1006,11 @@ class RayPPOTrainer:
         if do_profile:
             self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
             if self.use_reference_policy:
-                self.ref_policy_wg.start_profile()
+                self.ref_policy_wg.start_profile(profile_step=self.global_steps)
             if self.use_critic:
-                self.critic_wg.start_profile()
+                self.critic_wg.start_profile(profile_step=self.global_steps)
             if self.use_rm:
-                self.rm_wg.start_profile()
+                self.rm_wg.start_profile(profile_step=self.global_steps)
 
     def _stop_profiling(self, do_profile: bool) -> None:
         """Stop profiling for all worker groups if profiling is enabled."""
@@ -1360,6 +1362,14 @@ class RayPPOTrainer:
 
                 progress_bar.update(1)
                 self.global_steps += 1
+
+                if (
+                    hasattr(self.config.actor_rollout_ref.actor, "profiler")
+                    and self.config.actor_rollout_ref.actor.profiler.tool == "torch_memory"
+                ):
+                    self.actor_rollout_wg.dump_memory_snapshot(
+                        tag=f"post_update_step{self.global_steps}", sub_dir=f"step{self.global_steps}"
+                    )
 
                 if is_last_step:
                     pprint(f"Final validation metrics: {last_val_metrics}")
