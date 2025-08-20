@@ -18,7 +18,8 @@ from typing import Callable, Optional
 import torch
 import torch.distributed
 
-from .config import ProfilerConfig, TorchProfilerToolConfig
+from ..memory_utils import MemorySnapshotSampler, enable_memory_visualize
+from .config import ProfilerConfig, TorchMemoryToolConfig, TorchProfilerToolConfig
 
 
 class Profiler:
@@ -172,25 +173,58 @@ def mark_annotate(
 
 
 class DistProfiler:
-    """A distributed profiler class for collecting performance metrics across multiple ranks.
+    """A dispatcher that delegates to specific profilers based on config.tool.
 
-    This profiler is designed to work in distributed training environments, allowing selective
-    profiling of specific ranks or all ranks. It provides basic start/stop functionality and
-    supports annotation of code sections for detailed profiling.
-
-    Args:
-        rank (int): The rank of the current process
-        config (ProfilerConfig, optional): Configuration for the profiler.
+    Supported tools:
+    - nsys: NsightSystemsProfiler
+    - npu: NPUProfiler (Ascend)
+    - torch: PyTorch torch.profiler wrapper
+    - torch_memory: Torch CUDA memory snapshot dump
     """
 
-    def __init__(self, rank: int, config: Optional[ProfilerConfig] = None, **kwargs):
-        pass
+    def __init__(
+        self, rank: int, config: Optional[ProfilerConfig] = None, tool_config: Optional[object] = None, **kwargs
+    ):
+        # Default config
+        if not config:
+            config = ProfilerConfig(ranks=[], enable=False)
+
+        self._impl = None
+        self._tool = getattr(config, "tool", None)
+
+        # Normalize rank selection
+        self._this_rank = False
+        if config.all_ranks:
+            self._this_rank = True
+        elif config.ranks:
+            self._this_rank = rank in config.ranks
+        else:
+            # default rank 0 if enabled but ranks unspecified
+            self._this_rank = (rank == 0) if config.enable else False
+
+        # Lazy import to avoid circular deps
+        if self._tool == "nsys":
+            from .nvtx_profile import NsightSystemsProfiler as _Nsight
+
+            self._impl = _Nsight(rank=rank, config=config, tool_config=tool_config, **kwargs)
+        elif self._tool == "npu":
+            from .mstx_profile import NPUProfiler as _Npu
+
+            self._impl = _Npu(rank=rank, config=config, tool_config=tool_config, **kwargs)
+        elif self._tool == "torch":
+            # Use the torch profiler wrapper defined above
+            self._impl = Profiler(config=config, tool_config=tool_config)
+        elif self._tool == "torch_memory":
+            self._impl = TorchMemoryProfiler(rank=rank, config=config, tool_config=tool_config)
+        else:
+            # Fallback to a no-op impl
+            self._impl = _NoOpProfiler()
 
     def start(self, **kwargs):
-        pass
+        return getattr(self._impl, "start", lambda **_: None)(**kwargs)
 
     def stop(self):
-        pass
+        return getattr(self._impl, "stop", lambda: None)()
 
     @staticmethod
     def annotate(
@@ -204,6 +238,89 @@ class DistProfiler:
             return func
 
         return decorator
+
+
+class _NoOpProfiler:
+    def start(self, **kwargs):
+        return
+
+    def stop(self):
+        return
+
+
+class TorchMemoryProfiler:
+    """Profiler that dumps CUDA memory snapshots at step boundaries.
+
+    Behavior:
+    - On first construction (per process), enable memory history recording if CUDA is available
+    - On start(step=X), remember sub_dir for this step
+    - On stop(), dump a memory snapshot into config.save_path under the remembered sub_dir
+    """
+
+    _memory_history_enabled: bool = False
+
+    def __init__(
+        self, rank: int, config: Optional[ProfilerConfig], tool_config: Optional[TorchMemoryToolConfig] = None
+    ):
+        # Always respond to explicit start/stop calls for torch_memory tool,
+        # regardless of per-role enable flag, to align with global step control.
+        self.enable = True
+        if not config:
+            config = ProfilerConfig(ranks=[])
+        self.config = config
+        self.rank = rank
+        self.this_step = False
+        self.sub_dir = None
+        self.sampler = MemorySnapshotSampler()
+
+        # Get parameters from tool_config, with fallback to defaults
+        if tool_config:
+            trace_alloc_max_entries = tool_config.trace_alloc_max_entries
+            stack_depth = tool_config.stack_depth
+        else:
+            trace_alloc_max_entries = 100_000
+            stack_depth = 32
+
+        # Best-effort enable memory history once
+        if not TorchMemoryProfiler._memory_history_enabled:
+            try:
+                enable_memory_visualize(trace_alloc_max_entries=trace_alloc_max_entries, stack_depth=stack_depth)
+            except Exception:
+                # silently ignore if not supported
+                pass
+            TorchMemoryProfiler._memory_history_enabled = True
+
+    def start(self, **kwargs):
+        if not self.enable:
+            return
+        if not self._should_profile_this_rank():
+            return
+        profile_step = kwargs.get("profile_step", None)
+        # Keep ranks aligned under same folder name
+        self.sub_dir = f"step{profile_step}" if profile_step is not None else None
+        self.this_step = True
+
+    def stop(self):
+        if not self.enable or not self.this_step:
+            return
+        self.this_step = False
+        if not self._should_profile_this_rank():
+            return
+        out_dir = self.config.save_path or "outputs/profile"
+        tag = "torch_memory"
+        # Dump snapshot; all ranks write into same sub_dir
+        try:
+            self.sampler.dump_memory_snapshot(out_dir=out_dir, tag=tag, sub_dir=self.sub_dir)
+        except Exception:
+            pass
+
+    def _should_profile_this_rank(self) -> bool:
+        if self.config.all_ranks:
+            return True
+        if self.config.ranks:
+            return self.rank in self.config.ranks
+        # default rank 0
+        return self.rank == 0
 
 
 class DistProfilerExtension:
