@@ -442,6 +442,7 @@ class SGLangRollout(BaseRollout):
 
         # attention backend will be changed to fa3 if not specified
         attention_backend = engine_kwargs.pop("attention_backend", None)
+        max_running_requests = self.config.get("max_num_seqs", None)
 
         if first_rank_in_node:
             rank = dist.get_rank()
@@ -458,6 +459,7 @@ class SGLangRollout(BaseRollout):
                 load_format=load_format,
                 dist_init_addr=dist_init_addr,
                 nnodes=nnodes,
+                max_running_requests=max_running_requests,
                 trust_remote_code=trust_remote_code,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
