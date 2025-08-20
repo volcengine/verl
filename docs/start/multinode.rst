@@ -56,6 +56,8 @@ Submit job to ray cluster
 - ray job logs <Submission ID>: query the logs of the job.
 - ray job status <Submission ID>: query the status of the job.
 - ray job stop <Submission ID>: request the job to be stopped.
+- ray job list | grep submission_id | grep JobStatus | grep RUNNING | grep -oP 'raysubmit_[^'\''"]+' | head -n 1: get the latest job submission ID of the running job.
+- ray job logs <Submission ID> --follow: added ``--follow`` parameter to ray job logs command to enable continuous log streaming.
 
 3. You can also access driver/task/actor logs in ``/tmp/ray/session_latest/logs/``, driver log is ``job-driver-raysubmit_<Submission ID>.log``.
 
