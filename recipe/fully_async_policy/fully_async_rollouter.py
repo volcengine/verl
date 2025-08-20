@@ -312,6 +312,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                     self.paused = True
                 while self.paused:
                     await self.condition.wait()
+                    print("等待已提交的任务结束 condition")
 
             # 获取待处理的部分 RolloutSample
             async with self.lock:
@@ -339,6 +340,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 # pause结束后，获取到锁，还需要判断是否是暂停阶段，否则继续等待
                 while self.paused:
                     await self.condition.wait()
+                    print("立即提交单个样本处理 condition")
                 task = asyncio.create_task(
                     self._process_single_sample_streaming(rollout_sample),
                     name=rollout_sample.sample_id,
@@ -528,14 +530,15 @@ class FullyAsyncRollouter(RayPPOTrainer):
             current_time = time.time()
             if current_time - last_stats_time >= stats_interval:
                 stats = await self.get_statistics()
+                print("[FullyAsyncRollouter][MonitorLoop][Statistics]")
                 pprint(stats)
                 last_stats_time = current_time
 
             # pause 和 resume 直接，不进行恢复操作
             if self.monitor_loop_trigger and self.paused:
-                if await self._should_pause_generation():
+                if not await self._should_pause_generation():
                     async with self.lock:
-                        print("[FullyAsyncRollouter][MonitorLoop] trigger resume")
+                        print("[FullyAsyncRollouter][MonitorLoop][Resume]")
                         self.paused = False
                         self.condition.notify_all()
 
@@ -582,7 +585,8 @@ class FullyAsyncRollouter(RayPPOTrainer):
         async with self.lock:
             self.paused = True
             # 取消rollout所有任务
-            self.async_rollout_manager.cancel()
+            if self.config.async_training.partial_rollout:
+                await self.async_rollout_manager.cancel_async()
             if self.active_tasks:
                 await asyncio.gather(*self.active_tasks, return_exceptions=True)
                 self.active_tasks.clear()
@@ -590,6 +594,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
         self.monitor_loop_trigger = False
 
     async def resume(self):
+        print("[FullyAsyncRollouter][Public][Resume]")
         async with self.lock:
             self.paused = False
             self.condition.notify_all()

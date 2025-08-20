@@ -674,7 +674,7 @@ class AgentLoopManager:
         """Sleep all rollout server instances."""
         ray.get([server.sleep.remote() for server in self.async_llm_servers])
 
-    def cancel(self):
-        """Cancel all rollout tasks."""
-        ray.get([server.cancel.remote() for server in self.async_llm_servers])
-
+    async def cancel_async(self):
+        """Cancel all rollout tasks asynchronously."""
+        futures = [server.cancel.remote() for server in self.async_llm_servers]
+        await asyncio.gather(*[asyncio.wrap_future(future.future()) for future in futures], return_exceptions=True)
