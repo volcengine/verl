@@ -91,17 +91,20 @@ class ToolAgentLoop(AgentLoopBase):
                     **self.apply_chat_template_kwargs,
                 ),
             )
-        response_mask = []
+        response_mask, response_logprobs = [], []
         tools_kwargs = kwargs.get("tools_kwargs", {})
 
         user_turns, assistant_turns = 0, 0
         while True:
             with simple_timer("generate_sequences", metrics):
-                response_ids = await self.server_manager.generate(
+                output = await self.server_manager.generate(
                     request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params, image_data=image_data
                 )
+            response_ids = output.token_ids
             prompt_ids += response_ids
             response_mask += [1] * len(response_ids)
+            if output.log_probs:
+                response_logprobs += output.log_probs
             assistant_turns += 1
 
             # reach max response length
@@ -202,6 +205,8 @@ class ToolAgentLoop(AgentLoopBase):
 
             prompt_ids += tool_response_ids
             response_mask += [0] * len(tool_response_ids)
+            if response_logprobs:
+                response_logprobs += [0.0] * len(tool_response_ids)
             user_turns += 1
 
         response_ids = prompt_ids[-len(response_mask) :]
@@ -214,6 +219,7 @@ class ToolAgentLoop(AgentLoopBase):
             response_ids=response_ids[: self.response_length],
             response_mask=response_mask[: self.response_length],
             multi_modal_data=multi_modal_data,
+            response_logprobs=response_logprobs[: self.response_length] if response_logprobs else None,
             num_turns=user_turns + assistant_turns + 1,
             metrics=metrics,
         )
