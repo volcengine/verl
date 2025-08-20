@@ -34,6 +34,7 @@ from verl.utils.megatron_utils import (
     offload_megatron_model_to_cpu,
     per_tensor_generator,
 )
+from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.workers.rollout.sglang_rollout.utils import get_named_tensor_buckets
 
@@ -163,6 +164,8 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     async def wake_up(self):
+        aggressive_empty_cache(force_sync=True)
+
         if self.offload_param:
             load_megatron_model_to_gpu(self.actor_module, load_grad=False)
         if self.bridge is not None:
@@ -178,7 +181,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         await self.update_weights(per_tensor_param)
         if self.offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:
             self.torch_random_states = get_torch_device().get_rng_state()
@@ -194,7 +197,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         for model in self.actor_module:
             model.train()
         # add empty cache after each compute
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
 
         # restore random states
         if self.device_mesh is not None:
