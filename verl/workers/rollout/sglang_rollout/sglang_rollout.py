@@ -1158,7 +1158,7 @@ class SGLangRollout(BaseRollout):
         prompt_ids, response_ids = [], []
         prompt_attention_mask, response_attention_mask = [], []
         prompt_position_ids, response_position_ids = [], []
-        prompt_loss_mask, response_loss_mask = [], []
+        response_loss_mask = []
         messages = []
         reward_scores = []
         multi_modal_inputs = []
@@ -1200,7 +1200,6 @@ class SGLangRollout(BaseRollout):
             response_attention_mask.append(req.response_attention_mask.to(tgt_device).squeeze(0))
             prompt_position_ids.append(req.prompt_position_ids.to(tgt_device).squeeze(0))
             response_position_ids.append(req.response_position_ids.to(tgt_device).squeeze(0))
-            prompt_loss_mask.append(req.prompt_loss_mask.to(tgt_device).squeeze(0))
             response_loss_mask.append(req.response_loss_mask.to(tgt_device).squeeze(0))
             messages.append({"messages": req.messages})
             reward_scores.append(req.reward_scores)
@@ -1268,9 +1267,6 @@ class SGLangRollout(BaseRollout):
         if response_position_ids.shape[-1] < self.config.response_length:
             response_position_ids = pad_sequence_to_length(response_position_ids, self.config.response_length, 0)
 
-        prompt_loss_mask = pad_sequence(prompt_loss_mask, batch_first=True, padding_value=0, padding_side="left")
-        if prompt_loss_mask.shape[1] < self.config.prompt_length:
-            prompt_loss_mask = pad_sequence_to_length(prompt_loss_mask, self.config.prompt_length, 0, left_pad=True)
         response_loss_mask = pad_sequence(response_loss_mask, batch_first=True, padding_value=0)
         if response_loss_mask.shape[1] < self.config.response_length:
             response_loss_mask = pad_sequence_to_length(response_loss_mask, self.config.response_length, 0)
@@ -1337,78 +1333,60 @@ class SGLangRollout(BaseRollout):
         # 3. keep the original request structure, but the content is empty
         # create padding response_ids (all pad_token_id)
         padding_response_length = self.config.response_length
+        device = original_req.input_ids.device if original_req.input_ids is not None else "cpu"
         padding_response_ids = torch.full(
             (1, padding_response_length),
             self.pad_token_id,
             dtype=torch.long,
-            device=original_req.input_ids.device if original_req.input_ids is not None else "cpu",
+            device=device,
         )
 
         # create padding attention_mask (all 0)
         padding_response_attention_mask = torch.zeros(
             (1, padding_response_length),
             dtype=torch.long,
-            device=original_req.attention_mask.device if original_req.attention_mask is not None else "cpu",
+            device=device,
         )
 
         # create padding position_ids
         if original_req.position_ids is not None:
-            prompt_length = original_req.prompt_ids.shape[-1] if original_req.prompt_ids is not None else 0
-            padding_response_position_ids = torch.arange(
-                prompt_length, prompt_length + padding_response_length, dtype=torch.long
-            ).unsqueeze(0)
+            first_dim = 1
+            # if position_ids is a 2D tensor (e.g. qwen2vl)
             if original_req.position_ids.dim() == 2:
-                # if it is a 2D tensor (e.g. qwen2vl)
-                padding_response_position_ids = padding_response_position_ids.repeat(
-                    original_req.position_ids.shape[0], 1
-                )
+                first_dim = original_req.position_ids.shape[0]
+            padding_response_position_ids = torch.zeros(
+                (first_dim, padding_response_length),
+                dtype=torch.long,
+                device=device,
+            )
         else:
             padding_response_position_ids = None
+
+        # create padding prompt_attention_mask (all 0)
+        padding_prompt_attention_mask = torch.zeros(
+            (1, original_req.prompt_attention_mask.shape[-1]),
+            dtype=torch.long,
+            device=device,
+        )
 
         # create padding loss_mask (all 0, ensuring it is ignored)
         padding_response_loss_mask = torch.zeros(
             (1, padding_response_length),
             dtype=torch.long,
-            device=original_req.loss_mask.device if original_req.loss_mask is not None else "cpu",
+            device=device,
         )
 
-        padding_req = AsyncRolloutRequest(
-            batch_data_id=original_req.batch_data_id,
-            rollout_offset=original_req.rollout_offset,
-            request_id=original_req.request_id,
-            state=AsyncRolloutRequestStateEnum.COMPLETED,
-            messages=original_req.messages,
-            multi_modal_keys=original_req.multi_modal_keys,
-            multi_modal_data=original_req.multi_modal_data,
-            multi_modal_inputs=original_req.multi_modal_inputs,
-            tool_schemas=original_req.tool_schemas,
-            tools_kwargs=original_req.tools_kwargs,
-            interaction_kwargs=original_req.interaction_kwargs,
-            input_ids=original_req.input_ids,
-            prompt_ids=original_req.prompt_ids,
-            response_ids=padding_response_ids,
-            attention_mask=original_req.attention_mask,
-            prompt_attention_mask=original_req.prompt_attention_mask,
-            response_attention_mask=padding_response_attention_mask,
-            position_ids=original_req.position_ids,
-            prompt_position_ids=original_req.prompt_position_ids,
-            response_position_ids=padding_response_position_ids,
-            loss_mask=original_req.loss_mask,
-            prompt_loss_mask=original_req.prompt_loss_mask,
-            response_loss_mask=padding_response_loss_mask,
-            reward_scores={},
-            max_prompt_len=original_req.max_prompt_len,
-            max_response_len=original_req.max_response_len,
-            metrics={},
-            output_token_ids=None,
-            rollout_log_probs=None,
-            use_inference_chat_template=original_req.use_inference_chat_template,
-            tokenization_sanity_check_mode=original_req.tokenization_sanity_check_mode,
-            generation_prompt_ids=original_req.generation_prompt_ids,
-            base_conv_wo_gen_prompt_end_pos=original_req.base_conv_wo_gen_prompt_end_pos,
-            base_conv_with_gen_prompt_end_pos=original_req.base_conv_with_gen_prompt_end_pos,
-            processing_class=self.processing_class,
-        )
+        padding_req = original_req.model_copy(deep=True)
+        padding_req.state = AsyncRolloutRequestStateEnum.COMPLETED
+        padding_req.response_ids = padding_response_ids
+        padding_req.prompt_attention_mask = padding_prompt_attention_mask
+        padding_req.response_attention_mask = padding_response_attention_mask
+        padding_req.response_position_ids = padding_response_position_ids
+        padding_req.response_loss_mask = padding_response_loss_mask
+        padding_req.reward_scores = {}
+        padding_req.metrics = {}
+        padding_req.output_token_ids = None
+        padding_req.rollout_log_probs = None
         return padding_req
 
     def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: int = 1) -> list[AsyncRolloutRequest]:
