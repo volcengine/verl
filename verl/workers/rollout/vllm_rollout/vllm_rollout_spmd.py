@@ -92,7 +92,7 @@ class vLLMRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
-
+        self.model_hf_config = model_hf_config
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), (
             "tensor parallel size should be less than or equal to the world size"
@@ -431,7 +431,6 @@ class vLLMAsyncRollout:
 
         # Engine is deferred to be initialized in init_worker
         self.config = config
-        self.model_hf_config = model_hf_config
         self.inference_engine: WorkerWrapperBase = None
         self.sharding_manager = None
         self.is_sleep = False
