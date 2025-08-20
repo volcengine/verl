@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES=4
 NOW=$(date +%Y%m%d)
 export WANDB_DIR=gsm8k-grpo-lora-qwen2.5-0.5b-${NOW}
 export WANDB_PROJECT=${WANDB_DIR}
@@ -7,7 +7,7 @@ export WANDB_EXP=0.5b-${NOW}
 MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
 
 set -x
-nproc_per_gpu=116
+nproc_per_gpu=1
 nnodes=1
 ngpu_per_node=1
 total_procs=$(( nproc_per_gpu * nnodes * ngpu_per_node ))
@@ -15,8 +15,9 @@ mini_batch_size=$(( total_procs ))
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=data/gsm8k/train.parquet \
-    data.val_files=data/gsm8k/test.parquet \
+    trainer.val_before_train=False \
+    data.train_files=$HOME/data/gsm8k/train.parquet \
+    data.val_files=$HOME/data/gsm8k/test.parquet \
     data.train_batch_size=${total_procs} \
     data.val_batch_size=${total_procs} \
     data.max_prompt_length=512 \
@@ -25,7 +26,6 @@ python3 -m verl.trainer.main_ppo \
     data.truncation='error' \
     data.shuffle=False \
     actor_rollout_ref.model.path=$MODEL_PATH  \
-    actor_rollout_ref.model.use_shm=True  \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.lora_rank=32 \
     actor_rollout_ref.model.lora_alpha=32 \
@@ -33,7 +33,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.optim.lr=3e-5 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=${mini_batch_size} \
-    actor_rollout_ref.actor.ppo_micro_batch_size=${mini_batch_size} \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${mini_batch_size} \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
@@ -45,7 +45,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.1 \
-    actor_rollout_ref.rollout.n=5 \
+    actor_rollout_ref.rollout.n=1 \
     actor_rollout_ref.rollout.max_num_seqs=512 \
     actor_rollout_ref.rollout.max_model_len=1536 \
     actor_rollout_ref.rollout.max_num_batched_tokens=1536 \

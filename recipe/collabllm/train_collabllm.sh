@@ -1,7 +1,7 @@
 set -x
 
 PROJECT_DIR="$(pwd)"
-CUDA_VISIBLE_DEVICES=4 python3 -m verl.trainer.main_ppo \
+CUDA_VISIBLE_DEVICES=1 python3 -m verl.trainer.main_ppo \
     --config-dir recipe/collabllm/config \
     --config-name collabllm_trainer \
     trainer.val_before_train=False \

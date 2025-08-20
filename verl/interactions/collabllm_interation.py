@@ -142,20 +142,23 @@ class CollabLLMInteraction(BaseInteraction):
         response = ""
         for _ in range(self.num_retries):
             if use_litellm:
-                full_response = litellm.completion(
-                    model=self.user_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    **self.user_model_kwargs,
+                full_response = (
+                    await litellm.acompletion(
+                        model=self.user_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        **self.user_model_kwargs,
+                    )
                 ).choices[0].message.content
             else:
-                # Use openai directly
-                client = openai.OpenAI()  # Assumes API key is set in environment
-                full_response = client.chat.completions.create(
-                    model=self.user_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    **self.user_model_kwargs,
+                client = openai.AsyncOpenAI()  # Assumes API key is set in environment
+                full_response = (
+                    await client.chat.completions.create(
+                        model=self.user_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        **self.user_model_kwargs,
+                    )
                 ).choices[0].message.content
-
+ 
             try:
                 if isinstance(full_response, str):
                     full_response = extract_json(full_response)

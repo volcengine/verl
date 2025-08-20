@@ -1,23 +1,26 @@
 set -x
 
+export CUDA_VISIBLE_DEVICES=2,3
+export PYTHONPATH=/dfs/project/kgrlm/github/verl:$PYTHONPATH
+
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
+    trainer.val_before_train=False \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
-    data.train_batch_size=1024 \
+    data.train_batch_size=16 \
     data.max_prompt_length=512 \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.shuffle=False \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-3B-Instruct \
-    actor_rollout_ref.model.use_shm=True \
     actor_rollout_ref.model.lora_rank=64 \
     actor_rollout_ref.model.lora_alpha=32 \
     actor_rollout_ref.actor.optim.lr=3e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
-    actor_rollout_ref.actor.ppo_mini_batch_size=256 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=16 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=40 \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
@@ -40,8 +43,13 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_grpo_example_gsm8k' \
     trainer.experiment_name='qwen2.5_3b_grpo_lora' \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
     trainer.test_freq=5 \
     trainer.total_epochs=15 $@
+
+    # actor_rollout_ref.actor.ppo_mini_batch_size=256 \
+    # data.train_batch_size=1024 \
+    # trainer.n_gpus_per_node=8 \
+    # actor_rollout_ref.model.use_shm=True \
