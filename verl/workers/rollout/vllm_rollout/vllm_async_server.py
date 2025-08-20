@@ -374,7 +374,6 @@ class AsyncvLLMServer(AsyncServerBase):
         async with self.lock:
             for request_id in self.cancel_event:
                 self.cancel_event[request_id].set()
-                print(f"[ExternalRayDistributedExecutor] cancel request_id {request_id}")
 
     async def wake_up(self):
         if self.config.rollout.free_cache_engine:

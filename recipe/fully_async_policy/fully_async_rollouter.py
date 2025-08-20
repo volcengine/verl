@@ -296,23 +296,22 @@ class FullyAsyncRollouter(RayPPOTrainer):
         """流式处理工作协程 - 逐个样本立即提交处理，不等待批次"""
 
         while True:
+            simple_from_cancel_queue = False
             if not self.cancel_queue.empty():
-                print(f"self.cancel_queue {self.cancel_queue.qsize()}")
                 rollout_sample = await self.cancel_queue.get()
+                simple_from_cancel_queue = True
             else:
                 rollout_sample = await self.pending_queue.get()
-            self.staleness_samples += 1
+                self.staleness_samples += 1
 
             async with self.lock:
                 if await self._should_pause_generation():
-                    print("[FullyAsyncRollouter][Processor] 等待已提交的任务结束")
                     if self.active_tasks:
                         await asyncio.gather(*self.active_tasks, return_exceptions=True)
                         self.active_tasks.clear()
                     self.paused = True
                 while self.paused:
                     await self.condition.wait()
-                    print("等待已提交的任务结束 condition")
 
             # 获取待处理的部分 RolloutSample
             async with self.lock:
@@ -340,7 +339,6 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 # pause结束后，获取到锁，还需要判断是否是暂停阶段，否则继续等待
                 while self.paused:
                     await self.condition.wait()
-                    print("立即提交单个样本处理 condition")
                 task = asyncio.create_task(
                     self._process_single_sample_streaming(rollout_sample),
                     name=rollout_sample.sample_id,
@@ -348,7 +346,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
                 self.active_tasks.add(task)
 
             # 标记队列任务完成
-            self.pending_queue.task_done()
+            if simple_from_cancel_queue:
+                self.cancel_queue.task_done()
+            else:
+                self.pending_queue.task_done()
 
     async def _process_single_sample_streaming(self, rollout_sample: RolloutSample):
         """流式处理单个样本"""
@@ -362,7 +363,10 @@ class FullyAsyncRollouter(RayPPOTrainer):
         rollout_sample.processing_time += processing_time
         rollout_sample.param_version = self.current_param_version
 
-        print(f"[FullyAsyncRollouter] rollout {rollout_sample.sample_id} cost {processing_time:.2f}s")
+        # print(
+        #     f"[FullyAsyncRollouter] rollout {rollout_sample.sample_id} "
+        #     f"cost {processing_time:.2f}s  "
+        #     f"response_len: {len(rollout_sample.agent_loop_output.response_ids)}")
 
         if agent_loop_output.is_cancel:
             # 放入 cancel 队列中，等待恢复生成
@@ -579,7 +583,7 @@ class FullyAsyncRollouter(RayPPOTrainer):
 
     async def pause(self):
         """pause rollout
-        TODO integrated Partial Rollout
+        TODO async_rollout_manager clear kv cache
         """
         print("[FullyAsyncRollouter][Public][Pause]")
         async with self.lock:
