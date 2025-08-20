@@ -140,7 +140,7 @@ def get_rope_index(
 ### legacy
 # copied from qwen2vl
 def glm4_vl_attn_forward(
-    self: "Glm4vTextAttention",
+    self: Glm4vTextAttention,
     hidden_states: torch.Tensor,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
