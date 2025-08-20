@@ -186,10 +186,13 @@ class MegatronPPOActor(BasePPOActor):
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
         micro_batch_size = data.meta_info.get("micro_batch_size", None)
         max_token_len = data.meta_info.get("max_token_len", None)
-        assert micro_batch_size is not None, "micro batch size is needed for forward compute"
         if use_dynamic_bsz:
             assert max_token_len is not None, "max_token_len must be set when use_dynamic_bsz is True"
             max_token_len = max_token_len * self.config.megatron.context_parallel_size
+        else:
+            assert micro_batch_size is not None, (
+                "micro batch size is needed for forward compute when use_dynamic_bsz is False"
+            )
 
         def compute_logprobs_fn(output, data, use_dynamic_bsz=False, indices=None):
             response = data["responses"]
