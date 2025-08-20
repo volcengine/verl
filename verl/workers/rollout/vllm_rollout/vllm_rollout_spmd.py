@@ -362,6 +362,12 @@ class vLLMRollout(BaseRollout):
                 ).to(idx.device)
                 rollout_log_probs = rollout_log_probs.to(torch.float32)
 
+            # fix the image token id in response
+            image_token_id = getattr(self.model_hf_config, "image_token_id", None)
+            if image_token_id is not None:
+                # print('fixing image_token_id')
+                response[response == image_token_id] = self.pad_token_id
+
             seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
@@ -425,6 +431,7 @@ class vLLMAsyncRollout:
 
         # Engine is deferred to be initialized in init_worker
         self.config = config
+        self.model_hf_config = model_hf_config
         self.inference_engine: WorkerWrapperBase = None
         self.sharding_manager = None
         self.is_sleep = False
