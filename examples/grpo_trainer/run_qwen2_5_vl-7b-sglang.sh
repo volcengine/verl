@@ -41,6 +41,10 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_grpo_example_geo3k' \
     trainer.experiment_name='qwen2_5_vl_7b_function_rm' \
+    actor_rollout_ref.ref.strategy=fsdp2 \
+    actor_rollout_ref.actor.strategy=fsdp2 \
+    critic.strategy=fsdp2 \
+    reward_model.strategy=fsdp2 \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \

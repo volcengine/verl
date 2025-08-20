@@ -55,6 +55,10 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=-1 \
     trainer.test_freq=20 \
     trainer.val_before_train=True \
+    actor_rollout_ref.ref.strategy=fsdp2 \
+    actor_rollout_ref.actor.strategy=fsdp2 \
+    critic.strategy=fsdp2 \
+    reward_model.strategy=fsdp2 \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/gsm8k_tool_config.yaml" \

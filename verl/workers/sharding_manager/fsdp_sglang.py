@@ -28,6 +28,7 @@ from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.utils.device import get_device_id, get_torch_device, set_expandable_segments
 from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
+from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.model import convert_weight_keys
 from verl.utils.profiler import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.torch_functional import check_device_is_available
@@ -124,7 +125,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
     async def wake_up(self):
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
 
         log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
         if self.offload_param:
@@ -146,6 +147,8 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
         # sglang need to set _set_allocator_settings to False
         logger.debug("fsdp sglang sharding_manager _set_allocator_settings to False")
+        # Note(chenyang): SGLang is using torch memory pool to manage memory
+        # which is incompatible with expandable segments
         set_expandable_segments(False)
 
         if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
@@ -161,7 +164,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
 
         del params
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
         log_gpu_memory_usage("After del state_dict and empty_cache in sharding manager", logger=logger)
 
         if (
@@ -187,7 +190,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         self.module.train()
 
         # add empty cache after each compute
-        get_torch_device().empty_cache()
+        aggressive_empty_cache(force_sync=True)
 
         # always set _set_allocator_settings to True when using sglang
         # it is required by fsdp2 to avoid oom
